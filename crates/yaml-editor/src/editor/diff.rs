@@ -490,4 +490,35 @@ mod trailing_blank_lines {
             ]
         );
     }
+
+    #[test]
+    fn baseline_trailing_blank_line_stays_unchanged_as_new_lines_are_edited() {
+        let baseline = "a: 1\nb: 2\n";
+        let after_adding_empty_line = "a: 1\nb: 2\n\n";
+        let after_typing_in_the_middle = "a: 1\nb: 2\n\nmiddle\n";
+        let after_typing_at_the_end = "a: 1\nb: 2\n\nmiddle\nlast\n";
+
+        for current in [
+            after_adding_empty_line,
+            after_typing_in_the_middle,
+            after_typing_at_the_end,
+        ] {
+            let diff = diff_lines(baseline, current);
+            assert_eq!(
+                &diff.current[..3],
+                &[
+                    DiffKind::Unchanged,
+                    DiffKind::Unchanged,
+                    DiffKind::Unchanged,
+                ],
+                "baseline lines must keep their identity for {current:?}"
+            );
+            assert!(
+                diff.current[3..]
+                    .iter()
+                    .all(|kind| *kind == DiffKind::Added)
+            );
+            assert!(diff.modified_before.iter().all(Option::is_none));
+        }
+    }
 }

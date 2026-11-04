@@ -453,6 +453,22 @@ test.describe('diff stability', () => {
     expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
     await e.screenshot('diff-blank-lines');
   });
+
+  test('the baseline final empty line stays anchored when typing in added lines', async ({ page }) => {
+    const e = editor(page);
+    await e.input.click();
+    await page.keyboard.press('Control+End');
+    for (let index = 0; index < 3; index += 1) await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.type('middle: true');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.type('end: true');
+
+    const addedLines = await page.locator('.yaml-editor__line-number-added').allTextContents();
+    expect(addedLines).toEqual(['6', '7', '8']);
+    expect(await page.locator('.yaml-editor__line-number-modified').count()).toBe(0);
+    await e.screenshot('baseline-empty-line-anchored');
+  });
 });
 
 test.describe('editor viewport and scrolling', () => {

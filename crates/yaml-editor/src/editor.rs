@@ -416,6 +416,17 @@ pub fn YamlEditor(
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
             node_ref=root_ref
+            on:keydown=move |event: web_sys::KeyboardEvent| {
+                if event.key() == "Escape" {
+                    // Escape is the single dismissal action for transient editor UI,
+                    // regardless of which editor child currently has focus.
+                    event.prevent_default();
+                    suggestions_requested.set(false);
+                    explicit_request.set(false);
+                    selected_diff_peek.set(None);
+                    hide_hover();
+                }
+            }
         >
             {use_preset_style.then(|| view! { <style>{PRESET_CSS}</style> })}
             <section class="yaml-editor__frame" aria-label="YAML editor">

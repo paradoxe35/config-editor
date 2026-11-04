@@ -80,6 +80,20 @@ test.describe('focus', () => {
     await expect.poll(() => e.isOpen(), 'list closes on blur').toBe(false);
   });
 
+  test('Escape dismisses an open diff preview', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(
+      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+    );
+    const marker = page.locator('.yaml-editor__diff-marker-modified').first();
+    await expect(marker).toHaveCount(1);
+    await marker.click();
+    const preview = page.locator('.yaml-editor__diff-peek');
+    await expect(preview).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(preview).toHaveCount(0);
+  });
+
   test('typing again after Escape reopens suggestions', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('lis');
