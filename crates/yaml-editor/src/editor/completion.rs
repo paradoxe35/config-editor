@@ -772,7 +772,17 @@ fn existing_mapping_keys(
 ) -> Option<HashSet<String>> {
     let parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
-    let document: Value = noyalib::from_str_with_config(source, &parser_config).ok()?;
+    // A partially typed mapping key makes the whole YAML document temporarily
+    // unparsable. Remove only the active line for the existing-key lookup so
+    // keys already present elsewhere in this mapping remain filtered.
+    let line_start = source[..cursor_byte]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let line_end = source[line_start..]
+        .find('\n')
+        .map_or(source.len(), |newline| line_start + newline);
+    let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let document: Value = noyalib::from_str_with_config(&sanitized, &parser_config).ok()?;
     let mapping = path
         .iter()
         .try_fold(&document, |value, segment| match segment {
