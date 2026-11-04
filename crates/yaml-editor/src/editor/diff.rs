@@ -1,4 +1,5 @@
 use super::metrics::read_editor_metrics;
+use std::borrow::Cow;
 use wasm_bindgen::JsCast;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,7 +176,19 @@ fn backtrack_myers(
     edits
 }
 
+/// CRLF and LF documents must diff as the same lines; the textarea normalizes its
+/// value on the first edit, so comparing raw text would mark every line modified.
+fn normalize_newlines(text: &str) -> Cow<'_, str> {
+    if text.contains('\r') {
+        Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
+    let baseline = normalize_newlines(baseline);
+    let current = normalize_newlines(current);
     let baseline: Vec<_> = baseline.split('\n').collect();
     let current: Vec<_> = current.split('\n').collect();
     let mut changes = vec![DiffKind::Unchanged; current.len()];
@@ -361,5 +374,94 @@ mod tests {
 
         assert!(diff.deleted_after);
         assert_eq!(diff.deleted_lines_after, vec!["removed one", "removed two"]);
+    }
+}
+
+#[cfg(test)]
+mod blank_line_properties {
+    use super::*;
+
+    fn assert_only_added(baseline: &str, current: &str, expected_added: usize) {
+        let diff = diff_lines(baseline, current);
+        let added = diff
+            .current
+            .iter()
+            .filter(|kind| **kind == DiffKind::Added)
+            .count();
+        let modified = diff
+            .current
+            .iter()
+            .filter(|kind| **kind == DiffKind::Modified)
+            .count();
+        assert_eq!(
+            added, expected_added,
+            "added for {baseline:?} -> {current:?}: {:?}",
+            diff.current
+        );
+        assert_eq!(
+            modified, 0,
+            "modified for {baseline:?} -> {current:?}: {:?} {:?}",
+            diff.current, diff.modified_before
+        );
+    }
+
+    #[test]
+    fn inserting_blank_lines_anywhere_is_always_an_insertion() {
+        let bases = [
+            "a: 1\nb: 2\nc: 3\n",
+            "a: 1\nb: 2\nc: 3",
+            "a: 1\n\nb: 2\n",
+            "\n\na: 1\n\nb: 2\n\n",
+        ];
+        for base in bases {
+            let lines: Vec<&str> = base.split('\n').collect();
+            for position in 0..=lines.len() {
+                for blanks in 1..=3 {
+                    let mut candidate: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                    for _ in 0..blanks {
+                        candidate.insert(position.min(candidate.len()), String::new());
+                    }
+                    let current = candidate.join("\n");
+                    assert_only_added(base, &current, blanks);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod crlf {
+    use super::*;
+
+    #[test]
+    fn crlf_and_lf_documents_are_the_same_lines() {
+        let baseline = "a: 1\nb: 2\n";
+        let current = "a: 1\r\nb: 2\r\n\r\n";
+        let diff = diff_lines(baseline, current);
+        assert_eq!(
+            diff.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Unchanged
+            ]
+        );
+        assert!(diff.modified_before.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn mixed_line_endings_do_not_mark_lines_modified() {
+        let baseline = "a: 1\r\nb: 2\n";
+        let current = "a: 1\nb: 2\r\n";
+        let diff = diff_lines(baseline, current);
+        assert_eq!(
+            diff.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Unchanged
+            ]
+        );
     }
 }

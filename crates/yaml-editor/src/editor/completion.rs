@@ -998,7 +998,7 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
 /// pastes, drag-and-drop, and undo/redo must not pop the list open; the editor
 /// keeps suggestions from accepted completions and explicit `Ctrl+Space`.
 pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &str) -> bool {
-    if current == previous || current.ends_with('\n') {
+    if current == previous || current.matches('\n').count() > previous.matches('\n').count() {
         return false;
     }
     let grew = current.len() > previous.len();

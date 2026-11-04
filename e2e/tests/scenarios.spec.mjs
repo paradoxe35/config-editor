@@ -214,6 +214,79 @@ test.describe('required expansion', () => {
   });
 });
 
+test.describe('typing triggers', () => {
+  test('typing suggests keys in a document that ends with a newline', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('l');
+    await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['listen', 'limits']));
+  });
+
+  test('typing a key on a blank line suggests the root keys', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n\n');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('cl');
+    await expect.poll(() => e.keys()).toContain('clients');
+  });
+});
+
+test.describe('clicking lines', () => {
+  test('every line of a long document with trailing blank lines is clickable', async ({ page }) => {
+    const e = editor(page);
+    let doc = '';
+    for (let index = 0; index < 25; index += 1) doc += `key-${index}: ${index}\n`;
+    doc += '\n'.repeat(12);
+    await e.paste(doc);
+    const lines = doc.split('\n');
+    const box = await e.input.boundingBox();
+    const metrics = await e.input.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { left: parseFloat(style.paddingLeft), top: parseFloat(style.paddingTop), lineHeight: parseFloat(style.lineHeight) };
+    });
+    const failures = [];
+    for (let line = 0; line < lines.length; line += 1) {
+      await e.input.evaluate((element, target) => {
+        const style = getComputedStyle(element);
+        element.scrollTop = Math.max(0, target * parseFloat(style.lineHeight) - element.clientHeight / 2);
+        element.dispatchEvent(new Event('scroll'));
+      }, line);
+      const scrollTop = await e.input.evaluate((element) => element.scrollTop);
+      const y = box.y + metrics.top + (line + 0.5) * metrics.lineHeight - scrollTop;
+      if (y < box.y + 2 || y > box.y + box.height - 2) continue;
+      await page.mouse.click(box.x + metrics.left + 12, y);
+      const got = await e.input.evaluate((element) => {
+        const position = element.selectionStart;
+        return element.value.slice(0, position).split('\n').length - 1;
+      });
+      if (got !== line) failures.push({ line, got });
+    }
+    expect(failures).toEqual([]);
+  });
+
+  test('clicking a diagnostic squiggle moves the caret instead of being swallowed', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\nwebsocket:\n  listen: 0\n');
+    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    await expect(marker).toHaveCount(1);
+    await e.input.evaluate((element) => element.setSelectionRange(0, 0));
+    await marker.click();
+    const state = await e.input.evaluate((element) => {
+      const position = element.selectionStart;
+      const before = element.value.slice(0, position);
+      return { line: before.split('\n').length, column: position - (before.lastIndexOf('\n') + 1) + 1 };
+    });
+    expect(state).toEqual({ line: 3, column: 11 });
+  });
+});
+
 test.describe('diagnostics lines', () => {
   test('a nested key error lands on its own line, not the first key with the same name', async ({ page }) => {
     const e = editor(page);
@@ -347,6 +420,23 @@ test.describe('diagnostics', () => {
     const e = editor(page);
     await e.paste('web:\n  http: [80\n');
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
+  });
+});
+
+test.describe('diff stability', () => {
+  test('blank lines added at the end are only added, before and after typing', async ({ page }) => {
+    const e = editor(page);
+    await e.input.click();
+    await page.keyboard.press('Control+End');
+    for (let index = 0; index < 3; index += 1) {
+      await page.keyboard.press('Enter');
+    }
+    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
+    expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
+    await page.keyboard.type('update: true');
+    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
+    expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
+    await e.screenshot('diff-blank-lines');
   });
 });
 

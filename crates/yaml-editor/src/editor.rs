@@ -28,6 +28,16 @@ use metrics::read_editor_metrics;
 
 const HOVER_DELAY_MS: i32 = 350;
 
+/// Files edited on Windows commonly use CRLF. The textarea works in LF, so normalize
+/// at the boundary to keep diagnostics, completions, and diffs line-based.
+fn normalize_newlines(text: String) -> String {
+    if text.contains('\r') {
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        text
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct DiffPeek {
     line: usize,
@@ -203,7 +213,7 @@ pub fn YamlEditor(
     #[prop(default = true)] enable_auto_closing: bool,
     #[prop(default = true)] show_diff: bool,
 ) -> impl IntoView {
-    let initial_value = initial_value.unwrap_or_default();
+    let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema_json {
         Some(schema_json) => match build_schema(&schema_json) {
             Ok(schema) => (Some(Arc::new(schema)), None),
@@ -228,7 +238,7 @@ pub fn YamlEditor(
     });
     if let Some(value) = value {
         Effect::new(move |_| {
-            let external_value = value.get();
+            let external_value = normalize_newlines(value.get());
             if source.get_untracked() != external_value {
                 source.set(external_value);
             }
@@ -606,6 +616,31 @@ pub fn YamlEditor(
                                                     column.saturating_sub(1)
                                                 )
                                                 on:mousedown=|event| event.prevent_default()
+                                                on:click=move |_| {
+                                                    if let Some(editor) = editor_ref.get() {
+                                                        let text = source.get_untracked();
+                                                        let line_start = text
+                                                            .split('\n')
+                                                            .take(line.saturating_sub(1))
+                                                            .map(|text_line| text_line.encode_utf16().count() + 1)
+                                                            .sum::<usize>();
+                                                        let column_offset = text
+                                                            .split('\n')
+                                                            .nth(line.saturating_sub(1))
+                                                            .unwrap_or("")
+                                                            .chars()
+                                                            .take(column.saturating_sub(1))
+                                                            .map(char::len_utf16)
+                                                            .sum::<usize>();
+                                                        let offset = line_start + column_offset;
+                                                        let _ = editor.focus();
+                                                        cursor.set(offset);
+                                                        current_line.set(line);
+                                                        suggestions_requested.set(false);
+                                                        hide_hover();
+                                                        let _ = editor.set_selection_range(offset as u32, offset as u32);
+                                                    }
+                                                }
                                             >
                                                 <span>{marked_text}</span>
                                             </button>

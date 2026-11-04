@@ -1123,3 +1123,15 @@ fn value_for_an_expanded_required_key_stays_on_its_line() {
             .count()
     );
 }
+
+#[test]
+fn auto_trigger_still_fires_when_the_document_ends_with_a_newline() {
+    assert!(should_auto_trigger("insertText", "a: 1\n", "a: 1\nl"));
+    assert!(should_auto_trigger(
+        "insertText",
+        "a: 1\nb: 2\n",
+        "la: 1\nb: 2\n"
+    ));
+    assert!(!should_auto_trigger("insertLineBreak", "a: 1", "a: 1\n"));
+    assert!(!should_auto_trigger("insertText", "a: 1", "a: 1\n"));
+}
