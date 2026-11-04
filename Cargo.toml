@@ -1,0 +1,12 @@
+[package]
+name = "leptos-yaml-editor"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["crates/yaml-editor"]
+resolver = "3"
+
+[dependencies]
+leptos = { version = "0.8.23", features = ["csr"] }
+yaml-editor = { path = "crates/yaml-editor" }

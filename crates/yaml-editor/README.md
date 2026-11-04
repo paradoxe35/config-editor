@@ -1,0 +1,214 @@
+# yaml-editor
+
+A YAML editor component for Leptos applications. It renders only the editor;
+the host application owns its page layout, branding, file loading, and saving.
+
+## Usage
+
+```toml
+[dependencies]
+yaml-editor = { path = "crates/yaml-editor" }
+```
+
+```rust
+use leptos::prelude::*;
+use yaml_editor::{EditorTheme, YamlEditor};
+
+let initial_value = "listen: 7835\n";
+
+view! {
+    <YamlEditor
+        initial_value=initial_value
+        class="my-config-editor"
+        theme=EditorTheme::Obsidian
+    />
+}
+```
+
+`theme` can be set to any bundled [`EditorTheme`] variant. It also accepts a
+reactive Leptos signal, which lets an application switch themes without
+recreating the editor.
+
+`schema_json` is optional. Pass it when schema-backed diagnostics and
+completions are needed:
+
+```rust
+<YamlEditor
+    initial_value=initial_value
+    schema_json=include_str!("config.schema.json")
+/>
+```
+
+In uncontrolled mode, use `on_change` to persist edits:
+
+```rust
+on_change=Callback::new(|yaml: String| {
+    // Send the updated value to your application's state or save handler.
+})
+```
+
+`initial_value` is optional and defaults to an empty document. `schema_json` is
+an optional JSON Schema string. When supplied, it enables live schema
+diagnostics and property/value completions. Suggestions open explicitly with
+`Ctrl+Space` by default; `auto_trigger_completions=true` opts into suggestions
+while typing. YAML and schema validation errors are marked at their source
+location with a hover- and keyboard-focusable inline message; there is no
+separate Problems panel. Syntax errors are diagnosed even without a schema.
+For schema-invalid empty values, the inline marker points to the empty value
+slot after the colon instead of underlining the key.
+The editor pairs quotes and brackets, wraps selected text, skips existing
+closing pairs, and removes an empty pair on Backspace.
+
+`initial_value` seeds the editor and its diff baseline. It is not a controlled
+value prop. For externally controlled content and live diffs, provide reactive
+`value` and `baseline` signals. The editor sends each edit through `on_change`;
+update `value` in that callback to keep the external source of truth in sync.
+The host can accept changes by updating its baseline signal:
+
+```rust
+let baseline = RwSignal::new(original.to_string());
+let final_value = RwSignal::new(original.to_string());
+
+view! {
+    <YamlEditor
+        initial_value=original
+        value=final_value
+        baseline=baseline
+        on_change=Callback::new(move |value| final_value.set(value))
+    />
+    <button on:click=move |_| baseline.set(final_value.get())>
+        "Apply changes"
+    </button>
+}
+```
+
+Added, modified, and deleted lines are marked against the baseline. Blank-line
+insertions retain following-line alignment, and deletions at the end of the
+document receive a gutter marker after the final line. Updating `baseline`
+after applying changes clears those decorations. Click a modified-line or
+deleted-line gutter marker to open an inline peek with the previous text (and
+the current text for modifications). The peek can be closed with its close
+button or Escape. It opens on the side with more available viewport space and
+limits its height to fit, scrolling its contents when needed. Gutter change
+indicators retain their thin appearance and become slightly more prominent on
+hover or keyboard focus. The root demo shows the same flow.
+
+## Editor options
+
+| Prop                       | Default         | Description                                                                       |
+| -------------------------- | --------------- | --------------------------------------------------------------------------------- |
+| `initial_value`            | empty           | Initial YAML document                                                             |
+| `value`                    | none            | Optional reactive final value; changes synchronize into the editor                |
+| `baseline`                 | `initial_value` | Optional reactive baseline used to show line diffs                                |
+| `schema_json`              | none            | JSON Schema used for validation and completions                                   |
+| `file_name`                | `untitled.yaml` | Name shown when the built-in toolbar is enabled                                   |
+| `class`                    | none            | Extra class on the editor root for host styles                                    |
+| `theme`                    | `VsCodeDark`    | Bundled `EditorTheme` preset; accepts a reactive signal for live switching        |
+| `on_change`                | none            | Callback with the updated document                                                |
+| `styled`                   | `true`          | Include the preset editor stylesheet                                              |
+| `show_toolbar`             | `false`         | Show the built-in file/schema toolbar                                             |
+| `show_footer`              | `false`         | Show the built-in status footer                                                   |
+| `show_diagnostics`         | `true`          | Show inline parse/schema diagnostics and hover messages                           |
+| `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                   |
+| `auto_trigger_completions` | `false`         | Also open suggestions while typing                                                |
+| `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                         |
+| `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs |
+| `show_diff`                | `true`          | Show line changes against `baseline`                                              |
+
+The toolbar and footer are also exported as composable `YamlEditorToolbar` and
+`YamlEditorFooter` components. Both accept arbitrary children and an optional
+`class` and `theme` signal, so the host can place its own file controls, apply
+actions, or status content around the editor and keep them in sync with its
+theme without enabling built-in chrome.
+
+## Themes
+
+The preset includes eleven selectable themes, with seven dark and four light
+options. `VsCodeDark` is the default and preserves the original VS Code-like
+appearance. `Obsidian` follows the near-black background, blue keys, and soft
+green values in the supplied screenshot; `ObsidianLight` is its light-mode
+counterpart. `AtomOneDark` and the GitHub Light/Dark pair add familiar editor
+palettes. `ViraInspired` is an original, muted dark palette informed by Vira's
+publicly described focus on lower visual noise and comfortable long sessions;
+it is not an exact reproduction of Vira's proprietary theme.
+
+| `EditorTheme` variant | Mode | Style |
+| --- | --- | --- |
+| `VsCodeDark` | Dark | VS Code-inspired default |
+| `VsCodeLight` | Light | VS Code-inspired light palette |
+| `Obsidian` | Dark | Near-black screenshot-inspired palette with larger code text |
+| `ObsidianLight` | Light | Soft neutral background with blue keys and green values |
+| `Dracula` | Dark | Purple-accented palette |
+| `Nord` | Dark | Cool blue-gray palette |
+| `AtomOneDark` | Dark | Atom One Dark-inspired palette |
+| `GitHubLight` | Light | Bright neutral palette |
+| `GitHubDark` | Dark | GitHub-inspired dark palette |
+| `SolarizedLight` | Light | Warm Solarized palette |
+| `ViraInspired` | Dark | Original muted palette based on publicly described design goals |
+
+The demo includes a theme selector for all eleven options. Vira describes its
+theme as a dark-first successor to Material Theme with multiple variants and
+an emphasis on reducing visual noise and cognitive load ([Vira Theme](https://vira.build),
+[official assets repository](https://github.com/vira-soft/vira-assets)). This
+project uses those high-level design goals only; it is not affiliated with Vira
+Software and does not bundle Vira theme assets.
+
+The additional palettes are kept in `src/themes.css`; the VS Code and Obsidian palettes and
+shared layout styling remain in `src/preset.css`. Applications can build on
+these styles with `class` and custom CSS, or set `styled=false` and provide
+their own complete theme.
+
+Suggestions are not capped to a fixed number of rows. The preset limits the
+popup height to available viewport space, anchors it near the caret, and scrolls
+the suggestion list internally when needed. Use Up/Down to navigate, Enter or
+Tab to accept, and Escape to dismiss. Each suggestion shows its symbol kind,
+schema type, and description. Schema property suggestions omit keys already
+present in the current mapping; property names that need quoting are inserted
+as valid YAML double-quoted keys. Selecting a property inserts its schema
+`default` when present. For object properties, the editor expands required
+fields recursively, inserts their defaults, and places the caret at the first
+required field without a default.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+/` (Windows/Linux), `Cmd+/` (macOS) | Toggle YAML line comments on the selected lines, or the current line |
+| `Ctrl+Space` | Open schema completions |
+| Up/Down, Enter/Tab, Escape | Navigate, accept, or dismiss an open completion list |
+| `Tab` / `Shift+Tab` (without an open completion list) | Indent selected lines / outdent lines; with no selection, Tab inserts two spaces |
+| `Enter` (without an open completion list) | Insert a newline and continue YAML indentation |
+| `Ctrl+Z` / `Cmd+Z`; `Ctrl+Y` or `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Undo / redo text entry and editor actions |
+| Standard platform text-editing shortcuts | Selection, navigation, and clipboard are handled by the browser textarea |
+
+YAML parsing follows the YAML 1.2-compatible parser and reports syntax errors,
+including repeated mapping keys, as inline diagnostics. The YAML 1.2
+specification requires mapping keys to be unique; a repeated key is not treated
+as an override. See the [YAML 1.2.2 specification](https://yaml.org/spec/1.2.2/),
+including its sections on mappings, node comparison, and document structure.
+
+Use `styled=false` to make the component headless and apply your own CSS. The
+DOM uses `yaml-editor__*` class names; `PRESET_CSS` can be used as a starting
+point or selectively adapted in the host project.
+
+```rust
+view! {
+    <YamlEditor
+        initial_value=initial_value
+        schema_json=schema
+        styled=false
+        class="my-editor"
+    />
+}
+```
+
+```css
+.my-editor .yaml-editor__input {
+  min-height: 32rem;
+  font-size: 0.875rem;
+}
+```
+
+The Cargo features `schema-validation`, `completion`,
+`syntax-highlighting`, `diagnostics`, and `preset-style` can also be disabled
+at build time. They are enabled by default.

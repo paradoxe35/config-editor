@@ -1,0 +1,1116 @@
+use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
+use std::sync::Arc;
+use wasm_bindgen::JsCast;
+
+use crate::highlight::highlight_line;
+
+mod history;
+use history::EditHistory;
+mod diff;
+use diff::{DiffKind, LineDiff, diff_lines, peek_popup_style};
+mod keyboard;
+use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
+mod diagnostics;
+#[cfg(test)]
+use diagnostics::SchemaBundle;
+use diagnostics::{build_schema, validate_yaml};
+mod completion;
+use completion::{
+    apply_completion, completion_popup_style, completions, scroll_completion_into_view,
+};
+mod commands;
+use commands::{indent_yaml_lines, line_at_cursor, newline_with_indent, toggle_yaml_line_comments};
+
+#[derive(Clone, PartialEq)]
+struct DiffPeek {
+    line: usize,
+    title: String,
+    before: Vec<String>,
+    after: Vec<String>,
+}
+
+pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum EditorTheme {
+    #[default]
+    VsCodeDark,
+    VsCodeLight,
+    Obsidian,
+    ObsidianLight,
+    Dracula,
+    Nord,
+    AtomOneDark,
+    GitHubLight,
+    GitHubDark,
+    SolarizedLight,
+    ViraInspired,
+}
+
+impl EditorTheme {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::VsCodeDark => "vscode-dark",
+            Self::VsCodeLight => "vscode-light",
+            Self::Obsidian => "obsidian",
+            Self::ObsidianLight => "obsidian-light",
+            Self::Dracula => "dracula",
+            Self::Nord => "nord",
+            Self::AtomOneDark => "atom-one-dark",
+            Self::GitHubLight => "github-light",
+            Self::GitHubDark => "github-dark",
+            Self::SolarizedLight => "solarized-light",
+            Self::ViraInspired => "vira-inspired",
+        }
+    }
+
+    pub fn css_family(self) -> &'static str {
+        match self {
+            Self::VsCodeDark | Self::VsCodeLight | Self::Obsidian | Self::ObsidianLight => {
+                self.as_str()
+            }
+            Self::Dracula
+            | Self::Nord
+            | Self::AtomOneDark
+            | Self::GitHubDark
+            | Self::ViraInspired => "obsidian",
+            Self::GitHubLight | Self::SolarizedLight => "vscode-light",
+        }
+    }
+}
+
+#[component]
+pub fn YamlEditorToolbar(
+    children: Children,
+    #[prop(optional, into)] class: Option<String>,
+    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
+) -> impl IntoView {
+    view! {
+        <div
+            class=format!("yaml-editor yaml-editor__toolbar {}", class.unwrap_or_default())
+            data-theme=move || theme.get().css_family()
+            data-color-theme=move || theme.get().as_str()
+        >
+            {children()}
+        </div>
+    }
+}
+
+#[component]
+pub fn YamlEditorFooter(
+    children: Children,
+    #[prop(optional, into)] class: Option<String>,
+    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
+) -> impl IntoView {
+    view! {
+        <div
+            class=format!("yaml-editor yaml-editor__status {}", class.unwrap_or_default())
+            data-theme=move || theme.get().css_family()
+            data-color-theme=move || theme.get().as_str()
+        >
+            {children()}
+        </div>
+    }
+}
+
+#[component]
+pub fn YamlEditor(
+    #[prop(optional, into)] initial_value: Option<String>,
+    #[prop(optional, into)] value: Option<Signal<String>>,
+    #[prop(optional, into)] baseline: Option<Signal<String>>,
+    #[prop(optional, into)] schema_json: Option<String>,
+    #[prop(optional, into)] file_name: Option<String>,
+    #[prop(optional, into)] class: Option<String>,
+    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
+    #[prop(optional)] on_change: Option<Callback<String>>,
+    #[prop(default = true)] styled: bool,
+    #[prop(default = false)] show_toolbar: bool,
+    #[prop(default = false)] show_footer: bool,
+    #[prop(default = true)] show_diagnostics: bool,
+    #[prop(default = true)] enable_completions: bool,
+    #[prop(default = false)] auto_trigger_completions: bool,
+    #[prop(default = true)] enable_highlighting: bool,
+    #[prop(default = true)] enable_auto_closing: bool,
+    #[prop(default = true)] show_diff: bool,
+) -> impl IntoView {
+    let initial_value = initial_value.unwrap_or_default();
+    let (schema_bundle, schema_error) = match schema_json {
+        Some(schema_json) => match build_schema(&schema_json) {
+            Ok(schema) => (Some(Arc::new(schema)), None),
+            Err(error) => (None, Some(error)),
+        },
+        None => (None, None),
+    };
+    let enable_completions = enable_completions && cfg!(feature = "completion");
+    let enable_highlighting = enable_highlighting && cfg!(feature = "syntax-highlighting");
+    let source = RwSignal::new(
+        value
+            .as_ref()
+            .map(Signal::get_untracked)
+            .unwrap_or_else(|| initial_value.clone()),
+    );
+    let baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
+    let selected_diff_peek = RwSignal::new(None::<DiffPeek>);
+    Effect::new(move |_| {
+        source.get();
+        baseline.get();
+        selected_diff_peek.set(None);
+    });
+    if let Some(value) = value {
+        Effect::new(move |_| {
+            let external_value = value.get();
+            if source.get_untracked() != external_value {
+                source.set(external_value);
+            }
+        });
+    }
+    let cursor = RwSignal::new(0usize);
+    let current_line = RwSignal::new(1usize);
+    let active_completion = RwSignal::new(0usize);
+    let suggestions_requested = RwSignal::new(false);
+    let history = RwSignal::new(EditHistory::default());
+    let scroll_x = RwSignal::new(0.0);
+    let scroll_y = RwSignal::new(0.0);
+    let popup_layout_revision = RwSignal::new(0usize);
+    let editor_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
+    let root_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+    let completion_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+    let resize_listener = window_event_listener(ev::resize, move |_| {
+        popup_layout_revision.update(|revision| *revision += 1);
+    });
+    let scroll_listener = window_event_listener(ev::scroll, move |_| {
+        popup_layout_revision.update(|revision| *revision += 1);
+    });
+    on_cleanup(move || {
+        resize_listener.remove();
+        scroll_listener.remove();
+    });
+    let on_change_for_input = on_change.clone();
+    let on_change_for_keydown = on_change.clone();
+    let on_change_for_apply = on_change.clone();
+    let on_change_for_completion = on_change;
+    let history_for_apply = history;
+    let schema_for_diagnostics = schema_bundle.clone();
+    let schema_error_for_diagnostics = schema_error.clone();
+    let diagnostics = Memo::new(move |_| {
+        validate_yaml(
+            &source.get(),
+            schema_for_diagnostics.as_deref(),
+            schema_error_for_diagnostics.as_deref(),
+            show_diagnostics && cfg!(feature = "diagnostics"),
+        )
+    });
+    let schema_for_completions = schema_bundle.clone();
+    let suggestions = Memo::new(move |_| {
+        if !suggestions_requested.get() {
+            return Vec::new();
+        }
+        completions(
+            &source.get(),
+            cursor.get(),
+            suggestions_requested.get(),
+            schema_for_completions.as_deref(),
+            enable_completions,
+        )
+    });
+    let apply_selected = move || {
+        let options = suggestions.get();
+        if let Some(completion) = options.get(active_completion.get()) {
+            let (updated, new_cursor) = apply_completion(&source.get_untracked(), completion);
+            let editor = editor_ref.get();
+            let before = source.get_untracked();
+            history_for_apply
+                .update(|history| history.record_action(before, cursor.get_untracked()));
+            if let Some(editor) = editor.as_ref() {
+                editor.set_value(&updated);
+            }
+            source.set(updated);
+            if let Some(on_change) = on_change_for_apply.as_ref() {
+                on_change.run(source.get_untracked());
+            }
+            cursor.set(new_cursor);
+            current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+            active_completion.set(0);
+            suggestions_requested.set(false);
+            if let Some(editor) = editor {
+                editor
+                    .set_selection_range(new_cursor as u32, new_cursor as u32)
+                    .expect("editor selection range should remain valid");
+            }
+        }
+    };
+
+    let file_name = file_name.unwrap_or_else(|| "untitled.yaml".to_string());
+    let root_class = class.unwrap_or_default();
+    let show_diagnostics = show_diagnostics && cfg!(feature = "diagnostics");
+    let use_preset_style = styled && cfg!(feature = "preset-style");
+    let has_schema = schema_bundle.is_some();
+    let diff = Memo::new(move |_| {
+        if show_diff {
+            diff_lines(&baseline.get(), &source.get())
+        } else {
+            LineDiff {
+                current: vec![DiffKind::Unchanged; source.get().split('\n').count()],
+                deleted_before: vec![false; source.get().split('\n').count()],
+                deleted_lines_before: vec![Vec::new(); source.get().split('\n').count()],
+                modified_before: vec![None; source.get().split('\n').count()],
+                deleted_after: false,
+                deleted_lines_after: Vec::new(),
+            }
+        }
+    });
+
+    view! {
+        <div
+            class=format!("yaml-editor {root_class}")
+            data-theme=move || theme.get().css_family()
+            data-color-theme=move || theme.get().as_str()
+            node_ref=root_ref
+        >
+            {use_preset_style.then(|| view! { <style>{PRESET_CSS}</style> })}
+            <section class="yaml-editor__frame" aria-label="YAML editor">
+                {show_toolbar.then(|| view! {
+                    <div class="yaml-editor__toolbar">
+                        <div class="yaml-editor__file">
+                            <span class="yaml-editor__file-icon">"Y"</span>
+                            <span>{file_name.clone()}</span>
+                        </div>
+                        <div class="yaml-editor__toolbar-meta">
+                            {has_schema.then(|| view! {
+                                <span class="yaml-editor__schema-state">
+                                    <span class="yaml-editor__schema-check">"✓"</span>
+                                    "Schema connected"
+                                </span>
+                            })}
+                            <span class="yaml-editor__language">"YAML"</span>
+                        </div>
+                    </div>
+                })}
+
+                    <div class="yaml-editor__surface">
+                        <div
+                            class="yaml-editor__gutter"
+                            style:transform=move || format!("translateY(-{}px)", scroll_y.get())
+                        >
+                            {move || {
+                                let line_count = source.get().split('\n').count();
+                                let current_lines = source.get().split('\n').map(str::to_string).collect::<Vec<_>>();
+                                let errors = diagnostics.get();
+                                let line_diff = diff.get();
+                                (1..=line_count)
+                                    .map(|line| {
+                                        let has_error = errors
+                                            .iter()
+                                            .any(|error| error.line == Some(line));
+                                        let change = line_diff.current
+                                            .get(line - 1)
+                                            .copied()
+                                            .unwrap_or(DiffKind::Unchanged);
+                                        let deleted_before = line_diff
+                                            .deleted_before
+                                            .get(line - 1)
+                                            .copied()
+                                            .unwrap_or(false);
+                                        let deleted_after = line == line_count && line_diff.deleted_after;
+                                        let modified_peek = line_diff.modified_before.get(line - 1)
+                                            .and_then(Option::as_ref)
+                                            .map(|before| DiffPeek {
+                                                line,
+                                                title: "Modified line".to_string(),
+                                                before: vec![before.clone()],
+                                                after: vec![current_lines.get(line - 1).cloned().unwrap_or_default()],
+                                            });
+                                        let deleted_peek = deleted_before.then(|| DiffPeek {
+                                            line,
+                                            title: "Removed lines".to_string(),
+                                            before: line_diff.deleted_lines_before.get(line - 1).cloned().unwrap_or_default(),
+                                            after: Vec::new(),
+                                        });
+                                        let deleted_after_peek = deleted_after.then(|| DiffPeek {
+                                            line,
+                                            title: "Removed lines at end of document".to_string(),
+                                            before: line_diff.deleted_lines_after.clone(),
+                                            after: Vec::new(),
+                                        });
+                                        view! {
+                                            <div
+                                                class:yaml-editor__line-number-active=move || current_line.get() == line
+                                                class:yaml-editor__line-number-error=has_error
+                                                class:yaml-editor__line-number-added=change == DiffKind::Added
+                                                class:yaml-editor__line-number-modified=change == DiffKind::Modified
+                                            >
+                                                <span aria-hidden="true">{line}</span>
+                                                {modified_peek.map(|peek| {
+                                                    let peek_for_click = peek.clone();
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="yaml-editor__diff-change-trigger"
+                                                            aria-label=format!("Show before and after for modified line {line}")
+                                                            title="Show before and after"
+                                                            on:click=move |_| {
+                                                                selected_diff_peek.update(|selected| {
+                                                                    *selected = if selected.as_ref() == Some(&peek_for_click) {
+                                                                        None
+                                                                    } else {
+                                                                        Some(peek_for_click.clone())
+                                                                    };
+                                                                });
+                                                            }
+                                                            on:keydown=move |event: web_sys::KeyboardEvent| {
+                                                                if event.key() == "Escape" {
+                                                                    selected_diff_peek.set(None);
+                                                                }
+                                                            }
+                                                        ></button>
+                                                    }
+                                                })}
+                                                {deleted_peek.map(|peek| {
+                                                    let peek_for_click = peek.clone();
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="yaml-editor__diff-deleted"
+                                                            aria-label=format!("Show removed lines before line {line}")
+                                                            title="Show removed lines"
+                                                            on:click=move |_| {
+                                                                selected_diff_peek.update(|selected| {
+                                                                    *selected = if selected.as_ref() == Some(&peek_for_click) {
+                                                                        None
+                                                                    } else {
+                                                                        Some(peek_for_click.clone())
+                                                                    };
+                                                                });
+                                                            }
+                                                            on:keydown=move |event: web_sys::KeyboardEvent| {
+                                                                if event.key() == "Escape" {
+                                                                    selected_diff_peek.set(None);
+                                                                }
+                                                            }
+                                                        ></button>
+                                                    }
+                                                })}
+                                                {deleted_after_peek.map(|peek| {
+                                                    let peek_for_click = peek.clone();
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="yaml-editor__diff-deleted yaml-editor__diff-deleted-after"
+                                                            aria-label="Show removed lines at end of document"
+                                                            title="Show removed lines"
+                                                            on:click=move |_| {
+                                                                selected_diff_peek.update(|selected| {
+                                                                    *selected = if selected.as_ref() == Some(&peek_for_click) {
+                                                                        None
+                                                                    } else {
+                                                                        Some(peek_for_click.clone())
+                                                                    };
+                                                                });
+                                                            }
+                                                            on:keydown=move |event: web_sys::KeyboardEvent| {
+                                                                if event.key() == "Escape" {
+                                                                    selected_diff_peek.set(None);
+                                                                }
+                                                            }
+                                                        ></button>
+                                                    }
+                                                })}
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                        <div class="yaml-editor__input-wrap">
+                            <pre
+                                class="yaml-editor__highlight"
+                                aria-hidden="true"
+                                style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
+                            >
+                                <code>
+                                    {move || {
+                                        let text = source.get();
+                                        let errors = diagnostics.get();
+                                        let line_diff = diff.get();
+                                        text.split('\n').enumerate().map(|(index, line)| {
+                                            let line_number = index + 1;
+                                            let has_error = errors
+                                                .iter()
+                                                .any(|error| error.line == Some(line_number));
+                                            let change = line_diff.current
+                                                .get(index)
+                                                .copied()
+                                                .unwrap_or(DiffKind::Unchanged);
+                                            view! {
+                                                <span
+                                                    class="yaml-editor__code-line"
+                                                    class:yaml-editor__code-line-active=move || current_line.get() == line_number
+                                                    class:yaml-editor__code-line-error=has_error
+                                                    class:yaml-editor__code-line-added=change == DiffKind::Added
+                                                    class:yaml-editor__code-line-modified=change == DiffKind::Modified
+                                                >
+                                                    {if enable_highlighting {
+                                                        highlight_line(line)
+                                                    } else {
+                                                        view! { <span>{line.to_string()}</span> }.into_any()
+                                                    }}
+                                                </span>
+                                            }
+                                        }).collect_view()
+                                    }}
+                                </code>
+                            </pre>
+                            <div
+                                class="yaml-editor__diagnostic-overlay"
+                                aria-label="Inline YAML diagnostics"
+                                style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
+                            >
+                                {move || {
+                                    let text = source.get();
+                                    diagnostics.get().into_iter().filter_map(|diagnostic| {
+                                        let line = diagnostic.line?;
+                                        let column = diagnostic.column?;
+                                        let line_text = text.lines().nth(line.saturating_sub(1)).unwrap_or("");
+                                        let width = diagnostic.end_column
+                                            .unwrap_or(column + 1)
+                                            .saturating_sub(column)
+                                            .max(1);
+                                        let marked_text: String = line_text
+                                            .chars()
+                                            .skip(column.saturating_sub(1))
+                                            .take(width)
+                                            .collect();
+                                        let is_eof = marked_text.is_empty();
+                                        Some(view! {
+                                            <button
+                                                type="button"
+                                                class="yaml-editor__diagnostic-marker"
+                                                class:yaml-editor__diagnostic-marker-eof=is_eof
+                                                class:yaml-editor__diagnostic-marker-near-top=line <= 3
+                                                aria-label=format!("YAML error on line {line}: {}", diagnostic.message)
+                                                data-message=diagnostic.message
+                                                style=format!(
+                                                    "left: {}ch; top: {}px; width: {}ch; --yaml-editor-diagnostic-tooltip-offset: -{}ch;",
+                                                    column.saturating_sub(1),
+                                                    15.0 + (line.saturating_sub(1) as f32 * 21.6),
+                                                    width,
+                                                    column.saturating_sub(1)
+                                                )
+                                                on:mousedown=|event| event.prevent_default()
+                                            >
+                                                <span>{marked_text}</span>
+                                            </button>
+                                        })
+                                    }).collect_view()
+                                }}
+                            </div>
+                            <textarea
+                                class="yaml-editor__input"
+                                aria-label="YAML source"
+                                aria-autocomplete="list"
+                                aria-haspopup="listbox"
+                                aria-expanded=move || (!suggestions.get().is_empty()).to_string()
+                                aria-invalid=move || (!diagnostics.get().is_empty()).to_string()
+                                node_ref=editor_ref
+                                spellcheck="false"
+                                autocapitalize="off"
+                                autocomplete="off"
+                                wrap="off"
+                                prop:value=move || source.get()
+                                on:input=move |event| {
+                                    let value = event_target_value(&event);
+                                    let before = source.get_untracked();
+                                    if before != value {
+                                        let input_type = event
+                                            .dyn_ref::<web_sys::InputEvent>()
+                                            .map(web_sys::InputEvent::input_type)
+                                            .unwrap_or_default();
+                                        history.update(|history| {
+                                            history.record_input(
+                                                before,
+                                                cursor.get_untracked(),
+                                                &input_type,
+                                                event.time_stamp(),
+                                            );
+                                        });
+                                    }
+                                    if let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                        cursor.set(position);
+                                        current_line.set(line_at_cursor(&value, position));
+                                    }
+                                    source.set(value);
+                                    if let Some(on_change) = on_change_for_input.as_ref() {
+                                        on_change.run(source.get_untracked());
+                                    }
+                                    active_completion.set(0);
+                                    suggestions_requested.update(|requested| {
+                                        *requested |= auto_trigger_completions;
+                                    });
+                                }
+                                on:click=move |event| {
+                                    if let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                        cursor.set(position);
+                                        current_line.set(line_at_cursor(&source.get_untracked(), position));
+                                        active_completion.set(0);
+                                        suggestions_requested.set(false);
+                                    }
+                                }
+                                on:keyup=move |event| {
+                                    if let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                        cursor.set(position);
+                                        current_line.set(line_at_cursor(&source.get_untracked(), position));
+                                    }
+                                }
+                                on:scroll=move |event| {
+                                    if let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        scroll_x.set(element.scroll_left() as f64);
+                                        scroll_y.set(element.scroll_top() as f64);
+                                    }
+                                }
+                                on:keydown=move |event: web_sys::KeyboardEvent| {
+                                    let key = event.key().to_ascii_lowercase();
+                                    let modified = event.ctrl_key() || event.meta_key();
+                                    let is_undo = modified && key == "z" && !event.shift_key();
+                                    let is_redo = modified
+                                        && ((key == "z" && event.shift_key())
+                                            || (event.ctrl_key() && key == "y"));
+                                    if is_undo || is_redo {
+                                        event.prevent_default();
+                                        let current = source.get_untracked();
+                                        let current_cursor = event
+                                            .target()
+                                            .and_then(|target| {
+                                                target.dyn_into::<web_sys::HtmlTextAreaElement>().ok()
+                                            })
+                                            .and_then(|element| {
+                                                element.selection_start().ok().flatten()
+                                            })
+                                            .map(|cursor| cursor as usize)
+                                            .unwrap_or_else(|| cursor.get_untracked());
+                                        let mut restored = None;
+                                        history.update(|history| {
+                                            restored = if is_undo {
+                                                history.undo(current, current_cursor)
+                                            } else {
+                                                history.redo(current, current_cursor)
+                                            };
+                                        });
+                                        if let Some(restored) = restored {
+                                            source.set(restored.value.clone());
+                                            cursor.set(restored.cursor);
+                                            current_line.set(line_at_cursor(
+                                                &restored.value,
+                                                restored.cursor,
+                                            ));
+                                            if let Some(element) = event
+                                                .target()
+                                                .and_then(|target| {
+                                                    target
+                                                        .dyn_into::<web_sys::HtmlTextAreaElement>()
+                                                        .ok()
+                                                })
+                                            {
+                                                element.set_value(&restored.value);
+                                                element
+                                                    .set_selection_range(
+                                                        restored.cursor as u32,
+                                                        restored.cursor as u32,
+                                                    )
+                                                    .expect("editor selection range should remain valid");
+                                            }
+                                            if let Some(on_change) = on_change_for_keydown.as_ref() {
+                                                on_change.run(restored.value);
+                                            }
+                                            suggestions_requested.set(false);
+                                        }
+                                        return;
+                                    }
+                                    if event.ctrl_key() && event.code() == "Space" {
+                                        event.prevent_default();
+                                        active_completion.set(0);
+                                        suggestions_requested.set(true);
+                                        return;
+                                    }
+                                    if (event.ctrl_key() || event.meta_key())
+                                        && (event.code() == "Slash" || key == "/" || key == "?")
+                                    {
+                                        event.prevent_default();
+                                        if let Some(element) = event
+                                            .target()
+                                            .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                        {
+                                            let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                            let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                            let before = source.get_untracked();
+                                            if let Some((updated, selection_start, selection_end)) =
+                                                toggle_yaml_line_comments(&before, start, end)
+                                            {
+                                                if updated != before {
+                                                    history.update(|history| {
+                                                        history.record_action(before, start);
+                                                    });
+                                                    element.set_value(&updated);
+                                                    source.set(updated);
+                                                    if let Some(on_change) = on_change_for_keydown.as_ref() {
+                                                        on_change.run(source.get_untracked());
+                                                    }
+                                                }
+                                                cursor.set(selection_end);
+                                                current_line.set(line_at_cursor(
+                                                    &source.get_untracked(),
+                                                    selection_end,
+                                                ));
+                                                element
+                                                    .set_selection_range(
+                                                        selection_start as u32,
+                                                        selection_end as u32,
+                                                    )
+                                                    .expect("editor selection range should remain valid");
+                                                suggestions_requested.set(false);
+                                            }
+                                        }
+                                        return;
+                                    }
+                                    let options = suggestions.get();
+                                    if enable_auto_closing
+                                        && !event.ctrl_key()
+                                        && !event.meta_key()
+                                        && !event.alt_key()
+                                    {
+                                        if let Some(element) = event
+                                            .target()
+                                            .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                        {
+                                            let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                            let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                            let key = event.key();
+                                            if start == end && key.chars().count() == 1 {
+                                                let character = key.chars().next().unwrap();
+                                                let closing = match character {
+                                                    ')' | ']' | '}' | '"' | '\'' => Some(character),
+                                                    _ => None,
+                                                };
+                                                if let Some(closing) = closing
+                                                    && let Some(next_cursor) = skip_closing_pair(
+                                                        &source.get_untracked(),
+                                                        start,
+                                                        closing,
+                                                    )
+                                                {
+                                                    event.prevent_default();
+                                                    cursor.set(next_cursor);
+                                                    current_line.set(line_at_cursor(
+                                                        &source.get_untracked(),
+                                                        next_cursor,
+                                                    ));
+                                                    let _ = element.set_selection_range(
+                                                        next_cursor as u32,
+                                                        next_cursor as u32,
+                                                    );
+                                                    return;
+                                                }
+                                            }
+
+                                            if key == "Backspace" && start == end {
+                                                let before = source.get_untracked();
+                                                if let Some((updated, new_cursor)) =
+                                                    delete_empty_pair(&before, start)
+                                                {
+                                                    event.prevent_default();
+                                                    history.update(|history| {
+                                                        history.record_action(before, start);
+                                                    });
+                                                    element.set_value(&updated);
+                                                    source.set(updated);
+                                                    if let Some(on_change) =
+                                                        on_change_for_keydown.as_ref()
+                                                    {
+                                                        on_change.run(source.get_untracked());
+                                                    }
+                                                    cursor.set(new_cursor);
+                                                    current_line.set(line_at_cursor(
+                                                        &source.get_untracked(),
+                                                        new_cursor,
+                                                    ));
+                                                    element
+                                                        .set_selection_range(
+                                                            new_cursor as u32,
+                                                            new_cursor as u32,
+                                                        )
+                                                        .expect("editor selection range should remain valid");
+                                                    return;
+                                                }
+                                            }
+
+                                            if key.chars().count() == 1
+                                                && let Some(opening) = key.chars().next()
+                                                && let Some((updated, selection_start, selection_end)) =
+                                                    paired_edit(
+                                                        &source.get_untracked(),
+                                                        start,
+                                                        end,
+                                                        opening,
+                                                    )
+                                            {
+                                                event.prevent_default();
+                                                history.update(|history| {
+                                                    history.record_action(
+                                                        source.get_untracked(),
+                                                        start,
+                                                    );
+                                                });
+                                                element.set_value(&updated);
+                                                source.set(updated);
+                                                if let Some(on_change) =
+                                                    on_change_for_keydown.as_ref()
+                                                {
+                                                    on_change.run(source.get_untracked());
+                                                }
+                                                cursor.set(selection_end);
+                                                current_line.set(line_at_cursor(
+                                                    &source.get_untracked(),
+                                                    selection_end,
+                                                ));
+                                                element
+                                                    .set_selection_range(
+                                                        selection_start as u32,
+                                                        selection_end as u32,
+                                                    )
+                                                    .expect("editor selection range should remain valid");
+                                                suggestions_requested.set(false);
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    match event.key().as_str() {
+                                        "ArrowDown" if !options.is_empty() => {
+                                            event.prevent_default();
+                                            let next = (active_completion.get_untracked() + 1) % options.len();
+                                            active_completion.set(next);
+                                            if let Some(list) = completion_ref.get() {
+                                                scroll_completion_into_view(&list, next);
+                                            }
+                                        }
+                                        "ArrowUp" if !options.is_empty() => {
+                                            event.prevent_default();
+                                            let next = active_completion
+                                                .get_untracked()
+                                                .checked_sub(1)
+                                                .unwrap_or(options.len() - 1);
+                                            active_completion.set(next);
+                                            if let Some(list) = completion_ref.get() {
+                                                scroll_completion_into_view(&list, next);
+                                            }
+                                        }
+                                        "Enter" | "Tab"
+                                            if !options.is_empty()
+                                                && !(event.key() == "Tab" && event.shift_key()) =>
+                                        {
+                                            event.prevent_default();
+                                            apply_selected();
+                                        }
+                                        "Escape" if suggestions_requested.get_untracked() => {
+                                            event.prevent_default();
+                                            suggestions_requested.set(false);
+                                        }
+                                        "Tab" => {
+                                            event.prevent_default();
+                                            if let Some(element) = event
+                                                .target()
+                                                .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                            {
+                                                let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                                let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                                let text = source.get_untracked();
+                                                if event.shift_key() || start != end {
+                                                    if let Some((updated, selection_start, selection_end)) =
+                                                        indent_yaml_lines(&text, start, end, event.shift_key())
+                                                    {
+                                                        if updated != text {
+                                                            history.update(|history| {
+                                                                history.record_action(
+                                                                    text.clone(),
+                                                                    start,
+                                                                );
+                                                            });
+                                                            element.set_value(&updated);
+                                                            source.set(updated);
+                                                            if let Some(on_change) =
+                                                                on_change_for_keydown.as_ref()
+                                                            {
+                                                                on_change.run(source.get_untracked());
+                                                            }
+                                                        }
+                                                        cursor.set(selection_end);
+                                                        current_line.set(line_at_cursor(
+                                                            &source.get_untracked(),
+                                                            selection_end,
+                                                        ));
+                                                        element
+                                                            .set_selection_range(
+                                                                selection_start as u32,
+                                                                selection_end as u32,
+                                                            )
+                                                            .expect("editor selection range should remain valid");
+                                                        suggestions_requested.set(false);
+                                                    }
+                                                    return;
+                                                }
+                                                let (updated, new_cursor) =
+                                                    replace_selection(&text, start, end, "  ");
+                                                history.update(|history| {
+                                                    history.record_action(text, start);
+                                                });
+                                                element.set_value(&updated);
+                                                source.set(updated);
+                                                if let Some(on_change) = on_change_for_keydown.as_ref() {
+                                                    on_change.run(source.get_untracked());
+                                                }
+                                                cursor.set(new_cursor);
+                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+                                                suggestions_requested.set(false);
+                                                element
+                                                    .set_selection_range(
+                                                        new_cursor as u32,
+                                                        new_cursor as u32,
+                                                    )
+                                                    .expect("editor selection range should remain valid");
+                                            }
+                                        }
+                                        "Enter" => {
+                                            event.prevent_default();
+                                            if let Some(element) = event
+                                                .target()
+                                                .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                            {
+                                                let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                                let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                                let text = source.get_untracked();
+                                                let insertion = newline_with_indent(&text, start);
+                                                let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
+                                                history.update(|history| {
+                                                    history.record_action(text, start);
+                                                });
+                                                element.set_value(&updated);
+                                                source.set(updated);
+                                                if let Some(on_change) = on_change_for_keydown.as_ref() {
+                                                    on_change.run(source.get_untracked());
+                                                }
+                                                cursor.set(new_cursor);
+                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+                                                suggestions_requested.set(false);
+                                                element
+                                                    .set_selection_range(
+                                                        new_cursor as u32,
+                                                        new_cursor as u32,
+                                                    )
+                                                    .expect("editor selection range should remain valid");
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            ></textarea>
+                            <div
+                                class="yaml-editor__completions"
+                                class:hidden=move || suggestions.get().is_empty()
+                                role="listbox"
+                                aria-label="YAML suggestions"
+                                node_ref=completion_ref
+                                style=move || {
+                                    popup_layout_revision.get();
+                                    scroll_x.get();
+                                    scroll_y.get();
+                                    let option_count = suggestions.get().len();
+                                    editor_ref
+                                        .get()
+                                        .map(|editor| {
+                                            completion_popup_style(
+                                                &editor,
+                                                &source.get(),
+                                                cursor.get(),
+                                                option_count,
+                                            )
+                                        })
+                                        .unwrap_or_else(|| "visibility:hidden".to_string())
+                                }
+                            >
+                                {move || suggestions.get().into_iter().enumerate().map(|(index, option)| {
+                                    let selected = move || active_completion.get() == index;
+                                    let apply = option.clone();
+                                    let detail = option.detail.clone();
+                                    view! {
+                                        <button
+                                            type="button"
+                                            role="option"
+                                            aria-selected=selected
+                                            class="yaml-editor__completion"
+                                            class:yaml-editor__completion-active=selected
+                                            on:mousedown=move |event| event.prevent_default()
+                                            on:click=move |_| {
+                                                let (updated, new_cursor) = apply_completion(&source.get_untracked(), &apply);
+                                                let editor = editor_ref.get();
+                                                history.update(|history| {
+                                                    history.record_action(
+                                                        source.get_untracked(),
+                                                        apply.start,
+                                                    );
+                                                });
+                                                if let Some(editor) = editor.as_ref() {
+                                                    editor.set_value(&updated);
+                                                }
+                                                source.set(updated);
+                                                if let Some(on_change) = on_change_for_completion.as_ref() {
+                                                    on_change.run(source.get_untracked());
+                                                }
+                                                cursor.set(new_cursor);
+                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+                                                active_completion.set(0);
+                                                suggestions_requested.set(false);
+                                                if let Some(editor) = editor {
+                                                    editor
+                                                        .set_selection_range(
+                                                            new_cursor as u32,
+                                                            new_cursor as u32,
+                                                        )
+                                                        .expect("editor selection range should remain valid");
+                                                }
+                                            }
+                                        >
+                                            <span class="yaml-editor__completion-icon" aria-hidden="true">
+                                                {if option.is_value { "V" } else { "K" }}
+                                            </span>
+                                            <span class="yaml-editor__completion-content">
+                                                <span class="yaml-editor__completion-primary">
+                                                    <span class="yaml-editor__completion-key">{option.label}</span>
+                                                    <span class="yaml-editor__completion-type">{option.type_label}</span>
+                                                </span>
+                                                <span class="yaml-editor__completion-detail" title=detail.clone()>
+                                                    {detail.clone()}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    }
+                                }).collect_view()}
+                            </div>
+                        </div>
+                    </div>
+                    {show_footer.then(|| view! { <div class="yaml-editor__status">
+                        <span class="yaml-editor__hint">
+                            {enable_completions.then(|| view! { <span><kbd>Ctrl</kbd><span>"+"</span><kbd>Space</kbd><span>"for suggestions"</span></span> })}
+                        </span>
+                        <span class="yaml-editor__status-meta">
+                            {show_diagnostics.then(|| view! {
+                                <span
+                                    class="yaml-editor__diagnostic-status"
+                                    class:yaml-editor__diagnostic-status-error=move || !diagnostics.get().is_empty()
+                                    role="status"
+                                    aria-live="polite"
+                                    title=move || {
+                                        diagnostics.get().first()
+                                            .filter(|diagnostic| diagnostic.line.is_none())
+                                            .map(|diagnostic| diagnostic.message.clone())
+                                    }
+                                >
+                                    {move || {
+                                        let errors = diagnostics.get();
+                                        match errors.len() {
+                                            0 => "No errors".to_string(),
+                                            count if errors.iter().any(|error| error.line.is_none()) => {
+                                                format!("{count} error(s) · {}", errors[0].message)
+                                            }
+                                            count => format!("{count} error(s) · hover or focus underlined text"),
+                                        }
+                                    }}
+                                </span>
+                            })}
+                            <span class="yaml-editor__line-count">{move || format!("{} lines", source.get().split('\n').count())}</span>
+                        </span>
+                    </div> })}
+                </section>
+                {move || selected_diff_peek.get().map(|peek| {
+                    let line = peek.line;
+                    let title = peek.title.clone();
+                    let before = peek.before.clone();
+                    let after = peek.after.clone();
+                    let old_line_count = before.len();
+                    let new_line_count = after.len();
+                    let render_lines = |lines: Vec<String>, sign: &'static str, class_name: &'static str| {
+                        lines.into_iter().map(|line| view! {
+                            <div class=format!("yaml-editor__diff-peek-line {class_name}")>
+                                <span aria-hidden="true">{sign}</span>
+                                <code>{if line.is_empty() { " ".to_string() } else { line }}</code>
+                            </div>
+                        }).collect_view()
+                    };
+                    view! {
+                        <section
+                            class="yaml-editor__diff-peek"
+                            role="dialog"
+                            aria-label=format!("{title}, line {line}")
+                            style=move || {
+                                popup_layout_revision.get();
+                                scroll_y.get();
+                                match (editor_ref.get(), root_ref.get()) {
+                                    (Some(editor), Some(root)) => peek_popup_style(
+                                        &editor,
+                                        &root,
+                                        line,
+                                        old_line_count,
+                                        new_line_count,
+                                    ),
+                                    _ => "visibility:hidden".to_string(),
+                                }
+                            }
+                            on:keydown=move |event: web_sys::KeyboardEvent| {
+                                if event.key() == "Escape" {
+                                    selected_diff_peek.set(None);
+                                }
+                            }
+                        >
+                            <header class="yaml-editor__diff-peek-header">
+                                <strong>{format!("{title} · line {line}")}</strong>
+                                <button
+                                    type="button"
+                                    aria-label="Close change preview"
+                                    on:click=move |_| selected_diff_peek.set(None)
+                                >"×"</button>
+                            </header>
+                            <div class="yaml-editor__diff-peek-columns">
+                                {(!before.is_empty()).then(|| view! {
+                                    <section class="yaml-editor__diff-peek-side">
+                                        <h3>"Before"</h3>
+                                        {render_lines(before, "−", "yaml-editor__diff-peek-removed")}
+                                    </section>
+                                })}
+                                {(!after.is_empty()).then(|| view! {
+                                    <section class="yaml-editor__diff-peek-side">
+                                        <h3>"Current"</h3>
+                                        {render_lines(after, "+", "yaml-editor__diff-peek-current")}
+                                    </section>
+                                })}
+                            </div>
+                        </section>
+                    }
+                })}
+        </div>
+    }
+}
+
+#[cfg(test)]
+mod tests;
