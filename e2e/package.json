@@ -1,0 +1,13 @@
+{
+  "name": "leptos-yaml-editor-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cd .. && trunk build",
+    "test": "playwright test",
+    "test:build": "npm run build && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
