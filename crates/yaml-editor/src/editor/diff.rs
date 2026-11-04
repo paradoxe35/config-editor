@@ -1,3 +1,6 @@
+use super::metrics::read_editor_metrics;
+use wasm_bindgen::JsCast;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DiffKind {
     Unchanged,
@@ -37,11 +40,15 @@ pub(super) fn peek_popup_style(
         .unwrap_or(768.0);
     let editor_rect = editor.get_bounding_client_rect();
     let root_rect = root.get_bounding_client_rect();
-    let anchor_y = editor_rect.top() + 15.0 + line.saturating_sub(1) as f64 * 21.6
+    let element: &web_sys::Element = editor.unchecked_ref();
+    let metrics = read_editor_metrics(element);
+    let anchor_y = editor_rect.top()
+        + metrics.padding_top
+        + line.saturating_sub(1) as f64 * metrics.line_height
         - editor.scroll_top() as f64;
     let margin = 8.0;
     let space_above = (anchor_y - margin).max(0.0);
-    let space_below = (viewport_height - anchor_y - 21.6 - margin).max(0.0);
+    let space_below = (viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
     let desired_height = (72.0 + (old_line_count + new_line_count) as f64 * 22.0)
         .min(360.0)
         .min(viewport_height * 0.55);
@@ -53,7 +60,7 @@ pub(super) fn peek_popup_style(
     };
     let height = desired_height.min(available_height);
     let top_in_viewport = if place_below {
-        anchor_y + 21.6 + 4.0
+        anchor_y + metrics.line_height + 4.0
     } else {
         anchor_y - height - 4.0
     }

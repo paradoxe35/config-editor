@@ -24,15 +24,12 @@
   --yaml-editor-string: #f1fa8c;
   --yaml-editor-literal: #bd93f9;
   --yaml-editor-value: #f1fa8c;
-  --yaml-editor-gutter-bg: #21222c;
   --yaml-editor-active-line: rgb(255 255 255 / 5%);
   --yaml-editor-error-line: rgb(255 85 85 / 8%);
   --yaml-editor-added-line: rgb(80 250 123 / 8%);
   --yaml-editor-modified-line: rgb(139 233 253 / 8%);
   --yaml-editor-selection: rgb(98 114 164 / 65%);
   --yaml-editor-caret: #f8f8f2;
-  --yaml-editor-font-size: 12px;
-  --yaml-editor-line-height: 21.6px;
 }
 
 .yaml-editor[data-color-theme="nord"] {
@@ -61,15 +58,12 @@
   --yaml-editor-string: #a3be8c;
   --yaml-editor-literal: #bc96b5;
   --yaml-editor-value: #a3be8c;
-  --yaml-editor-gutter-bg: #3b4252;
   --yaml-editor-active-line: rgb(255 255 255 / 5%);
   --yaml-editor-error-line: rgb(191 97 106 / 8%);
   --yaml-editor-added-line: rgb(163 190 140 / 8%);
   --yaml-editor-modified-line: rgb(136 192 208 / 8%);
   --yaml-editor-selection: rgb(94 129 172 / 60%);
   --yaml-editor-caret: #eceff4;
-  --yaml-editor-font-size: 12px;
-  --yaml-editor-line-height: 21.6px;
 }
 
 .yaml-editor[data-color-theme="github-light"] {
@@ -98,7 +92,6 @@
   --yaml-editor-string: #0a3069;
   --yaml-editor-literal: #0550ae;
   --yaml-editor-value: #116329;
-  --yaml-editor-gutter-bg: #f6f8fa;
   --yaml-editor-active-line: rgb(31 35 40 / 5%);
   --yaml-editor-error-line: rgb(207 34 46 / 6%);
   --yaml-editor-added-line: rgb(26 127 55 / 8%);
@@ -133,43 +126,12 @@
   --yaml-editor-string: #5b6f00;
   --yaml-editor-literal: #c52e77;
   --yaml-editor-value: #14756d;
-  --yaml-editor-gutter-bg: #eee8d5;
   --yaml-editor-active-line: rgb(7 54 66 / 5%);
   --yaml-editor-error-line: rgb(220 50 47 / 6%);
   --yaml-editor-added-line: rgb(133 153 0 / 8%);
   --yaml-editor-modified-line: rgb(38 139 210 / 8%);
   --yaml-editor-selection: rgb(38 139 210 / 24%);
   --yaml-editor-caret: #586e75;
-}
-
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__gutter {
-  width: 52px;
-  padding: 15px 13px 15px 0;
-  font-size: 12px;
-}
-
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__gutter > div,
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__code-line,
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__gutter > div,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__code-line,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__diagnostic-marker {
-  height: var(--yaml-editor-line-height);
-}
-
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__highlight,
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__input,
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__highlight,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__input,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__diagnostic-marker {
-  font-size: var(--yaml-editor-font-size);
-}
-
-.yaml-editor[data-color-theme="dracula"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="nord"] .yaml-editor__gutter {
-  font-size: var(--yaml-editor-font-size);
 }
 
 .yaml-editor[data-color-theme="atom-one-dark"] {
@@ -198,7 +160,6 @@
   --yaml-editor-string: #98c379;
   --yaml-editor-literal: #d19a66;
   --yaml-editor-value: #e5c07b;
-  --yaml-editor-gutter-bg: #21252b;
   --yaml-editor-active-line: rgb(255 255 255 / 4%);
   --yaml-editor-error-line: rgb(224 108 117 / 8%);
   --yaml-editor-added-line: rgb(152 195 121 / 8%);
@@ -233,7 +194,6 @@
   --yaml-editor-string: #a5d6ff;
   --yaml-editor-literal: #79c0ff;
   --yaml-editor-value: #a5d6ff;
-  --yaml-editor-gutter-bg: #161b22;
   --yaml-editor-active-line: rgb(177 186 196 / 8%);
   --yaml-editor-error-line: rgb(248 81 73 / 8%);
   --yaml-editor-added-line: rgb(63 185 80 / 8%);
@@ -268,64 +228,12 @@
   --yaml-editor-string: #c9ad86;
   --yaml-editor-literal: #b39acb;
   --yaml-editor-value: #b8c99a;
-  --yaml-editor-gutter-bg: #1e2430;
   --yaml-editor-active-line: rgb(207 221 239 / 5%);
   --yaml-editor-error-line: rgb(210 118 118 / 7%);
   --yaml-editor-added-line: rgb(166 197 141 / 7%);
   --yaml-editor-modified-line: rgb(131 180 203 / 7%);
   --yaml-editor-selection: rgb(90 117 145 / 55%);
   --yaml-editor-caret: #dce3eb;
-}
-
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__gutter > div,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__code-line,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__gutter > div,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__code-line,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__gutter > div,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__code-line,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__diagnostic-marker {
-  height: var(--yaml-editor-line-height);
-}
-
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__highlight,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__input,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__highlight,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__input,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__highlight,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__input,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__diagnostic-marker,
-.yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="github-dark"] .yaml-editor__gutter,
-.yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__gutter {
-  font-size: var(--yaml-editor-font-size);
-}
-
-@media (max-width: 600px) {
-  .yaml-editor[data-color-theme="obsidian"],
-  .yaml-editor[data-color-theme="dracula"],
-  .yaml-editor[data-color-theme="nord"],
-  .yaml-editor[data-color-theme="atom-one-dark"],
-  .yaml-editor[data-color-theme="github-dark"],
-  .yaml-editor[data-color-theme="vira-inspired"] {
-    --yaml-editor-font-size: 11px;
-    --yaml-editor-line-height: 19.8px;
-  }
-
-  .yaml-editor[data-color-theme="dracula"] .yaml-editor__gutter,
-  .yaml-editor[data-color-theme="nord"] .yaml-editor__gutter,
-  .yaml-editor[data-color-theme="atom-one-dark"] .yaml-editor__gutter,
-  .yaml-editor[data-color-theme="github-dark"] .yaml-editor__gutter,
-  .yaml-editor[data-color-theme="vira-inspired"] .yaml-editor__gutter {
-    width: 40px;
-    padding-right: 10px;
-  }
 }
 
 .yaml-editor[data-theme] .yaml-editor__gutter {

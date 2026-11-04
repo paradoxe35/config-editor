@@ -16,10 +16,17 @@ use diagnostics::SchemaBundle;
 use diagnostics::{build_schema, validate_yaml};
 mod completion;
 use completion::{
-    apply_completion, completion_popup_style, completions, scroll_completion_into_view,
+    KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
+    key_hover, scroll_completion_into_view, should_auto_trigger,
 };
 mod commands;
-use commands::{indent_yaml_lines, line_at_cursor, newline_with_indent, toggle_yaml_line_comments};
+use commands::{
+    indent_unit, indent_yaml_lines, line_at_cursor, newline_with_indent, toggle_yaml_line_comments,
+};
+mod metrics;
+use metrics::read_editor_metrics;
+
+const HOVER_DELAY_MS: i32 = 350;
 
 #[derive(Clone, PartialEq)]
 struct DiffPeek {
@@ -27,6 +34,68 @@ struct DiffPeek {
     title: String,
     before: Vec<String>,
     after: Vec<String>,
+}
+
+#[derive(Clone, PartialEq)]
+struct HoverCard {
+    info: KeyHover,
+    line: usize,
+    style: String,
+}
+
+fn pointer_text_position(element: &web_sys::HtmlTextAreaElement, x: f64, y: f64) -> (usize, usize) {
+    let target: &web_sys::Element = element.unchecked_ref();
+    let rect = target.get_bounding_client_rect();
+    let metrics = read_editor_metrics(target);
+    let line =
+        (y - rect.top() - metrics.padding_top + element.scroll_top() as f64) / metrics.line_height;
+    let column = (x - rect.left() - metrics.padding_left + element.scroll_left() as f64)
+        / (metrics.font_size * 0.6);
+    (
+        line.max(0.0).floor() as usize,
+        column.max(0.0).floor() as usize,
+    )
+}
+
+fn hover_card_style(element: &web_sys::HtmlTextAreaElement, line: usize, column: usize) -> String {
+    let target: &web_sys::Element = element.unchecked_ref();
+    let rect = target.get_bounding_client_rect();
+    let metrics = read_editor_metrics(target);
+    let Some(window) = web_sys::window() else {
+        return String::new();
+    };
+    let viewport_width = window
+        .inner_width()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1024.0);
+    let viewport_height = window
+        .inner_height()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(768.0);
+    let left = (rect.left() + metrics.padding_left + column as f64 * metrics.font_size * 0.6
+        - element.scroll_left() as f64)
+        .clamp(8.0, (viewport_width - 348.0).max(8.0));
+    let line_top = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
+        - element.scroll_top() as f64;
+    if line_top > 240.0 && line_top + metrics.line_height + 240.0 > viewport_height {
+        format!("left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - 4px))")
+    } else {
+        format!(
+            "left:{left:.1}px;top:{:.1}px",
+            line_top + metrics.line_height + 4.0
+        )
+    }
+}
+
+fn schedule_hover(callback: impl FnOnce() + 'static) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(callback).unchecked_ref(),
+            HOVER_DELAY_MS,
+        );
+    }
 }
 
 pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
@@ -128,6 +197,7 @@ pub fn YamlEditor(
     #[prop(default = false)] show_footer: bool,
     #[prop(default = true)] show_diagnostics: bool,
     #[prop(default = true)] enable_completions: bool,
+    #[prop(default = true)] enable_hover_docs: bool,
     #[prop(default = true)] auto_trigger_completions: bool,
     #[prop(default = true)] enable_highlighting: bool,
     #[prop(default = true)] enable_auto_closing: bool,
@@ -168,6 +238,17 @@ pub fn YamlEditor(
     let current_line = RwSignal::new(1usize);
     let active_completion = RwSignal::new(0usize);
     let suggestions_requested = RwSignal::new(false);
+    let explicit_request = RwSignal::new(false);
+    let hover_card = RwSignal::new(None::<HoverCard>);
+    let hover_pending = StoredValue::new(None::<(usize, String)>);
+    let hover_token = StoredValue::new(0u64);
+    let hide_hover = move || {
+        hover_token.update_value(|token| *token += 1);
+        hover_pending.set_value(None);
+        if hover_card.with_untracked(Option::is_some) {
+            hover_card.set(None);
+        }
+    };
     let history = RwSignal::new(EditHistory::default());
     let scroll_x = RwSignal::new(0.0);
     let scroll_y = RwSignal::new(0.0);
@@ -185,12 +266,11 @@ pub fn YamlEditor(
         resize_listener.remove();
         scroll_listener.remove();
     });
-    let on_change_for_input = on_change.clone();
-    let on_change_for_keydown = on_change.clone();
-    let on_change_for_apply = on_change.clone();
+    let on_change_for_input = on_change;
+    let on_change_for_keydown = on_change;
+    let on_change_for_apply = on_change;
     let on_change_for_completion = on_change;
     let history_for_apply = history;
-    let schema_for_keydown = schema_bundle.clone();
     let schema_for_diagnostics = schema_bundle.clone();
     let schema_error_for_diagnostics = schema_error.clone();
     let diagnostics = Memo::new(move |_| {
@@ -202,6 +282,8 @@ pub fn YamlEditor(
         )
     });
     let schema_for_completions = schema_bundle.clone();
+    let schema_for_hover = schema_bundle.clone();
+    let hover_docs = enable_hover_docs && schema_bundle.is_some();
     let suggestions = Memo::new(move |_| {
         if !suggestions_requested.get() {
             return Vec::new();
@@ -209,7 +291,7 @@ pub fn YamlEditor(
         completions(
             &source.get(),
             cursor.get(),
-            suggestions_requested.get(),
+            explicit_request.get(),
             schema_for_completions.as_deref(),
             enable_completions,
         )
@@ -225,7 +307,9 @@ pub fn YamlEditor(
             if let Some(editor) = editor.as_ref() {
                 editor.set_value(&updated);
             }
-            let request_completions = auto_trigger_completions;
+            let request_completions =
+                accept_reopens_suggestions(completion, auto_trigger_completions);
+            hide_hover();
             source.set(updated);
             if let Some(on_change) = on_change_for_apply.as_ref() {
                 on_change.run(source.get_untracked());
@@ -233,6 +317,7 @@ pub fn YamlEditor(
             cursor.set(new_cursor);
             current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
             active_completion.set(0);
+            explicit_request.set(true);
             suggestions_requested.set(request_completions);
             if let Some(editor) = editor {
                 editor
@@ -342,12 +427,18 @@ pub fn YamlEditor(
                                                 class:yaml-editor__line-number-modified=change == DiffKind::Modified
                                             >
                                                 <span aria-hidden="true">{line}</span>
+                                                {(change == DiffKind::Added).then(|| view! {
+                                                    <span
+                                                        class="yaml-editor__diff-marker yaml-editor__diff-marker-added"
+                                                        aria-hidden="true"
+                                                    ></span>
+                                                })}
                                                 {modified_peek.map(|peek| {
                                                     let peek_for_click = peek.clone();
                                                     view! {
                                                         <button
                                                             type="button"
-                                                            class="yaml-editor__diff-change-trigger"
+                                                            class="yaml-editor__diff-marker yaml-editor__diff-marker-modified yaml-editor__diff-change-trigger"
                                                             aria-label=format!("Show before and after for modified line {line}")
                                                             title="Show before and after"
                                                             on:click=move |_| {
@@ -492,9 +583,9 @@ pub fn YamlEditor(
                                                 aria-label=format!("YAML error on line {line}: {}", diagnostic.message)
                                                 data-message=diagnostic.message
                                                 style=format!(
-                                                    "left: {}ch; top: {}px; width: {}ch; --yaml-editor-diagnostic-tooltip-offset: -{}ch;",
+                                                    "left: {}ch; top: calc(var(--yaml-editor-padding-top) + {} * var(--yaml-editor-line-height)); width: {}ch; --yaml-editor-diagnostic-tooltip-offset: -{}ch;",
                                                     column.saturating_sub(1),
-                                                    15.0 + (line.saturating_sub(1) as f32 * 21.6),
+                                                    line.saturating_sub(1),
                                                     width,
                                                     column.saturating_sub(1)
                                                 )
@@ -522,11 +613,13 @@ pub fn YamlEditor(
                                 on:input=move |event| {
                                     let value = event_target_value(&event);
                                     let before = source.get_untracked();
+                                    let input_type = event
+                                        .dyn_ref::<web_sys::InputEvent>()
+                                        .map(web_sys::InputEvent::input_type)
+                                        .unwrap_or_default();
+                                    let auto_trigger = auto_trigger_completions
+                                        && should_auto_trigger(&input_type, &before, &value);
                                     if before != value {
-                                        let input_type = event
-                                            .dyn_ref::<web_sys::InputEvent>()
-                                            .map(web_sys::InputEvent::input_type)
-                                            .unwrap_or_default();
                                         history.update(|history| {
                                             history.record_input(
                                                 before,
@@ -549,9 +642,62 @@ pub fn YamlEditor(
                                         on_change.run(source.get_untracked());
                                     }
                                     active_completion.set(0);
-                                    suggestions_requested.update(|requested| {
-                                        *requested |= auto_trigger_completions;
+                                    explicit_request.set(false);
+                                    suggestions_requested.set(auto_trigger);
+                                    hide_hover();
+                                }
+                                on:mousemove=move |event: web_sys::MouseEvent| {
+                                    if !hover_docs {
+                                        return;
+                                    }
+                                    let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    else {
+                                        return;
+                                    };
+                                    if !suggestions.get_untracked().is_empty() {
+                                        hide_hover();
+                                        return;
+                                    }
+                                    let (line, column) = pointer_text_position(
+                                        &element,
+                                        event.client_x() as f64,
+                                        event.client_y() as f64,
+                                    );
+                                    let Some(info) = key_hover(
+                                        &source.get_untracked(),
+                                        line,
+                                        column,
+                                        schema_for_hover.as_deref(),
+                                    ) else {
+                                        hide_hover();
+                                        return;
+                                    };
+                                    let key_identity = (line, info.key.clone());
+                                    if hover_pending.get_value().as_ref() == Some(&key_identity) {
+                                        return;
+                                    }
+                                    if hover_card
+                                        .with_untracked(|card| card.as_ref().is_some_and(|card| card.line == line && card.info.key == info.key))
+                                    {
+                                        return;
+                                    }
+                                    hide_hover();
+                                    hover_pending.set_value(Some(key_identity));
+                                    let token = hover_token.get_value();
+                                    let anchor = hover_card_style(&element, line, info.start_column);
+                                    schedule_hover(move || {
+                                        if hover_token.get_value() == token {
+                                            hover_pending.set_value(None);
+                                            hover_card.set(Some(HoverCard { info, line, style: anchor }));
+                                        }
                                     });
+                                }
+                                on:mouseleave=move |_| hide_hover()
+                                on:blur=move |_| {
+                                    suggestions_requested.set(false);
+                                    hide_hover();
                                 }
                                 on:click=move |event| {
                                     if let Some(element) = event
@@ -563,6 +709,7 @@ pub fn YamlEditor(
                                         current_line.set(line_at_cursor(&source.get_untracked(), position));
                                         active_completion.set(0);
                                         suggestions_requested.set(false);
+                                        hide_hover();
                                     }
                                 }
                                 on:keyup=move |event| {
@@ -576,6 +723,7 @@ pub fn YamlEditor(
                                     }
                                 }
                                 on:scroll=move |event| {
+                                    hide_hover();
                                     if let Some(element) = event
                                         .target()
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
@@ -585,6 +733,7 @@ pub fn YamlEditor(
                                     }
                                 }
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
+                                    hide_hover();
                                     let key = event.key().to_ascii_lowercase();
                                     let modified = event.ctrl_key() || event.meta_key();
                                     let is_undo = modified && key == "z" && !event.shift_key();
@@ -645,6 +794,7 @@ pub fn YamlEditor(
                                     if event.ctrl_key() && event.code() == "Space" {
                                         event.prevent_default();
                                         active_completion.set(0);
+                                        explicit_request.set(true);
                                         suggestions_requested.set(true);
                                         return;
                                     }
@@ -693,11 +843,10 @@ pub fn YamlEditor(
                                         && !event.ctrl_key()
                                         && !event.meta_key()
                                         && !event.alt_key()
-                                    {
-                                        if let Some(element) = event
+                                        && let Some(element) = event
                                             .target()
                                             .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
-                                        {
+                                    {
                                             let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                             let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                             let key = event.key();
@@ -797,7 +946,6 @@ pub fn YamlEditor(
                                                 suggestions_requested.set(false);
                                                 return;
                                             }
-                                        }
                                     }
                                     match event.key().as_str() {
                                         "ArrowDown" if !options.is_empty() => {
@@ -874,7 +1022,7 @@ pub fn YamlEditor(
                                                     return;
                                                 }
                                                 let (updated, new_cursor) =
-                                                    replace_selection(&text, start, end, "  ");
+                                                    replace_selection(&text, start, end, &indent_unit(&text));
                                                 history.update(|history| {
                                                     history.record_action(text, start);
                                                 });
@@ -905,15 +1053,6 @@ pub fn YamlEditor(
                                                 let text = source.get_untracked();
                                                 let insertion = newline_with_indent(&text, start);
                                                 let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
-                                                let request_completions = auto_trigger_completions
-                                                    && !completions(
-                                                        &updated,
-                                                        new_cursor,
-                                                        true,
-                                                        schema_for_keydown.as_deref(),
-                                                        enable_completions,
-                                                    )
-                                                    .is_empty();
                                                 history.update(|history| {
                                                     history.record_action(text, start);
                                                 });
@@ -924,7 +1063,7 @@ pub fn YamlEditor(
                                                 }
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
-                                                suggestions_requested.set(request_completions);
+                                                suggestions_requested.set(false);
                                                 element
                                                     .set_selection_range(
                                                         new_cursor as u32,
@@ -937,6 +1076,36 @@ pub fn YamlEditor(
                                     }
                                 }
                             ></textarea>
+                            {move || hover_card.get().filter(|_| suggestions.get().is_empty()).map(|card| {
+                                let info = card.info;
+                                let examples = info.examples.join(", ");
+                                view! {
+                                    <div class="yaml-editor__hover" role="tooltip" style=card.style>
+                                        <div class="yaml-editor__hover-header">
+                                            <code class="yaml-editor__hover-key">{info.key}</code>
+                                            <span class="yaml-editor__hover-type">{info.type_label}</span>
+                                            {info.required.then(|| view! {
+                                                <span class="yaml-editor__hover-required">"required"</span>
+                                            })}
+                                        </div>
+                                        {info.description.map(|description| view! {
+                                            <p class="yaml-editor__hover-description">{description}</p>
+                                        })}
+                                        {info.default.map(|default| view! {
+                                            <div class="yaml-editor__hover-meta">
+                                                <span>"Default"</span>
+                                                <code>{default}</code>
+                                            </div>
+                                        })}
+                                        {(!examples.is_empty()).then(|| view! {
+                                            <div class="yaml-editor__hover-meta">
+                                                <span>"Examples"</span>
+                                                <code>{examples}</code>
+                                            </div>
+                                        })}
+                                    </div>
+                                }
+                            })}
                             <div
                                 class="yaml-editor__completions"
                                 class:hidden=move || suggestions.get().is_empty()
@@ -973,6 +1142,7 @@ pub fn YamlEditor(
                                             class="yaml-editor__completion"
                                             class:yaml-editor__completion-active=selected
                                             on:mousedown=move |event| event.prevent_default()
+                                            on:mouseenter=move |_| active_completion.set(index)
                                             on:click=move |_| {
                                                 let (updated, new_cursor) = apply_completion(&source.get_untracked(), &apply);
                                                 let editor = editor_ref.get();
@@ -985,7 +1155,8 @@ pub fn YamlEditor(
                                                 if let Some(editor) = editor.as_ref() {
                                                     editor.set_value(&updated);
                                                 }
-                                                let request_completions = auto_trigger_completions;
+                                                let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
+                                                hide_hover();
                                                 source.set(updated);
                                                 if let Some(on_change) = on_change_for_completion.as_ref() {
                                                     on_change.run(source.get_untracked());
@@ -993,6 +1164,7 @@ pub fn YamlEditor(
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
                                                 active_completion.set(0);
+                                                explicit_request.set(true);
                                                 suggestions_requested.set(request_completions);
                                                 if let Some(editor) = editor {
                                                     editor
@@ -1012,9 +1184,11 @@ pub fn YamlEditor(
                                                     <span class="yaml-editor__completion-key">{option.label}</span>
                                                     <span class="yaml-editor__completion-type">{option.type_label}</span>
                                                 </span>
-                                                <span class="yaml-editor__completion-detail" title=detail.clone()>
-                                                    {detail.clone()}
-                                                </span>
+                                                {(!detail.is_empty()).then(|| view! {
+                                                    <span class="yaml-editor__completion-detail" title=detail.clone()>
+                                                        {detail.clone()}
+                                                    </span>
+                                                })}
                                             </span>
                                         </button>
                                     }
