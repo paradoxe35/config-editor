@@ -176,6 +176,7 @@ fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
         let mut rest = trimmed;
         let mut content_indent = indent;
 
+        let mut array_item_path = None;
         if rest == "-" || rest.starts_with("- ") {
             while stack.last().is_some_and(|(level, _)| *level >= indent) {
                 stack.pop();
@@ -191,14 +192,24 @@ fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
             let after_dash = rest.strip_prefix('-').unwrap_or_default();
             let content = after_dash.trim_start();
             content_indent = indent + 1 + after_dash.len() - content.len();
+            array_item_path = Some(item_path.clone());
             stack.push((indent, item_path));
             rest = content;
         }
 
         if rest.is_empty() {
+            if let Some(path) = array_item_path {
+                let column = line[..content_indent].chars().count() + 1;
+                entries.push((path, index + 1, column, column + 1));
+            }
             continue;
         }
         let Some(colon) = rest.find(':') else {
+            if let Some(path) = array_item_path {
+                let column = line[..content_indent].chars().count() + 1;
+                let end_column = column + rest.chars().count();
+                entries.push((path, index + 1, column, end_column));
+            }
             continue;
         };
         let key_raw = &rest[..colon];
@@ -337,6 +348,21 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(6));
+    }
+
+    #[test]
+    fn an_empty_sequence_item_error_points_to_the_dash_line() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"self":{"type":"object","properties":{"allow":{"type":"array","items":{"type":"string"}}}}}}"#,
+        )
+        .unwrap();
+        let source = "self:\n  allow:\n    - \n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(7));
     }
 
     #[test]

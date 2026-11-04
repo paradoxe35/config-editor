@@ -323,6 +323,39 @@ websocket:
     await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['11']);
     await e.screenshot('diagnostic-nested-line');
   });
+
+  test('an empty array item reports the error on its dash line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('self:\n  allow:\n    - \n');
+    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    await expect(marker).toHaveCount(1);
+    await expect(marker).toHaveAttribute('aria-label', /line 3/);
+    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['3']);
+    await e.screenshot('diagnostic-empty-array-item');
+  });
+});
+
+test.describe('textarea and syntax-layer sync', () => {
+  test('rapid typing and deletion keep visible syntax text equal to the editor value', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await e.input.evaluate((element) => {
+      const position = element.value.indexOf('7835') + 2;
+      element.focus();
+      element.setSelectionRange(position, position);
+    });
+    await page.keyboard.type('ABCD');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Backspace');
+
+    const state = await page.evaluate(() => ({
+      value: document.querySelector('.yaml-editor__input').value,
+      rendered: [...document.querySelectorAll('.yaml-editor__highlight .yaml-editor__code-line')]
+        .map((line) => line.textContent)
+        .join('\n'),
+    }));
+    expect(state.rendered).toBe(state.value);
+  });
 });
 
 test.describe('gutter and caret', () => {
