@@ -446,7 +446,8 @@ test.describe('diff stability', () => {
     for (let index = 0; index < 3; index += 1) {
       await page.keyboard.press('Enter');
     }
-    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
+    // The current empty EOF slot is not a diff row; the two preceding new rows are.
+    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(2);
     expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
     await page.keyboard.type('update: true');
     await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
@@ -461,6 +462,8 @@ test.describe('diff stability', () => {
     for (let index = 0; index < 3; index += 1) await page.keyboard.press('Enter');
     await page.keyboard.press('ArrowUp');
     await page.keyboard.type('middle: true');
+    expect(await page.locator('.yaml-editor__line-number-added').allTextContents()).toEqual(['6', '7']);
+    expect(await page.locator('.yaml-editor__line-number-modified').count()).toBe(0);
     await page.keyboard.press('ArrowDown');
     await page.keyboard.type('end: true');
 
