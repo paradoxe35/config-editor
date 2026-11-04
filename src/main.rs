@@ -43,7 +43,7 @@ fn main() {
                         >
                             <option value="vscode-dark">"VS Code Dark"</option>
                             <option value="vscode-light">"VS Code Light"</option>
-                            <option value="obsidian">"Obsidian Dark (screenshot)"</option>
+                            <option value="obsidian">"Obsidian Dark"</option>
                             <option value="obsidian-light">"Obsidian Light"</option>
                             <option value="dracula">"Dracula"</option>
                             <option value="nord">"Nord"</option>
