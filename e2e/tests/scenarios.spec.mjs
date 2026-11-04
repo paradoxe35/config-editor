@@ -251,6 +251,21 @@ test.describe('typing triggers', () => {
     await page.keyboard.type('cl');
     await expect.poll(() => e.keys()).toContain('clients');
   });
+
+  test('typing after Enter suggests nested keys, while free-form strings have no fixed values', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('self:');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('al');
+    await expect.poll(() => e.keys()).toContain('allow');
+    await e.clickKey('allow');
+    await expect(e.input).toHaveValue('self:\n  allow:\n    - ');
+    expect(await e.isOpen()).toBe(false);
+
+    await page.keyboard.type('192.0.2.1');
+    expect(await e.isOpen()).toBe(false);
+    await expect(e.input).toHaveValue('self:\n  allow:\n    - 192.0.2.1');
+  });
 });
 
 test.describe('clicking lines', () => {
