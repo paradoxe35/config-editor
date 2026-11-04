@@ -15,6 +15,7 @@ preset-style = []
 
 [dependencies]
 jsonschema = { version = "0.60.2", default-features = false, optional = true }
+regex = "1"
 leptos = { version = "0.8.23", default-features = false, features = ["csr"] }
 noyalib = { version = "0.0.58", default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
 serde_json = "1"

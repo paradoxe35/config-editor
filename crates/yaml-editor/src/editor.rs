@@ -128,7 +128,7 @@ pub fn YamlEditor(
     #[prop(default = false)] show_footer: bool,
     #[prop(default = true)] show_diagnostics: bool,
     #[prop(default = true)] enable_completions: bool,
-    #[prop(default = false)] auto_trigger_completions: bool,
+    #[prop(default = true)] auto_trigger_completions: bool,
     #[prop(default = true)] enable_highlighting: bool,
     #[prop(default = true)] enable_auto_closing: bool,
     #[prop(default = true)] show_diff: bool,
@@ -190,6 +190,7 @@ pub fn YamlEditor(
     let on_change_for_apply = on_change.clone();
     let on_change_for_completion = on_change;
     let history_for_apply = history;
+    let schema_for_keydown = schema_bundle.clone();
     let schema_for_diagnostics = schema_bundle.clone();
     let schema_error_for_diagnostics = schema_error.clone();
     let diagnostics = Memo::new(move |_| {
@@ -224,6 +225,7 @@ pub fn YamlEditor(
             if let Some(editor) = editor.as_ref() {
                 editor.set_value(&updated);
             }
+            let request_completions = auto_trigger_completions;
             source.set(updated);
             if let Some(on_change) = on_change_for_apply.as_ref() {
                 on_change.run(source.get_untracked());
@@ -231,7 +233,7 @@ pub fn YamlEditor(
             cursor.set(new_cursor);
             current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
             active_completion.set(0);
-            suggestions_requested.set(false);
+            suggestions_requested.set(request_completions);
             if let Some(editor) = editor {
                 editor
                     .set_selection_range(new_cursor as u32, new_cursor as u32)
@@ -903,6 +905,15 @@ pub fn YamlEditor(
                                                 let text = source.get_untracked();
                                                 let insertion = newline_with_indent(&text, start);
                                                 let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
+                                                let request_completions = auto_trigger_completions
+                                                    && !completions(
+                                                        &updated,
+                                                        new_cursor,
+                                                        true,
+                                                        schema_for_keydown.as_deref(),
+                                                        enable_completions,
+                                                    )
+                                                    .is_empty();
                                                 history.update(|history| {
                                                     history.record_action(text, start);
                                                 });
@@ -913,7 +924,7 @@ pub fn YamlEditor(
                                                 }
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
-                                                suggestions_requested.set(false);
+                                                suggestions_requested.set(request_completions);
                                                 element
                                                     .set_selection_range(
                                                         new_cursor as u32,
@@ -974,6 +985,7 @@ pub fn YamlEditor(
                                                 if let Some(editor) = editor.as_ref() {
                                                     editor.set_value(&updated);
                                                 }
+                                                let request_completions = auto_trigger_completions;
                                                 source.set(updated);
                                                 if let Some(on_change) = on_change_for_completion.as_ref() {
                                                     on_change.run(source.get_untracked());
@@ -981,7 +993,7 @@ pub fn YamlEditor(
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
                                                 active_completion.set(0);
-                                                suggestions_requested.set(false);
+                                                suggestions_requested.set(request_completions);
                                                 if let Some(editor) = editor {
                                                     editor
                                                         .set_selection_range(

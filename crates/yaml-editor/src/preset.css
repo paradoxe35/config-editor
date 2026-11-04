@@ -200,7 +200,7 @@
 .yaml-editor__diff-change-trigger::before {
   position: absolute;
   top: 0;
-  right: 2px;
+  right: 0;
   bottom: 0;
   width: 3px;
   background: #75beff;
@@ -519,7 +519,7 @@
 }
 
 .yaml-editor__completion:hover,
-.yaml-editor__completion-active { background: #094771; }
+.yaml-editor__completion-active { background: var(--yaml-editor-completion-active); }
 .yaml-editor__completion-icon {
   width: 17px;
   height: 17px;

@@ -411,6 +411,162 @@ fn object_completion_expands_required_fields_and_places_cursor_at_first_value() 
     );
 }
 
+#[cfg(feature = "completion")]
+#[test]
+fn completions_follow_additional_properties_into_dynamic_object_values() {
+    let schema = build_schema(
+        r##"{
+            "type":"object",
+            "properties":{
+                "clients":{
+                    "type":"object",
+                    "default":{},
+                    "additionalProperties":{
+                        "$ref":"#/$defs/Client"
+                    }
+                }
+            },
+            "$defs":{
+                "Client":{
+                    "type":"object",
+                    "properties":{
+                        "secret":{"type":"string"},
+                        "max_connections":{"type":"integer"}
+                    }
+                }
+            }
+        }"##,
+    )
+    .unwrap();
+    let root_options = completions("", 0, true, Some(&schema), true);
+    assert_eq!(
+        root_options
+            .iter()
+            .find(|option| option.label == "clients")
+            .unwrap()
+            .insert,
+        "clients:\n  "
+    );
+    let input = "clients:\n  paradoxe:\n    ";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    );
+    assert!(options.iter().any(|option| option.label == "secret"));
+    assert!(
+        options
+            .iter()
+            .any(|option| option.label == "max_connections")
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn completions_follow_pattern_properties_and_quoted_mapping_keys() {
+    let schema = build_schema(
+        r##"{
+            "type":"object",
+            "patternProperties":{
+                "^client:":{
+                    "type":"object",
+                    "properties":{"enabled":{"type":"boolean"}}
+                }
+            }
+        }"##,
+    )
+    .unwrap();
+    let input = "\"client:one\":\n  en";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(options.iter().any(|option| option.label == "enabled"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn array_item_completions_follow_items_and_prefix_items_schemas() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "clients":{
+                    "type":"array",
+                    "items":{
+                        "type":"object",
+                        "properties":{"name":{"type":"string"}}
+                    }
+                },
+                "modes":{
+                    "type":"array",
+                    "prefixItems":[{"enum":["fast","safe"]}]
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let object_input = "clients:\n  - na";
+    let object_options = completions(
+        object_input,
+        object_input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(object_options.iter().any(|option| option.label == "name"));
+
+    let enum_input = "modes:\n  - fa";
+    let enum_options = completions(
+        enum_input,
+        enum_input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(enum_options.iter().any(|option| option.label == "fast"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn const_and_boolean_schema_values_are_suggested_and_inserted() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "enabled":{"const":true},
+                "secure":{"type":"boolean"}
+            }
+        }"#,
+    )
+    .unwrap();
+    let key_options = completions("", 0, true, Some(&schema), true);
+    assert_eq!(
+        key_options
+            .iter()
+            .find(|option| option.label == "enabled")
+            .unwrap()
+            .insert,
+        "enabled: true"
+    );
+
+    let value_input = "secure: t";
+    let value_options = completions(
+        value_input,
+        value_input.encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    );
+    assert!(value_options.iter().any(|option| option.label == "true"));
+}
+
 #[test]
 fn replacing_a_selection_respects_utf16_cursor_offsets() {
     let (updated, cursor) = replace_selection("ab🙂xy", 4, 5, "Z");

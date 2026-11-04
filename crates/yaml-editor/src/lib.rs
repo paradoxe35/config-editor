@@ -5,8 +5,8 @@
 //! exported [`YamlEditorToolbar`] and [`YamlEditorFooter`] components.
 //! Diagnostics, completions, highlighting, and preset styling can be enabled
 //! independently. The optional JSON Schema string enables validation and
-//! schema-aware suggestions. Suggestions are explicit (`Ctrl+Space`) by
-//! default; set `auto_trigger_completions=true` to show them while typing.
+//! schema-aware suggestions. Suggestions appear while typing by default; set
+//! `auto_trigger_completions=false` to require `Ctrl+Space`.
 //!
 //! ```ignore
 //! use yaml_editor::YamlEditor;

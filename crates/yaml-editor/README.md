@@ -49,10 +49,13 @@ on_change=Callback::new(|yaml: String| {
 
 `initial_value` is optional and defaults to an empty document. `schema_json` is
 an optional JSON Schema string. When supplied, it enables live schema
-diagnostics and property/value completions. Suggestions open explicitly with
-`Ctrl+Space` by default; `auto_trigger_completions=true` opts into suggestions
-while typing. YAML and schema validation errors are marked at their source
-location with a hover- and keyboard-focusable inline message; there is no
+diagnostics and property/value completions. Suggestions open while typing by
+default; set `auto_trigger_completions=false` to make them explicit with
+`Ctrl+Space`. Completions follow `$ref`, `allOf`/`anyOf`/`oneOf`,
+`properties`, `patternProperties`, `additionalProperties`, `items`, and
+`prefixItems`; enum, const, example, default, and boolean values can be
+suggested in value positions. YAML and schema validation errors are marked at
+their source location with a hover- and keyboard-focusable inline message; there is no
 separate Problems panel. Syntax errors are diagnosed even without a schema.
 For schema-invalid empty values, the inline marker points to the empty value
 slot after the colon instead of underlining the key.
@@ -110,7 +113,7 @@ hover or keyboard focus. The root demo shows the same flow.
 | `show_footer`              | `false`         | Show the built-in status footer                                                   |
 | `show_diagnostics`         | `true`          | Show inline parse/schema diagnostics and hover messages                           |
 | `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                   |
-| `auto_trigger_completions` | `false`         | Also open suggestions while typing                                                |
+| `auto_trigger_completions` | `true`          | Open suggestions while typing and after entering a nested object                 |
 | `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                         |
 | `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs |
 | `show_diff`                | `true`          | Show line changes against `baseline`                                              |

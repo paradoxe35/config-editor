@@ -1,9 +1,16 @@
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
+use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
+
+#[derive(Clone, PartialEq, Eq)]
+enum SchemaPathSegment {
+    Key(String),
+    ArrayItem(usize),
+}
 
 #[derive(Clone, PartialEq)]
 pub(super) struct Completion {
@@ -70,11 +77,19 @@ fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
         .find_map(|branch| branch.get("default"))
 }
 
+fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    resolve_branches(schema, root, 0)
+        .into_iter()
+        .find_map(|branch| branch.get("const"))
+}
+
 fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find(|branch| {
             branch.get("properties").is_some()
+                || branch.get("patternProperties").is_some()
+                || branch.get("additionalProperties").is_some()
                 || branch.get("type").and_then(Value::as_str) == Some("object")
         })
 }
@@ -144,10 +159,19 @@ fn property_completion_insert(
 ) -> Option<(String, usize)> {
     let yaml_key = yaml_key_for_completion(key)?;
     let mut insert = format!("{yaml_key}:");
-    if let Some(default) = schema_default(property, root) {
+    if let Some(value) = schema_const(property, root) {
         insert.push(' ');
-        insert.push_str(&default.to_string());
+        insert.push_str(&value.to_string());
     } else if let Some(branch) = object_branch(property, root) {
+        let default = schema_default(property, root);
+        if let Some(default) =
+            default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
+        {
+            insert.push(' ');
+            insert.push_str(&default.to_string());
+            let cursor = insert.encode_utf16().count();
+            return Some((insert, cursor));
+        }
         let mut cursor_offset = None;
         let mut children = String::new();
         if append_required_properties(
@@ -160,18 +184,55 @@ fn property_completion_insert(
         ) {
             insert.push('\n');
             insert.push_str(&children);
+        } else if branch.get("properties").is_some()
+            || branch.get("patternProperties").is_some()
+            || branch.get("additionalProperties").is_some()
+        {
+            insert.push_str("\n  ");
         } else {
             insert.push_str(" {}");
         }
         let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
         return Some((insert, cursor));
+    } else if let Some(default) = schema_default(property, root) {
+        insert.push(' ');
+        insert.push_str(&default.to_string());
     } else {
         insert.push(' ');
     }
     let cursor = insert.encode_utf16().count();
     Some((insert, cursor))
 }
-fn yaml_context(source: &str, cursor: usize) -> (Vec<String>, String, usize, bool) {
+fn mapping_colon(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn yaml_context(
+    source: &str,
+    cursor: usize,
+) -> (Vec<SchemaPathSegment>, String, usize, Option<String>, bool) {
     let cursor = utf16_to_byte_index(source, cursor);
     let before_cursor = &source[..cursor];
     let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
@@ -179,65 +240,115 @@ fn yaml_context(source: &str, cursor: usize) -> (Vec<String>, String, usize, boo
     let indent = current_line.len() - current_line.trim_start().len();
     let prefix = current_line.trim_start();
 
-    let mut ancestors: Vec<(usize, String)> = Vec::new();
+    let mut ancestors: Vec<(usize, SchemaPathSegment)> = Vec::new();
+    let mut item_counts = std::collections::BTreeMap::<usize, usize>::new();
     for line in source[..current_line_start].lines() {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
         let line_indent = line.len() - trimmed.len();
-        let Some((key, value)) = trimmed.split_once(':') else {
+        let is_array_item = trimmed == "-" || trimmed.starts_with("- ");
+        let (mapping, mapping_indent) = if is_array_item {
+            while ancestors
+                .last()
+                .is_some_and(|(level, _)| *level >= line_indent)
+            {
+                ancestors.pop();
+            }
+            item_counts.retain(|level, _| *level <= line_indent);
+            let index = item_counts.entry(line_indent).or_default();
+            ancestors.push((line_indent, SchemaPathSegment::ArrayItem(*index)));
+            *index += 1;
+            (
+                trimmed.strip_prefix('-').unwrap_or_default().trim_start(),
+                line_indent + 2,
+            )
+        } else {
+            item_counts.retain(|level, _| *level <= line_indent);
+            (trimmed, line_indent)
+        };
+        let Some(colon) = mapping_colon(mapping) else {
             continue;
         };
-        let key = key.trim().trim_matches(['\'', '"']);
-        if key.is_empty() || key.starts_with('-') {
+        let key = mapping[..colon].trim().trim_matches(['\'', '"']);
+        if key.is_empty() {
             continue;
         }
         while ancestors
             .last()
-            .is_some_and(|(level, _)| *level >= line_indent)
+            .is_some_and(|(level, _)| *level >= mapping_indent)
         {
             ancestors.pop();
         }
-        if value.trim().is_empty() {
-            ancestors.push((line_indent, key.to_string()));
+        if mapping[colon + 1..].trim().is_empty() {
+            ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
         }
     }
     while ancestors.last().is_some_and(|(level, _)| *level >= indent) {
         ancestors.pop();
     }
-    let path = ancestors.into_iter().map(|(_, key)| key).collect();
-
-    let value_start = prefix
-        .find(':')
-        .map(|colon| prefix[colon + 1..].len() - prefix[colon + 1..].trim_start().len());
-    let in_value = value_start.is_some();
-    let prefix_start = if let Some(colon) = prefix.find(':') {
-        current_line_start + indent + colon + 1 + value_start.unwrap_or_default()
+    let path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
+    let current_is_array_item = prefix == "-" || prefix.starts_with("- ");
+    let mut current_path = path;
+    let (line_content, line_content_offset) = if current_is_array_item {
+        let index = item_counts.get(&indent).copied().unwrap_or_default();
+        current_path.push(SchemaPathSegment::ArrayItem(index));
+        let content = prefix.strip_prefix('-').unwrap_or_default().trim_start();
+        let offset = prefix.len() - content.len();
+        (content, offset)
     } else {
-        current_line_start + indent
+        (prefix, 0)
     };
-    let typed = if let Some(colon) = prefix.find(':') {
-        prefix[colon + 1..].trim_start()
+    let colon = mapping_colon(line_content);
+    let value_start = colon.map(|colon| {
+        line_content[colon + 1..].len() - line_content[colon + 1..].trim_start().len()
+    });
+    let value_key = colon
+        .map(|colon| {
+            line_content[..colon]
+                .trim()
+                .trim_matches(['\'', '"'])
+                .to_string()
+        })
+        .filter(|key| !key.is_empty());
+    let prefix_start = if let Some(colon) = colon {
+        current_line_start
+            + indent
+            + line_content_offset
+            + colon
+            + 1
+            + value_start.unwrap_or_default()
     } else {
-        prefix
+        current_line_start + indent + line_content_offset
     };
-    (path, typed.to_string(), prefix_start, in_value)
+    let typed = if let Some(colon) = colon {
+        line_content[colon + 1..].trim_start()
+    } else {
+        line_content
+    };
+    (
+        current_path,
+        typed.to_string(),
+        prefix_start,
+        value_key,
+        current_is_array_item,
+    )
 }
 
 fn resolve_branches<'a>(schema: &'a Value, root: &'a Value, depth: usize) -> Vec<&'a Value> {
     if depth > 16 {
         return Vec::new();
     }
+    let mut branches = Vec::new();
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str)
         && let Some(target) = reference
             .strip_prefix('#')
             .and_then(|pointer| root.pointer(pointer))
     {
-        return resolve_branches(target, root, depth + 1);
+        branches.extend(resolve_branches(target, root, depth + 1));
     }
-
-    let mut branches = vec![schema];
+    branches.push(schema);
     for keyword in ["anyOf", "oneOf", "allOf"] {
         if let Some(options) = schema.get(keyword).and_then(Value::as_array) {
             for option in options {
@@ -248,17 +359,48 @@ fn resolve_branches<'a>(schema: &'a Value, root: &'a Value, depth: usize) -> Vec
     branches
 }
 
-fn schema_at_path<'a>(root: &'a Value, path: &[String]) -> Vec<&'a Value> {
+fn schema_at_path<'a>(root: &'a Value, path: &[SchemaPathSegment]) -> Vec<&'a Value> {
     let mut schemas = vec![root];
-    for key in path {
+    for segment in path {
         let mut next = Vec::new();
         for current in schemas {
             for branch in resolve_branches(current, root, 0) {
+                if let SchemaPathSegment::ArrayItem(index) = segment {
+                    if let Some(prefix_items) = branch.get("prefixItems").and_then(Value::as_array)
+                        && let Some(item_schema) = prefix_items.get(*index)
+                    {
+                        next.push(item_schema);
+                    } else if let Some(items) =
+                        branch.get("items").filter(|items| items.is_object())
+                    {
+                        next.push(items);
+                    }
+                    continue;
+                }
+                let SchemaPathSegment::Key(key) = segment else {
+                    continue;
+                };
+                let mut matched = false;
                 if let Some(property) = branch
                     .get("properties")
                     .and_then(|properties| properties.get(key))
                 {
                     next.push(property);
+                    matched = true;
+                }
+                if let Some(patterns) = branch.get("patternProperties").and_then(Value::as_object) {
+                    for (pattern, property) in patterns {
+                        if Regex::new(pattern).is_ok_and(|regex| regex.is_match(key)) {
+                            next.push(property);
+                            matched = true;
+                        }
+                    }
+                }
+                if !matched
+                    && let Some(additional) = branch.get("additionalProperties")
+                    && additional.is_object()
+                {
+                    next.push(additional);
                 }
             }
         }
@@ -270,26 +412,104 @@ fn schema_at_path<'a>(root: &'a Value, path: &[String]) -> Vec<&'a Value> {
     schemas
 }
 
+fn schema_value_candidates(branch: &Value) -> Vec<Value> {
+    let mut values = branch
+        .get("enum")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(value) = branch.get("const") {
+        values.push(value.clone());
+    }
+    if let Some(examples) = branch.get("examples").and_then(Value::as_array) {
+        values.extend(examples.iter().cloned());
+    }
+    if let Some(default) = branch.get("default") {
+        values.push(default.clone());
+    }
+    if branch.get("type").and_then(Value::as_str) == Some("boolean") {
+        values.extend([Value::Bool(true), Value::Bool(false)]);
+    }
+    values
+}
+
+fn path_with_key(path: &[SchemaPathSegment], key: &str) -> Vec<SchemaPathSegment> {
+    let mut path = path.to_vec();
+    path.push(SchemaPathSegment::Key(key.to_string()));
+    path
+}
+
+fn value_completions(
+    schemas: &[&Value],
+    typed: &str,
+    start: usize,
+    cursor: usize,
+    root: &Value,
+) -> Vec<Completion> {
+    let mut candidates = Vec::new();
+    for schema in schemas {
+        for branch in resolve_branches(schema, root, 0) {
+            for value in schema_value_candidates(branch) {
+                let label = match &value {
+                    Value::String(value) => value.clone(),
+                    _ => value.to_string(),
+                };
+                if label.starts_with(typed) {
+                    let insert = match &value {
+                        Value::String(value) => {
+                            serde_json::to_string(value).unwrap_or_else(|_| label.clone())
+                        }
+                        _ => value.to_string(),
+                    };
+                    candidates.push(Completion {
+                        label,
+                        detail: branch
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Allowed value")
+                            .to_string(),
+                        type_label: schema_type_label(branch, root, "value"),
+                        cursor_offset: insert.encode_utf16().count(),
+                        insert,
+                        start,
+                        end: cursor,
+                        is_value: true,
+                    });
+                }
+            }
+        }
+    }
+    candidates.sort_by(|left, right| left.label.cmp(&right.label));
+    candidates.dedup_by(|left, right| left.label == right.label);
+    candidates
+}
+
 fn existing_mapping_keys(
     source: &str,
     cursor_byte: usize,
-    path: &[String],
+    path: &[SchemaPathSegment],
 ) -> Option<HashSet<String>> {
     let parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
     let document: Value = noyalib::from_str_with_config(source, &parser_config).ok()?;
     let mapping = path
         .iter()
-        .try_fold(&document, |value, key| value.get(key))?
+        .try_fold(&document, |value, segment| match segment {
+            SchemaPathSegment::Key(key) => value.get(key),
+            SchemaPathSegment::ArrayItem(index) => value.get(index),
+        })?
         .as_object()?;
     let current_line = source[..cursor_byte]
         .rsplit('\n')
         .next()
         .unwrap_or_default();
-    let current_key = current_line
-        .trim_start()
-        .split_once(':')
-        .map(|(key, _)| key.trim().trim_matches(['\'', '"']).to_string());
+    let current_line = current_line.trim_start().trim_start_matches("- ");
+    let current_key = mapping_colon(current_line).map(|colon| {
+        current_line[..colon]
+            .trim()
+            .trim_matches(['\'', '"'])
+            .to_string()
+    });
     Some(
         mapping
             .keys()
@@ -313,57 +533,32 @@ pub(super) fn completions(
         return Vec::new();
     };
     let cursor_byte = utf16_to_byte_index(source, cursor);
-    let current_line_start = source[..cursor_byte]
-        .rfind('\n')
-        .map_or(0, |index| index + 1);
-    let (path, typed, replace_start, in_value) = yaml_context(source, cursor);
+    let (path, typed, replace_start, value_key, is_array_item) = yaml_context(source, cursor);
     let schemas = schema_at_path(&bundle.schema, &path);
 
-    if in_value {
-        let key = source[current_line_start..cursor_byte]
-            .trim_start()
-            .split_once(':')
-            .map(|(key, _)| key.trim().trim_matches(['\'', '"']).to_string());
-        let Some(key) = key else {
-            return Vec::new();
-        };
+    if let Some(key) = value_key {
         let value_schemas = schema_at_path(&bundle.schema, &path_with_key(&path, &key));
-        let mut candidates = Vec::new();
-        for schema in value_schemas {
-            for branch in resolve_branches(schema, &bundle.schema, 0) {
-                if let Some(values) = branch.get("enum").and_then(Value::as_array) {
-                    for value in values {
-                        let label = match value {
-                            Value::String(value) => value.clone(),
-                            _ => value.to_string(),
-                        };
-                        if label.starts_with(&typed) {
-                            let insert = match value {
-                                Value::String(value) => {
-                                    serde_json::to_string(value).unwrap_or_else(|_| label.clone())
-                                }
-                                _ => value.to_string(),
-                            };
-                            candidates.push(Completion {
-                                label: label.clone(),
-                                detail: branch
-                                    .get("description")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("Allowed value")
-                                    .to_string(),
-                                type_label: schema_type_label(branch, &bundle.schema, "value"),
-                                cursor_offset: insert.encode_utf16().count(),
-                                insert,
-                                start: replace_start,
-                                end: cursor,
-                                is_value: true,
-                            });
-                        }
-                    }
-                }
-            }
+        return value_completions(
+            &value_schemas,
+            &typed,
+            replace_start,
+            cursor,
+            &bundle.schema,
+        );
+    }
+
+    if is_array_item {
+        let has_object_properties = schemas
+            .iter()
+            .flat_map(|schema| resolve_branches(schema, &bundle.schema, 0))
+            .any(|branch| {
+                branch.get("properties").is_some()
+                    || branch.get("patternProperties").is_some()
+                    || branch.get("type").and_then(Value::as_str) == Some("object")
+            });
+        if !has_object_properties {
+            return value_completions(&schemas, &typed, replace_start, cursor, &bundle.schema);
         }
-        return candidates;
     }
 
     let existing_keys = existing_mapping_keys(source, cursor_byte, &path);
@@ -410,12 +605,6 @@ pub(super) fn completions(
     candidates.sort_by(|left, right| left.label.cmp(&right.label));
     candidates.dedup_by(|left, right| left.label == right.label);
     candidates
-}
-
-fn path_with_key(path: &[String], key: &str) -> Vec<String> {
-    let mut path = path.to_vec();
-    path.push(key.to_string());
-    path
 }
 
 pub(super) fn apply_completion(source: &str, completion: &Completion) -> (String, usize) {

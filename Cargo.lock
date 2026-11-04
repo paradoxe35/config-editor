@@ -2218,6 +2218,7 @@ dependencies = [
  "jsonschema",
  "leptos",
  "noyalib",
+ "regex",
  "serde_json",
  "wasm-bindgen",
  "web-sys",
