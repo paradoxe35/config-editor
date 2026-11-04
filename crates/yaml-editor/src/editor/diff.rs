@@ -465,3 +465,37 @@ mod crlf {
         );
     }
 }
+
+#[cfg(test)]
+mod user_reported_bugs {
+    use super::*;
+
+    // The user reported: adding empty lines to a file that ends with \n
+    // shows modifications instead of additions.
+    #[test]
+    fn adding_empty_lines_to_trailing_newline_file() {
+        // File ends with \n, so split gives ["a:1", ""]
+        let baseline = "a: 1\n";
+        // User presses Enter once -> "a: 1\n\n"
+        let after_one = "a: 1\n\n";
+        // User presses Enter again -> "a: 1\n\n\n"
+        let after_two = "a: 1\n\n\n";
+        
+        let d1 = diff_lines(baseline, after_one);
+        println!("baseline -> +1 empty: {:?}", d1.current);
+        assert_eq!(d1.current, vec![DiffKind::Unchanged, DiffKind::Added, DiffKind::Unchanged]);
+        
+        let d2 = diff_lines(baseline, after_two);
+        println!("baseline -> +2 empty: {:?}", d2.current);
+        assert_eq!(d2.current, vec![DiffKind::Unchanged, DiffKind::Added, DiffKind::Added, DiffKind::Unchanged]);
+    }
+    
+    // User reported: cursor disappears when editor gets tall
+    // This is a layout issue, not a diff issue, but let's understand the layout
+    #[test]
+    fn understand_textarea_growth() {
+        // This test just documents expected behavior
+        // When textarea has no max-height, it grows with content
+        // The caret should still be visible regardless of height
+    }
+}

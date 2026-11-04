@@ -1135,3 +1135,32 @@ fn auto_trigger_still_fires_when_the_document_ends_with_a_newline() {
     assert!(!should_auto_trigger("insertLineBreak", "a: 1", "a: 1\n"));
     assert!(!should_auto_trigger("insertText", "a: 1", "a: 1\n"));
 }
+
+#[cfg(feature = "completion")]
+#[test]
+fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "update:\n  remote: ftrue";
+    let cursor = "update:\n  remote: f".encode_utf16().count();
+    let option = completions(input, cursor, false, Some(&schema), true)
+        .into_iter()
+        .find(|option| option.label == "false")
+        .expect("typing before existing text should suggest the matching value");
+    let (updated, cursor_after) = apply_completion(input, &option);
+    assert_eq!(updated, "update:\n  remote: false");
+    assert_eq!(cursor_after, updated.encode_utf16().count());
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn accepting_a_value_keeps_an_inline_comment() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "update:\n  remote: tru # keep me";
+    let cursor = "update:\n  remote: tru".encode_utf16().count();
+    let option = completions(input, cursor, false, Some(&schema), true)
+        .into_iter()
+        .find(|option| option.label == "true")
+        .expect("true should match the partial value");
+    let (updated, _) = apply_completion(input, &option);
+    assert_eq!(updated, "update:\n  remote: true # keep me");
+}

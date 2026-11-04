@@ -426,9 +426,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let (typed, replace_end_byte) = if let Some(colon) = colon {
         let value_begin = colon + 1 + value_start.unwrap_or_default();
         let value_begin_abs = current_line_start + content_start + value_begin;
+        let typed_end = cursor_in_content.clamp(value_begin, line_content.len());
         let token_len = value_token_len(&source[value_begin_abs.min(line_end)..line_end]);
         (
-            line_content[value_begin..].trim_start().to_string(),
+            line_content[value_begin..typed_end].trim_end().to_string(),
             value_begin_abs + token_len,
         )
     } else {

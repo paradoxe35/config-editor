@@ -214,6 +214,21 @@ test.describe('required expansion', () => {
   });
 });
 
+test.describe('typing in values', () => {
+  test('typing inside an existing value suggests and replaces it', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('update:\n  remote: true');
+    await e.input.evaluate((element) => {
+      const at = element.value.indexOf('remote: ') + 'remote: '.length;
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.type('f');
+    await expect.poll(() => e.keys()).toContain('false');
+    await e.clickKey('false');
+    await expect(e.input).toHaveValue('update:\n  remote: false');
+  });
+});
+
 test.describe('typing triggers', () => {
   test('typing suggests keys in a document that ends with a newline', async ({ page }) => {
     const e = editor(page);
