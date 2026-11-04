@@ -1101,3 +1101,25 @@ fn required_properties_sort_before_optional_ones() {
         Some("target")
     );
 }
+
+#[cfg(feature = "completion")]
+#[test]
+fn value_for_an_expanded_required_key_stays_on_its_line() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    // This is exactly what accepting `metrics` inserts: a trailing newline follows
+    // the empty value of its required `listen` key.
+    let input = "metrics:\n  listen: \n";
+    let cursor = "metrics:\n  listen: ".encode_utf16().count();
+    let option = completions(input, cursor, false, Some(&schema), true)
+        .into_iter()
+        .find(|option| option.label == "0.0.0.0:7835")
+        .expect("metrics.listen should offer Bind examples");
+    let (updated, cursor_after) = apply_completion(input, &option);
+    assert_eq!(updated, "metrics:\n  listen: \"0.0.0.0:7835\"\n");
+    assert_eq!(
+        cursor_after,
+        "metrics:\n  listen: \"0.0.0.0:7835\""
+            .encode_utf16()
+            .count()
+    );
+}

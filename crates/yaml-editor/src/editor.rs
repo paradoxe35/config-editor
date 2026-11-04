@@ -425,6 +425,22 @@ pub fn YamlEditor(
                                                 class:yaml-editor__line-number-error=has_error
                                                 class:yaml-editor__line-number-added=change == DiffKind::Added
                                                 class:yaml-editor__line-number-modified=change == DiffKind::Modified
+                                                on:click=move |_| {
+                                                    if let Some(editor) = editor_ref.get() {
+                                                        let offset: usize = source
+                                                            .get_untracked()
+                                                            .split('\n')
+                                                            .take(line.saturating_sub(1))
+                                                            .map(|text_line| text_line.encode_utf16().count() + 1)
+                                                            .sum();
+                                                        let _ = editor.focus();
+                                                        cursor.set(offset);
+                                                        current_line.set(line);
+                                                        suggestions_requested.set(false);
+                                                        hide_hover();
+                                                        let _ = editor.set_selection_range(offset as u32, offset as u32);
+                                                    }
+                                                }
                                             >
                                                 <span aria-hidden="true">{line}</span>
                                                 {(change == DiffKind::Added).then(|| view! {

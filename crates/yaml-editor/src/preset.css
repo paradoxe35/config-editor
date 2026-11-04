@@ -159,6 +159,7 @@
 .yaml-editor__gutter > div {
   position: relative;
   height: var(--yaml-editor-line-height);
+  cursor: pointer;
 }
 
 .yaml-editor__line-number-active { color: var(--yaml-editor-line-active); }
@@ -381,7 +382,7 @@
   outline: 0;
   background: transparent;
   color: transparent;
-  caret-color: #aeafad;
+  caret-color: var(--yaml-editor-caret);
   -webkit-text-fill-color: transparent;
   overflow: auto;
 }

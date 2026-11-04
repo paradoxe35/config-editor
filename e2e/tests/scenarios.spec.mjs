@@ -176,6 +176,93 @@ test.describe('schema-driven completion', () => {
   });
 });
 
+test.describe('update.remote', () => {
+  test('typing remote: and accepting true keeps the value on the same line', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('update:');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('remote:');
+    await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['true', 'false']));
+    await e.clickKey('true');
+    await expect(e.input).toHaveValue('update:\n  remote: true');
+    expect(await e.isOpen()).toBe(false);
+  });
+
+  test('keyboard acceptance of remote and true stays inline', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('update:');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('remote');
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue('update:\n  remote: ');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue('update:\n  remote: true');
+  });
+
+});
+
+test.describe('required expansion', () => {
+  test('metrics expands listen and the example value stays on the listen line', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('met');
+    await e.clickKey('metrics');
+    await expect(e.input).toHaveValue('metrics:\n  listen: \n');
+    await expect.poll(() => e.keys()).toContain('0.0.0.0:7835');
+    await e.clickKey('0.0.0.0:7835');
+    await expect(e.input).toHaveValue('metrics:\n  listen: "0.0.0.0:7835"\n');
+  });
+});
+
+test.describe('diagnostics lines', () => {
+  test('a nested key error lands on its own line, not the first key with the same name', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(`listen: 7835
+public_address: tunnel.example.com
+insecure_plaintext: false
+heartbeat:
+  interval_secs: 15
+limits:
+  max_handshakes: 64
+pool:
+  min_idle: 2
+websocket:
+  listen: 0
+`);
+    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    await expect(marker).toHaveCount(1);
+    await expect(marker).toHaveAttribute('aria-label', /line 11/);
+    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['11']);
+    await e.screenshot('diagnostic-nested-line');
+  });
+});
+
+test.describe('gutter and caret', () => {
+  test('clicking a line number moves the caret to that line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('alpha: 1\n\nbeta: 2\ngamma: 3\n');
+    await page.locator('.yaml-editor__gutter > div').nth(2).click();
+    const state = await e.input.evaluate((element) => {
+      const position = element.selectionStart;
+      const before = element.value.slice(0, position);
+      return { position, line: before.split('\n').length, column: position - (before.lastIndexOf('\n') + 1) };
+    });
+    expect(state).toEqual({ position: 10, line: 3, column: 0 });
+  });
+
+  test('the caret color follows every theme', async ({ page }) => {
+    const e = editor(page);
+    const select = page.locator('.yaml-editor__demo-theme-select');
+    const caret = () => e.input.evaluate((element) => getComputedStyle(element).caretColor);
+    await select.selectOption('vscode-dark');
+    expect(await caret()).toBe('rgb(174, 175, 173)');
+    await select.selectOption('github-light');
+    expect(await caret()).toBe('rgb(31, 35, 40)');
+    await select.selectOption('dracula');
+    expect(await caret()).toBe('rgb(248, 248, 242)');
+  });
+});
+
 test.describe('editing behaviour', () => {
   test('Ctrl+Z undoes an accepted completion and Ctrl+Shift+Z redoes it', async ({ page }) => {
     const e = editor(page);

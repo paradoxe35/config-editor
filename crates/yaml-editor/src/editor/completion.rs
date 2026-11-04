@@ -31,6 +31,7 @@ struct CompletionContext {
     path: Vec<SchemaPathSegment>,
     typed: String,
     replace_start: usize,
+    replace_end: usize,
     value_key: Option<String>,
     value_needs_space: bool,
     is_array_item: bool,
@@ -304,6 +305,20 @@ fn mapping_colon(line: &str) -> Option<usize> {
     None
 }
 
+/// Length of the scalar at the start of `text`, stopping before an inline comment.
+fn value_token_len(text: &str) -> usize {
+    let mut end = text.len();
+    for (index, character) in text.char_indices() {
+        let comment_start =
+            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
+        if comment_start {
+            end = index;
+            break;
+        }
+    }
+    text[..end].trim_end().len()
+}
+
 fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let before_cursor = &source[..cursor];
@@ -375,8 +390,20 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         (prefix, 0)
     };
     let colon = mapping_colon(line_content);
+    let content_start = indent + content_offset;
+    let cursor_in_content = cursor
+        .saturating_sub(current_line_start)
+        .saturating_sub(content_start)
+        .min(line_content.len());
+    // Only the text before the caret decides the value position. A trailing
+    // newline (for example from an expanded required property) must not move the
+    // insertion point past the end of the value.
     let value_start = colon.map(|colon| {
-        line_content[colon + 1..].len() - line_content[colon + 1..].trim_start().len()
+        let after_colon = &line_content[colon + 1..];
+        let before_caret = &after_colon[..cursor_in_content
+            .saturating_sub(colon + 1)
+            .min(after_colon.len())];
+        before_caret.len() - before_caret.trim_start().len()
     });
     let value_key = colon
         .map(|colon| {
@@ -387,21 +414,37 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         })
         .filter(|key| !key.is_empty());
     let typed_start_byte = if let Some(colon) = colon {
-        current_line_start + indent + content_offset + colon + 1 + value_start.unwrap_or_default()
+        current_line_start + content_start + colon + 1 + value_start.unwrap_or_default()
     } else {
-        current_line_start + indent + content_offset
+        current_line_start + content_start
     };
-    let typed = if let Some(colon) = colon {
-        line_content[colon + 1..].trim_start()
+    // Suggestions match the text before the caret. Accepting one replaces the
+    // whole scalar on this line, so editing in the middle of a value works too.
+    let line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |i| cursor + i);
+    let (typed, replace_end_byte) = if let Some(colon) = colon {
+        let value_begin = colon + 1 + value_start.unwrap_or_default();
+        let value_begin_abs = current_line_start + content_start + value_begin;
+        let token_len = value_token_len(&source[value_begin_abs.min(line_end)..line_end]);
+        (
+            line_content[value_begin..].trim_start().to_string(),
+            value_begin_abs + token_len,
+        )
     } else {
-        line_content
+        let content_begin_abs = current_line_start + content_start;
+        let token_len = value_token_len(&source[content_begin_abs.min(line_end)..line_end]);
+        (line_content.to_string(), content_begin_abs + token_len)
     };
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
-    let value_needs_space = colon.is_some_and(|colon| line_content[colon + 1..].is_empty());
+    let value_needs_space = colon.is_some_and(|colon| {
+        line_content[colon + 1..cursor_in_content.min(line_content.len())].is_empty()
+    });
     CompletionContext {
         path,
-        typed: typed.to_string(),
+        typed,
         replace_start: source[..typed_start_byte].encode_utf16().count(),
+        replace_end: replace_end_byte.min(source.len()),
         value_key,
         value_needs_space,
         is_array_item: current_is_array_item,
@@ -780,7 +823,7 @@ pub(super) fn completions(
             &value_schemas,
             &context.typed,
             context.replace_start,
-            cursor,
+            context.replace_end,
             &bundle.schema,
             leading,
         );
@@ -804,7 +847,7 @@ pub(super) fn completions(
                 &schemas,
                 &context.typed,
                 context.replace_start,
-                cursor,
+                context.replace_end,
                 &bundle.schema,
                 "",
             );

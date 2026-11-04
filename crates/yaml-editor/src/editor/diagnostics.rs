@@ -94,9 +94,10 @@ pub(super) fn validate_yaml(
                 let location = if let ValidationErrorKind::AdditionalProperties { unexpected } =
                     error.kind()
                 {
-                    unexpected
-                        .iter()
-                        .find_map(|key| yaml_span_for_path(source, &format!("/{key}")))
+                    let parent = error.instance_path().as_str();
+                    unexpected.iter().find_map(|key| {
+                        yaml_span_for_path(source, &format!("{parent}/{}", escape_pointer(key)))
+                    })
                 } else {
                     yaml_value_span_for_path(source, &path)
                         .or_else(|| yaml_span_for_path(source, &path))
@@ -144,16 +145,106 @@ fn most_specific_validation_error(error: &ValidationError<'_>) -> (String, Strin
 }
 
 #[cfg(feature = "schema-validation")]
+fn escape_pointer(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
+}
+
+#[cfg(feature = "schema-validation")]
+fn pointer_segments(path: &str) -> Vec<String> {
+    path.split('/')
+        .skip(1)
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+        .collect()
+}
+
+/// Maps every mapping key and sequence item in the document to its source line.
+/// Paths are the same JSON-pointer segments the schema validator reports, so a
+/// nested `listen` is never confused with a root `listen`.
+#[cfg(feature = "schema-validation")]
+fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
+    let mut entries = Vec::new();
+    let mut stack: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut counts: std::collections::HashMap<(Vec<String>, usize), usize> =
+        std::collections::HashMap::new();
+    for (index, raw_line) in source.lines().enumerate() {
+        let line = raw_line.trim_end_matches('\r');
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        let mut rest = trimmed;
+        let mut content_indent = indent;
+
+        if rest == "-" || rest.starts_with("- ") {
+            while stack.last().is_some_and(|(level, _)| *level >= indent) {
+                stack.pop();
+            }
+            let parent = stack
+                .last()
+                .map(|(_, path)| path.clone())
+                .unwrap_or_default();
+            let count = counts.entry((parent.clone(), indent)).or_default();
+            let mut item_path = parent;
+            item_path.push(count.to_string());
+            *count += 1;
+            let after_dash = rest.strip_prefix('-').unwrap_or_default();
+            let content = after_dash.trim_start();
+            content_indent = indent + 1 + after_dash.len() - content.len();
+            stack.push((indent, item_path));
+            rest = content;
+        }
+
+        if rest.is_empty() {
+            continue;
+        }
+        let Some(colon) = rest.find(':') else {
+            continue;
+        };
+        let key_raw = &rest[..colon];
+        let key = key_raw.trim().trim_matches(['\'', '"']);
+        if key.is_empty() {
+            continue;
+        }
+        while stack
+            .last()
+            .is_some_and(|(level, _)| *level >= content_indent)
+        {
+            stack.pop();
+        }
+        let mut path = stack
+            .last()
+            .map(|(_, path)| path.clone())
+            .unwrap_or_default();
+        path.push(key.to_string());
+        let column = line[..content_indent].chars().count() + 1;
+        let end_column = column + key_raw.trim_end().chars().count();
+        entries.push((path.clone(), index + 1, column, end_column));
+        let value = rest[colon + 1..].trim();
+        if value.is_empty() || value.starts_with('#') {
+            stack.push((content_indent, path));
+        }
+    }
+    entries
+}
+
+#[cfg(feature = "schema-validation")]
 fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let key = path
-        .rsplit('/')
-        .next()?
-        .replace("~1", "/")
-        .replace("~0", "~");
+    let wanted = pointer_segments(path);
+    let key = wanted.last()?.clone();
     if key.is_empty() {
         return None;
     }
 
+    if let Some((_, line, column, end_column)) = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| *candidate == wanted)
+    {
+        return Some((line, column, end_column));
+    }
+
+    // Fall back to the previous first-match behavior for paths the scanner
+    // cannot represent, such as flow mappings.
     source.lines().enumerate().find_map(|(index, line)| {
         let indent = line.len() - line.trim_start().len();
         let (candidate, _) = line.trim_start().split_once(':')?;
@@ -170,7 +261,12 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
 
 #[cfg(feature = "schema-validation")]
 fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let (line_number, _, _) = yaml_span_for_path(source, path)?;
+    let wanted = pointer_segments(path);
+    let line_number = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| *candidate == wanted)
+        .map(|(_, line, _, _)| line)
+        .or_else(|| yaml_span_for_path(source, path).map(|(line, _, _)| line))?;
     let line = source.lines().nth(line_number.saturating_sub(1))?;
     let (key, raw_value) = line.split_once(':')?;
     let value_start = raw_value.len() - raw_value.trim_start().len();
@@ -198,6 +294,50 @@ fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
 #[cfg(all(test, feature = "schema-validation"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nested_key_maps_to_its_own_line_not_the_first_key_with_the_same_name() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"},"websocket":{"type":"object","properties":{"listen":{"type":"integer","minimum":1}}}}}"#,
+        )
+        .unwrap();
+        let source = "listen: 7835\nwebsocket:\n  listen: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(11));
+    }
+
+    #[test]
+    fn an_unexpected_nested_key_maps_to_its_own_line_not_a_root_key_with_the_same_name() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"},"websocket":{"type":"object","properties":{},"additionalProperties":false}}}"#,
+        )
+        .unwrap();
+        let source = "listen: 7835\nwebsocket:\n  listen: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+    }
+
+    #[test]
+    fn a_key_inside_a_sequence_item_maps_to_its_own_line() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"weight":{"type":"integer"},"services":{"type":"object","additionalProperties":{"type":"object","properties":{"clients":{"type":"array","items":{"type":"object","properties":{"weight":{"type":"integer","minimum":1}}}}}}}}}"#,
+        )
+        .unwrap();
+        let source =
+            "weight: 5\nservices:\n  api:\n    clients:\n      - name: laptop\n        weight: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(6));
+    }
 
     #[test]
     fn empty_schema_value_points_after_the_colon_instead_of_at_the_key() {
