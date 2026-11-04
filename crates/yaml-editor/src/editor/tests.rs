@@ -128,7 +128,7 @@ fn line_diff_tracks_deletions_before_first_and_after_last_lines() {
     let ending = diff_lines("keep:\nremove:", "keep:");
     assert_eq!(ending.current, vec![DiffKind::Unchanged]);
     assert_eq!(ending.deleted_before, vec![false]);
-    assert_eq!(ending.deleted_after, true);
+    assert!(ending.deleted_after);
 }
 
 #[test]
@@ -401,7 +401,7 @@ fn object_completion_expands_required_fields_and_places_cursor_at_first_value() 
         .unwrap();
     assert_eq!(
         option.insert,
-        "auth:\n  enabled: false\n  token: \n  mode: \"safe\"\n"
+        "auth:\n  enabled: false\n  token: \n  mode: safe\n"
     );
     let (updated, cursor) = apply_completion("", option);
     assert_eq!(updated, option.insert);
@@ -465,6 +465,26 @@ fn completions_follow_additional_properties_into_dynamic_object_values() {
 
 #[cfg(feature = "completion")]
 #[test]
+fn completions_use_the_real_demo_schema_for_dynamic_client_keys() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "clients:\n  paradoxe:\n    ";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    );
+    assert!(options.iter().any(|option| option.label == "secret"));
+    assert!(
+        options
+            .iter()
+            .any(|option| option.label == "max_connections")
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
 fn completions_follow_pattern_properties_and_quoted_mapping_keys() {
     let schema = build_schema(
         r##"{
@@ -505,12 +525,23 @@ fn array_item_completions_follow_items_and_prefix_items_schemas() {
                 },
                 "modes":{
                     "type":"array",
+                    "default":[],
                     "prefixItems":[{"enum":["fast","safe"]}]
                 }
             }
         }"#,
     )
     .unwrap();
+
+    let root_options = completions("", 0, true, Some(&schema), true);
+    assert_eq!(
+        root_options
+            .iter()
+            .find(|option| option.label == "modes")
+            .unwrap()
+            .insert,
+        "modes:\n  - "
+    );
 
     let object_input = "clients:\n  - na";
     let object_options = completions(
@@ -567,6 +598,250 @@ fn const_and_boolean_schema_values_are_suggested_and_inserted() {
     assert!(value_options.iter().any(|option| option.label == "true"));
 }
 
+#[cfg(feature = "completion")]
+#[test]
+fn examples_and_example_schema_values_are_suggested_in_value_positions() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "region":{"type":"string","examples":["eu-west-1","us-east-1"]},
+                "legacy":{"type":"string","example":"old.example"}
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let region_input = "region: eu";
+    let region_options = completions(
+        region_input,
+        region_input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    let region = region_options
+        .iter()
+        .find(|option| option.label == "eu-west-1")
+        .unwrap();
+    assert!(region.is_value);
+    assert_eq!(region.insert, "eu-west-1");
+
+    let legacy_input = "legacy: ol";
+    let legacy_options = completions(
+        legacy_input,
+        legacy_input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(
+        legacy_options
+            .iter()
+            .any(|option| option.label == "old.example")
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn nullable_type_arrays_expand_objects_and_offer_null_values() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "cache":{
+                    "type":["object","null"],
+                    "properties":{
+                        "size":{"type":"integer"},
+                        "ttl":{"type":"integer"}
+                    }
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let key_options = completions("", 0, true, Some(&schema), true);
+    assert_eq!(
+        key_options
+            .iter()
+            .find(|option| option.label == "cache")
+            .unwrap()
+            .insert,
+        "cache:\n  "
+    );
+
+    let value_input = "cache: n";
+    let value_options = completions(
+        value_input,
+        value_input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(value_options.iter().any(|option| option.label == "null"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn fuzzy_completion_matches_word_initials_and_subsequences() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "max_connections":{"type":"integer"},
+                "min_connections":{"type":"integer"}
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let input = "maxc";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert_eq!(
+        options.first().map(|option| option.label.as_str()),
+        Some("max_connections")
+    );
+    assert!(
+        !options
+            .iter()
+            .any(|option| option.label == "min_connections")
+    );
+
+    let initials = "mc";
+    let initials_options = completions(
+        initials,
+        initials.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert_eq!(initials_options.len(), 2);
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn quoted_partial_keys_are_replaced_with_the_quoted_schema_key() {
+    let schema =
+        build_schema(r#"{"type":"object","properties":{"display:name":{"type":"string"}}}"#)
+            .unwrap();
+    let input = "\"disp";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    let option = options
+        .iter()
+        .find(|option| option.label == "display:name")
+        .unwrap();
+    assert_eq!(option.insert, "\"display:name\": ");
+    let (updated, cursor) = apply_completion(input, option);
+    assert_eq!(updated, "\"display:name\": ");
+    assert_eq!(cursor, updated.encode_utf16().count());
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn expanded_completions_follow_the_document_indentation_unit() {
+    let schema = build_schema(
+        r#"{
+            "type":"object",
+            "properties":{
+                "server":{
+                    "type":"object",
+                    "properties":{
+                        "auth":{
+                            "type":"object",
+                            "required":["enabled","token"],
+                            "properties":{
+                                "enabled":{"type":"boolean","default":false},
+                                "token":{"type":"string"}
+                            }
+                        }
+                    }
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let input = "server:\n    ";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    );
+    let option = options
+        .iter()
+        .find(|option| option.label == "auth")
+        .unwrap();
+    assert_eq!(
+        option.insert,
+        "auth:\n        enabled: false\n        token: \n"
+    );
+}
+
+#[test]
+fn auto_trigger_only_fires_for_genuine_insertions() {
+    assert!(should_auto_trigger("insertText", "", "n"));
+    assert!(should_auto_trigger("insertText", "na", "nam"));
+    assert!(should_auto_trigger("insertCompositionText", "", "e"));
+    assert!(should_auto_trigger("insertText", "old-key", "s"));
+    assert!(should_auto_trigger(
+        "insertCompositionText",
+        "old-key",
+        "新"
+    ));
+
+    assert!(!should_auto_trigger(
+        "insertLineBreak",
+        "a:\n  ",
+        "a:\n  \n  "
+    ));
+    assert!(!should_auto_trigger("insertParagraph", "a", "a\n"));
+    assert!(should_auto_trigger("insertText", "abc", "ab"));
+    assert!(!should_auto_trigger("", "abc", "ab"));
+    assert!(!should_auto_trigger("insertFromPaste", "", "pasted"));
+    assert!(!should_auto_trigger("insertFromDrop", "", "dropped"));
+    assert!(!should_auto_trigger("deleteContentBackward", "ab", "a"));
+    assert!(!should_auto_trigger("deleteContentForward", "ab", "a"));
+    assert!(!should_auto_trigger("historyUndo", "a", "ab"));
+    assert!(!should_auto_trigger("historyRedo", "a", "ab"));
+    assert!(!should_auto_trigger("insertText", "a", "a\n"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn demo_web_http_value_completion_stays_on_the_same_line() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "web:\n  http: ";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    let option = options
+        .iter()
+        .find(|option| option.label == "0.0.0.0:7835")
+        .expect("Bind examples should be offered for web.http");
+    let (updated, cursor) = apply_completion(input, option);
+    assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
+    assert_eq!(cursor, updated.encode_utf16().count());
+}
+
 #[test]
 fn replacing_a_selection_respects_utf16_cursor_offsets() {
     let (updated, cursor) = replace_selection("ab🙂xy", 4, 5, "Z");
@@ -578,6 +853,27 @@ fn replacing_a_selection_respects_utf16_cursor_offsets() {
 fn enter_continues_yaml_indentation_and_nests_after_a_mapping_key() {
     assert_eq!(newline_with_indent("services:", 9), "\n  ");
     assert_eq!(newline_with_indent("services:\n  web: ", 17), "\n    ");
+}
+
+#[test]
+fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
+    let source = "services:\n  - web:";
+    assert_eq!(newline_with_indent(source, source.len()), "\n      ");
+
+    let compact = "services:\n  - api: 8080";
+    assert_eq!(newline_with_indent(compact, compact.len()), "\n    ");
+
+    let padded = "services:\n  -   web:";
+    assert_eq!(newline_with_indent(padded, padded.len()), "\n        ");
+
+    let empty_item = "services:\n  - ";
+    assert_eq!(newline_with_indent(empty_item, empty_item.len()), "\n  - ");
+
+    let plain_scalar_key = "services:\n  -web: 8080";
+    assert_eq!(
+        newline_with_indent(plain_scalar_key, plain_scalar_key.len()),
+        "\n  "
+    );
 }
 
 #[test]
@@ -599,6 +895,14 @@ fn comment_shortcut_uncomments_indented_lines_and_keeps_blank_lines() {
 }
 
 #[test]
+fn indentation_unit_matches_the_document_style() {
+    assert_eq!(indent_unit(""), "  ");
+    assert_eq!(indent_unit("one:\n  two: 1\n"), "  ");
+    assert_eq!(indent_unit("one:\n    two: 1\n"), "    ");
+    assert_eq!(indent_unit("one:\n\ttwo: 1\n"), "\t");
+}
+
+#[test]
 fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
     let source = "one:\ntwo:\n";
     let (indented, start, end) =
@@ -609,4 +913,191 @@ fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
 
     let (outdented, _, _) = indent_yaml_lines(&indented, start, end, true).unwrap();
     assert_eq!(outdented, source);
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn accepting_a_value_closes_suggestions_but_accepting_a_key_reopens_them() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "web:\n  http: ";
+    let value = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    )
+    .into_iter()
+    .find(|option| option.label == "0.0.0.0:7835")
+    .expect("web.http example should be suggested");
+    assert!(!accept_reopens_suggestions(&value, true));
+
+    let key = completions(
+        "web:\n  ",
+        "web:\n  ".encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    )
+    .into_iter()
+    .find(|option| option.label == "http")
+    .expect("web.http key should be suggested");
+    assert!(accept_reopens_suggestions(&key, true));
+    assert!(!accept_reopens_suggestions(&key, false));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn value_directly_after_a_bare_colon_gets_a_separating_space() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "web:\n  http:";
+    let option = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    )
+    .into_iter()
+    .find(|option| option.label == "0.0.0.0:7835")
+    .expect("web.http example should be suggested after a bare colon");
+    let (updated, cursor) = apply_completion(input, &option);
+    assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
+    assert_eq!(cursor, updated.encode_utf16().count());
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn hovering_a_key_returns_its_schema_documentation() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let source = "web:\n  http: 80\n";
+    let web = key_hover(source, 0, 1, Some(&schema)).expect("web should have docs");
+    assert_eq!(web.key, "web");
+    assert_eq!(
+        web.description.as_deref(),
+        Some("The web proxy: one HTTPS port for websites and TLS services by name; off unless set")
+    );
+
+    let http = key_hover(source, 1, 4, Some(&schema)).expect("nested http should have docs");
+    assert_eq!(http.key, "http");
+    assert_eq!(http.start_column, 2);
+    assert_eq!(
+        http.examples,
+        vec!["0.0.0.0:7835".to_string(), "7835".to_string()]
+    );
+    assert!(http.type_label.contains("integer") || http.type_label.contains("string"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn hovering_outside_a_key_or_on_an_unknown_key_shows_nothing() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let source = "web:\n  http: 80\n  unknown_key: 1\n";
+    assert!(
+        key_hover(source, 1, 8, Some(&schema)).is_none(),
+        "value text is not a key"
+    );
+    assert!(
+        key_hover(source, 2, 3, Some(&schema)).is_none(),
+        "unknown keys have no schema"
+    );
+    assert!(
+        key_hover(source, 0, 1, None).is_none(),
+        "no schema, no docs"
+    );
+}
+
+#[test]
+fn hover_marks_required_properties_from_the_parent_schema() {
+    let schema = build_schema(
+        r#"{"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"App name"},"port":{"type":"integer","default":8080}}}"#,
+    )
+    .unwrap();
+    let name = key_hover("name: app\n", 0, 0, Some(&schema)).unwrap();
+    assert!(name.required);
+    assert_eq!(name.description.as_deref(), Some("App name"));
+    let port = key_hover("port: 1\n", 0, 0, Some(&schema)).unwrap();
+    assert!(!port.required);
+    assert_eq!(port.default.as_deref(), Some("8080"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn null_is_offered_only_when_explicitly_requested_or_typed() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let auto = completions("web:", 4, false, Some(&schema), true);
+    assert!(
+        auto.iter().all(|option| option.label != "null"),
+        "auto-triggered list after a bare key must not offer null"
+    );
+    let explicit = completions("web:", 4, true, Some(&schema), true);
+    assert!(explicit.iter().any(|option| option.label == "null"));
+    let typed = completions("listen: nu", 10, false, Some(&schema), true);
+    assert!(typed.iter().any(|option| option.label == "null"));
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn numeric_examples_are_inserted_as_numbers_when_the_schema_allows_integers() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "listen: ";
+    let port = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    )
+    .into_iter()
+    .find(|option| option.label == "7835")
+    .expect("port example should be suggested");
+    let (updated, _) = apply_completion(input, &port);
+    assert_eq!(updated, "listen: 7835");
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() {
+    use super::completion::yaml_value;
+    use serde_json::Value;
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "services:\n  api:\n    protocol: ";
+    let udp = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    )
+    .into_iter()
+    .find(|option| option.label == "udp")
+    .expect("protocol values should be suggested");
+    assert_eq!(
+        apply_completion(input, &udp).0,
+        "services:\n  api:\n    protocol: udp"
+    );
+    assert_eq!(yaml_value(&Value::String("yes".into())), "\"yes\"");
+    assert_eq!(yaml_value(&Value::String("7835".into())), "\"7835\"");
+    assert_eq!(
+        yaml_value(&Value::String("0.0.0.0:7835".into())),
+        "\"0.0.0.0:7835\""
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn required_properties_sort_before_optional_ones() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "services:\n  web-ui:\n    ";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        true,
+        Some(&schema),
+        true,
+    );
+    assert_eq!(
+        options.first().map(|option| option.label.as_str()),
+        Some("target")
+    );
 }

@@ -105,7 +105,7 @@ pub(super) fn paired_edit(
         return None;
     }
 
-    let has_closing_ahead = start == end && source[start_byte..].chars().next() == Some(closing);
+    let has_closing_ahead = start == end && source[start_byte..].starts_with(closing);
     let insertion = if has_closing_ahead {
         opening.to_string()
     } else {
@@ -123,7 +123,9 @@ pub(super) fn paired_edit(
 
 pub(super) fn skip_closing_pair(source: &str, cursor: usize, closing: char) -> Option<usize> {
     let byte_index = utf16_to_byte_index(source, cursor);
-    (source[byte_index..].chars().next() == Some(closing)).then_some(cursor + closing.len_utf16())
+    source[byte_index..]
+        .starts_with(closing)
+        .then_some(cursor + closing.len_utf16())
 }
 
 pub(super) fn delete_empty_pair(source: &str, cursor: usize) -> Option<(String, usize)> {

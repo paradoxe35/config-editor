@@ -8,22 +8,164 @@ pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
         + 1
 }
 
+/// Returns the indentation unit used by the document. YAML files in the wild
+/// use either two or four spaces, and occasionally tabs; honouring the
+/// document's own style keeps automatic indentation and expanded completions
+/// consistent with the surrounding text.
+pub(super) fn indent_unit(source: &str) -> String {
+    let mut widths = Vec::new();
+    for line in source.lines().take(400) {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let leading = &line[..line.len() - trimmed.len()];
+        if leading.is_empty() {
+            continue;
+        }
+        if leading.contains('\t') {
+            return "\t".to_string();
+        }
+        widths.push(leading.len());
+    }
+    let width = widths
+        .into_iter()
+        .filter(|width| (1..=8).contains(width))
+        .min()
+        .unwrap_or(2);
+    " ".repeat(width)
+}
+
+/// Finds the start of a YAML comment on a single line, ignoring `#` characters
+/// that appear inside quoted scalars.
+pub(super) fn line_comment_start(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '#')
+                if index == 0
+                    || line[..index]
+                        .chars()
+                        .next_back()
+                        .is_some_and(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Finds the mapping colon on a single line, ignoring colons inside quoted
+/// scalars and comments.
+pub(super) fn mapping_colon(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if quote.is_none() && character == '#' {
+            let starts_comment = index == 0
+                || line[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace);
+            if starts_comment {
+                return None;
+            }
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn code_before_comment(line: &str) -> &str {
+    line_comment_start(line).map_or(line, |comment| &line[..comment])
+}
+
+fn is_block_scalar(value: &str) -> bool {
+    let mut characters = value.trim().chars();
+    if !matches!(characters.next(), Some('|' | '>')) {
+        return false;
+    }
+    characters.all(|character| character.is_ascii_digit() || matches!(character, '+' | '-'))
+}
+
 pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     let byte_index = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte_index]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let current_line = &source[line_start..byte_index];
-    let indent: String = current_line
+    let line = &source[line_start..byte_index];
+    let indent: String = line
         .chars()
         .take_while(|character| matches!(character, ' ' | '\t'))
         .collect();
-    let extra_indent = if current_line.trim_end().ends_with(':') {
-        "  "
-    } else {
-        ""
-    };
-    format!("\n{indent}{extra_indent}")
+    let content = line.trim_start();
+    let unit = indent_unit(source);
+
+    if content.is_empty() {
+        return format!("\n{indent}");
+    }
+    let code = code_before_comment(content).trim_end();
+    if code.is_empty() {
+        return format!("\n{indent}");
+    }
+    if code == "-" {
+        return format!("\n{indent}- ");
+    }
+    if let Some(rest) = code.strip_prefix('-')
+        && (rest.is_empty() || rest.starts_with([' ', '\t']))
+    {
+        let after_dash = rest.trim_end();
+        if after_dash.trim().is_empty() {
+            return format!("\n{indent}- ");
+        }
+        // Preserve the document's spacing between the dash and the item's
+        // content so nested lines align exactly with the key column.
+        let content_offset =
+            1 + after_dash.len() - after_dash.trim_start_matches([' ', '\t']).len();
+        let item_indent = format!(" {}", &code[1..content_offset]);
+        let content = &code[content_offset..];
+        if let Some(colon) = mapping_colon(content) {
+            let value = content[colon + 1..].trim();
+            if value.is_empty() || is_block_scalar(value) {
+                return format!("\n{indent}{item_indent}{unit}");
+            }
+            // An inline mapping inside a sequence item: keep the next key in
+            // the same item, aligned with the current key.
+            return format!("\n{indent}{item_indent}");
+        }
+        return format!("\n{indent}- ");
+    }
+    if let Some(colon) = mapping_colon(code) {
+        let value = code[colon + 1..].trim();
+        if value.is_empty() || is_block_scalar(value) {
+            return format!("\n{indent}{unit}");
+        }
+    }
+    format!("\n{indent}")
 }
 
 pub(super) fn toggle_yaml_line_comments(
@@ -132,6 +274,7 @@ pub(super) fn indent_yaml_lines(
         return None;
     }
 
+    let unit = indent_unit(source);
     let mut edits: Vec<(usize, usize, usize)> = Vec::new();
     let mut updated = String::with_capacity(source.len() + lines.len() * 2);
     let mut offset = 0;
@@ -146,15 +289,15 @@ pub(super) fn indent_yaml_lines(
                     line[..indent]
                         .bytes()
                         .take_while(|byte| *byte == b' ')
-                        .take(2)
+                        .take(unit.len())
                         .count()
                 };
                 edits.push((offset, remove, 0));
                 updated.push_str(&line[remove..]);
             } else {
-                edits.push((offset + indent, 0, 2));
+                edits.push((offset + indent, 0, unit.len()));
                 updated.push_str(&line[..indent]);
-                updated.push_str("  ");
+                updated.push_str(&unit);
                 updated.push_str(&line[indent..]);
             }
         } else {
