@@ -187,24 +187,19 @@ fn normalize_newlines(text: &str) -> Cow<'_, str> {
 }
 
 pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
-    let current_has_trailing_newline = current.ends_with('\n') || current.ends_with('\r');
+    let current_ends_with_newline = current.ends_with('\n') || current.ends_with('\r');
     let baseline_ends_with_newline = baseline.ends_with('\n') || baseline.ends_with('\r');
     let baseline = normalize_newlines(baseline);
     let current = normalize_newlines(current);
     let baseline: Vec<_> = baseline.split('\n').collect();
     let current: Vec<_> = current.split('\n').collect();
-    // A final empty segment is the editor's insertion slot after a trailing
-    // newline, not a diff line. Preserve the baseline's slot as an anchor; when
-    // the current document has grown, leave its final slot unclassified instead
-    // of letting it steal the baseline's trailing blank line.
-    let compared_current_len = if current.last() == Some(&"")
-        && current.len() > baseline.len()
-        && current_has_trailing_newline
-    {
-        current.len() - 1
-    } else {
-        current.len()
-    };
+    // Reserve a trailing baseline EOF slot for suffix matching when both files
+    // end in a newline. Added blank rows then stay before the current EOF slot.
+    let baseline_eof_slot = baseline
+        .len()
+        .checked_sub(1)
+        .filter(|_| baseline.last() == Some(&"") && baseline_ends_with_newline);
+    let reserve_baseline_eof = current_ends_with_newline && baseline_eof_slot.is_some();
     let mut changes = vec![DiffKind::Unchanged; current.len()];
     let mut deleted_before = vec![false; current.len()];
     let mut deleted_lines_before = vec![Vec::new(); current.len()];
@@ -213,7 +208,8 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
     let mut deleted_lines_after = Vec::new();
     let mut prefix = 0;
     while prefix < baseline.len()
-        && prefix < compared_current_len
+        && prefix < current.len()
+        && !(reserve_baseline_eof && Some(prefix) == baseline_eof_slot)
         && baseline[prefix] == current[prefix]
     {
         prefix += 1;
@@ -221,14 +217,14 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
 
     let mut suffix = 0;
     while suffix < baseline.len().saturating_sub(prefix)
-        && suffix < compared_current_len.saturating_sub(prefix)
-        && baseline[baseline.len() - suffix - 1] == current[compared_current_len - suffix - 1]
+        && suffix < current.len().saturating_sub(prefix)
+        && baseline[baseline.len() - suffix - 1] == current[current.len() - suffix - 1]
     {
         suffix += 1;
     }
 
     let old_middle = &baseline[prefix..baseline.len() - suffix];
-    let new_middle = &current[prefix..compared_current_len - suffix];
+    let new_middle = &current[prefix..current.len() - suffix];
     let cell_count = (old_middle.len() + 1).saturating_mul(new_middle.len() + 1);
     let mut edits = Vec::new();
     if cell_count <= 1_000_000 {
@@ -300,10 +296,6 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
             edit_index += 1;
         }
 
-        let baseline_eof_slot = baseline
-            .len()
-            .checked_sub(1)
-            .filter(|_| baseline.last() == Some(&"") && baseline_ends_with_newline);
         let pairable_deleted: Vec<_> = deleted
             .iter()
             .filter(|(old_line_index, _)| Some(*old_line_index) != baseline_eof_slot)
@@ -330,7 +322,7 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
             .map(|(_, line)| line)
             .collect();
         if !removed_lines.is_empty() {
-            if new_index >= compared_current_len {
+            if new_index >= current.len() {
                 deleted_after = true;
                 deleted_lines_after.extend(removed_lines);
             } else {
@@ -416,16 +408,12 @@ mod blank_line_properties {
     fn existing_eof_slot_is_not_confused_with_new_blank_lines_or_eof_slot() {
         let baseline = "a: 1\nb: 2\n";
 
-        // A single Enter creates an empty current EOF slot, which is not a diff line.
+        // The baseline EOF slot aligns with the current EOF slot; the new row
+        // before it is Added even though both rows are empty.
         let one_enter = diff_lines(baseline, "a: 1\nb: 2\n\n");
-        assert_eq!(one_enter.current, vec![DiffKind::Unchanged; 4]);
-
-        // A second Enter creates a real blank line before the unhighlighted EOF slot.
-        let two_enters = diff_lines(baseline, "a: 1\nb: 2\n\n\n");
         assert_eq!(
-            two_enters.current,
+            one_enter.current,
             vec![
-                DiffKind::Unchanged,
                 DiffKind::Unchanged,
                 DiffKind::Unchanged,
                 DiffKind::Added,
@@ -433,15 +421,27 @@ mod blank_line_properties {
             ]
         );
 
-        // A blank row and text inserted after the baseline EOF slot stay additions;
-        // the final empty segment remains the unhighlighted current EOF slot.
+        // Another Enter adds another blank row before the unhighlighted EOF slot.
+        let two_enters = diff_lines(baseline, "a: 1\nb: 2\n\n\n");
+        assert_eq!(
+            two_enters.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Added,
+                DiffKind::Unchanged,
+            ]
+        );
+
+        // The current EOF slot stays unhighlighted while new rows before it stay Added.
         let text_in_added_rows = diff_lines(baseline, "a: 1\nb: 2\n\nupdate: true\n\n");
         assert_eq!(
             text_in_added_rows.current,
             vec![
                 DiffKind::Unchanged,
                 DiffKind::Unchanged,
-                DiffKind::Unchanged,
+                DiffKind::Added,
                 DiffKind::Added,
                 DiffKind::Added,
                 DiffKind::Unchanged,
@@ -481,7 +481,15 @@ mod crlf {
         let baseline = "a: 1\nb: 2\n";
         let current = "a: 1\r\nb: 2\r\n\r\n";
         let diff = diff_lines(baseline, current);
-        assert_eq!(diff.current, vec![DiffKind::Unchanged; 4]);
+        assert_eq!(
+            diff.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Unchanged,
+            ]
+        );
         assert!(diff.modified_before.iter().all(Option::is_none));
     }
 
@@ -515,14 +523,17 @@ mod trailing_blank_lines {
         let after_two = "a: 1\n\n\n";
 
         let d1 = diff_lines(baseline, after_one);
-        assert_eq!(d1.current, vec![DiffKind::Unchanged; 3]);
+        assert_eq!(
+            d1.current,
+            vec![DiffKind::Unchanged, DiffKind::Added, DiffKind::Unchanged]
+        );
 
         let d2 = diff_lines(baseline, after_two);
         assert_eq!(
             d2.current,
             vec![
                 DiffKind::Unchanged,
-                DiffKind::Unchanged,
+                DiffKind::Added,
                 DiffKind::Added,
                 DiffKind::Unchanged
             ]
@@ -534,30 +545,41 @@ mod trailing_blank_lines {
         let baseline = "a: 1\nb: 2\n";
         let after_adding_empty_line = "a: 1\nb: 2\n\n";
         let after_typing_in_the_middle = "a: 1\nb: 2\n\nmiddle\n";
-        let after_typing_at_the_end = "a: 1\nb: 2\n\nmiddle\nlast\n";
+        let after_typing_at_the_end = "a: 1\nb: 2\n\nmiddle\n\nlast";
 
-        for current in [
-            after_adding_empty_line,
-            after_typing_in_the_middle,
-            after_typing_at_the_end,
-        ] {
-            let diff = diff_lines(baseline, current);
-            assert_eq!(
-                &diff.current[..3],
-                &[
-                    DiffKind::Unchanged,
-                    DiffKind::Unchanged,
-                    DiffKind::Unchanged,
-                ],
-                "baseline lines must keep their identity for {current:?}"
-            );
-            assert!(
-                diff.current[3..diff.current.len() - 1]
-                    .iter()
-                    .all(|kind| *kind == DiffKind::Added)
-            );
-            assert_eq!(diff.current.last(), Some(&DiffKind::Unchanged));
-            assert!(diff.modified_before.iter().all(Option::is_none));
-        }
+        assert_eq!(
+            diff_lines(baseline, after_adding_empty_line).current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Unchanged,
+            ]
+        );
+        let middle = diff_lines(baseline, after_typing_in_the_middle);
+        assert_eq!(
+            middle.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Added,
+                DiffKind::Unchanged,
+            ]
+        );
+        let end = diff_lines(baseline, after_typing_at_the_end);
+        assert_eq!(
+            end.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Added,
+                DiffKind::Added,
+            ]
+        );
+        assert!(middle.modified_before.iter().all(Option::is_none));
+        assert!(end.modified_before.iter().all(Option::is_none));
     }
 }

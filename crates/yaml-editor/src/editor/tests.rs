@@ -109,7 +109,7 @@ fn line_diff_keeps_following_lines_unchanged_after_insertions_at_eof() {
         vec![
             DiffKind::Unchanged,
             DiffKind::Unchanged,
-            DiffKind::Unchanged,
+            DiffKind::Added,
             DiffKind::Added,
             DiffKind::Unchanged,
         ]
