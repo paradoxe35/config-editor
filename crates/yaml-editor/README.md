@@ -50,13 +50,16 @@ on_change=Callback::new(|yaml: String| {
 `initial_value` is optional and defaults to an empty document. `schema_json` is
 an optional JSON Schema string. When supplied, it enables live schema
 diagnostics and property/value completions. Suggestions open while typing by
-default; set `auto_trigger_completions=false` to make them explicit with
-`Ctrl+Space`. Completions follow `$ref`, `allOf`/`anyOf`/`oneOf`,
+default and reopen after a completion is accepted, so selecting an object
+property immediately offers the keys inside it. They do not open on new lines,
+paste, undo/redo, or deletion. Set `auto_trigger_completions=false` to make
+them explicit with `Ctrl+Space`. Completions follow `$ref`, `allOf`/`anyOf`/`oneOf`,
 `properties`, `patternProperties`, `additionalProperties`, `items`, and
-`prefixItems`; enum, const, example, default, and boolean values can be
-suggested in value positions. YAML and schema validation errors are marked at
-their source location with a hover- and keyboard-focusable inline message; there is no
-separate Problems panel. Syntax errors are diagnosed even without a schema.
+`prefixItems`; enum, const, `examples`/`example`, default, nullable `null`, and
+boolean values can be suggested in value positions. YAML and schema validation
+errors are marked at their source location with a hover- and keyboard-focusable
+inline message; there is no separate Problems panel. Syntax errors are diagnosed
+even without a schema.
 For schema-invalid empty values, the inline marker points to the empty value
 slot after the colon instead of underlining the key.
 The editor pairs quotes and brackets, wraps selected text, skips existing
@@ -113,7 +116,8 @@ hover or keyboard focus. The root demo shows the same flow.
 | `show_footer`              | `false`         | Show the built-in status footer                                                   |
 | `show_diagnostics`         | `true`          | Show inline parse/schema diagnostics and hover messages                           |
 | `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                   |
-| `auto_trigger_completions` | `true`          | Open suggestions while typing and after entering a nested object                 |
+| `auto_trigger_completions` | `true`          | Open suggestions while typing and after accepting a key (values close the list)   |
+| `enable_hover_docs`        | `true`          | Show the schema description, type, default, and examples when hovering a key      |
 | `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                         |
 | `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs |
 | `show_diff`                | `true`          | Show line changes against `baseline`                                              |
@@ -128,26 +132,26 @@ theme without enabling built-in chrome.
 
 The preset includes eleven selectable themes, with seven dark and four light
 options. `VsCodeDark` is the default and preserves the original VS Code-like
-appearance. `Obsidian` follows the near-black background, blue keys, and soft
-green values in the supplied screenshot; `ObsidianLight` is its light-mode
-counterpart. `AtomOneDark` and the GitHub Light/Dark pair add familiar editor
-palettes. `ViraInspired` is an original, muted dark palette informed by Vira's
+appearance. `Obsidian` provides a near-black background, blue keys, and soft
+green values; `ObsidianLight` is its light-mode counterpart. `AtomOneDark` and
+the GitHub Light/Dark pair add familiar editor palettes. `ViraInspired` is an
+original, muted dark palette informed by Vira's
 publicly described focus on lower visual noise and comfortable long sessions;
 it is not an exact reproduction of Vira's proprietary theme.
 
-| `EditorTheme` variant | Mode | Style |
-| --- | --- | --- |
-| `VsCodeDark` | Dark | VS Code-inspired default |
-| `VsCodeLight` | Light | VS Code-inspired light palette |
-| `Obsidian` | Dark | Near-black screenshot-inspired palette with larger code text |
-| `ObsidianLight` | Light | Soft neutral background with blue keys and green values |
-| `Dracula` | Dark | Purple-accented palette |
-| `Nord` | Dark | Cool blue-gray palette |
-| `AtomOneDark` | Dark | Atom One Dark-inspired palette |
-| `GitHubLight` | Light | Bright neutral palette |
-| `GitHubDark` | Dark | GitHub-inspired dark palette |
-| `SolarizedLight` | Light | Warm Solarized palette |
-| `ViraInspired` | Dark | Original muted palette based on publicly described design goals |
+| `EditorTheme` variant | Mode  | Style                                                           |
+| --------------------- | ----- | --------------------------------------------------------------- |
+| `VsCodeDark`          | Dark  | VS Code-inspired default                                        |
+| `VsCodeLight`         | Light | VS Code-inspired light palette                                  |
+| `Obsidian`            | Dark  | Near-black palette with blue keys and green values              |
+| `ObsidianLight`       | Light | Soft neutral background with blue keys and green values         |
+| `Dracula`             | Dark  | Purple-accented palette                                         |
+| `Nord`                | Dark  | Cool blue-gray palette                                          |
+| `AtomOneDark`         | Dark  | Atom One Dark-inspired palette                                  |
+| `GitHubLight`         | Light | Bright neutral palette                                          |
+| `GitHubDark`          | Dark  | GitHub-inspired dark palette                                    |
+| `SolarizedLight`      | Light | Warm Solarized palette                                          |
+| `ViraInspired`        | Dark  | Original muted palette based on publicly described design goals |
 
 The demo includes a theme selector for all eleven options. Vira describes its
 theme as a dark-first successor to Material Theme with multiple variants and
@@ -159,30 +163,38 @@ Software and does not bundle Vira theme assets.
 The additional palettes are kept in `src/themes.css`; the VS Code and Obsidian palettes and
 shared layout styling remain in `src/preset.css`. Applications can build on
 these styles with `class` and custom CSS, or set `styled=false` and provide
-their own complete theme.
+their own complete theme. Typography is deliberately shared across themes:
+`--yaml-editor-font-size`, `--yaml-editor-line-height`,
+`--yaml-editor-padding-top`, and `--yaml-editor-padding-bottom` control every
+theme, so switching palettes never changes text size or line spacing.
 
 Suggestions are not capped to a fixed number of rows. The preset limits the
 popup height to available viewport space, anchors it near the caret, and scrolls
 the suggestion list internally when needed. Use Up/Down to navigate, Enter or
-Tab to accept, and Escape to dismiss. Each suggestion shows its symbol kind,
-schema type, and description. Schema property suggestions omit keys already
-present in the current mapping; property names that need quoting are inserted
-as valid YAML double-quoted keys. Selecting a property inserts its schema
-`default` when present. For object properties, the editor expands required
-fields recursively, inserts their defaults, and places the caret at the first
-required field without a default.
+Tab to accept, and Escape to dismiss. Hovering a suggestion highlights it, so only one row is ever
+highlighted. Each suggestion shows its symbol kind,
+schema type, and description. Matching favours exact prefixes, then
+case-insensitive prefixes, word initials (for example `mc` for
+`max_connections`), substrings, and ordered subsequences. Schema property
+suggestions omit keys already present in the current mapping; partially typed
+quoted keys are replaced with valid YAML double-quoted keys. Selecting a
+property inserts its schema `default` when present. For object properties, the
+editor expands required fields recursively, inserts their defaults, and places
+the caret at the first required field without a default. Expanded indentation
+follows the document's existing style, including four-space and tab-indented
+documents.
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+/` (Windows/Linux), `Cmd+/` (macOS) | Toggle YAML line comments on the selected lines, or the current line |
-| `Ctrl+Space` | Open schema completions |
-| Up/Down, Enter/Tab, Escape | Navigate, accept, or dismiss an open completion list |
-| `Tab` / `Shift+Tab` (without an open completion list) | Indent selected lines / outdent lines; with no selection, Tab inserts two spaces |
-| `Enter` (without an open completion list) | Insert a newline and continue YAML indentation |
-| `Ctrl+Z` / `Cmd+Z`; `Ctrl+Y` or `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Undo / redo text entry and editor actions |
-| Standard platform text-editing shortcuts | Selection, navigation, and clipboard are handled by the browser textarea |
+| Shortcut                                                       | Action                                                                                                |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Ctrl+/` (Windows/Linux), `Cmd+/` (macOS)                      | Toggle YAML line comments on the selected lines, or the current line                                  |
+| `Ctrl+Space`                                                   | Open schema completions                                                                               |
+| Up/Down, Enter/Tab, Escape                                     | Navigate, accept, or dismiss an open completion list                                                  |
+| `Tab` / `Shift+Tab` (without an open completion list)          | Indent selected lines / outdent lines; with no selection, Tab inserts the document's indentation unit |
+| `Enter` (without an open completion list)                      | Insert a newline and continue YAML indentation                                                        |
+| `Ctrl+Z` / `Cmd+Z`; `Ctrl+Y` or `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Undo / redo text entry and editor actions                                                             |
+| Standard platform text-editing shortcuts                       | Selection, navigation, and clipboard are handled by the browser textarea                              |
 
 YAML parsing follows the YAML 1.2-compatible parser and reports syntax errors,
 including repeated mapping keys, as inline diagnostics. The YAML 1.2
