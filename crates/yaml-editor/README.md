@@ -167,6 +167,17 @@ their own complete theme. Typography is deliberately shared across themes:
 `--yaml-editor-font-size`, `--yaml-editor-line-height`,
 `--yaml-editor-padding-top`, and `--yaml-editor-padding-bottom` control every
 theme, so switching palettes never changes text size or line spacing.
+The editor grows with its content up to `--yaml-editor-max-height` (default
+`80vh`), then scrolls internally. Set `--yaml-editor-height` for a fixed editor
+height, and `--yaml-editor-min-height` to customize the minimum. For example:
+
+```css
+.my-yaml-editor {
+  --yaml-editor-height: 32rem;
+  --yaml-editor-min-height: 12rem;
+  --yaml-editor-max-height: 80vh;
+}
+```
 
 Suggestions are not capped to a fixed number of rows. The preset limits the
 popup height to available viewport space, anchors it near the caret, and scrolls

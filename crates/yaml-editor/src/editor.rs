@@ -9,7 +9,9 @@ use history::EditHistory;
 mod diff;
 use diff::{DiffKind, LineDiff, diff_lines, peek_popup_style};
 mod keyboard;
-use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
+use keyboard::{
+    delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
+};
 mod diagnostics;
 #[cfg(test)]
 use diagnostics::SchemaBundle;
@@ -97,6 +99,59 @@ fn hover_card_style(element: &web_sys::HtmlTextAreaElement, line: usize, column:
             line_top + metrics.line_height + 4.0
         )
     }
+}
+
+/// Programmatic edits do not reliably scroll a textarea to a newly-set caret.
+/// Keep the caret in the scrollport so Enter and completion expansion don't
+/// make the document/page grow while the insertion point moves off-screen.
+fn set_caret_visible(
+    editor: &web_sys::HtmlTextAreaElement,
+    text: &str,
+    offset: usize,
+    scroll_y: RwSignal<f64>,
+) {
+    let offset = offset.min(text.encode_utf16().count());
+    let _ = editor.set_selection_range(offset as u32, offset as u32);
+    let byte_offset = utf16_to_byte_index(text, offset);
+    let line = text[..byte_offset]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count() as f64;
+    let target: &web_sys::Element = editor.unchecked_ref();
+    let metrics = read_editor_metrics(target);
+    let style =
+        web_sys::window().and_then(|window| window.get_computed_style(target).ok().flatten());
+    let padding_bottom = style
+        .as_ref()
+        .and_then(|style| style.get_property_value("padding-bottom").ok())
+        .and_then(|value| {
+            value
+                .trim()
+                .strip_suffix("px")
+                .unwrap_or(&value)
+                .parse::<f64>()
+                .ok()
+        })
+        .unwrap_or(0.0);
+    let current_top = editor.scroll_top() as f64;
+    let client_height = editor.client_height() as f64;
+    let caret_top = metrics.padding_top + line * metrics.line_height;
+    let caret_bottom = caret_top + metrics.line_height;
+    let visible_top = current_top + metrics.padding_top;
+    let visible_bottom = current_top + client_height - padding_bottom;
+    let next_top = if caret_bottom > visible_bottom {
+        caret_bottom - client_height + padding_bottom
+    } else if caret_top < visible_top {
+        caret_top - metrics.padding_top
+    } else {
+        current_top
+    }
+    .clamp(
+        0.0,
+        (editor.scroll_height() as f64 - client_height).max(0.0),
+    );
+    editor.set_scroll_top(next_top as i32);
+    scroll_y.set(next_top);
 }
 
 fn schedule_hover(callback: impl FnOnce() + 'static) {
@@ -330,9 +385,7 @@ pub fn YamlEditor(
             explicit_request.set(true);
             suggestions_requested.set(request_completions);
             if let Some(editor) = editor {
-                editor
-                    .set_selection_range(new_cursor as u32, new_cursor as u32)
-                    .expect("editor selection range should remain valid");
+                set_caret_visible(&editor, &source.get_untracked(), new_cursor, scroll_y);
             }
         }
     };
@@ -387,8 +440,11 @@ pub fn YamlEditor(
                     <div class="yaml-editor__surface">
                         <div
                             class="yaml-editor__gutter"
-                            style:transform=move || format!("translateY(-{}px)", scroll_y.get())
                         >
+                            <div
+                                class="yaml-editor__gutter-content"
+                                style:transform=move || format!("translateY(-{}px)", scroll_y.get())
+                            >
                             {move || {
                                 let line_count = source.get().split('\n').count();
                                 let current_lines = source.get().split('\n').map(str::to_string).collect::<Vec<_>>();
@@ -437,8 +493,8 @@ pub fn YamlEditor(
                                                 class:yaml-editor__line-number-modified=change == DiffKind::Modified
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {
-                                                        let offset: usize = source
-                                                            .get_untracked()
+                                                        let text = source.get_untracked();
+                                                        let offset: usize = text
                                                             .split('\n')
                                                             .take(line.saturating_sub(1))
                                                             .map(|text_line| text_line.encode_utf16().count() + 1)
@@ -448,7 +504,7 @@ pub fn YamlEditor(
                                                         current_line.set(line);
                                                         suggestions_requested.set(false);
                                                         hide_hover();
-                                                        let _ = editor.set_selection_range(offset as u32, offset as u32);
+                                                        set_caret_visible(&editor, &text, offset, scroll_y);
                                                     }
                                                 }
                                             >
@@ -539,6 +595,7 @@ pub fn YamlEditor(
                                     })
                                     .collect_view()
                             }}
+                            </div>
                         </div>
                         <div class="yaml-editor__input-wrap">
                             <pre
@@ -650,6 +707,10 @@ pub fn YamlEditor(
                             </div>
                             <textarea
                                 class="yaml-editor__input"
+                                style=move || format!(
+                                    "--yaml-editor-content-height: calc(var(--yaml-editor-padding-top) + var(--yaml-editor-padding-bottom) + {} * var(--yaml-editor-line-height));",
+                                    source.get().split('\n').count()
+                                )
                                 aria-label="YAML source"
                                 aria-autocomplete="list"
                                 aria-haspopup="listbox"
@@ -1085,12 +1146,12 @@ pub fn YamlEditor(
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
                                                 suggestions_requested.set(false);
-                                                element
-                                                    .set_selection_range(
-                                                        new_cursor as u32,
-                                                        new_cursor as u32,
-                                                    )
-                                                    .expect("editor selection range should remain valid");
+                                                set_caret_visible(
+                                                    &element,
+                                                    &source.get_untracked(),
+                                                    new_cursor,
+                                                    scroll_y,
+                                                );
                                             }
                                         }
                                         "Enter" => {
@@ -1115,12 +1176,12 @@ pub fn YamlEditor(
                                                 cursor.set(new_cursor);
                                                 current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
                                                 suggestions_requested.set(false);
-                                                element
-                                                    .set_selection_range(
-                                                        new_cursor as u32,
-                                                        new_cursor as u32,
-                                                    )
-                                                    .expect("editor selection range should remain valid");
+                                                set_caret_visible(
+                                                    &element,
+                                                    &source.get_untracked(),
+                                                    new_cursor,
+                                                    scroll_y,
+                                                );
                                             }
                                         }
                                         _ => {}

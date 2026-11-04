@@ -199,12 +199,6 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
     let mut deleted_lines_after = Vec::new();
     let mut prefix = 0;
     while prefix < baseline.len() && prefix < current.len() && baseline[prefix] == current[prefix] {
-        if baseline[prefix].is_empty()
-            && baseline[prefix..].iter().all(|line| line.is_empty())
-            && current[prefix..].iter().all(|line| line.is_empty())
-        {
-            break;
-        }
         prefix += 1;
     }
 
@@ -443,8 +437,8 @@ mod crlf {
             vec![
                 DiffKind::Unchanged,
                 DiffKind::Unchanged,
+                DiffKind::Unchanged,
                 DiffKind::Added,
-                DiffKind::Unchanged
             ]
         );
         assert!(diff.modified_before.iter().all(Option::is_none));
@@ -467,35 +461,33 @@ mod crlf {
 }
 
 #[cfg(test)]
-mod user_reported_bugs {
+mod trailing_blank_lines {
     use super::*;
 
-    // The user reported: adding empty lines to a file that ends with \n
-    // shows modifications instead of additions.
     #[test]
     fn adding_empty_lines_to_trailing_newline_file() {
-        // File ends with \n, so split gives ["a:1", ""]
+        // File ends with \n, so its existing final empty line is unchanged.
         let baseline = "a: 1\n";
         // User presses Enter once -> "a: 1\n\n"
         let after_one = "a: 1\n\n";
         // User presses Enter again -> "a: 1\n\n\n"
         let after_two = "a: 1\n\n\n";
-        
+
         let d1 = diff_lines(baseline, after_one);
-        println!("baseline -> +1 empty: {:?}", d1.current);
-        assert_eq!(d1.current, vec![DiffKind::Unchanged, DiffKind::Added, DiffKind::Unchanged]);
-        
+        assert_eq!(
+            d1.current,
+            vec![DiffKind::Unchanged, DiffKind::Unchanged, DiffKind::Added]
+        );
+
         let d2 = diff_lines(baseline, after_two);
-        println!("baseline -> +2 empty: {:?}", d2.current);
-        assert_eq!(d2.current, vec![DiffKind::Unchanged, DiffKind::Added, DiffKind::Added, DiffKind::Unchanged]);
-    }
-    
-    // User reported: cursor disappears when editor gets tall
-    // This is a layout issue, not a diff issue, but let's understand the layout
-    #[test]
-    fn understand_textarea_growth() {
-        // This test just documents expected behavior
-        // When textarea has no max-height, it grows with content
-        // The caret should still be visible regardless of height
+        assert_eq!(
+            d2.current,
+            vec![
+                DiffKind::Unchanged,
+                DiffKind::Unchanged,
+                DiffKind::Added,
+                DiffKind::Added
+            ]
+        );
     }
 }

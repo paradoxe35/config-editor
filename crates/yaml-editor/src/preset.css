@@ -139,15 +139,22 @@
 
 .yaml-editor__surface {
   position: relative;
-  min-height: 240px;
+  min-height: var(--yaml-editor-min-height, min(240px, var(--yaml-editor-height, 240px)));
+  height: var(--yaml-editor-height, auto);
+  max-height: var(--yaml-editor-max-height, 80vh);
   display: flex;
   background: var(--yaml-editor-bg);
+  overflow: hidden;
 }
 
 .yaml-editor__gutter {
   z-index: 2;
   width: 52px;
   flex: 0 0 auto;
+  height: var(--yaml-editor-height, auto);
+  min-height: 0;
+  max-height: var(--yaml-editor-max-height, 80vh);
+  overflow: hidden;
   padding: var(--yaml-editor-padding-top) 13px var(--yaml-editor-padding-bottom) 0;
   color: #858585;
   text-align: right;
@@ -156,7 +163,7 @@
   line-height: var(--yaml-editor-line-height);
 }
 
-.yaml-editor__gutter > div {
+.yaml-editor__gutter-content > div {
   position: relative;
   height: var(--yaml-editor-line-height);
   cursor: pointer;
@@ -338,10 +345,10 @@
 .yaml-editor__diff-peek-removed { background: rgb(241 76 76 / 18%); color: #f1b3b3; }
 .yaml-editor__diff-peek-current { background: rgb(117 190 255 / 13%); color: #c5e1f9; }
 
-.yaml-editor__input-wrap { position: relative; min-width: 0; flex: 1; }
+.yaml-editor__input-wrap { position: relative; min-width: 0; min-height: 0; flex: 1; }
 .yaml-editor__highlight,
 .yaml-editor__input {
-  min-height: 240px;
+  min-height: var(--yaml-editor-min-height, min(240px, var(--yaml-editor-height, 240px)));
   padding: var(--yaml-editor-padding-top) 20px var(--yaml-editor-padding-bottom) 0;
   border: 0;
   margin: 0;
@@ -385,6 +392,9 @@
   caret-color: var(--yaml-editor-caret);
   -webkit-text-fill-color: transparent;
   overflow: auto;
+  height: var(--yaml-editor-height, var(--yaml-editor-content-height, auto));
+  max-height: var(--yaml-editor-max-height, 80vh);
+  overscroll-behavior: contain;
 }
 
 .yaml-editor__input::selection { background: rgb(38 79 120 / 75%); color: transparent; }

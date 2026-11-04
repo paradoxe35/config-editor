@@ -62,7 +62,7 @@ test.describe('large documents', () => {
     const e = editor(page);
     await e.paste(LARGE);
     expect(await e.isOpen()).toBe(false);
-    await expect(page.locator('.yaml-editor__gutter > div')).toHaveCount(LARGE.split('\n').length);
+    await expect(page.locator('.yaml-editor__gutter-content > div')).toHaveCount(LARGE.split('\n').length);
     await e.screenshot('large-document');
     expect(await e.diagnosticCount(), 'a valid document has no diagnostics').toBe(0);
   });
@@ -89,7 +89,7 @@ test.describe('scale', () => {
     const entries = Array.from({ length: 300 }, (_, i) => `  client-${i}:\n    secret: secret-${i}\n    max_connections: ${i % 50}`);
     const doc = `clients:\n${entries.join('\n')}\n`;
     await e.paste(doc);
-    await expect(page.locator('.yaml-editor__gutter > div')).toHaveCount(doc.split('\n').length);
+    await expect(page.locator('.yaml-editor__gutter-content > div')).toHaveCount(doc.split('\n').length);
     await e.input.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Enter');
@@ -329,7 +329,7 @@ test.describe('gutter and caret', () => {
   test('clicking a line number moves the caret to that line', async ({ page }) => {
     const e = editor(page);
     await e.paste('alpha: 1\n\nbeta: 2\ngamma: 3\n');
-    await page.locator('.yaml-editor__gutter > div').nth(2).click();
+    await page.locator('.yaml-editor__gutter-content > div').nth(2).click();
     const state = await e.input.evaluate((element) => {
       const position = element.selectionStart;
       const before = element.value.slice(0, position);
@@ -452,6 +452,79 @@ test.describe('diff stability', () => {
     await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
     expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
     await e.screenshot('diff-blank-lines');
+  });
+});
+
+test.describe('editor viewport and scrolling', () => {
+  test('adding many blank lines scrolls inside the editor instead of growing the page', async ({ page }) => {
+    const e = editor(page);
+    await e.input.click();
+    await page.keyboard.press('Control+End');
+    for (let index = 0; index < 100; index += 1) {
+      await page.keyboard.press('Enter');
+    }
+
+    const layout = await page.evaluate(() => {
+      const surface = document.querySelector('.yaml-editor__surface');
+      const textarea = document.querySelector('.yaml-editor__input');
+      return {
+        viewportHeight: innerHeight,
+        pageHeight: document.documentElement.scrollHeight,
+        surfaceHeight: surface.getBoundingClientRect().height,
+        textareaHeight: textarea.getBoundingClientRect().height,
+        textareaClientHeight: textarea.clientHeight,
+        textareaScrollHeight: textarea.scrollHeight,
+        textareaScrollTop: textarea.scrollTop,
+      };
+    });
+    expect(layout.surfaceHeight).toBeGreaterThan(240);
+    expect(Math.abs(layout.surfaceHeight - layout.textareaHeight)).toBeLessThan(2);
+    expect(layout.surfaceHeight).toBeLessThanOrEqual(layout.viewportHeight * 0.8 + 2);
+    expect(layout.textareaHeight).toBeLessThanOrEqual(layout.viewportHeight * 0.8 + 2);
+    expect(layout.pageHeight).toBeLessThanOrEqual(layout.viewportHeight + 1);
+    expect(layout.textareaScrollHeight).toBeGreaterThan(layout.textareaClientHeight);
+    expect(layout.textareaScrollTop).toBeGreaterThan(0);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowDown');
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    await e.screenshot('bounded-editor-after-100-lines');
+  });
+
+  test('the last gutter lines remain clickable after scrolling through many blank lines', async ({ page }) => {
+    const e = editor(page);
+    await e.input.click();
+    await page.keyboard.press('Control+End');
+    for (let index = 0; index < 100; index += 1) {
+      await page.keyboard.press('Enter');
+    }
+    const lineCount = await e.input.evaluate((element) => element.value.split('\n').length);
+    const lastLine = page.locator('.yaml-editor__gutter-content > div').nth(lineCount - 1);
+    await lastLine.click();
+    const caretLine = await e.input.evaluate((element) =>
+      element.value.slice(0, element.selectionStart).split('\n').length,
+    );
+    expect(caretLine).toBe(lineCount);
+    await page.keyboard.type('last_line: true');
+    expect(await e.value()).toContain('last_line: true');
+  });
+
+  test('consumers can choose a shorter fixed editor height', async ({ page }) => {
+    const e = editor(page);
+    await page.addStyleTag({
+      content: '.yaml-editor__demo { --yaml-editor-height: 180px; --yaml-editor-min-height: 160px; --yaml-editor-max-height: 300px; }',
+    });
+    await expect.poll(() => e.input.evaluate((element) => Math.round(element.getBoundingClientRect().height))).toBe(180);
+    await e.input.click();
+    for (let index = 0; index < 50; index += 1) await page.keyboard.press('Enter');
+    const layout = await e.input.evaluate((element) => ({
+      height: element.getBoundingClientRect().height,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(layout.height).toBe(180);
+    expect(layout.scrollHeight).toBeGreaterThan(layout.clientHeight);
+    expect(layout.scrollTop).toBeGreaterThan(0);
   });
 });
 
