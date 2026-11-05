@@ -242,6 +242,41 @@ view! {
 }
 ```
 
+## Cargo features and graceful degradation
+
 The Cargo features `schema-validation`, `completion`,
-`syntax-highlighting`, `diagnostics`, and `preset-style` can also be disabled
-at build time. They are enabled by default.
+`syntax-highlighting`, `diagnostics`, and `preset-style` can be disabled
+at build time. They are enabled by default. Each feature only removes its
+own layer; everything else keeps working:
+
+| Feature               | Prop it gates                                    | When disabled                                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema-validation`   | Schema errors from `schema_json`                 | Schema violations are no longer reported; YAML syntax and repeated-key errors still are while `diagnostics` is on. Hover docs and completions keep reading the parsed schema value. Pulls in the `jsonschema` dependency. |
+| `completion`          | `enable_completions`, `auto_trigger_completions` | No suggestion popup: typing and `Ctrl+Space` stay silent. Implies `schema-validation`.                                                                                                                                    |
+| `syntax-highlighting` | `enable_highlighting`                            | The highlight overlay is skipped; the textarea keeps its text and caret behavior.                                                                                                                                         |
+| `diagnostics`         | `show_diagnostics`                               | No markers, no status-button count, and F8 has nowhere to go. Syntax errors are hidden too.                                                                                                                               |
+| `preset-style`        | `styled`                                         | No stylesheet is injected; the semantic `yaml-editor__*` markup stays for host CSS.                                                                                                                                       |
+
+Props degrade the same way at runtime: `show_diagnostics=false` hides all
+markers exactly like disabling `diagnostics`, and `enable_completions=false`
+silences the popup exactly like disabling `completion`. `read_only=true`
+additionally forces completions off and swallows editing keys, while keeping
+highlighting, diagnostics, diffs, and hover docs. Hover documentation needs
+only `enable_hover_docs` plus a parsable `schema_json`; it does not need the
+`schema-validation` feature because it reads the parsed schema value rather
+than the validator. Features compose: `--no-default-features` leaves a plain
+editing surface with Enter/Tab indentation, bracket pairing, comments,
+undo/redo, and line diffs; adding back `--features diagnostics,schema-validation`
+restores schema diagnostics with it.
+
+## Non-goals: formatter and ghost text
+
+The editor indents but never reformats. `Enter` continues the document's own
+indentation unit (`indent_unit`, with a two-space fallback) and accepting an
+object completion expands its required fields, but there is no
+format-document command; that is deliberate scope, not a missing piece.
+Suggestions likewise never render as inline ghost text inside the textarea.
+They live in the completion popup, and only real, undoable edits enter the
+document. Both choices keep the textarea the single source of truth, so the
+highlight overlay, the UTF-16 caret accounting, and undo/redo never have to
+reconcile speculative text.
