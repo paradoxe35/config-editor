@@ -234,6 +234,16 @@ fn syntax_errors_include_the_yaml_line() {
 }
 
 #[test]
+fn an_empty_document_reports_no_diagnostics() {
+    for source in ["", "\n", "  \n  \n"] {
+        assert!(
+            validate_yaml(source, Some(&test_schema()), None, true).is_empty(),
+            "{source:?} should not report diagnostics"
+        );
+    }
+}
+
+#[test]
 fn duplicate_mapping_keys_are_reported_on_the_repeated_line() {
     let errors = validate_yaml(
         "insecure_plaintext: false\ninsecure_plaintext: true\n",

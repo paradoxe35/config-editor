@@ -151,6 +151,22 @@ test.describe('focus', () => {
     await expect(preview).toHaveCount(0);
   });
 
+  test('a removed-lines preview shows the deleted text and closes from its close button', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(
+      '# Burrow server configuration\nlisten: 7835\ninsecure_plaintext: false\n',
+    );
+    await page.locator('.yaml-editor__diff-deleted').first().click();
+    const preview = page.locator('.yaml-editor__diff-peek');
+    await expect(preview).toHaveCount(1);
+    await expect(preview).toContainText('Removed lines');
+    await expect(preview).toContainText('public_address');
+    await expect(preview).toContainText('tunnel.example.com');
+    expect(await preview.getByRole('heading', { name: 'After' }).count()).toBe(0);
+    await preview.getByRole('button', { name: 'Close change preview' }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
   test('a change preview survives typing elsewhere but not on its own line', async ({ page }) => {
     const e = editor(page);
     await e.paste(

@@ -531,6 +531,16 @@ test.describe('diagnostics', () => {
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
   });
 
+  test('a repeated key is reported on its second line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('insecure_plaintext: false\ninsecure_plaintext: true\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(1);
+    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    await expect(marker).toHaveAttribute('data-message', /duplicate/);
+    await expect(marker).toHaveAttribute('aria-label', /line 2/);
+    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['2']);
+  });
+
   test('squiggles stay out of the tab order; the status button jumps to the first error', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\nbogus_key: 1\n');
@@ -579,6 +589,20 @@ test.describe('diagnostics', () => {
     expect((await e.caret()).line).toBe(1);
     await page.keyboard.press('Shift+F8');
     expect((await e.caret()).line).toBe(2);
+  });
+
+  test('an empty document reports no diagnostics and still suggests keys', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('');
+    expect(await e.value()).toBe('');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('lis');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    expect(await e.keys()).toContain('listen');
   });
 });
 
