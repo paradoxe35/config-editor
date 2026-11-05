@@ -78,7 +78,24 @@ test.describe('TOML documents', () => {
 
   test('keys inside an inline table are suggested', async ({ page }) => {
     const e = editor(page);
-    await e.paste('[clients]\nparadoxe = { ');
+    await e.paste('[clients]\nacme = { ');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('se');
+    await expect.poll(() => e.keys()).toContain('secret');
+  });
+
+  test('an error inside an inline table is reported on its own line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('[clients]\nacme = { secret = 1 }\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(1);
+  });
+
+  test('keys inside a nested inline table are suggested', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('clients = { acme = { ');
     await e.input.evaluate((element) => {
       element.focus();
       element.setSelectionRange(element.value.length, element.value.length);

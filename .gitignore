@@ -14,3 +14,6 @@
 /e2e/.standalone
 /e2e/test-results
 /e2e/playwright-report
+
+# Local Claude Code state and agent worktrees
+/.claude/

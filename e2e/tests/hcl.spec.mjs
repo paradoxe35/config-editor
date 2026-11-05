@@ -41,6 +41,39 @@ test.describe('HCL documents', () => {
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
   });
 
+  test('keys inside a nested value map are suggested', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('clients = {\n  acme = {\n    \n  }\n}\n');
+    await e.input.evaluate((element) => {
+      // The blank line inside the `acme` map, after its four-space indent.
+      const at = element.value.indexOf('\n    \n') + 5;
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.type('se');
+    await expect.poll(() => e.keys()).toContain('secret');
+  });
+
+  test('accepting a key inside a nested value map inserts it at its depth', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('clients = {\n  acme = {\n    \n  }\n}\n');
+    await e.input.evaluate((element) => {
+      const at = element.value.indexOf('\n    \n') + 5;
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.type('ma');
+    await expect.poll(() => e.keys()).toContain('max_connections');
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue('clients = {\n  acme = {\n    max_connections = \n  }\n}\n');
+  });
+
+  test('an error inside a nested value map is reported on its own line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('clients = {\n  acme = {\n    secret = 1\n  }\n}\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(1);
+  });
+
   test('the highlight overlay renders every character of the value', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen = 7835\ninsecure_plaintext = false\n');

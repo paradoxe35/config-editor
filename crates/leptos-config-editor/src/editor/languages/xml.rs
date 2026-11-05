@@ -1,8 +1,9 @@
 //! XML text-layer behavior.
 //!
-//! Decisions: duplicate sibling elements and duplicate attributes on one
-//! element are a parse error, as in JSON (D2); comments (`<!-- -->`) are
-//! supported for toggling, unlike JSON (Ctrl+/ toggles XML comments).
+//! Decisions: duplicate attributes on one element are a parse error, as in
+//! JSON (D2); repeated sibling elements fold into an array instead. Comments
+//! (`<!-- -->`) are supported for toggling, unlike JSON (Ctrl+/ toggles XML
+//! comments).
 //!
 //! Strict validation comes from `quick-xml` (mismatched tags, unclosed tags,
 //! stray text). Structure (element paths, name and value spans, the container
@@ -10,12 +11,15 @@
 //! the document is invalid mid-typing, which is the normal state while the
 //! user is completing a tag name.
 //!
-//! Document model: an element's children form a JSON object; `@`-prefixed keys
-//! hold attributes; `#text` holds element text. For example,
-//! `<root><item id="1">x</item></root>` parses to
-//! `{"root": {"item": {"@id": "1", "#text": "x"}}}`. Repeated sibling elements
-//! are rejected rather than folded into an array, so a schema array has no XML
-//! counterpart here.
+//! Document model: the XML container is transparent. A lone top-level element
+//! is the document root and its children are the schema's top-level
+//! properties; several top-level elements act as children of an implicit root.
+//! An element's children form a JSON object, attributes are properties of the
+//! element, and element text is a typed scalar (`<listen>7835</listen>` is the
+//! number `7835`, not a string). For example `<root><item id="1"/></root>`
+//! parses to `{"item": {"id": "1"}}`, and repeated siblings fold into an
+//! array, which is how the schema's arrays are written in XML. `#text` survives
+//! only for mixed content (text beside child elements or attributes).
 //!
 //! NOTE: a host dependency on `quick-xml = "0.42.0"` is required (see the crate
 //! `Cargo.toml`): this file uses only its `Reader` event API.
@@ -32,7 +36,7 @@ use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use serde_json::{Map, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// XML implementation of the shared text-layer trait.
 pub(super) struct XmlBehavior;
@@ -77,8 +81,9 @@ impl LanguageBehavior for XmlBehavior {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        attribute: bool,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, base_indent, unit)
+        property_insert(key, property, root, base_indent, unit, attribute)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -433,27 +438,26 @@ enum Seg {
     Index(usize),
 }
 
-/// An open element: its schema path, how often each child name appeared in
-/// this element so far, and the id other tables key on.
+/// An open element: its tag name and document path (the wrapper root's path is
+/// empty, so matching its end tag needs the name).
 #[derive(Clone, Debug)]
 struct Frame {
-    id: usize,
+    name: String,
     path: Vec<Seg>,
-    child_counts: Vec<(String, usize)>,
 }
 
 /// Parser state at the caret.
 struct Snapshot {
     /// Path of the element holding the caret.
     path: Vec<Seg>,
-    /// The innermost open element, if the caret is inside one.
-    frame: Option<Frame>,
     /// The name or text being typed under the caret, if any.
     partial: Option<Token>,
     /// Whether the caret sits inside a tag (`<...>`) rather than in text.
     in_tag: bool,
     /// The open tag the caret is inside, if any.
     open_tag: Option<Token>,
+    /// Document path the open tag will get (empty for the wrapper root).
+    open_tag_path: Vec<Seg>,
     /// Tokens inside that open tag, if any.
     inner: Vec<Token>,
     /// The attribute awaiting a value (`name = |`), if any.
@@ -463,19 +467,154 @@ struct Snapshot {
 #[derive(Default)]
 struct Scan {
     snapshot: Option<Snapshot>,
-    /// Completed sibling names as `(owner frame id, name, start byte)`. The
-    /// name being typed at the caret is excluded.
-    keys: Vec<(usize, String, usize)>,
     /// Byte spans of element and attribute names, keyed by document path.
-    /// Attributes live under `@name`; repeated siblings under `name/index`.
+    /// Repeated siblings address their array index.
     #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     key_spans: Vec<(Vec<String>, usize, usize)>,
     /// Byte spans of element text and attribute values, keyed the same way.
     #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     value_spans: Vec<(Vec<String>, usize, usize)>,
-    /// Attribute names per element, keyed by document path.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
-    attr_names: Vec<(Vec<String>, usize, usize)>,
+}
+
+/// Document paths of every element, keyed by the byte offset of its start tag.
+/// The wrapper root's path is empty, so every recorded span is already relative
+/// to the schema root.
+struct PathPlan {
+    paths: Vec<(usize, Vec<Seg>)>,
+}
+
+impl PathPlan {
+    fn path_of(&self, start: usize) -> Option<&[Seg]> {
+        self.paths
+            .iter()
+            .find(|(tag_start, _)| *tag_start == start)
+            .map(|(_, path)| path.as_slice())
+    }
+}
+
+/// An element seen while planning: enough structure to decide whether it is
+/// the transparent root and to number repeated siblings.
+struct PlannedNode {
+    name: String,
+    start: usize,
+    parent: Option<usize>,
+    has_children: bool,
+    has_attrs: bool,
+    has_text: bool,
+    /// The start tag is complete (`>` seen), so the element is not a tag the
+    /// user is still typing.
+    closed: bool,
+}
+
+/// Computes document paths for every element before any span is recorded, so
+/// repeated siblings can be numbered consistently with the arrays `build_value`
+/// folds them into, and so the wrapper root can be skipped.
+fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
+    let mut nodes: Vec<PlannedNode> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    for token in tokens {
+        match token.kind {
+            Kind::OpenTag { .. } => {
+                let name = token_name(source, token);
+                if name.is_empty() {
+                    continue;
+                }
+                let self_closing = source[..token.end].ends_with("/>");
+                let id = nodes.len();
+                if let Some(parent) = stack.last().copied() {
+                    nodes[parent].has_children = true;
+                }
+                nodes.push(PlannedNode {
+                    name,
+                    start: token.start,
+                    parent: stack.last().copied(),
+                    has_children: false,
+                    has_attrs: tag_has_attributes(source, token),
+                    has_text: false,
+                    closed: self_closing || source[..token.end].ends_with('>'),
+                });
+                if !self_closing {
+                    stack.push(id);
+                }
+            }
+            Kind::EndTag => {
+                let name = token_name(source, token);
+                if stack.last().is_some_and(|id| nodes[*id].name == name) {
+                    stack.pop();
+                } else if let Some(position) = stack.iter().rposition(|id| nodes[*id].name == name)
+                {
+                    stack.truncate(position);
+                }
+            }
+            Kind::Text { quoted: false } => {
+                if !source[token.start..token.end].trim().is_empty()
+                    && let Some(id) = stack.last()
+                {
+                    nodes[*id].has_text = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // A lone top-level element is the transparent root unless it is itself a
+    // scalar property: only text (no children, no attributes) means the
+    // document is `{name: text}` rather than the element being a wrapper. A
+    // start tag the user is still typing is never the wrapper, so its
+    // attributes complete against the element being written.
+    let top: Vec<usize> = (0..nodes.len())
+        .filter(|id| nodes[*id].parent.is_none())
+        .collect();
+    let wrapper = (top.len() == 1).then_some(top[0]).filter(|id| {
+        let node = &nodes[*id];
+        node.has_children || (node.closed && !node.has_attrs && !node.has_text)
+    });
+
+    // How often each name repeats among its siblings, and the running ordinal.
+    let mut multiplicity: HashMap<(Option<usize>, String), usize> = HashMap::new();
+    for (id, node) in nodes.iter().enumerate() {
+        if Some(id) == wrapper {
+            continue;
+        }
+        *multiplicity
+            .entry((node.parent, node.name.clone()))
+            .or_insert(0) += 1;
+    }
+    let mut ordinal: HashMap<(Option<usize>, String), usize> = HashMap::new();
+    let mut paths = vec![Vec::new(); nodes.len()];
+    for id in 0..nodes.len() {
+        if Some(id) == wrapper {
+            continue;
+        }
+        let node = &nodes[id];
+        // Elements are created parent-first, so the parent's path is ready.
+        let mut path = node
+            .parent
+            .map_or_else(Vec::new, |parent| paths[parent].clone());
+        path.push(Seg::Key(node.name.clone()));
+        let sibling = (node.parent, node.name.clone());
+        let index = ordinal.entry(sibling.clone()).or_insert(0);
+        let occurrence = *index;
+        *index += 1;
+        if multiplicity.get(&sibling).copied().unwrap_or(0) > 1 {
+            path.push(Seg::Index(occurrence));
+        }
+        paths[id] = path;
+    }
+    PathPlan {
+        paths: nodes.iter().map(|node| node.start).zip(paths).collect(),
+    }
+}
+
+/// Whether an open tag carries at least one `name="value"` attribute.
+fn tag_has_attributes(source: &str, token: &Token) -> bool {
+    let inner = tokenize_tag_inside(source, token);
+    inner.iter().enumerate().any(|(position, token)| {
+        matches!(token.kind, Kind::Text { quoted: false })
+            && inner
+                .get(position + 1)
+                .is_some_and(|next| matches!(next.kind, Kind::Equals))
+    })
 }
 
 fn strings(path: &[Seg]) -> Vec<String> {
@@ -487,90 +626,53 @@ fn strings(path: &[Seg]) -> Vec<String> {
         .collect()
 }
 
-fn extend(path: &[Seg], segment: Seg) -> Vec<Seg> {
-    let mut extended = path.to_vec();
-    extended.push(segment);
-    extended
-}
-
-/// Child path for the next `<name>` inside `parent`: the first child keeps the
-/// bare name, later repeated siblings are numbered (`item`, `item/1`, ...).
-/// The count table lives on the frame so counts reset per parent element.
-fn child_path(frame: &mut Frame, name: &str) -> Vec<Seg> {
-    let seen = match frame
-        .child_counts
-        .iter_mut()
-        .find(|(child, _)| child == name)
-    {
-        Some((_, count)) => {
-            let seen = *count;
-            *count += 1;
-            seen
-        }
-        None => {
-            frame.child_counts.push((name.to_string(), 1));
-            0
-        }
-    };
-    if seen == 0 {
-        extend(&frame.path, Seg::Key(name.to_string()))
-    } else {
-        extend(
-            &extend(&frame.path, Seg::Key(name.to_string())),
-            Seg::Index(seen),
-        )
-    }
-}
-
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
 /// state at `cursor` (a byte offset).
 fn analyze(source: &str, cursor: usize) -> Scan {
     let tokens = tokenize(source);
+    let plan = plan_paths(source, &tokens);
     let partial_index = tokens.iter().position(|token| {
         contains_caret(source, token, cursor)
             && !matches!(token.kind, Kind::Special | Kind::Comment)
     });
     let mut frames: Vec<Frame> = Vec::new();
-    let mut next_id = 0usize;
     let mut scan = Scan::default();
 
-    // Records a `<name>` start tag: its name span, the sibling key used for
-    // duplicate reporting, and the new open frame (`empty` skips the frame for
-    // `<name/>`).
-    let mut open_element = |scan: &mut Scan,
-                            frames: &mut Vec<Frame>,
-                            name: &str,
-                            tag: &Token,
-                            is_partial: bool,
-                            empty: bool| {
-        next_id += 1;
-        let path = match frames.last_mut() {
-            Some(frame) => child_path(frame, name),
-            None => vec![Seg::Key(name.to_string())],
+    // Records a `<name>` start tag: its name span and the new open frame
+    // (`empty` skips the frame for `<name/>`).
+    let open_element =
+        |scan: &mut Scan, frames: &mut Vec<Frame>, name: &str, tag: &Token, empty: bool| {
+            let path = plan.path_of(tag.start).map_or_else(
+                || {
+                    let mut fallback = frames
+                        .last()
+                        .map_or_else(Vec::new, |frame| frame.path.clone());
+                    fallback.push(Seg::Key(name.to_string()));
+                    fallback
+                },
+                <[Seg]>::to_vec,
+            );
+            if !path.is_empty() {
+                scan.key_spans.push((
+                    strings(&path),
+                    tag.start + 1,
+                    tag.start + 1 + name_len(source, tag),
+                ));
+            }
+            if !empty {
+                frames.push(Frame {
+                    name: name.to_string(),
+                    path,
+                });
+            }
         };
-        scan.key_spans.push((
-            strings(&path),
-            tag.start + 1,
-            tag.start + 1 + name_len(source, tag),
-        ));
-        if !is_partial && let Some(frame) = frames.last() {
-            scan.keys.push((frame.id, name.to_string(), tag.start + 1));
-        }
-        if !empty {
-            frames.push(Frame {
-                id: next_id,
-                path,
-                child_counts: Vec::new(),
-            });
-        }
-    };
 
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
         let is_partial = partial_index == Some(index);
         if scan.snapshot.is_none() && (is_partial || token.start >= cursor) {
-            scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, cursor));
+            scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
         }
         match token.kind {
             Kind::OpenTag { .. } => {
@@ -580,45 +682,29 @@ fn analyze(source: &str, cursor: usize) -> Scan {
                 // still belong to no element.
                 if !name.is_empty() {
                     // Attribute names belong to the path this element will get.
-                    let path = match frames.last_mut() {
-                        Some(frame) => child_path_preview(frame, &name),
-                        None => vec![Seg::Key(name.clone())],
-                    };
+                    let path = plan
+                        .path_of(token.start)
+                        .map_or_else(Vec::new, <[Seg]>::to_vec);
                     for inner in tokenize_tag_inside(source, &token) {
                         if let Kind::Text { quoted: false } = inner.kind
                             && is_attr_name(source, &token, inner)
                             && !is_partial
                         {
-                            scan.attr_names
-                                .push((strings(&path), inner.start, inner.end));
                             scan.key_spans.push((
-                                attr_key(&path, &source[inner.start..inner.end]),
+                                attribute_key(&path, &source[inner.start..inner.end]),
                                 inner.start,
                                 inner.end,
                             ));
                         }
                     }
-                    open_element(
-                        &mut scan,
-                        &mut frames,
-                        &name,
-                        &token,
-                        is_partial,
-                        self_closing,
-                    );
+                    open_element(&mut scan, &mut frames, &name, &token, self_closing);
                 }
             }
             Kind::EndTag => {
                 let name = token_name(source, &token);
-                if frames
-                    .last()
-                    .is_some_and(|frame| last_name(&frame.path) == name)
-                {
+                if frames.last().is_some_and(|frame| frame.name == name) {
                     frames.pop();
-                } else if let Some(position) = frames
-                    .iter()
-                    .rposition(|frame| last_name(&frame.path) == name)
-                {
+                } else if let Some(position) = frames.iter().rposition(|frame| frame.name == name) {
                     frames.truncate(position);
                 }
             }
@@ -629,9 +715,10 @@ fn analyze(source: &str, cursor: usize) -> Scan {
                     let text = source[token.start..token.end].trim();
                     if !text.is_empty()
                         && let Some(frame) = frames.last()
+                        && !frame.path.is_empty()
                     {
                         scan.value_spans
-                            .push((text_key(&frame.path), token.start, token.end));
+                            .push((strings(&frame.path), token.start, token.end));
                     }
                 }
             }
@@ -641,10 +728,10 @@ fn analyze(source: &str, cursor: usize) -> Scan {
     }
 
     // Attribute values: re-walk open tags pairing `name = "value"`.
-    record_attribute_values(source, &tokens, &mut scan);
+    record_attribute_values(source, &tokens, &plan, &mut scan);
 
     if scan.snapshot.is_none() {
-        scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, cursor));
+        scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
     }
     scan
 }
@@ -661,43 +748,12 @@ fn name_len(source: &str, tag: &Token) -> usize {
         .map_or(full.len(), |colon| full.len() - colon - 1)
 }
 
-fn last_name(path: &[Seg]) -> String {
-    path.iter()
-        .rev()
-        .find_map(|segment| match segment {
-            Seg::Key(key) => Some(key.clone()),
-            Seg::Index(_) => None,
-        })
-        .unwrap_or_default()
-}
-
-fn text_key(path: &[Seg]) -> Vec<String> {
+/// Key of an attribute in the document model: attributes are ordinary
+/// properties of their element, so the schema applies unchanged.
+fn attribute_key(path: &[Seg], name: &str) -> Vec<String> {
     let mut key = strings(path);
-    key.push("#text".to_string());
+    key.push(name.to_string());
     key
-}
-
-fn attr_key(path: &[Seg], name: &str) -> Vec<String> {
-    let mut key = strings(path);
-    key.push(format!("@{name}"));
-    key
-}
-
-/// Preview of the path a child `<name>` would get, without advancing counts.
-fn child_path_preview(frame: &Frame, name: &str) -> Vec<Seg> {
-    let seen = frame
-        .child_counts
-        .iter()
-        .find(|(child, _)| child == name)
-        .map_or(0, |(_, count)| *count);
-    if seen == 0 {
-        extend(&frame.path, Seg::Key(name.to_string()))
-    } else {
-        extend(
-            &extend(&frame.path, Seg::Key(name.to_string())),
-            Seg::Index(seen),
-        )
-    }
 }
 
 /// Whether `inner` is an attribute name: an unquoted word directly inside an
@@ -726,7 +782,13 @@ fn contains_caret(source: &str, token: &Token, cursor: usize) -> bool {
 
 /// Captures the caret state: the holding element, the token under the caret,
 /// and the open tag around the caret when it sits inside one.
-fn capture_snapshot(source: &str, tokens: &[Token], frames: &[Frame], cursor: usize) -> Snapshot {
+fn capture_snapshot(
+    source: &str,
+    tokens: &[Token],
+    frames: &[Frame],
+    plan: &PathPlan,
+    cursor: usize,
+) -> Snapshot {
     let partial = tokens
         .iter()
         .find(|token| {
@@ -737,16 +799,27 @@ fn capture_snapshot(source: &str, tokens: &[Token], frames: &[Frame], cursor: us
     let open_tag = partial.filter(|token| matches!(token.kind, Kind::OpenTag { .. }));
     let inner = open_tag.map_or_else(Vec::new, |tag| tokenize_tag_inside(source, &tag));
     let pending_attr = open_tag.and_then(|_| pending_attribute(source, &inner, cursor));
-    let frame = frames.last().cloned();
-    let path = frame
-        .as_ref()
+    let path = frames
+        .last()
         .map_or_else(Vec::new, |frame| frame.path.clone());
+    let open_tag_path = open_tag
+        .and_then(|tag| plan.path_of(tag.start))
+        .map_or_else(
+            || {
+                let mut fallback = path.clone();
+                if let Some(tag) = open_tag {
+                    fallback.push(Seg::Key(token_name(source, &tag)));
+                }
+                fallback
+            },
+            <[Seg]>::to_vec,
+        );
     Snapshot {
         path,
-        frame,
         partial,
         in_tag: open_tag.is_some(),
         open_tag,
+        open_tag_path,
         inner,
         pending_attr,
     }
@@ -767,9 +840,9 @@ fn pending_attribute(source: &str, inner: &[Token], cursor: usize) -> Option<Str
 }
 
 /// Re-walks every open tag pairing `name = "value"` so attribute values get
-/// spans. Values record under `@name` on the element's eventual path, found
-/// by matching names against the recorded attribute spans.
-fn record_attribute_values(source: &str, tokens: &[Token], scan: &mut Scan) {
+/// spans. Attributes are properties of their element, so the value records
+/// under `element path + name`.
+fn record_attribute_values(source: &str, tokens: &[Token], plan: &PathPlan, scan: &mut Scan) {
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
@@ -777,6 +850,11 @@ fn record_attribute_values(source: &str, tokens: &[Token], scan: &mut Scan) {
             index += 1;
             continue;
         }
+        let Some(element_path) = plan.path_of(token.start) else {
+            index += 1;
+            continue;
+        };
+        let element_path = element_path.to_vec();
         let inner = tokenize_tag_inside(source, &token);
         let mut position = 0;
         while position < inner.len() {
@@ -794,20 +872,11 @@ fn record_attribute_values(source: &str, tokens: &[Token], scan: &mut Scan) {
                 .get(position + 2)
                 .filter(|next| matches!(next.kind, Kind::Text { .. }));
             if let Some(value_token) = value_token {
-                // Find the element path via the matching recorded attribute span.
-                let path = scan
-                    .attr_names
-                    .iter()
-                    .find(|(_, start, end)| *start == name_token.start && *end == name_token.end)
-                    .map(|(path, _, _)| {
-                        let mut key = path.clone();
-                        key.push(format!("@{name}"));
-                        key
-                    });
-                if let Some(path) = path {
-                    scan.value_spans
-                        .push((path, value_token.start, value_token.end));
-                }
+                scan.value_spans.push((
+                    attribute_key(&element_path, &name),
+                    value_token.start,
+                    value_token.end,
+                ));
             }
             position += 1;
         }
@@ -838,27 +907,24 @@ fn xml_text(value: &Value) -> String {
 // Parsing and spans
 // ---------------------------------------------------------------------------
 
-/// Parses the document with `quick-xml`, then rejects repeated sibling
-/// elements (see `xml_duplicates`). Every error carries a one-based line and
-/// character column.
+/// Parses the document with `quick-xml`. Every error carries a one-based line
+/// and character column.
 fn xml_parse(source: &str) -> Result<Value, ParseError> {
-    let document = build_value(source)?;
-    match xml_duplicates(source) {
-        Some(error) => Err(error),
-        None => Ok(document),
-    }
+    build_value(source)
 }
 
 /// An element whose end tag has not been read yet.
 struct OpenElement {
     name: String,
-    map: Map<String, Value>,
+    attrs: Map<String, Value>,
+    children: Map<String, Value>,
+    text: String,
     start: usize,
 }
 
-/// Builds the `@`/`#text` document model from `quick-xml` events. Structural
-/// errors (mismatched or unclosed tags, stray text, several roots, duplicate
-/// attributes) are reported here at the offending markup.
+/// Builds the document model from `quick-xml` events, then unwraps the
+/// transparent root. Structural errors (mismatched or unclosed tags, stray
+/// text, duplicate attributes) are reported at the offending markup.
 fn build_value(source: &str) -> Result<Value, ParseError> {
     if source.trim().is_empty() {
         return Ok(Value::Object(Map::new()));
@@ -867,7 +933,9 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
     let mut stack: Vec<OpenElement> = Vec::new();
-    let mut roots = Map::new();
+    // Top-level elements until an implicit or explicit container is known:
+    // `(name, value, is_container)`.
+    let mut roots: Vec<(String, Value, bool)> = Vec::new();
     let mut pending_text = String::new();
     loop {
         // `buffer_position` before a read is where the next event begins.
@@ -883,14 +951,14 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
             Event::Eof => break,
             Event::Start(element) => {
                 flush_text(&mut pending_text, &mut stack);
-                check_root_order(source, event_start, stack.is_empty(), &roots)?;
                 stack.push(open_element(source, &element, event_start)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
-                check_root_order(source, event_start, stack.is_empty(), &roots)?;
                 let open = open_element(source, &element, event_start)?;
-                push_child(&mut stack, &mut roots, open.name, Value::Object(open.map));
+                let name = open.name.clone();
+                let (value, container) = finalize(open);
+                push_child(&mut stack, &mut roots, name, value, container);
             }
             Event::End(element) => {
                 flush_text(&mut pending_text, &mut stack);
@@ -913,7 +981,8 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
                         ),
                     ));
                 }
-                push_child(&mut stack, &mut roots, open.name, Value::Object(open.map));
+                let (value, container) = finalize(open);
+                push_child(&mut stack, &mut roots, name, value, container);
             }
             Event::Text(text) => {
                 let content = text.xml10_content();
@@ -957,7 +1026,24 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
             format!("unclosed tag \"{}\"", open.name),
         ));
     }
-    Ok(Value::Object(roots))
+
+    // A lone container is the transparent root: its contents are the document.
+    // A lone scalar (`<listen>7835</listen>`) is itself a document property.
+    // Several top-level elements form the implicit root's properties.
+    if roots.len() == 1 {
+        let (name, value, container) = roots.pop().expect("one root");
+        if container {
+            return Ok(value);
+        }
+        let mut map = Map::new();
+        map.insert(name, value);
+        return Ok(Value::Object(map));
+    }
+    let mut map = Map::new();
+    for (name, value, _) in roots {
+        insert_child(&mut map, name, value);
+    }
+    Ok(Value::Object(map))
 }
 
 /// Reads an element's name and attributes. Duplicate attributes are an error.
@@ -968,7 +1054,7 @@ fn open_element(
 ) -> Result<OpenElement, ParseError> {
     let start = markup_start(source, event_start);
     let name = element.local_name().into_inner().to_string();
-    let mut map = Map::new();
+    let mut attrs = Map::new();
     for attribute in element.attributes() {
         let attribute = attribute.map_err(|error| match error {
             AttrError::Duplicated(..) => {
@@ -980,27 +1066,19 @@ fn open_element(
         let value = attribute
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| syntax_error(source, start, error.to_string()))?;
-        map.insert(format!("@{key}"), Value::String(value.into_owned()));
+        attrs.insert(key, typed_scalar(&value));
     }
-    Ok(OpenElement { name, map, start })
+    Ok(OpenElement {
+        name,
+        attrs,
+        children: Map::new(),
+        text: String::new(),
+        start,
+    })
 }
 
-/// A second root element is an error; `quick-xml` accepts it silently.
-fn check_root_order(
-    source: &str,
-    event_start: usize,
-    at_root: bool,
-    roots: &Map<String, Value>,
-) -> Result<(), ParseError> {
-    if at_root && !roots.is_empty() {
-        let at = markup_start(source, event_start);
-        return Err(syntax_error(source, at, "multiple root elements"));
-    }
-    Ok(())
-}
-
-/// Collects text inside an element; non-blank text outside the root element
-/// is an error.
+/// Collects text inside an element; non-blank text outside any element is an
+/// error.
 fn add_text(
     source: &str,
     event_start: usize,
@@ -1017,8 +1095,8 @@ fn add_text(
     Ok(())
 }
 
-/// Appends pending text to the innermost open element as `#text`. Text split
-/// by child elements or entity references is joined in document order.
+/// Appends pending text to the innermost open element. Text split by entity
+/// references is joined in document order.
 fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
     let text = std::mem::take(pending);
     let trimmed = text.trim();
@@ -1026,32 +1104,81 @@ fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
         return;
     }
     if let Some(open) = stack.last_mut() {
-        match open.map.get_mut("#text") {
-            Some(Value::String(existing)) => existing.push_str(trimmed),
-            _ => {
-                open.map
-                    .insert("#text".to_string(), Value::String(trimmed.to_string()));
+        open.text.push_str(trimmed);
+    }
+}
+
+/// Turns a finished element into its value and whether it is a container (so
+/// the caller can unwrap a lone root). A text-only element is a typed scalar;
+/// children and attributes make an object.
+fn finalize(open: OpenElement) -> (Value, bool) {
+    let text = open.text.trim().to_string();
+    if open.children.is_empty() {
+        if open.attrs.is_empty() {
+            if text.is_empty() {
+                return (Value::Object(Map::new()), true);
             }
+            return (typed_scalar(&text), false);
+        }
+        let mut map = open.attrs;
+        if !text.is_empty() {
+            map.insert("#text".to_string(), Value::String(text));
+        }
+        return (Value::Object(map), false);
+    }
+    let mut map = open.attrs;
+    for (name, value) in open.children {
+        insert_child(&mut map, name, value);
+    }
+    if !text.is_empty() {
+        map.insert("#text".to_string(), Value::String(text));
+    }
+    (Value::Object(map), true)
+}
+
+/// Stores a finished element under its parent, or as a top-level element.
+fn push_child(
+    stack: &mut [OpenElement],
+    roots: &mut Vec<(String, Value, bool)>,
+    name: String,
+    value: Value,
+    container: bool,
+) {
+    match stack.last_mut() {
+        Some(parent) => {
+            insert_child(&mut parent.children, name, value);
+        }
+        None => roots.push((name, value, container)),
+    }
+}
+
+/// Inserts a child, folding repeated sibling names into an array, which is how
+/// the schema's arrays are written in XML.
+fn insert_child(map: &mut Map<String, Value>, name: String, value: Value) {
+    match map.get_mut(&name) {
+        Some(Value::Array(items)) => items.push(value),
+        Some(existing) => {
+            let first = std::mem::replace(existing, Value::Null);
+            *existing = Value::Array(vec![first, value]);
+        }
+        None => {
+            map.insert(name, value);
         }
     }
 }
 
-/// Stores a finished element under its parent, or as a root. Repeated names
-/// are rejected separately by `xml_duplicates`, so a later one simply replaces
-/// the earlier entry in the value tree.
-fn push_child(
-    stack: &mut [OpenElement],
-    roots: &mut Map<String, Value>,
-    name: String,
-    value: Value,
-) {
-    match stack.last_mut() {
-        Some(parent) => {
-            parent.map.insert(name, value);
-        }
-        None => {
-            roots.insert(name, value);
-        }
+/// Element text and attribute values as schema-typed scalars: numbers,
+/// booleans, and `null` are recognized, everything else stays a string.
+fn typed_scalar(text: &str) -> Value {
+    let trimmed = text.trim();
+    match trimmed {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        "null" => Value::Null,
+        _ => match serde_json::from_str::<Value>(trimmed) {
+            Ok(Value::Number(number)) => Value::Number(number),
+            _ => Value::String(trimmed.to_string()),
+        },
     }
 }
 
@@ -1083,23 +1210,6 @@ fn markup_start(source: &str, from: usize) -> usize {
     source[from..]
         .find(|character: char| !character.is_whitespace())
         .map_or(from, |offset| from + offset)
-}
-
-/// Rejects repeated sibling elements with the same name under one parent. The
-/// tolerant scan sees every occurrence, so the error points at the repeat.
-fn xml_duplicates(source: &str) -> Option<ParseError> {
-    let scan = analyze(source, 0);
-    let mut seen = HashSet::new();
-    for (owner, key, start) in &scan.keys {
-        if !seen.insert((*owner, key.as_str())) {
-            return Some(syntax_error(
-                source,
-                *start,
-                format!("duplicate element \"{key}\""),
-            ));
-        }
-    }
-    None
 }
 
 #[cfg(feature = "schema-validation")]
@@ -1185,7 +1295,36 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         snapshot.partial.map(|token| (token.start, token.end)),
     );
     let explicit_entry_start = typed_from_tag;
-    let entry_prefix = "";
+    // Text with content (`<listen>7|`) completes the element's value from its
+    // parent path; empty text stays a key position inside the element.
+    if !typed.trim().is_empty()
+        && !typed_from_tag
+        && let Some(Seg::Key(key)) = snapshot.path.last()
+    {
+        let mut parent = snapshot.path.clone();
+        parent.pop();
+        let path: Vec<SchemaPathSegment> = parent
+            .iter()
+            .map(|segment| match segment {
+                Seg::Key(key) => SchemaPathSegment::Key(key.clone()),
+                Seg::Index(index) => SchemaPathSegment::ArrayItem(*index),
+            })
+            .collect();
+        return CompletionContext {
+            path,
+            typed,
+            replace_start,
+            replace_end: cursor_bytes(source, cursor),
+            value_key: Some(key.clone()),
+            value_needs_space: false,
+            is_array_item: false,
+            base_indent,
+            entry_prefix: "",
+            explicit_entry_start: false,
+            entry_suffix: "",
+            attribute: false,
+        };
+    }
     CompletionContext {
         path,
         typed,
@@ -1195,9 +1334,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         value_needs_space: false,
         is_array_item: false,
         base_indent,
-        entry_prefix,
+        entry_prefix: "",
         explicit_entry_start,
         entry_suffix: "",
+        attribute: false,
     }
 }
 
@@ -1213,10 +1353,9 @@ fn tag_completion_context(
     base_indent: String,
 ) -> CompletionContext {
     let replace_end = cursor_bytes(source, cursor);
-    // The element whose attributes the caret is in: the open tag's own path.
-    let holder = snapshot.open_tag.map_or_else(Vec::new, |tag| {
-        extend(&snapshot.path, Seg::Key(token_name(source, &tag)))
-    });
+    // The element whose attributes the caret is in: the open tag's own document
+    // path (empty for the transparent root).
+    let holder = snapshot.open_tag_path.clone();
     // Caret inside quotes: complete the attribute's value.
     if let Some((name, start, end)) = quoted_value_at(source, &snapshot.inner, cursor) {
         let value_path = attribute_value_path(&holder, &name);
@@ -1233,6 +1372,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
     // `name = |`: the value is empty; complete the attribute's values.
@@ -1250,6 +1390,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
     // Just after the name of a complete tag (`<host|>`) the context is the
@@ -1273,6 +1414,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
     // The element name (the caret is within `<name`) completes the element. The
@@ -1295,6 +1437,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: true,
             entry_suffix: "",
+            attribute: false,
         };
     }
     // A bare word inside the tag completes an attribute name.
@@ -1319,14 +1462,16 @@ fn tag_completion_context(
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
+        attribute: true,
     }
 }
 
-/// Holder path plus `value_key` for completing an attribute's value. As for a
-/// JSON property, the path is the element holding the attribute and the key
-/// (`@name` in the document model) addresses the value beneath it.
+/// Holder path plus `value_key` for completing an attribute's value. The path
+/// is the element holding the attribute and the key (the plain attribute name,
+/// which is how attributes appear in the document model) addresses the value
+/// beneath it.
 fn attribute_value_path(path: &[Seg], name: &str) -> (Vec<SchemaPathSegment>, Option<String>) {
-    (attribute_holder_path(path), Some(format!("@{name}")))
+    (attribute_holder_path(path), Some(name.to_string()))
 }
 
 /// Attribute names complete against the element's own properties: the holder
@@ -1439,16 +1584,9 @@ fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>
             .is_none()
             .then(|| existing_attributes(source, &snapshot));
     }
-    let frame = snapshot.frame?;
-    // Keys are recorded per owner element id, and the partly typed tag is never
-    // recorded, so every key with the caret element's id is a direct sibling.
-    let names = scan
-        .keys
-        .iter()
-        .filter(|(owner, _, _)| *owner == frame.id)
-        .map(|(_, key, _)| key.clone())
-        .collect();
-    Some(names)
+    // Repeated sibling elements are arrays, not duplicates, so element names
+    // are never filtered out.
+    None
 }
 
 /// Attribute names already on the tag under the caret.
@@ -1478,9 +1616,10 @@ fn property_insert(
     root: &Value,
     base_indent: &str,
     unit: &str,
+    attribute: bool,
 ) -> Option<(String, usize)> {
-    if let Some(name) = key.strip_prefix('@') {
-        return attribute_insert(name, property, root);
+    if attribute {
+        return attribute_insert(key, property, root);
     }
     let mut insert = format!("<{key}>");
     let mut caret = None;
@@ -1533,8 +1672,12 @@ fn property_insert(
 }
 
 /// Insert text for an attribute suggestion: `name="|"` with the caret inside
-/// the quotes, or with the default/const filled in.
+/// the quotes, or with the default/const filled in. Objects and arrays have no
+/// attribute form, so those properties stay child-element suggestions.
 fn attribute_insert(name: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
+    if object_branch(property, root).is_some() || array_branch(property, root).is_some() {
+        return None;
+    }
     let mut insert = format!("{name}=\"");
     if let Some(value) = schema_const(property, root) {
         insert.push_str(&escape_attribute(&xml_text(value)));
@@ -1996,7 +2139,7 @@ mod tests {
                     "port":{"type":"integer","description":"Port"},
                     "tls":{"type":"object","required":["enabled"],"properties":{"enabled":{"type":"boolean","default":false}}}
                 }},
-                "@version":{"type":"string"}
+                "version":{"type":"string"}
             }}"#,
         )
         .unwrap()
@@ -2041,11 +2184,54 @@ mod tests {
     }
 
     #[test]
-    fn repeated_sibling_elements_are_a_parse_error() {
-        let error = parse_error("<server>\n  <host>a</host>\n  <host>b</host>\n</server>");
-        assert_eq!(error.line, Some(3));
-        assert_eq!(error.column, Some(4));
-        assert!(error.message.contains("duplicate"), "{}", error.message);
+    fn repeated_sibling_elements_fold_into_an_array() {
+        let document = XmlBehavior
+            .parse("<root><item>1</item><item>2</item></root>")
+            .ok()
+            .expect("document should parse");
+        assert_eq!(document, serde_json::json!({"item": [1, 2]}));
+    }
+
+    #[test]
+    fn a_lone_container_root_is_unwrapped() {
+        let document = XmlBehavior
+            .parse("<burrow><listen>7835</listen><enabled>false</enabled></burrow>")
+            .ok()
+            .expect("document should parse");
+        assert_eq!(
+            document,
+            serde_json::json!({"listen": 7835, "enabled": false})
+        );
+    }
+
+    #[test]
+    fn a_lone_scalar_element_is_a_document_property() {
+        let document = XmlBehavior
+            .parse("<listen>7835</listen>")
+            .ok()
+            .expect("document should parse");
+        assert_eq!(document, serde_json::json!({"listen": 7835}));
+    }
+
+    #[test]
+    fn several_top_level_elements_form_an_implicit_root() {
+        let document = XmlBehavior
+            .parse("<listen>1</listen>\n<enabled>true</enabled>")
+            .ok()
+            .expect("document should parse");
+        assert_eq!(document, serde_json::json!({"listen": 1, "enabled": true}));
+    }
+
+    #[test]
+    fn element_text_is_typed_against_the_schema() {
+        let document = XmlBehavior
+            .parse("<root><port>80</port><tls><enabled>true</enabled></tls></root>")
+            .ok()
+            .expect("document should parse");
+        assert_eq!(
+            document,
+            serde_json::json!({"port": 80, "tls": {"enabled": true}})
+        );
     }
 
     #[test]
@@ -2062,13 +2248,15 @@ mod tests {
     }
 
     #[test]
-    fn attributes_land_under_at_keys_and_text_under_text() {
+    fn attributes_and_text_make_an_object() {
         let document = XmlBehavior
             .parse("<server version=\"1\">up</server>")
             .ok()
             .expect("document should parse");
-        assert_eq!(document["server"]["@version"], serde_json::json!("1"));
-        assert_eq!(document["server"]["#text"], serde_json::json!("up"));
+        assert_eq!(
+            document,
+            serde_json::json!({"server": {"version": 1, "#text": "up"}})
+        );
     }
 
     #[test]
@@ -2087,29 +2275,46 @@ mod tests {
 
     #[test]
     fn elements_are_suggested_and_a_partial_name_is_replaced() {
-        let source = "<server><ho";
+        let source = "<root><server><ho";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "host")
             .expect("host should be suggested");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "<server><host></host>");
+        assert_eq!(updated, "<root><server><host></host>");
     }
 
     #[test]
-    fn elements_already_present_are_not_suggested_again() {
-        let source = "<server><host>x</host><h";
-        assert!(
-            complete(source, &schema())
-                .iter()
-                .all(|option| option.label != "host")
+    fn top_level_elements_are_suggested_in_an_implicit_root() {
+        // Several top-level elements: nothing is a wrapper, both are document
+        // properties, so a new top-level element completes from the root.
+        let source = "<server><host>x</host></server><ver";
+        let option = complete(source, &schema())
+            .into_iter()
+            .find(|option| option.label == "version")
+            .expect("version should be suggested");
+        let (updated, _) = apply_completion(source, &option);
+        assert_eq!(
+            updated,
+            "<server><host>x</host></server><version></version>"
         );
+    }
+
+    #[test]
+    fn values_inside_an_element_are_suggested_from_its_schema() {
+        let source = "<root><server><tls><enabled>tr";
+        let option = complete(source, &schema())
+            .into_iter()
+            .find(|option| option.label == "true")
+            .expect("true should be suggested for a boolean");
+        let (updated, _) = apply_completion(source, &option);
+        assert_eq!(updated, "<root><server><tls><enabled>true");
     }
 
     #[test]
     fn attribute_values_are_suggested_inside_quotes() {
         let local_schema = build_schema(
-            r#"{"type":"object","properties":{"server":{"type":"object","properties":{"@mode":{"type":"string","enum":["fast","slow"]}}}}}"#,
+            r#"{"type":"object","properties":{"server":{"type":"object","properties":{"mode":{"type":"string","enum":["fast","slow"]}}}}}"#,
         )
         .unwrap();
         let source = "<server mode=\"f";
@@ -2122,10 +2327,31 @@ mod tests {
     }
 
     #[test]
+    fn attributes_are_suggested_from_their_element() {
+        let source = "<server po";
+        let option = complete(source, &schema())
+            .into_iter()
+            .find(|option| option.label == "port")
+            .expect("port should be suggested as an attribute");
+        let (updated, _) = apply_completion(source, &option);
+        assert_eq!(updated, "<server port=\"\"");
+    }
+
+    #[test]
+    fn a_repeated_element_does_not_filter_the_name() {
+        let source = "<root><server><host>x</host></server><ser";
+        let labels: Vec<String> = complete(source, &schema())
+            .into_iter()
+            .map(|option| option.label)
+            .collect();
+        assert!(labels.iter().any(|label| label == "server"), "{labels:?}");
+    }
+
+    #[test]
     fn hover_over_an_element_returns_its_schema_documentation() {
-        let source = "<server>\n  <host>x</host>\n</server>";
+        let source = "<root>\n  <server>\n    <host>x</host>\n  </server>\n</root>";
         let info =
-            key_hover(source, 1, 3, Some(&schema()), &XmlBehavior).expect("host should have docs");
+            key_hover(source, 2, 5, Some(&schema()), &XmlBehavior).expect("host should have docs");
         assert_eq!(info.key, "host");
         assert_eq!(info.description.as_deref(), Some("Hostname"));
     }
@@ -2156,20 +2382,50 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn a_wrong_value_is_reported_on_the_value() {
-        let source = "<server>\n  <port>x</port>\n</server>";
+        let source = "<root>\n  <server>\n    <port>x</port>\n  </server>\n</root>";
         let diagnostics = validate(source, Some(&schema()), None, true, &XmlBehavior);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].line, Some(2));
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(11));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_attribute_value_error_is_reported_on_the_attribute() {
+        let source = "<root><server port=\"x\"/></root>";
+        let diagnostics = validate(source, Some(&schema()), None, true, &XmlBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(1));
+        // The span starts at the opening quote of `port="x"`.
+        assert_eq!(diagnostics[0].column, Some(20));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn a_nested_element_error_is_reported_on_its_own_line() {
+        let local_schema = build_schema(
+            r#"{"type":"object","properties":{
+                "clients":{"type":"object","additionalProperties":{
+                    "type":"object","properties":{"secret":{"type":"string"}}
+                }}
+            }}"#,
+        )
+        .unwrap();
+        let source = "<root>\n  <clients>\n    <acme>\n      <secret>1</secret>\n    </acme>\n  </clients>\n</root>";
+        let diagnostics = validate(source, Some(&local_schema), None, true, &XmlBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(4));
+        assert_eq!(diagnostics[0].column, Some(15));
     }
 
     #[test]
     fn comments_do_not_confuse_the_structure_scan() {
-        let source = "<server><!-- <host> --><po";
+        let source = "<root><server><!-- <host> --><po";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "port")
             .expect("port should be suggested despite the comment");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "<server><!-- <host> --><port></port>");
+        assert_eq!(updated, "<root><server><!-- <host> --><port></port>");
     }
 }

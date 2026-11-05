@@ -61,6 +61,7 @@ impl LanguageBehavior for JsonBehavior {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        _attribute: bool,
     ) -> Option<(String, usize)> {
         property_insert(key, property, root, base_indent, unit)
     }
@@ -628,6 +629,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         } else {
             ""
         },
+        attribute: false,
     }
 }
 
@@ -940,13 +942,13 @@ mod tests {
 
     #[test]
     fn keys_inside_an_inline_object_are_suggested_from_the_schema() {
-        let source = "{\"clients\": {\"paradoxe\": {\"sec";
+        let source = "{\"clients\": {\"acme\": {\"sec";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "secret")
             .expect("a key typed inside an inline object should be suggested");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "{\"clients\": {\"paradoxe\": {\"secret\": ");
+        assert_eq!(updated, "{\"clients\": {\"acme\": {\"secret\": ");
     }
 
     #[cfg(feature = "schema-validation")]
@@ -972,7 +974,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn an_error_inside_an_inline_object_is_reported_on_its_own_line() {
-        let source = "{\n  \"clients\": {\"paradoxe\": {\"secret\": 1}}\n}";
+        let source = "{\n  \"clients\": {\"acme\": {\"secret\": 1}}\n}";
         let diagnostics = validate(source, Some(&schema()), None, true, &JsonBehavior);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(2));
@@ -1133,7 +1135,7 @@ mod tests {
         let schema = schema();
         let auth = &schema.schema["properties"]["auth"];
         let (insert, caret) = JsonBehavior
-            .property_insert("auth", auth, &schema.schema, "", "  ")
+            .property_insert("auth", auth, &schema.schema, "", "  ", false)
             .unwrap();
         assert_eq!(insert, "\"auth\": {\n  \"enabled\": false\n}");
         assert_eq!(caret, "\"auth\": {\n  \"enabled\": ".encode_utf16().count());

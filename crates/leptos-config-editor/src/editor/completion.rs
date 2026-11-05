@@ -443,6 +443,7 @@ fn property_completions(
     existing: Option<&HashSet<String>>,
     base_indent: &str,
     unit: &str,
+    attribute: bool,
     behavior: &dyn LanguageBehavior,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
@@ -472,7 +473,7 @@ fn property_completions(
                     0
                 };
             let Some((insert, cursor_offset)) =
-                behavior.property_insert(key, property, root, base_indent, unit)
+                behavior.property_insert(key, property, root, base_indent, unit, attribute)
             else {
                 continue;
             };
@@ -601,6 +602,7 @@ fn completions_for_context(
         existing_keys.as_ref(),
         &context.base_indent,
         &unit,
+        context.attribute,
         behavior,
     )
 }

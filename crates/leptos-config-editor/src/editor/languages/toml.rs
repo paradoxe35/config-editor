@@ -62,6 +62,7 @@ impl LanguageBehavior for TomlBehavior {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        _attribute: bool,
     ) -> Option<(String, usize)> {
         property_insert(key, property, root, base_indent, unit)
     }
@@ -306,7 +307,7 @@ fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
         return None;
     }
     let start = equals + 1 + (after.len() - trimmed.len());
-    let end = code.len() - code[start..].trim_end_matches([' ', '\t']).len();
+    let end = start + trimmed.trim_end_matches([' ', '\t']).len();
     (start < end).then_some((start, end))
 }
 
@@ -355,6 +356,274 @@ fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
         .collect()
 }
 
+/// One entry inside an inline table, with byte offsets relative to the line
+/// and its full schema path (outer table + inline key chain).
+struct InlineEntry {
+    key: (usize, usize),
+    value: (usize, usize),
+    path: Vec<String>,
+}
+
+/// Collects the entries of a single-line inline table starting just after its
+/// `{`. Nested inline tables recurse, so `a = { b = { c = 1 } }` yields `a`,
+/// `a.b`, and `a.b.c`. `offset` is where `text` starts inside the line.
+fn inline_entries(text: &str, offset: usize, base: &[String], out: &mut Vec<InlineEntry>) {
+    let mut index = 0;
+    while index < text.len() {
+        while index < text.len()
+            && matches!(text.as_bytes()[index], b' ' | b'\t' | b'\n' | b'\r' | b',')
+        {
+            index += 1;
+        }
+        if index >= text.len() || text.as_bytes()[index] == b'}' {
+            return;
+        }
+        let key_start = index;
+        let Some(equals) = inline_equals(text, key_start) else {
+            index = inline_item_end(text, key_start).max(index + 1);
+            continue;
+        };
+        let raw = text[key_start..equals].trim_end();
+        let key_end = key_start + raw.len();
+        let mut full = base.to_vec();
+        full.extend(split_key_path(&unquote_key(raw)).unwrap_or_else(|| vec![unquote_key(raw)]));
+        let mut value_start = equals + 1;
+        while value_start < text.len() && matches!(text.as_bytes()[value_start], b' ' | b'\t') {
+            value_start += 1;
+        }
+        let nested = text[value_start..].starts_with('{');
+        let value_end = if nested {
+            matching_brace(text, value_start)
+                .map_or(text.len(), |close| (close + 1).min(text.len()))
+        } else {
+            inline_item_end(text, value_start)
+        };
+        out.push(InlineEntry {
+            key: (offset + key_start, offset + key_end),
+            value: (offset + value_start, offset + value_end),
+            path: full.clone(),
+        });
+        if nested
+            && let Some(close) = matching_brace(text, value_start)
+            && close > value_start + 1
+        {
+            inline_entries(
+                &text[value_start + 1..close],
+                offset + value_start + 1,
+                &full,
+                out,
+            );
+        }
+        index = value_end.max(index + 1);
+    }
+}
+
+/// Byte index of the `=` after `from`, outside strings, stopping at the entry
+/// boundary (`,` or `}`).
+fn inline_equals(text: &str, from: usize) -> Option<usize> {
+    let mut quote = None;
+    for (index, character) in text[from..].char_indices() {
+        match quote {
+            Some(active) => {
+                if character == active {
+                    quote = None;
+                }
+            }
+            None => match character {
+                '"' | '\'' => quote = Some(character),
+                '=' => return Some(from + index),
+                ',' | '}' => return None,
+                _ => {}
+            },
+        }
+    }
+    None
+}
+
+/// Byte index of the closing brace matching the `{` at `open`, honoring
+/// strings, arrays, and nested braces.
+fn matching_brace(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in text[open..].char_indices() {
+        if let Some(active) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' => quote = Some(character),
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(open + index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Byte index just past the value starting at `from`: the next `,` or `}` at
+/// the top level, with trailing whitespace trimmed.
+fn inline_item_end(text: &str, from: usize) -> usize {
+    let mut index = from;
+    let mut quote = None;
+    let mut depth = 0usize;
+    let mut escaped = false;
+    while index < text.len() {
+        let character = text[index..].chars().next().unwrap_or_default();
+        let width = character.len_utf8();
+        if let Some(active) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
+                quote = None;
+            }
+        } else {
+            match character {
+                '"' | '\'' => quote = Some(character),
+                '{' | '[' | '(' => depth += 1,
+                '}' | ']' | ')' => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                ',' if depth == 0 => break,
+                _ => {}
+            }
+        }
+        index += width;
+    }
+    let end = &text[from..index];
+    from + end.trim_end_matches([' ', '\t']).len()
+}
+
+/// Unclosed `{` count at the end of `text`, ignoring quoted strings.
+fn inline_depth(text: &str) -> usize {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    for character in text.chars() {
+        if let Some(active) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' => quote = Some(character),
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
+}
+
+/// Path of the inline table holding the caret. `base` is the path of the
+/// outer table (the assignment's key included) and `open` the byte index of
+/// its `{`. Nested `key = {` entries extend the path, so
+/// `clients = { acme = { |` completes under `clients.acme`.
+fn inline_table_path(
+    base: &[SchemaPathSegment],
+    code: &str,
+    open: usize,
+) -> Vec<SchemaPathSegment> {
+    let mut stack = vec![base.to_vec()];
+    let mut segment_start = open + 1;
+    let mut index = open + 1;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    while index < code.len() {
+        let character = code[index..].chars().next().unwrap_or('\0');
+        let width = character.len_utf8();
+        if let Some(active) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
+                quote = None;
+            }
+            index += width;
+            continue;
+        }
+        match character {
+            '"' | '\'' => quote = Some(character),
+            '{' => {
+                let raw = code[segment_start..index].trim();
+                let mut path = stack.last().cloned().unwrap_or_else(|| base.to_vec());
+                if let Some(equals) = raw.rfind('=') {
+                    let key = raw[..equals].trim();
+                    match split_key_path(&unquote_key(key)) {
+                        Some(parts) => path.extend(parts.into_iter().map(SchemaPathSegment::Key)),
+                        None => path.push(SchemaPathSegment::Key(unquote_key(key))),
+                    }
+                }
+                stack.push(path);
+                segment_start = index + 1;
+            }
+            '}' => {
+                if stack.len() > 1 {
+                    stack.pop();
+                }
+                segment_start = index + 1;
+            }
+            ',' => segment_start = index + 1,
+            _ => {}
+        }
+        index += width;
+    }
+    stack.pop().unwrap_or_else(|| base.to_vec())
+}
+
+/// Span of a key nested in an inline-table value on `code`: `base` is the
+/// outer assignment's path. Returns the entry's key and value spans.
+fn inline_entry_at(
+    code: &str,
+    base: &[String],
+    wanted: &[String],
+) -> Option<(usize, usize, usize, usize)> {
+    if wanted.len() <= base.len() || !wanted.starts_with(base) {
+        return None;
+    }
+    let (value_start, _) = value_span_in_line(code)?;
+    if !code[value_start..].starts_with('{') {
+        return None;
+    }
+    let inner_start = value_start + 1;
+    let inner_end = matching_brace(code, value_start)
+        .unwrap_or(code.len())
+        .max(inner_start);
+    let mut entries = Vec::new();
+    inline_entries(
+        &code[inner_start..inner_end],
+        inner_start,
+        base,
+        &mut entries,
+    );
+    entries
+        .into_iter()
+        .find(|entry| entry.path == wanted)
+        .map(|entry| (entry.key.0, entry.key.1, entry.value.0, entry.value.1))
+}
+
 #[cfg(feature = "schema-validation")]
 fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
@@ -371,6 +640,11 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
             if full == wanted {
                 let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
                 return Some(span_between(source, offset + start, offset + end));
+            }
+            // `key = { nested = … }` keeps every nested key on this line.
+            if let Some((key_start, key_end, _, _)) = inline_entry_at(code, &full, &wanted) {
+                let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
+                return Some(span_between(source, offset + key_start, offset + key_end));
             }
         }
         // A `[table]` header addresses the table itself: the last segment is
@@ -414,6 +688,16 @@ fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
                 return Some((line_number, column, column + 1));
             }
             return Some(span_between(source, offset + start, offset + end));
+        }
+        // A value nested in an inline table points at that entry's value.
+        if let Some((_, _, value_start, value_end)) = inline_entry_at(code, &full, &wanted) {
+            let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
+            if code[value_start..].trim_start().starts_with(['{', '[']) {
+                let (line_number, column) = line_column(source, offset + value_start);
+                return Some((line_number, column, column + 1));
+            }
+            return (value_start < value_end)
+                .then(|| span_between(source, offset + value_start, offset + value_end));
         }
     }
     None
@@ -462,15 +746,19 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
 
     // Inline table (`key = { … }`) with the caret inside the braces: the keys
-    // being completed belong to the inline table, so the path descends into
-    // the assigned key and the typed token is the segment after `{` or `,`.
+    // being completed belong to the inline table, so the path descends through
+    // each enclosing inline table and the typed token is the segment after the
+    // last `{` or `,`.
     if let Some(equals) = assignment_equals(code_before) {
-        let value_text = code_before[equals + 1..].trim_start();
-        if value_text.starts_with('{') && !value_text.contains('}') {
+        let after_equals = &code_before[equals + 1..];
+        let spaces = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
+        let value_text = &after_equals[spaces..];
+        if value_text.starts_with('{') && inline_depth(value_text) > 0 {
             let raw_key = code_line[..assignment_equals(code_line).unwrap_or(equals)]
                 .trim()
                 .to_string();
@@ -481,6 +769,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     .into_iter()
                     .map(SchemaPathSegment::Key),
             );
+            let brace = equals + 1 + spaces;
+            let full = inline_table_path(&full, code_before, brace);
             let segment_start = code_before.rfind([',', '{']).map_or(0, |index| index + 1);
             let raw = &code_before[segment_start..];
             let typed = raw.trim_start();
@@ -497,6 +787,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 entry_prefix: "",
                 explicit_entry_start: false,
                 entry_suffix: "",
+                attribute: false,
             };
         }
     }
@@ -540,6 +831,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
 
@@ -577,6 +869,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
+        attribute: false,
     }
 }
 
@@ -1074,7 +1367,7 @@ mod tests {
                     "host":{"type":"string","default":"localhost"},
                     "port":{"type":"integer","default":7835}}},
                 "clients":{"type":"object","additionalProperties":{"type":"object",
-                    "properties":{"secret":{"type":"string"}},"required":["secret"]}}
+                    "properties":{"secret":{"type":"string"},"max_connections":{"type":"integer"}},"required":["secret"]}}
             },"additionalProperties":false}"#,
         )
         .unwrap()
@@ -1177,10 +1470,36 @@ mod tests {
         assert!(labels.contains(&"port"), "{labels:?}");
     }
 
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_error_inside_an_inline_table_is_reported_on_its_own_line() {
+        let source = "listen = 7835\n[clients]\nacme = { secret = 1 }\n";
+        let diagnostics = validate(source, Some(&schema()), None, true, &TomlBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        // Column of the `1` inside the inline table.
+        assert_eq!(diagnostics[0].column, Some(19));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_error_inside_a_nested_inline_table_is_reported_on_its_own_line() {
+        let schema_bundle = build_schema(
+            r#"{"type":"object","properties":{"outer":{"type":"object","properties":{
+                "inner":{"type":"object","properties":{"count":{"type":"integer"}}}}}}}"#,
+        )
+        .unwrap();
+        let source = "outer = { inner = { count = \"x\" } }\n";
+        let diagnostics = validate(source, Some(&schema_bundle), None, true, &TomlBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(1));
+        assert_eq!(diagnostics[0].column, Some(29));
+    }
+
     #[test]
     fn keys_inside_an_inline_table_are_suggested_from_the_assigned_key_schema() {
         let schema_bundle = schema();
-        let source = "[clients]\nparadoxe = { se";
+        let source = "[clients]\nacme = { se";
         let options = completions(
             source,
             source.encode_utf16().count(),
@@ -1192,6 +1511,52 @@ mod tests {
         assert!(
             options.iter().any(|option| option.label == "secret"),
             "secret should be suggested inside the inline table, have {:?}",
+            options
+                .iter()
+                .map(|option| &option.label)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn keys_inside_a_nested_inline_table_are_suggested() {
+        let schema_bundle = schema();
+        let source = "clients = { acme = { se";
+        let options = completions(
+            source,
+            source.encode_utf16().count(),
+            false,
+            Some(&schema_bundle),
+            true,
+            &TomlBehavior,
+        );
+        assert!(
+            options.iter().any(|option| option.label == "secret"),
+            "secret should be suggested inside the nested inline table, have {:?}",
+            options
+                .iter()
+                .map(|option| &option.label)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn entries_after_comma_inside_a_nested_inline_table_complete_from_it() {
+        let schema_bundle = schema();
+        let source = "clients = { acme = { secret = \"x\", ma";
+        let options = completions(
+            source,
+            source.encode_utf16().count(),
+            false,
+            Some(&schema_bundle),
+            true,
+            &TomlBehavior,
+        );
+        assert!(
+            options
+                .iter()
+                .any(|option| option.label == "max_connections"),
+            "max_connections should be suggested after the first entry, have {:?}",
             options
                 .iter()
                 .map(|option| &option.label)

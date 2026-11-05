@@ -72,6 +72,7 @@ impl LanguageBehavior for HclBehavior {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        _attribute: bool,
     ) -> Option<(String, usize)> {
         property_insert(key, property, root, base_indent, unit)
     }
@@ -379,6 +380,11 @@ struct HeaderInfo {
 struct AttributeInfo {
     body: usize,
     name: String,
+    /// Key chain from the owning body-level `name = {` assignment down to this
+    /// entry. Empty for attributes written directly in a body; `["acme"]` for
+    /// `secret` in `clients = { acme = { secret = ... } }`. Lets completion and
+    /// error spans descend into nested value maps.
+    prefix: Vec<String>,
     /// Read only by schema-path span lookups.
     #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     key_span: (usize, usize),
@@ -390,6 +396,13 @@ struct Snapshot {
     body: usize,
     in_value: bool,
     value_key: Option<String>,
+    /// Key chain from the owning body-level assignment into the map layer at
+    /// the caret (`["clients", "acme"]` inside `clients = { acme = { | } }`).
+    /// Completion descends through it into the map's schema.
+    value_prefix: Vec<String>,
+    /// Whether the caret sits inside `{ }` of a value map rather than at a
+    /// plain value position or inside an array.
+    in_map: bool,
     value_start: usize,
     partial: Option<Token>,
 }
@@ -408,6 +421,19 @@ struct OpenValue {
     attribute: usize,
     depth: usize,
     started: bool,
+    /// Open `{` layers inside the value (the value's own map is the first).
+    braces: usize,
+    /// Open `[` / `(` layers inside the value. Array items are not map keys,
+    /// so key completion and nested key spans stay off inside them.
+    containers: usize,
+    /// Key chain below the owning attribute for the innermost open map layer
+    /// (`["acme"]` inside `clients = { acme = { ... } }`).
+    map_keys: Vec<String>,
+    /// The `key =` just read inside the map, awaiting its `{`.
+    pending_key: Option<String>,
+    /// The nested attribute whose value is still being read, so its span can
+    /// grow until the next key or closing brace.
+    nested_value: Option<usize>,
 }
 
 impl Scan {
@@ -443,10 +469,12 @@ fn body_path(scan: &Scan, body: usize) -> Vec<String> {
     segments
 }
 
-/// Schema path of an attribute: its body's path plus its key.
+/// Schema path of an attribute: its body's path, its map prefix (empty at the
+/// top level), plus its key.
 #[cfg(feature = "schema-validation")]
 fn attribute_path(scan: &Scan, attribute: &AttributeInfo) -> Vec<String> {
     let mut path = body_path(scan, attribute.body);
+    path.extend(attribute.prefix.iter().cloned());
     path.push(attribute.name.clone());
     path
 }
@@ -454,6 +482,16 @@ fn attribute_path(scan: &Scan, attribute: &AttributeInfo) -> Vec<String> {
 /// Index of the first non-comment token at or after `from`.
 fn next_significant(tokens: &[Token], from: usize) -> Option<usize> {
     (from..tokens.len()).find(|&next| tokens[next].kind != Kind::Comment)
+}
+
+/// Map key chain for an entry written inside the value being read: the owning
+/// attribute's own prefix and name, then each `key = {` layer below it.
+fn map_prefix(attributes: &[AttributeInfo], value: &OpenValue) -> Vec<String> {
+    let owner = &attributes[value.attribute];
+    let mut prefix = owner.prefix.clone();
+    prefix.push(owner.name.clone());
+    prefix.extend(value.map_keys.iter().cloned());
+    prefix
 }
 
 /// Captures the parser state at the caret: the innermost body, and the
@@ -469,10 +507,18 @@ fn take_snapshot(
     match open {
         Some(value) => {
             let attribute = &attributes[value.attribute];
+            let in_map = value.braces >= 1 && value.containers == 0;
+            let value_prefix = if in_map {
+                map_prefix(attributes, value)
+            } else {
+                Vec::new()
+            };
             Snapshot {
                 body,
                 in_value: true,
                 value_key: Some(attribute.name.clone()),
+                value_prefix,
+                in_map,
                 value_start: attribute.value_span.0,
                 partial,
             }
@@ -481,6 +527,8 @@ fn take_snapshot(
             body,
             in_value: false,
             value_key: None,
+            value_prefix: Vec::new(),
+            in_map: false,
             value_start: cursor,
             partial,
         },
@@ -533,19 +581,79 @@ fn analyze(source: &str, cursor: usize) -> Scan {
             index += 1;
             continue;
         }
-        // Inside a value only brackets matter. A closing bracket at depth zero
-        // belongs to an enclosing body, so it ends the value and is read below.
+        // Inside a value only brackets matter, plus the map layering that key
+        // completion and nested key spans need. A closing bracket at depth
+        // zero belongs to an enclosing body, so it ends the value and is read
+        // below.
         let mut closes_value = false;
         if let Some(value) = open.as_mut() {
             match token.kind {
-                Kind::Punct('{' | '[' | '(') => value.depth += 1,
-                Kind::Punct('}' | ']' | ')') if value.depth > 0 => value.depth -= 1,
-                Kind::Punct('}' | ']' | ')') => closes_value = true,
+                Kind::Punct('{') => {
+                    value.depth += 1;
+                    value.braces += 1;
+                    // An inner `key = {` layer: entries below it belong to the
+                    // key chain; the value's own brace has no pending key.
+                    if let Some(key) = value.pending_key.take() {
+                        value.map_keys.push(key);
+                    }
+                }
+                Kind::Punct('[' | '(') => {
+                    value.depth += 1;
+                    value.containers += 1;
+                }
+                Kind::Punct('}' | ']' | ')') if value.depth > 0 => {
+                    value.depth -= 1;
+                    value.pending_key = None;
+                    value.nested_value = None;
+                    match token.kind {
+                        Kind::Punct('}') if value.braces > 0 => {
+                            value.braces -= 1;
+                            // Still inside the value's map: the inner layer
+                            // closed, so its key leaves the chain.
+                            if value.braces >= 1 {
+                                value.map_keys.pop();
+                            }
+                        }
+                        _ => value.containers = value.containers.saturating_sub(1),
+                    }
+                }
+                Kind::Punct('}') | Kind::Punct(']') | Kind::Punct(')') => closes_value = true,
                 _ => {}
             }
             if !closes_value {
                 value.started = true;
                 attributes[value.attribute].value_span.1 = token.end;
+                // A `key =` written inside a map braces records the nested
+                // attribute, so its schema path and spans resolve there. The
+                // `=` is skipped so the next token (its value or `{`) is read
+                // with the key pending.
+                if value.braces >= 1
+                    && value.containers == 0
+                    && matches!(token.kind, Kind::Ident | Kind::Str { .. })
+                    && let Some(equals) = next_significant(&tokens, index + 1)
+                        .filter(|next| tokens[*next].kind == Kind::Punct('='))
+                    && let Some(name) = token_name(source, &token)
+                {
+                    let value_start = next_significant(&tokens, equals + 1)
+                        .map_or(source.len(), |next| tokens[next].start);
+                    attributes.push(AttributeInfo {
+                        body: stack.last().copied().unwrap_or(0),
+                        name: name.clone(),
+                        prefix: map_prefix(&attributes, value),
+                        key_span: (token.start, token.end),
+                        value_span: (value_start, value_start),
+                    });
+                    value.nested_value = Some(attributes.len() - 1);
+                    value.pending_key = Some(name);
+                    index = equals;
+                    index += 1;
+                    continue;
+                }
+                if let Some(nested) = value.nested_value {
+                    attributes[nested].value_span.1 = token.end;
+                } else {
+                    value.pending_key = None;
+                }
                 index += 1;
                 continue;
             }
@@ -568,6 +676,7 @@ fn analyze(source: &str, cursor: usize) -> Scan {
                     attributes.push(AttributeInfo {
                         body,
                         name,
+                        prefix: Vec::new(),
                         key_span: (token.start, token.end),
                         value_span: (value_start, value_start),
                     });
@@ -575,6 +684,11 @@ fn analyze(source: &str, cursor: usize) -> Scan {
                         attribute: attributes.len() - 1,
                         depth: 0,
                         started: false,
+                        braces: 0,
+                        containers: 0,
+                        map_keys: Vec::new(),
+                        pending_key: None,
+                        nested_value: None,
                     });
                     index = equals;
                 } else if let Some(brace) = classify_header(&tokens, index) {
@@ -806,6 +920,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
 
@@ -814,6 +929,51 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     if snapshot.in_value
         && let Some(key) = snapshot.value_key.clone()
     {
+        // Inside `key = { ... }` the caret completes a key of the nested map,
+        // not a value: descend through the map chain and complete there. This
+        // covers `clients = { acme = { | } }` at any nesting depth.
+        if snapshot.in_map {
+            let mut map_path = path.clone();
+            map_path.extend(
+                snapshot
+                    .value_prefix
+                    .iter()
+                    .cloned()
+                    .map(SchemaPathSegment::Key),
+            );
+            let (typed_start, typed) = match snapshot.partial {
+                Some(token) if token.start < cursor => {
+                    let text = source[token.start..cursor].to_string();
+                    let text = match token.kind {
+                        Kind::Str { .. } => text.strip_prefix('"').unwrap_or(&text).to_string(),
+                        _ => text,
+                    };
+                    (token.start, text.trim_end().to_string())
+                }
+                _ => (cursor, String::new()),
+            };
+            let replace_end = swallow_existing_assignment(
+                source,
+                snapshot
+                    .partial
+                    .map_or(cursor, |token| token.end.max(cursor))
+                    .min(source.len()),
+            );
+            return CompletionContext {
+                typed,
+                replace_start: utf16(&source[..typed_start]),
+                replace_end: utf16(&source[..replace_end]),
+                value_key: None,
+                value_needs_space: false,
+                is_array_item: false,
+                base_indent,
+                path: map_path,
+                entry_prefix: "",
+                explicit_entry_start: true,
+                entry_suffix: "",
+                attribute: false,
+            };
+        }
         let typed_start = snapshot
             .partial
             .map_or(cursor, |token| token.start.max(snapshot.value_start))
@@ -835,6 +995,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
     if let Some((key, value_begin)) = line_assignment(before_caret) {
@@ -854,6 +1015,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            attribute: false,
         };
     }
 
@@ -869,23 +1031,13 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
         _ => (cursor, String::new()),
     };
-    let mut replace_end = snapshot
-        .partial
-        .map_or(cursor, |token| token.end.max(cursor));
-    // Completing a key whose `=` is already typed (`key| = value`): swallow
-    // the existing `=` and its spaces, since the key insert supplies its own
-    // `" = "`. Without this the accept duplicates the separator.
-    let rest = &source[replace_end..];
-    let trimmed = rest.trim_start_matches([' ', '\t']);
-    if let Some(after_equals) = trimmed.strip_prefix('=') {
-        let spaces = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
-        // The existing value goes too: the accepted key brings its own value.
-        let value_start = replace_end + (rest.len() - trimmed.len()) + 1 + spaces;
-        let value_line_end = source[value_start..]
-            .find('\n')
-            .map_or(source.len(), |index| value_start + index);
-        replace_end = value_start + value_token_len(&source[value_start..value_line_end]);
-    }
+    let replace_end = swallow_existing_assignment(
+        source,
+        snapshot
+            .partial
+            .map_or(cursor, |token| token.end.max(cursor))
+            .min(source.len()),
+    );
     CompletionContext {
         path,
         typed,
@@ -898,6 +1050,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
+        attribute: false,
     }
 }
 
@@ -914,6 +1067,23 @@ fn line_assignment(line: &str) -> Option<(String, usize)> {
     let after = &code[equals + 1..];
     let value_begin = equals + 1 + (after.len() - after.trim_start_matches([' ', '\t']).len());
     Some((raw.to_string(), value_begin))
+}
+
+/// Extends a key replacement end past an `=` already typed after the key
+/// (`key| = value`): the key insert supplies its own `" = "` and value, so the
+/// old separator and value would otherwise be duplicated.
+fn swallow_existing_assignment(source: &str, replace_end: usize) -> usize {
+    let rest = &source[replace_end..];
+    let trimmed = rest.trim_start_matches([' ', '\t']);
+    let Some(after_equals) = trimmed.strip_prefix('=') else {
+        return replace_end;
+    };
+    let spaces = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
+    let value_start = replace_end + (rest.len() - trimmed.len()) + 1 + spaces;
+    let value_line_end = source[value_start..]
+        .find('\n')
+        .map_or(source.len(), |index| value_start + index);
+    value_start + value_token_len(&source[value_start..value_line_end])
 }
 
 /// Byte index of the `=` separating key from value, ignoring `=` inside
@@ -1003,7 +1173,11 @@ fn existing_body_keys(
         .collect();
     let mut keys = HashSet::new();
     for attribute in &scan.attributes {
-        if body_path(&scan, attribute.body) == wanted {
+        // The attribute's container: its body's path plus the value-map chain
+        // it is nested in (`clients = { acme = { … } }`).
+        let mut container = body_path(&scan, attribute.body);
+        container.extend(attribute.prefix.iter().cloned());
+        if container == wanted {
             keys.insert(attribute.name.clone());
         }
     }
@@ -1671,6 +1845,40 @@ mod tests {
     }
 
     #[test]
+    fn keys_inside_a_nested_value_map_are_suggested_from_the_schema() {
+        // `clients = { acme = { … } }` descends through both maps: the caret is
+        // completing `ClientEntry` keys, not top-level attributes.
+        let source = "variable = {\n  acme = {\n    de";
+        let option = complete(source, &schema())
+            .into_iter()
+            .find(|option| option.label == "default")
+            .expect("default should be suggested inside the nested map");
+        let (updated, _) = apply_completion(source, &option);
+        assert!(updated.ends_with("default = "), "{updated}");
+    }
+
+    #[test]
+    fn an_empty_nested_value_map_suggests_its_keys() {
+        let source = "variable = {\n  acme = {";
+        assert!(
+            complete(source, &schema())
+                .iter()
+                .any(|option| option.label == "default"),
+            "a key should be suggested right after `{{`"
+        );
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_error_inside_a_nested_value_map_is_reported_on_its_own_line() {
+        let source = "variable = {\n  acme = {\n    default = 1\n  }\n}";
+        let diagnostics = validate(source, Some(&schema()), None, true, &HclBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(15));
+    }
+
+    #[test]
     fn boolean_values_are_suggested_after_equals() {
         let source = "enabled = t";
         let option = complete(source, &schema())
@@ -1828,7 +2036,7 @@ mod tests {
         let schema = schema();
         let tags = &schema.schema["properties"]["tags"];
         let (insert, caret) = HclBehavior
-            .property_insert("tags", tags, &schema.schema, "", "  ")
+            .property_insert("tags", tags, &schema.schema, "", "  ", false)
             .unwrap();
         assert_eq!(insert, "tags = {\n  Name = \n}");
         assert_eq!(caret, "tags = {\n  Name = ".encode_utf16().count());

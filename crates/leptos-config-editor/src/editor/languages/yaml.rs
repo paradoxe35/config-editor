@@ -58,6 +58,7 @@ impl LanguageBehavior for YamlBehavior {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        _attribute: bool,
     ) -> Option<(String, usize)> {
         property_completion_insert(key, property, root, base_indent, unit)
     }
@@ -717,6 +718,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     entry_prefix: "",
                     explicit_entry_start: false,
                     entry_suffix: "",
+                    attribute: false,
                 };
             }
         }
@@ -736,6 +738,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
+        attribute: false,
     }
 }
 
@@ -2439,7 +2442,7 @@ mod tests {
             r#"{"type":"object","properties":{"clients":{"type":"object","additionalProperties":{"type":"object","properties":{"secret":{"type":"string"},"max_connections":{"type":"integer"}}}}}}"#,
         )
         .unwrap();
-        let input = "clients:\n  paradoxe: { sec";
+        let input = "clients:\n  acme: { sec";
         let options = completions(
             input,
             input.encode_utf16().count(),
@@ -2452,7 +2455,7 @@ mod tests {
             .find(|option| option.label == "secret")
             .expect("a key typed inside { } should be suggested");
         let (updated, _) = apply_completion(input, option);
-        assert_eq!(updated, "clients:\n  paradoxe: { secret: ");
+        assert_eq!(updated, "clients:\n  acme: { secret: ");
     }
 
     #[cfg(feature = "schema-validation")]
@@ -2462,10 +2465,10 @@ mod tests {
             r#"{"type":"object","properties":{"clients":{"type":"object","additionalProperties":{"type":"object","properties":{"secret":{"type":"string"}}}}}}"#,
         )
         .unwrap();
-        let source = "clients:\n  paradoxe: { secret }\n";
+        let source = "clients:\n  acme: { secret }\n";
         let diagnostics = validate_yaml(source, Some(&schema), None, true);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(2));
-        assert_eq!(diagnostics[0].column, Some(15));
+        assert_eq!(diagnostics[0].column, Some(11));
     }
 }

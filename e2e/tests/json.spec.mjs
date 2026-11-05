@@ -35,7 +35,7 @@ test.describe('JSON documents', () => {
 
   test('a key inside an inline object is suggested', async ({ page }) => {
     const e = editor(page);
-    await e.paste('{\n  "clients": {\n    "paradoxe": {""}\n  }\n}');
+    await e.paste('{\n  "clients": {\n    "acme": {""}\n  }\n}');
     const caret = (await e.value()).indexOf('{""}') + 2;
     await e.input.evaluate((element, position) => {
       element.focus();

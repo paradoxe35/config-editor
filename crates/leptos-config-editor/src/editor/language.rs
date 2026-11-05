@@ -54,6 +54,10 @@ pub(super) struct CompletionContext {
     /// separator before an existing entry that follows (JSON). Core appends it
     /// verbatim; the caret stays before it.
     pub(super) entry_suffix: &'static str,
+    /// Whether the property is written as an XML-style attribute on the
+    /// current tag (`name="value"`) rather than a child entry. Only XML sets
+    /// it; the other languages always insert child entries.
+    pub(super) attribute: bool,
 }
 
 /// Splits a JSON-pointer path into unescaped segments. Generic path utility
@@ -96,6 +100,8 @@ pub(super) trait LanguageBehavior: Send + Sync {
         path: &[SchemaPathSegment],
     ) -> Option<HashSet<String>>;
     /// Insert text (plus caret offset) for a schema property completion.
+    /// `attribute` is set when the caret is inside an XML start tag, where
+    /// properties are written as attributes.
     fn property_insert(
         &self,
         key: &str,
@@ -103,6 +109,7 @@ pub(super) trait LanguageBehavior: Send + Sync {
         root: &Value,
         base_indent: &str,
         unit: &str,
+        attribute: bool,
     ) -> Option<(String, usize)>;
     /// Render a schema value (default, const, example) as document text.
     fn format_value(&self, value: &Value) -> String;

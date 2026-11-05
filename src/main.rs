@@ -5,6 +5,7 @@ const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_a
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
 const TOML_SAMPLE: &str = "# Burrow server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
 const HCL_SAMPLE: &str = "# Burrow server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
+const XML_SAMPLE: &str = "<burrow>\n  <listen>7835</listen>\n  <public_address>tunnel.example.com</public_address>\n  <insecure_plaintext>false</insecure_plaintext>\n  <clients>\n    <acme>\n      <secret>c2VjcmV0LWZvci1hY21l</secret>\n    </acme>\n  </clients>\n</burrow>\n";
 const SCHEMA: &str = include_str!("../schema.json");
 
 fn main() {
@@ -19,14 +20,16 @@ fn main() {
                 .split('&')
                 .any(|pair| pair == flag)
         };
-        let (language, sample, file_name) = if has_flag("language=json") {
-            (Language::Json, JSON_SAMPLE, "burrow.json")
+        let (language, sample, file_name, schema) = if has_flag("language=json") {
+            (Language::Json, JSON_SAMPLE, "burrow.json", SCHEMA)
         } else if has_flag("language=toml") {
-            (Language::Toml, TOML_SAMPLE, "burrow.toml")
+            (Language::Toml, TOML_SAMPLE, "burrow.toml", SCHEMA)
         } else if has_flag("language=hcl") {
-            (Language::Hcl, HCL_SAMPLE, "burrow.hcl")
+            (Language::Hcl, HCL_SAMPLE, "burrow.hcl", SCHEMA)
+        } else if has_flag("language=xml") {
+            (Language::Xml, XML_SAMPLE, "burrow.xml", SCHEMA)
         } else {
-            (Language::Yaml, YAML_SAMPLE, "burrow.yaml")
+            (Language::Yaml, YAML_SAMPLE, "burrow.yaml", SCHEMA)
         };
         let baseline = RwSignal::new(sample.to_string());
         let final_value = RwSignal::new(sample.to_string());
@@ -100,7 +103,7 @@ fn main() {
                     baseline=baseline
                     value=final_value
                     on_change=Callback::new(move |value| final_value.set(value))
-                    schema_json=SCHEMA
+                    schema_json=schema
                     file_name=file_name
                     theme=theme
                     read_only=read_only
