@@ -10,9 +10,11 @@
 
 use super::language::LanguageBehavior;
 
+mod hcl;
 mod json;
 mod toml;
 mod yaml;
+use hcl::HclBehavior;
 use json::JsonBehavior;
 use toml::TomlBehavior;
 use yaml::YamlBehavior;
@@ -20,6 +22,7 @@ use yaml::YamlBehavior;
 static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
 static JSON_BEHAVIOR: JsonBehavior = JsonBehavior;
 static TOML_BEHAVIOR: TomlBehavior = TomlBehavior;
+static HCL_BEHAVIOR: HclBehavior = HclBehavior;
 
 /// Document language edited by the component.
 ///
@@ -36,17 +39,20 @@ pub enum Language {
     Json,
     /// TOML documents.
     Toml,
+    /// HCL documents (HashiCorp Configuration Language, as used by Terraform).
+    Hcl,
 }
 
 impl Language {
-    /// Short UI label: `"YAML"`, `"JSON"`, or `"TOML"`. Toolbar, aria labels, and
-    /// diagnostic messages derive from this so no language name is
+    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, or `"HCL"`. Toolbar, aria
+    /// labels, and diagnostic messages derive from this so no language name is
     /// hard-coded in markup.
     pub fn label(self) -> &'static str {
         match self {
             Language::Yaml => "YAML",
             Language::Json => "JSON",
             Language::Toml => "TOML",
+            Language::Hcl => "HCL",
         }
     }
 
@@ -56,6 +62,7 @@ impl Language {
             Language::Yaml => "Y",
             Language::Json => "J",
             Language::Toml => "T",
+            Language::Hcl => "H",
         }
     }
 
@@ -66,6 +73,7 @@ impl Language {
             Language::Yaml => "untitled.yaml",
             Language::Json => "untitled.json",
             Language::Toml => "untitled.toml",
+            Language::Hcl => "untitled.hcl",
         }
     }
 
@@ -76,6 +84,7 @@ impl Language {
             Language::Yaml => &YAML_BEHAVIOR,
             Language::Json => &JSON_BEHAVIOR,
             Language::Toml => &TOML_BEHAVIOR,
+            Language::Hcl => &HCL_BEHAVIOR,
         }
     }
 }
@@ -94,9 +103,11 @@ mod tests {
         assert_eq!(Language::Yaml.label(), "YAML");
         assert_eq!(Language::Json.label(), "JSON");
         assert_eq!(Language::Toml.label(), "TOML");
+        assert_eq!(Language::Hcl.label(), "HCL");
         assert_eq!(Language::Yaml.file_icon(), "Y");
         assert_eq!(Language::Json.file_icon(), "J");
         assert_eq!(Language::Toml.file_icon(), "T");
+        assert_eq!(Language::Hcl.file_icon(), "H");
     }
 
     #[test]
@@ -104,5 +115,6 @@ mod tests {
         assert_eq!(Language::Yaml.default_file_name(), "untitled.yaml");
         assert_eq!(Language::Json.default_file_name(), "untitled.json");
         assert_eq!(Language::Toml.default_file_name(), "untitled.toml");
+        assert_eq!(Language::Hcl.default_file_name(), "untitled.hcl");
     }
 }
