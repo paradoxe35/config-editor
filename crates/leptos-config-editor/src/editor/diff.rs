@@ -1,5 +1,7 @@
 use super::metrics::{EditorMetrics, read_editor_metrics};
-use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_GAP, POPUP_MARGIN};
+use super::positioning::{
+    FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_GAP, POPUP_MARGIN,
+};
 use std::borrow::Cow;
 use wasm_bindgen::JsCast;
 
@@ -679,7 +681,10 @@ mod tests {
         assert!(peek_survives_edit(&peek, &current, &diff));
 
         // Editing an unrelated line keeps the hunk: the peek stays.
-        let edited: Vec<String> = "keep: 1\ntail: 2\n".split('\n').map(str::to_string).collect();
+        let edited: Vec<String> = "keep: 1\ntail: 2\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
         assert!(peek_survives_edit(
             &peek,
             &edited,

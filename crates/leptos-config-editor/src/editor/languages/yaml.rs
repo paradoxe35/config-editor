@@ -5,12 +5,10 @@
 //! component (`editor.rs`) only touch this through the trait — never by name.
 //! Helpers used only inside YAML stay private free functions in this file.
 
-use super::super::language::{
-    CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment,
-};
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
 use leptos::prelude::*;
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use serde_json::Value;
@@ -700,7 +698,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     + (segment.len() - typed_raw.len());
                 let tail: usize = source[cursor..]
                     .chars()
-                    .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+                    .take_while(|character| {
+                        character.is_alphanumeric() || matches!(character, '_' | '-')
+                    })
                     .map(char::len_utf8)
                     .sum();
                 let replace_end_byte = cursor + tail;
@@ -1147,7 +1147,6 @@ mod tests {
     //! through thin local forwarders that pin `YamlBehavior`, so test bodies
     //! read exactly like the old core call sites with zero drift.
 
-    use super::YamlBehavior;
     use super::super::super::completion::{
         accept_reopens_suggestions, apply_completion, completions as shared_completions,
         key_hover as shared_key_hover,
@@ -1157,6 +1156,7 @@ mod tests {
     };
     use super::super::super::keyboard::paired_edit as shared_paired_edit;
     use super::super::super::language::LanguageBehavior;
+    use super::YamlBehavior;
     use super::{scalar_class, split_yaml_comment};
 
     fn validate_yaml(
@@ -2468,5 +2468,4 @@ mod tests {
         assert_eq!(diagnostics[0].line, Some(2));
         assert_eq!(diagnostics[0].column, Some(15));
     }
-
 }

@@ -71,9 +71,7 @@ pub(super) fn hover_card_style(
         .ok()
         .and_then(|v| v.as_f64())
         .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
-    let left = (rect.left()
-        + metrics.padding_left
-        + column as f64 * metrics.char_width
+    let left = (rect.left() + metrics.padding_left + column as f64 * metrics.char_width
         - element.scroll_left() as f64)
         .clamp(
             POPUP_MARGIN,
@@ -84,7 +82,9 @@ pub(super) fn hover_card_style(
     if line_top > HOVER_CARD_ESTIMATED_HEIGHT
         && line_top + metrics.line_height + HOVER_CARD_ESTIMATED_HEIGHT > viewport_height
     {
-        format!("left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))")
+        format!(
+            "left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))"
+        )
     } else {
         format!(
             "left:{left:.1}px;top:{:.1}px",

@@ -1,6 +1,6 @@
+use super::language::LanguageBehavior;
 #[cfg(feature = "schema-validation")]
 use jsonschema::error::{ValidationError, ValidationErrorKind};
-use super::language::LanguageBehavior;
 use serde_json::Value;
 
 #[cfg(feature = "schema-validation")]

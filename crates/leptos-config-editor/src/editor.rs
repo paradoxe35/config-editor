@@ -2,8 +2,8 @@ use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
-mod language;
 mod chrome;
+mod language;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;
 pub use languages::Language;
@@ -365,9 +365,7 @@ pub fn ConfigEditor(
                 let line_number = index + 1;
                 RenderedLine {
                     text: line.to_string(),
-                    has_error: errors
-                        .iter()
-                        .any(|error| error.line == Some(line_number)),
+                    has_error: errors.iter().any(|error| error.line == Some(line_number)),
                     change: line_diff
                         .current
                         .get(index)
@@ -378,8 +376,11 @@ pub fn ConfigEditor(
             .collect::<Vec<_>>()
     });
     let rows = LineRows::new();
+    let rows_for_sync = rows.clone();
+    let rows_for_gutter = rows.clone();
+    let rows_for_highlight = rows.clone();
     Effect::new(move |_| {
-        rows.sync(&lines.get(), &diff.get(), current_line.get());
+        rows_for_sync.sync(&lines.get(), &diff.get(), current_line.get());
     });
     // A change preview survives typing elsewhere but dismisses when the edit
     // touches its anchor; see `peek_survives_edit`. Applying changes clears
@@ -463,7 +464,7 @@ pub fn ConfigEditor(
                                     // subscribe only to it, so a keystroke
                                     // re-renders exactly the rows whose text,
                                     // flags, peeks, or active state changed.
-                                    let state = rows.state_for(
+                                    let state = rows_for_gutter.state_for(
                                         index,
                                         &lines.get_untracked(),
                                         &diff.get_untracked(),
@@ -596,7 +597,7 @@ pub fn ConfigEditor(
                                         children=move |index| {
                                             // Same per-row state signal the gutter reads;
                                             // every closure below subscribes only to it.
-                                            let state = rows.state_for(
+                                            let state = rows_for_highlight.state_for(
                                                 index,
                                                 &lines.get_untracked(),
                                                 &diff.get_untracked(),

@@ -552,13 +552,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     // `": "`. Without this the accept duplicates the colon.
     let completing_key = matches!(
         snapshot.frame,
-        Some(Frame::Object {
-            mode: Mode::Key,
-            ..
-        } | Frame::Object {
-            mode: Mode::Colon(_),
-            ..
-        })
+        Some(
+            Frame::Object {
+                mode: Mode::Key,
+                ..
+            } | Frame::Object {
+                mode: Mode::Colon(_),
+                ..
+            }
+        )
     );
     if completing_key {
         let rest = &source[replace_end..];
@@ -1045,10 +1047,13 @@ mod tests {
     #[cfg(feature = "completion")]
     #[test]
     fn the_reported_text_is_flagged_and_its_keys_get_separators() {
-        let source = "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max_connections\":324}\n}";
+        let source =
+            "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max_connections\":324}\n}";
         let error = JsonBehavior.parse(source).unwrap_err();
         assert_eq!(error.line, Some(3));
-        let cursor = "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max".encode_utf16().count();
+        let cursor = "{\n  \"listen\": 7835,\n  \"clients\": {\"secrets\": []\"max"
+            .encode_utf16()
+            .count();
         let context = JsonBehavior.completion_context(source, cursor);
         assert_eq!(context.entry_prefix, ", ");
     }
@@ -1085,7 +1090,9 @@ mod tests {
                 let _ = JsonBehavior.newline_insertion(source, cursor);
                 let _ = JsonBehavior.lexical_state(source, cursor);
                 for force in [false, true] {
-                    for option in completions(source, cursor, force, Some(&schema), true, &JsonBehavior) {
+                    for option in
+                        completions(source, cursor, force, Some(&schema), true, &JsonBehavior)
+                    {
                         let _ = apply_completion(source, &option);
                     }
                 }

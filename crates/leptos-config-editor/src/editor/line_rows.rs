@@ -91,15 +91,20 @@ pub(super) fn row_state(
 /// whole tail — one guarded write per shifted row, still a single pass with
 /// no subscription churn. The container only grows; entries past the current
 /// line count linger until reused, bounded by the longest document seen.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct LineRows {
     states: RwSignal<Vec<RwSignal<RowUiState>>>,
+    /// Owner pinned at creation (the component owner). Row signals are
+    /// created under this owner so `For` row churn — which disposes the
+    /// row-local owner on every rebuild — can never dispose them.
+    owner: Owner,
 }
 
 impl LineRows {
     pub(super) fn new() -> Self {
         Self {
             states: RwSignal::new(Vec::new()),
+            owner: Owner::current().expect("LineRows::new needs a reactive owner"),
         }
     }
 
@@ -114,22 +119,31 @@ impl LineRows {
         line_diff: &LineDiff,
         active_line: usize,
     ) -> RwSignal<RowUiState> {
-        if let Some(signal) = self.states.with_untracked(|states| states.get(index).copied()) {
+        if let Some(signal) = self
+            .states
+            .with_untracked(|states| states.get(index).copied())
+        {
             return signal;
         }
         // Seed each missing slot from the snapshot individually: row
         // constructors normally arrive in order, but sharing one signal across
         // skipped indices would alias several rows to the same state.
+        // Signals are created under the pinned component owner, never the
+        // row-local one: `For` disposes row owners on rebuild, which would
+        // otherwise dispose the signals stored here.
         let mut seeded = None;
-        self.states.update(|states| {
-            while states.len() <= index {
-                let missing = states.len();
-                let signal = RwSignal::new(row_state(missing, rows, rows.len(), line_diff, active_line));
-                if missing == index {
-                    seeded = Some(signal);
+        self.owner.with(|| {
+            self.states.update(|states| {
+                while states.len() <= index {
+                    let missing = states.len();
+                    let signal =
+                        RwSignal::new(row_state(missing, rows, rows.len(), line_diff, active_line));
+                    if missing == index {
+                        seeded = Some(signal);
+                    }
+                    states.push(signal);
                 }
-                states.push(signal);
-            }
+            });
         });
         seeded.expect("sync just pushed a signal for `index`")
     }
@@ -139,29 +153,35 @@ impl LineRows {
     /// quiet. The comparison must happen *before* touching the signal:
     /// `set` notifies subscribers unconditionally, which would re-render
     /// every row on every keystroke and defeat this type's whole point.
-    pub(super) fn sync(
-        &self,
-        rows: &[RenderedLine],
-        line_diff: &LineDiff,
-        active_line: usize,
-    ) {
-        self.states.update(|states| {
-            while states.len() < rows.len() {
-                let index = states.len();
-                states.push(RwSignal::new(row_state(
-                    index,
-                    rows,
-                    rows.len(),
-                    line_diff,
-                    active_line,
-                )));
-            }
-            for (index, signal) in states.iter().enumerate().take(rows.len()) {
-                let next = row_state(index, rows, rows.len(), line_diff, active_line);
-                if signal.with_untracked(|current| current != &next) {
-                    signal.set(next);
+    pub(super) fn sync(&self, rows: &[RenderedLine], line_diff: &LineDiff, active_line: usize) {
+        // Extend first, on its own: `set` below notifies row subscribers
+        // synchronously, and notifying any signal while another signal's
+        // `update` guard is held traps in the reactive runtime. Keep every
+        // `set` outside of any guard.
+        self.owner.with(|| {
+            self.states.update(|states| {
+                while states.len() < rows.len() {
+                    let index = states.len();
+                    states.push(RwSignal::new(row_state(
+                        index,
+                        rows,
+                        rows.len(),
+                        line_diff,
+                        active_line,
+                    )));
                 }
-            }
+            });
         });
+        // Copy the handles out under a short read; compare and notify with
+        // no guard held.
+        let signals: Vec<RwSignal<RowUiState>> = self
+            .states
+            .with_untracked(|states| states[..rows.len()].to_vec());
+        for (index, signal) in signals.iter().enumerate() {
+            let next = row_state(index, rows, rows.len(), line_diff, active_line);
+            if signal.with_untracked(|current| current != &next) {
+                signal.set(next);
+            }
+        }
     }
 }

@@ -517,7 +517,8 @@ pub(super) fn completions(
     };
     let cursor_byte = utf16_to_byte_index(source, cursor);
     let context = behavior.completion_context(source, cursor);
-    let mut options = completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
+    let mut options =
+        completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
     if !context.entry_prefix.is_empty() || !context.entry_suffix.is_empty() {
         let prefix_units = context.entry_prefix.encode_utf16().count();
         for option in &mut options {
@@ -819,15 +820,14 @@ pub(super) fn completion_popup_geometry(
     line_height: f64,
     option_count: usize,
 ) -> String {
-    let width = COMPLETION_POPUP_WIDTH
-        .min((viewport_width - COMPLETION_POPUP_VIEWPORT_GUTTER).max(0.0));
+    let width =
+        COMPLETION_POPUP_WIDTH.min((viewport_width - COMPLETION_POPUP_VIEWPORT_GUTTER).max(0.0));
     let left = caret_x.clamp(
         POPUP_MARGIN,
         (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
     );
-    let ideal_height =
-        (option_count as f64 * COMPLETION_ROW_HEIGHT + COMPLETION_LIST_PADDING)
-            .min(COMPLETION_POPUP_MAX_HEIGHT);
+    let ideal_height = (option_count as f64 * COMPLETION_ROW_HEIGHT + COMPLETION_LIST_PADDING)
+        .min(COMPLETION_POPUP_MAX_HEIGHT);
     let space_below = (viewport_height - caret_y - line_height - POPUP_MARGIN).max(0.0);
     let space_above = (caret_y - POPUP_MARGIN).max(0.0);
     let (top, available_height) = if space_below >= ideal_height || space_below >= space_above {

@@ -217,9 +217,7 @@ fn replacing_a_selection_respects_utf16_cursor_offsets() {
 
 #[test]
 fn indentation_unit_matches_the_document_style() {
-    use super::commands::{
-        DEFAULT_INDENT_WIDTH, INDENT_SCAN_LINE_LIMIT, MAX_INDENT_WIDTH,
-    };
+    use super::commands::{DEFAULT_INDENT_WIDTH, INDENT_SCAN_LINE_LIMIT, MAX_INDENT_WIDTH};
     // Pins the scan bounds to their documented rationale: a screenful scan,
     // eight-space alignment filter, two-space fallback.
     assert_eq!(INDENT_SCAN_LINE_LIMIT, 400);
@@ -288,4 +286,3 @@ fn auto_trigger_still_fires_when_the_document_ends_with_a_newline() {
     assert!(!should_auto_trigger("insertLineBreak", "a: 1", "a: 1\n"));
     assert!(!should_auto_trigger("insertText", "a: 1", "a: 1\n"));
 }
-

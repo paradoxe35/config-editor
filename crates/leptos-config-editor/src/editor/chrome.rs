@@ -21,7 +21,6 @@ pub fn ConfigEditorToolbar(
     }
 }
 
-
 /// Optional status-footer shell for hosts that want the built-in status bar.
 /// For custom page chrome, set `show_footer=false` on [`super::ConfigEditor`]
 /// and compose this component (or plain markup) in the host instead.

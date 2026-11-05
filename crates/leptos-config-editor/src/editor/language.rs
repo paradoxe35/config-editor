@@ -158,7 +158,10 @@ mod tests {
     #[test]
     fn pointer_segments_unescape_in_order() {
         use super::pointer_segments;
-        assert_eq!(pointer_segments("/a~1b/~0c"), vec!["a/b".to_string(), "~c".to_string()]);
+        assert_eq!(
+            pointer_segments("/a~1b/~0c"),
+            vec!["a/b".to_string(), "~c".to_string()]
+        );
         assert_eq!(pointer_segments(""), Vec::<String>::new());
     }
 }
