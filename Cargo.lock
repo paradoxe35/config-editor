@@ -923,6 +923,7 @@ dependencies = [
  "noyalib",
  "regex",
  "serde_json",
+ "toml",
  "wasm-bindgen",
  "web-sys",
 ]

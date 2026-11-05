@@ -3,6 +3,7 @@ use leptos_config_editor::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Langu
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
+const TOML_SAMPLE: &str = "# Burrow server configuration\nlisten = 7835\npublic_address = \"tunnel.example.com\"\ninsecure_plaintext = false\n";
 const SCHEMA: &str = include_str!("../schema.json");
 
 fn main() {
@@ -19,6 +20,8 @@ fn main() {
         };
         let (language, sample, file_name) = if has_flag("language=json") {
             (Language::Json, JSON_SAMPLE, "burrow.json")
+        } else if has_flag("language=toml") {
+            (Language::Toml, TOML_SAMPLE, "burrow.toml")
         } else {
             (Language::Yaml, YAML_SAMPLE, "burrow.yaml")
         };

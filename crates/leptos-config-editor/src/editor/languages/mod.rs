@@ -11,12 +11,15 @@
 use super::language::LanguageBehavior;
 
 mod json;
+mod toml;
 mod yaml;
 use json::JsonBehavior;
+use toml::TomlBehavior;
 use yaml::YamlBehavior;
 
 static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
 static JSON_BEHAVIOR: JsonBehavior = JsonBehavior;
+static TOML_BEHAVIOR: TomlBehavior = TomlBehavior;
 
 /// Document language edited by the component.
 ///
@@ -31,16 +34,19 @@ pub enum Language {
     Yaml,
     /// JSON documents.
     Json,
+    /// TOML documents.
+    Toml,
 }
 
 impl Language {
-    /// Short UI label: `"YAML"` or `"JSON"`. Toolbar, aria labels, and
+    /// Short UI label: `"YAML"`, `"JSON"`, or `"TOML"`. Toolbar, aria labels, and
     /// diagnostic messages derive from this so no language name is
     /// hard-coded in markup.
     pub fn label(self) -> &'static str {
         match self {
             Language::Yaml => "YAML",
             Language::Json => "JSON",
+            Language::Toml => "TOML",
         }
     }
 
@@ -49,6 +55,7 @@ impl Language {
         match self {
             Language::Yaml => "Y",
             Language::Json => "J",
+            Language::Toml => "T",
         }
     }
 
@@ -58,6 +65,7 @@ impl Language {
         match self {
             Language::Yaml => "untitled.yaml",
             Language::Json => "untitled.json",
+            Language::Toml => "untitled.toml",
         }
     }
 
@@ -67,6 +75,7 @@ impl Language {
         match self {
             Language::Yaml => &YAML_BEHAVIOR,
             Language::Json => &JSON_BEHAVIOR,
+            Language::Toml => &TOML_BEHAVIOR,
         }
     }
 }
@@ -84,13 +93,16 @@ mod tests {
     fn language_labels_and_icons_are_stable() {
         assert_eq!(Language::Yaml.label(), "YAML");
         assert_eq!(Language::Json.label(), "JSON");
+        assert_eq!(Language::Toml.label(), "TOML");
         assert_eq!(Language::Yaml.file_icon(), "Y");
         assert_eq!(Language::Json.file_icon(), "J");
+        assert_eq!(Language::Toml.file_icon(), "T");
     }
 
     #[test]
     fn default_file_names_carry_the_language_extension() {
         assert_eq!(Language::Yaml.default_file_name(), "untitled.yaml");
         assert_eq!(Language::Json.default_file_name(), "untitled.json");
+        assert_eq!(Language::Toml.default_file_name(), "untitled.toml");
     }
 }
