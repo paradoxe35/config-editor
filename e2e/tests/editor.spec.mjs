@@ -47,13 +47,13 @@ test.describe('accepting keys and values', () => {
     expect(await e.isOpen()).toBe(false);
   });
 
-  test('Enter with an auto-triggered list inserts a newline instead of accepting', async ({ page }) => {
+  test('Enter with a list opened by typing accepts the highlighted suggestion', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('lis');
     await expect.poll(() => e.isOpen()).toBe(true);
     await page.keyboard.press('Enter');
-    await expect(e.input).toHaveValue('lis\n');
-    expect(await e.isOpen()).toBe(false);
+    await expect(e.input).toHaveValue('listen: ');
+    expect(await e.isOpen()).toBe(true);
   });
 
   test('Tab with an auto-triggered list indents instead of accepting', async ({ page }) => {

@@ -44,6 +44,16 @@ pub(super) struct CompletionContext {
     pub(super) value_needs_space: bool,
     pub(super) is_array_item: bool,
     pub(super) base_indent: String,
+    /// Text the language needs before any entry inserted at the caret (for
+    /// example a separator after a complete value). Core prepends it verbatim.
+    pub(super) entry_prefix: &'static str,
+    /// Whether the caret has begun an entry whose empty query should still open
+    /// the suggestion list (for example a typed opening quote in JSON).
+    pub(super) explicit_entry_start: bool,
+    /// Text the language needs after an entry inserted at the caret, such as a
+    /// separator before an existing entry that follows (JSON). Core appends it
+    /// verbatim; the caret stays before it.
+    pub(super) entry_suffix: &'static str,
 }
 
 /// Splits a JSON-pointer path into unescaped segments. Generic path utility
@@ -99,10 +109,24 @@ pub(super) trait LanguageBehavior: Send + Sync {
     /// The mapping key under `column` (a character index) on a single line,
     /// with its starting column. Comment-only lines yield `None`.
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)>;
+    /// Byte offset within `line` where the hover context is read for the key at
+    /// `column`. YAML reads it at the line end; JSON reads it just after the key's
+    /// colon, because one line can open a nested object or hold several keys.
+    fn hover_cursor(&self, line: &str, _column: usize) -> usize {
+        line.len()
+    }
     /// Syntax-highlighted rendering of a single document line.
     fn highlight_line(&self, line: &str) -> AnyView;
     /// Indented newline insertion honoring the document's own style.
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String;
+    /// The insertion for Enter, plus the caret's byte offset within it. Defaults
+    /// to the caret after the inserted text; a language that opens a block
+    /// between its own delimiters places the caret on the new middle line.
+    fn newline_insertion(&self, source: &str, cursor: usize) -> (String, usize) {
+        let text = self.newline_with_indent(source, cursor);
+        let caret = text.len();
+        (text, caret)
+    }
     /// Toggles line comments over the selection. Returns the updated
     /// document with remapped UTF-16 selection bounds.
     fn toggle_comments(
@@ -111,6 +135,11 @@ pub(super) trait LanguageBehavior: Send + Sync {
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)>;
+    /// Whether the caret has just begun an entry that should open the suggestion
+    /// list immediately (see `CompletionContext::explicit_entry_start`).
+    fn entry_started(&self, _source: &str, _cursor: usize) -> bool {
+        false
+    }
     /// Whether the caret sits inside a string or comment: the pairing guard.
     fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool);
     /// How strongly `source` looks like this language (0–255). Reserved for a

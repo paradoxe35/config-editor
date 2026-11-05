@@ -24,6 +24,8 @@ use completion::{
 };
 mod commands;
 use commands::{cycle_offset, indent_lines, indent_unit, line_at_cursor, offset_at};
+mod line_rows;
+use line_rows::{LineRows, RenderedLine};
 mod metrics;
 mod positioning;
 use positioning::{hover_card_style, pointer_text_position, schedule_hover, set_caret_visible};
@@ -348,6 +350,37 @@ pub fn ConfigEditor(
             LineDiff::empty(source.get().split('\n').count())
         }
     });
+    // One reactive snapshot of every rendered line: text plus the flags the
+    // row views display. Rows never subscribe to this memo or `diff` directly
+    // (see `line_rows`): the sync effect below fans the snapshot out to
+    // per-row state signals, so a keystroke re-renders only rows whose visible
+    // state actually changed, with no document-wide subscription churn.
+    let lines = Memo::new(move |_| {
+        let text = source.get();
+        let errors = diagnostics.get();
+        let line_diff = diff.get();
+        text.split('\n')
+            .enumerate()
+            .map(|(index, line)| {
+                let line_number = index + 1;
+                RenderedLine {
+                    text: line.to_string(),
+                    has_error: errors
+                        .iter()
+                        .any(|error| error.line == Some(line_number)),
+                    change: line_diff
+                        .current
+                        .get(index)
+                        .copied()
+                        .unwrap_or(DiffKind::Unchanged),
+                }
+            })
+            .collect::<Vec<_>>()
+    });
+    let rows = LineRows::new();
+    Effect::new(move |_| {
+        rows.sync(&lines.get(), &diff.get(), current_line.get());
+    });
     // A change preview survives typing elsewhere but dismisses when the edit
     // touches its anchor; see `peek_survives_edit`. Applying changes clears
     // the preview through the baseline, which recomputes the diff.
@@ -420,52 +453,35 @@ pub fn ConfigEditor(
                                 class="config-editor__gutter-content"
                                 style:transform=move || format!("translateY(-{}px)", scroll_y.get())
                             >
-                            {move || {
-                                let line_count = source.get().split('\n').count();
-                                let current_lines = source.get().split('\n').map(str::to_string).collect::<Vec<_>>();
-                                let errors = diagnostics.get();
-                                let line_diff = diff.get();
-                                (1..=line_count)
-                                    .map(|line| {
-                                        let has_error = errors
-                                            .iter()
-                                            .any(|error| error.line == Some(line));
-                                        let change = line_diff.current
-                                            .get(line - 1)
-                                            .copied()
-                                            .unwrap_or(DiffKind::Unchanged);
-                                        let deleted_before = line_diff
-                                            .deleted_before
-                                            .get(line - 1)
-                                            .copied()
-                                            .unwrap_or(false);
-                                        let deleted_after = line == line_count && line_diff.deleted_after;
-                                        let modified_peek = line_diff.modified_before.get(line - 1)
-                                            .and_then(Option::as_ref)
-                                            .map(|before| DiffPeek {
-                                                line,
-                                                title: "Modified line".to_string(),
-                                                before: vec![before.clone()],
-                                                after: vec![current_lines.get(line - 1).cloned().unwrap_or_default()],
-                                            });
-                                        let deleted_peek = deleted_before.then(|| DiffPeek {
-                                            line,
-                                            title: "Removed lines".to_string(),
-                                            before: line_diff.deleted_lines_before.get(line - 1).cloned().unwrap_or_default(),
-                                            after: Vec::new(),
-                                        });
-                                        let deleted_after_peek = deleted_after.then(|| DiffPeek {
-                                            line,
-                                            title: "Removed lines at end of document".to_string(),
-                                            before: line_diff.deleted_lines_after.clone(),
-                                            after: Vec::new(),
-                                        });
-                                        view! {
+                            <For
+                                each={move || 0..lines.with(Vec::len)}
+                                key=|index| *index
+                                children=move |index| {
+                                    let line = index + 1;
+                                    // This row's whole visible state lives in one
+                                    // signal (see `line_rows`): the closures below
+                                    // subscribe only to it, so a keystroke
+                                    // re-renders exactly the rows whose text,
+                                    // flags, peeks, or active state changed.
+                                    let state = rows.state_for(
+                                        index,
+                                        &lines.get_untracked(),
+                                        &diff.get_untracked(),
+                                        current_line.get_untracked(),
+                                    );
+                                    let has_error = move || state.with(|row| row.has_error);
+                                    let is_added = move || state.with(|row| row.change == DiffKind::Added);
+                                    let is_modified = move || state.with(|row| row.change == DiffKind::Modified);
+                                    let modified_peek = move || state.with(|row| row.modified_peek.clone());
+                                    let deleted_peek = move || state.with(|row| row.deleted_peek.clone());
+                                    let deleted_after_peek = move || state.with(|row| row.deleted_after_peek.clone());
+                                    let is_active = move || state.with(|row| row.is_active);
+                                    view! {
                                             <div
-                                                class:config-editor__line-number-active=move || current_line.get() == line
+                                                class:config-editor__line-number-active=is_active
                                                 class:config-editor__line-number-error=has_error
-                                                class:config-editor__line-number-added=change == DiffKind::Added
-                                                class:config-editor__line-number-modified=change == DiffKind::Modified
+                                                class:config-editor__line-number-added=is_added
+                                                class:config-editor__line-number-modified=is_modified
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {
                                                         let text = source.get_untracked();
@@ -480,13 +496,13 @@ pub fn ConfigEditor(
                                                 }
                                             >
                                                 <span aria-hidden="true">{line}</span>
-                                                {(change == DiffKind::Added).then(|| view! {
+                                                {move || is_added().then(|| view! {
                                                     <span
                                                         class="config-editor__diff-marker config-editor__diff-marker-added"
                                                         aria-hidden="true"
                                                     ></span>
                                                 })}
-                                                {modified_peek.map(|peek| {
+                                                {move || modified_peek().map(|peek| {
                                                     let peek_for_click = peek.clone();
                                                     view! {
                                                         <button
@@ -511,7 +527,7 @@ pub fn ConfigEditor(
                                                         ></button>
                                                     }
                                                 })}
-                                                {deleted_peek.map(|peek| {
+                                                {move || deleted_peek().map(|peek| {
                                                     let peek_for_click = peek.clone();
                                                     view! {
                                                         <button
@@ -536,7 +552,7 @@ pub fn ConfigEditor(
                                                         ></button>
                                                     }
                                                 })}
-                                                {deleted_after_peek.map(|peek| {
+                                                {move || deleted_after_peek().map(|peek| {
                                                     let peek_for_click = peek.clone();
                                                     view! {
                                                         <button
@@ -563,9 +579,8 @@ pub fn ConfigEditor(
                                                 })}
                                             </div>
                                         }
-                                    })
-                                    .collect_view()
-                            }}
+                                    }
+                                    />
                             </div>
                         </div>
                         <div class="config-editor__input-wrap">
@@ -575,36 +590,43 @@ pub fn ConfigEditor(
                                 style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
                             >
                                 <code>
-                                    {move || {
-                                        let text = source.get();
-                                        let errors = diagnostics.get();
-                                        let line_diff = diff.get();
-                                        text.split('\n').enumerate().map(|(index, line)| {
-                                            let line_number = index + 1;
-                                            let has_error = errors
-                                                .iter()
-                                                .any(|error| error.line == Some(line_number));
-                                            let change = line_diff.current
-                                                .get(index)
-                                                .copied()
-                                                .unwrap_or(DiffKind::Unchanged);
+                                    <For
+                                        each={move || 0..lines.with(Vec::len)}
+                                        key=|index| *index
+                                        children=move |index| {
+                                            // Same per-row state signal the gutter reads;
+                                            // every closure below subscribes only to it.
+                                            let state = rows.state_for(
+                                                index,
+                                                &lines.get_untracked(),
+                                                &diff.get_untracked(),
+                                                current_line.get_untracked(),
+                                            );
+                                            let row_text = move || state.with(|row| row.text.clone());
+                                            let has_error = move || state.with(|row| row.has_error);
+                                            let is_added = move || state.with(|row| row.change == DiffKind::Added);
+                                            let is_modified = move || state.with(|row| row.change == DiffKind::Modified);
+                                            let is_active = move || state.with(|row| row.is_active);
                                             view! {
                                                 <span
                                                     class="config-editor__code-line"
-                                                    class:config-editor__code-line-active=move || current_line.get() == line_number
+                                                    class:config-editor__code-line-active=is_active
                                                     class:config-editor__code-line-error=has_error
-                                                    class:config-editor__code-line-added=change == DiffKind::Added
-                                                    class:config-editor__code-line-modified=change == DiffKind::Modified
+                                                    class:config-editor__code-line-added=is_added
+                                                    class:config-editor__code-line-modified=is_modified
                                                 >
-                                                    {if enable_highlighting {
-                                                        behavior.highlight_line(line)
-                                                    } else {
-                                                        view! { <span>{line.to_string()}</span> }.into_any()
+                                                    {move || {
+                                                        let text = row_text();
+                                                        if enable_highlighting {
+                                                            behavior.highlight_line(&text)
+                                                        } else {
+                                                            view! { <span>{text}</span> }.into_any()
+                                                        }
                                                     }}
                                                 </span>
                                             }
-                                        }).collect_view()
-                                    }}
+                                        }
+                                    />
                                 </code>
                             </pre>
                             <div
@@ -1046,6 +1068,10 @@ pub fn ConfigEditor(
                                                     )
                                             {
                                                 event.prevent_default();
+                                                // A pair that begins an entry (JSON key quote) opens its list,
+                                                // since no input event follows a prevented keydown.
+                                                let opens_entry = selection_start == selection_end
+                                                    && behavior.entry_started(&updated, selection_start);
                                                 commit_edit(
                                                     updated,
                                                     selection_end,
@@ -1070,7 +1096,7 @@ pub fn ConfigEditor(
                                                         selection_end as u32,
                                                     );
                                                 }
-                                                suggestions_requested.set(false);
+                                                suggestions_requested.set(opens_entry);
                                                 return;
                                             }
                                     }
@@ -1096,15 +1122,20 @@ pub fn ConfigEditor(
                                                 scroll_completion_into_view(&list, next);
                                             }
                                         }
-                                        // Enter/Tab accept only after explicit engagement
-                                        // (arrow keys, hover, Ctrl+Space, or a previous
-                                        // accept). An auto-triggered list with the
-                                        // highlight untouched must not swallow the key:
-                                        // Enter falls through to newline+indent and Tab
-                                        // to indent/outdent, as in VS Code.
-                                        "Enter" | "Tab"
+                                        // Enter accepts the highlighted suggestion whenever the
+                                        // list is open, including one opened by typing, so a
+                                        // typed key completes on Enter like the Ctrl+Space list.
+                                        "Enter" if !options.is_empty() => {
+                                            event.prevent_default();
+                                            apply_selected();
+                                        }
+                                        // Tab accepts only after explicit engagement (arrow
+                                        // keys, hover, Ctrl+Space, or a previous accept). An
+                                        // auto-triggered list must not swallow Tab, which
+                                        // indents, as in VS Code.
+                                        "Tab"
                                             if !options.is_empty()
-                                                && !(event.key() == "Tab" && event.shift_key())
+                                                && !event.shift_key()
                                                 && should_accept_with_keyboard(
                                                     explicit_request.get_untracked(),
                                                     completion_navigated.get_untracked(),
@@ -1195,8 +1226,10 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                let insertion = behavior.newline_with_indent(&text, start);
-                                                let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
+                                                let (insertion, caret) = behavior.newline_insertion(&text, start);
+                                                let (updated, _) = replace_selection(&text, start, end, &insertion);
+                                                // The caret position inside the insertion, in UTF-16 units from the start.
+                                                let new_cursor = start + insertion[..caret].encode_utf16().count();
                                                 commit_edit(
                                                     updated,
                                                     new_cursor,

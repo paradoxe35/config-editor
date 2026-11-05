@@ -1,7 +1,7 @@
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::language::{LanguageBehavior, SchemaPathSegment};
+use super::language::{CompletionContext, LanguageBehavior, SchemaPathSegment};
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use regex::Regex;
@@ -517,6 +517,26 @@ pub(super) fn completions(
     };
     let cursor_byte = utf16_to_byte_index(source, cursor);
     let context = behavior.completion_context(source, cursor);
+    let mut options = completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
+    if !context.entry_prefix.is_empty() || !context.entry_suffix.is_empty() {
+        let prefix_units = context.entry_prefix.encode_utf16().count();
+        for option in &mut options {
+            option.insert.insert_str(0, context.entry_prefix);
+            option.insert.push_str(context.entry_suffix);
+            option.cursor_offset += prefix_units;
+        }
+    }
+    options
+}
+
+fn completions_for_context(
+    source: &str,
+    cursor_byte: usize,
+    context: &CompletionContext,
+    force: bool,
+    bundle: &SchemaBundle,
+    behavior: &dyn LanguageBehavior,
+) -> Vec<Completion> {
     let schemas = schema_at_path(&bundle.schema, &context.path);
 
     if let Some(key) = context.value_key.as_deref() {
@@ -560,7 +580,9 @@ pub(super) fn completions(
     }
 
     let query = unquoted(&context.typed);
-    if query.is_empty() && !force {
+    // An explicit entry start (the language saw the user begin a key) opens the
+    // list even with nothing typed yet. Other empty queries stay silent.
+    if query.is_empty() && !force && !context.explicit_entry_start {
         return Vec::new();
     }
     if query.contains([':', '#', '\n']) {
@@ -588,11 +610,10 @@ pub(super) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: 
     auto_trigger && !completion.is_value
 }
 
-/// Whether Enter/Tab accept the highlighted completion instead of editing.
-/// Accept only after explicit engagement: a `Ctrl+Space` (or accept-chained)
-/// request, or navigation via arrow keys/hover. An auto-triggered list with
-/// the highlight still on index 0 must not hijack Enter — the keystroke
-/// belongs to newline+indent (Enter) or indent/outdent (Tab), as in VS Code.
+/// Whether Tab accepts the highlighted completion instead of indenting. Accept
+/// only after explicit engagement: a `Ctrl+Space` (or accept-chained) request,
+/// or navigation via arrow keys/hover. An auto-triggered list must not hijack
+/// Tab, which indents as in VS Code. Enter accepts whenever a list is open.
 pub(super) fn should_accept_with_keyboard(explicit_request: bool, navigated: bool) -> bool {
     explicit_request || navigated
 }
@@ -627,7 +648,9 @@ pub(super) fn key_hover(
         .sum();
     let line = source.get(line_start..)?.split('\n').next()?;
     let (key, start_column) = behavior.hover_key(line, column)?;
-    let cursor = source[..line_start + line.len()].encode_utf16().count();
+    let cursor = source[..line_start + behavior.hover_cursor(line, column)]
+        .encode_utf16()
+        .count();
     let context = behavior.completion_context(source, cursor);
     if context.value_key.as_deref() != Some(key.as_str()) {
         return None;

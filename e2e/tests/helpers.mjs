@@ -2,14 +2,15 @@ import { expect } from '@playwright/test';
 
 // Registers the per-test setup shared by every editor spec: a fresh page,
 // collection of page errors, and a failure if the page threw anything.
-export function setupEditor(test) {
+// `query` selects the demo mode, for example '?language=json'.
+export function setupEditor(test, query = '') {
   test.beforeEach(async ({ page, baseURL }) => {
     page.errors = [];
     page.on('pageerror', (error) => page.errors.push(String(error)));
     page.on('console', (message) => {
       if (message.type() === 'error') page.errors.push(message.text());
     });
-    await page.goto(baseURL);
+    await page.goto(`${baseURL}${query}`);
     await page.locator('.config-editor__input').waitFor();
   });
 

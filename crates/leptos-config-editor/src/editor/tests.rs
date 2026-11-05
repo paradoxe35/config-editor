@@ -168,9 +168,9 @@ fn match_ranges_cover_the_typed_characters_for_every_tier() {
 
 #[test]
 fn keyboard_accepts_completions_only_after_explicit_engagement() {
-    // Auto-triggered list, highlight untouched: Enter/Tab must NOT accept.
-    // This pins the P0-2 fix: typing `lis` then Enter inserts a newline
-    // instead of hijacking the keystroke for `listen: `.
+    // Auto-triggered list, highlight untouched: Tab must NOT accept (it
+    // indents). Enter accepts whenever a list is open, so it does not use
+    // this gate.
     assert!(!should_accept_with_keyboard(false, false));
     // Ctrl+Space (or an accept-chained value list): Enter accepts.
     assert!(should_accept_with_keyboard(true, false));

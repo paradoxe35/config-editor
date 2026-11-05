@@ -224,14 +224,14 @@ test.describe('update.remote', () => {
     await expect(e.input).toHaveValue('update:\n  remote: true');
   });
 
-  test('Enter after typing a key name inserts a newline instead of accepting it', async ({ page }) => {
+  test('Enter after typing a key name accepts the suggestion', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('update:');
     await page.keyboard.press('Enter');
     await page.keyboard.type('remote');
     await expect.poll(() => e.keys()).toEqual(['remote']);
     await page.keyboard.press('Enter');
-    await expect(e.input).toHaveValue('update:\n  remote\n  ');
+    await expect(e.input).toHaveValue('update:\n  remote: ');
   });
 
 });

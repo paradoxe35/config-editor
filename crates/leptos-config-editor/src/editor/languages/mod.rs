@@ -10,10 +10,13 @@
 
 use super::language::LanguageBehavior;
 
+mod json;
 mod yaml;
+use json::JsonBehavior;
 use yaml::YamlBehavior;
 
 static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
+static JSON_BEHAVIOR: JsonBehavior = JsonBehavior;
 
 /// Document language edited by the component.
 ///
@@ -62,10 +65,8 @@ impl Language {
     /// `&'static` reference so call sites and closures share it freely.
     pub(super) fn behavior(self) -> &'static dyn LanguageBehavior {
         match self {
-            // JSON support lands in Phase 3 with `JsonBehavior`. Until then
-            // the declared `Json` variant falls back to YAML semantics, which
-            // parses JSON-flow documents, rather than panicking in hosts.
-            Language::Yaml | Language::Json => &YAML_BEHAVIOR,
+            Language::Yaml => &YAML_BEHAVIOR,
+            Language::Json => &JSON_BEHAVIOR,
         }
     }
 }

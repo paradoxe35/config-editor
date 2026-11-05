@@ -203,6 +203,35 @@ fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
     entries
 }
 
+/// Span of a key written inside an inline `{ ... }` mapping. The key is found
+/// on its parent mapping's line as a whole word after the parent's colon.
+#[cfg(feature = "schema-validation")]
+fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
+    let (key, parent) = wanted.split_last()?;
+    if parent.is_empty() || key.is_empty() {
+        return None;
+    }
+    let (_, parent_line, _, _) = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| candidate == parent)?;
+    let text = source.lines().nth(parent_line.checked_sub(1)?)?;
+    let value_begin = text.find(':')? + 1;
+    let is_word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
+    let mut search = value_begin;
+    while let Some(relative) = text[search..].find(key.as_str()) {
+        let start = search + relative;
+        let end = start + key.len();
+        let whole_word = !text[..start].chars().next_back().is_some_and(is_word)
+            && !text[end..].chars().next().is_some_and(is_word);
+        if whole_word {
+            let column = text[..start].chars().count() + 1;
+            return Some((parent_line, column, column + key.chars().count()));
+        }
+        search = end;
+    }
+    None
+}
+
 #[cfg(feature = "schema-validation")]
 fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = super::super::language::pointer_segments(path);
@@ -218,8 +247,14 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
         return Some((line, column, end_column));
     }
 
+    // Keys inside an inline `{ ... }` mapping: locate the key token on its
+    // parent's line rather than reporting the whole document's first line.
+    if let Some(span) = flow_key_span(source, &wanted) {
+        return Some(span);
+    }
+
     // Fall back to the previous first-match behavior for paths the scanner
-    // cannot represent, such as flow mappings.
+    // cannot represent.
     source.lines().enumerate().find_map(|(index, line)| {
         let indent = line.len() - line.trim_start().len();
         let (candidate, _) = line.trim_start().split_once(':')?;
@@ -237,11 +272,12 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
 #[cfg(feature = "schema-validation")]
 fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = super::super::language::pointer_segments(path);
+    // Only block-structured entries have a value slot on their line. Inline
+    // mapping keys resolve through `yaml_span_for_path`, which points at the key.
     let line_number = yaml_path_lines(source)
         .into_iter()
         .find(|(candidate, _, _, _)| *candidate == wanted)
-        .map(|(_, line, _, _)| line)
-        .or_else(|| yaml_span_for_path(source, path).map(|(line, _, _)| line))?;
+        .map(|(_, line, _, _)| line)?;
     let line = source.lines().nth(line_number.saturating_sub(1))?;
     let (key, raw_value) = line.split_once(':')?;
     let value_start = raw_value.len() - raw_value.trim_start().len();
@@ -646,6 +682,45 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         )
     };
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
+    // Inline mapping value (`key: { a: 1, sec`): the segment after the last `{`
+    // or `,` before the caret is a key of that flow mapping, not a value.
+    if let (Some(colon), Some(value_key)) = (colon, value_key.as_ref()) {
+        let value_begin = colon + 1;
+        let inner_end = cursor_in_content.clamp(value_begin, line_content.len());
+        let inner = &line_content[value_begin..inner_end];
+        if inner.trim_start().starts_with('{') && !inner.contains('}') {
+            let segment_start = inner.rfind([',', '{']).map_or(0, |index| index + 1);
+            let segment = &inner[segment_start..];
+            let typed_raw = segment.trim_start();
+            if !typed_raw.contains(':') {
+                let typed_start_byte = current_line_start
+                    + content_start
+                    + value_begin
+                    + segment_start
+                    + (segment.len() - typed_raw.len());
+                let tail: usize = source[cursor..]
+                    .chars()
+                    .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+                    .map(char::len_utf8)
+                    .sum();
+                let replace_end_byte = cursor + tail;
+                path.push(SchemaPathSegment::Key(value_key.clone()));
+                return CompletionContext {
+                    path,
+                    typed: typed_raw.trim_end().to_string(),
+                    replace_start: source[..typed_start_byte].encode_utf16().count(),
+                    replace_end: source[..replace_end_byte].encode_utf16().count(),
+                    value_key: None,
+                    value_needs_space: false,
+                    is_array_item: current_is_array_item,
+                    base_indent,
+                    entry_prefix: "",
+                    explicit_entry_start: false,
+                    entry_suffix: "",
+                };
+            }
+        }
+    }
     let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
     CompletionContext {
         path,
@@ -658,6 +733,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         value_needs_space,
         is_array_item: current_is_array_item,
         base_indent,
+        entry_prefix: "",
+        explicit_entry_start: false,
+        entry_suffix: "",
     }
 }
 
@@ -2352,6 +2430,43 @@ mod tests {
             split_yaml_comment("'it''s # still quoted'"),
             ("'it''s # still quoted'", None)
         );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn keys_inside_an_inline_mapping_are_suggested_from_the_schema() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"clients":{"type":"object","additionalProperties":{"type":"object","properties":{"secret":{"type":"string"},"max_connections":{"type":"integer"}}}}}}"#,
+        )
+        .unwrap();
+        let input = "clients:\n  paradoxe: { sec";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.label == "secret")
+            .expect("a key typed inside { } should be suggested");
+        let (updated, _) = apply_completion(input, option);
+        assert_eq!(updated, "clients:\n  paradoxe: { secret: ");
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_error_inside_an_inline_mapping_points_at_its_key() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"clients":{"type":"object","additionalProperties":{"type":"object","properties":{"secret":{"type":"string"}}}}}}"#,
+        )
+        .unwrap();
+        let source = "clients:\n  paradoxe: { secret }\n";
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(2));
+        assert_eq!(diagnostics[0].column, Some(15));
     }
 
 }

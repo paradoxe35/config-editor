@@ -1,13 +1,29 @@
 use leptos::prelude::*;
 use leptos_config_editor::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Language};
 
-const SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
 const SCHEMA: &str = include_str!("../schema.json");
 
 fn main() {
     leptos::mount::mount_to_body(|| {
-        let baseline = RwSignal::new(SAMPLE.to_string());
-        let final_value = RwSignal::new(SAMPLE.to_string());
+        // `?language=json` opens the same burrow config as JSON; YAML is the default.
+        let search = web_sys::window()
+            .and_then(|window| window.location().search().ok())
+            .unwrap_or_default();
+        let has_flag = |flag: &str| {
+            search
+                .trim_start_matches('?')
+                .split('&')
+                .any(|pair| pair == flag)
+        };
+        let (language, sample, file_name) = if has_flag("language=json") {
+            (Language::Json, JSON_SAMPLE, "burrow.json")
+        } else {
+            (Language::Yaml, YAML_SAMPLE, "burrow.yaml")
+        };
+        let baseline = RwSignal::new(sample.to_string());
+        let final_value = RwSignal::new(sample.to_string());
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
         // `?readonly=1` renders the demo editor in read-only view mode.
         let read_only = web_sys::window()
@@ -26,8 +42,8 @@ fn main() {
             >
                 <ConfigEditorToolbar class="config-editor__demo-toolbar" theme=theme>
                     <div class="config-editor__file">
-                        <span class="config-editor__file-icon">"Y"</span>
-                        <span>"burrow.yaml"</span>
+                        <span class="config-editor__file-icon">{language.file_icon()}</span>
+                        <span>{file_name}</span>
                     </div>
                     <label class="config-editor__demo-theme-picker">
                         "Theme"
@@ -73,13 +89,13 @@ fn main() {
                     </button>
                 </ConfigEditorToolbar>
                 <ConfigEditor
-                    language=Language::Yaml
-                    initial_value=SAMPLE
+                    language=language
+                    initial_value=sample
                     baseline=baseline
                     value=final_value
                     on_change=Callback::new(move |value| final_value.set(value))
                     schema_json=SCHEMA
-                    file_name="burrow.yaml"
+                    file_name=file_name
                     theme=theme
                     read_only=read_only
                     show_toolbar=false
