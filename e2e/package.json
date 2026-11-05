@@ -1,5 +1,5 @@
 {
-  "name": "leptos-yaml-editor-e2e",
+  "name": "leptos-config-editor-e2e",
   "private": true,
   "type": "module",
   "scripts": {

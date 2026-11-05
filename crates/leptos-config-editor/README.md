@@ -1,4 +1,4 @@
-# yaml-editor
+# leptos-config-editor
 
 A YAML editor component for Leptos applications. It renders only the editor;
 the host application owns its page layout, branding, file loading, and saving.
@@ -7,12 +7,12 @@ the host application owns its page layout, branding, file loading, and saving.
 
 ```toml
 [dependencies]
-yaml-editor = { path = "crates/yaml-editor" }
+leptos-config-editor = { path = "crates/leptos-config-editor" }
 ```
 
 ```rust
 use leptos::prelude::*;
-use yaml_editor::{EditorTheme, YamlEditor};
+use leptos_config_editor::{EditorTheme, YamlEditor};
 
 let initial_value = "listen: 7835\n";
 

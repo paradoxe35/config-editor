@@ -11,7 +11,7 @@
 //! diffs, and hover docs while disabling all edits.
 //!
 //! ```ignore
-//! use yaml_editor::YamlEditor;
+//! use leptos_config_editor::YamlEditor;
 //!
 //! view! {
 //!     <YamlEditor

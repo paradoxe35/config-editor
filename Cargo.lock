@@ -915,12 +915,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptos-config-editor"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "leptos",
+ "noyalib",
+ "regex",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "leptos-yaml-editor"
 version = "0.1.0"
 dependencies = [
  "leptos",
+ "leptos-config-editor",
  "web-sys",
- "yaml-editor",
 ]
 
 [[package]]
@@ -2211,19 +2224,6 @@ name = "xxhash-rust"
 version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
-
-[[package]]
-name = "yaml-editor"
-version = "0.1.0"
-dependencies = [
- "jsonschema",
- "leptos",
- "noyalib",
- "regex",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
 
 [[package]]
 name = "yoke"

@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use yaml_editor::{EditorTheme, YamlEditor, YamlEditorToolbar};
+use leptos_config_editor::{EditorTheme, YamlEditor, YamlEditorToolbar};
 
 const SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const SCHEMA: &str = include_str!("../schema.json");

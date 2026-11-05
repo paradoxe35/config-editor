@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "yaml-editor crate test fixture",
+  "title": "leptos-config-editor crate test fixture",
   "description": "Small schema exercising the shapes the crate's unit tests cover: nullable objects, $ref branches, additionalProperties with dynamic keys, enums, and numeric-as-string examples. It mirrors the structure (not the content) of the demo schema at the workspace root, so crate tests never reach outside the crate.",
   "type": "object",
   "properties": {

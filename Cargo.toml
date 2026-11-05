@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/yaml-editor"]
+members = ["crates/leptos-config-editor"]
 resolver = "3"
 
 [dependencies]
 leptos = { version = "0.8.23", features = ["csr"] }
-yaml-editor = { path = "crates/yaml-editor" }
+leptos-config-editor = { path = "crates/leptos-config-editor" }
 web-sys = { version = "0.3", features = ["Window", "Location"] }
 
 # Keep the editor responsive while developing: dependencies (schema validation,
@@ -17,5 +17,5 @@ web-sys = { version = "0.3", features = ["Window", "Location"] }
 [profile.dev.package."*"]
 opt-level = 2
 
-[profile.dev.package.yaml-editor]
+[profile.dev.package.leptos-config-editor]
 opt-level = 2
