@@ -101,26 +101,33 @@ hover or keyboard focus. The root demo shows the same flow.
 
 ## Editor options
 
-| Prop                       | Default         | Description                                                                       |
-| -------------------------- | --------------- | --------------------------------------------------------------------------------- |
-| `initial_value`            | empty           | Initial YAML document                                                             |
-| `value`                    | none            | Optional reactive final value; changes synchronize into the editor                |
-| `baseline`                 | `initial_value` | Optional reactive baseline used to show line diffs                                |
-| `schema_json`              | none            | JSON Schema used for validation and completions                                   |
-| `file_name`                | `untitled.yaml` | Name shown when the built-in toolbar is enabled                                   |
-| `class`                    | none            | Extra class on the editor root for host styles                                    |
-| `theme`                    | `VsCodeDark`    | Bundled `EditorTheme` preset; accepts a reactive signal for live switching        |
-| `on_change`                | none            | Callback with the updated document                                                |
-| `styled`                   | `true`          | Include the preset editor stylesheet                                              |
-| `show_toolbar`             | `false`         | Show the built-in file/schema toolbar                                             |
-| `show_footer`              | `false`         | Show the built-in status footer                                                   |
-| `show_diagnostics`         | `true`          | Show inline parse/schema diagnostics and hover messages                           |
-| `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                   |
-| `auto_trigger_completions` | `true`          | Open suggestions while typing and after accepting a key (values close the list)   |
-| `enable_hover_docs`        | `true`          | Show the schema description, type, default, and examples when hovering a key      |
-| `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                         |
-| `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs |
-| `show_diff`                | `true`          | Show line changes against `baseline`                                              |
+| Prop                       | Default         | Description                                                                                                      |
+| -------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `initial_value`            | empty           | Initial YAML document                                                                                            |
+| `value`                    | none            | Optional reactive final value; changes synchronize into the editor                                               |
+| `baseline`                 | `initial_value` | Optional reactive baseline used to show line diffs                                                               |
+| `schema_json`              | none            | JSON Schema used for validation and completions                                                                  |
+| `file_name`                | `untitled.yaml` | Name shown when the built-in toolbar is enabled                                                                  |
+| `class`                    | none            | Extra class on the editor root for host styles                                                                   |
+| `theme`                    | `VsCodeDark`    | Bundled `EditorTheme` preset; accepts a reactive signal for live switching                                       |
+| `on_change`                | none            | Callback with the updated document                                                                               |
+| `styled`                   | `true`          | Include the preset editor stylesheet                                                                             |
+| `show_toolbar`             | `false`         | Show the built-in file/schema toolbar                                                                            |
+| `show_footer`              | `false`         | Show the built-in status footer                                                                                  |
+| `show_diagnostics`         | `true`          | Show inline parse/schema diagnostics and hover messages                                                          |
+| `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                                                  |
+| `auto_trigger_completions` | `true`          | Open suggestions while typing and after accepting a key (values close the list)                                  |
+| `enable_hover_docs`        | `true`          | Show the schema description, type, default, and examples when hovering a key                                     |
+| `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                                                        |
+| `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs                                |
+| `show_diff`                | `true`          | Show line changes against `baseline`                                                                             |
+| `read_only`                | `false`         | View mode: disable typing, completions, and edits while keeping highlighting, diagnostics, diffs, and hover docs |
+
+Read-only view mode keeps syntax highlighting, inline diagnostics, diff
+gutter, and schema hover documentation, but the document cannot be edited:
+typing, Enter/Tab insertions, bracket pairing, comment toggling, undo/redo,
+and completions are all disabled. The demo app enables it with
+`?readonly=1`.
 
 The toolbar and footer are also exported as composable `YamlEditorToolbar` and
 `YamlEditorFooter` components. Both accept arbitrary children and an optional

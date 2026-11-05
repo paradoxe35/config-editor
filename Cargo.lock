@@ -919,6 +919,7 @@ name = "leptos-yaml-editor"
 version = "0.1.0"
 dependencies = [
  "leptos",
+ "web-sys",
  "yaml-editor",
 ]
 

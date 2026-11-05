@@ -267,6 +267,7 @@ pub fn YamlEditor(
     #[prop(default = true)] enable_highlighting: bool,
     #[prop(default = true)] enable_auto_closing: bool,
     #[prop(default = true)] show_diff: bool,
+    #[prop(default = false)] read_only: bool,
 ) -> impl IntoView {
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema_json {
@@ -276,7 +277,7 @@ pub fn YamlEditor(
         },
         None => (None, None),
     };
-    let enable_completions = enable_completions && cfg!(feature = "completion");
+    let enable_completions = enable_completions && !read_only && cfg!(feature = "completion");
     let enable_highlighting = enable_highlighting && cfg!(feature = "syntax-highlighting");
     let source = RwSignal::new(
         value
@@ -412,7 +413,11 @@ pub fn YamlEditor(
 
     view! {
         <div
-            class=format!("yaml-editor {root_class}")
+            class=format!(
+                "yaml-editor {}{}",
+                root_class,
+                if read_only { " yaml-editor__readonly" } else { "" }
+            )
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
             node_ref=root_ref
@@ -732,8 +737,19 @@ pub fn YamlEditor(
                                 autocapitalize="off"
                                 autocomplete="off"
                                 wrap="off"
+                                readonly=read_only
+                                aria-readonly=read_only.to_string()
                                 prop:value=move || source.get()
                                 on:input=move |event| {
+                                    if read_only {
+                                        if let Some(element) = event
+                                            .target()
+                                            .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                        {
+                                            element.set_value(&source.get_untracked());
+                                        }
+                                        return;
+                                    }
                                     let value = event_target_value(&event);
                                     let before = source.get_untracked();
                                     let input_type = event
@@ -857,6 +873,19 @@ pub fn YamlEditor(
                                 }
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
                                     hide_hover();
+                                    if read_only {
+                                        if event.key() == "Escape" {
+                                            event.prevent_default();
+                                            suggestions_requested.set(false);
+                                            explicit_request.set(false);
+                                            selected_diff_peek.set(None);
+                                            hide_hover();
+                                        }
+                                        if event.ctrl_key() && event.code() == "Space" {
+                                            event.prevent_default();
+                                        }
+                                        return;
+                                    }
                                     let key = event.key().to_ascii_lowercase();
                                     let modified = event.ctrl_key() || event.meta_key();
                                     let is_undo = modified && key == "z" && !event.shift_key();

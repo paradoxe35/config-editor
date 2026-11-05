@@ -6,7 +6,9 @@
 //! Diagnostics, completions, highlighting, and preset styling can be enabled
 //! independently. The optional JSON Schema string enables validation and
 //! schema-aware suggestions. Suggestions appear while typing by default; set
-//! `auto_trigger_completions=false` to require `Ctrl+Space`.
+//! `auto_trigger_completions=false` to require `Ctrl+Space`. Set
+//! `read_only=true` for a view mode that keeps highlighting, diagnostics,
+//! diffs, and hover docs while disabling all edits.
 //!
 //! ```ignore
 //! use yaml_editor::YamlEditor;

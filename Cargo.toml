@@ -10,6 +10,7 @@ resolver = "3"
 [dependencies]
 leptos = { version = "0.8.23", features = ["csr"] }
 yaml-editor = { path = "crates/yaml-editor" }
+web-sys = { version = "0.3", features = ["Window", "Location"] }
 
 # Keep the editor responsive while developing: dependencies (schema validation,
 # YAML parsing) and the editor crate are optimised even in debug builds.

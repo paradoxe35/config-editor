@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use yaml_editor::{EditorTheme, YamlEditor, YamlEditorFooter, YamlEditorToolbar};
+use yaml_editor::{EditorTheme, YamlEditor, YamlEditorToolbar};
 
 const SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const SCHEMA: &str = include_str!("../schema.json");
@@ -9,6 +9,16 @@ fn main() {
         let baseline = RwSignal::new(SAMPLE.to_string());
         let final_value = RwSignal::new(SAMPLE.to_string());
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
+        // `?readonly=1` renders the demo editor in read-only view mode.
+        let read_only = web_sys::window()
+            .map(|window| {
+                window
+                    .location()
+                    .search()
+                    .map(|search| search.contains("readonly"))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
         view! {
             <div
                 class="yaml-editor yaml-editor__demo"
@@ -71,11 +81,14 @@ fn main() {
                     schema_json=SCHEMA
                     file_name="burrow.yaml"
                     theme=theme
+                    read_only=read_only
+                    show_toolbar=false
+                    show_footer=true
                 />
-                <YamlEditorFooter class="yaml-editor__demo-footer" theme=theme>
-                    <span>"Green: added · blue: modified · red: deleted"</span>
-                    <span>{move || format!("{} lines", final_value.get().split('\n').count())}</span>
-                </YamlEditorFooter>
+                // <YamlEditorFooter class="yaml-editor__demo-footer" theme=theme>
+                //     <span>"Green: added · blue: modified · red: deleted"</span>
+                //     <span>{move || format!("{} lines", final_value.get().split('\n').count())}</span>
+                // </YamlEditorFooter>
             </div>
         }
     })

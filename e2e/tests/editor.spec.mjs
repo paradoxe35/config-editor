@@ -117,6 +117,34 @@ test.describe('focus', () => {
   });
 });
 
+test.describe('read-only view mode', () => {
+  test('typing and shortcuts cannot modify the document, but hover docs still work', async ({ page, baseURL }) => {
+    await page.goto(`${baseURL}?readonly=1`);
+    await page.locator('.yaml-editor__input').waitFor();
+    const e = editor(page);
+    await expect(e.input).toHaveAttribute('readonly', '');
+    await expect(e.input).toHaveAttribute('aria-readonly', 'true');
+    const before = await e.value();
+
+    await e.input.click();
+    await page.keyboard.type('garbage-text');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Delete');
+    expect(await e.value()).toBe(before);
+
+    await page.keyboard.press('Control+Space');
+    await page.waitForTimeout(150);
+    expect(await e.isOpen()).toBe(false);
+
+    const onKey = await pointAt(page, 1, 1);
+    await page.mouse.move(onKey.x, onKey.y, { steps: 4 });
+    const card = page.locator('.yaml-editor__hover');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.yaml-editor__hover-key')).toHaveText('listen');
+  });
+});
+
 test.describe('highlight', () => {
   test('hover and arrow keys share exactly one highlighted row', async ({ page }) => {
     const e = editor(page);
