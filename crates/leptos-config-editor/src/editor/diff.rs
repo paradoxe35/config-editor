@@ -1,4 +1,5 @@
 use super::metrics::{EditorMetrics, read_editor_metrics};
+use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_GAP, POPUP_MARGIN};
 use std::borrow::Cow;
 use wasm_bindgen::JsCast;
 
@@ -90,6 +91,45 @@ pub(super) struct PeekViewport {
     pub(super) root_left: f64,
 }
 
+/// Change-preview header height, in pixels: the sticky `h3` row plus its
+/// padding and border in `preset.css`. Added to the per-line estimate so a
+/// one-line change still gets a readable popup.
+pub(super) const PEEK_HEADER_HEIGHT: f64 = 72.0;
+
+/// Estimated height of one diff line, in pixels. Mirrors the
+/// `.yaml-editor__diff-peek-line` rule (`12px` type at `1.5` line-height plus
+/// `2px` vertical padding = `22px`) so the popup can size itself before it
+/// renders.
+pub(super) const PEEK_LINE_HEIGHT: f64 = 22.0;
+
+/// Change-preview height cap, in pixels: tall diffs scroll internally instead
+/// of covering the editor.
+pub(super) const PEEK_MAX_HEIGHT: f64 = 360.0;
+
+/// Change-preview height cap as a fraction of the viewport: on short
+/// viewports the popup shrinks below [`PEEK_MAX_HEIGHT`] so it never traps
+/// the anchor line off-screen.
+pub(super) const PEEK_MAX_HEIGHT_VIEWPORT_FRACTION: f64 = 0.55;
+
+/// Minimum visible height, in pixels, that justifies placing the preview below
+/// the anchor: roughly [`PEEK_HEADER_HEIGHT`] plus five diff lines. Below
+/// that (and below the space available above), the popup flips.
+pub(super) const PEEK_MIN_BELOW_HEIGHT: f64 = 180.0;
+
+/// Change-preview minimum width, in pixels. Mirrors the `min-width: 180px`
+/// rule on `.yaml-editor__diff-peek` in `preset.css`; the left clamp reserves
+/// this plus [`POPUP_MARGIN`] so the popup never clips horizontally.
+pub(super) const PEEK_MIN_WIDTH: f64 = 180.0;
+
+/// Change-preview preferred width, in pixels: two side-by-side `minmax(240px,
+/// 1fr)` columns (see `.yaml-editor__diff-peek-columns` in `preset.css`) plus
+/// padding, so before/after rarely wrap before the viewport forces a shrink.
+pub(super) const PEEK_PREFERRED_WIDTH: f64 = 560.0;
+
+/// Horizontal nudge, in pixels, aligning the preview's left edge with the
+/// gutter markers it annotates rather than the editor's text edge.
+pub(super) const PEEK_GUTTER_NUDGE: f64 = 5.0;
+
 /// Pure popup placement: given viewport/editor geometry and the anchored line,
 /// decide above/below placement and clamp to the viewport. No DOM access, so
 /// this is directly unit-testable.
@@ -100,17 +140,19 @@ pub(super) fn peek_geometry(
     old_line_count: usize,
     new_line_count: usize,
 ) -> String {
-    let margin = 8.0;
+    let margin = POPUP_MARGIN;
     let anchor_y = viewport.editor_top
         + metrics.padding_top
         + line.saturating_sub(1) as f64 * metrics.line_height
         - viewport.editor_scroll_top;
     let space_above = (anchor_y - margin).max(0.0);
     let space_below = (viewport.viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
-    let desired_height = (72.0 + (old_line_count + new_line_count) as f64 * 22.0)
-        .min(360.0)
-        .min(viewport.viewport_height * 0.55);
-    let place_below = space_below >= desired_height.min(180.0) || space_below >= space_above;
+    let desired_height = (PEEK_HEADER_HEIGHT
+        + (old_line_count + new_line_count) as f64 * PEEK_LINE_HEIGHT)
+        .min(PEEK_MAX_HEIGHT)
+        .min(viewport.viewport_height * PEEK_MAX_HEIGHT_VIEWPORT_FRACTION);
+    let place_below =
+        space_below >= desired_height.min(PEEK_MIN_BELOW_HEIGHT) || space_below >= space_above;
     let available_height = if place_below {
         space_below
     } else {
@@ -118,19 +160,20 @@ pub(super) fn peek_geometry(
     };
     let height = desired_height.min(available_height);
     let top_in_viewport = if place_below {
-        anchor_y + metrics.line_height + 4.0
+        anchor_y + metrics.line_height + POPUP_GAP
     } else {
-        anchor_y - height - 4.0
+        anchor_y - height - POPUP_GAP
     }
     .clamp(
         margin,
         (viewport.viewport_height - height - margin).max(margin),
     );
-    let left_in_viewport = (viewport.editor_left + 5.0).clamp(
+    let left_in_viewport = (viewport.editor_left + PEEK_GUTTER_NUDGE).clamp(
         margin,
-        (viewport.viewport_width - 180.0 - margin).max(margin),
+        (viewport.viewport_width - PEEK_MIN_WIDTH - margin).max(margin),
     );
-    let width = 560.0_f64.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
+    let width =
+        PEEK_PREFERRED_WIDTH.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
 
     format!(
         "top:{:.1}px;left:{:.1}px;width:{:.1}px;max-height:{:.1}px",
@@ -155,12 +198,12 @@ pub(super) fn peek_popup_style(
         .inner_width()
         .ok()
         .and_then(|width| width.as_f64())
-        .unwrap_or(1024.0);
+        .unwrap_or(FALLBACK_VIEWPORT_WIDTH);
     let viewport_height = window
         .inner_height()
         .ok()
         .and_then(|height| height.as_f64())
-        .unwrap_or(768.0);
+        .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
     let editor_rect = editor.get_bounding_client_rect();
     let root_rect = root.get_bounding_client_rect();
     let element: &web_sys::Element = editor.unchecked_ref();
@@ -189,8 +232,16 @@ enum DiffEdit {
     Delete,
 }
 
+/// Myers diff depth cap, in edit steps. The wavefront is `O(depth²)` time and
+/// memory, so beyond this the diff falls back to a delete-then-insert block
+/// (see the `None` arm in `diff_lines`): still correct and still context-rich,
+/// just without fine-grained pairing. Sized so a 1200-line insert (the largest
+/// covered unit case) stays exact while pathological inputs stay quadratic in
+/// a bounded constant instead of the document.
+pub(super) const MYERS_MAX_DEPTH: usize = 1024;
+
 fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
-    let max_depth = old.len().saturating_add(new.len()).min(1024);
+    let max_depth = old.len().saturating_add(new.len()).min(MYERS_MAX_DEPTH);
     let offset = max_depth as isize + 1;
     let mut frontier = vec![0isize; max_depth * 2 + 3];
     frontier[(offset + 1) as usize] = 0;
@@ -460,6 +511,18 @@ mod tests {
             root_top: 80.0,
             root_left: 40.0,
         }
+    }
+
+    #[test]
+    fn peek_sizing_constants_match_the_preset_stylesheet() {
+        // `preset.css` sources: `.yaml-editor__diff-peek` min-width,
+        // `.yaml-editor__diff-peek-columns` minmax(240px, 1fr),
+        // `.yaml-editor__diff-peek-line` 22px rows, and the sticky header.
+        assert_eq!(PEEK_MIN_WIDTH, 180.0);
+        assert_eq!(PEEK_PREFERRED_WIDTH, 560.0);
+        assert_eq!(PEEK_LINE_HEIGHT, 22.0);
+        assert_eq!(PEEK_HEADER_HEIGHT, 72.0);
+        assert_eq!(PEEK_MAX_HEIGHT, 360.0);
     }
 
     #[test]

@@ -9,6 +9,25 @@ pub(super) const HOVER_DELAY_MS: i32 = 350;
 /// Viewport edge margin for caret-anchored popups, in pixels.
 pub(super) const POPUP_MARGIN: f64 = 8.0;
 
+/// Gap between the anchored line and a caret-anchored popup, in pixels.
+pub(super) const POPUP_GAP: f64 = 4.0;
+
+/// Fallback viewport size when `window.inner_width/height` is unavailable.
+/// Matches the fallbacks in `diff.rs` and `completion.rs` so offscreen tests
+/// and non-browser renders agree on placement.
+pub(super) const FALLBACK_VIEWPORT_WIDTH: f64 = 1024.0;
+pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
+
+/// Hover card width cap, in pixels. Mirrors the `max-width: 340px` rule on
+/// `.yaml-editor__hover` in `preset.css`; the right-edge clamp subtracts this
+/// plus [`POPUP_MARGIN`] so the card never overflows the viewport.
+pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
+
+/// Estimated hover card height, in pixels, used to decide whether the card
+/// flips above the line. Matches the default editor `min-height: 240px` so the
+/// flip threshold tracks the smallest editor the card must fit beside.
+pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
+
 /// Line index (0-based) and character column of the textarea cell under a
 /// pointer position. Used to decide which key the mouse is hovering.
 pub(super) fn pointer_text_position(
@@ -46,25 +65,30 @@ pub(super) fn hover_card_style(
         .inner_width()
         .ok()
         .and_then(|v| v.as_f64())
-        .unwrap_or(1024.0);
+        .unwrap_or(FALLBACK_VIEWPORT_WIDTH);
     let viewport_height = window
         .inner_height()
         .ok()
         .and_then(|v| v.as_f64())
-        .unwrap_or(768.0);
+        .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
     let left = (rect.left()
         + metrics.padding_left
         + column as f64 * metrics.char_width
         - element.scroll_left() as f64)
-        .clamp(POPUP_MARGIN, (viewport_width - 348.0).max(POPUP_MARGIN));
+        .clamp(
+            POPUP_MARGIN,
+            (viewport_width - HOVER_CARD_MAX_WIDTH - POPUP_MARGIN).max(POPUP_MARGIN),
+        );
     let line_top = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
         - element.scroll_top() as f64;
-    if line_top > 240.0 && line_top + metrics.line_height + 240.0 > viewport_height {
-        format!("left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - 4px))")
+    if line_top > HOVER_CARD_ESTIMATED_HEIGHT
+        && line_top + metrics.line_height + HOVER_CARD_ESTIMATED_HEIGHT > viewport_height
+    {
+        format!("left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))")
     } else {
         format!(
             "left:{left:.1}px;top:{:.1}px",
-            line_top + metrics.line_height + 4.0
+            line_top + metrics.line_height + POPUP_GAP
         )
     }
 }
@@ -132,5 +156,23 @@ pub(super) fn schedule_hover(callback: impl FnOnce() + 'static) {
             wasm_bindgen::closure::Closure::once_into_js(callback).unchecked_ref(),
             HOVER_DELAY_MS,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the popup geometry constants to their documented CSS sources so
+    /// a restyle of `preset.css` forces a deliberate update here too.
+    #[test]
+    fn popup_geometry_constants_match_the_preset_stylesheet() {
+        assert_eq!(POPUP_MARGIN, 8.0);
+        assert_eq!(POPUP_GAP, 4.0);
+        assert_eq!(FALLBACK_VIEWPORT_WIDTH, 1024.0);
+        assert_eq!(FALLBACK_VIEWPORT_HEIGHT, 768.0);
+        // `.yaml-editor__hover` max-width and the editor min-height.
+        assert_eq!(HOVER_CARD_MAX_WIDTH, 340.0);
+        assert_eq!(HOVER_CARD_ESTIMATED_HEIGHT, 240.0);
     }
 }

@@ -19,6 +19,13 @@ pub(super) struct EditHistory {
     last_edit_at: f64,
 }
 
+/// Idle gap, in milliseconds, that splits one undo step from the next.
+/// Keystrokes arriving faster than this merge into a single Ctrl+Z unit;
+/// a pause longer than this starts a fresh unit. Matches the typical
+/// `performance.now()` resolution for typing bursts without lumping
+/// deliberate pauses together.
+pub(super) const UNDO_GROUPING_WINDOW_MS: f64 = 800.0;
+
 impl EditHistory {
     pub(super) fn record_input(
         &mut self,
@@ -34,7 +41,7 @@ impl EditHistory {
         };
         let groupable = group != HistoryGroup::Other
             && self.last_group == Some(group)
-            && timestamp - self.last_edit_at <= 800.0;
+            && timestamp - self.last_edit_at <= UNDO_GROUPING_WINDOW_MS;
         if !groupable {
             self.undo.push(HistoryEntry {
                 value: before,
@@ -79,6 +86,23 @@ impl EditHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pins the undo-grouping window: keystrokes within the window merge into
+    /// one undo step, while a longer pause starts a fresh step.
+    #[test]
+    fn typing_pause_beyond_the_grouping_window_splits_undo_steps() {
+        assert_eq!(UNDO_GROUPING_WINDOW_MS, 800.0);
+        let mut history = EditHistory::default();
+        history.record_input("".into(), 0, "insertText", 0.0);
+        history.record_input("a".into(), 1, "insertText", 100.0);
+        // 1000ms later: past the window, so a new undo step starts.
+        history.record_input("ab".into(), 2, "insertText", 1100.0);
+
+        // Two typing groups on the undo stack.
+        assert!(history.undo("abc".into(), 3).is_some());
+        assert!(history.undo("ab".into(), 2).is_some());
+        assert_eq!(history.undo("a".into(), 1), None);
+    }
 
     #[test]
     fn groups_adjacent_typing_and_keeps_actions_as_separate_undo_steps() {

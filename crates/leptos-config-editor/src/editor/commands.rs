@@ -46,13 +46,26 @@ pub(super) fn offset_at(source: &str, line: usize, column: usize) -> usize {
     offset.min(source.encode_utf16().count())
 }
 
+/// Lines scanned when guessing the document's indent unit. Bounded so a
+/// megabyte-sized document does not pay a full scan on every keystroke; the
+/// unit is almost always visible in the first screenful of lines.
+pub(super) const INDENT_SCAN_LINE_LIMIT: usize = 400;
+
+/// Widest indent, in spaces, accepted as a deliberate unit. Filters out
+/// alignment padding and deeply nested one-off lines so the minimum-width
+/// heuristic below settles on the real step.
+pub(super) const MAX_INDENT_WIDTH: usize = 8;
+
+/// Fallback indent width, in spaces, when no indented line is found.
+pub(super) const DEFAULT_INDENT_WIDTH: usize = 2;
+
 /// Returns the indentation unit used by the document. YAML files in the wild
 /// use either two or four spaces, and occasionally tabs; honouring the
 /// document's own style keeps automatic indentation and expanded completions
 /// consistent with the surrounding text.
 pub(super) fn indent_unit(source: &str) -> String {
     let mut widths = Vec::new();
-    for line in source.lines().take(400) {
+    for line in source.lines().take(INDENT_SCAN_LINE_LIMIT) {
         let trimmed = line.trim_start_matches([' ', '\t']);
         let leading = &line[..line.len() - trimmed.len()];
         if leading.is_empty() {
@@ -65,9 +78,9 @@ pub(super) fn indent_unit(source: &str) -> String {
     }
     let width = widths
         .into_iter()
-        .filter(|width| (1..=8).contains(width))
+        .filter(|width| (1..=MAX_INDENT_WIDTH).contains(width))
         .min()
-        .unwrap_or(2);
+        .unwrap_or(DEFAULT_INDENT_WIDTH);
     " ".repeat(width)
 }
 

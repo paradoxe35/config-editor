@@ -2,9 +2,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 
+/// Fallback type size, in pixels, when `get_computed_style` is unavailable.
+/// Matches the `--yaml-editor-font-size` default in `preset.css` so unit tests
+/// and non-browser renders use the same baseline as the real editor.
+pub(super) const FALLBACK_FONT_SIZE: f64 = 12.0;
+
+/// Fallback line-height multiplier. Matches the `1.8` in the editor
+/// `font: var(--yaml-editor-font-size)/1.8` shorthand in `preset.css`.
+pub(super) const FALLBACK_LINE_HEIGHT_FACTOR: f64 = 1.8;
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EditorMetrics {
-    pub(super) font_size: f64,
     pub(super) char_width: f64,
     pub(super) line_height: f64,
     pub(super) padding_top: f64,
@@ -22,9 +30,8 @@ impl EditorMetrics {
     #[cfg(test)]
     pub(super) fn fallback() -> Self {
         Self {
-            font_size: 12.0,
-            char_width: 12.0 * CHAR_WIDTH_FACTOR,
-            line_height: 12.0 * 1.8,
+            char_width: FALLBACK_FONT_SIZE * CHAR_WIDTH_FACTOR,
+            line_height: FALLBACK_FONT_SIZE * FALLBACK_LINE_HEIGHT_FACTOR,
             padding_top: 0.0,
             padding_left: 0.0,
         }
@@ -83,8 +90,8 @@ pub(super) fn read_editor_metrics(element: &web_sys::Element) -> EditorMetrics {
             })
             .unwrap_or(fallback)
     };
-    let font_size = number("font-size", 12.0);
-    let line_height = number("line-height", font_size * 1.8);
+    let font_size = number("font-size", FALLBACK_FONT_SIZE);
+    let line_height = number("line-height", font_size * FALLBACK_LINE_HEIGHT_FACTOR);
     let family = style
         .as_ref()
         .and_then(|style| style.get_property_value("font-family").ok())
@@ -95,7 +102,6 @@ pub(super) fn read_editor_metrics(element: &web_sys::Element) -> EditorMetrics {
         .and_then(|font| measured_char_width(&font))
         .unwrap_or(font_size * CHAR_WIDTH_FACTOR);
     EditorMetrics {
-        font_size,
         char_width,
         line_height,
         padding_top: number("padding-top", 0.0),

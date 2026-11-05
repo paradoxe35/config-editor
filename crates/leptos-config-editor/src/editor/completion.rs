@@ -2,6 +2,7 @@ use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::metrics::read_editor_metrics;
+use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use regex::Regex;
 use serde_json::Value;
@@ -599,6 +600,25 @@ fn unquoted(typed: &str) -> &str {
     typed
 }
 
+/// Match-quality tiers for `match_score`, highest first: an exact-prefix hit
+/// outranks a case-insensitive one, which outranks word initials (for
+/// `max_connections`), which outranks a mid-label substring, which outranks a
+/// greedy subsequence. Within a tier, shorter labels win via the
+/// `- label_length` term; substrings additionally prefer earlier hits
+/// (`- 2 * index`) while tolerating a quarter-point length penalty
+/// (`- label_length / 4`) so a short late match does not beat a long early one.
+pub(super) const MATCH_TIER_EXACT_PREFIX: i64 = 1000;
+pub(super) const MATCH_TIER_CASE_INSENSITIVE_PREFIX: i64 = 900;
+pub(super) const MATCH_TIER_INITIALS: i64 = 800;
+pub(super) const MATCH_TIER_SUBSTRING: i64 = 700;
+pub(super) const MATCH_TIER_SUBSEQUENCE: i64 = 500;
+
+/// Penalty weights inside the substring tier: per-character position penalty
+/// and the length divisor. Kept as named constants so the ranking trade-off
+/// reads as intent rather than arithmetic.
+pub(super) const MATCH_SUBSTRING_INDEX_PENALTY: i64 = 2;
+pub(super) const MATCH_SUBSTRING_LENGTH_DIVISOR: i64 = 4;
+
 /// Ranks schema names against the typed prefix. Exact prefixes win, followed by
 /// case-insensitive prefixes, word initials (for `max_connections`), substrings,
 /// and finally an ordered subsequence match.
@@ -608,12 +628,12 @@ fn match_score(label: &str, typed: &str) -> Option<i64> {
     }
     let label_length = label.chars().count() as i64;
     if label.starts_with(typed) {
-        return Some(1000 - label_length);
+        return Some(MATCH_TIER_EXACT_PREFIX - label_length);
     }
     let label_lower = label.to_lowercase();
     let typed_lower = typed.to_lowercase();
     if label_lower.starts_with(&typed_lower) {
-        return Some(900 - label_length);
+        return Some(MATCH_TIER_CASE_INSENSITIVE_PREFIX - label_length);
     }
     let initials: String = label
         .split(['_', '-', '.', ' '])
@@ -622,10 +642,14 @@ fn match_score(label: &str, typed: &str) -> Option<i64> {
         .flat_map(char::to_lowercase)
         .collect();
     if !initials.is_empty() && initials.starts_with(&typed_lower) {
-        return Some(800 - label_length);
+        return Some(MATCH_TIER_INITIALS - label_length);
     }
     if let Some(index) = label_lower.find(&typed_lower) {
-        return Some(700 - index as i64 * 2 - label_length / 4);
+        return Some(
+            MATCH_TIER_SUBSTRING
+                - index as i64 * MATCH_SUBSTRING_INDEX_PENALTY
+                - label_length / MATCH_SUBSTRING_LENGTH_DIVISOR,
+        );
     }
     let mut remaining = label_lower.chars();
     let mut matched = 0usize;
@@ -636,7 +660,7 @@ fn match_score(label: &str, typed: &str) -> Option<i64> {
             return None;
         }
     }
-    (matched == typed_lower.chars().count()).then_some(500 - label_length)
+    (matched == typed_lower.chars().count()).then_some(MATCH_TIER_SUBSEQUENCE - label_length)
 }
 
 /// Character-index ranges of `label` covered by `typed`, mirroring the
@@ -1153,17 +1177,47 @@ pub(super) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index:
     }
 }
 
+/// Tab-stop width, in columns, for caret-x estimation. Textareas render tab
+/// stops at 8 columns by default, but completion runs before the browser lays
+/// out the row; using 2 keeps the popup near the visible caret for the
+/// short keys this editor suggests without a canvas measurement pass.
+pub(super) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
+
 fn visual_column(text: &str) -> f64 {
     let mut column = 0.0;
     for character in text.chars() {
         if character == '\t' {
-            column += 2.0 - (column % 2.0);
+            column += COMPLETION_TAB_STOP_WIDTH - (column % COMPLETION_TAB_STOP_WIDTH);
         } else {
             column += 1.0;
         }
     }
     column
 }
+
+/// Completion popup width, in pixels. Wide enough for the key + type +
+/// detail columns (see the `padding: 5px 9px` row rule in `preset.css`)
+/// without covering the whole editor.
+pub(super) const COMPLETION_POPUP_WIDTH: f64 = 420.0;
+
+/// Completion popup border thickness, in pixels: half comes from each side of
+/// the two-sided clamp (`viewport_width - 16.0`), keeping the popup inside the
+/// viewport with a [`POPUP_MARGIN`]-scale gutter.
+pub(super) const COMPLETION_POPUP_VIEWPORT_GUTTER: f64 = 16.0;
+
+/// Estimated height of one suggestion row, in pixels. Mirrors the
+/// `.yaml-editor__completion` row (`12px` key + `11px` detail lines plus
+/// `5px` vertical padding): a canvas-free estimate good enough to size the
+/// popup before it renders.
+pub(super) const COMPLETION_ROW_HEIGHT: f64 = 44.0;
+
+/// Vertical padding inside the completion popup, in pixels: `2.0` reserves
+/// the popup's own top/bottom breathing room on top of per-row padding.
+pub(super) const COMPLETION_LIST_PADDING: f64 = 2.0;
+
+/// Completion popup height cap, in pixels: shows roughly seven rows before
+/// the list scrolls internally instead of growing off-viewport.
+pub(super) const COMPLETION_POPUP_MAX_HEIGHT: f64 = 320.0;
 
 /// Pure completion-popup placement: given the caret position in viewport
 /// coordinates and the viewport size, decide above/below placement and clamp
@@ -1176,15 +1230,21 @@ pub(super) fn completion_popup_geometry(
     line_height: f64,
     option_count: usize,
 ) -> String {
-    let width = 420.0_f64.min((viewport_width - 16.0).max(0.0));
-    let left = caret_x.clamp(8.0, (viewport_width - width - 8.0).max(8.0));
-    let ideal_height = (option_count as f64 * 44.0 + 2.0).min(320.0);
-    let space_below = (viewport_height - caret_y - line_height - 8.0).max(0.0);
-    let space_above = (caret_y - 8.0).max(0.0);
+    let width = COMPLETION_POPUP_WIDTH
+        .min((viewport_width - COMPLETION_POPUP_VIEWPORT_GUTTER).max(0.0));
+    let left = caret_x.clamp(
+        POPUP_MARGIN,
+        (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
+    );
+    let ideal_height =
+        (option_count as f64 * COMPLETION_ROW_HEIGHT + COMPLETION_LIST_PADDING)
+            .min(COMPLETION_POPUP_MAX_HEIGHT);
+    let space_below = (viewport_height - caret_y - line_height - POPUP_MARGIN).max(0.0);
+    let space_above = (caret_y - POPUP_MARGIN).max(0.0);
     let (top, available_height) = if space_below >= ideal_height || space_below >= space_above {
         (caret_y + line_height, space_below)
     } else {
-        ((caret_y - ideal_height).max(8.0), space_above)
+        ((caret_y - ideal_height).max(POPUP_MARGIN), space_above)
     };
     let max_height = ideal_height.min(available_height).max(0.0);
     format!(
@@ -1210,7 +1270,7 @@ pub(super) fn completion_popup_style(
         .map_or((0, visual_column(prefix)), |(before, after)| {
             (before.matches('\n').count() + 1, visual_column(after))
         });
-    let caret_x = rect.left() + metrics.padding_left + column * metrics.font_size * 0.6
+    let caret_x = rect.left() + metrics.padding_left + column * metrics.char_width
         - editor.scroll_left() as f64;
     let caret_y = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
         - editor.scroll_top() as f64;
@@ -1218,12 +1278,12 @@ pub(super) fn completion_popup_style(
         .inner_width()
         .ok()
         .and_then(|width| width.as_f64())
-        .unwrap_or(1024.0);
+        .unwrap_or(FALLBACK_VIEWPORT_WIDTH);
     let viewport_height = window
         .inner_height()
         .ok()
         .and_then(|height| height.as_f64())
-        .unwrap_or(768.0);
+        .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
     completion_popup_geometry(
         viewport_width,
         viewport_height,
@@ -1236,7 +1296,31 @@ pub(super) fn completion_popup_style(
 
 #[cfg(test)]
 mod tests {
-    use super::completion_popup_geometry;
+    use super::{
+        COMPLETION_LIST_PADDING, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_WIDTH,
+        COMPLETION_ROW_HEIGHT, MATCH_SUBSTRING_INDEX_PENALTY, MATCH_SUBSTRING_LENGTH_DIVISOR,
+        MATCH_TIER_CASE_INSENSITIVE_PREFIX, MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS,
+        MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, completion_popup_geometry,
+    };
+
+    /// Pins the ranking tiers and popup sizing to their documented values so a
+    /// future tweak has to update the doc comments (and CSS) deliberately.
+    /// Tier order is exact > case-insensitive > initials > substring >
+    /// subsequence (1000 > 900 > 800 > 700 > 500).
+    #[test]
+    fn ranking_tiers_and_popup_sizing_match_their_documentation() {
+        assert_eq!(MATCH_TIER_EXACT_PREFIX, 1000);
+        assert_eq!(MATCH_TIER_CASE_INSENSITIVE_PREFIX, 900);
+        assert_eq!(MATCH_TIER_INITIALS, 800);
+        assert_eq!(MATCH_TIER_SUBSTRING, 700);
+        assert_eq!(MATCH_TIER_SUBSEQUENCE, 500);
+        assert_eq!(MATCH_SUBSTRING_INDEX_PENALTY, 2);
+        assert_eq!(MATCH_SUBSTRING_LENGTH_DIVISOR, 4);
+        assert_eq!(COMPLETION_POPUP_WIDTH, 420.0);
+        assert_eq!(COMPLETION_ROW_HEIGHT, 44.0);
+        assert_eq!(COMPLETION_LIST_PADDING, 2.0);
+        assert_eq!(COMPLETION_POPUP_MAX_HEIGHT, 320.0);
+    }
 
     /// Regression test: the popup opens below the caret when there is room.
     /// Behavior mirror of `peek_geometry_places_popup_below` in `diff.rs`.

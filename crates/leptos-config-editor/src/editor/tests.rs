@@ -1019,6 +1019,14 @@ fn comment_shortcut_uncomments_indented_lines_and_keeps_blank_lines() {
 
 #[test]
 fn indentation_unit_matches_the_document_style() {
+    use super::commands::{
+        DEFAULT_INDENT_WIDTH, INDENT_SCAN_LINE_LIMIT, MAX_INDENT_WIDTH,
+    };
+    // Pins the scan bounds to their documented rationale: a screenful scan,
+    // eight-space alignment filter, two-space fallback.
+    assert_eq!(INDENT_SCAN_LINE_LIMIT, 400);
+    assert_eq!(MAX_INDENT_WIDTH, 8);
+    assert_eq!(DEFAULT_INDENT_WIDTH, 2);
     assert_eq!(indent_unit(""), "  ");
     assert_eq!(indent_unit("one:\n  two: 1\n"), "  ");
     assert_eq!(indent_unit("one:\n    two: 1\n"), "    ");
