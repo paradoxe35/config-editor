@@ -1206,7 +1206,7 @@ pub(super) const COMPLETION_POPUP_WIDTH: f64 = 420.0;
 pub(super) const COMPLETION_POPUP_VIEWPORT_GUTTER: f64 = 16.0;
 
 /// Estimated height of one suggestion row, in pixels. Mirrors the
-/// `.yaml-editor__completion` row (`12px` key + `11px` detail lines plus
+/// `.config-editor__completion` row (`12px` key + `11px` detail lines plus
 /// `5px` vertical padding): a canvas-free estimate good enough to size the
 /// popup before it renders.
 pub(super) const COMPLETION_ROW_HEIGHT: f64 = 44.0;

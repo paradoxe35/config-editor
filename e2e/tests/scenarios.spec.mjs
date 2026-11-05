@@ -62,7 +62,7 @@ test.describe('large documents', () => {
     const e = editor(page);
     await e.paste(LARGE);
     expect(await e.isOpen()).toBe(false);
-    await expect(page.locator('.yaml-editor__gutter-content > div')).toHaveCount(LARGE.split('\n').length);
+    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(LARGE.split('\n').length);
     await e.screenshot('large-document');
     expect(await e.diagnosticCount(), 'a valid document has no diagnostics').toBe(0);
   });
@@ -89,7 +89,7 @@ test.describe('scale', () => {
     const entries = Array.from({ length: 300 }, (_, i) => `  client-${i}:\n    secret: secret-${i}\n    max_connections: ${i % 50}`);
     const doc = `clients:\n${entries.join('\n')}\n`;
     await e.paste(doc);
-    await expect(page.locator('.yaml-editor__gutter-content > div')).toHaveCount(doc.split('\n').length);
+    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(doc.split('\n').length);
     await e.input.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Enter');
@@ -126,7 +126,7 @@ test.describe('schema-driven completion', () => {
     // Only max_connections matches: secret has no "m" for the initials to hit.
     await expect.poll(() => e.keys()).toEqual(['max_connections']);
     // The typed initials highlight the matched word starts.
-    const matched = page.locator('.yaml-editor__completion-match');
+    const matched = page.locator('.config-editor__completion-match');
     await expect.poll(() => matched.allTextContents()).toEqual(['m', 'c']);
     // Single-item list: the arrow is a no-op move but engages the list,
     // so Enter accepts instead of inserting a newline.
@@ -140,7 +140,7 @@ test.describe('schema-driven completion', () => {
     await e.paste('clients:\n  alex:\n    ');
     await page.keyboard.type('max');
     await expect.poll(() => e.keys()).toEqual(['max_connections']);
-    const matched = page.locator('.yaml-editor__completion-match');
+    const matched = page.locator('.config-editor__completion-match');
     await expect.poll(() => matched.allTextContents()).toEqual(['m', 'a', 'x']);
   });
 
@@ -350,7 +350,7 @@ test.describe('clicking lines', () => {
   test('clicking a diagnostic squiggle moves the caret instead of being swallowed', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\nwebsocket:\n  listen: 0\n');
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await e.input.evaluate((element) => element.setSelectionRange(0, 0));
     await marker.click();
@@ -378,20 +378,20 @@ pool:
 websocket:
   listen: 0
 `);
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await expect(marker).toHaveAttribute('aria-label', /line 11/);
-    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['11']);
+    await expect(page.locator('.config-editor__line-number-error')).toHaveText(['11']);
     await e.screenshot('diagnostic-nested-line');
   });
 
   test('an empty array item reports the error on its dash line', async ({ page }) => {
     const e = editor(page);
     await e.paste('self:\n  allow:\n    - \n');
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await expect(marker).toHaveAttribute('aria-label', /line 3/);
-    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['3']);
+    await expect(page.locator('.config-editor__line-number-error')).toHaveText(['3']);
     await e.screenshot('diagnostic-empty-array-item');
   });
 });
@@ -410,8 +410,8 @@ test.describe('textarea and syntax-layer sync', () => {
     await page.keyboard.press('Backspace');
 
     const state = await page.evaluate(() => ({
-      value: document.querySelector('.yaml-editor__input').value,
-      rendered: [...document.querySelectorAll('.yaml-editor__highlight .yaml-editor__code-line')]
+      value: document.querySelector('.config-editor__input').value,
+      rendered: [...document.querySelectorAll('.config-editor__highlight .config-editor__code-line')]
         .map((line) => line.textContent)
         .join('\n'),
     }));
@@ -423,7 +423,7 @@ test.describe('gutter and caret', () => {
   test('clicking a line number moves the caret to that line', async ({ page }) => {
     const e = editor(page);
     await e.paste('alpha: 1\n\nbeta: 2\ngamma: 3\n');
-    await page.locator('.yaml-editor__gutter-content > div').nth(2).click();
+    await page.locator('.config-editor__gutter-content > div').nth(2).click();
     const state = await e.input.evaluate((element) => {
       const position = element.selectionStart;
       const before = element.value.slice(0, position);
@@ -434,7 +434,7 @@ test.describe('gutter and caret', () => {
 
   test('the caret color follows every theme', async ({ page }) => {
     const e = editor(page);
-    const select = page.locator('.yaml-editor__demo-theme-select');
+    const select = page.locator('.config-editor__demo-theme-select');
     const caret = () => e.input.evaluate((element) => getComputedStyle(element).caretColor);
     await select.selectOption('vscode-dark');
     expect(await caret()).toBe('rgb(174, 175, 173)');
@@ -518,7 +518,7 @@ test.describe('diagnostics', () => {
   test('hovering a diagnostic marker shows its message', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\nbogus_key: 1\n');
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await marker.hover();
     await expect(marker).toHaveAttribute('data-message', /bogus_key|bogus/);
@@ -535,19 +535,19 @@ test.describe('diagnostics', () => {
     const e = editor(page);
     await e.paste('insecure_plaintext: false\ninsecure_plaintext: true\n');
     await expect.poll(() => e.diagnosticCount()).toBe(1);
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveAttribute('data-message', /duplicate/);
     await expect(marker).toHaveAttribute('aria-label', /line 2/);
-    await expect(page.locator('.yaml-editor__line-number-error')).toHaveText(['2']);
+    await expect(page.locator('.config-editor__line-number-error')).toHaveText(['2']);
   });
 
   test('squiggles stay out of the tab order; the status button jumps to the first error', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\nbogus_key: 1\n');
-    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await expect(marker).toHaveAttribute('tabindex', '-1');
-    const status = page.locator('.yaml-editor__diagnostic-status');
+    const status = page.locator('.config-editor__diagnostic-status');
     await expect(status).not.toBeDisabled();
     await e.input.evaluate((element) => element.setSelectionRange(0, 0));
     await status.click();
@@ -558,7 +558,7 @@ test.describe('diagnostics', () => {
     const e = editor(page);
     await e.paste('listen: 7835\n');
     await expect.poll(() => e.diagnosticCount()).toBe(0);
-    await expect(page.locator('.yaml-editor__diagnostic-status')).toBeDisabled();
+    await expect(page.locator('.config-editor__diagnostic-status')).toBeDisabled();
   });
 
   test('diagnostics wait for a pause in typing instead of flashing', async ({ page }) => {
@@ -615,11 +615,11 @@ test.describe('diff stability', () => {
       await page.keyboard.press('Enter');
     }
     // Empty rows are real additions too, including an empty row at EOF.
-    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
-    expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
+    await expect(page.locator('.config-editor__diff-marker-added')).toHaveCount(3);
+    expect(await page.locator('.config-editor__diff-marker-modified').count()).toBe(0);
     await page.keyboard.type('update: true');
-    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(3);
-    expect(await page.locator('.yaml-editor__diff-marker-modified').count()).toBe(0);
+    await expect(page.locator('.config-editor__diff-marker-added')).toHaveCount(3);
+    expect(await page.locator('.config-editor__diff-marker-modified').count()).toBe(0);
     await e.screenshot('diff-blank-lines');
   });
 
@@ -630,14 +630,14 @@ test.describe('diff stability', () => {
     for (let index = 0; index < 3; index += 1) await page.keyboard.press('Enter');
     await page.keyboard.press('ArrowUp');
     await page.keyboard.type('middle: true');
-    expect(await page.locator('.yaml-editor__line-number-added').allTextContents()).toEqual(['5', '6', '7']);
-    expect(await page.locator('.yaml-editor__line-number-modified').count()).toBe(0);
+    expect(await page.locator('.config-editor__line-number-added').allTextContents()).toEqual(['5', '6', '7']);
+    expect(await page.locator('.config-editor__line-number-modified').count()).toBe(0);
     await page.keyboard.press('ArrowDown');
     await page.keyboard.type('end: true');
 
-    const addedLines = await page.locator('.yaml-editor__line-number-added').allTextContents();
+    const addedLines = await page.locator('.config-editor__line-number-added').allTextContents();
     expect(addedLines).toEqual(['6', '7', '8']);
-    expect(await page.locator('.yaml-editor__line-number-modified').count()).toBe(0);
+    expect(await page.locator('.config-editor__line-number-modified').count()).toBe(0);
     await e.screenshot('baseline-empty-line-anchored');
   });
 });
@@ -652,8 +652,8 @@ test.describe('editor viewport and scrolling', () => {
     }
 
     const layout = await page.evaluate(() => {
-      const surface = document.querySelector('.yaml-editor__surface');
-      const textarea = document.querySelector('.yaml-editor__input');
+      const surface = document.querySelector('.config-editor__surface');
+      const textarea = document.querySelector('.config-editor__input');
       return {
         viewportHeight: innerHeight,
         pageHeight: document.documentElement.scrollHeight,
@@ -685,7 +685,7 @@ test.describe('editor viewport and scrolling', () => {
       await page.keyboard.press('Enter');
     }
     const lineCount = await e.input.evaluate((element) => element.value.split('\n').length);
-    const lastLine = page.locator('.yaml-editor__gutter-content > div').nth(lineCount - 1);
+    const lastLine = page.locator('.config-editor__gutter-content > div').nth(lineCount - 1);
     await lastLine.click();
     const caretLine = await e.input.evaluate((element) =>
       element.value.slice(0, element.selectionStart).split('\n').length,
@@ -698,7 +698,7 @@ test.describe('editor viewport and scrolling', () => {
   test('consumers can choose a shorter fixed editor height', async ({ page }) => {
     const e = editor(page);
     await page.addStyleTag({
-      content: '.yaml-editor__demo { --yaml-editor-height: 180px; --yaml-editor-min-height: 160px; --yaml-editor-max-height: 300px; }',
+      content: '.config-editor__demo { --config-editor-height: 180px; --config-editor-min-height: 160px; --config-editor-max-height: 300px; }',
     });
     await expect.poll(() => e.input.evaluate((element) => Math.round(element.getBoundingClientRect().height))).toBe(180);
     await e.input.click();
@@ -724,10 +724,10 @@ test.describe('diff gutter and apply', () => {
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Enter');
     await page.keyboard.type('insecure_plaintext: true');
-    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(1);
+    await expect(page.locator('.config-editor__diff-marker-added')).toHaveCount(1);
     await e.screenshot('diff-added');
-    await page.locator('.yaml-editor__action-button').click();
-    await expect(page.locator('.yaml-editor__diff-marker-added')).toHaveCount(0);
+    await page.locator('.config-editor__action-button').click();
+    await expect(page.locator('.config-editor__diff-marker-added')).toHaveCount(0);
     expect(initial).not.toEqual(await e.value());
   });
 });
@@ -736,7 +736,7 @@ test.describe('themes', () => {
   test('every theme keeps the same editor font size', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\n');
-    const select = page.locator('.yaml-editor__demo-theme-select');
+    const select = page.locator('.config-editor__demo-theme-select');
     const values = await select.locator('option').evaluateAll((options) => options.map((o) => o.value));
     const sizes = new Set();
     for (const theme of values) {
@@ -749,7 +749,7 @@ test.describe('themes', () => {
 
   test('the suggestion list is readable in light and dark themes', async ({ page }) => {
     const e = editor(page);
-    const select = page.locator('.yaml-editor__demo-theme-select');
+    const select = page.locator('.config-editor__demo-theme-select');
     await e.typeDoc('lis');
     await e.screenshot('theme-dark-suggestions');
     await select.selectOption('vscode-light');
@@ -763,25 +763,25 @@ test.describe('hover on nested and dynamic keys', () => {
   test('hovering a dynamic client key reports its schema fields', async ({ page }) => {
     const e = editor(page);
     await e.paste(LARGE);
-    const card = page.locator('.yaml-editor__hover');
+    const card = page.locator('.config-editor__hover');
     const line = LARGE.split('\n').findIndex((l) => l === '    secret: alpha-secret');
     await scrollToLine(page, line);
     const p = await pointAt(page, line, 6);
     await page.mouse.move(p.x, p.y, { steps: 4 });
     await expect(card).toHaveCount(1);
-    await expect(card.locator('.yaml-editor__hover-key')).toHaveText('secret');
+    await expect(card.locator('.config-editor__hover-key')).toHaveText('secret');
     await e.screenshot('hover-dynamic-secret');
   });
 
   test('hovering a key inside a sequence item reports its schema', async ({ page }) => {
     const e = editor(page);
     await e.paste(LARGE);
-    const card = page.locator('.yaml-editor__hover');
+    const card = page.locator('.config-editor__hover');
     const line = LARGE.split('\n').findIndex((l) => l === '        weight: 2');
     await scrollToLine(page, line);
     const p = await pointAt(page, line, 10);
     await page.mouse.move(p.x, p.y, { steps: 4 });
     await expect(card).toHaveCount(1);
-    await expect(card.locator('.yaml-editor__hover-key')).toHaveText('weight');
+    await expect(card.locator('.config-editor__hover-key')).toHaveText('weight');
   });
 });

@@ -5,7 +5,7 @@ pub(crate) fn highlight_line(line: &str) -> AnyView {
     let (indent, content) = line.split_at(indent_len);
     if content.starts_with('#') {
         return view! {
-            <span>{indent}<span class="yaml-editor__comment">{content.to_string()}</span></span>
+            <span>{indent}<span class="config-editor__comment">{content.to_string()}</span></span>
         }
         .into_any();
     }
@@ -21,14 +21,14 @@ pub(crate) fn highlight_line(line: &str) -> AnyView {
         && (value.is_empty() || value.starts_with(' ') || value.starts_with('\t'))
     {
         return view! {
-            <span>{indent}{dash}<span class="yaml-editor__key">{key.to_string()}</span><span class="yaml-editor__punctuation">:</span>{highlight_value(value)}</span>
+            <span>{indent}{dash}<span class="config-editor__key">{key.to_string()}</span><span class="config-editor__punctuation">:</span>{highlight_value(value)}</span>
         }
         .into_any();
     }
 
     if !dash.is_empty() {
         return view! {
-            <span>{indent}<span class="yaml-editor__punctuation">"- "</span>{highlight_value(content)}</span>
+            <span>{indent}<span class="config-editor__punctuation">"- "</span>{highlight_value(content)}</span>
         }
         .into_any();
     }
@@ -44,7 +44,7 @@ fn highlight_value(value: &str) -> AnyView {
         <span>
             {whitespace}
             <span class=class>{scalar.to_string()}</span>
-            {comment.map(|comment| view! { <span class="yaml-editor__comment">{comment.to_string()}</span> })}
+            {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
         </span>
     }
     .into_any()
@@ -53,11 +53,11 @@ fn highlight_value(value: &str) -> AnyView {
 fn scalar_class(scalar: &str) -> &'static str {
     let scalar = scalar.trim_end();
     if matches!(scalar, "true" | "false" | "null" | "~") || scalar.parse::<f64>().is_ok() {
-        "yaml-editor__literal"
+        "config-editor__literal"
     } else if scalar.starts_with('\'') || scalar.starts_with('"') {
-        "yaml-editor__string"
+        "config-editor__string"
     } else {
-        "yaml-editor__value"
+        "config-editor__value"
     }
 }
 
@@ -107,10 +107,10 @@ mod tests {
 
     #[test]
     fn plain_scalars_are_colored_as_strings_and_yaml_literals_stay_distinct() {
-        assert_eq!(scalar_class("unquoted value"), "yaml-editor__value");
-        assert_eq!(scalar_class("\"quoted value\""), "yaml-editor__string");
-        assert_eq!(scalar_class("false"), "yaml-editor__literal");
-        assert_eq!(scalar_class("42"), "yaml-editor__literal");
+        assert_eq!(scalar_class("unquoted value"), "config-editor__value");
+        assert_eq!(scalar_class("\"quoted value\""), "config-editor__string");
+        assert_eq!(scalar_class("false"), "config-editor__literal");
+        assert_eq!(scalar_class("42"), "config-editor__literal");
     }
 
     #[test]

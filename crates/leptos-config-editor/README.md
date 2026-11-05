@@ -1,6 +1,6 @@
 # leptos-config-editor
 
-A YAML editor component for Leptos applications. It renders only the editor;
+A config editor component for Leptos applications (YAML today, JSON next). It renders only the editor;
 the host application owns its page layout, branding, file loading, and saving.
 
 ## Usage
@@ -12,12 +12,12 @@ leptos-config-editor = { path = "crates/leptos-config-editor" }
 
 ```rust
 use leptos::prelude::*;
-use leptos_config_editor::{EditorTheme, YamlEditor};
+use leptos_config_editor::{ConfigEditor, EditorTheme};
 
 let initial_value = "listen: 7835\n";
 
 view! {
-    <YamlEditor
+    <ConfigEditor
         initial_value=initial_value
         class="my-config-editor"
         theme=EditorTheme::Obsidian
@@ -33,7 +33,7 @@ recreating the editor.
 completions are needed:
 
 ```rust
-<YamlEditor
+<ConfigEditor
     initial_value=initial_value
     schema_json=include_str!("config.schema.json")
 />
@@ -42,7 +42,7 @@ completions are needed:
 In uncontrolled mode, use `on_change` to persist edits:
 
 ```rust
-on_change=Callback::new(|yaml: String| {
+on_change=Callback::new(|value: String| {
     // Send the updated value to your application's state or save handler.
 })
 ```
@@ -76,7 +76,7 @@ let baseline = RwSignal::new(original.to_string());
 let final_value = RwSignal::new(original.to_string());
 
 view! {
-    <YamlEditor
+    <ConfigEditor
         initial_value=original
         value=final_value
         baseline=baseline
@@ -103,11 +103,12 @@ hover or keyboard focus. The root demo shows the same flow.
 
 | Prop                       | Default         | Description                                                                                                      |
 | -------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `initial_value`            | empty           | Initial YAML document                                                                                            |
+| `language`                 | `Yaml`          | Document language (`Yaml` or `Json`); selects parsing, completions, highlighting, comments |
+| `initial_value`            | empty           | Initial document                                                                                            |
 | `value`                    | none            | Optional reactive final value; changes synchronize into the editor                                               |
 | `baseline`                 | `initial_value` | Optional reactive baseline used to show line diffs                                                               |
 | `schema_json`              | none            | JSON Schema used for validation and completions                                                                  |
-| `file_name`                | `untitled.yaml` | Name shown when the built-in toolbar is enabled                                                                  |
+| `file_name`                | per language    | Name shown when the built-in toolbar is enabled (`untitled.yaml` / `untitled.json`)                                                                  |
 | `class`                    | none            | Extra class on the editor root for host styles                                                                   |
 | `theme`                    | `VsCodeDark`    | Bundled `EditorTheme` preset; accepts a reactive signal for live switching                                       |
 | `on_change`                | none            | Callback with the updated document                                                                               |
@@ -118,7 +119,7 @@ hover or keyboard focus. The root demo shows the same flow.
 | `enable_completions`       | `true`          | Enable schema-backed completions (`Ctrl+Space`)                                                                  |
 | `auto_trigger_completions` | `true`          | Open suggestions while typing and after accepting a key (values close the list)                                  |
 | `enable_hover_docs`        | `true`          | Show the schema description, type, default, and examples when hovering a key                                     |
-| `enable_highlighting`      | `true`          | Enable YAML syntax colors                                                                                        |
+| `enable_highlighting`      | `true`          | Enable syntax colors for the document language                                                                                        |
 | `enable_auto_closing`      | `true`          | Pair quotes/brackets, wrap selections, skip closing pairs, and delete empty pairs                                |
 | `show_diff`                | `true`          | Show line changes against `baseline`                                                                             |
 | `read_only`                | `false`         | View mode: disable typing, completions, and edits while keeping highlighting, diagnostics, diffs, and hover docs |
@@ -129,8 +130,8 @@ typing, Enter/Tab insertions, bracket pairing, comment toggling, undo/redo,
 and completions are all disabled. The demo app enables it with
 `?readonly=1`.
 
-The toolbar and footer are also exported as composable `YamlEditorToolbar` and
-`YamlEditorFooter` components. Both accept arbitrary children and an optional
+The toolbar and footer are also exported as composable `ConfigEditorToolbar` and
+`ConfigEditorFooter` components. Both accept arbitrary children and an optional
 `class` and `theme` signal, so the host can place its own file controls, apply
 actions, or status content around the editor and keep them in sync with its
 theme without enabling built-in chrome.
@@ -171,18 +172,18 @@ The additional palettes are kept in `src/themes.css`; the VS Code and Obsidian p
 shared layout styling remain in `src/preset.css`. Applications can build on
 these styles with `class` and custom CSS, or set `styled=false` and provide
 their own complete theme. Typography is deliberately shared across themes:
-`--yaml-editor-font-size`, `--yaml-editor-line-height`,
-`--yaml-editor-padding-top`, and `--yaml-editor-padding-bottom` control every
+`--config-editor-font-size`, `--config-editor-line-height`,
+`--config-editor-padding-top`, and `--config-editor-padding-bottom` control every
 theme, so switching palettes never changes text size or line spacing.
-The editor grows with its content up to `--yaml-editor-max-height` (default
-`80vh`), then scrolls internally. Set `--yaml-editor-height` for a fixed editor
-height, and `--yaml-editor-min-height` to customize the minimum. For example:
+The editor grows with its content up to `--config-editor-max-height` (default
+`80vh`), then scrolls internally. Set `--config-editor-height` for a fixed editor
+height, and `--config-editor-min-height` to customize the minimum. For example:
 
 ```css
-.my-yaml-editor {
-  --yaml-editor-height: 32rem;
-  --yaml-editor-min-height: 12rem;
-  --yaml-editor-max-height: 80vh;
+.my-config-editor {
+  --config-editor-height: 32rem;
+  --config-editor-min-height: 12rem;
+  --config-editor-max-height: 80vh;
 }
 ```
 
@@ -221,12 +222,12 @@ as an override. See the [YAML 1.2.2 specification](https://yaml.org/spec/1.2.2/)
 including its sections on mappings, node comparison, and document structure.
 
 Use `styled=false` to make the component headless and apply your own CSS. The
-DOM uses `yaml-editor__*` class names; `PRESET_CSS` can be used as a starting
+DOM uses `config-editor__*` class names; `PRESET_CSS` can be used as a starting
 point or selectively adapted in the host project.
 
 ```rust
 view! {
-    <YamlEditor
+    <ConfigEditor
         initial_value=initial_value
         schema_json=schema
         styled=false
@@ -236,7 +237,7 @@ view! {
 ```
 
 ```css
-.my-editor .yaml-editor__input {
+.my-editor .config-editor__input {
   min-height: 32rem;
   font-size: 0.875rem;
 }
@@ -255,7 +256,7 @@ own layer; everything else keeps working:
 | `completion`          | `enable_completions`, `auto_trigger_completions` | No suggestion popup: typing and `Ctrl+Space` stay silent. Implies `schema-validation`.                                                                                                                                    |
 | `syntax-highlighting` | `enable_highlighting`                            | The highlight overlay is skipped; the textarea keeps its text and caret behavior.                                                                                                                                         |
 | `diagnostics`         | `show_diagnostics`                               | No markers, no status-button count, and F8 has nowhere to go. Syntax errors are hidden too.                                                                                                                               |
-| `preset-style`        | `styled`                                         | No stylesheet is injected; the semantic `yaml-editor__*` markup stays for host CSS.                                                                                                                                       |
+| `preset-style`        | `styled`                                         | No stylesheet is injected; the semantic `config-editor__*` markup stays for host CSS.                                                                                                                                       |
 
 Props degrade the same way at runtime: `show_diagnostics=false` hides all
 markers exactly like disabling `diagnostics`, and `enable_completions=false`

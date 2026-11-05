@@ -19,7 +19,7 @@ pub(super) const FALLBACK_VIEWPORT_WIDTH: f64 = 1024.0;
 pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
 
 /// Hover card width cap, in pixels. Mirrors the `max-width: 340px` rule on
-/// `.yaml-editor__hover` in `preset.css`; the right-edge clamp subtracts this
+/// `.config-editor__hover` in `preset.css`; the right-edge clamp subtracts this
 /// plus [`POPUP_MARGIN`] so the card never overflows the viewport.
 pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(POPUP_GAP, 4.0);
         assert_eq!(FALLBACK_VIEWPORT_WIDTH, 1024.0);
         assert_eq!(FALLBACK_VIEWPORT_HEIGHT, 768.0);
-        // `.yaml-editor__hover` max-width and the editor min-height.
+        // `.config-editor__hover` max-width and the editor min-height.
         assert_eq!(HOVER_CARD_MAX_WIDTH, 340.0);
         assert_eq!(HOVER_CARD_ESTIMATED_HEIGHT, 240.0);
     }

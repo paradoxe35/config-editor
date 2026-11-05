@@ -97,7 +97,7 @@ pub(super) struct PeekViewport {
 pub(super) const PEEK_HEADER_HEIGHT: f64 = 72.0;
 
 /// Estimated height of one diff line, in pixels. Mirrors the
-/// `.yaml-editor__diff-peek-line` rule (`12px` type at `1.5` line-height plus
+/// `.config-editor__diff-peek-line` rule (`12px` type at `1.5` line-height plus
 /// `2px` vertical padding = `22px`) so the popup can size itself before it
 /// renders.
 pub(super) const PEEK_LINE_HEIGHT: f64 = 22.0;
@@ -117,12 +117,12 @@ pub(super) const PEEK_MAX_HEIGHT_VIEWPORT_FRACTION: f64 = 0.55;
 pub(super) const PEEK_MIN_BELOW_HEIGHT: f64 = 180.0;
 
 /// Change-preview minimum width, in pixels. Mirrors the `min-width: 180px`
-/// rule on `.yaml-editor__diff-peek` in `preset.css`; the left clamp reserves
+/// rule on `.config-editor__diff-peek` in `preset.css`; the left clamp reserves
 /// this plus [`POPUP_MARGIN`] so the popup never clips horizontally.
 pub(super) const PEEK_MIN_WIDTH: f64 = 180.0;
 
 /// Change-preview preferred width, in pixels: two side-by-side `minmax(240px,
-/// 1fr)` columns (see `.yaml-editor__diff-peek-columns` in `preset.css`) plus
+/// 1fr)` columns (see `.config-editor__diff-peek-columns` in `preset.css`) plus
 /// padding, so before/after rarely wrap before the viewport forces a shrink.
 pub(super) const PEEK_PREFERRED_WIDTH: f64 = 560.0;
 
@@ -515,9 +515,9 @@ mod tests {
 
     #[test]
     fn peek_sizing_constants_match_the_preset_stylesheet() {
-        // `preset.css` sources: `.yaml-editor__diff-peek` min-width,
-        // `.yaml-editor__diff-peek-columns` minmax(240px, 1fr),
-        // `.yaml-editor__diff-peek-line` 22px rows, and the sticky header.
+        // `preset.css` sources: `.config-editor__diff-peek` min-width,
+        // `.config-editor__diff-peek-columns` minmax(240px, 1fr),
+        // `.config-editor__diff-peek-line` 22px rows, and the sticky header.
         assert_eq!(PEEK_MIN_WIDTH, 180.0);
         assert_eq!(PEEK_PREFERRED_WIDTH, 560.0);
         assert_eq!(PEEK_LINE_HEIGHT, 22.0);

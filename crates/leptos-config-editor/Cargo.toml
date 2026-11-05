@@ -2,7 +2,7 @@
 name = "leptos-config-editor"
 version = "0.1.0"
 edition = "2024"
-description = "A reusable Leptos YAML editor with JSON Schema diagnostics and completions"
+description = "A reusable Leptos config editor with JSON Schema diagnostics and completions"
 license = "MIT OR Apache-2.0"
 
 [features]

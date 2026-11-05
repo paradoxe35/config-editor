@@ -6,7 +6,9 @@ mod highlight;
 use highlight::highlight_line;
 
 mod chrome;
-pub use chrome::{YamlEditorFooter, YamlEditorToolbar};
+pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
+mod languages;
+pub use languages::Language;
 mod theme;
 pub use theme::EditorTheme;
 mod history;
@@ -93,7 +95,12 @@ fn commit_edit(
 }
 
 #[component]
-pub fn YamlEditor(
+pub fn ConfigEditor(
+    /// Document language. Selects the text layer (parsing, completion
+    /// context, inserts, hover lookup, highlighting, newline/indent,
+    /// comments); everything else stays shared. Defaults to YAML.
+    #[prop(default = Language::Yaml, into)]
+    language: Language,
     /// Seeds the editor and its diff baseline. Not a controlled value prop:
     /// for externally controlled content and live diffs, provide reactive
     /// `value` and `baseline` signals instead.
@@ -126,15 +133,15 @@ pub fn YamlEditor(
     #[prop(optional)]
     on_change: Option<Callback<String>>,
     /// Include the preset editor stylesheet. Set `false` with a custom
-    /// `class` to style the semantic `yaml-editor__*` markup yourself.
+    /// `class` to style the semantic `config-editor__*` markup yourself.
     #[prop(default = true)]
     styled: bool,
     /// Show the built-in file/schema toolbar. Prefer the composable
-    /// [`YamlEditorToolbar`] for host-owned chrome.
+    /// [`ConfigEditorToolbar`] for host-owned chrome.
     #[prop(default = false)]
     show_toolbar: bool,
     /// Show the built-in status footer. Prefer the composable
-    /// [`YamlEditorFooter`] for host-owned chrome.
+    /// [`ConfigEditorFooter`] for host-owned chrome.
     #[prop(default = false)]
     show_footer: bool,
     /// Show inline parse/schema diagnostics and hover messages.
@@ -150,7 +157,7 @@ pub fn YamlEditor(
     /// the list). Set `false` to make them explicit with `Ctrl+Space`.
     #[prop(default = true)]
     auto_trigger_completions: bool,
-    /// Enable YAML syntax colors.
+    /// Enable syntax colors for the document language.
     #[prop(default = true)]
     enable_highlighting: bool,
     /// Pair quotes/brackets, wrap selections, skip closing pairs, and delete
@@ -165,6 +172,8 @@ pub fn YamlEditor(
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
 ) -> impl IntoView {
+    let label = language.label();
+    let file_icon = language.file_icon();
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema_json {
         Some(schema_json) => match build_schema(&schema_json) {
@@ -330,7 +339,11 @@ pub fn YamlEditor(
         hide_hover();
     };
 
-    let file_name = file_name.unwrap_or_else(|| "untitled.yaml".to_string());
+    let default_file_name = match language {
+        Language::Yaml => "untitled.yaml",
+        Language::Json => "untitled.json",
+    };
+    let file_name = file_name.unwrap_or_else(|| default_file_name.to_string());
     let root_class = class.unwrap_or_default();
     let show_diagnostics = show_diagnostics && cfg!(feature = "diagnostics");
     let use_preset_style = styled && cfg!(feature = "preset-style");
@@ -362,10 +375,10 @@ pub fn YamlEditor(
         <div
             class=move || {
                 format!(
-                    "yaml-editor {}{}",
+                    "config-editor {}{}",
                     root_class,
                     if read_only.get() {
-                        " yaml-editor__readonly"
+                        " config-editor__readonly"
                     } else {
                         ""
                     }
@@ -387,31 +400,31 @@ pub fn YamlEditor(
             }
         >
             {use_preset_style.then(|| view! { <style>{PRESET_CSS}</style> })}
-            <section class="yaml-editor__frame" aria-label="YAML editor">
+            <section class="config-editor__frame" aria-label=format!("{label} editor")>
                 {show_toolbar.then(|| view! {
-                    <div class="yaml-editor__toolbar">
-                        <div class="yaml-editor__file">
-                            <span class="yaml-editor__file-icon">"Y"</span>
+                    <div class="config-editor__toolbar">
+                        <div class="config-editor__file">
+                            <span class="config-editor__file-icon">{file_icon}</span>
                             <span>{file_name.clone()}</span>
                         </div>
-                        <div class="yaml-editor__toolbar-meta">
+                        <div class="config-editor__toolbar-meta">
                             {has_schema.then(|| view! {
-                                <span class="yaml-editor__schema-state">
-                                    <span class="yaml-editor__schema-check">"✓"</span>
+                                <span class="config-editor__schema-state">
+                                    <span class="config-editor__schema-check">"✓"</span>
                                     "Schema connected"
                                 </span>
                             })}
-                            <span class="yaml-editor__language">"YAML"</span>
+                            <span class="config-editor__language">{label}</span>
                         </div>
                     </div>
                 })}
 
-                    <div class="yaml-editor__surface">
+                    <div class="config-editor__surface">
                         <div
-                            class="yaml-editor__gutter"
+                            class="config-editor__gutter"
                         >
                             <div
-                                class="yaml-editor__gutter-content"
+                                class="config-editor__gutter-content"
                                 style:transform=move || format!("translateY(-{}px)", scroll_y.get())
                             >
                             {move || {
@@ -456,10 +469,10 @@ pub fn YamlEditor(
                                         });
                                         view! {
                                             <div
-                                                class:yaml-editor__line-number-active=move || current_line.get() == line
-                                                class:yaml-editor__line-number-error=has_error
-                                                class:yaml-editor__line-number-added=change == DiffKind::Added
-                                                class:yaml-editor__line-number-modified=change == DiffKind::Modified
+                                                class:config-editor__line-number-active=move || current_line.get() == line
+                                                class:config-editor__line-number-error=has_error
+                                                class:config-editor__line-number-added=change == DiffKind::Added
+                                                class:config-editor__line-number-modified=change == DiffKind::Modified
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {
                                                         let text = source.get_untracked();
@@ -476,7 +489,7 @@ pub fn YamlEditor(
                                                 <span aria-hidden="true">{line}</span>
                                                 {(change == DiffKind::Added).then(|| view! {
                                                     <span
-                                                        class="yaml-editor__diff-marker yaml-editor__diff-marker-added"
+                                                        class="config-editor__diff-marker config-editor__diff-marker-added"
                                                         aria-hidden="true"
                                                     ></span>
                                                 })}
@@ -485,7 +498,7 @@ pub fn YamlEditor(
                                                     view! {
                                                         <button
                                                             type="button"
-                                                            class="yaml-editor__diff-marker yaml-editor__diff-marker-modified yaml-editor__diff-change-trigger"
+                                                            class="config-editor__diff-marker config-editor__diff-marker-modified config-editor__diff-change-trigger"
                                                             aria-label=format!("Show before and after for modified line {line}")
                                                             title="Show before and after"
                                                             on:click=move |_| {
@@ -510,7 +523,7 @@ pub fn YamlEditor(
                                                     view! {
                                                         <button
                                                             type="button"
-                                                            class="yaml-editor__diff-deleted"
+                                                            class="config-editor__diff-deleted"
                                                             aria-label=format!("Show removed lines before line {line}")
                                                             title="Show removed lines"
                                                             on:click=move |_| {
@@ -535,7 +548,7 @@ pub fn YamlEditor(
                                                     view! {
                                                         <button
                                                             type="button"
-                                                            class="yaml-editor__diff-deleted yaml-editor__diff-deleted-after"
+                                                            class="config-editor__diff-deleted config-editor__diff-deleted-after"
                                                             aria-label="Show removed lines at end of document"
                                                             title="Show removed lines"
                                                             on:click=move |_| {
@@ -562,9 +575,9 @@ pub fn YamlEditor(
                             }}
                             </div>
                         </div>
-                        <div class="yaml-editor__input-wrap">
+                        <div class="config-editor__input-wrap">
                             <pre
-                                class="yaml-editor__highlight"
+                                class="config-editor__highlight"
                                 aria-hidden="true"
                                 style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
                             >
@@ -584,11 +597,11 @@ pub fn YamlEditor(
                                                 .unwrap_or(DiffKind::Unchanged);
                                             view! {
                                                 <span
-                                                    class="yaml-editor__code-line"
-                                                    class:yaml-editor__code-line-active=move || current_line.get() == line_number
-                                                    class:yaml-editor__code-line-error=has_error
-                                                    class:yaml-editor__code-line-added=change == DiffKind::Added
-                                                    class:yaml-editor__code-line-modified=change == DiffKind::Modified
+                                                    class="config-editor__code-line"
+                                                    class:config-editor__code-line-active=move || current_line.get() == line_number
+                                                    class:config-editor__code-line-error=has_error
+                                                    class:config-editor__code-line-added=change == DiffKind::Added
+                                                    class:config-editor__code-line-modified=change == DiffKind::Modified
                                                 >
                                                     {if enable_highlighting {
                                                         highlight_line(line)
@@ -602,8 +615,8 @@ pub fn YamlEditor(
                                 </code>
                             </pre>
                             <div
-                                class="yaml-editor__diagnostic-overlay"
-                                aria-label="Inline YAML diagnostics"
+                                class="config-editor__diagnostic-overlay"
+                                aria-label=format!("Inline {label} diagnostics")
                                 style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
                             >
                                 {move || {
@@ -625,14 +638,14 @@ pub fn YamlEditor(
                                         Some(view! {
                                             <button
                                                 type="button"
-                                                class="yaml-editor__diagnostic-marker"
-                                                class:yaml-editor__diagnostic-marker-eof=is_eof
-                                                class:yaml-editor__diagnostic-marker-near-top=line <= 3
+                                                class="config-editor__diagnostic-marker"
+                                                class:config-editor__diagnostic-marker-eof=is_eof
+                                                class:config-editor__diagnostic-marker-near-top=line <= 3
                                                 tabindex="-1"
-                                                aria-label=format!("YAML error on line {line}: {}", diagnostic.message)
+                                                aria-label=format!("{label} error on line {line}: {}", diagnostic.message)
                                                 data-message=diagnostic.message
                                                 style=format!(
-                                                    "left: {}ch; top: calc(var(--yaml-editor-padding-top) + {} * var(--yaml-editor-line-height)); width: {}ch; --yaml-editor-diagnostic-tooltip-offset: -{}ch;",
+                                                    "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch; --config-editor-diagnostic-tooltip-offset: -{}ch;",
                                                     column.saturating_sub(1),
                                                     line.saturating_sub(1),
                                                     width,
@@ -659,12 +672,12 @@ pub fn YamlEditor(
                                 }}
                             </div>
                             <textarea
-                                class="yaml-editor__input"
+                                class="config-editor__input"
                                 style=move || format!(
-                                    "--yaml-editor-content-height: calc(var(--yaml-editor-padding-top) + var(--yaml-editor-padding-bottom) + {} * var(--yaml-editor-line-height));",
+                                    "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
                                     source.get().split('\n').count()
                                 )
-                                aria-label="YAML source"
+                                aria-label=format!("{label} source")
                                 aria-autocomplete=move || (!read_only.get()).then_some("list")
                                 aria-haspopup=move || (!read_only.get()).then_some("listbox")
                                 aria-expanded=move || (!suggestions.get().is_empty()).to_string()
@@ -1215,25 +1228,25 @@ pub fn YamlEditor(
                                 let info = card.info;
                                 let examples = info.examples.join(", ");
                                 view! {
-                                    <div class="yaml-editor__hover" role="tooltip" style=card.style>
-                                        <div class="yaml-editor__hover-header">
-                                            <code class="yaml-editor__hover-key">{info.key}</code>
-                                            <span class="yaml-editor__hover-type">{info.type_label}</span>
+                                    <div class="config-editor__hover" role="tooltip" style=card.style>
+                                        <div class="config-editor__hover-header">
+                                            <code class="config-editor__hover-key">{info.key}</code>
+                                            <span class="config-editor__hover-type">{info.type_label}</span>
                                             {info.required.then(|| view! {
-                                                <span class="yaml-editor__hover-required">"required"</span>
+                                                <span class="config-editor__hover-required">"required"</span>
                                             })}
                                         </div>
                                         {info.description.map(|description| view! {
-                                            <p class="yaml-editor__hover-description">{description}</p>
+                                            <p class="config-editor__hover-description">{description}</p>
                                         })}
                                         {info.default.map(|default| view! {
-                                            <div class="yaml-editor__hover-meta">
+                                            <div class="config-editor__hover-meta">
                                                 <span>"Default"</span>
                                                 <code>{default}</code>
                                             </div>
                                         })}
                                         {(!examples.is_empty()).then(|| view! {
-                                            <div class="yaml-editor__hover-meta">
+                                            <div class="config-editor__hover-meta">
                                                 <span>"Examples"</span>
                                                 <code>{examples}</code>
                                             </div>
@@ -1242,10 +1255,10 @@ pub fn YamlEditor(
                                 }
                             })}
                             <div
-                                class="yaml-editor__completions"
+                                class="config-editor__completions"
                                 class:hidden=move || suggestions.get().is_empty()
                                 role="listbox"
-                                aria-label="YAML suggestions"
+                                aria-label=format!("{label} suggestions")
                                 node_ref=completion_ref
                                 style=move || {
                                     popup_layout_revision.get();
@@ -1274,8 +1287,8 @@ pub fn YamlEditor(
                                             type="button"
                                             role="option"
                                             aria-selected=selected
-                                            class="yaml-editor__completion"
-                                            class:yaml-editor__completion-active=selected
+                                            class="config-editor__completion"
+                                            class:config-editor__completion-active=selected
                                             on:mousedown=move |event| event.prevent_default()
                                             on:mouseenter=move |_| {
                                                 active_completion.set(index);
@@ -1306,25 +1319,25 @@ pub fn YamlEditor(
                                                 suggestions_requested.set(request_completions);
                                             }
                                         >
-                                            <span class="yaml-editor__completion-icon" aria-hidden="true">
+                                            <span class="config-editor__completion-icon" aria-hidden="true">
                                                 {if option.is_value { "V" } else { "K" }}
                                             </span>
-                                            <span class="yaml-editor__completion-content">
-                                                <span class="yaml-editor__completion-primary">
-                                                    <span class="yaml-editor__completion-key">{
+                                            <span class="config-editor__completion-content">
+                                                <span class="config-editor__completion-primary">
+                                                    <span class="config-editor__completion-key">{
                                                         option.label.chars().enumerate().map(|(index, character)| {
                                                             let highlighted = option.matched.iter().any(|(start, end)| (*start..*end).contains(&index));
                                                             if highlighted {
-                                                                view! { <span class="yaml-editor__completion-match">{character.to_string()}</span> }.into_any()
+                                                                view! { <span class="config-editor__completion-match">{character.to_string()}</span> }.into_any()
                                                             } else {
                                                                 view! { <span>{character.to_string()}</span> }.into_any()
                                                             }
                                                         }).collect_view()
                                                     }</span>
-                                                    <span class="yaml-editor__completion-type">{option.type_label}</span>
+                                                    <span class="config-editor__completion-type">{option.type_label}</span>
                                                 </span>
                                                 {(!detail.is_empty()).then(|| view! {
-                                                    <span class="yaml-editor__completion-detail" title=detail.clone()>
+                                                    <span class="config-editor__completion-detail" title=detail.clone()>
                                                         {detail.clone()}
                                                     </span>
                                                 })}
@@ -1335,16 +1348,16 @@ pub fn YamlEditor(
                             </div>
                         </div>
                     </div>
-                    {show_footer.then(|| view! { <div class="yaml-editor__status">
-                        <span class="yaml-editor__hint">
+                    {show_footer.then(|| view! { <div class="config-editor__status">
+                        <span class="config-editor__hint">
                             {enable_completions.then(|| view! { <span><kbd>Ctrl</kbd><span>"+"</span><kbd>Space</kbd><span>"for suggestions"</span></span> })}
                         </span>
-                        <span class="yaml-editor__status-meta">
+                        <span class="config-editor__status-meta">
                             {show_diagnostics.then(|| view! {
                                 <button
                                     type="button"
-                                    class="yaml-editor__diagnostic-status"
-                                    class:yaml-editor__diagnostic-status-error=move || !diagnostics.get().is_empty()
+                                    class="config-editor__diagnostic-status"
+                                    class:config-editor__diagnostic-status-error=move || !diagnostics.get().is_empty()
                                     disabled=move || diagnostics.get().is_empty()
                                     aria-live="polite"
                                     title=move || {
@@ -1374,7 +1387,7 @@ pub fn YamlEditor(
                                     }}
                                 </button>
                             })}
-                            <span class="yaml-editor__line-count">{move || format!("{} lines", source.get().split('\n').count())}</span>
+                            <span class="config-editor__line-count">{move || format!("{} lines", source.get().split('\n').count())}</span>
                         </span>
                     </div> })}
                 </section>
@@ -1387,7 +1400,7 @@ pub fn YamlEditor(
                     let new_line_count = after.len();
                     let render_lines = |lines: Vec<String>, sign: &'static str, class_name: &'static str| {
                         lines.into_iter().map(|line| view! {
-                            <div class=format!("yaml-editor__diff-peek-line {class_name}")>
+                            <div class=format!("config-editor__diff-peek-line {class_name}")>
                                 <span aria-hidden="true">{sign}</span>
                                 <code>{if line.is_empty() { " ".to_string() } else { line }}</code>
                             </div>
@@ -1395,7 +1408,7 @@ pub fn YamlEditor(
                     };
                     view! {
                         <section
-                            class="yaml-editor__diff-peek"
+                            class="config-editor__diff-peek"
                             role="dialog"
                             aria-label=format!("{title}, line {line}")
                             style=move || {
@@ -1418,7 +1431,7 @@ pub fn YamlEditor(
                                 }
                             }
                         >
-                            <header class="yaml-editor__diff-peek-header">
+                            <header class="config-editor__diff-peek-header">
                                 <strong>{format!("{title} · line {line}")}</strong>
                                 <button
                                     type="button"
@@ -1426,17 +1439,17 @@ pub fn YamlEditor(
                                     on:click=move |_| selected_diff_peek.set(None)
                                 >"×"</button>
                             </header>
-                            <div class="yaml-editor__diff-peek-columns">
+                            <div class="config-editor__diff-peek-columns">
                                 {(!before.is_empty()).then(|| view! {
-                                    <section class="yaml-editor__diff-peek-side">
+                                    <section class="config-editor__diff-peek-side">
                                         <h3>"Before"</h3>
-                                        {render_lines(before, "−", "yaml-editor__diff-peek-removed")}
+                                        {render_lines(before, "−", "config-editor__diff-peek-removed")}
                                     </section>
                                 })}
                                 {(!after.is_empty()).then(|| view! {
-                                    <section class="yaml-editor__diff-peek-side">
+                                    <section class="config-editor__diff-peek-side">
                                         <h3>"Current"</h3>
-                                        {render_lines(after, "+", "yaml-editor__diff-peek-current")}
+                                        {render_lines(after, "+", "config-editor__diff-peek-current")}
                                     </section>
                                 })}
                             </div>

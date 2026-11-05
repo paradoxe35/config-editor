@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_config_editor::{EditorTheme, YamlEditor, YamlEditorToolbar};
+use leptos_config_editor::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Language};
 
 const SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const SCHEMA: &str = include_str!("../schema.json");
@@ -20,19 +20,19 @@ fn main() {
             });
         view! {
             <div
-                class="yaml-editor yaml-editor__demo"
+                class="config-editor config-editor__demo"
                 data-theme=move || theme.get().css_family()
                 data-color-theme=move || theme.get().as_str()
             >
-                <YamlEditorToolbar class="yaml-editor__demo-toolbar" theme=theme>
-                    <div class="yaml-editor__file">
-                        <span class="yaml-editor__file-icon">"Y"</span>
+                <ConfigEditorToolbar class="config-editor__demo-toolbar" theme=theme>
+                    <div class="config-editor__file">
+                        <span class="config-editor__file-icon">"Y"</span>
                         <span>"burrow.yaml"</span>
                     </div>
-                    <label class="yaml-editor__demo-theme-picker">
+                    <label class="config-editor__demo-theme-picker">
                         "Theme"
                         <select
-                            class="yaml-editor__demo-theme-select"
+                            class="config-editor__demo-theme-select"
                             aria-label="Editor theme"
                             on:change=move |event| {
                                 theme.set(match event_target_value(&event).as_str() {
@@ -64,15 +64,16 @@ fn main() {
                         </select>
                     </label>
                     <button
-                        class="yaml-editor__action-button"
+                        class="config-editor__action-button"
                         type="button"
                         disabled=move || baseline.get() == final_value.get()
                         on:click=move |_| baseline.set(final_value.get())
                     >
                         "Apply changes"
                     </button>
-                </YamlEditorToolbar>
-                <YamlEditor
+                </ConfigEditorToolbar>
+                <ConfigEditor
+                    language=Language::Yaml
                     initial_value=SAMPLE
                     baseline=baseline
                     value=final_value

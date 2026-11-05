@@ -10,7 +10,7 @@ export function setupEditor(test) {
       if (message.type() === 'error') page.errors.push(message.text());
     });
     await page.goto(baseURL);
-    await page.locator('.yaml-editor__input').waitFor();
+    await page.locator('.config-editor__input').waitFor();
   });
 
   test.afterEach(async ({ page }) => {
@@ -20,13 +20,13 @@ export function setupEditor(test) {
 
 // Drives the editor the way a user does: keyboard, mouse, and paste events.
 export function editor(page) {
-  const input = page.locator('.yaml-editor__input');
-  const popup = page.locator('.yaml-editor__completions');
-  const options = popup.locator('.yaml-editor__completion');
+  const input = page.locator('.config-editor__input');
+  const popup = page.locator('.config-editor__completions');
+  const options = popup.locator('.config-editor__completion');
 
-  const keys = () => popup.locator('.yaml-editor__completion-key').allTextContents();
+  const keys = () => popup.locator('.config-editor__completion-key').allTextContents();
   const isOpen = async () => !(await popup.getAttribute('class')).includes('hidden');
-  const diagnosticCount = () => page.locator('.yaml-editor__diagnostic-marker').count();
+  const diagnosticCount = () => page.locator('.config-editor__diagnostic-marker').count();
 
   // Replaces the whole document by typing it, so auto-indent and pairing run.
   const typeDoc = async (text) => {
@@ -53,7 +53,7 @@ export function editor(page) {
   const clickKey = async (label) => {
     const index = await options.evaluateAll(
       (buttons, wanted) =>
-        buttons.findIndex((b) => b.querySelector('.yaml-editor__completion-key').textContent === wanted),
+        buttons.findIndex((b) => b.querySelector('.config-editor__completion-key').textContent === wanted),
       label,
     );
     expect(index, `option "${label}" is listed; have ${JSON.stringify(await keys())}`).toBeGreaterThanOrEqual(0);
@@ -68,7 +68,7 @@ export function editor(page) {
           const bg = getComputedStyle(b).backgroundColor;
           return bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
         })
-        .map((b) => b.querySelector('.yaml-editor__completion-key').textContent),
+        .map((b) => b.querySelector('.config-editor__completion-key').textContent),
     );
 
   const value = () => input.inputValue();
@@ -107,7 +107,7 @@ export function editor(page) {
 
 // Page coordinates of the character cell at (line, column) in the editor textarea.
 export async function pointAt(page, line, column) {
-  const input = page.locator('.yaml-editor__input');
+  const input = page.locator('.config-editor__input');
   const box = await input.boundingBox();
   const metrics = await input.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -127,7 +127,7 @@ export async function pointAt(page, line, column) {
 
 // Scrolls the editor so that `line` is inside the visible textarea.
 export async function scrollToLine(page, line) {
-  await page.locator('.yaml-editor__input').evaluate((element, target) => {
+  await page.locator('.config-editor__input').evaluate((element, target) => {
     const style = getComputedStyle(element);
     const lineHeight = parseFloat(style.lineHeight);
     element.scrollTop = Math.max(0, target * lineHeight - element.clientHeight / 2);

@@ -1,8 +1,9 @@
-//! A reusable YAML editor component for Leptos applications.
+//! A reusable config editor component for Leptos applications (YAML today,
+//! JSON next; TOML/INI pluggable later).
 //!
 //! The editor is an input component, not a page or application shell. Its
 //! toolbar and footer are omitted by default and can be composed with the
-//! exported [`YamlEditorToolbar`] and [`YamlEditorFooter`] components.
+//! exported [`ConfigEditorToolbar`] and [`ConfigEditorFooter`] components.
 //! Diagnostics, completions, highlighting, and preset styling can be enabled
 //! independently. The optional JSON Schema string enables validation and
 //! schema-aware suggestions. Suggestions appear while typing by default; set
@@ -11,10 +12,11 @@
 //! diffs, and hover docs while disabling all edits.
 //!
 //! ```ignore
-//! use leptos_config_editor::YamlEditor;
+//! use leptos_config_editor::{ConfigEditor, Language};
 //!
 //! view! {
-//!     <YamlEditor
+//!     <ConfigEditor
+//!         language=Language::Yaml
 //!         initial_value="name: app\n".to_string()
 //!         schema_json=r#"{"type":"object","properties":{"name":{"type":"string"}}}"#.to_string()
 //!         class="settings-editor"
@@ -28,4 +30,6 @@
 
 mod editor;
 
-pub use editor::{EditorTheme, PRESET_CSS, YamlEditor, YamlEditorFooter, YamlEditorToolbar};
+pub use editor::{
+    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, EditorTheme, Language, PRESET_CSS,
+};

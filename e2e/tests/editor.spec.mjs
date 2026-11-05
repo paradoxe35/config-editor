@@ -128,10 +128,10 @@ test.describe('focus', () => {
     await e.paste(
       '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
-    const marker = page.locator('.yaml-editor__diff-marker-modified').first();
+    const marker = page.locator('.config-editor__diff-marker-modified').first();
     await expect(marker).toHaveCount(1);
     await marker.click();
-    const preview = page.locator('.yaml-editor__diff-peek');
+    const preview = page.locator('.config-editor__diff-peek');
     await expect(preview).toHaveCount(1);
     await page.keyboard.press('Escape');
     await expect(preview).toHaveCount(0);
@@ -142,8 +142,8 @@ test.describe('focus', () => {
     await e.paste(
       '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
-    await page.locator('.yaml-editor__diff-marker-modified').first().click();
-    const preview = page.locator('.yaml-editor__diff-peek');
+    await page.locator('.config-editor__diff-marker-modified').first().click();
+    const preview = page.locator('.config-editor__diff-peek');
     await expect(preview).toHaveCount(1);
     await expect(preview).toContainText('7835');
     await expect(preview).toContainText('7836');
@@ -156,8 +156,8 @@ test.describe('focus', () => {
     await e.paste(
       '# Burrow server configuration\nlisten: 7835\ninsecure_plaintext: false\n',
     );
-    await page.locator('.yaml-editor__diff-deleted').first().click();
-    const preview = page.locator('.yaml-editor__diff-peek');
+    await page.locator('.config-editor__diff-deleted').first().click();
+    const preview = page.locator('.config-editor__diff-peek');
     await expect(preview).toHaveCount(1);
     await expect(preview).toContainText('Removed lines');
     await expect(preview).toContainText('public_address');
@@ -172,8 +172,8 @@ test.describe('focus', () => {
     await e.paste(
       '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
     );
-    await page.locator('.yaml-editor__diff-marker-modified').first().click();
-    const preview = page.locator('.yaml-editor__diff-peek');
+    await page.locator('.config-editor__diff-marker-modified').first().click();
+    const preview = page.locator('.config-editor__diff-peek');
     await expect(preview).toHaveCount(1);
     // Typing on an unrelated line keeps the preview open...
     await e.input.evaluate((element) => {
@@ -203,7 +203,7 @@ test.describe('focus', () => {
 test.describe('read-only view mode', () => {
   test('typing and shortcuts cannot modify the document, but hover docs still work', async ({ page, baseURL }) => {
     await page.goto(`${baseURL}?readonly=1`);
-    await page.locator('.yaml-editor__input').waitFor();
+    await page.locator('.config-editor__input').waitFor();
     const e = editor(page);
     await expect(e.input).toHaveAttribute('readonly', '');
     await expect(e.input).toHaveAttribute('aria-readonly', 'true');
@@ -222,9 +222,9 @@ test.describe('read-only view mode', () => {
 
     const onKey = await pointAt(page, 1, 1);
     await page.mouse.move(onKey.x, onKey.y, { steps: 4 });
-    const card = page.locator('.yaml-editor__hover');
+    const card = page.locator('.config-editor__hover');
     await expect(card).toHaveCount(1);
-    await expect(card.locator('.yaml-editor__hover-key')).toHaveText('listen');
+    await expect(card.locator('.config-editor__hover-key')).toHaveText('listen');
   });
 });
 
@@ -251,12 +251,12 @@ test.describe('hover documentation', () => {
     await page.keyboard.type('http: 80');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Escape');
-    const card = page.locator('.yaml-editor__hover');
+    const card = page.locator('.config-editor__hover');
 
     const onKey = await pointAt(page, 1, 3);
     await page.mouse.move(onKey.x, onKey.y, { steps: 4 });
     await expect(card).toHaveCount(1);
-    await expect(card.locator('.yaml-editor__hover-key')).toHaveText('http');
+    await expect(card.locator('.config-editor__hover-key')).toHaveText('http');
     await expect(card).toContainText('0.0.0.0:7835');
     await expect(card).toContainText('Port or ip:port for plain HTTP');
 
@@ -275,6 +275,6 @@ test.describe('hover documentation', () => {
     const onKey = await pointAt(page, 1, 3);
     await page.mouse.move(onKey.x, onKey.y, { steps: 4 });
     await page.waitForTimeout(500);
-    await expect(page.locator('.yaml-editor__hover')).toHaveCount(0);
+    await expect(page.locator('.config-editor__hover')).toHaveCount(0);
   });
 });

@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 
 /// Fallback type size, in pixels, when `get_computed_style` is unavailable.
-/// Matches the `--yaml-editor-font-size` default in `preset.css` so unit tests
+/// Matches the `--config-editor-font-size` default in `preset.css` so unit tests
 /// and non-browser renders use the same baseline as the real editor.
 pub(super) const FALLBACK_FONT_SIZE: f64 = 12.0;
 
 /// Fallback line-height multiplier. Matches the `1.8` in the editor
-/// `font: var(--yaml-editor-font-size)/1.8` shorthand in `preset.css`.
+/// `font: var(--config-editor-font-size)/1.8` shorthand in `preset.css`.
 pub(super) const FALLBACK_LINE_HEIGHT_FACTOR: f64 = 1.8;
 
 #[derive(Clone, Copy, Debug)]
@@ -72,7 +72,7 @@ fn measured_char_width(font: &str) -> Option<f64> {
 
 /// Reads the editor's typography from CSS instead of hard-coding pixel values.
 /// This keeps caret-anchored popups aligned when a host overrides the public
-/// `--yaml-editor-font-size` or `--yaml-editor-line-height` variables.
+/// `--config-editor-font-size` or `--config-editor-line-height` variables.
 pub(super) fn read_editor_metrics(element: &web_sys::Element) -> EditorMetrics {
     let style =
         web_sys::window().and_then(|window| window.get_computed_style(element).ok().flatten());
