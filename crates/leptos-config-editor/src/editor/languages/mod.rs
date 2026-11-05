@@ -13,16 +13,19 @@ use super::language::LanguageBehavior;
 mod hcl;
 mod json;
 mod toml;
+mod xml;
 mod yaml;
 use hcl::HclBehavior;
 use json::JsonBehavior;
 use toml::TomlBehavior;
+use xml::XmlBehavior;
 use yaml::YamlBehavior;
 
 static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
 static JSON_BEHAVIOR: JsonBehavior = JsonBehavior;
 static TOML_BEHAVIOR: TomlBehavior = TomlBehavior;
 static HCL_BEHAVIOR: HclBehavior = HclBehavior;
+static XML_BEHAVIOR: XmlBehavior = XmlBehavior;
 
 /// Document language edited by the component.
 ///
@@ -41,18 +44,21 @@ pub enum Language {
     Toml,
     /// HCL documents (HashiCorp Configuration Language, as used by Terraform).
     Hcl,
+    /// XML documents.
+    Xml,
 }
 
 impl Language {
-    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, or `"HCL"`. Toolbar, aria
-    /// labels, and diagnostic messages derive from this so no language name is
-    /// hard-coded in markup.
+    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, `"HCL"`, or `"XML"`. Toolbar,
+    /// aria labels, and diagnostic messages derive from this so no language name
+    /// is hard-coded in markup.
     pub fn label(self) -> &'static str {
         match self {
             Language::Yaml => "YAML",
             Language::Json => "JSON",
             Language::Toml => "TOML",
             Language::Hcl => "HCL",
+            Language::Xml => "XML",
         }
     }
 
@@ -63,6 +69,7 @@ impl Language {
             Language::Json => "J",
             Language::Toml => "T",
             Language::Hcl => "H",
+            Language::Xml => "X",
         }
     }
 
@@ -74,6 +81,7 @@ impl Language {
             Language::Json => "untitled.json",
             Language::Toml => "untitled.toml",
             Language::Hcl => "untitled.hcl",
+            Language::Xml => "untitled.xml",
         }
     }
 
@@ -85,6 +93,7 @@ impl Language {
             Language::Json => &JSON_BEHAVIOR,
             Language::Toml => &TOML_BEHAVIOR,
             Language::Hcl => &HCL_BEHAVIOR,
+            Language::Xml => &XML_BEHAVIOR,
         }
     }
 }
@@ -104,10 +113,12 @@ mod tests {
         assert_eq!(Language::Json.label(), "JSON");
         assert_eq!(Language::Toml.label(), "TOML");
         assert_eq!(Language::Hcl.label(), "HCL");
+        assert_eq!(Language::Xml.label(), "XML");
         assert_eq!(Language::Yaml.file_icon(), "Y");
         assert_eq!(Language::Json.file_icon(), "J");
         assert_eq!(Language::Toml.file_icon(), "T");
         assert_eq!(Language::Hcl.file_icon(), "H");
+        assert_eq!(Language::Xml.file_icon(), "X");
     }
 
     #[test]
@@ -116,5 +127,6 @@ mod tests {
         assert_eq!(Language::Json.default_file_name(), "untitled.json");
         assert_eq!(Language::Toml.default_file_name(), "untitled.toml");
         assert_eq!(Language::Hcl.default_file_name(), "untitled.hcl");
+        assert_eq!(Language::Xml.default_file_name(), "untitled.xml");
     }
 }
