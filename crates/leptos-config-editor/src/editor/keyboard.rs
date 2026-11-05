@@ -1,3 +1,5 @@
+use super::language::LanguageBehavior;
+
 pub(super) fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     let mut utf16_offset = 0;
     for (byte_index, character) in source.char_indices() {
@@ -25,58 +27,14 @@ pub(super) fn replace_selection(
     (result, new_cursor)
 }
 
-fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
-    let cursor = utf16_to_byte_index(source, cursor);
-    let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
-    let line = &source[line_start..cursor];
-    let characters: Vec<_> = line.char_indices().collect();
-    let mut quote = None;
-    let mut comment = false;
-    let mut escaped = false;
-    let mut index = 0;
-    while index < characters.len() {
-        let (byte_index, character) = characters[index];
-        if comment {
-            break;
-        }
-        if let Some(active_quote) = quote {
-            if active_quote == '\'' && character == '\'' {
-                if characters
-                    .get(index + 1)
-                    .is_some_and(|(_, next)| *next == '\'')
-                {
-                    index += 2;
-                    continue;
-                }
-                quote = None;
-            } else if active_quote == '"' && escaped {
-                escaped = false;
-            } else if active_quote == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active_quote {
-                quote = None;
-            }
-        } else if matches!(character, '\'' | '"') {
-            quote = Some(character);
-        } else if character == '#'
-            && (byte_index == 0
-                || line[..byte_index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            comment = true;
-        }
-        index += 1;
-    }
-    (quote, comment)
-}
-
+/// Shared pairing mechanics: the language behavior decides whether the caret
+/// sits inside a string or comment, where typed pairs must not expand.
 pub(super) fn paired_edit(
     source: &str,
     start: usize,
     end: usize,
     opening: char,
+    behavior: &dyn LanguageBehavior,
 ) -> Option<(String, usize, usize)> {
     let closing = match opening {
         '"' => '"',
@@ -89,7 +47,7 @@ pub(super) fn paired_edit(
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
     let selected = &source[start_byte..end_byte];
-    let (active_quote, in_comment) = yaml_lexical_state(source, start);
+    let (active_quote, in_comment) = behavior.lexical_state(source, start);
     if in_comment || active_quote.is_some() {
         return None;
     }

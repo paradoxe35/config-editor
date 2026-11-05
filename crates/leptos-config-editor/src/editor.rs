@@ -2,9 +2,7 @@ use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
-mod highlight;
-use highlight::highlight_line;
-
+mod language;
 mod chrome;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;
@@ -18,19 +16,14 @@ use diff::{DiffKind, DiffPeek, LineDiff, diff_lines, peek_popup_style, peek_surv
 mod keyboard;
 use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
 mod diagnostics;
-#[cfg(test)]
-use diagnostics::SchemaBundle;
-use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, build_schema, validate_yaml};
+use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, build_schema, validate};
 mod completion;
 use completion::{
     KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
     key_hover, scroll_completion_into_view, should_accept_with_keyboard, should_auto_trigger,
 };
 mod commands;
-use commands::{
-    cycle_offset, indent_unit, indent_yaml_lines, line_at_cursor, newline_with_indent, offset_at,
-    toggle_yaml_line_comments,
-};
+use commands::{cycle_offset, indent_lines, indent_unit, line_at_cursor, offset_at};
 mod metrics;
 mod positioning;
 use positioning::{hover_card_style, pointer_text_position, schedule_hover, set_caret_visible};
@@ -185,6 +178,7 @@ pub fn ConfigEditor(
     let enable_completions =
         enable_completions && !read_only.get_untracked() && cfg!(feature = "completion");
     let enable_highlighting = enable_highlighting && cfg!(feature = "syntax-highlighting");
+    let behavior = language.behavior();
     let source = RwSignal::new(
         value
             .as_ref()
@@ -265,11 +259,12 @@ pub fn ConfigEditor(
         }
     });
     let diagnostics = Memo::new(move |_| {
-        validate_yaml(
+        validate(
             &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
             schema_error_for_diagnostics.as_deref(),
             show_diagnostics && cfg!(feature = "diagnostics"),
+            behavior,
         )
     });
     let schema_for_completions = schema_bundle.clone();
@@ -285,6 +280,7 @@ pub fn ConfigEditor(
             explicit_request.get(),
             schema_for_completions.as_deref(),
             enable_completions,
+            behavior,
         )
     });
     let apply_selected = move || {
@@ -339,10 +335,7 @@ pub fn ConfigEditor(
         hide_hover();
     };
 
-    let default_file_name = match language {
-        Language::Yaml => "untitled.yaml",
-        Language::Json => "untitled.json",
-    };
+    let default_file_name = language.default_file_name();
     let file_name = file_name.unwrap_or_else(|| default_file_name.to_string());
     let root_class = class.unwrap_or_default();
     let show_diagnostics = show_diagnostics && cfg!(feature = "diagnostics");
@@ -604,7 +597,7 @@ pub fn ConfigEditor(
                                                     class:config-editor__code-line-modified=change == DiffKind::Modified
                                                 >
                                                     {if enable_highlighting {
-                                                        highlight_line(line)
+                                                        behavior.highlight_line(line)
                                                     } else {
                                                         view! { <span>{line.to_string()}</span> }.into_any()
                                                     }}
@@ -760,6 +753,7 @@ pub fn ConfigEditor(
                                         line,
                                         column,
                                         schema_for_hover.as_deref(),
+                                        behavior,
                                     ) else {
                                         hide_hover();
                                         return;
@@ -940,7 +934,7 @@ pub fn ConfigEditor(
                                             let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                             let before = source.get_untracked();
                                             if let Some((updated, selection_start, selection_end)) =
-                                                toggle_yaml_line_comments(&before, start, end)
+                                                behavior.toggle_comments(&before, start, end)
                                             {
                                                 if updated != before {
                                                     commit_edit(
@@ -1048,6 +1042,7 @@ pub fn ConfigEditor(
                                                         start,
                                                         end,
                                                         opening,
+                                                        behavior,
                                                     )
                                             {
                                                 event.prevent_default();
@@ -1133,7 +1128,7 @@ pub fn ConfigEditor(
                                                 let text = source.get_untracked();
                                                 if event.shift_key() || start != end {
                                                     if let Some((updated, selection_start, selection_end)) =
-                                                        indent_yaml_lines(&text, start, end, event.shift_key())
+                                                        indent_lines(&text, start, end, event.shift_key())
                                                     {
                                                         if updated != text {
                                                             commit_edit(
@@ -1200,7 +1195,7 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                let insertion = newline_with_indent(&text, start);
+                                                let insertion = behavior.newline_with_indent(&text, start);
                                                 let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
                                                 commit_edit(
                                                     updated,

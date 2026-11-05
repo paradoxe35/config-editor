@@ -1,0 +1,2357 @@
+//! YAML text-layer behavior.
+//!
+//! All YAML-coupled logic lives here behind [`LanguageBehavior`]. Shared
+//! orchestration (`diagnostics.rs`, `completion.rs`, `keyboard.rs`) and the
+//! component (`editor.rs`) only touch this through the trait — never by name.
+//! Helpers used only inside YAML stay private free functions in this file.
+
+use super::super::language::{
+    CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment,
+};
+use super::super::commands::indent_unit;
+use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::keyboard::utf16_to_byte_index;
+use leptos::prelude::*;
+use noyalib::{DuplicateKeyPolicy, ParserConfig};
+use serde_json::Value;
+use std::collections::HashSet;
+
+/// YAML implementation of the shared text-layer trait. Each method delegates
+/// to a private free function below holding the YAML syntax rules.
+pub(super) struct YamlBehavior;
+
+impl LanguageBehavior for YamlBehavior {
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        yaml_parse(source)
+    }
+
+    #[cfg(feature = "schema-validation")]
+    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
+        yaml_span_for_path(source, path)
+    }
+
+    #[cfg(feature = "schema-validation")]
+    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
+        yaml_value_span_for_path(source, path)
+    }
+
+    #[cfg(feature = "schema-validation")]
+    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
+        first_yaml_span(source)
+    }
+
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        completion_context(source, cursor)
+    }
+
+    fn existing_keys(
+        &self,
+        source: &str,
+        cursor_byte: usize,
+        path: &[SchemaPathSegment],
+    ) -> Option<HashSet<String>> {
+        existing_mapping_keys(source, cursor_byte, path)
+    }
+
+    fn property_insert(
+        &self,
+        key: &str,
+        property: &Value,
+        root: &Value,
+        base_indent: &str,
+        unit: &str,
+    ) -> Option<(String, usize)> {
+        property_completion_insert(key, property, root, base_indent, unit)
+    }
+
+    fn format_value(&self, value: &Value) -> String {
+        yaml_value(value)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        key_at_column(line, column)
+    }
+
+    fn highlight_line(&self, line: &str) -> AnyView {
+        highlight_line(line)
+    }
+
+    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
+        newline_with_indent(source, cursor)
+    }
+
+    fn toggle_comments(
+        &self,
+        source: &str,
+        selection_start: usize,
+        selection_end: usize,
+    ) -> Option<(String, usize, usize)> {
+        toggle_yaml_line_comments(source, selection_start, selection_end)
+    }
+
+    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
+        yaml_lexical_state(source, cursor)
+    }
+}
+
+fn yaml_parse(source: &str) -> Result<Value, ParseError> {
+    let parser_config =
+        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+    noyalib::from_str_with_config(source, &parser_config).map_err(|error| {
+        let line_count = source.split('\n').count().max(1);
+        let location = error.location();
+        let line = location
+            .as_ref()
+            .map(|location| location.line().min(line_count));
+        let column = location.as_ref().map(|location| location.column().max(1));
+        let mut message = error.to_string();
+        if let Some(location) = location
+            && location.line() > line_count
+        {
+            message = message.replace(
+                &format!("at line {} column {}", location.line(), location.column()),
+                "at end of input",
+            );
+        }
+        ParseError {
+            message,
+            line,
+            column,
+        }
+    })
+}
+
+/// Maps every mapping key and sequence item in the document to its source line.
+/// Paths are the same JSON-pointer segments the schema validator reports, so a
+/// nested `listen` is never confused with a root `listen`.
+#[cfg(feature = "schema-validation")]
+fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
+    let mut entries = Vec::new();
+    let mut stack: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut counts: std::collections::HashMap<(Vec<String>, usize), usize> =
+        std::collections::HashMap::new();
+    for (index, raw_line) in source.lines().enumerate() {
+        let line = raw_line.trim_end_matches('\r');
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        let mut rest = trimmed;
+        let mut content_indent = indent;
+
+        let mut array_item_path = None;
+        if rest == "-" || rest.starts_with("- ") {
+            while stack.last().is_some_and(|(level, _)| *level >= indent) {
+                stack.pop();
+            }
+            let parent = stack
+                .last()
+                .map(|(_, path)| path.clone())
+                .unwrap_or_default();
+            let count = counts.entry((parent.clone(), indent)).or_default();
+            let mut item_path = parent;
+            item_path.push(count.to_string());
+            *count += 1;
+            let after_dash = rest.strip_prefix('-').unwrap_or_default();
+            let content = after_dash.trim_start();
+            content_indent = indent + 1 + after_dash.len() - content.len();
+            array_item_path = Some(item_path.clone());
+            stack.push((indent, item_path));
+            rest = content;
+        }
+
+        if rest.is_empty() {
+            if let Some(path) = array_item_path {
+                let column = line[..content_indent].chars().count() + 1;
+                entries.push((path, index + 1, column, column + 1));
+            }
+            continue;
+        }
+        let Some(colon) = rest.find(':') else {
+            if let Some(path) = array_item_path {
+                let column = line[..content_indent].chars().count() + 1;
+                let end_column = column + rest.chars().count();
+                entries.push((path, index + 1, column, end_column));
+            }
+            continue;
+        };
+        let key_raw = &rest[..colon];
+        let key = key_raw.trim().trim_matches(['\'', '"']);
+        if key.is_empty() {
+            continue;
+        }
+        while stack
+            .last()
+            .is_some_and(|(level, _)| *level >= content_indent)
+        {
+            stack.pop();
+        }
+        let mut path = stack
+            .last()
+            .map(|(_, path)| path.clone())
+            .unwrap_or_default();
+        path.push(key.to_string());
+        let column = line[..content_indent].chars().count() + 1;
+        let end_column = column + key_raw.trim_end().chars().count();
+        entries.push((path.clone(), index + 1, column, end_column));
+        let value = rest[colon + 1..].trim();
+        if value.is_empty() || value.starts_with('#') {
+            stack.push((content_indent, path));
+        }
+    }
+    entries
+}
+
+#[cfg(feature = "schema-validation")]
+fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
+    let wanted = super::super::language::pointer_segments(path);
+    let key = wanted.last()?.clone();
+    if key.is_empty() {
+        return None;
+    }
+
+    if let Some((_, line, column, end_column)) = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| *candidate == wanted)
+    {
+        return Some((line, column, end_column));
+    }
+
+    // Fall back to the previous first-match behavior for paths the scanner
+    // cannot represent, such as flow mappings.
+    source.lines().enumerate().find_map(|(index, line)| {
+        let indent = line.len() - line.trim_start().len();
+        let (candidate, _) = line.trim_start().split_once(':')?;
+        if candidate.trim_matches(['\'', '"']) != key {
+            return None;
+        }
+        let candidate_offset = line[indent..].find(candidate)?;
+        let column = line[..indent].chars().count()
+            + line[indent..indent + candidate_offset].chars().count()
+            + 1;
+        Some((index + 1, column, column + candidate.chars().count()))
+    })
+}
+
+#[cfg(feature = "schema-validation")]
+fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
+    let wanted = super::super::language::pointer_segments(path);
+    let line_number = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| *candidate == wanted)
+        .map(|(_, line, _, _)| line)
+        .or_else(|| yaml_span_for_path(source, path).map(|(line, _, _)| line))?;
+    let line = source.lines().nth(line_number.saturating_sub(1))?;
+    let (key, raw_value) = line.split_once(':')?;
+    let value_start = raw_value.len() - raw_value.trim_start().len();
+    let value = raw_value.trim();
+    let column = key.chars().count() + raw_value[..value_start].chars().count() + 2;
+    if value.is_empty() || value.starts_with('#') {
+        return Some((line_number, column, column + 1));
+    }
+
+    Some((line_number, column, column + value.chars().count()))
+}
+
+#[cfg(feature = "schema-validation")]
+fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
+    source.lines().enumerate().find_map(|(index, line)| {
+        let start = line.find(|character: char| !character.is_whitespace())?;
+        Some((
+            index + 1,
+            line[..start].chars().count() + 1,
+            line.chars().count() + 1,
+        ))
+    })
+}
+
+fn yaml_key_for_completion(key: &str) -> Option<String> {
+    let plain_key = !key.is_empty()
+        && key
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && key.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+        && !matches!(key.to_ascii_lowercase().as_str(), "true" | "false" | "null");
+    if plain_key {
+        Some(key.to_string())
+    } else {
+        serde_json::to_string(key).ok()
+    }
+}
+
+fn yaml_value(value: &Value) -> String {
+    match value {
+        Value::String(value) if is_plain_identifier(value) => value.clone(),
+        Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),
+        _ => value.to_string(),
+    }
+}
+
+/// Enum-style words (`udp`, `least_connections`) read as plain YAML scalars, the way
+/// the YAML language server writes them. Anything that YAML could read as a number,
+/// boolean, or null, or that contains punctuation, stays quoted.
+fn is_plain_identifier(text: &str) -> bool {
+    text.chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && text.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+        && !matches!(
+            text.to_ascii_lowercase().as_str(),
+            "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n"
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_required_properties(
+    schema: &Value,
+    root: &Value,
+    child_indent: &str,
+    unit: &str,
+    base_offset: usize,
+    output: &mut String,
+    cursor_offset: &mut Option<usize>,
+) -> bool {
+    let Some(branch) = object_branch(schema, root) else {
+        return false;
+    };
+    let required = branch.get("required").and_then(Value::as_array);
+    let properties = branch.get("properties").and_then(Value::as_object);
+    let Some(required) = required else {
+        return false;
+    };
+    let nested_indent = format!("{child_indent}{unit}");
+    let mut appended = false;
+    for required_key in required.iter().filter_map(Value::as_str) {
+        let Some(property) = properties.and_then(|properties| properties.get(required_key)) else {
+            continue;
+        };
+        let Some(yaml_key) = yaml_key_for_completion(required_key) else {
+            continue;
+        };
+        output.push_str(child_indent);
+        output.push_str(&yaml_key);
+        output.push(':');
+        if let Some(default) = schema_default(property, root) {
+            output.push(' ');
+            output.push_str(&yaml_value(default));
+            output.push('\n');
+        } else if object_branch(property, root).is_some() {
+            let mut children = String::new();
+            if append_required_properties(
+                property,
+                root,
+                &nested_indent,
+                unit,
+                base_offset + output.encode_utf16().count() + 1,
+                &mut children,
+                cursor_offset,
+            ) {
+                output.push('\n');
+                output.push_str(&children);
+            } else {
+                output.push_str(" {}\n");
+            }
+        } else {
+            output.push(' ');
+            if cursor_offset.is_none() {
+                *cursor_offset = Some(base_offset + output.encode_utf16().count());
+            }
+            output.push('\n');
+        }
+        appended = true;
+    }
+    appended
+}
+
+fn property_completion_insert(
+    key: &str,
+    property: &Value,
+    root: &Value,
+    base_indent: &str,
+    unit: &str,
+) -> Option<(String, usize)> {
+    let yaml_key = yaml_key_for_completion(key)?;
+    let child_indent = format!("{base_indent}{unit}");
+    let mut insert = format!("{yaml_key}:");
+    if let Some(value) = schema_const(property, root) {
+        insert.push(' ');
+        insert.push_str(&yaml_value(value));
+    } else if array_branch(property, root).is_some() {
+        let default = schema_default(property, root);
+        if let Some(default) = default.filter(|value| !value.as_array().is_some_and(Vec::is_empty))
+        {
+            insert.push(' ');
+            insert.push_str(&yaml_value(default));
+        } else {
+            insert.push('\n');
+            insert.push_str(&child_indent);
+            insert.push_str("- ");
+        }
+    } else if let Some(branch) = object_branch(property, root) {
+        let default = schema_default(property, root);
+        if let Some(default) =
+            default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
+        {
+            insert.push(' ');
+            insert.push_str(&yaml_value(default));
+            let cursor = insert.encode_utf16().count();
+            return Some((insert, cursor));
+        }
+        let mut cursor_offset = None;
+        let mut children = String::new();
+        if append_required_properties(
+            branch,
+            root,
+            &child_indent,
+            unit,
+            insert.encode_utf16().count() + 1,
+            &mut children,
+            &mut cursor_offset,
+        ) {
+            insert.push('\n');
+            insert.push_str(&children);
+        } else if branch.get("properties").is_some()
+            || branch.get("patternProperties").is_some()
+            || branch.get("additionalProperties").is_some()
+        {
+            insert.push('\n');
+            insert.push_str(&child_indent);
+        } else {
+            insert.push_str(" {}");
+        }
+        let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
+        return Some((insert, cursor));
+    } else if let Some(default) = schema_default(property, root) {
+        insert.push(' ');
+        insert.push_str(&yaml_value(default));
+    } else {
+        insert.push(' ');
+    }
+    let cursor = insert.encode_utf16().count();
+    Some((insert, cursor))
+}
+
+/// Finds the mapping colon on a single line, ignoring colons inside quoted
+/// scalars and comments.
+fn mapping_colon(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if quote.is_none() && character == '#' {
+            let starts_comment = index == 0
+                || line[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace);
+            if starts_comment {
+                return None;
+            }
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Comment-blind variant of [`mapping_colon`], used when scanning value
+/// context: a `#` never ends the scan, so colons after it still count.
+fn mapping_colon_anywhere(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Length of the scalar at the start of `text`, stopping before an inline comment.
+fn value_token_len(text: &str) -> usize {
+    let mut end = text.len();
+    for (index, character) in text.char_indices() {
+        let comment_start =
+            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
+        if comment_start {
+            end = index;
+            break;
+        }
+    }
+    text[..end].trim_end().len()
+}
+
+fn completion_context(source: &str, cursor: usize) -> CompletionContext {
+    let cursor = utf16_to_byte_index(source, cursor);
+    let before_cursor = &source[..cursor];
+    let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
+    let current_line = &source[current_line_start..];
+    let leading_whitespace =
+        current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
+    let indent = leading_whitespace;
+    let prefix = &current_line[indent..];
+
+    let mut ancestors: Vec<(usize, SchemaPathSegment)> = Vec::new();
+    let mut item_counts = std::collections::BTreeMap::<usize, usize>::new();
+    for line in source[..current_line_start].lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let line_indent = line.len() - trimmed.len();
+        let is_array_item = trimmed == "-" || trimmed.starts_with("- ");
+        let (mapping, mapping_indent) = if is_array_item {
+            while ancestors
+                .last()
+                .is_some_and(|(level, _)| *level >= line_indent)
+            {
+                ancestors.pop();
+            }
+            item_counts.retain(|level, _| *level <= line_indent);
+            let index = item_counts.entry(line_indent).or_default();
+            ancestors.push((line_indent, SchemaPathSegment::ArrayItem(*index)));
+            *index += 1;
+            (
+                trimmed.strip_prefix('-').unwrap_or_default().trim_start(),
+                line_indent + 2,
+            )
+        } else {
+            item_counts.retain(|level, _| *level <= line_indent);
+            (trimmed, line_indent)
+        };
+        let Some(colon) = mapping_colon_anywhere(mapping) else {
+            continue;
+        };
+        let key = mapping[..colon].trim().trim_matches(['\'', '"']);
+        if key.is_empty() {
+            continue;
+        }
+        while ancestors
+            .last()
+            .is_some_and(|(level, _)| *level >= mapping_indent)
+        {
+            ancestors.pop();
+        }
+        if mapping[colon + 1..].trim().is_empty() {
+            ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
+        }
+    }
+    while ancestors.last().is_some_and(|(level, _)| *level >= indent) {
+        ancestors.pop();
+    }
+    let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
+    let current_is_array_item = prefix == "-" || prefix.starts_with("- ");
+    let (line_content, content_offset) = if current_is_array_item {
+        let index = item_counts.get(&indent).copied().unwrap_or_default();
+        path.push(SchemaPathSegment::ArrayItem(index));
+        let after_dash = prefix.strip_prefix('-').unwrap_or_default();
+        let content = after_dash.trim_start();
+        let offset = 1 + after_dash.len() - content.len();
+        (content, offset)
+    } else {
+        (prefix, 0)
+    };
+    let candidate_colon = mapping_colon_anywhere(line_content);
+    let content_start = indent + content_offset;
+    let cursor_in_content = cursor
+        .saturating_sub(current_line_start)
+        .saturating_sub(content_start)
+        .min(line_content.len());
+    // A colon to the right of the caret still belongs to the key being edited;
+    // treating it as a value separator can produce a reversed string slice.
+    let colon = candidate_colon.filter(|colon| *colon < cursor_in_content);
+    // Only the text before the caret decides the value position. A trailing
+    // newline (for example from an expanded required property) must not move the
+    // insertion point past the end of the value.
+    let value_start = colon.map(|colon| {
+        let after_colon = &line_content[colon + 1..];
+        let before_caret = &after_colon[..cursor_in_content
+            .saturating_sub(colon + 1)
+            .min(after_colon.len())];
+        before_caret.len() - before_caret.trim_start().len()
+    });
+    let value_key = colon
+        .map(|colon| {
+            line_content[..colon]
+                .trim()
+                .trim_matches(['\'', '"'])
+                .to_string()
+        })
+        .filter(|key| !key.is_empty());
+    let typed_start_byte = if let Some(colon) = colon {
+        current_line_start + content_start + colon + 1 + value_start.unwrap_or_default()
+    } else {
+        current_line_start + content_start
+    };
+    // Suggestions match the text before the caret. Accepting one replaces the
+    // whole scalar on this line, so editing in the middle of a value works too.
+    let line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |i| cursor + i);
+    let (typed, replace_end_byte) = if let Some(colon) = colon {
+        let value_begin = colon + 1 + value_start.unwrap_or_default();
+        let value_begin_abs = current_line_start + content_start + value_begin;
+        let typed_end = cursor_in_content.clamp(value_begin, line_content.len());
+        let token_len = value_token_len(&source[value_begin_abs.min(line_end)..line_end]);
+        (
+            line_content[value_begin..typed_end].trim_end().to_string(),
+            value_begin_abs + token_len,
+        )
+    } else {
+        let key_end = candidate_colon.unwrap_or_else(|| value_token_len(line_content));
+        let typed_end = cursor_in_content.min(key_end);
+        let replace_end = candidate_colon.map_or(key_end, |colon| {
+            let after_colon = &line_content[colon + 1..];
+            colon + 1 + after_colon.len() - after_colon.trim_start().len()
+        });
+        (
+            line_content[..typed_end].trim_end().to_string(),
+            current_line_start + content_start + replace_end,
+        )
+    };
+    let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
+    let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
+    CompletionContext {
+        path,
+        typed,
+        replace_start: source[..typed_start_byte].encode_utf16().count(),
+        replace_end: source[..replace_end_byte.min(source.len())]
+            .encode_utf16()
+            .count(),
+        value_key,
+        value_needs_space,
+        is_array_item: current_is_array_item,
+        base_indent,
+    }
+}
+
+fn existing_mapping_keys(
+    source: &str,
+    cursor_byte: usize,
+    path: &[SchemaPathSegment],
+) -> Option<HashSet<String>> {
+    let parser_config =
+        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+    // A partially typed mapping key makes the whole YAML document temporarily
+    // unparsable. Remove only the active line for the existing-key lookup so
+    // keys already present elsewhere in this mapping remain filtered.
+    let line_start = source[..cursor_byte]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let line_end = source[line_start..]
+        .find('\n')
+        .map_or(source.len(), |newline| line_start + newline);
+    let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let document: Value = noyalib::from_str_with_config(&sanitized, &parser_config).ok()?;
+    let mapping = path
+        .iter()
+        .try_fold(&document, |value, segment| match segment {
+            SchemaPathSegment::Key(key) => value.get(key),
+            SchemaPathSegment::ArrayItem(index) => value.get(index),
+        })?
+        .as_object()?;
+    let current_line = source[..cursor_byte]
+        .rsplit('\n')
+        .next()
+        .unwrap_or_default();
+    let current_line = current_line.trim_start().trim_start_matches("- ");
+    let current_key = mapping_colon_anywhere(current_line).map(|colon| {
+        current_line[..colon]
+            .trim()
+            .trim_matches(['\'', '"'])
+            .to_string()
+    });
+    Some(
+        mapping
+            .keys()
+            .filter(|key| current_key.as_deref() != Some(key.as_str()))
+            .cloned()
+            .collect(),
+    )
+}
+
+fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
+    let trimmed = line.trim_start_matches([' ', '\t']);
+    let body = match trimmed.strip_prefix('-') {
+        Some(rest) if rest.is_empty() || rest.starts_with([' ', '\t']) => {
+            rest.trim_start_matches([' ', '\t'])
+        }
+        _ => trimmed,
+    };
+    if body.starts_with('#') {
+        return None;
+    }
+    let colon = mapping_colon_anywhere(body)?;
+    let key_raw = &body[..colon];
+    let key = key_raw.trim().trim_matches(['\'', '"']);
+    if key.is_empty() {
+        return None;
+    }
+    let body_start = line.len() - body.len();
+    let start_column = line[..body_start].chars().count();
+    let end_column = line[..body_start + key_raw.trim_end().len()]
+        .chars()
+        .count();
+    (column >= start_column && column < end_column).then(|| (key.to_string(), start_column))
+}
+
+/// Finds the start of a YAML comment on a single line, ignoring `#` characters
+/// that appear inside quoted scalars.
+fn line_comment_start(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '#')
+                if index == 0
+                    || line[..index]
+                        .chars()
+                        .next_back()
+                        .is_some_and(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn code_before_comment(line: &str) -> &str {
+    line_comment_start(line).map_or(line, |comment| &line[..comment])
+}
+
+fn is_block_scalar(value: &str) -> bool {
+    let mut characters = value.trim().chars();
+    if !matches!(characters.next(), Some('|' | '>')) {
+        return false;
+    }
+    characters.all(|character| character.is_ascii_digit() || matches!(character, '+' | '-'))
+}
+
+fn newline_with_indent(source: &str, cursor: usize) -> String {
+    let byte_index = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte_index]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line = &source[line_start..byte_index];
+    let indent: String = line
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect();
+    let content = line.trim_start();
+    let unit = indent_unit(source);
+
+    if content.is_empty() {
+        return format!("\n{indent}");
+    }
+    let code = code_before_comment(content).trim_end();
+    if code.is_empty() {
+        return format!("\n{indent}");
+    }
+    if code == "-" {
+        return format!("\n{indent}- ");
+    }
+    if let Some(rest) = code.strip_prefix('-')
+        && (rest.is_empty() || rest.starts_with([' ', '\t']))
+    {
+        let after_dash = rest.trim_end();
+        if after_dash.trim().is_empty() {
+            return format!("\n{indent}- ");
+        }
+        // Preserve the document's spacing between the dash and the item's
+        // content so nested lines align exactly with the key column.
+        let content_offset =
+            1 + after_dash.len() - after_dash.trim_start_matches([' ', '\t']).len();
+        let item_indent = format!(" {}", &code[1..content_offset]);
+        let content = &code[content_offset..];
+        if let Some(colon) = mapping_colon(content) {
+            let value = content[colon + 1..].trim();
+            if value.is_empty() || is_block_scalar(value) {
+                return format!("\n{indent}{item_indent}{unit}");
+            }
+            // An inline mapping inside a sequence item: keep the next key in
+            // the same item, aligned with the current key.
+            return format!("\n{indent}{item_indent}");
+        }
+        return format!("\n{indent}- ");
+    }
+    if let Some(colon) = mapping_colon(code) {
+        let value = code[colon + 1..].trim();
+        if value.is_empty() || is_block_scalar(value) {
+            return format!("\n{indent}{unit}");
+        }
+    }
+    format!("\n{indent}")
+}
+
+fn toggle_yaml_line_comments(
+    source: &str,
+    selection_start: usize,
+    selection_end: usize,
+) -> Option<(String, usize, usize)> {
+    let start = utf16_to_byte_index(source, selection_start);
+    let end = utf16_to_byte_index(source, selection_end);
+    let first_line = source[..start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count();
+    let newline_count = source[..end].bytes().filter(|byte| *byte == b'\n').count();
+    let last_line =
+        newline_count.saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
+
+    let lines: Vec<_> = source.split_inclusive('\n').collect();
+    if first_line >= lines.len() {
+        return None;
+    }
+
+    let selected_lines = &lines[first_line..=last_line.min(lines.len() - 1)];
+    let uncomment = selected_lines
+        .iter()
+        .filter_map(|line| {
+            let body = line.trim_end_matches('\n').trim_end_matches('\r');
+            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
+            let content = &body[indent..];
+            (!content.is_empty()).then_some(content.starts_with('#'))
+        })
+        .all(|commented| commented);
+    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
+    let mut offset = 0;
+    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
+
+    for (line_index, line) in lines.iter().enumerate() {
+        if (first_line..=last_line).contains(&line_index) {
+            let body = line.trim_end_matches('\n').trim_end_matches('\r');
+            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
+            let content = &body[indent..];
+            if !content.is_empty() {
+                if uncomment && content.starts_with('#') {
+                    let removed = 1 + usize::from(content.starts_with("# "));
+                    edits.push((offset + indent, removed, 0));
+                    updated.push_str(&line[..indent]);
+                    updated.push_str(&content[removed..]);
+                    updated.push_str(&line[body.len()..]);
+                } else if !uncomment {
+                    edits.push((offset + indent, 0, 2));
+                    updated.push_str(&line[..indent]);
+                    updated.push_str("# ");
+                    updated.push_str(&line[indent..]);
+                } else {
+                    updated.push_str(line);
+                }
+            } else {
+                updated.push_str(line);
+            }
+        } else {
+            updated.push_str(line);
+        }
+        offset += line.len();
+    }
+
+    let map_offset = |position: usize, right_biased: bool| {
+        let mut delta = 0isize;
+        for (edit_position, removed, inserted) in &edits {
+            if position < *edit_position {
+                break;
+            }
+            if position == *edit_position && *removed == 0 && !right_biased {
+                return (*edit_position as isize + delta) as usize;
+            }
+            if position <= *edit_position + *removed {
+                return (*edit_position as isize + delta + *inserted as isize) as usize;
+            }
+            delta += *inserted as isize - *removed as isize;
+        }
+        (position as isize + delta) as usize
+    };
+    let updated_start = map_offset(start, start == end).min(updated.len());
+    let updated_end = map_offset(end, true).min(updated.len());
+    let updated_selection_start = updated[..updated_start].encode_utf16().count();
+    let updated_selection_end = updated[..updated_end].encode_utf16().count();
+    Some((updated, updated_selection_start, updated_selection_end))
+}
+
+fn highlight_line(line: &str) -> AnyView {
+    let indent_len = line.len() - line.trim_start().len();
+    let (indent, content) = line.split_at(indent_len);
+    if content.starts_with('#') {
+        return view! {
+            <span>{indent}<span class="config-editor__comment">{content.to_string()}</span></span>
+        }
+        .into_any();
+    }
+
+    let (dash, content) = content
+        .strip_prefix("- ")
+        .map_or(("", content), |content| ("- ", content));
+    if let Some((key, value)) = content.split_once(':')
+        && !key.is_empty()
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        && (value.is_empty() || value.starts_with(' ') || value.starts_with('\t'))
+    {
+        return view! {
+            <span>{indent}{dash}<span class="config-editor__key">{key.to_string()}</span><span class="config-editor__punctuation">:</span>{highlight_value(value)}</span>
+        }
+        .into_any();
+    }
+
+    if !dash.is_empty() {
+        return view! {
+            <span>{indent}<span class="config-editor__punctuation">"- "</span>{highlight_value(content)}</span>
+        }
+        .into_any();
+    }
+    view! { <span>{line.to_string()}</span> }.into_any()
+}
+
+fn highlight_value(value: &str) -> AnyView {
+    let whitespace_len = value.len() - value.trim_start().len();
+    let (whitespace, value) = value.split_at(whitespace_len);
+    let (scalar, comment) = split_yaml_comment(value);
+    let class = scalar_class(scalar);
+    view! {
+        <span>
+            {whitespace}
+            <span class=class>{scalar.to_string()}</span>
+            {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
+        </span>
+    }
+    .into_any()
+}
+
+fn scalar_class(scalar: &str) -> &'static str {
+    let scalar = scalar.trim_end();
+    if matches!(scalar, "true" | "false" | "null" | "~") || scalar.parse::<f64>().is_ok() {
+        "config-editor__literal"
+    } else if scalar.starts_with('\'') || scalar.starts_with('"') {
+        "config-editor__string"
+    } else {
+        "config-editor__value"
+    }
+}
+
+fn split_yaml_comment(value: &str) -> (&str, Option<&str>) {
+    let characters: Vec<_> = value.char_indices().collect();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut position = 0;
+    while position < characters.len() {
+        let (index, character) = characters[position];
+        if let Some(active_quote) = quote {
+            if active_quote == '\'' && character == '\'' {
+                if characters
+                    .get(position + 1)
+                    .is_some_and(|(_, next)| *next == '\'')
+                {
+                    position += 2;
+                    continue;
+                }
+                quote = None;
+            } else if active_quote == '"' && escaped {
+                escaped = false;
+            } else if active_quote == '"' && character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+        } else if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character == '#'
+            && (index == 0
+                || value[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace))
+        {
+            return (&value[..index], Some(&value[index..]));
+        }
+        position += 1;
+    }
+    (value, None)
+}
+
+fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
+    let cursor = utf16_to_byte_index(source, cursor);
+    let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
+    let line = &source[line_start..cursor];
+    let characters: Vec<_> = line.char_indices().collect();
+    let mut quote = None;
+    let mut comment = false;
+    let mut escaped = false;
+    let mut index = 0;
+    while index < characters.len() {
+        let (byte_index, character) = characters[index];
+        if comment {
+            break;
+        }
+        if let Some(active_quote) = quote {
+            if active_quote == '\'' && character == '\'' {
+                if characters
+                    .get(index + 1)
+                    .is_some_and(|(_, next)| *next == '\'')
+                {
+                    index += 2;
+                    continue;
+                }
+                quote = None;
+            } else if active_quote == '"' && escaped {
+                escaped = false;
+            } else if active_quote == '"' && character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+        } else if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character == '#'
+            && (byte_index == 0
+                || line[..byte_index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace))
+        {
+            comment = true;
+        }
+        index += 1;
+    }
+    (quote, comment)
+}
+
+#[cfg(test)]
+mod tests {
+    //! YAML behavior tests: every rule the YAML text layer implements, pinned
+    //! here next to the implementation. The shared orchestration is exercised
+    //! through thin local forwarders that pin `YamlBehavior`, so test bodies
+    //! read exactly like the old core call sites with zero drift.
+
+    use super::YamlBehavior;
+    use super::super::super::completion::{
+        accept_reopens_suggestions, apply_completion, completions as shared_completions,
+        key_hover as shared_key_hover,
+    };
+    use super::super::super::diagnostics::{
+        Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
+    };
+    use super::super::super::keyboard::paired_edit as shared_paired_edit;
+    use super::super::super::language::LanguageBehavior;
+    use super::{scalar_class, split_yaml_comment};
+
+    fn validate_yaml(
+        source: &str,
+        schema: Option<&SchemaBundle>,
+        schema_error: Option<&str>,
+        enabled: bool,
+    ) -> Vec<Diagnostic> {
+        shared_validate(source, schema, schema_error, enabled, &YamlBehavior)
+    }
+
+    fn completions(
+        source: &str,
+        cursor: usize,
+        force: bool,
+        schema: Option<&SchemaBundle>,
+        enabled: bool,
+    ) -> Vec<super::super::super::completion::Completion> {
+        shared_completions(source, cursor, force, schema, enabled, &YamlBehavior)
+    }
+
+    fn key_hover(
+        source: &str,
+        line_index: usize,
+        column: usize,
+        schema: Option<&SchemaBundle>,
+    ) -> Option<super::super::super::completion::KeyHover> {
+        shared_key_hover(source, line_index, column, schema, &YamlBehavior)
+    }
+
+    fn paired_edit(
+        source: &str,
+        start: usize,
+        end: usize,
+        opening: char,
+    ) -> Option<(String, usize, usize)> {
+        shared_paired_edit(source, start, end, opening, &YamlBehavior)
+    }
+
+    fn newline_with_indent(source: &str, cursor: usize) -> String {
+        YamlBehavior.newline_with_indent(source, cursor)
+    }
+
+    fn toggle_yaml_line_comments(
+        source: &str,
+        selection_start: usize,
+        selection_end: usize,
+    ) -> Option<(String, usize, usize)> {
+        YamlBehavior.toggle_comments(source, selection_start, selection_end)
+    }
+
+    fn test_schema() -> SchemaBundle {
+        build_schema(
+            r#"{"type":"object","properties":{"public_address":{"type":"string","description":"Address"},"websocket":{"type":"object","properties":{"challenge":{"enum":["tls","http","dns"]}}}},"additionalProperties":false}"#,
+        )
+        .unwrap()
+    }
+
+    /// Schema exercising nullable objects, `$ref` branches, `additionalProperties`
+    /// with dynamic keys, enums, and numeric-as-string examples. It lives in
+    /// `tests/fixtures/` (not the workspace-root demo schema) so crate tests never
+    /// reach outside the crate.
+    #[cfg(feature = "completion")]
+    fn fixture_schema() -> SchemaBundle {
+        build_schema(include_str!("../../../tests/fixtures/schema.json")).unwrap()
+    }
+
+    #[test]
+    fn paired_quotes_and_brackets_wrap_selected_text_and_keep_it_selected() {
+        for (opening, expected) in [
+            ('"', "\"value\""),
+            ('\'', "'value'"),
+            ('(', "(value)"),
+            ('[', "[value]"),
+            ('{', "{value}"),
+        ] {
+            let (updated, selection_start, selection_end) =
+                paired_edit("value", 0, 5, opening).unwrap();
+            assert_eq!(updated, expected);
+            assert_eq!((selection_start, selection_end), (1, 6));
+        }
+    }
+
+    #[test]
+    fn paired_brackets_leave_the_cursor_between_the_pair() {
+        let (updated, selection_start, selection_end) = paired_edit("ab", 1, 1, '[').unwrap();
+        assert_eq!(updated, "a[]b");
+        assert_eq!((selection_start, selection_end), (2, 2));
+    }
+
+    #[test]
+    fn opening_bracket_does_not_duplicate_a_closing_bracket_ahead() {
+        let (updated, selection_start, selection_end) = paired_edit(")", 0, 0, '(').unwrap();
+        assert_eq!(updated, "()");
+        assert_eq!((selection_start, selection_end), (1, 1));
+    }
+
+    #[test]
+    fn paired_quote_edit_respects_escaped_context_and_utf16_selections() {
+        assert_eq!(paired_edit("path\\", 5, 5, '"'), None);
+        let (updated, selection_start, selection_end) = paired_edit("🙂x", 0, 3, '"').unwrap();
+        assert_eq!(updated, "\"🙂x\"");
+        assert_eq!((selection_start, selection_end), (1, 4));
+    }
+
+    #[test]
+    fn pairing_does_not_insert_inside_quoted_scalars_or_comments() {
+        assert_eq!(paired_edit("name: \"value\"", 8, 8, '['), None);
+        assert_eq!(paired_edit("name: plain # comment", 17, 17, '['), None);
+    }
+
+    #[test]
+    fn valid_yaml_is_accepted_by_the_provided_schema() {
+        assert!(
+            validate_yaml(
+                "public_address: example.test\n",
+                Some(&test_schema()),
+                None,
+                true
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn syntax_errors_include_the_yaml_line() {
+        let errors = validate_yaml("value: [", None, None, true);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, Some(1));
+        assert!(errors[0].column.is_some());
+        assert!(!errors[0].message.is_empty());
+    }
+
+    #[test]
+    fn an_empty_document_reports_no_diagnostics() {
+        for source in ["", "\n", "  \n  \n"] {
+            assert!(
+                validate_yaml(source, Some(&test_schema()), None, true).is_empty(),
+                "{source:?} should not report diagnostics"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_mapping_keys_are_reported_on_the_repeated_line() {
+        let errors = validate_yaml(
+            "insecure_plaintext: false\ninsecure_plaintext: true\n",
+            None,
+            None,
+            true,
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, Some(2));
+        assert!(errors[0].message.contains("duplicate"));
+    }
+
+    #[test]
+    fn duplicate_keys_are_detected_in_flow_mappings_and_quoted_forms() {
+        for (source, expected_line) in [
+            ("one: 1\n\"one\": 2\n", 2),
+            ("settings: {mode: safe, mode: fast}\n", 1),
+        ] {
+            let errors = validate_yaml(source, None, None, true);
+            assert_eq!(errors.len(), 1, "{source}");
+            assert_eq!(errors[0].line, Some(expected_line), "{source}");
+            assert!(errors[0].message.contains("duplicate"), "{source}");
+        }
+    }
+
+    #[test]
+    fn malformed_schema_is_reported_as_a_diagnostic() {
+        let schema_error = build_schema("not-json").err().unwrap();
+        let errors = validate_yaml("name: app\n", None, Some(&schema_error), true);
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].message.contains("Invalid JSON Schema"),
+            "{}",
+            errors[0].message
+        );
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn schema_errors_are_reported_for_unknown_properties() {
+        let errors = validate_yaml("unknown_option: true\n", Some(&test_schema()), None, true);
+        assert!(!errors.is_empty());
+        assert_eq!(errors[0].line, Some(1));
+        assert_eq!(errors[0].column, Some(1));
+        assert!(errors[0].end_column.unwrap() > errors[0].column.unwrap());
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn nested_schema_errors_map_to_the_yaml_key_range() {
+        let source = "websocket:\n  challenge: invalid\n";
+        let errors = validate_yaml(source, Some(&test_schema()), None, true);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, Some(2));
+        assert_eq!(errors[0].column, Some(14));
+        assert_eq!(errors[0].end_column, Some(21));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn top_level_property_suggestions_come_from_the_schema() {
+        let input = "pub";
+        let schema = test_schema();
+        let options = completions(input, 3, false, Some(&schema), true);
+        let option = options
+            .iter()
+            .find(|option| option.label == "public_address")
+            .unwrap();
+        assert!(!option.is_value);
+        assert_eq!(option.type_label, "string");
+        assert_eq!(option.detail, "Address");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn explicit_completion_request_offers_schema_properties_at_an_empty_position() {
+        let options = completions("", 0, true, Some(&test_schema()), true);
+        assert!(!options.is_empty());
+        assert!(
+            options
+                .iter()
+                .any(|option| option.label == "public_address")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn property_completions_omit_keys_already_present_in_the_mapping() {
+        let input = "public_address: existing\n";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            true,
+            Some(&test_schema()),
+            true,
+        );
+        assert!(
+            !options
+                .iter()
+                .any(|option| option.label == "public_address")
+        );
+        assert!(options.iter().any(|option| option.label == "websocket"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn partially_typed_keys_do_not_reoffer_existing_keys_when_yaml_is_temporarily_invalid() {
+        let schema = fixture_schema();
+        let input = "listen: 7835\ninsecure_plaintext: false\nins";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(
+            !options
+                .iter()
+                .any(|option| option.label == "insecure_plaintext")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn cursor_before_a_mapping_colon_is_treated_as_key_completion_without_panicking() {
+        let schema = fixture_schema();
+        let input = "insecure_plaintext: false";
+        let cursor = "ins".encode_utf16().count();
+        let option = completions(input, cursor, false, Some(&schema), true)
+            .into_iter()
+            .find(|option| option.label == "insecure_plaintext")
+            .expect("partial key should be completed as a property, not a boolean value");
+        assert_eq!(apply_completion(input, &option).0, input);
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn enum_suggestions_are_available_for_nested_values() {
+        let input = "websocket:\n  challenge: t";
+        let schema = test_schema();
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let option = options.iter().find(|option| option.label == "tls").unwrap();
+        assert!(option.is_value);
+        assert_eq!(option.type_label, "enum");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn property_completion_displays_combined_schema_types() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"name":{"anyOf":[{"type":"string"},{"type":"null"}]}}}"#,
+        )
+        .unwrap();
+        let options = completions("", 0, true, Some(&schema), true);
+        let option = options
+            .iter()
+            .find(|option| option.label == "name")
+            .unwrap();
+        assert_eq!(option.type_label, "null | string");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn property_completion_quotes_keys_that_need_yaml_quoting() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"display:name":{"type":"string"},"true":{"type":"boolean"}}}"#,
+        )
+        .unwrap();
+        let options = completions("", 0, true, Some(&schema), true);
+        assert_eq!(
+            options
+                .iter()
+                .find(|option| option.label == "display:name")
+                .unwrap()
+                .insert,
+            "\"display:name\": "
+        );
+        assert_eq!(
+            options
+                .iter()
+                .find(|option| option.label == "true")
+                .unwrap()
+                .insert,
+            "\"true\": "
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn object_completion_expands_required_fields_and_places_cursor_at_first_value() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"auth":{"type":"object","required":["enabled","token","mode"],"properties":{"enabled":{"type":"boolean","default":false},"token":{"type":"string"},"mode":{"type":"string","default":"safe"}}}}}"#,
+        )
+        .unwrap();
+        let options = completions("", 0, true, Some(&schema), true);
+        let option = options
+            .iter()
+            .find(|option| option.label == "auth")
+            .unwrap();
+        assert_eq!(
+            option.insert,
+            "auth:\n  enabled: false\n  token: \n  mode: safe\n"
+        );
+        let (updated, cursor) = apply_completion("", option);
+        assert_eq!(updated, option.insert);
+        assert_eq!(
+            cursor,
+            "auth:\n  enabled: false\n  token: ".encode_utf16().count()
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn completions_follow_additional_properties_into_dynamic_object_values() {
+        let schema = build_schema(
+            r##"{
+                "type":"object",
+                "properties":{
+                    "clients":{
+                        "type":"object",
+                        "default":{},
+                        "additionalProperties":{
+                            "$ref":"#/$defs/Client"
+                        }
+                    }
+                },
+                "$defs":{
+                    "Client":{
+                        "type":"object",
+                        "properties":{
+                            "secret":{"type":"string"},
+                            "max_connections":{"type":"integer"}
+                        }
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        let root_options = completions("", 0, true, Some(&schema), true);
+        assert_eq!(
+            root_options
+                .iter()
+                .find(|option| option.label == "clients")
+                .unwrap()
+                .insert,
+            "clients:\n  "
+        );
+        let input = "clients:\n  alex:\n    ";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        );
+        assert!(options.iter().any(|option| option.label == "secret"));
+        assert!(
+            options
+                .iter()
+                .any(|option| option.label == "max_connections")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn fixture_schema_covers_dynamic_client_keys_through_additional_properties() {
+        let schema = fixture_schema();
+        let input = "clients:\n  alex:\n    ";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        );
+        assert!(options.iter().any(|option| option.label == "secret"));
+        assert!(
+            options
+                .iter()
+                .any(|option| option.label == "max_connections")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn completions_follow_pattern_properties_and_quoted_mapping_keys() {
+        let schema = build_schema(
+            r##"{
+                "type":"object",
+                "patternProperties":{
+                    "^client:":{
+                        "type":"object",
+                        "properties":{"enabled":{"type":"boolean"}}
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        let input = "\"client:one\":\n  en";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(options.iter().any(|option| option.label == "enabled"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn array_item_completions_follow_items_and_prefix_items_schemas() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "clients":{
+                        "type":"array",
+                        "items":{
+                            "type":"object",
+                            "properties":{"name":{"type":"string"}}
+                        }
+                    },
+                    "modes":{
+                        "type":"array",
+                        "default":[],
+                        "prefixItems":[{"enum":["fast","safe"]}]
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let root_options = completions("", 0, true, Some(&schema), true);
+        assert_eq!(
+            root_options
+                .iter()
+                .find(|option| option.label == "modes")
+                .unwrap()
+                .insert,
+            "modes:\n  - "
+        );
+
+        let object_input = "clients:\n  - na";
+        let object_options = completions(
+            object_input,
+            object_input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(object_options.iter().any(|option| option.label == "name"));
+
+        let enum_input = "modes:\n  - fa";
+        let enum_options = completions(
+            enum_input,
+            enum_input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(enum_options.iter().any(|option| option.label == "fast"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn const_and_boolean_schema_values_are_suggested_and_inserted() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "enabled":{"const":true},
+                    "secure":{"type":"boolean"}
+                }
+            }"#,
+        )
+        .unwrap();
+        let key_options = completions("", 0, true, Some(&schema), true);
+        assert_eq!(
+            key_options
+                .iter()
+                .find(|option| option.label == "enabled")
+                .unwrap()
+                .insert,
+            "enabled: true"
+        );
+
+        let value_input = "secure: t";
+        let value_options = completions(
+            value_input,
+            value_input.encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        );
+        assert!(value_options.iter().any(|option| option.label == "true"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn examples_and_example_schema_values_are_suggested_in_value_positions() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "region":{"type":"string","examples":["eu-west-1","us-east-1"]},
+                    "legacy":{"type":"string","example":"old.example"}
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let region_input = "region: eu";
+        let region_options = completions(
+            region_input,
+            region_input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let region = region_options
+            .iter()
+            .find(|option| option.label == "eu-west-1")
+            .unwrap();
+        assert!(region.is_value);
+        assert_eq!(region.insert, "eu-west-1");
+
+        let legacy_input = "legacy: ol";
+        let legacy_options = completions(
+            legacy_input,
+            legacy_input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(
+            legacy_options
+                .iter()
+                .any(|option| option.label == "old.example")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn nullable_type_arrays_expand_objects_and_offer_null_values() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "cache":{
+                        "type":["object","null"],
+                        "properties":{
+                            "size":{"type":"integer"},
+                            "ttl":{"type":"integer"}
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let key_options = completions("", 0, true, Some(&schema), true);
+        assert_eq!(
+            key_options
+                .iter()
+                .find(|option| option.label == "cache")
+                .unwrap()
+                .insert,
+            "cache:\n  "
+        );
+
+        let value_input = "cache: n";
+        let value_options = completions(
+            value_input,
+            value_input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert!(value_options.iter().any(|option| option.label == "null"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn fuzzy_completion_matches_word_initials_and_subsequences() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "max_connections":{"type":"integer"},
+                    "min_connections":{"type":"integer"}
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let input = "maxc";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert_eq!(
+            options.first().map(|option| option.label.as_str()),
+            Some("max_connections")
+        );
+        assert!(
+            !options
+                .iter()
+                .any(|option| option.label == "min_connections")
+        );
+
+        let initials = "mc";
+        let initials_options = completions(
+            initials,
+            initials.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        assert_eq!(initials_options.len(), 2);
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn quoted_partial_keys_are_replaced_with_the_quoted_schema_key() {
+        let schema =
+            build_schema(r#"{"type":"object","properties":{"display:name":{"type":"string"}}}"#)
+                .unwrap();
+        let input = "\"disp";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.label == "display:name")
+            .unwrap();
+        assert_eq!(option.insert, "\"display:name\": ");
+        let (updated, cursor) = apply_completion(input, option);
+        assert_eq!(updated, "\"display:name\": ");
+        assert_eq!(cursor, updated.encode_utf16().count());
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn expanded_completions_follow_the_document_indentation_unit() {
+        let schema = build_schema(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "server":{
+                        "type":"object",
+                        "properties":{
+                            "auth":{
+                                "type":"object",
+                                "required":["enabled","token"],
+                                "properties":{
+                                    "enabled":{"type":"boolean","default":false},
+                                    "token":{"type":"string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let input = "server:\n    ";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.label == "auth")
+            .unwrap();
+        assert_eq!(
+            option.insert,
+            "auth:\n        enabled: false\n        token: \n"
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn typing_on_a_blank_line_suggests_missing_top_level_keys() {
+        let schema = fixture_schema();
+        let input = "listen: 7835\n\nc";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
+        assert!(
+            labels.contains(&"clients"),
+            "typing 'c' on a blank line should suggest missing keys, got: {labels:?}"
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn typing_after_a_fresh_indent_suggests_nested_keys() {
+        let schema = fixture_schema();
+        let input = "web:\n  h";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
+        assert!(
+            labels.contains(&"http") || labels.contains(&"https"),
+            "typing after a fresh indent should suggest nested keys, got: {labels:?}"
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn empty_query_on_a_fresh_indent_stays_silent_without_force() {
+        let schema = fixture_schema();
+        let input = "clients:\n  alex:\n    ";
+        let cursor = input.encode_utf16().count();
+        assert!(
+            completions(input, cursor, false, Some(&schema), true).is_empty(),
+            "empty query without Ctrl+Space should stay silent (VS Code parity)"
+        );
+        assert!(
+            !completions(input, cursor, true, Some(&schema), true).is_empty(),
+            "Ctrl+Space on a fresh indent should list nested keys"
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn fixture_web_http_value_completion_stays_on_the_same_line() {
+        let schema = fixture_schema();
+        let input = "web:\n  http: ";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.label == "0.0.0.0:7835")
+            .expect("Bind examples should be offered for web.http");
+        let (updated, cursor) = apply_completion(input, option);
+        assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
+        assert_eq!(cursor, updated.encode_utf16().count());
+    }
+
+    #[test]
+    fn enter_continues_yaml_indentation_and_nests_after_a_mapping_key() {
+        assert_eq!(newline_with_indent("services:", 9), "\n  ");
+        assert_eq!(newline_with_indent("services:\n  web: ", 17), "\n    ");
+    }
+
+    #[test]
+    fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
+        let source = "services:\n  - web:";
+        assert_eq!(newline_with_indent(source, source.len()), "\n      ");
+
+        let compact = "services:\n  - billing: 8080";
+        assert_eq!(newline_with_indent(compact, compact.len()), "\n    ");
+
+        let padded = "services:\n  -   web:";
+        assert_eq!(newline_with_indent(padded, padded.len()), "\n        ");
+
+        let empty_item = "services:\n  - ";
+        assert_eq!(newline_with_indent(empty_item, empty_item.len()), "\n  - ");
+
+        let plain_scalar_key = "services:\n  -web: 8080";
+        assert_eq!(
+            newline_with_indent(plain_scalar_key, plain_scalar_key.len()),
+            "\n  "
+        );
+    }
+
+    #[test]
+    fn comment_shortcut_comments_selected_lines_and_preserves_selection() {
+        let source = "one: 1\ntwo: 2\n";
+        let (updated, start, end) =
+            toggle_yaml_line_comments(source, 0, source.encode_utf16().count()).unwrap();
+        assert_eq!(updated, "# one: 1\n# two: 2\n");
+        assert_eq!(start, 0);
+        assert_eq!(end, updated.encode_utf16().count());
+    }
+
+    #[test]
+    fn comment_shortcut_uncomments_indented_lines_and_keeps_blank_lines() {
+        let source = "  # first\n\n  # second\n";
+        let (updated, _, _) =
+            toggle_yaml_line_comments(source, 0, source.encode_utf16().count()).unwrap();
+        assert_eq!(updated, "  first\n\n  second\n");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn accepting_a_value_closes_suggestions_but_accepting_a_key_reopens_them() {
+        let schema = fixture_schema();
+        let input = "web:\n  http: ";
+        let value = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        )
+        .into_iter()
+        .find(|option| option.label == "0.0.0.0:7835")
+        .expect("web.http example should be suggested");
+        assert!(!accept_reopens_suggestions(&value, true));
+
+        let key = completions(
+            "web:\n  ",
+            "web:\n  ".encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        )
+        .into_iter()
+        .find(|option| option.label == "http")
+        .expect("web.http key should be suggested");
+        assert!(accept_reopens_suggestions(&key, true));
+        assert!(!accept_reopens_suggestions(&key, false));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn value_directly_after_a_bare_colon_gets_a_separating_space() {
+        let schema = fixture_schema();
+        let input = "web:\n  http:";
+        let option = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        )
+        .into_iter()
+        .find(|option| option.label == "0.0.0.0:7835")
+        .expect("web.http example should be suggested after a bare colon");
+        let (updated, cursor) = apply_completion(input, &option);
+        assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
+        assert_eq!(cursor, updated.encode_utf16().count());
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn hovering_a_key_returns_its_schema_documentation() {
+        let schema = fixture_schema();
+        let source = "web:\n  http: 80\n";
+        let web = key_hover(source, 0, 1, Some(&schema)).expect("web should have docs");
+        assert_eq!(web.key, "web");
+        assert_eq!(
+            web.description.as_deref(),
+            Some("The web proxy settings; off unless set")
+        );
+
+        let http = key_hover(source, 1, 4, Some(&schema)).expect("nested http should have docs");
+        assert_eq!(http.key, "http");
+        assert_eq!(http.start_column, 2);
+        assert_eq!(
+            http.examples,
+            vec!["0.0.0.0:7835".to_string(), "7835".to_string()]
+        );
+        assert!(http.type_label.contains("integer") || http.type_label.contains("string"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn hovering_outside_a_key_or_on_an_unknown_key_shows_nothing() {
+        let schema = fixture_schema();
+        let source = "web:\n  http: 80\n  unknown_key: 1\n";
+        assert!(
+            key_hover(source, 1, 8, Some(&schema)).is_none(),
+            "value text is not a key"
+        );
+        assert!(
+            key_hover(source, 2, 3, Some(&schema)).is_none(),
+            "unknown keys have no schema"
+        );
+        assert!(
+            key_hover(source, 0, 1, None).is_none(),
+            "no schema, no docs"
+        );
+    }
+
+    #[test]
+    fn hover_marks_required_properties_from_the_parent_schema() {
+        let schema = build_schema(
+            r#"{"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"App name"},"port":{"type":"integer","default":8080}}}"#,
+        )
+        .unwrap();
+        let name = key_hover("name: app\n", 0, 0, Some(&schema)).unwrap();
+        assert!(name.required);
+        assert_eq!(name.description.as_deref(), Some("App name"));
+        let port = key_hover("port: 1\n", 0, 0, Some(&schema)).unwrap();
+        assert!(!port.required);
+        assert_eq!(port.default.as_deref(), Some("8080"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn null_is_offered_only_when_explicitly_requested_or_typed() {
+        let schema = fixture_schema();
+        let auto = completions("web:", 4, false, Some(&schema), true);
+        assert!(
+            auto.iter().all(|option| option.label != "null"),
+            "auto-triggered list after a bare key must not offer null"
+        );
+        let explicit = completions("web:", 4, true, Some(&schema), true);
+        assert!(explicit.iter().any(|option| option.label == "null"));
+        let typed = completions("listen: nu", 10, false, Some(&schema), true);
+        assert!(typed.iter().any(|option| option.label == "null"));
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn numeric_examples_are_inserted_as_numbers_when_the_schema_allows_integers() {
+        let schema = fixture_schema();
+        let input = "listen: ";
+        let port = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        )
+        .into_iter()
+        .find(|option| option.label == "7835")
+        .expect("port example should be suggested");
+        let (updated, _) = apply_completion(input, &port);
+        assert_eq!(updated, "listen: 7835");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() {
+        use crate::editor::languages::yaml::yaml_value;
+        use serde_json::Value;
+        let schema = fixture_schema();
+        let input = "services:\n  billing:\n    protocol: ";
+        let udp = completions(
+            input,
+            input.encode_utf16().count(),
+            false,
+            Some(&schema),
+            true,
+        )
+        .into_iter()
+        .find(|option| option.label == "udp")
+        .expect("protocol values should be suggested");
+        assert_eq!(
+            apply_completion(input, &udp).0,
+            "services:\n  billing:\n    protocol: udp"
+        );
+        assert_eq!(yaml_value(&Value::String("yes".into())), "\"yes\"");
+        assert_eq!(yaml_value(&Value::String("7835".into())), "\"7835\"");
+        assert_eq!(
+            yaml_value(&Value::String("0.0.0.0:7835".into())),
+            "\"0.0.0.0:7835\""
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn required_properties_sort_before_optional_ones() {
+        let schema = fixture_schema();
+        let input = "services:\n  dashboard:\n    ";
+        let options = completions(
+            input,
+            input.encode_utf16().count(),
+            true,
+            Some(&schema),
+            true,
+        );
+        assert_eq!(
+            options.first().map(|option| option.label.as_str()),
+            Some("target")
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn value_for_an_expanded_required_key_stays_on_its_line() {
+        let schema = fixture_schema();
+        // This is exactly what accepting `metrics` inserts: a trailing newline follows
+        // the empty value of its required `listen` key.
+        let input = "metrics:\n  listen: \n";
+        let cursor = "metrics:\n  listen: ".encode_utf16().count();
+        let option = completions(input, cursor, false, Some(&schema), true)
+            .into_iter()
+            .find(|option| option.label == "0.0.0.0:7835")
+            .expect("metrics.listen should offer Bind examples");
+        let (updated, cursor_after) = apply_completion(input, &option);
+        assert_eq!(updated, "metrics:\n  listen: \"0.0.0.0:7835\"\n");
+        assert_eq!(
+            cursor_after,
+            "metrics:\n  listen: \"0.0.0.0:7835\""
+                .encode_utf16()
+                .count()
+        );
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token() {
+        let schema = fixture_schema();
+        let input = "update:\n  remote: ftrue";
+        let cursor = "update:\n  remote: f".encode_utf16().count();
+        let option = completions(input, cursor, false, Some(&schema), true)
+            .into_iter()
+            .find(|option| option.label == "false")
+            .expect("typing before existing text should suggest the matching value");
+        let (updated, cursor_after) = apply_completion(input, &option);
+        assert_eq!(updated, "update:\n  remote: false");
+        assert_eq!(cursor_after, updated.encode_utf16().count());
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn accepting_a_value_keeps_an_inline_comment() {
+        let schema = fixture_schema();
+        let input = "update:\n  remote: tru # keep me";
+        let cursor = "update:\n  remote: tru".encode_utf16().count();
+        let option = completions(input, cursor, false, Some(&schema), true)
+            .into_iter()
+            .find(|option| option.label == "true")
+            .expect("true should match the partial value");
+        let (updated, _) = apply_completion(input, &option);
+        assert_eq!(updated, "update:\n  remote: true # keep me");
+    }
+
+    #[cfg(feature = "completion")]
+    #[test]
+    fn completion_replace_range_survives_multibyte_characters_before_the_caret() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"café":{"type":"string"},"listen":{"type":"integer"}}}"#,
+        )
+        .unwrap();
+        // `é` is one UTF-16 unit but two UTF-8 bytes, so byte and UTF-16 offsets
+        // diverge before the caret. A byte-based replace end would overshoot and
+        // eat the trailing value when the completion is accepted.
+        let input = "café: 1\nlis: 2";
+        let cursor = "café: 1\nlis".encode_utf16().count();
+        let option = completions(input, cursor, false, Some(&schema), true)
+            .into_iter()
+            .find(|option| option.label == "listen")
+            .expect("partial key should complete to the schema property");
+        let (updated, _) = apply_completion(input, &option);
+        assert_eq!(updated, "café: 1\nlisten: 2");
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn a_nested_key_maps_to_its_own_line_not_the_first_key_with_the_same_name() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"},"websocket":{"type":"object","properties":{"listen":{"type":"integer","minimum":1}}}}}"#,
+        )
+        .unwrap();
+        let source = "listen: 7835\nwebsocket:\n  listen: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(11));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_unexpected_nested_key_maps_to_its_own_line_not_a_root_key_with_the_same_name() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"},"websocket":{"type":"object","properties":{},"additionalProperties":false}}}"#,
+        )
+        .unwrap();
+        let source = "listen: 7835\nwebsocket:\n  listen: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn a_key_inside_a_sequence_item_maps_to_its_own_line() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"weight":{"type":"integer"},"services":{"type":"object","additionalProperties":{"type":"object","properties":{"clients":{"type":"array","items":{"type":"object","properties":{"weight":{"type":"integer","minimum":1}}}}}}}}}"#,
+        )
+        .unwrap();
+        let source = "weight: 5\nservices:\n  billing:\n    clients:\n      - name: laptop\n        weight: 0\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(6));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn an_empty_sequence_item_error_points_to_the_dash_line() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"self":{"type":"object","properties":{"allow":{"type":"array","items":{"type":"string"}}}}}}"#,
+        )
+        .unwrap();
+        let source = "self:\n  allow:\n    - \n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(3));
+        assert_eq!(diagnostics[0].column, Some(7));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn empty_schema_value_points_after_the_colon_instead_of_at_the_key() {
+        let schema = build_schema(
+            r#"{"type":"object","properties":{"websocket":{"type":"object","properties":{"listen":{"type":"string"}}}}}"#,
+        )
+        .unwrap();
+        let source = "websocket:\n  listen: \n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(2));
+        assert_eq!(diagnostics[0].column, Some(11));
+        assert_eq!(diagnostics[0].end_column, Some(12));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn empty_schema_value_with_comment_points_to_the_value_slot() {
+        let schema =
+            build_schema(r#"{"type":"object","properties":{"listen":{"type":"string"}}}"#).unwrap();
+        let source = "listen: # set a port\n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(1));
+        assert_eq!(diagnostics[0].column, Some(9));
+        assert_eq!(diagnostics[0].end_column, Some(10));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn nested_any_of_errors_point_to_the_specific_empty_value() {
+        let schema = build_schema(
+            r##"{
+                "type":"object",
+                "properties":{
+                    "websocket":{
+                        "anyOf":[
+                            {"$ref":"#/$defs/WebSocket"},
+                            {"type":"null"}
+                        ]
+                    }
+                },
+                "$defs":{
+                    "WebSocket":{
+                        "type":"object",
+                        "properties":{
+                            "listen":{"anyOf":[{"type":"integer"},{"type":"string"}]}
+                        },
+                        "required":["listen"]
+                    }
+                }
+            }"##,
+        )
+        .unwrap();
+        let source = "websocket:\n  listen: \n";
+
+        let diagnostics = validate_yaml(source, Some(&schema), None, true);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(2));
+        assert_eq!(diagnostics[0].column, Some(11));
+        assert!(diagnostics[0].message.contains("/websocket/listen"));
+    }
+
+    #[test]
+    fn plain_scalars_are_colored_as_strings_and_yaml_literals_stay_distinct() {
+        assert_eq!(scalar_class("unquoted value"), "config-editor__value");
+        assert_eq!(scalar_class("\"quoted value\""), "config-editor__string");
+        assert_eq!(scalar_class("false"), "config-editor__literal");
+        assert_eq!(scalar_class("42"), "config-editor__literal");
+    }
+
+    #[test]
+    fn comments_are_split_only_outside_yaml_quotes() {
+        assert_eq!(
+            split_yaml_comment("plain value # note"),
+            ("plain value ", Some("# note"))
+        );
+        assert_eq!(
+            split_yaml_comment("\"value # not a comment\""),
+            ("\"value # not a comment\"", None)
+        );
+        assert_eq!(
+            split_yaml_comment("'it''s # still quoted'"),
+            ("'it''s # still quoted'", None)
+        );
+    }
+
+}

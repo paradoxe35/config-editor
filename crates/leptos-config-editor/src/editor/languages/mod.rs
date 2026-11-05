@@ -1,16 +1,26 @@
-//! Document languages supported by the editor.
+//! Language registry: the [`Language`] selector plus each variant's behavior.
 //!
-//! Each language lives in its own file behind [`LanguageBehavior`] (defined
-//! in Phase 2). This module currently holds the [`Language`] selector only;
-//! per-language behavior moves here verbatim in Phase 2 (`yaml.rs`) and
-//! Phase 3 (`json.rs`).
+//! This is the only place (besides the `<ConfigEditor language=…>` call site)
+//! that names document languages. Core (`language.rs`, `diagnostics.rs`,
+//! `completion.rs`, `keyboard.rs`, `commands.rs`, `editor.rs`) never matches on
+//! variants and never imports a language file — it calls `language.behavior()`
+//! and programs against the [`LanguageBehavior`](super::language::LanguageBehavior)
+//! trait. Adding a language means one new file here plus one line in the
+//! `match` below — no core changes.
+
+use super::language::LanguageBehavior;
+
+mod yaml;
+use yaml::YamlBehavior;
+
+static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
 
 /// Document language edited by the component.
 ///
-/// Selects the text layer (parsing, completion context, inserts, hover
-/// lookup, highlighting, newline/indent, comments). Everything else —
-/// history, diffs, completion ranking, schema navigation, popups — is
-/// language-independent and stays shared.
+/// A plain selector: no syntax lives here. Selects the text layer (parsing,
+/// completion context, inserts, hover lookup, highlighting, newline/indent,
+/// comments). Everything else — history, diffs, completion ranking, schema
+/// navigation, popups — is language-independent and stays shared.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Language {
     /// YAML documents (default; preserves the original editor behavior).
@@ -38,6 +48,26 @@ impl Language {
             Language::Json => "J",
         }
     }
+
+    /// Default file name used by the built-in toolbar when the host provides
+    /// none.
+    pub fn default_file_name(self) -> &'static str {
+        match self {
+            Language::Yaml => "untitled.yaml",
+            Language::Json => "untitled.json",
+        }
+    }
+
+    /// The behavior implementing this language's text layer. Returned as a
+    /// `&'static` reference so call sites and closures share it freely.
+    pub(super) fn behavior(self) -> &'static dyn LanguageBehavior {
+        match self {
+            // JSON support lands in Phase 3 with `JsonBehavior`. Until then
+            // the declared `Json` variant falls back to YAML semantics, which
+            // parses JSON-flow documents, rather than panicking in hosts.
+            Language::Yaml | Language::Json => &YAML_BEHAVIOR,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -55,5 +85,11 @@ mod tests {
         assert_eq!(Language::Json.label(), "JSON");
         assert_eq!(Language::Yaml.file_icon(), "Y");
         assert_eq!(Language::Json.file_icon(), "J");
+    }
+
+    #[test]
+    fn default_file_names_carry_the_language_extension() {
+        assert_eq!(Language::Yaml.default_file_name(), "untitled.yaml");
+        assert_eq!(Language::Json.default_file_name(), "untitled.json");
     }
 }

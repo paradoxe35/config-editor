@@ -1,19 +1,13 @@
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::language::{LanguageBehavior, SchemaPathSegment};
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
-use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
-
-#[derive(Clone, PartialEq, Eq)]
-enum SchemaPathSegment {
-    Key(String),
-    ArrayItem(usize),
-}
 
 #[derive(Clone, PartialEq)]
 pub(super) struct Completion {
@@ -29,18 +23,6 @@ pub(super) struct Completion {
     /// highlighting the match in the suggestion row. Empty when the query is
     /// empty or when scoring fell through without tracking positions.
     pub(super) matched: Vec<(usize, usize)>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct CompletionContext {
-    path: Vec<SchemaPathSegment>,
-    typed: String,
-    replace_start: usize,
-    replace_end: usize,
-    value_key: Option<String>,
-    value_needs_space: bool,
-    is_array_item: bool,
-    base_indent: String,
 }
 
 fn schema_type_label(schema: &Value, root: &Value, fallback: &str) -> String {
@@ -81,60 +63,19 @@ fn type_includes(schema: &Value, expected: &str) -> bool {
     }
 }
 
-fn yaml_key_for_completion(key: &str) -> Option<String> {
-    let plain_key = !key.is_empty()
-        && key
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
-        && key.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
-        })
-        && !matches!(key.to_ascii_lowercase().as_str(), "true" | "false" | "null");
-    if plain_key {
-        Some(key.to_string())
-    } else {
-        serde_json::to_string(key).ok()
-    }
-}
-
-pub(super) fn yaml_value(value: &Value) -> String {
-    match value {
-        Value::String(value) if is_plain_identifier(value) => value.clone(),
-        Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),
-        _ => value.to_string(),
-    }
-}
-
-/// Enum-style words (`udp`, `least_connections`) read as plain YAML scalars, the way
-/// the YAML language server writes them. Anything that YAML could read as a number,
-/// boolean, or null, or that contains punctuation, stays quoted.
-fn is_plain_identifier(text: &str) -> bool {
-    text.chars()
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
-        && text.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
-        })
-        && !matches!(
-            text.to_ascii_lowercase().as_str(),
-            "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n"
-        )
-}
-
-fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+pub(super) fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find_map(|branch| branch.get("default"))
 }
 
-fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+pub(super) fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find_map(|branch| branch.get("const"))
 }
 
-fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+pub(super) fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find(|branch| {
@@ -145,7 +86,7 @@ fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
         })
 }
 
-fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+pub(super) fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find(|branch| {
@@ -153,319 +94,6 @@ fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
                 || branch.get("prefixItems").is_some()
                 || type_includes(branch, "array")
         })
-}
-
-fn append_required_properties(
-    schema: &Value,
-    root: &Value,
-    child_indent: &str,
-    unit: &str,
-    base_offset: usize,
-    output: &mut String,
-    cursor_offset: &mut Option<usize>,
-) -> bool {
-    let Some(branch) = object_branch(schema, root) else {
-        return false;
-    };
-    let required = branch.get("required").and_then(Value::as_array);
-    let properties = branch.get("properties").and_then(Value::as_object);
-    let Some(required) = required else {
-        return false;
-    };
-    let nested_indent = format!("{child_indent}{unit}");
-    let mut appended = false;
-    for required_key in required.iter().filter_map(Value::as_str) {
-        let Some(property) = properties.and_then(|properties| properties.get(required_key)) else {
-            continue;
-        };
-        let Some(yaml_key) = yaml_key_for_completion(required_key) else {
-            continue;
-        };
-        output.push_str(child_indent);
-        output.push_str(&yaml_key);
-        output.push(':');
-        if let Some(default) = schema_default(property, root) {
-            output.push(' ');
-            output.push_str(&yaml_value(default));
-            output.push('\n');
-        } else if object_branch(property, root).is_some() {
-            let mut children = String::new();
-            if append_required_properties(
-                property,
-                root,
-                &nested_indent,
-                unit,
-                base_offset + output.encode_utf16().count() + 1,
-                &mut children,
-                cursor_offset,
-            ) {
-                output.push('\n');
-                output.push_str(&children);
-            } else {
-                output.push_str(" {}\n");
-            }
-        } else {
-            output.push(' ');
-            if cursor_offset.is_none() {
-                *cursor_offset = Some(base_offset + output.encode_utf16().count());
-            }
-            output.push('\n');
-        }
-        appended = true;
-    }
-    appended
-}
-
-fn property_completion_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    base_indent: &str,
-    unit: &str,
-) -> Option<(String, usize)> {
-    let yaml_key = yaml_key_for_completion(key)?;
-    let child_indent = format!("{base_indent}{unit}");
-    let mut insert = format!("{yaml_key}:");
-    if let Some(value) = schema_const(property, root) {
-        insert.push(' ');
-        insert.push_str(&yaml_value(value));
-    } else if array_branch(property, root).is_some() {
-        let default = schema_default(property, root);
-        if let Some(default) = default.filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
-            insert.push(' ');
-            insert.push_str(&yaml_value(default));
-        } else {
-            insert.push('\n');
-            insert.push_str(&child_indent);
-            insert.push_str("- ");
-        }
-    } else if let Some(branch) = object_branch(property, root) {
-        let default = schema_default(property, root);
-        if let Some(default) =
-            default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
-        {
-            insert.push(' ');
-            insert.push_str(&yaml_value(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
-        }
-        let mut cursor_offset = None;
-        let mut children = String::new();
-        if append_required_properties(
-            branch,
-            root,
-            &child_indent,
-            unit,
-            insert.encode_utf16().count() + 1,
-            &mut children,
-            &mut cursor_offset,
-        ) {
-            insert.push('\n');
-            insert.push_str(&children);
-        } else if branch.get("properties").is_some()
-            || branch.get("patternProperties").is_some()
-            || branch.get("additionalProperties").is_some()
-        {
-            insert.push('\n');
-            insert.push_str(&child_indent);
-        } else {
-            insert.push_str(" {}");
-        }
-        let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
-        return Some((insert, cursor));
-    } else if let Some(default) = schema_default(property, root) {
-        insert.push(' ');
-        insert.push_str(&yaml_value(default));
-    } else {
-        insert.push(' ');
-    }
-    let cursor = insert.encode_utf16().count();
-    Some((insert, cursor))
-}
-
-fn mapping_colon(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':')
-                if line[index + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Length of the scalar at the start of `text`, stopping before an inline comment.
-fn value_token_len(text: &str) -> usize {
-    let mut end = text.len();
-    for (index, character) in text.char_indices() {
-        let comment_start =
-            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
-        if comment_start {
-            end = index;
-            break;
-        }
-    }
-    text[..end].trim_end().len()
-}
-
-fn completion_context(source: &str, cursor: usize) -> CompletionContext {
-    let cursor = utf16_to_byte_index(source, cursor);
-    let before_cursor = &source[..cursor];
-    let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
-    let current_line = &source[current_line_start..];
-    let leading_whitespace =
-        current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
-    let indent = leading_whitespace;
-    let prefix = &current_line[indent..];
-
-    let mut ancestors: Vec<(usize, SchemaPathSegment)> = Vec::new();
-    let mut item_counts = std::collections::BTreeMap::<usize, usize>::new();
-    for line in source[..current_line_start].lines() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let line_indent = line.len() - trimmed.len();
-        let is_array_item = trimmed == "-" || trimmed.starts_with("- ");
-        let (mapping, mapping_indent) = if is_array_item {
-            while ancestors
-                .last()
-                .is_some_and(|(level, _)| *level >= line_indent)
-            {
-                ancestors.pop();
-            }
-            item_counts.retain(|level, _| *level <= line_indent);
-            let index = item_counts.entry(line_indent).or_default();
-            ancestors.push((line_indent, SchemaPathSegment::ArrayItem(*index)));
-            *index += 1;
-            (
-                trimmed.strip_prefix('-').unwrap_or_default().trim_start(),
-                line_indent + 2,
-            )
-        } else {
-            item_counts.retain(|level, _| *level <= line_indent);
-            (trimmed, line_indent)
-        };
-        let Some(colon) = mapping_colon(mapping) else {
-            continue;
-        };
-        let key = mapping[..colon].trim().trim_matches(['\'', '"']);
-        if key.is_empty() {
-            continue;
-        }
-        while ancestors
-            .last()
-            .is_some_and(|(level, _)| *level >= mapping_indent)
-        {
-            ancestors.pop();
-        }
-        if mapping[colon + 1..].trim().is_empty() {
-            ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
-        }
-    }
-    while ancestors.last().is_some_and(|(level, _)| *level >= indent) {
-        ancestors.pop();
-    }
-    let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
-    let current_is_array_item = prefix == "-" || prefix.starts_with("- ");
-    let (line_content, content_offset) = if current_is_array_item {
-        let index = item_counts.get(&indent).copied().unwrap_or_default();
-        path.push(SchemaPathSegment::ArrayItem(index));
-        let after_dash = prefix.strip_prefix('-').unwrap_or_default();
-        let content = after_dash.trim_start();
-        let offset = 1 + after_dash.len() - content.len();
-        (content, offset)
-    } else {
-        (prefix, 0)
-    };
-    let candidate_colon = mapping_colon(line_content);
-    let content_start = indent + content_offset;
-    let cursor_in_content = cursor
-        .saturating_sub(current_line_start)
-        .saturating_sub(content_start)
-        .min(line_content.len());
-    // A colon to the right of the caret still belongs to the key being edited;
-    // treating it as a value separator can produce a reversed string slice.
-    let colon = candidate_colon.filter(|colon| *colon < cursor_in_content);
-    // Only the text before the caret decides the value position. A trailing
-    // newline (for example from an expanded required property) must not move the
-    // insertion point past the end of the value.
-    let value_start = colon.map(|colon| {
-        let after_colon = &line_content[colon + 1..];
-        let before_caret = &after_colon[..cursor_in_content
-            .saturating_sub(colon + 1)
-            .min(after_colon.len())];
-        before_caret.len() - before_caret.trim_start().len()
-    });
-    let value_key = colon
-        .map(|colon| {
-            line_content[..colon]
-                .trim()
-                .trim_matches(['\'', '"'])
-                .to_string()
-        })
-        .filter(|key| !key.is_empty());
-    let typed_start_byte = if let Some(colon) = colon {
-        current_line_start + content_start + colon + 1 + value_start.unwrap_or_default()
-    } else {
-        current_line_start + content_start
-    };
-    // Suggestions match the text before the caret. Accepting one replaces the
-    // whole scalar on this line, so editing in the middle of a value works too.
-    let line_end = source[cursor..]
-        .find('\n')
-        .map_or(source.len(), |i| cursor + i);
-    let (typed, replace_end_byte) = if let Some(colon) = colon {
-        let value_begin = colon + 1 + value_start.unwrap_or_default();
-        let value_begin_abs = current_line_start + content_start + value_begin;
-        let typed_end = cursor_in_content.clamp(value_begin, line_content.len());
-        let token_len = value_token_len(&source[value_begin_abs.min(line_end)..line_end]);
-        (
-            line_content[value_begin..typed_end].trim_end().to_string(),
-            value_begin_abs + token_len,
-        )
-    } else {
-        let key_end = candidate_colon.unwrap_or_else(|| value_token_len(line_content));
-        let typed_end = cursor_in_content.min(key_end);
-        let replace_end = candidate_colon.map_or(key_end, |colon| {
-            let after_colon = &line_content[colon + 1..];
-            colon + 1 + after_colon.len() - after_colon.trim_start().len()
-        });
-        (
-            line_content[..typed_end].trim_end().to_string(),
-            current_line_start + content_start + replace_end,
-        )
-    };
-    let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
-    let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
-    CompletionContext {
-        path,
-        typed,
-        replace_start: source[..typed_start_byte].encode_utf16().count(),
-        replace_end: source[..replace_end_byte.min(source.len())]
-            .encode_utf16()
-            .count(),
-        value_key,
-        value_needs_space,
-        is_array_item: current_is_array_item,
-        base_indent,
-    }
 }
 
 fn resolve_branches<'a>(schema: &'a Value, root: &'a Value, depth: usize) -> Vec<&'a Value> {
@@ -764,6 +392,7 @@ fn value_completions(
     end: usize,
     root: &Value,
     leading: &str,
+    behavior: &dyn LanguageBehavior,
 ) -> Vec<Completion> {
     let query = unquoted(typed);
     let mut candidates = Vec::new();
@@ -782,7 +411,7 @@ fn value_completions(
                 let value = numeric_example_as_number(value, numeric_allowed);
                 let label = value_label(&value);
                 if let Some(score) = match_score(&label, query) {
-                    let insert = format!("{leading}{}", yaml_value(&value));
+                    let insert = format!("{leading}{}", behavior.format_value(&value));
                     candidates.push((
                         score,
                         Completion {
@@ -814,6 +443,7 @@ fn property_completions(
     existing: Option<&HashSet<String>>,
     base_indent: &str,
     unit: &str,
+    behavior: &dyn LanguageBehavior,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
     for branch in schemas
@@ -842,7 +472,7 @@ fn property_completions(
                     0
                 };
             let Some((insert, cursor_offset)) =
-                property_completion_insert(key, property, root, base_indent, unit)
+                behavior.property_insert(key, property, root, base_indent, unit)
             else {
                 continue;
             };
@@ -869,57 +499,15 @@ fn property_completions(
     sorted_completions(candidates)
 }
 
-fn existing_mapping_keys(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    let parser_config =
-        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
-    // A partially typed mapping key makes the whole YAML document temporarily
-    // unparsable. Remove only the active line for the existing-key lookup so
-    // keys already present elsewhere in this mapping remain filtered.
-    let line_start = source[..cursor_byte]
-        .rfind('\n')
-        .map_or(0, |newline| newline + 1);
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |newline| line_start + newline);
-    let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
-    let document: Value = noyalib::from_str_with_config(&sanitized, &parser_config).ok()?;
-    let mapping = path
-        .iter()
-        .try_fold(&document, |value, segment| match segment {
-            SchemaPathSegment::Key(key) => value.get(key),
-            SchemaPathSegment::ArrayItem(index) => value.get(index),
-        })?
-        .as_object()?;
-    let current_line = source[..cursor_byte]
-        .rsplit('\n')
-        .next()
-        .unwrap_or_default();
-    let current_line = current_line.trim_start().trim_start_matches("- ");
-    let current_key = mapping_colon(current_line).map(|colon| {
-        current_line[..colon]
-            .trim()
-            .trim_matches(['\'', '"'])
-            .to_string()
-    });
-    Some(
-        mapping
-            .keys()
-            .filter(|key| current_key.as_deref() != Some(key.as_str()))
-            .cloned()
-            .collect(),
-    )
-}
-
+/// Shared completion orchestration: language behavior supplies the context,
+/// existing-key filter, and inserts; ranking and schema navigation stay shared.
 pub(super) fn completions(
     source: &str,
     cursor: usize,
     force: bool,
     schema: Option<&SchemaBundle>,
     enabled: bool,
+    behavior: &dyn LanguageBehavior,
 ) -> Vec<Completion> {
     if !enabled {
         return Vec::new();
@@ -928,7 +516,7 @@ pub(super) fn completions(
         return Vec::new();
     };
     let cursor_byte = utf16_to_byte_index(source, cursor);
-    let context = completion_context(source, cursor);
+    let context = behavior.completion_context(source, cursor);
     let schemas = schema_at_path(&bundle.schema, &context.path);
 
     if let Some(key) = context.value_key.as_deref() {
@@ -941,6 +529,7 @@ pub(super) fn completions(
             context.replace_end,
             &bundle.schema,
             leading,
+            behavior,
         );
         if !force && unquoted(&context.typed).is_empty() {
             options.retain(|option| option.label != "null");
@@ -965,6 +554,7 @@ pub(super) fn completions(
                 context.replace_end,
                 &bundle.schema,
                 "",
+                behavior,
             );
         }
     }
@@ -977,7 +567,7 @@ pub(super) fn completions(
         return Vec::new();
     }
 
-    let existing_keys = existing_mapping_keys(source, cursor_byte, &context.path);
+    let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
     let unit = indent_unit(source);
     property_completions(
         &schemas,
@@ -988,6 +578,7 @@ pub(super) fn completions(
         existing_keys.as_ref(),
         &context.base_indent,
         &unit,
+        behavior,
     )
 }
 
@@ -1019,11 +610,14 @@ pub(super) struct KeyHover {
 
 /// Returns the mapping key under `column` (a character index) on the 0-based
 /// `line_index`, together with its schema documentation.
+/// Shared hover orchestration: language behavior supplies the key lookup and
+/// completion context; schema documentation assembly stays shared. The
 pub(super) fn key_hover(
     source: &str,
     line_index: usize,
     column: usize,
     schema: Option<&SchemaBundle>,
+    behavior: &dyn LanguageBehavior,
 ) -> Option<KeyHover> {
     let bundle = schema?;
     let line_start: usize = source
@@ -1032,9 +626,9 @@ pub(super) fn key_hover(
         .map(|line| line.len() + 1)
         .sum();
     let line = source.get(line_start..)?.split('\n').next()?;
-    let (key, start_column) = key_at_column(line, column)?;
+    let (key, start_column) = behavior.hover_key(line, column)?;
     let cursor = source[..line_start + line.len()].encode_utf16().count();
-    let context = completion_context(source, cursor);
+    let context = behavior.completion_context(source, cursor);
     if context.value_key.as_deref() != Some(key.as_str()) {
         return None;
     }
@@ -1093,34 +687,6 @@ pub(super) fn key_hover(
     })
 }
 
-fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
-    let trimmed = line.trim_start_matches([' ', '\t']);
-    let body = match trimmed.strip_prefix('-') {
-        Some(rest) if rest.is_empty() || rest.starts_with([' ', '\t']) => {
-            rest.trim_start_matches([' ', '\t'])
-        }
-        _ => trimmed,
-    };
-    if body.starts_with('#') {
-        return None;
-    }
-    let colon = mapping_colon(body)?;
-    let key_raw = &body[..colon];
-    let key = key_raw.trim().trim_matches(['\'', '"']);
-    if key.is_empty() {
-        return None;
-    }
-    let body_start = line.len() - body.len();
-    let start_column = line[..body_start].chars().count();
-    let end_column = line[..body_start + key_raw.trim_end().len()]
-        .chars()
-        .count();
-    (column >= start_column && column < end_column).then(|| (key.to_string(), start_column))
-}
-
-/// Whether an input event should open schema suggestions. New lines, deletions,
-/// pastes, drag-and-drop, and undo/redo must not pop the list open; the editor
-/// keeps suggestions from accepted completions and explicit `Ctrl+Space`.
 pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &str) -> bool {
     if current == previous || current.matches('\n').count() > previous.matches('\n').count() {
         return false;
