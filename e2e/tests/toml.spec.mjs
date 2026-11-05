@@ -75,4 +75,29 @@ test.describe('TOML documents', () => {
     await e.paste('bogus_key = 1\n');
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
   });
+
+  test('the highlight overlay renders every character of the value', async ({ page }) => {
+    // Regression: the overlay once dropped the space after `=`
+    // (`listen = 7835` rendered as `listen =7835`), which also made
+    // Backspace look like it ate the wrong character.
+    const e = editor(page);
+    await e.paste(
+      'listen = 7835\ninsecure_plaintext = false  # trailing\n[pool]\nmin_idle = 1\n"quoted key" = "v"\n',
+    );
+    const lines = (await e.value()).split('\n');
+    const rendered = await page.locator('.config-editor__code-line').allTextContents();
+    expect(rendered).toEqual(lines);
+  });
+
+  test('Backspace deletes exactly the character before the caret', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('insecure_plaintext = false');
+    await e.input.evaluate((element) => {
+      const at = element.value.indexOf('false');
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.press('Backspace');
+    await expect(e.input).toHaveValue('insecure_plaintext =false');
+  });
 });

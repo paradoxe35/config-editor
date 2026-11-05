@@ -969,19 +969,26 @@ fn highlight_line(line: &str) -> AnyView {
         }
         .into_any();
     }
-    if let Some((key, start, end)) = key_assignment(code) {
-        let key_len = key.len();
-        let value = code[end..].trim_start_matches([' ', '\t']);
+    if let Some((_, start, end)) = key_assignment(code) {
         let equals_at = code[end..].find('=').map(|index| end + index);
-        let value_text = equals_at.map_or(value, |equals| code[equals + 1..].trim_start());
-        let (scalar, trailing) = split_toml_comment(value_text);
+        let Some(equals) = equals_at else {
+            return view! { <span>{line.to_string()}</span> }.into_any();
+        };
+        // Gap between `=` and the value must be re-emitted verbatim:
+        // `value_text` is trimmed, so slicing from the trimmed start keeps
+        // the overlay byte-identical to the textarea value. Rendering the
+        // raw `code[start..end]` slice also preserves quoted keys.
+        let after_equals = &code[equals + 1..];
+        let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
+        let scalar_start = equals + 1 + gap_len;
+        let (scalar, trailing) = split_toml_comment(&code[scalar_start..]);
         let class = scalar_class(scalar);
         return view! {
             <span>
                 {indent}
                 {code[..start].to_string()}
-                <span class="config-editor__key">{key}</span>
-                {code[start + key_len..equals_at.unwrap_or(end) + 1].to_string()}
+                <span class="config-editor__key">{code[start..end].to_string()}</span>
+                {code[end..scalar_start].to_string()}
                 <span class=class>{scalar.to_string()}</span>
                 {trailing.map(|trailing| view! { <span class="config-editor__comment">{trailing.to_string()}</span> })}
                 {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
