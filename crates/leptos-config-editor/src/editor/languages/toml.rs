@@ -1192,7 +1192,10 @@ mod tests {
         assert!(
             options.iter().any(|option| option.label == "secret"),
             "secret should be suggested inside the inline table, have {:?}",
-            options.iter().map(|option| &option.label).collect::<Vec<_>>()
+            options
+                .iter()
+                .map(|option| &option.label)
+                .collect::<Vec<_>>()
         );
     }
 
