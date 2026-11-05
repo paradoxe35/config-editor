@@ -331,6 +331,38 @@ fn property_completions_omit_keys_already_present_in_the_mapping() {
 
 #[cfg(feature = "completion")]
 #[test]
+fn partially_typed_keys_do_not_reoffer_existing_keys_when_yaml_is_temporarily_invalid() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "listen: 7835\ninsecure_plaintext: false\nins";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    assert!(
+        !options
+            .iter()
+            .any(|option| option.label == "insecure_plaintext")
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn cursor_before_a_mapping_colon_is_treated_as_key_completion_without_panicking() {
+    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let input = "insecure_plaintext: false";
+    let cursor = "ins".encode_utf16().count();
+    let option = completions(input, cursor, false, Some(&schema), true)
+        .into_iter()
+        .find(|option| option.label == "insecure_plaintext")
+        .expect("partial key should be completed as a property, not a boolean value");
+    assert_eq!(apply_completion(input, &option).0, input);
+}
+
+#[cfg(feature = "completion")]
+#[test]
 fn enum_suggestions_are_available_for_nested_values() {
     let input = "websocket:\n  challenge: t";
     let schema = test_schema();

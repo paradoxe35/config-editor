@@ -17,6 +17,19 @@ test.describe('accepting keys and values', () => {
     expect(await e.isOpen()).toBe(false);
   });
 
+  test('completing a key before its existing colon does not panic or duplicate the key', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('insecure_plaintext: false');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(3, 3);
+    });
+    await page.keyboard.type('e');
+    await expect.poll(() => e.keys()).toContain('insecure_plaintext');
+    await e.clickKey('insecure_plaintext');
+    await expect(e.input).toHaveValue('insecure_plaintext: false');
+  });
+
   test('keyboard: Enter accepts the key, then an arrow and Enter accept a value', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('lis');

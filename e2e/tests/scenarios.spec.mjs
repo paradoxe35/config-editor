@@ -238,7 +238,8 @@ test.describe('typing triggers', () => {
       element.setSelectionRange(element.value.length, element.value.length);
     });
     await page.keyboard.type('l');
-    await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['listen', 'limits']));
+    await expect.poll(() => e.keys()).toContain('limits');
+    expect(await e.keys()).not.toContain('listen');
   });
 
   test('typing a key on a blank line suggests the root keys', async ({ page }) => {
@@ -250,6 +251,17 @@ test.describe('typing triggers', () => {
     });
     await page.keyboard.type('cl');
     await expect.poll(() => e.keys()).toContain('clients');
+  });
+
+  test('a partially typed duplicate root key is not suggested again', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\ninsecure_plaintext: false\n');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('ins');
+    expect(await e.keys()).not.toContain('insecure_plaintext');
   });
 
   test('typing after Enter suggests nested keys, while free-form strings have no fixed values', async ({ page }) => {

@@ -389,12 +389,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     } else {
         (prefix, 0)
     };
-    let colon = mapping_colon(line_content);
+    let candidate_colon = mapping_colon(line_content);
     let content_start = indent + content_offset;
     let cursor_in_content = cursor
         .saturating_sub(current_line_start)
         .saturating_sub(content_start)
         .min(line_content.len());
+    // A colon to the right of the caret still belongs to the key being edited;
+    // treating it as a value separator can produce a reversed string slice.
+    let colon = candidate_colon.filter(|colon| *colon < cursor_in_content);
     // Only the text before the caret decides the value position. A trailing
     // newline (for example from an expanded required property) must not move the
     // insertion point past the end of the value.
@@ -433,14 +436,19 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             value_begin_abs + token_len,
         )
     } else {
-        let content_begin_abs = current_line_start + content_start;
-        let token_len = value_token_len(&source[content_begin_abs.min(line_end)..line_end]);
-        (line_content.to_string(), content_begin_abs + token_len)
+        let key_end = candidate_colon.unwrap_or_else(|| value_token_len(line_content));
+        let typed_end = cursor_in_content.min(key_end);
+        let replace_end = candidate_colon.map_or(key_end, |colon| {
+            let after_colon = &line_content[colon + 1..];
+            colon + 1 + after_colon.len() - after_colon.trim_start().len()
+        });
+        (
+            line_content[..typed_end].trim_end().to_string(),
+            current_line_start + content_start + replace_end,
+        )
     };
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
-    let value_needs_space = colon.is_some_and(|colon| {
-        line_content[colon + 1..cursor_in_content.min(line_content.len())].is_empty()
-    });
+    let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
     CompletionContext {
         path,
         typed,
@@ -879,7 +887,7 @@ pub(super) fn completions(
         &schemas,
         query,
         context.replace_start,
-        cursor,
+        context.replace_end,
         &bundle.schema,
         existing_keys.as_ref(),
         &context.base_indent,
