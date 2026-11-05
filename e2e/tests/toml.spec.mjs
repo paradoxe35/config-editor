@@ -76,6 +76,17 @@ test.describe('TOML documents', () => {
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
   });
 
+  test('keys inside an inline table are suggested', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('[clients]\nparadoxe = { ');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('se');
+    await expect.poll(() => e.keys()).toContain('secret');
+  });
+
   test('the highlight overlay renders every character of the value', async ({ page }) => {
     // Regression: the overlay once dropped the space after `=`
     // (`listen = 7835` rendered as `listen =7835`), which also made

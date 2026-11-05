@@ -465,6 +465,42 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
+    // Inline table (`key = { … }`) with the caret inside the braces: the keys
+    // being completed belong to the inline table, so the path descends into
+    // the assigned key and the typed token is the segment after `{` or `,`.
+    if let Some(equals) = assignment_equals(code_before) {
+        let value_text = code_before[equals + 1..].trim_start();
+        if value_text.starts_with('{') && !value_text.contains('}') {
+            let raw_key = code_line[..assignment_equals(code_line).unwrap_or(equals)]
+                .trim()
+                .to_string();
+            let mut full = path.clone();
+            full.extend(
+                split_key_path(&unquote_key(&raw_key))
+                    .unwrap_or_else(|| vec![unquote_key(&raw_key)])
+                    .into_iter()
+                    .map(SchemaPathSegment::Key),
+            );
+            let segment_start = code_before.rfind([',', '{']).map_or(0, |index| index + 1);
+            let raw = &code_before[segment_start..];
+            let typed = raw.trim_start();
+            let typed_start = line_start + segment_start + (raw.len() - typed.len());
+            return CompletionContext {
+                typed: typed.trim_end().to_string(),
+                replace_start: utf16(&source[..typed_start]),
+                replace_end: utf16(&source[..cursor]),
+                value_key: None,
+                value_needs_space: false,
+                is_array_item: false,
+                base_indent: String::new(),
+                path: full,
+                entry_prefix: "",
+                explicit_entry_start: false,
+                entry_suffix: "",
+            };
+        }
+    }
+
     // Value position: an `=` sits left of the caret on this line's code.
     if let Some(equals) = assignment_equals(code_before) {
         let raw_key = code_line[..assignment_equals(code_line).unwrap_or(equals)]
@@ -707,6 +743,10 @@ fn toml_text(value: &Value) -> String {
             format!("[{}]", items.join(", "))
         }
         Value::Object(map) => toml_inline_table(&Value::Object(map.clone())),
+        // TOML has no null. `nan` is its float spelling of "no value", and
+        // parsing it back through `serde_json` yields `null` again, so schemas
+        // typed `["integer", "null"]` validate the inserted text.
+        Value::Null => "nan".to_string(),
         _ => value.to_string(),
     }
 }
@@ -1135,6 +1175,56 @@ mod tests {
         let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
         assert!(!labels.contains(&"host"), "{labels:?}");
         assert!(labels.contains(&"port"), "{labels:?}");
+    }
+
+    #[test]
+    fn keys_inside_an_inline_table_are_suggested_from_the_assigned_key_schema() {
+        let schema_bundle = schema();
+        let source = "[clients]\nparadoxe = { se";
+        let options = completions(
+            source,
+            source.encode_utf16().count(),
+            false,
+            Some(&schema_bundle),
+            true,
+            &TomlBehavior,
+        );
+        assert!(
+            options.iter().any(|option| option.label == "secret"),
+            "secret should be suggested inside the inline table, have {:?}",
+            options.iter().map(|option| &option.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_null_schema_value_inserts_nan_and_reads_back_as_null() {
+        let schema_bundle = build_schema(
+            r#"{"type":"object","properties":{
+                "max_connections":{"type":["integer","null"],"minimum":1}}}"#,
+        )
+        .unwrap();
+        // The null option is offered at the value position (an explicit
+        // request, since an empty value hides it by default).
+        let source = "max_connections = ";
+        let options = completions(
+            source,
+            source.encode_utf16().count(),
+            true,
+            Some(&schema_bundle),
+            true,
+            &TomlBehavior,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.label == "null")
+            .expect("the null option should be suggested");
+        let (updated, _) = apply_completion(source, option);
+        assert_eq!(updated, "max_connections = nan");
+        let parsed = match TomlBehavior.parse(&updated) {
+            Ok(parsed) => parsed,
+            Err(error) => panic!("nan should be valid TOML: {}", error.message),
+        };
+        assert_eq!(parsed["max_connections"], serde_json::Value::Null);
     }
 
     #[test]
