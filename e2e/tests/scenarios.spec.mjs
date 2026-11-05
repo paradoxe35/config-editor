@@ -125,11 +125,23 @@ test.describe('schema-driven completion', () => {
     await page.keyboard.type('mc');
     // Only max_connections matches: secret has no "m" for the initials to hit.
     await expect.poll(() => e.keys()).toEqual(['max_connections']);
+    // The typed initials highlight the matched word starts.
+    const matched = page.locator('.yaml-editor__completion-match');
+    await expect.poll(() => matched.allTextContents()).toEqual(['m', 'c']);
     // Single-item list: the arrow is a no-op move but engages the list,
     // so Enter accepts instead of inserting a newline.
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('clients:\n  alex:\n    max_connections: ');
+  });
+
+  test('a typed prefix highlights the leading run of the match', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('clients:\n  alex:\n    ');
+    await page.keyboard.type('max');
+    await expect.poll(() => e.keys()).toEqual(['max_connections']);
+    const matched = page.locator('.yaml-editor__completion-match');
+    await expect.poll(() => matched.allTextContents()).toEqual(['m', 'a', 'x']);
   });
 
   test('keys already present in a mapping are not suggested again', async ({ page }) => {
@@ -517,6 +529,56 @@ test.describe('diagnostics', () => {
     const e = editor(page);
     await e.paste('web:\n  http: [80\n');
     await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
+  });
+
+  test('squiggles stay out of the tab order; the status button jumps to the first error', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\nbogus_key: 1\n');
+    const marker = page.locator('.yaml-editor__diagnostic-marker').first();
+    await expect(marker).toHaveCount(1);
+    await expect(marker).toHaveAttribute('tabindex', '-1');
+    const status = page.locator('.yaml-editor__diagnostic-status');
+    await expect(status).not.toBeDisabled();
+    await e.input.evaluate((element) => element.setSelectionRange(0, 0));
+    await status.click();
+    await expect.poll(() => e.caret()).toEqual({ line: 2, column: 1, collapsed: true });
+  });
+
+  test('the status button is disabled when the document is clean', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+    await expect(page.locator('.yaml-editor__diagnostic-status')).toBeDisabled();
+  });
+
+  test('diagnostics wait for a pause in typing instead of flashing', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+    // Breaking the document must not report synchronously: validation runs
+    // against a debounced snapshot, so the memo cannot recompute before the
+    // pause elapses. This immediate read is deterministic, not timing-based.
+    await page.keyboard.type('[');
+    expect(await e.diagnosticCount()).toBe(0);
+    // ...but the error shows up once typing pauses.
+    await expect.poll(() => e.diagnosticCount()).toBeGreaterThan(0);
+  });
+
+  test('F8 cycles through errors and wraps, Shift+F8 goes backward', async ({ page }) => {
+    const e = editor(page);
+    // Two distinct type violations: jsonschema folds multiple unknown keys
+    // into one additionalProperties error, so those cannot exercise cycling.
+    await e.paste('insecure_plaintext: xyz\nweb: 5\n');
+    await expect.poll(() => e.diagnosticCount()).toBe(2);
+    await e.input.evaluate((element) => element.setSelectionRange(0, 0));
+    await page.keyboard.press('F8');
+    expect((await e.caret()).line).toBe(1);
+    await page.keyboard.press('F8');
+    expect((await e.caret()).line).toBe(2);
+    await page.keyboard.press('F8');
+    expect((await e.caret()).line).toBe(1);
+    await page.keyboard.press('Shift+F8');
+    expect((await e.caret()).line).toBe(2);
   });
 });
 

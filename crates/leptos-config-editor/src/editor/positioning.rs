@@ -2,11 +2,6 @@ use super::metrics::read_editor_metrics;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-/// Approximate width of one monospace column relative to the font size. The
-/// textarea uses a monospace stack so `0.6em` tracks real glyph advances
-/// without per-keystroke canvas measurement.
-pub(super) const CHAR_WIDTH_FACTOR: f64 = 0.6;
-
 /// Delay before schema hover documentation appears, in milliseconds. Long
 /// enough to stay out of the way while moving the mouse across keys.
 pub(super) const HOVER_DELAY_MS: i32 = 350;
@@ -27,7 +22,7 @@ pub(super) fn pointer_text_position(
     let line =
         (y - rect.top() - metrics.padding_top + element.scroll_top() as f64) / metrics.line_height;
     let column = (x - rect.left() - metrics.padding_left + element.scroll_left() as f64)
-        / (metrics.font_size * CHAR_WIDTH_FACTOR);
+        / metrics.char_width;
     (
         line.max(0.0).floor() as usize,
         column.max(0.0).floor() as usize,
@@ -57,12 +52,11 @@ pub(super) fn hover_card_style(
         .ok()
         .and_then(|v| v.as_f64())
         .unwrap_or(768.0);
-    let left = (rect.left() + metrics.padding_left + column as f64 * metrics.font_size * CHAR_WIDTH_FACTOR
+    let left = (rect.left()
+        + metrics.padding_left
+        + column as f64 * metrics.char_width
         - element.scroll_left() as f64)
-        .clamp(
-            POPUP_MARGIN,
-            (viewport_width - 348.0).max(POPUP_MARGIN),
-        );
+        .clamp(POPUP_MARGIN, (viewport_width - 348.0).max(POPUP_MARGIN));
     let line_top = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
         - element.scroll_top() as f64;
     if line_top > 240.0 && line_top + metrics.line_height + 240.0 > viewport_height {

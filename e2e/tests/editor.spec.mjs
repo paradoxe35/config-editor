@@ -137,6 +137,43 @@ test.describe('focus', () => {
     await expect(preview).toHaveCount(0);
   });
 
+  test('a change preview shows before and after and closes from its close button', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(
+      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+    );
+    await page.locator('.yaml-editor__diff-marker-modified').first().click();
+    const preview = page.locator('.yaml-editor__diff-peek');
+    await expect(preview).toHaveCount(1);
+    await expect(preview).toContainText('7835');
+    await expect(preview).toContainText('7836');
+    await preview.getByRole('button', { name: 'Close change preview' }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
+  test('a change preview survives typing elsewhere but not on its own line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(
+      '# Burrow server configuration\nlisten: 7836\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n',
+    );
+    await page.locator('.yaml-editor__diff-marker-modified').first().click();
+    const preview = page.locator('.yaml-editor__diff-peek');
+    await expect(preview).toHaveCount(1);
+    // Typing on an unrelated line keeps the preview open...
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('added_key: 1');
+    await expect(preview).toHaveCount(1);
+    // ...but editing the previewed line dismisses it.
+    const at = await pointAt(page, 1, 13);
+    await page.mouse.click(at.x, at.y);
+    await page.keyboard.type('0');
+    await expect(preview).toHaveCount(0);
+  });
+
   test('typing again after Escape reopens suggestions', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('lis');

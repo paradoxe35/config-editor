@@ -10,6 +10,50 @@ pub(super) enum DiffKind {
 }
 
 #[derive(Clone, PartialEq)]
+pub(super) struct DiffPeek {
+    pub(super) line: usize,
+    pub(super) title: String,
+    pub(super) before: Vec<String>,
+    pub(super) after: Vec<String>,
+}
+
+/// Whether an open change preview still refers to live content after an edit.
+/// A peek survives typing elsewhere in the document but dismisses when the
+/// edit touches its anchor: for modified lines the live diff must still mark
+/// the anchored line modified *and* its text must match the snapshot (so an
+/// insertion above, which shifts the anchor onto another line, dismisses
+/// instead of showing the wrong lines); for removed-line peeks the live diff
+/// must still report the same deleted hunk at the anchor.
+pub(super) fn peek_survives_edit(
+    peek: &DiffPeek,
+    current: &[String],
+    line_diff: &LineDiff,
+) -> bool {
+    let index = peek.line.saturating_sub(1);
+    if peek.after.is_empty() {
+        if line_diff
+            .deleted_before
+            .get(index)
+            .copied()
+            .unwrap_or(false)
+            && line_diff.deleted_lines_before.get(index) == Some(&peek.before)
+        {
+            return true;
+        }
+        return peek.line == current.len()
+            && line_diff.deleted_after
+            && line_diff.deleted_lines_after == peek.before;
+    }
+    line_diff
+        .current
+        .get(index)
+        .copied()
+        .unwrap_or(DiffKind::Unchanged)
+        == DiffKind::Modified
+        && current.get(index) == peek.after.first()
+}
+
+#[derive(Clone, PartialEq)]
 pub(super) struct LineDiff {
     pub(super) current: Vec<DiffKind>,
     pub(super) deleted_before: Vec<bool>,
@@ -20,8 +64,7 @@ pub(super) struct LineDiff {
 }
 
 impl LineDiff {
-    /// Shared empty diff for `show_diff=false`. The editor memo re-renders on
-    /// every keystroke, so returning fresh `Vec`s there would allocate four
+    /// Shared empty diff for `show_diff=false`. The editor memo re-renders on    /// every keystroke, so returning fresh `Vec`s there would allocate four
     /// vectors per keystroke for a statically empty result.
     pub(super) fn empty(line_count: usize) -> Self {
         Self {
@@ -63,8 +106,7 @@ pub(super) fn peek_geometry(
         + line.saturating_sub(1) as f64 * metrics.line_height
         - viewport.editor_scroll_top;
     let space_above = (anchor_y - margin).max(0.0);
-    let space_below =
-        (viewport.viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
+    let space_below = (viewport.viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
     let desired_height = (72.0 + (old_line_count + new_line_count) as f64 * 22.0)
         .min(360.0)
         .min(viewport.viewport_height * 0.55);
@@ -88,8 +130,7 @@ pub(super) fn peek_geometry(
         margin,
         (viewport.viewport_width - 180.0 - margin).max(margin),
     );
-    let width =
-        560.0_f64.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
+    let width = 560.0_f64.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
 
     format!(
         "top:{:.1}px;left:{:.1}px;width:{:.1}px;max-height:{:.1}px",
@@ -499,6 +540,114 @@ mod tests {
 
         assert!(diff.deleted_after);
         assert_eq!(diff.deleted_lines_after, vec!["removed one", "removed two"]);
+    }
+
+    fn modified_peek(line: usize, before: &str, after: &str) -> DiffPeek {
+        DiffPeek {
+            line,
+            title: "Modified line".to_string(),
+            before: vec![before.to_string()],
+            after: vec![after.to_string()],
+        }
+    }
+
+    #[test]
+    fn peek_survives_typing_elsewhere_but_not_on_its_own_line() {
+        let baseline = "k1: 1\nk2: 2\nk3: 3\n";
+        let current: Vec<String> = "k1: 1\nk2: 99\nk3: 3\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
+        let peek = modified_peek(2, "k2: 2", "k2: 99");
+        assert!(peek_survives_edit(
+            &peek,
+            &current,
+            &diff_lines(baseline, &current.join("\n"))
+        ));
+
+        // Appending an unrelated line keeps the anchor intact.
+        let appended: Vec<String> = "k1: 1\nk2: 99\nk3: 3\nk4: 4\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
+        assert!(peek_survives_edit(
+            &peek,
+            &appended,
+            &diff_lines(baseline, &appended.join("\n"))
+        ));
+
+        // Editing the peeked line itself changes its text: dismiss.
+        let edited: Vec<String> = "k1: 1\nk2: 100\nk3: 3\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
+        assert!(!peek_survives_edit(
+            &peek,
+            &edited,
+            &diff_lines(baseline, &edited.join("\n"))
+        ));
+
+        // Inserting a line above shifts the anchor onto another line: the
+        // snapshot no longer matches, so dismiss instead of showing the
+        // wrong lines.
+        let shifted: Vec<String> = "k0: 0\nk1: 1\nk2: 99\nk3: 3\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
+        assert!(!peek_survives_edit(
+            &peek,
+            &shifted,
+            &diff_lines(baseline, &shifted.join("\n"))
+        ));
+    }
+
+    #[test]
+    fn peek_survives_while_its_deleted_hunk_remains() {
+        let baseline = "keep:\ngone: 1\ntail: 2\n";
+        let current: Vec<String> = "keep:\ntail: 2\n".split('\n').map(str::to_string).collect();
+        let diff = diff_lines(baseline, &current.join("\n"));
+        assert!(diff.deleted_before[1]);
+        let peek = DiffPeek {
+            line: 2,
+            title: "Removed lines".to_string(),
+            before: vec!["gone: 1".to_string()],
+            after: Vec::new(),
+        };
+        assert!(peek_survives_edit(&peek, &current, &diff));
+
+        // Editing an unrelated line keeps the hunk: the peek stays.
+        let edited: Vec<String> = "keep: 1\ntail: 2\n".split('\n').map(str::to_string).collect();
+        assert!(peek_survives_edit(
+            &peek,
+            &edited,
+            &diff_lines(baseline, &edited.join("\n"))
+        ));
+
+        // Restoring the deleted line clears the hunk: dismiss.
+        let restored: Vec<String> = "keep:\ngone: 1\ntail: 2\n"
+            .split('\n')
+            .map(str::to_string)
+            .collect();
+        assert!(!peek_survives_edit(
+            &peek,
+            &restored,
+            &diff_lines(baseline, &restored.join("\n"))
+        ));
+    }
+
+    #[test]
+    fn peek_survives_while_trailing_deleted_lines_remain() {
+        let baseline = "keep:\ngone one\ngone two";
+        let current: Vec<String> = vec!["keep:".to_string()];
+        let diff = diff_lines(baseline, &current.join("\n"));
+        assert!(diff.deleted_after);
+        let peek = DiffPeek {
+            line: 1,
+            title: "Removed lines at end of document".to_string(),
+            before: vec!["gone one".to_string(), "gone two".to_string()],
+            after: Vec::new(),
+        };
+        assert!(peek_survives_edit(&peek, &current, &diff));
     }
 }
 

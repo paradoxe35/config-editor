@@ -625,6 +625,8 @@
   white-space: nowrap;
 }
 
+.yaml-editor__completion-match { color: var(--yaml-editor-accent); }
+
 .yaml-editor__completion-type {
   flex: 0 0 auto;
   color: #9da0a3;
@@ -669,6 +671,25 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A button since it jumps to the first error; reset UA chrome so it reads
+     as status text, with a pointer affordance only when errors exist. */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.yaml-editor__diagnostic-status:not(:disabled) { cursor: pointer; }
+
+.yaml-editor__diagnostic-status:not(:disabled):hover { text-decoration: underline; }
+
+.yaml-editor__diagnostic-status:disabled { cursor: default; }
+
+.yaml-editor__diagnostic-status:focus-visible {
+  outline: 1px solid #75beff;
+  outline-offset: 1px;
 }
 
 .yaml-editor__diagnostic-status-error { color: #f48771; }

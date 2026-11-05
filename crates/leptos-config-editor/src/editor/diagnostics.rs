@@ -6,6 +6,11 @@ use serde_json::Value;
 #[cfg(feature = "schema-validation")]
 const MAX_DIAGNOSTICS: usize = 20;
 
+/// Delay after the last keystroke before revalidating, in milliseconds. Long
+/// enough that intermediate states while typing (an unclosed bracket, a half
+/// typed key) do not flash squiggles on every keystroke.
+pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
+
 pub(super) struct SchemaBundle {
     pub(super) schema: Value,
     #[cfg(feature = "schema-validation")]
@@ -341,8 +346,7 @@ mod tests {
             r#"{"type":"object","properties":{"weight":{"type":"integer"},"services":{"type":"object","additionalProperties":{"type":"object","properties":{"clients":{"type":"array","items":{"type":"object","properties":{"weight":{"type":"integer","minimum":1}}}}}}}}}"#,
         )
         .unwrap();
-        let source =
-            "weight: 5\nservices:\n  billing:\n    clients:\n      - name: laptop\n        weight: 0\n";
+        let source = "weight: 5\nservices:\n  billing:\n    clients:\n      - name: laptop\n        weight: 0\n";
 
         let diagnostics = validate_yaml(source, Some(&schema), None, true);
 

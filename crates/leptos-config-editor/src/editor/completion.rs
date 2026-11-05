@@ -24,6 +24,10 @@ pub(super) struct Completion {
     pub(super) end: usize,
     pub(super) cursor_offset: usize,
     pub(super) is_value: bool,
+    /// Character-index ranges of `label` covered by the typed query, for
+    /// highlighting the match in the suggestion row. Empty when the query is
+    /// empty or when scoring fell through without tracking positions.
+    pub(super) matched: Vec<(usize, usize)>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -635,6 +639,70 @@ fn match_score(label: &str, typed: &str) -> Option<i64> {
     (matched == typed_lower.chars().count()).then_some(500 - label_length)
 }
 
+/// Character-index ranges of `label` covered by `typed`, mirroring the
+/// `match_score` tiers so the suggestion row can highlight what matched:
+/// prefixes cover the leading run, initials cover each consumed word start,
+/// substrings cover the found run, and subsequence matches cover the greedy
+/// per-character hits. Returns an empty vector when there is no match.
+pub(super) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
+    if typed.is_empty() {
+        return Vec::new();
+    }
+    let typed_len = typed.chars().count();
+    if label.starts_with(typed) {
+        return vec![(0, typed_len)];
+    }
+    let label_lower = label.to_lowercase();
+    let typed_lower = typed.to_lowercase();
+    if label_lower.starts_with(&typed_lower) {
+        return vec![(0, typed_len)];
+    }
+    let mut initials: Vec<(usize, char)> = Vec::new();
+    // Word separators are single ASCII bytes, so a running byte offset
+    // tracks each part's start exactly.
+    let mut byte_offset = 0;
+    for part in label.split(['_', '-', '.', ' ']) {
+        if let Some(first) = part.chars().next() {
+            let char_offset = label[..byte_offset].chars().count();
+            initials.extend(first.to_lowercase().map(|lower| (char_offset, lower)));
+        }
+        byte_offset += part.len() + 1;
+    }
+    if !initials.is_empty()
+        && initials
+            .iter()
+            .map(|(_, initial)| *initial)
+            .collect::<String>()
+            .starts_with(&typed_lower)
+    {
+        return initials
+            .into_iter()
+            .take(typed_len)
+            .map(|(offset, _)| (offset, offset + 1))
+            .collect();
+    }
+    if let Some(byte_index) = label_lower.find(&typed_lower) {
+        let start = label_lower[..byte_index].chars().count();
+        return vec![(start, start + typed_len)];
+    }
+    let mut ranges = Vec::new();
+    let mut remaining = label_lower.chars().enumerate();
+    for wanted in typed_lower.chars() {
+        let mut hit = None;
+        for (index, candidate) in remaining.by_ref() {
+            if candidate == wanted {
+                hit = Some(index);
+                break;
+            }
+        }
+        match hit {
+            Some(index) => ranges.push((index, index + 1)),
+            None => return Vec::new(),
+        }
+    }
+    ranges
+}
+
 /// Required keys sort above optional ones with the same match quality, without
 /// overriding a stronger match tier.
 const REQUIRED_BONUS: i64 = 40;
@@ -694,7 +762,7 @@ fn value_completions(
                     candidates.push((
                         score,
                         Completion {
-                            label,
+                            label: label.clone(),
                             detail: description.to_string(),
                             type_label: type_label.clone(),
                             cursor_offset: insert.encode_utf16().count(),
@@ -702,6 +770,7 @@ fn value_completions(
                             start,
                             end,
                             is_value: true,
+                            matched: match_ranges(&label, query),
                         },
                     ));
                 }
@@ -768,6 +837,7 @@ fn property_completions(
                     end,
                     cursor_offset,
                     is_value: false,
+                    matched: match_ranges(key, typed),
                 },
             ));
         }

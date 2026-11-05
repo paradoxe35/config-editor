@@ -12,13 +12,13 @@ pub use theme::EditorTheme;
 mod history;
 use history::EditHistory;
 mod diff;
-use diff::{DiffKind, LineDiff, diff_lines, peek_popup_style};
+use diff::{DiffKind, DiffPeek, LineDiff, diff_lines, peek_popup_style, peek_survives_edit};
 mod keyboard;
 use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
 mod diagnostics;
 #[cfg(test)]
 use diagnostics::SchemaBundle;
-use diagnostics::{build_schema, validate_yaml};
+use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, build_schema, validate_yaml};
 mod completion;
 use completion::{
     KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
@@ -26,13 +26,12 @@ use completion::{
 };
 mod commands;
 use commands::{
-    indent_unit, indent_yaml_lines, line_at_cursor, newline_with_indent, toggle_yaml_line_comments,
+    cycle_offset, indent_unit, indent_yaml_lines, line_at_cursor, newline_with_indent, offset_at,
+    toggle_yaml_line_comments,
 };
 mod metrics;
 mod positioning;
-use positioning::{
-    hover_card_style, pointer_text_position, schedule_hover, set_caret_visible,
-};
+use positioning::{hover_card_style, pointer_text_position, schedule_hover, set_caret_visible};
 
 /// Files edited on Windows commonly use CRLF. The textarea works in LF, so normalize
 /// at the boundary to keep diagnostics, completions, and diffs line-based.
@@ -42,14 +41,6 @@ fn normalize_newlines(text: String) -> String {
     } else {
         text
     }
-}
-
-#[derive(Clone, PartialEq)]
-struct DiffPeek {
-    line: usize,
-    title: String,
-    before: Vec<String>,
-    after: Vec<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -106,54 +97,73 @@ pub fn YamlEditor(
     /// Seeds the editor and its diff baseline. Not a controlled value prop:
     /// for externally controlled content and live diffs, provide reactive
     /// `value` and `baseline` signals instead.
-    #[prop(optional, into)] initial_value: Option<String>,
+    #[prop(optional, into)]
+    initial_value: Option<String>,
     /// Optional reactive final value. Changes synchronize into the editor;
     /// the editor sends each edit through `on_change`, so update `value`
     /// in that callback to keep the external source of truth in sync.
-    #[prop(optional, into)] value: Option<Signal<String>>,
+    #[prop(optional, into)]
+    value: Option<Signal<String>>,
     /// Optional reactive baseline used to show line diffs. Updating it (for
     /// example after applying changes) clears the diff decorations.
-    #[prop(optional, into)] baseline: Option<Signal<String>>,
+    #[prop(optional, into)]
+    baseline: Option<Signal<String>>,
     /// Optional JSON Schema string. Enables live schema diagnostics and
     /// schema-aware completions and hover documentation.
-    #[prop(optional, into)] schema_json: Option<String>,
+    #[prop(optional, into)]
+    schema_json: Option<String>,
     /// Name shown when the built-in toolbar is enabled.
-    #[prop(optional, into)] file_name: Option<String>,
+    #[prop(optional, into)]
+    file_name: Option<String>,
     /// Extra class on the editor root for host styles.
-    #[prop(optional, into)] class: Option<String>,
+    #[prop(optional, into)]
+    class: Option<String>,
     /// Bundled [`EditorTheme`] preset. Accepts a reactive signal, so the host
     /// can switch themes without recreating the editor.
-    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
+    #[prop(default = EditorTheme::VsCodeDark.into(), into)]
+    theme: Signal<EditorTheme>,
     /// Callback with the updated document after every edit.
-    #[prop(optional)] on_change: Option<Callback<String>>,
+    #[prop(optional)]
+    on_change: Option<Callback<String>>,
     /// Include the preset editor stylesheet. Set `false` with a custom
     /// `class` to style the semantic `yaml-editor__*` markup yourself.
-    #[prop(default = true)] styled: bool,
+    #[prop(default = true)]
+    styled: bool,
     /// Show the built-in file/schema toolbar. Prefer the composable
     /// [`YamlEditorToolbar`] for host-owned chrome.
-    #[prop(default = false)] show_toolbar: bool,
+    #[prop(default = false)]
+    show_toolbar: bool,
     /// Show the built-in status footer. Prefer the composable
     /// [`YamlEditorFooter`] for host-owned chrome.
-    #[prop(default = false)] show_footer: bool,
+    #[prop(default = false)]
+    show_footer: bool,
     /// Show inline parse/schema diagnostics and hover messages.
-    #[prop(default = true)] show_diagnostics: bool,
+    #[prop(default = true)]
+    show_diagnostics: bool,
     /// Enable schema-backed completions (`Ctrl+Space`).
-    #[prop(default = true)] enable_completions: bool,
+    #[prop(default = true)]
+    enable_completions: bool,
     /// Show schema description, type, default, and examples when hovering a key.
-    #[prop(default = true)] enable_hover_docs: bool,
+    #[prop(default = true)]
+    enable_hover_docs: bool,
     /// Open suggestions while typing and after accepting a key (values close
     /// the list). Set `false` to make them explicit with `Ctrl+Space`.
-    #[prop(default = true)] auto_trigger_completions: bool,
+    #[prop(default = true)]
+    auto_trigger_completions: bool,
     /// Enable YAML syntax colors.
-    #[prop(default = true)] enable_highlighting: bool,
+    #[prop(default = true)]
+    enable_highlighting: bool,
     /// Pair quotes/brackets, wrap selections, skip closing pairs, and delete
     /// empty pairs on Backspace.
-    #[prop(default = true)] enable_auto_closing: bool,
+    #[prop(default = true)]
+    enable_auto_closing: bool,
     /// Show line changes against `baseline`.
-    #[prop(default = true)] show_diff: bool,
+    #[prop(default = true)]
+    show_diff: bool,
     /// View mode: disable typing, completions, and edits while keeping
     /// highlighting, diagnostics, diffs, and hover docs.
-    #[prop(default = Signal::from(false), into)] read_only: Signal<bool>,
+    #[prop(default = Signal::from(false), into)]
+    read_only: Signal<bool>,
 ) -> impl IntoView {
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema_json {
@@ -174,11 +184,6 @@ pub fn YamlEditor(
     );
     let baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
     let selected_diff_peek = RwSignal::new(None::<DiffPeek>);
-    Effect::new(move |_| {
-        source.get();
-        baseline.get();
-        selected_diff_peek.set(None);
-    });
     if let Some(value) = value {
         Effect::new(move |_| {
             let external_value = normalize_newlines(value.get());
@@ -226,9 +231,33 @@ pub fn YamlEditor(
     });
     let schema_for_diagnostics = schema_bundle.clone();
     let schema_error_for_diagnostics = schema_error.clone();
+    // Validation runs against a debounced snapshot so intermediate states
+    // while typing (an unclosed bracket, a half typed key) do not flash
+    // squiggles on every keystroke. Hover, completions, and diffs keep
+    // reading the live source.
+    let diagnosed_text = RwSignal::new(source.get_untracked());
+    let diagnostics_token = StoredValue::new(0u64);
+    Effect::new(move |_| {
+        let text = source.get();
+        diagnostics_token.update_value(|token| *token += 1);
+        let token = diagnostics_token.get_value();
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                wasm_bindgen::closure::Closure::once_into_js(move || {
+                    if diagnostics_token.get_value() == token {
+                        diagnosed_text.set(text);
+                    }
+                })
+                .unchecked_ref(),
+                DIAGNOSTICS_DEBOUNCE_MS,
+            );
+        } else {
+            diagnosed_text.set(text);
+        }
+    });
     let diagnostics = Memo::new(move |_| {
         validate_yaml(
-            &source.get(),
+            &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
             schema_error_for_diagnostics.as_deref(),
             show_diagnostics && cfg!(feature = "diagnostics"),
@@ -278,6 +307,28 @@ pub fn YamlEditor(
             suggestions_requested.set(request_completions);
         }
     };
+    // Moves the caret to a diagnostic (F8 cycling and the status button share
+    // this). Diagnostics without a position (schema-level errors) have no
+    // caret target, so callers must pick a positioned index.
+    let go_to_diagnostic = move |index: usize| {
+        let errors = diagnostics.get();
+        let Some(diagnostic) = errors.get(index) else {
+            return;
+        };
+        let (Some(line), Some(column)) = (diagnostic.line, diagnostic.column) else {
+            return;
+        };
+        let text = source.get_untracked();
+        let offset = offset_at(&text, line, column);
+        if let Some(editor) = editor_ref.get() {
+            let _ = editor.focus();
+            let _ = editor.set_selection_range(offset as u32, offset as u32);
+        }
+        cursor.set(offset);
+        current_line.set(line);
+        suggestions_requested.set(false);
+        hide_hover();
+    };
 
     let file_name = file_name.unwrap_or_else(|| "untitled.yaml".to_string());
     let root_class = class.unwrap_or_default();
@@ -290,6 +341,21 @@ pub fn YamlEditor(
         } else {
             LineDiff::empty(source.get().split('\n').count())
         }
+    });
+    // A change preview survives typing elsewhere but dismisses when the edit
+    // touches its anchor; see `peek_survives_edit`. Applying changes clears
+    // the preview through the baseline, which recomputes the diff.
+    Effect::new(move |_| {
+        let line_diff = diff.get();
+        let current: Vec<String> = source.get().split('\n').map(str::to_string).collect();
+        selected_diff_peek.update(|peek| {
+            if peek
+                .as_ref()
+                .is_some_and(|peek| !peek_survives_edit(peek, &current, &line_diff))
+            {
+                *peek = None;
+            }
+        });
     });
 
     view! {
@@ -397,11 +463,7 @@ pub fn YamlEditor(
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {
                                                         let text = source.get_untracked();
-                                                        let offset: usize = text
-                                                            .split('\n')
-                                                            .take(line.saturating_sub(1))
-                                                            .map(|text_line| text_line.encode_utf16().count() + 1)
-                                                            .sum();
+                                                        let offset = offset_at(&text, line, 1);
                                                         let _ = editor.focus();
                                                         cursor.set(offset);
                                                         current_line.set(line);
@@ -566,6 +628,7 @@ pub fn YamlEditor(
                                                 class="yaml-editor__diagnostic-marker"
                                                 class:yaml-editor__diagnostic-marker-eof=is_eof
                                                 class:yaml-editor__diagnostic-marker-near-top=line <= 3
+                                                tabindex="-1"
                                                 aria-label=format!("YAML error on line {line}: {}", diagnostic.message)
                                                 data-message=diagnostic.message
                                                 style=format!(
@@ -579,20 +642,7 @@ pub fn YamlEditor(
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {
                                                         let text = source.get_untracked();
-                                                        let line_start = text
-                                                            .split('\n')
-                                                            .take(line.saturating_sub(1))
-                                                            .map(|text_line| text_line.encode_utf16().count() + 1)
-                                                            .sum::<usize>();
-                                                        let column_offset = text
-                                                            .split('\n')
-                                                            .nth(line.saturating_sub(1))
-                                                            .unwrap_or("")
-                                                            .chars()
-                                                            .take(column.saturating_sub(1))
-                                                            .map(char::len_utf16)
-                                                            .sum::<usize>();
-                                                        let offset = line_start + column_offset;
+                                                        let offset = offset_at(&text, line, column);
                                                         let _ = editor.focus();
                                                         cursor.set(offset);
                                                         current_line.set(line);
@@ -835,6 +885,34 @@ pub fn YamlEditor(
                                         explicit_request.set(true);
                                         completion_navigated.set(true);
                                         suggestions_requested.set(true);
+                                        return;
+                                    }
+                                    if event.code() == "F8" {
+                                        event.prevent_default();
+                                        let errors = diagnostics.get_untracked();
+                                        let text = source.get_untracked();
+                                        let here = cursor.get_untracked();
+                                        let mut positioned = Vec::new();
+                                        for (index, diagnostic) in errors.iter().enumerate() {
+                                            let (Some(line), Some(column)) =
+                                                (diagnostic.line, diagnostic.column)
+                                            else {
+                                                continue;
+                                            };
+                                            positioned.push((offset_at(&text, line, column), index));
+                                        }
+                                        // Cycle past the caret, wrapping at the
+                                        // ends like VS Code; equal offsets stay
+                                        // put so repeated F8 never stalls.
+                                        let offsets: Vec<usize> = positioned
+                                            .iter()
+                                            .map(|(offset, _)| *offset)
+                                            .collect();
+                                        if let Some(position) =
+                                            cycle_offset(&offsets, here, event.shift_key())
+                                        {
+                                            go_to_diagnostic(positioned[position].1);
+                                        }
                                         return;
                                     }
                                     if (event.ctrl_key() || event.meta_key())
@@ -1233,7 +1311,16 @@ pub fn YamlEditor(
                                             </span>
                                             <span class="yaml-editor__completion-content">
                                                 <span class="yaml-editor__completion-primary">
-                                                    <span class="yaml-editor__completion-key">{option.label}</span>
+                                                    <span class="yaml-editor__completion-key">{
+                                                        option.label.chars().enumerate().map(|(index, character)| {
+                                                            let highlighted = option.matched.iter().any(|(start, end)| (*start..*end).contains(&index));
+                                                            if highlighted {
+                                                                view! { <span class="yaml-editor__completion-match">{character.to_string()}</span> }.into_any()
+                                                            } else {
+                                                                view! { <span>{character.to_string()}</span> }.into_any()
+                                                            }
+                                                        }).collect_view()
+                                                    }</span>
                                                     <span class="yaml-editor__completion-type">{option.type_label}</span>
                                                 </span>
                                                 {(!detail.is_empty()).then(|| view! {
@@ -1254,15 +1341,25 @@ pub fn YamlEditor(
                         </span>
                         <span class="yaml-editor__status-meta">
                             {show_diagnostics.then(|| view! {
-                                <span
+                                <button
+                                    type="button"
                                     class="yaml-editor__diagnostic-status"
                                     class:yaml-editor__diagnostic-status-error=move || !diagnostics.get().is_empty()
-                                    role="status"
+                                    disabled=move || diagnostics.get().is_empty()
                                     aria-live="polite"
                                     title=move || {
                                         diagnostics.get().first()
                                             .filter(|diagnostic| diagnostic.line.is_none())
                                             .map(|diagnostic| diagnostic.message.clone())
+                                    }
+                                    on:click=move |_| {
+                                        let errors = diagnostics.get_untracked();
+                                        if let Some(index) = errors
+                                            .iter()
+                                            .position(|diagnostic| diagnostic.line.is_some() && diagnostic.column.is_some())
+                                        {
+                                            go_to_diagnostic(index);
+                                        }
                                     }
                                 >
                                     {move || {
@@ -1275,7 +1372,7 @@ pub fn YamlEditor(
                                             count => format!("{count} error(s) · hover or focus underlined text"),
                                         }
                                     }}
-                                </span>
+                                </button>
                             })}
                             <span class="yaml-editor__line-count">{move || format!("{} lines", source.get().split('\n').count())}</span>
                         </span>

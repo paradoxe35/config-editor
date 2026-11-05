@@ -73,6 +73,18 @@ export function editor(page) {
 
   const value = () => input.inputValue();
 
+  // Caret line/column (1-based) plus whether the selection is collapsed.
+  const caret = () =>
+    input.evaluate((element) => {
+      const position = element.selectionStart;
+      const before = element.value.slice(0, position);
+      return {
+        line: before.split('\n').length,
+        column: position - (before.lastIndexOf('\n') + 1) + 1,
+        collapsed: element.selectionStart === element.selectionEnd,
+      };
+    });
+
   const screenshot = (name) =>
     page.screenshot({ path: `test-results/screens/${name}.png` });
 
@@ -88,6 +100,7 @@ export function editor(page) {
     clickKey,
     highlighted,
     value,
+    caret,
     screenshot,
   };
 }

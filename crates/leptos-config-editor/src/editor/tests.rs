@@ -768,6 +768,21 @@ fn fuzzy_completion_matches_word_initials_and_subsequences() {
 
 #[cfg(feature = "completion")]
 #[test]
+fn match_ranges_cover_the_typed_characters_for_every_tier() {
+    use super::completion::match_ranges;
+    assert!(match_ranges("max_connections", "").is_empty());
+    assert_eq!(match_ranges("listen", "lis"), vec![(0, 3)]);
+    assert_eq!(match_ranges("Listen", "lis"), vec![(0, 3)]);
+    assert_eq!(match_ranges("max_connections", "mc"), vec![(0, 1), (4, 5)]);
+    assert_eq!(match_ranges("insecure_plaintext", "sec"), vec![(2, 5)]);
+    assert_eq!(match_ranges("listen", "ltn"), vec![(0, 1), (3, 4), (5, 6)]);
+    assert!(match_ranges("listen", "xyz").is_empty());
+    // Ranges index characters, not bytes.
+    assert_eq!(match_ranges("héllo", "é"), vec![(1, 2)]);
+}
+
+#[cfg(feature = "completion")]
+#[test]
 fn quoted_partial_keys_are_replaced_with_the_quoted_schema_key() {
     let schema =
         build_schema(r#"{"type":"object","properties":{"display:name":{"type":"string"}}}"#)
@@ -887,10 +902,7 @@ fn typing_on_a_blank_line_suggests_missing_top_level_keys() {
         Some(&schema),
         true,
     );
-    let labels: Vec<&str> = options
-        .iter()
-        .map(|option| option.label.as_str())
-        .collect();
+    let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
     assert!(
         labels.contains(&"clients"),
         "typing 'c' on a blank line should suggest missing keys, got: {labels:?}"
@@ -909,10 +921,7 @@ fn typing_after_a_fresh_indent_suggests_nested_keys() {
         Some(&schema),
         true,
     );
-    let labels: Vec<&str> = options
-        .iter()
-        .map(|option| option.label.as_str())
-        .collect();
+    let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
     assert!(
         labels.contains(&"http") || labels.contains(&"https"),
         "typing after a fresh indent should suggest nested keys, got: {labels:?}"
@@ -1027,6 +1036,39 @@ fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
 
     let (outdented, _, _) = indent_yaml_lines(&indented, start, end, true).unwrap();
     assert_eq!(outdented, source);
+}
+
+#[test]
+fn offset_at_maps_line_cells_to_utf16_offsets_and_clamps() {
+    // "one: 1\n🙂: 2\nthree: 3\n": line 2 starts after 7+1 units, and the
+    // emoji occupies two UTF-16 units, so column math must count UTF-16.
+    let source = "one: 1\n\u{1F642}: 2\nthree: 3\n";
+    assert_eq!(offset_at(source, 1, 1), 0);
+    assert_eq!(offset_at(source, 1, 4), 3);
+    assert_eq!(offset_at(source, 2, 1), 7);
+    assert_eq!(offset_at(source, 2, 2), 9);
+    assert_eq!(offset_at(source, 3, 6), 18);
+    // Past the end of a line or document clamps instead of panicking.
+    assert_eq!(offset_at(source, 2, 99), 12);
+    assert_eq!(offset_at(source, 99, 1), source.encode_utf16().count());
+    assert_eq!(offset_at("", 1, 1), 0);
+}
+
+#[test]
+fn f8_cycles_through_diagnostic_offsets_and_wraps_at_the_ends() {
+    let offsets = [5, 12, 20];
+    assert_eq!(cycle_offset(&[], 0, false), None);
+    assert_eq!(cycle_offset(&offsets, 0, false), Some(0));
+    assert_eq!(cycle_offset(&offsets, 5, false), Some(1));
+    assert_eq!(cycle_offset(&offsets, 13, false), Some(2));
+    assert_eq!(cycle_offset(&offsets, 20, false), Some(0));
+    assert_eq!(cycle_offset(&offsets, 99, false), Some(0));
+    assert_eq!(cycle_offset(&offsets, 99, true), Some(2));
+    assert_eq!(cycle_offset(&offsets, 20, true), Some(1));
+    assert_eq!(cycle_offset(&offsets, 5, true), Some(2));
+    assert_eq!(cycle_offset(&offsets, 0, true), Some(2));
+    assert_eq!(cycle_offset(&[7], 0, false), Some(0));
+    assert_eq!(cycle_offset(&[7], 7, false), Some(0));
 }
 
 #[cfg(feature = "completion")]

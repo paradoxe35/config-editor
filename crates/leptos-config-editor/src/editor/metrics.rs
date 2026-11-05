@@ -1,10 +1,20 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use wasm_bindgen::JsCast;
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EditorMetrics {
     pub(super) font_size: f64,
+    pub(super) char_width: f64,
     pub(super) line_height: f64,
     pub(super) padding_top: f64,
     pub(super) padding_left: f64,
 }
+
+/// Fallback advance of one monospace column relative to the font size. Used
+/// only when canvas measurement is unavailable; the textarea uses a monospace
+/// stack so `0.6em` tracks real glyph advances closely enough to stay usable.
+const CHAR_WIDTH_FACTOR: f64 = 0.6;
 
 impl EditorMetrics {
     /// Fallback metrics when `window.get_computed_style` is unavailable (for
@@ -13,11 +23,44 @@ impl EditorMetrics {
     pub(super) fn fallback() -> Self {
         Self {
             font_size: 12.0,
+            char_width: 12.0 * CHAR_WIDTH_FACTOR,
             line_height: 12.0 * 1.8,
             padding_top: 0.0,
             padding_left: 0.0,
         }
     }
+}
+
+thread_local! {
+    /// Canvas-measured `0`-glyph advances keyed by canvas font string, so
+    /// pointer mapping pays for measurement once per font instead of once
+    /// per mousemove.
+    static CHAR_WIDTHS: RefCell<HashMap<String, f64>> = RefCell::new(HashMap::new());
+}
+
+/// Measures the advance of one monospace column with a canvas context, which
+/// tracks the real font (including host overrides of the mono stack) instead
+/// of assuming `0.6em`. Returns `None` outside a browser.
+fn measured_char_width(font: &str) -> Option<f64> {
+    if let Some(width) = CHAR_WIDTHS.with(|cache| cache.borrow().get(font).copied()) {
+        return Some(width);
+    }
+    let width = (|| {
+        let document = web_sys::window()?.document()?;
+        let canvas: web_sys::HtmlCanvasElement =
+            document.create_element("canvas").ok()?.dyn_into().ok()?;
+        let context: web_sys::CanvasRenderingContext2d =
+            canvas.get_context("2d").ok()??.dyn_into().ok()?;
+        context.set_font(font);
+        let width = context.measure_text("0000000000").ok()?.width() / 10.0;
+        (width > 0.0).then_some(width)
+    })();
+    if let Some(width) = width {
+        CHAR_WIDTHS.with(|cache| {
+            cache.borrow_mut().insert(font.to_string(), width);
+        });
+    }
+    width
 }
 
 /// Reads the editor's typography from CSS instead of hard-coding pixel values.
@@ -42,8 +85,18 @@ pub(super) fn read_editor_metrics(element: &web_sys::Element) -> EditorMetrics {
     };
     let font_size = number("font-size", 12.0);
     let line_height = number("line-height", font_size * 1.8);
+    let family = style
+        .as_ref()
+        .and_then(|style| style.get_property_value("font-family").ok())
+        .map(|family| family.trim().to_string())
+        .filter(|family| !family.is_empty());
+    let char_width = family
+        .map(|family| format!("{font_size}px {family}"))
+        .and_then(|font| measured_char_width(&font))
+        .unwrap_or(font_size * CHAR_WIDTH_FACTOR);
     EditorMetrics {
         font_size,
+        char_width,
         line_height,
         padding_top: number("padding-top", 0.0),
         padding_left: number("padding-left", 0.0),

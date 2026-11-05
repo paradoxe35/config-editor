@@ -8,6 +8,44 @@ pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
         + 1
 }
 
+/// Picks the next caret offset to jump to when cycling diagnostics (F8),
+/// wrapping at the ends like VS Code. `offsets` are caret offsets in document
+/// order; the return is a position into that slice. Equal offsets stay put so
+/// repeated presses never stall on the current error.
+pub(super) fn cycle_offset(offsets: &[usize], here: usize, backward: bool) -> Option<usize> {
+    if offsets.is_empty() {
+        return None;
+    }
+    if backward {
+        offsets
+            .iter()
+            .rposition(|offset| *offset < here)
+            .or(Some(offsets.len() - 1))
+    } else {
+        offsets.iter().position(|offset| *offset > here).or(Some(0))
+    }
+}
+/// Returns the UTF-16 offset of the (`line`, `column`) cell, both 1-based.
+/// Positions past the end of a line or document clamp to what exists, so
+/// gutter clicks and squiggle clicks never produce an out-of-range caret.
+pub(super) fn offset_at(source: &str, line: usize, column: usize) -> usize {
+    let line_index = line.saturating_sub(1);
+    let mut offset = source
+        .split('\n')
+        .take(line_index)
+        .map(|text_line| text_line.encode_utf16().count() + 1)
+        .sum::<usize>();
+    offset += source
+        .split('\n')
+        .nth(line_index)
+        .unwrap_or("")
+        .chars()
+        .take(column.saturating_sub(1))
+        .map(char::len_utf16)
+        .sum::<usize>();
+    offset.min(source.encode_utf16().count())
+}
+
 /// Returns the indentation unit used by the document. YAML files in the wild
 /// use either two or four spaces, and occasionally tabs; honouring the
 /// document's own style keeps automatic indentation and expanded completions
