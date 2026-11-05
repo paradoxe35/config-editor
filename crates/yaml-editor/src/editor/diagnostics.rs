@@ -342,7 +342,7 @@ mod tests {
         )
         .unwrap();
         let source =
-            "weight: 5\nservices:\n  api:\n    clients:\n      - name: laptop\n        weight: 0\n";
+            "weight: 5\nservices:\n  billing:\n    clients:\n      - name: laptop\n        weight: 0\n";
 
         let diagnostics = validate_yaml(source, Some(&schema), None, true);
 

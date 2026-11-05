@@ -30,9 +30,14 @@ test.describe('accepting keys and values', () => {
     await expect(e.input).toHaveValue('insecure_plaintext: false');
   });
 
-  test('keyboard: Enter accepts the key, then an arrow and Enter accept a value', async ({ page }) => {
+  test('keyboard: arrow then Enter accepts the key, then an arrow and Enter accept a value', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('lis');
+    // Narrow to a single match, then arrow to engage the list explicitly:
+    // Enter on an untouched auto-triggered list inserts a newline instead.
+    await page.keyboard.type('t');
+    await expect.poll(() => e.keys()).toEqual(['listen']);
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('listen: ');
     expect(await e.isOpen()).toBe(true);
@@ -42,13 +47,38 @@ test.describe('accepting keys and values', () => {
     expect(await e.isOpen()).toBe(false);
   });
 
+  test('Enter with an auto-triggered list inserts a newline instead of accepting', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('lis');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue('lis\n');
+    expect(await e.isOpen()).toBe(false);
+  });
+
+  test('Tab with an auto-triggered list indents instead of accepting', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('l');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    await page.keyboard.press('Tab');
+    await expect(e.input).toHaveValue('listen: 7835\nl  ');
+    expect(await e.isOpen()).toBe(false);
+  });
+
   test('a bare colon gets a separating space before the example value', async ({ page }) => {
     const e = editor(page);
     await e.typeDoc('web:');
     await page.keyboard.press('Enter');
     await page.keyboard.type('http:');
     await expect.poll(() => e.isOpen()).toBe(true);
-    await e.clickKey('0.0.0.0:7835');
+    // Explicit request: Enter accepts the top match without arrowing.
+    await page.keyboard.press('Control+Space');
+    await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('web:\n  http: "0.0.0.0:7835"');
     expect(await e.isOpen()).toBe(false);
   });
@@ -75,9 +105,9 @@ test.describe('accepting keys and values', () => {
     const e = editor(page);
     await e.typeDoc('clients:');
     await page.keyboard.press('Enter');
-    await page.keyboard.type('paradoxe:');
+    await page.keyboard.type('alex:');
     await page.keyboard.press('Enter');
-    await expect(e.input).toHaveValue('clients:\n  paradoxe:\n    ');
+    await expect(e.input).toHaveValue('clients:\n  alex:\n    ');
     expect(await e.isOpen()).toBe(false);
     await page.keyboard.press('Control+Space');
     await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['max_connections', 'secret']));
@@ -148,7 +178,7 @@ test.describe('read-only view mode', () => {
 test.describe('highlight', () => {
   test('hover and arrow keys share exactly one highlighted row', async ({ page }) => {
     const e = editor(page);
-    await e.paste('clients:\n  paradoxe:\n    ');
+    await e.paste('clients:\n  alex:\n    ');
     await page.keyboard.press('Control+Space');
     await expect(e.options).toHaveCount(2);
     const second = (await e.keys())[1];

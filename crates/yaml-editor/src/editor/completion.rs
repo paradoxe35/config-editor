@@ -453,7 +453,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         path,
         typed,
         replace_start: source[..typed_start_byte].encode_utf16().count(),
-        replace_end: replace_end_byte.min(source.len()),
+        replace_end: source[..replace_end_byte.min(source.len())]
+            .encode_utf16()
+            .count(),
         value_key,
         value_needs_space,
         is_array_item: current_is_array_item,
@@ -667,7 +669,7 @@ fn value_completions(
     schemas: &[&Value],
     typed: &str,
     start: usize,
-    cursor: usize,
+    end: usize,
     root: &Value,
     leading: &str,
 ) -> Vec<Completion> {
@@ -698,7 +700,7 @@ fn value_completions(
                             cursor_offset: insert.encode_utf16().count(),
                             insert,
                             start,
-                            end: cursor,
+                            end,
                             is_value: true,
                         },
                     ));
@@ -714,7 +716,7 @@ fn property_completions(
     schemas: &[&Value],
     typed: &str,
     start: usize,
-    cursor: usize,
+    end: usize,
     root: &Value,
     existing: Option<&HashSet<String>>,
     base_indent: &str,
@@ -763,7 +765,7 @@ fn property_completions(
                     type_label: schema_type_label(property, root, "property"),
                     insert,
                     start,
-                    end: cursor,
+                    end,
                     cursor_offset,
                     is_value: false,
                 },
@@ -899,6 +901,15 @@ pub(super) fn completions(
 /// a value ends the entry, so the list closes instead of offering the same value again.
 pub(super) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: bool) -> bool {
     auto_trigger && !completion.is_value
+}
+
+/// Whether Enter/Tab accept the highlighted completion instead of editing.
+/// Accept only after explicit engagement: a `Ctrl+Space` (or accept-chained)
+/// request, or navigation via arrow keys/hover. An auto-triggered list with
+/// the highlight still on index 0 must not hijack Enter — the keystroke
+/// belongs to newline+indent (Enter) or indent/outdent (Tab), as in VS Code.
+pub(super) fn should_accept_with_keyboard(explicit_request: bool, navigated: bool) -> bool {
+    explicit_request || navigated
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1084,6 +1095,33 @@ fn visual_column(text: &str) -> f64 {
     column
 }
 
+/// Pure completion-popup placement: given the caret position in viewport
+/// coordinates and the viewport size, decide above/below placement and clamp
+/// to the viewport. No DOM access, so this is directly unit-testable.
+pub(super) fn completion_popup_geometry(
+    viewport_width: f64,
+    viewport_height: f64,
+    caret_x: f64,
+    caret_y: f64,
+    line_height: f64,
+    option_count: usize,
+) -> String {
+    let width = 420.0_f64.min((viewport_width - 16.0).max(0.0));
+    let left = caret_x.clamp(8.0, (viewport_width - width - 8.0).max(8.0));
+    let ideal_height = (option_count as f64 * 44.0 + 2.0).min(320.0);
+    let space_below = (viewport_height - caret_y - line_height - 8.0).max(0.0);
+    let space_above = (caret_y - 8.0).max(0.0);
+    let (top, available_height) = if space_below >= ideal_height || space_below >= space_above {
+        (caret_y + line_height, space_below)
+    } else {
+        ((caret_y - ideal_height).max(8.0), space_above)
+    };
+    let max_height = ideal_height.min(available_height).max(0.0);
+    format!(
+        "position:fixed;left:{left:.1}px;top:{top:.1}px;width:{width:.1}px;max-height:{max_height:.1}px"
+    )
+}
+
 pub(super) fn completion_popup_style(
     editor: &web_sys::HtmlTextAreaElement,
     source: &str,
@@ -1116,18 +1154,69 @@ pub(super) fn completion_popup_style(
         .ok()
         .and_then(|height| height.as_f64())
         .unwrap_or(768.0);
-    let width = 420.0_f64.min((viewport_width - 16.0).max(0.0));
-    let left = caret_x.clamp(8.0, (viewport_width - width - 8.0).max(8.0));
-    let ideal_height = (option_count as f64 * 44.0 + 2.0).min(320.0);
-    let space_below = (viewport_height - caret_y - metrics.line_height - 8.0).max(0.0);
-    let space_above = (caret_y - 8.0).max(0.0);
-    let (top, available_height) = if space_below >= ideal_height || space_below >= space_above {
-        (caret_y + metrics.line_height, space_below)
-    } else {
-        ((caret_y - ideal_height).max(8.0), space_above)
-    };
-    let max_height = ideal_height.min(available_height).max(0.0);
-    format!(
-        "position:fixed;left:{left:.1}px;top:{top:.1}px;width:{width:.1}px;max-height:{max_height:.1}px"
+    completion_popup_geometry(
+        viewport_width,
+        viewport_height,
+        caret_x,
+        caret_y,
+        metrics.line_height,
+        option_count,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completion_popup_geometry;
+
+    /// Regression test: the popup opens below the caret when there is room.
+    /// Behavior mirror of `peek_geometry_places_popup_below` in `diff.rs`.
+    #[test]
+    fn completion_popup_opens_below_caret_when_space_allows() {
+        let style = completion_popup_geometry(1024.0, 768.0, 100.0, 200.0, 21.6, 3);
+        // 3 options: ideal height = 3*44+2 = 134. Below: 768-200-21.6-8 = 538.4.
+        assert!(
+            style.contains("top:221.6px"),
+            "popup should sit just below the caret line, got: {style}"
+        );
+        assert!(
+            style.contains("left:100.0px"),
+            "popup should anchor at the caret x, got: {style}"
+        );
+        assert!(
+            style.contains("max-height:134.0px"),
+            "popup should fit all options, got: {style}"
+        );
+    }
+
+    /// Regression test: near the bottom edge the popup flips above the caret
+    /// instead of clipping off-viewport.
+    #[test]
+    fn completion_popup_flips_above_caret_near_viewport_bottom() {
+        let style = completion_popup_geometry(1024.0, 768.0, 100.0, 700.0, 21.6, 3);
+        // Below: 768-700-21.6-8 = 38.4 < 134; above: 700-8 = 692. So flip.
+        assert!(
+            style.contains("top:566.0px"),
+            "popup should flip above the caret (700-134), got: {style}"
+        );
+        assert!(
+            style.contains("max-height:134.0px"),
+            "popup keeps full height when there is room above, got: {style}"
+        );
+    }
+
+    /// Regression test: caret near the right edge clamps the popup so it
+    /// stays inside the viewport (no horizontal overflow).
+    #[test]
+    fn completion_popup_clamps_to_viewport_right_edge() {
+        let style = completion_popup_geometry(1024.0, 768.0, 1000.0, 200.0, 21.6, 3);
+        // width = min(420, 1024-16) = 420; left clamped to 1024-420-8 = 596.
+        assert!(
+            style.contains("left:596.0px"),
+            "popup should clamp to the right edge, got: {style}"
+        );
+        assert!(
+            style.contains("width:420.0px"),
+            "popup keeps full width when clamped, got: {style}"
+        );
+    }
 }

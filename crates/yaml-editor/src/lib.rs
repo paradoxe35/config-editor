@@ -16,7 +16,7 @@
 //! view! {
 //!     <YamlEditor
 //!         initial_value="name: app\n".to_string()
-//!         schema_json=include_str!("../schema.json").to_string()
+//!         schema_json=r#"{"type":"object","properties":{"name":{"type":"string"}}}"#.to_string()
 //!         class="settings-editor"
 //!     />
 //! }
@@ -27,6 +27,5 @@
 //! [`PRESET_CSS`].
 
 mod editor;
-mod highlight;
 
 pub use editor::{EditorTheme, PRESET_CSS, YamlEditor, YamlEditorFooter, YamlEditorToolbar};

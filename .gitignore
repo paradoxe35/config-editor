@@ -1,5 +1,6 @@
 /target
 /dist
+/test-results
 
 # Local editor and OS files
 .DS_Store

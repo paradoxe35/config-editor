@@ -11,14 +11,13 @@ fn main() {
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
         // `?readonly=1` renders the demo editor in read-only view mode.
         let read_only = web_sys::window()
-            .map(|window| {
-                window
-                    .location()
-                    .search()
-                    .map(|search| search.contains("readonly"))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+            .and_then(|window| window.location().search().ok())
+            .is_some_and(|search| {
+                search
+                    .trim_start_matches('?')
+                    .split('&')
+                    .any(|pair| pair == "readonly" || pair == "readonly=1")
+            });
         view! {
             <div
                 class="yaml-editor yaml-editor__demo"
@@ -85,10 +84,6 @@ fn main() {
                     show_toolbar=false
                     show_footer=true
                 />
-                // <YamlEditorFooter class="yaml-editor__demo-footer" theme=theme>
-                //     <span>"Green: added · blue: modified · red: deleted"</span>
-                //     <span>{move || format!("{} lines", final_value.get().split('\n').count())}</span>
-                // </YamlEditorFooter>
             </div>
         }
     })

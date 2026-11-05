@@ -1,4 +1,4 @@
-use super::metrics::read_editor_metrics;
+use super::metrics::{EditorMetrics, read_editor_metrics};
 use std::borrow::Cow;
 use wasm_bindgen::JsCast;
 
@@ -17,6 +17,87 @@ pub(super) struct LineDiff {
     pub(super) modified_before: Vec<Option<String>>,
     pub(super) deleted_after: bool,
     pub(super) deleted_lines_after: Vec<String>,
+}
+
+impl LineDiff {
+    /// Shared empty diff for `show_diff=false`. The editor memo re-renders on
+    /// every keystroke, so returning fresh `Vec`s there would allocate four
+    /// vectors per keystroke for a statically empty result.
+    pub(super) fn empty(line_count: usize) -> Self {
+        Self {
+            current: vec![DiffKind::Unchanged; line_count],
+            deleted_before: vec![false; line_count],
+            deleted_lines_before: vec![Vec::new(); line_count],
+            modified_before: vec![None; line_count],
+            deleted_after: false,
+            deleted_lines_after: Vec::new(),
+        }
+    }
+}
+
+/// Viewport rectangle inputs for [`peek_geometry`], extracted from the DOM by
+/// [`peek_popup_style`] so the placement math stays unit-testable.
+pub(super) struct PeekViewport {
+    pub(super) viewport_width: f64,
+    pub(super) viewport_height: f64,
+    pub(super) editor_top: f64,
+    pub(super) editor_left: f64,
+    pub(super) editor_scroll_top: f64,
+    pub(super) root_top: f64,
+    pub(super) root_left: f64,
+}
+
+/// Pure popup placement: given viewport/editor geometry and the anchored line,
+/// decide above/below placement and clamp to the viewport. No DOM access, so
+/// this is directly unit-testable.
+pub(super) fn peek_geometry(
+    viewport: &PeekViewport,
+    metrics: &EditorMetrics,
+    line: usize,
+    old_line_count: usize,
+    new_line_count: usize,
+) -> String {
+    let margin = 8.0;
+    let anchor_y = viewport.editor_top
+        + metrics.padding_top
+        + line.saturating_sub(1) as f64 * metrics.line_height
+        - viewport.editor_scroll_top;
+    let space_above = (anchor_y - margin).max(0.0);
+    let space_below =
+        (viewport.viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
+    let desired_height = (72.0 + (old_line_count + new_line_count) as f64 * 22.0)
+        .min(360.0)
+        .min(viewport.viewport_height * 0.55);
+    let place_below = space_below >= desired_height.min(180.0) || space_below >= space_above;
+    let available_height = if place_below {
+        space_below
+    } else {
+        space_above
+    };
+    let height = desired_height.min(available_height);
+    let top_in_viewport = if place_below {
+        anchor_y + metrics.line_height + 4.0
+    } else {
+        anchor_y - height - 4.0
+    }
+    .clamp(
+        margin,
+        (viewport.viewport_height - height - margin).max(margin),
+    );
+    let left_in_viewport = (viewport.editor_left + 5.0).clamp(
+        margin,
+        (viewport.viewport_width - 180.0 - margin).max(margin),
+    );
+    let width =
+        560.0_f64.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
+
+    format!(
+        "top:{:.1}px;left:{:.1}px;width:{:.1}px;max-height:{:.1}px",
+        top_in_viewport - viewport.root_top,
+        left_in_viewport - viewport.root_left,
+        width,
+        height
+    )
 }
 
 pub(super) fn peek_popup_style(
@@ -43,39 +124,20 @@ pub(super) fn peek_popup_style(
     let root_rect = root.get_bounding_client_rect();
     let element: &web_sys::Element = editor.unchecked_ref();
     let metrics = read_editor_metrics(element);
-    let anchor_y = editor_rect.top()
-        + metrics.padding_top
-        + line.saturating_sub(1) as f64 * metrics.line_height
-        - editor.scroll_top() as f64;
-    let margin = 8.0;
-    let space_above = (anchor_y - margin).max(0.0);
-    let space_below = (viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
-    let desired_height = (72.0 + (old_line_count + new_line_count) as f64 * 22.0)
-        .min(360.0)
-        .min(viewport_height * 0.55);
-    let place_below = space_below >= desired_height.min(180.0) || space_below >= space_above;
-    let available_height = if place_below {
-        space_below
-    } else {
-        space_above
-    };
-    let height = desired_height.min(available_height);
-    let top_in_viewport = if place_below {
-        anchor_y + metrics.line_height + 4.0
-    } else {
-        anchor_y - height - 4.0
-    }
-    .clamp(margin, (viewport_height - height - margin).max(margin));
-    let left_in_viewport =
-        (editor_rect.left() + 5.0).clamp(margin, (viewport_width - 180.0 - margin).max(margin));
-    let width = 560.0_f64.min((viewport_width - left_in_viewport - margin).max(0.0));
-
-    format!(
-        "top:{:.1}px;left:{:.1}px;width:{:.1}px;max-height:{:.1}px",
-        top_in_viewport - root_rect.top(),
-        left_in_viewport - root_rect.left(),
-        width,
-        height
+    peek_geometry(
+        &PeekViewport {
+            viewport_width,
+            viewport_height,
+            editor_top: editor_rect.top(),
+            editor_left: editor_rect.left(),
+            editor_scroll_top: editor.scroll_top() as f64,
+            root_top: root_rect.top(),
+            root_left: root_rect.left(),
+        },
+        &metrics,
+        line,
+        old_line_count,
+        new_line_count,
     )
 }
 
@@ -345,6 +407,46 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::metrics::EditorMetrics;
+
+    fn test_viewport() -> PeekViewport {
+        PeekViewport {
+            viewport_width: 1100.0,
+            viewport_height: 620.0,
+            editor_top: 100.0,
+            editor_left: 50.0,
+            editor_scroll_top: 0.0,
+            root_top: 80.0,
+            root_left: 40.0,
+        }
+    }
+
+    #[test]
+    fn peek_geometry_places_the_popup_below_the_line_when_space_allows() {
+        let style = peek_geometry(&test_viewport(), &EditorMetrics::fallback(), 2, 1, 1);
+        // Anchor is at editor_top + one line height; the popup sits below it
+        // and the style is relative to the root element.
+        assert!(style.starts_with("top:67.2px;"), "{style}");
+        assert!(style.contains("left:15.0px;"), "{style}");
+    }
+
+    #[test]
+    fn peek_geometry_flips_above_the_line_when_space_below_runs_out() {
+        let mut viewport = test_viewport();
+        viewport.viewport_height = 200.0;
+        viewport.editor_top = 20.0;
+        viewport.root_top = 0.0;
+        let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 5, 1, 1);
+        // Anchor near the bottom of a short viewport: popup goes above it and
+        // stays inside the viewport margin.
+        let top: f64 = style
+            .strip_prefix("top:")
+            .and_then(|rest| rest.split("px").next())
+            .and_then(|top| top.parse().ok())
+            .unwrap();
+        assert!(top >= 8.0, "{style}");
+        assert!(top < 110.0, "{style}");
+    }
 
     #[test]
     fn myers_fallback_preserves_context_for_large_line_ranges() {

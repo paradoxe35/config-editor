@@ -37,6 +37,15 @@ fn test_schema() -> SchemaBundle {
     .unwrap()
 }
 
+/// Schema exercising nullable objects, `$ref` branches, `additionalProperties`
+/// with dynamic keys, enums, and numeric-as-string examples. It lives in
+/// `tests/fixtures/` (not the workspace-root demo schema) so crate tests never
+/// reach outside the crate.
+#[cfg(feature = "completion")]
+fn fixture_schema() -> SchemaBundle {
+    build_schema(include_str!("../../tests/fixtures/schema.json")).unwrap()
+}
+
 #[test]
 fn line_diff_marks_inserted_lines_and_preserves_unchanged_lines() {
     let diff = diff_lines("first:\nsecond:\nthird:", "first:\nadded:\nsecond:\nthird:");
@@ -332,7 +341,7 @@ fn property_completions_omit_keys_already_present_in_the_mapping() {
 #[cfg(feature = "completion")]
 #[test]
 fn partially_typed_keys_do_not_reoffer_existing_keys_when_yaml_is_temporarily_invalid() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "listen: 7835\ninsecure_plaintext: false\nins";
     let options = completions(
         input,
@@ -351,7 +360,7 @@ fn partially_typed_keys_do_not_reoffer_existing_keys_when_yaml_is_temporarily_in
 #[cfg(feature = "completion")]
 #[test]
 fn cursor_before_a_mapping_colon_is_treated_as_key_completion_without_panicking() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "insecure_plaintext: false";
     let cursor = "ins".encode_utf16().count();
     let option = completions(input, cursor, false, Some(&schema), true)
@@ -479,7 +488,7 @@ fn completions_follow_additional_properties_into_dynamic_object_values() {
             .insert,
         "clients:\n  "
     );
-    let input = "clients:\n  paradoxe:\n    ";
+    let input = "clients:\n  alex:\n    ";
     let options = completions(
         input,
         input.encode_utf16().count(),
@@ -497,9 +506,9 @@ fn completions_follow_additional_properties_into_dynamic_object_values() {
 
 #[cfg(feature = "completion")]
 #[test]
-fn completions_use_the_real_demo_schema_for_dynamic_client_keys() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
-    let input = "clients:\n  paradoxe:\n    ";
+fn fixture_schema_covers_dynamic_client_keys_through_additional_properties() {
+    let schema = fixture_schema();
+    let input = "clients:\n  alex:\n    ";
     let options = completions(
         input,
         input.encode_utf16().count(),
@@ -825,6 +834,19 @@ fn expanded_completions_follow_the_document_indentation_unit() {
 }
 
 #[test]
+fn keyboard_accepts_completions_only_after_explicit_engagement() {
+    // Auto-triggered list, highlight untouched: Enter/Tab must NOT accept.
+    // This pins the P0-2 fix: typing `lis` then Enter inserts a newline
+    // instead of hijacking the keystroke for `listen: `.
+    assert!(!should_accept_with_keyboard(false, false));
+    // Ctrl+Space (or an accept-chained value list): Enter accepts.
+    assert!(should_accept_with_keyboard(true, false));
+    // Arrow keys or hover moved the highlight: Enter/Tab accept.
+    assert!(should_accept_with_keyboard(false, true));
+    assert!(should_accept_with_keyboard(true, true));
+}
+
+#[test]
 fn auto_trigger_only_fires_for_genuine_insertions() {
     assert!(should_auto_trigger("insertText", "", "n"));
     assert!(should_auto_trigger("insertText", "na", "nam"));
@@ -855,8 +877,68 @@ fn auto_trigger_only_fires_for_genuine_insertions() {
 
 #[cfg(feature = "completion")]
 #[test]
-fn demo_web_http_value_completion_stays_on_the_same_line() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+fn typing_on_a_blank_line_suggests_missing_top_level_keys() {
+    let schema = fixture_schema();
+    let input = "listen: 7835\n\nc";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    let labels: Vec<&str> = options
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect();
+    assert!(
+        labels.contains(&"clients"),
+        "typing 'c' on a blank line should suggest missing keys, got: {labels:?}"
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn typing_after_a_fresh_indent_suggests_nested_keys() {
+    let schema = fixture_schema();
+    let input = "web:\n  h";
+    let options = completions(
+        input,
+        input.encode_utf16().count(),
+        false,
+        Some(&schema),
+        true,
+    );
+    let labels: Vec<&str> = options
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect();
+    assert!(
+        labels.contains(&"http") || labels.contains(&"https"),
+        "typing after a fresh indent should suggest nested keys, got: {labels:?}"
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn empty_query_on_a_fresh_indent_stays_silent_without_force() {
+    let schema = fixture_schema();
+    let input = "clients:\n  alex:\n    ";
+    let cursor = input.encode_utf16().count();
+    assert!(
+        completions(input, cursor, false, Some(&schema), true).is_empty(),
+        "empty query without Ctrl+Space should stay silent (VS Code parity)"
+    );
+    assert!(
+        !completions(input, cursor, true, Some(&schema), true).is_empty(),
+        "Ctrl+Space on a fresh indent should list nested keys"
+    );
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn fixture_web_http_value_completion_stays_on_the_same_line() {
+    let schema = fixture_schema();
     let input = "web:\n  http: ";
     let options = completions(
         input,
@@ -892,7 +974,7 @@ fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
     let source = "services:\n  - web:";
     assert_eq!(newline_with_indent(source, source.len()), "\n      ");
 
-    let compact = "services:\n  - api: 8080";
+    let compact = "services:\n  - billing: 8080";
     assert_eq!(newline_with_indent(compact, compact.len()), "\n    ");
 
     let padded = "services:\n  -   web:";
@@ -950,7 +1032,7 @@ fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
 #[cfg(feature = "completion")]
 #[test]
 fn accepting_a_value_closes_suggestions_but_accepting_a_key_reopens_them() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "web:\n  http: ";
     let value = completions(
         input,
@@ -981,7 +1063,7 @@ fn accepting_a_value_closes_suggestions_but_accepting_a_key_reopens_them() {
 #[cfg(feature = "completion")]
 #[test]
 fn value_directly_after_a_bare_colon_gets_a_separating_space() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "web:\n  http:";
     let option = completions(
         input,
@@ -1001,13 +1083,13 @@ fn value_directly_after_a_bare_colon_gets_a_separating_space() {
 #[cfg(feature = "completion")]
 #[test]
 fn hovering_a_key_returns_its_schema_documentation() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let source = "web:\n  http: 80\n";
     let web = key_hover(source, 0, 1, Some(&schema)).expect("web should have docs");
     assert_eq!(web.key, "web");
     assert_eq!(
         web.description.as_deref(),
-        Some("The web proxy: one HTTPS port for websites and TLS services by name; off unless set")
+        Some("The web proxy settings; off unless set")
     );
 
     let http = key_hover(source, 1, 4, Some(&schema)).expect("nested http should have docs");
@@ -1023,7 +1105,7 @@ fn hovering_a_key_returns_its_schema_documentation() {
 #[cfg(feature = "completion")]
 #[test]
 fn hovering_outside_a_key_or_on_an_unknown_key_shows_nothing() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let source = "web:\n  http: 80\n  unknown_key: 1\n";
     assert!(
         key_hover(source, 1, 8, Some(&schema)).is_none(),
@@ -1056,7 +1138,7 @@ fn hover_marks_required_properties_from_the_parent_schema() {
 #[cfg(feature = "completion")]
 #[test]
 fn null_is_offered_only_when_explicitly_requested_or_typed() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let auto = completions("web:", 4, false, Some(&schema), true);
     assert!(
         auto.iter().all(|option| option.label != "null"),
@@ -1071,7 +1153,7 @@ fn null_is_offered_only_when_explicitly_requested_or_typed() {
 #[cfg(feature = "completion")]
 #[test]
 fn numeric_examples_are_inserted_as_numbers_when_the_schema_allows_integers() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "listen: ";
     let port = completions(
         input,
@@ -1092,8 +1174,8 @@ fn numeric_examples_are_inserted_as_numbers_when_the_schema_allows_integers() {
 fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() {
     use super::completion::yaml_value;
     use serde_json::Value;
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
-    let input = "services:\n  api:\n    protocol: ";
+    let schema = fixture_schema();
+    let input = "services:\n  billing:\n    protocol: ";
     let udp = completions(
         input,
         input.encode_utf16().count(),
@@ -1106,7 +1188,7 @@ fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() 
     .expect("protocol values should be suggested");
     assert_eq!(
         apply_completion(input, &udp).0,
-        "services:\n  api:\n    protocol: udp"
+        "services:\n  billing:\n    protocol: udp"
     );
     assert_eq!(yaml_value(&Value::String("yes".into())), "\"yes\"");
     assert_eq!(yaml_value(&Value::String("7835".into())), "\"7835\"");
@@ -1119,8 +1201,8 @@ fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() 
 #[cfg(feature = "completion")]
 #[test]
 fn required_properties_sort_before_optional_ones() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
-    let input = "services:\n  web-ui:\n    ";
+    let schema = fixture_schema();
+    let input = "services:\n  dashboard:\n    ";
     let options = completions(
         input,
         input.encode_utf16().count(),
@@ -1137,7 +1219,7 @@ fn required_properties_sort_before_optional_ones() {
 #[cfg(feature = "completion")]
 #[test]
 fn value_for_an_expanded_required_key_stays_on_its_line() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     // This is exactly what accepting `metrics` inserts: a trailing newline follows
     // the empty value of its required `listen` key.
     let input = "metrics:\n  listen: \n";
@@ -1171,7 +1253,7 @@ fn auto_trigger_still_fires_when_the_document_ends_with_a_newline() {
 #[cfg(feature = "completion")]
 #[test]
 fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "update:\n  remote: ftrue";
     let cursor = "update:\n  remote: f".encode_utf16().count();
     let option = completions(input, cursor, false, Some(&schema), true)
@@ -1186,7 +1268,7 @@ fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token()
 #[cfg(feature = "completion")]
 #[test]
 fn accepting_a_value_keeps_an_inline_comment() {
-    let schema = build_schema(include_str!("../../../../schema.json")).unwrap();
+    let schema = fixture_schema();
     let input = "update:\n  remote: tru # keep me";
     let cursor = "update:\n  remote: tru".encode_utf16().count();
     let option = completions(input, cursor, false, Some(&schema), true)
@@ -1195,4 +1277,24 @@ fn accepting_a_value_keeps_an_inline_comment() {
         .expect("true should match the partial value");
     let (updated, _) = apply_completion(input, &option);
     assert_eq!(updated, "update:\n  remote: true # keep me");
+}
+
+#[cfg(feature = "completion")]
+#[test]
+fn completion_replace_range_survives_multibyte_characters_before_the_caret() {
+    let schema = build_schema(
+        r#"{"type":"object","properties":{"café":{"type":"string"},"listen":{"type":"integer"}}}"#,
+    )
+    .unwrap();
+    // `é` is one UTF-16 unit but two UTF-8 bytes, so byte and UTF-16 offsets
+    // diverge before the caret. A byte-based replace end would overshoot and
+    // eat the trailing value when the completion is accepted.
+    let input = "café: 1\nlis: 2";
+    let cursor = "café: 1\nlis".encode_utf16().count();
+    let option = completions(input, cursor, false, Some(&schema), true)
+        .into_iter()
+        .find(|option| option.label == "listen")
+        .expect("partial key should complete to the schema property");
+    let (updated, _) = apply_completion(input, &option);
+    assert_eq!(updated, "café: 1\nlisten: 2");
 }

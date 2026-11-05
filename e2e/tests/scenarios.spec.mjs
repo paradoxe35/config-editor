@@ -18,7 +18,7 @@ pool:
   min_idle: 2
   max_idle: 8
 clients:
-  paradoxe:
+  alex:
     secret: alpha-secret
     max_connections: 16
   laptop:
@@ -31,7 +31,7 @@ visitors:
   ops:
     secret: ops-secret
 services:
-  web-ui:
+  dashboard:
     target: 8080
     protocol: tcp
     mode: failover
@@ -42,11 +42,11 @@ services:
     client: nas
     target: 22
     protocol: tcp
-  api:
+  billing:
     target: 9000
     protocol: tcp
     clients:
-      - paradoxe
+      - alex
       - name: laptop
         weight: 2
     mode: balance
@@ -113,39 +113,44 @@ test.describe('schema-driven completion', () => {
     await expect.poll(() => e.keys()).toEqual(['tcp', 'udp']);
     await page.keyboard.type('u');
     await expect.poll(() => e.keys()).toEqual(['udp']);
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('services:\n  dns:\n    target: 53\n    protocol: udp');
     expect(await e.isOpen()).toBe(false);
   });
 
-  test('initials match enum values such as least_connections', async ({ page }) => {
+  test('initials match keys such as max_connections', async ({ page }) => {
     const e = editor(page);
-    await e.paste('services:\n  api:\n    mode: ');
-    await page.keyboard.type('lc');
-    await expect.poll(() => e.keys()).toContain('least_connections');
+    await e.paste('clients:\n  alex:\n    ');
+    await page.keyboard.type('mc');
+    // Only max_connections matches: secret has no "m" for the initials to hit.
+    await expect.poll(() => e.keys()).toEqual(['max_connections']);
+    // Single-item list: the arrow is a no-op move but engages the list,
+    // so Enter accepts instead of inserting a newline.
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
-    await expect(e.input).toHaveValue('services:\n  api:\n    mode: least_connections');
+    await expect(e.input).toHaveValue('clients:\n  alex:\n    max_connections: ');
   });
 
   test('keys already present in a mapping are not suggested again', async ({ page }) => {
     const e = editor(page);
-    await e.paste('clients:\n  paradoxe:\n    secret: x\n    ');
+    await e.paste('clients:\n  alex:\n    secret: x\n    ');
     await page.keyboard.press('Control+Space');
     await expect.poll(() => e.keys()).toEqual(['max_connections']);
   });
 
   test('a partially typed key is replaced, not appended to', async ({ page }) => {
     const e = editor(page);
-    await e.paste('services:\n  api:\n    ');
+    await e.paste('services:\n  billing:\n    ');
     await page.keyboard.type('prot');
     await expect.poll(() => e.keys()).toContain('protocol');
     await e.clickKey('protocol');
-    await expect(e.input).toHaveValue('services:\n  api:\n    protocol: ');
+    await expect(e.input).toHaveValue('services:\n  billing:\n    protocol: ');
   });
 
   test('a service entry with required target suggests the target key', async ({ page }) => {
     const e = editor(page);
-    await e.paste('services:\n  web-ui:\n    ');
+    await e.paste('services:\n  dashboard:\n    ');
     await page.keyboard.press('Control+Space');
     await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['target', 'protocol', 'mode']));
     expect((await e.keys())[0], 'required target ranks first').toBe('target');
@@ -161,7 +166,7 @@ test.describe('schema-driven completion', () => {
 
   test('array items suggest client references', async ({ page }) => {
     const e = editor(page);
-    await e.paste('services:\n  api:\n    clients:\n      - ');
+    await e.paste('services:\n  billing:\n    clients:\n      - ');
     await page.keyboard.press('Control+Space');
     await expect.poll(() => e.isOpen()).toBe(true);
     await e.screenshot('array-item-suggestions');
@@ -193,11 +198,28 @@ test.describe('update.remote', () => {
     await e.typeDoc('update:');
     await page.keyboard.press('Enter');
     await page.keyboard.type('remote');
+    await expect.poll(() => e.keys()).toEqual(['remote']);
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('update:\n  remote: ');
+    // The value list reopens after the key: narrow to true (order-free),
+    // engage with the arrow, then accept.
+    await expect.poll(() => e.keys()).toEqual(expect.arrayContaining(['true', 'false']));
+    await page.keyboard.type('t');
+    await expect.poll(() => e.keys()).toEqual(['true']);
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('update:\n  remote: true');
+  });
+
+  test('Enter after typing a key name inserts a newline instead of accepting it', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('update:');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('remote');
+    await expect.poll(() => e.keys()).toEqual(['remote']);
+    await page.keyboard.press('Enter');
+    await expect(e.input).toHaveValue('update:\n  remote\n  ');
   });
 
 });
@@ -458,14 +480,14 @@ test.describe('editing behaviour', () => {
 
   test('Enter after a sequence item continues the list with a dash', async ({ page }) => {
     const e = editor(page);
-    await e.paste('clients:\n  - paradoxe');
+    await e.paste('clients:\n  - alex');
     await page.keyboard.press('Enter');
-    await expect(e.input).toHaveValue('clients:\n  - paradoxe\n  - ');
+    await expect(e.input).toHaveValue('clients:\n  - alex\n  - ');
   });
 
   test('paste never opens suggestions', async ({ page }) => {
     const e = editor(page);
-    await e.paste('services:\n  api:\n    pro');
+    await e.paste('services:\n  billing:\n    pro');
     await page.waitForTimeout(150);
     expect(await e.isOpen()).toBe(false);
   });

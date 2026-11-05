@@ -6,6 +6,20 @@ pub(super) struct EditorMetrics {
     pub(super) padding_left: f64,
 }
 
+impl EditorMetrics {
+    /// Fallback metrics when `window.get_computed_style` is unavailable (for
+    /// example in unit tests). Matches the `number()` fallbacks below.
+    #[cfg(test)]
+    pub(super) fn fallback() -> Self {
+        Self {
+            font_size: 12.0,
+            line_height: 12.0 * 1.8,
+            padding_top: 0.0,
+            padding_left: 0.0,
+        }
+    }
+}
+
 /// Reads the editor's typography from CSS instead of hard-coding pixel values.
 /// This keeps caret-anchored popups aligned when a host overrides the public
 /// `--yaml-editor-font-size` or `--yaml-editor-line-height` variables.

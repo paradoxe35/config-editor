@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yaml-editor crate test fixture",
+  "description": "Small schema exercising the shapes the crate's unit tests cover: nullable objects, $ref branches, additionalProperties with dynamic keys, enums, and numeric-as-string examples. It mirrors the structure (not the content) of the demo schema at the workspace root, so crate tests never reach outside the crate.",
+  "type": "object",
+  "properties": {
+    "listen": {
+      "description": "Address the server listens on",
+      "anyOf": [{ "$ref": "#/$defs/Bind" }, { "type": "null" }]
+    },
+    "insecure_plaintext": {
+      "description": "Whether plaintext connections are allowed",
+      "type": "boolean"
+    },
+    "web": {
+      "description": "The web proxy settings; off unless set",
+      "anyOf": [{ "$ref": "#/$defs/WebConfig" }, { "type": "null" }]
+    },
+    "clients": {
+      "description": "Clients allowed to connect, keyed by client name",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/ClientEntry" },
+      "default": {}
+    },
+    "services": {
+      "description": "Exposed services, keyed by service name",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/ServiceEntry" },
+      "default": {}
+    },
+    "update": { "$ref": "#/$defs/ServerUpdate" },
+    "metrics": {
+      "description": "Metrics endpoint settings; off unless set",
+      "anyOf": [{ "$ref": "#/$defs/MetricsConfig" }, { "type": "null" }]
+    },
+    "self": {
+      "description": "Targets this server may dial for itself",
+      "anyOf": [{ "$ref": "#/$defs/SelfEntry" }, { "type": "null" }]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Bind": {
+      "anyOf": [
+        { "type": "integer", "minimum": 1, "maximum": 65535 },
+        { "type": "string", "examples": ["0.0.0.0:7835", "7835"] }
+      ]
+    },
+    "WebConfig": {
+      "type": "object",
+      "properties": {
+        "https": {
+          "description": "Port or ip:port for HTTPS, like 443",
+          "anyOf": [{ "$ref": "#/$defs/Bind" }, { "type": "null" }]
+        },
+        "http": {
+          "description": "Port or ip:port for plain HTTP, like 80",
+          "anyOf": [{ "$ref": "#/$defs/Bind" }, { "type": "null" }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClientEntry": {
+      "type": "object",
+      "properties": {
+        "secret": {
+          "description": "Secret for this client",
+          "type": "string"
+        },
+        "max_connections": {
+          "description": "Maximum concurrent connections for this client",
+          "type": ["integer", "null"],
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": ["secret"]
+    },
+    "ServiceEntry": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "host:port as seen from the client",
+          "type": "string"
+        },
+        "protocol": {
+          "description": "Transport protocol",
+          "type": "string",
+          "enum": ["tcp", "udp"]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["target"]
+    },
+    "ServerUpdate": {
+      "type": "object",
+      "properties": {
+        "remote": {
+          "description": "Whether the server may update itself remotely",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MetricsConfig": {
+      "type": "object",
+      "properties": {
+        "listen": {
+          "description": "Address for the metrics endpoint",
+          "$ref": "#/$defs/Bind"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["listen"]
+    },
+    "SelfEntry": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Addresses this server may dial for itself",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -2,16 +2,19 @@ use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
-use crate::highlight::highlight_line;
+mod highlight;
+use highlight::highlight_line;
 
+mod chrome;
+pub use chrome::{YamlEditorFooter, YamlEditorToolbar};
+mod theme;
+pub use theme::EditorTheme;
 mod history;
 use history::EditHistory;
 mod diff;
 use diff::{DiffKind, LineDiff, diff_lines, peek_popup_style};
 mod keyboard;
-use keyboard::{
-    delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
-};
+use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
 mod diagnostics;
 #[cfg(test)]
 use diagnostics::SchemaBundle;
@@ -19,16 +22,17 @@ use diagnostics::{build_schema, validate_yaml};
 mod completion;
 use completion::{
     KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
-    key_hover, scroll_completion_into_view, should_auto_trigger,
+    key_hover, scroll_completion_into_view, should_accept_with_keyboard, should_auto_trigger,
 };
 mod commands;
 use commands::{
     indent_unit, indent_yaml_lines, line_at_cursor, newline_with_indent, toggle_yaml_line_comments,
 };
 mod metrics;
-use metrics::read_editor_metrics;
-
-const HOVER_DELAY_MS: i32 = 350;
+mod positioning;
+use positioning::{
+    hover_card_style, pointer_text_position, schedule_hover, set_caret_visible,
+};
 
 /// Files edited on Windows commonly use CRLF. The textarea works in LF, so normalize
 /// at the boundary to keep diagnostics, completions, and diffs line-based.
@@ -55,219 +59,101 @@ struct HoverCard {
     style: String,
 }
 
-fn pointer_text_position(element: &web_sys::HtmlTextAreaElement, x: f64, y: f64) -> (usize, usize) {
-    let target: &web_sys::Element = element.unchecked_ref();
-    let rect = target.get_bounding_client_rect();
-    let metrics = read_editor_metrics(target);
-    let line =
-        (y - rect.top() - metrics.padding_top + element.scroll_top() as f64) / metrics.line_height;
-    let column = (x - rect.left() - metrics.padding_left + element.scroll_left() as f64)
-        / (metrics.font_size * 0.6);
-    (
-        line.max(0.0).floor() as usize,
-        column.max(0.0).floor() as usize,
-    )
-}
-
-fn hover_card_style(element: &web_sys::HtmlTextAreaElement, line: usize, column: usize) -> String {
-    let target: &web_sys::Element = element.unchecked_ref();
-    let rect = target.get_bounding_client_rect();
-    let metrics = read_editor_metrics(target);
-    let Some(window) = web_sys::window() else {
-        return String::new();
-    };
-    let viewport_width = window
-        .inner_width()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1024.0);
-    let viewport_height = window
-        .inner_height()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(768.0);
-    let left = (rect.left() + metrics.padding_left + column as f64 * metrics.font_size * 0.6
-        - element.scroll_left() as f64)
-        .clamp(8.0, (viewport_width - 348.0).max(8.0));
-    let line_top = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
-        - element.scroll_top() as f64;
-    if line_top > 240.0 && line_top + metrics.line_height + 240.0 > viewport_height {
-        format!("left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - 4px))")
-    } else {
-        format!(
-            "left:{left:.1}px;top:{:.1}px",
-            line_top + metrics.line_height + 4.0
-        )
-    }
-}
-
-/// Programmatic edits do not reliably scroll a textarea to a newly-set caret.
-/// Keep the caret in the scrollport so Enter and completion expansion don't
-/// make the document/page grow while the insertion point moves off-screen.
-fn set_caret_visible(
-    editor: &web_sys::HtmlTextAreaElement,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-) {
-    let offset = offset.min(text.encode_utf16().count());
-    let _ = editor.set_selection_range(offset as u32, offset as u32);
-    let byte_offset = utf16_to_byte_index(text, offset);
-    let line = text[..byte_offset]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count() as f64;
-    let target: &web_sys::Element = editor.unchecked_ref();
-    let metrics = read_editor_metrics(target);
-    let style =
-        web_sys::window().and_then(|window| window.get_computed_style(target).ok().flatten());
-    let padding_bottom = style
-        .as_ref()
-        .and_then(|style| style.get_property_value("padding-bottom").ok())
-        .and_then(|value| {
-            value
-                .trim()
-                .strip_suffix("px")
-                .unwrap_or(&value)
-                .parse::<f64>()
-                .ok()
-        })
-        .unwrap_or(0.0);
-    let current_top = editor.scroll_top() as f64;
-    let client_height = editor.client_height() as f64;
-    let caret_top = metrics.padding_top + line * metrics.line_height;
-    let caret_bottom = caret_top + metrics.line_height;
-    let visible_top = current_top + metrics.padding_top;
-    let visible_bottom = current_top + client_height - padding_bottom;
-    let next_top = if caret_bottom > visible_bottom {
-        caret_bottom - client_height + padding_bottom
-    } else if caret_top < visible_top {
-        caret_top - metrics.padding_top
-    } else {
-        current_top
-    }
-    .clamp(
-        0.0,
-        (editor.scroll_height() as f64 - client_height).max(0.0),
-    );
-    editor.set_scroll_top(next_top as i32);
-    scroll_y.set(next_top);
-}
-
-fn schedule_hover(callback: impl FnOnce() + 'static) {
-    if let Some(window) = web_sys::window() {
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            wasm_bindgen::closure::Closure::once_into_js(callback).unchecked_ref(),
-            HOVER_DELAY_MS,
-        );
-    }
-}
-
 pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub enum EditorTheme {
-    #[default]
-    VsCodeDark,
-    VsCodeLight,
-    Obsidian,
-    ObsidianLight,
-    Dracula,
-    Nord,
-    AtomOneDark,
-    GitHubLight,
-    GitHubDark,
-    SolarizedLight,
-    ViraInspired,
-}
-
-impl EditorTheme {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::VsCodeDark => "vscode-dark",
-            Self::VsCodeLight => "vscode-light",
-            Self::Obsidian => "obsidian",
-            Self::ObsidianLight => "obsidian-light",
-            Self::Dracula => "dracula",
-            Self::Nord => "nord",
-            Self::AtomOneDark => "atom-one-dark",
-            Self::GitHubLight => "github-light",
-            Self::GitHubDark => "github-dark",
-            Self::SolarizedLight => "solarized-light",
-            Self::ViraInspired => "vira-inspired",
+/// Single funnel for programmatic edits: record undo, sync the textarea,
+/// update reactive state, and notify the host. All keydown-driven mutations
+/// (pairing, Enter, Tab, comment toggle, completion accept, undo/redo) go
+/// through here so ordering can never drift between call sites.
+#[allow(clippy::too_many_arguments)]
+fn commit_edit(
+    updated: String,
+    new_cursor: usize,
+    selection_end: Option<usize>,
+    before: String,
+    before_cursor: usize,
+    source: RwSignal<String>,
+    cursor: RwSignal<usize>,
+    current_line: RwSignal<usize>,
+    history: RwSignal<EditHistory>,
+    on_change: Option<Callback<String>>,
+    editor: Option<web_sys::HtmlTextAreaElement>,
+    scroll_y: RwSignal<f64>,
+    ensure_visible: bool,
+) {
+    history.update(|history| history.record_action(before, before_cursor));
+    if let Some(editor) = editor.as_ref() {
+        editor.set_value(&updated);
+    }
+    source.set(updated);
+    if let Some(on_change) = on_change.as_ref() {
+        on_change.run(source.get_untracked());
+    }
+    let end = selection_end.unwrap_or(new_cursor);
+    cursor.set(end);
+    current_line.set(line_at_cursor(&source.get_untracked(), end));
+    if ensure_visible {
+        if let Some(editor) = editor {
+            set_caret_visible(&editor, &source.get_untracked(), new_cursor, scroll_y);
         }
-    }
-
-    pub fn css_family(self) -> &'static str {
-        match self {
-            Self::VsCodeDark | Self::VsCodeLight | Self::Obsidian | Self::ObsidianLight => {
-                self.as_str()
-            }
-            Self::Dracula
-            | Self::Nord
-            | Self::AtomOneDark
-            | Self::GitHubDark
-            | Self::ViraInspired => "obsidian",
-            Self::GitHubLight | Self::SolarizedLight => "vscode-light",
-        }
-    }
-}
-
-#[component]
-pub fn YamlEditorToolbar(
-    children: Children,
-    #[prop(optional, into)] class: Option<String>,
-    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
-) -> impl IntoView {
-    view! {
-        <div
-            class=format!("yaml-editor yaml-editor__toolbar {}", class.unwrap_or_default())
-            data-theme=move || theme.get().css_family()
-            data-color-theme=move || theme.get().as_str()
-        >
-            {children()}
-        </div>
-    }
-}
-
-#[component]
-pub fn YamlEditorFooter(
-    children: Children,
-    #[prop(optional, into)] class: Option<String>,
-    #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
-) -> impl IntoView {
-    view! {
-        <div
-            class=format!("yaml-editor yaml-editor__status {}", class.unwrap_or_default())
-            data-theme=move || theme.get().css_family()
-            data-color-theme=move || theme.get().as_str()
-        >
-            {children()}
-        </div>
+    } else if let Some(editor) = editor {
+        let _ = editor.set_selection_range(end as u32, end as u32);
     }
 }
 
 #[component]
 pub fn YamlEditor(
+    /// Seeds the editor and its diff baseline. Not a controlled value prop:
+    /// for externally controlled content and live diffs, provide reactive
+    /// `value` and `baseline` signals instead.
     #[prop(optional, into)] initial_value: Option<String>,
+    /// Optional reactive final value. Changes synchronize into the editor;
+    /// the editor sends each edit through `on_change`, so update `value`
+    /// in that callback to keep the external source of truth in sync.
     #[prop(optional, into)] value: Option<Signal<String>>,
+    /// Optional reactive baseline used to show line diffs. Updating it (for
+    /// example after applying changes) clears the diff decorations.
     #[prop(optional, into)] baseline: Option<Signal<String>>,
+    /// Optional JSON Schema string. Enables live schema diagnostics and
+    /// schema-aware completions and hover documentation.
     #[prop(optional, into)] schema_json: Option<String>,
+    /// Name shown when the built-in toolbar is enabled.
     #[prop(optional, into)] file_name: Option<String>,
+    /// Extra class on the editor root for host styles.
     #[prop(optional, into)] class: Option<String>,
+    /// Bundled [`EditorTheme`] preset. Accepts a reactive signal, so the host
+    /// can switch themes without recreating the editor.
     #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
+    /// Callback with the updated document after every edit.
     #[prop(optional)] on_change: Option<Callback<String>>,
+    /// Include the preset editor stylesheet. Set `false` with a custom
+    /// `class` to style the semantic `yaml-editor__*` markup yourself.
     #[prop(default = true)] styled: bool,
+    /// Show the built-in file/schema toolbar. Prefer the composable
+    /// [`YamlEditorToolbar`] for host-owned chrome.
     #[prop(default = false)] show_toolbar: bool,
+    /// Show the built-in status footer. Prefer the composable
+    /// [`YamlEditorFooter`] for host-owned chrome.
     #[prop(default = false)] show_footer: bool,
+    /// Show inline parse/schema diagnostics and hover messages.
     #[prop(default = true)] show_diagnostics: bool,
+    /// Enable schema-backed completions (`Ctrl+Space`).
     #[prop(default = true)] enable_completions: bool,
+    /// Show schema description, type, default, and examples when hovering a key.
     #[prop(default = true)] enable_hover_docs: bool,
+    /// Open suggestions while typing and after accepting a key (values close
+    /// the list). Set `false` to make them explicit with `Ctrl+Space`.
     #[prop(default = true)] auto_trigger_completions: bool,
+    /// Enable YAML syntax colors.
     #[prop(default = true)] enable_highlighting: bool,
+    /// Pair quotes/brackets, wrap selections, skip closing pairs, and delete
+    /// empty pairs on Backspace.
     #[prop(default = true)] enable_auto_closing: bool,
+    /// Show line changes against `baseline`.
     #[prop(default = true)] show_diff: bool,
-    #[prop(default = false)] read_only: bool,
+    /// View mode: disable typing, completions, and edits while keeping
+    /// highlighting, diagnostics, diffs, and hover docs.
+    #[prop(default = Signal::from(false), into)] read_only: Signal<bool>,
 ) -> impl IntoView {
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema_json {
@@ -277,7 +163,8 @@ pub fn YamlEditor(
         },
         None => (None, None),
     };
-    let enable_completions = enable_completions && !read_only && cfg!(feature = "completion");
+    let enable_completions =
+        enable_completions && !read_only.get_untracked() && cfg!(feature = "completion");
     let enable_highlighting = enable_highlighting && cfg!(feature = "syntax-highlighting");
     let source = RwSignal::new(
         value
@@ -305,6 +192,11 @@ pub fn YamlEditor(
     let active_completion = RwSignal::new(0usize);
     let suggestions_requested = RwSignal::new(false);
     let explicit_request = RwSignal::new(false);
+    // Tracks whether the user explicitly engaged with the open list (arrow
+    // keys, hover, or Ctrl+Space). Enter/Tab accept only in that case; an
+    // auto-triggered list with the highlight still sitting on index 0 must
+    // never hijack Enter — the user asked for a newline, not the top match.
+    let completion_navigated = RwSignal::new(false);
     let hover_card = RwSignal::new(None::<HoverCard>);
     let hover_pending = StoredValue::new(None::<(usize, String)>);
     let hover_token = StoredValue::new(0u64);
@@ -332,11 +224,6 @@ pub fn YamlEditor(
         resize_listener.remove();
         scroll_listener.remove();
     });
-    let on_change_for_input = on_change;
-    let on_change_for_keydown = on_change;
-    let on_change_for_apply = on_change;
-    let on_change_for_completion = on_change;
-    let history_for_apply = history;
     let schema_for_diagnostics = schema_bundle.clone();
     let schema_error_for_diagnostics = schema_error.clone();
     let diagnostics = Memo::new(move |_| {
@@ -366,28 +253,29 @@ pub fn YamlEditor(
         let options = suggestions.get();
         if let Some(completion) = options.get(active_completion.get()) {
             let (updated, new_cursor) = apply_completion(&source.get_untracked(), completion);
-            let editor = editor_ref.get();
             let before = source.get_untracked();
-            history_for_apply
-                .update(|history| history.record_action(before, cursor.get_untracked()));
-            if let Some(editor) = editor.as_ref() {
-                editor.set_value(&updated);
-            }
             let request_completions =
                 accept_reopens_suggestions(completion, auto_trigger_completions);
             hide_hover();
-            source.set(updated);
-            if let Some(on_change) = on_change_for_apply.as_ref() {
-                on_change.run(source.get_untracked());
-            }
-            cursor.set(new_cursor);
-            current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+            commit_edit(
+                updated,
+                new_cursor,
+                None,
+                before,
+                cursor.get_untracked(),
+                source,
+                cursor,
+                current_line,
+                history,
+                on_change,
+                editor_ref.get(),
+                scroll_y,
+                true,
+            );
             active_completion.set(0);
             explicit_request.set(true);
+            completion_navigated.set(true);
             suggestions_requested.set(request_completions);
-            if let Some(editor) = editor {
-                set_caret_visible(&editor, &source.get_untracked(), new_cursor, scroll_y);
-            }
         }
     };
 
@@ -400,24 +288,23 @@ pub fn YamlEditor(
         if show_diff {
             diff_lines(&baseline.get(), &source.get())
         } else {
-            LineDiff {
-                current: vec![DiffKind::Unchanged; source.get().split('\n').count()],
-                deleted_before: vec![false; source.get().split('\n').count()],
-                deleted_lines_before: vec![Vec::new(); source.get().split('\n').count()],
-                modified_before: vec![None; source.get().split('\n').count()],
-                deleted_after: false,
-                deleted_lines_after: Vec::new(),
-            }
+            LineDiff::empty(source.get().split('\n').count())
         }
     });
 
     view! {
         <div
-            class=format!(
-                "yaml-editor {}{}",
-                root_class,
-                if read_only { " yaml-editor__readonly" } else { "" }
-            )
+            class=move || {
+                format!(
+                    "yaml-editor {}{}",
+                    root_class,
+                    if read_only.get() {
+                        " yaml-editor__readonly"
+                    } else {
+                        ""
+                    }
+                )
+            }
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
             node_ref=root_ref
@@ -728,8 +615,8 @@ pub fn YamlEditor(
                                     source.get().split('\n').count()
                                 )
                                 aria-label="YAML source"
-                                aria-autocomplete="list"
-                                aria-haspopup="listbox"
+                                aria-autocomplete=move || (!read_only.get()).then_some("list")
+                                aria-haspopup=move || (!read_only.get()).then_some("listbox")
                                 aria-expanded=move || (!suggestions.get().is_empty()).to_string()
                                 aria-invalid=move || (!diagnostics.get().is_empty()).to_string()
                                 node_ref=editor_ref
@@ -737,11 +624,11 @@ pub fn YamlEditor(
                                 autocapitalize="off"
                                 autocomplete="off"
                                 wrap="off"
-                                readonly=read_only
-                                aria-readonly=read_only.to_string()
+                                readonly=move || read_only.get()
+                                aria-readonly=move || read_only.get().to_string()
                                 prop:value=move || source.get()
                                 on:input=move |event| {
-                                    if read_only {
+                                    if read_only.get_untracked() {
                                         if let Some(element) = event
                                             .target()
                                             .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
@@ -777,11 +664,12 @@ pub fn YamlEditor(
                                         current_line.set(line_at_cursor(&value, position));
                                     }
                                     source.set(value);
-                                    if let Some(on_change) = on_change_for_input.as_ref() {
+                                    if let Some(on_change) = on_change.as_ref() {
                                         on_change.run(source.get_untracked());
                                     }
                                     active_completion.set(0);
                                     explicit_request.set(false);
+                                    completion_navigated.set(false);
                                     suggestions_requested.set(auto_trigger);
                                     hide_hover();
                                 }
@@ -873,15 +761,13 @@ pub fn YamlEditor(
                                 }
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
                                     hide_hover();
-                                    if read_only {
-                                        if event.key() == "Escape" {
-                                            event.prevent_default();
-                                            suggestions_requested.set(false);
-                                            explicit_request.set(false);
-                                            selected_diff_peek.set(None);
-                                            hide_hover();
-                                        }
-                                        if event.ctrl_key() && event.code() == "Space" {
+                                    if read_only.get_untracked() {
+                                        // Escape dismissal is handled by the root
+                                        // editor keydown listener; just swallow
+                                        // keys that would otherwise act here.
+                                        if event.key() == "Escape"
+                                            || (event.ctrl_key() && event.code() == "Space")
+                                        {
                                             event.prevent_default();
                                         }
                                         return;
@@ -936,7 +822,7 @@ pub fn YamlEditor(
                                                     )
                                                     .expect("editor selection range should remain valid");
                                             }
-                                            if let Some(on_change) = on_change_for_keydown.as_ref() {
+                                            if let Some(on_change) = on_change.as_ref() {
                                                 on_change.run(restored.value);
                                             }
                                             suggestions_requested.set(false);
@@ -947,6 +833,7 @@ pub fn YamlEditor(
                                         event.prevent_default();
                                         active_completion.set(0);
                                         explicit_request.set(true);
+                                        completion_navigated.set(true);
                                         suggestions_requested.set(true);
                                         return;
                                     }
@@ -965,20 +852,28 @@ pub fn YamlEditor(
                                                 toggle_yaml_line_comments(&before, start, end)
                                             {
                                                 if updated != before {
-                                                    history.update(|history| {
-                                                        history.record_action(before, start);
-                                                    });
-                                                    element.set_value(&updated);
-                                                    source.set(updated);
-                                                    if let Some(on_change) = on_change_for_keydown.as_ref() {
-                                                        on_change.run(source.get_untracked());
-                                                    }
+                                                    commit_edit(
+                                                        updated,
+                                                        selection_end,
+                                                        Some(selection_end),
+                                                        before,
+                                                        start,
+                                                        source,
+                                                        cursor,
+                                                        current_line,
+                                                        history,
+                                                        on_change,
+                                                        Some(element.clone()),
+                                                        scroll_y,
+                                                        false,
+                                                    );
+                                                } else {
+                                                    cursor.set(selection_end);
+                                                    current_line.set(line_at_cursor(
+                                                        &source.get_untracked(),
+                                                        selection_end,
+                                                    ));
                                                 }
-                                                cursor.set(selection_end);
-                                                current_line.set(line_at_cursor(
-                                                    &source.get_untracked(),
-                                                    selection_end,
-                                                ));
                                                 element
                                                     .set_selection_range(
                                                         selection_start as u32,
@@ -1035,27 +930,21 @@ pub fn YamlEditor(
                                                     delete_empty_pair(&before, start)
                                                 {
                                                     event.prevent_default();
-                                                    history.update(|history| {
-                                                        history.record_action(before, start);
-                                                    });
-                                                    element.set_value(&updated);
-                                                    source.set(updated);
-                                                    if let Some(on_change) =
-                                                        on_change_for_keydown.as_ref()
-                                                    {
-                                                        on_change.run(source.get_untracked());
-                                                    }
-                                                    cursor.set(new_cursor);
-                                                    current_line.set(line_at_cursor(
-                                                        &source.get_untracked(),
+                                                    commit_edit(
+                                                        updated,
                                                         new_cursor,
-                                                    ));
-                                                    element
-                                                        .set_selection_range(
-                                                            new_cursor as u32,
-                                                            new_cursor as u32,
-                                                        )
-                                                        .expect("editor selection range should remain valid");
+                                                        None,
+                                                        before,
+                                                        start,
+                                                        source,
+                                                        cursor,
+                                                        current_line,
+                                                        history,
+                                                        on_change,
+                                                        Some(element),
+                                                        scroll_y,
+                                                        false,
+                                                    );
                                                     return;
                                                 }
                                             }
@@ -1071,30 +960,30 @@ pub fn YamlEditor(
                                                     )
                                             {
                                                 event.prevent_default();
-                                                history.update(|history| {
-                                                    history.record_action(
-                                                        source.get_untracked(),
-                                                        start,
-                                                    );
-                                                });
-                                                element.set_value(&updated);
-                                                source.set(updated);
-                                                if let Some(on_change) =
-                                                    on_change_for_keydown.as_ref()
-                                                {
-                                                    on_change.run(source.get_untracked());
-                                                }
-                                                cursor.set(selection_end);
-                                                current_line.set(line_at_cursor(
-                                                    &source.get_untracked(),
+                                                commit_edit(
+                                                    updated,
                                                     selection_end,
-                                                ));
-                                                element
-                                                    .set_selection_range(
+                                                    Some(selection_start),
+                                                    source.get_untracked(),
+                                                    start,
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    Some(element.clone()),
+                                                    scroll_y,
+                                                    false,
+                                                );
+                                                // Paired edit with a selection keeps the wrapped
+                                                // text selected; commit_edit collapses to the
+                                                // end, so restore the selection range here.
+                                                if selection_start != selection_end {
+                                                    let _ = element.set_selection_range(
                                                         selection_start as u32,
                                                         selection_end as u32,
-                                                    )
-                                                    .expect("editor selection range should remain valid");
+                                                    );
+                                                }
                                                 suggestions_requested.set(false);
                                                 return;
                                             }
@@ -1104,6 +993,7 @@ pub fn YamlEditor(
                                             event.prevent_default();
                                             let next = (active_completion.get_untracked() + 1) % options.len();
                                             active_completion.set(next);
+                                            completion_navigated.set(true);
                                             if let Some(list) = completion_ref.get() {
                                                 scroll_completion_into_view(&list, next);
                                             }
@@ -1115,13 +1005,24 @@ pub fn YamlEditor(
                                                 .checked_sub(1)
                                                 .unwrap_or(options.len() - 1);
                                             active_completion.set(next);
+                                            completion_navigated.set(true);
                                             if let Some(list) = completion_ref.get() {
                                                 scroll_completion_into_view(&list, next);
                                             }
                                         }
+                                        // Enter/Tab accept only after explicit engagement
+                                        // (arrow keys, hover, Ctrl+Space, or a previous
+                                        // accept). An auto-triggered list with the
+                                        // highlight untouched must not swallow the key:
+                                        // Enter falls through to newline+indent and Tab
+                                        // to indent/outdent, as in VS Code.
                                         "Enter" | "Tab"
                                             if !options.is_empty()
-                                                && !(event.key() == "Tab" && event.shift_key()) =>
+                                                && !(event.key() == "Tab" && event.shift_key())
+                                                && should_accept_with_keyboard(
+                                                    explicit_request.get_untracked(),
+                                                    completion_navigated.get_untracked(),
+                                                ) =>
                                         {
                                             event.prevent_default();
                                             apply_selected();
@@ -1144,54 +1045,59 @@ pub fn YamlEditor(
                                                         indent_yaml_lines(&text, start, end, event.shift_key())
                                                     {
                                                         if updated != text {
-                                                            history.update(|history| {
-                                                                history.record_action(
-                                                                    text.clone(),
-                                                                    start,
-                                                                );
-                                                            });
-                                                            element.set_value(&updated);
-                                                            source.set(updated);
-                                                            if let Some(on_change) =
-                                                                on_change_for_keydown.as_ref()
-                                                            {
-                                                                on_change.run(source.get_untracked());
-                                                            }
+                                                            commit_edit(
+                                                                updated,
+                                                                selection_end,
+                                                                Some(selection_start),
+                                                                text,
+                                                                start,
+                                                                source,
+                                                                cursor,
+                                                                current_line,
+                                                                history,
+                                                                on_change,
+                                                                Some(element.clone()),
+                                                                scroll_y,
+                                                                false,
+                                                            );
+                                                        } else {
+                                                            cursor.set(selection_end);
+                                                            current_line.set(line_at_cursor(
+                                                                &source.get_untracked(),
+                                                                selection_end,
+                                                            ));
                                                         }
-                                                        cursor.set(selection_end);
-                                                        current_line.set(line_at_cursor(
-                                                            &source.get_untracked(),
-                                                            selection_end,
-                                                        ));
-                                                        element
-                                                            .set_selection_range(
+                                                        // Indent/outdent keeps the block
+                                                        // selected; restore the range that
+                                                        // commit_edit collapses.
+                                                        if let Some(editor) = editor_ref.get() {
+                                                            let _ = editor.set_selection_range(
                                                                 selection_start as u32,
                                                                 selection_end as u32,
-                                                            )
-                                                            .expect("editor selection range should remain valid");
+                                                            );
+                                                        }
                                                         suggestions_requested.set(false);
                                                     }
                                                     return;
                                                 }
                                                 let (updated, new_cursor) =
                                                     replace_selection(&text, start, end, &indent_unit(&text));
-                                                history.update(|history| {
-                                                    history.record_action(text, start);
-                                                });
-                                                element.set_value(&updated);
-                                                source.set(updated);
-                                                if let Some(on_change) = on_change_for_keydown.as_ref() {
-                                                    on_change.run(source.get_untracked());
-                                                }
-                                                cursor.set(new_cursor);
-                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
-                                                suggestions_requested.set(false);
-                                                set_caret_visible(
-                                                    &element,
-                                                    &source.get_untracked(),
+                                                commit_edit(
+                                                    updated,
                                                     new_cursor,
+                                                    None,
+                                                    text,
+                                                    start,
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    Some(element),
                                                     scroll_y,
+                                                    true,
                                                 );
+                                                suggestions_requested.set(false);
                                             }
                                         }
                                         "Enter" => {
@@ -1205,23 +1111,22 @@ pub fn YamlEditor(
                                                 let text = source.get_untracked();
                                                 let insertion = newline_with_indent(&text, start);
                                                 let (updated, new_cursor) = replace_selection(&text, start, end, &insertion);
-                                                history.update(|history| {
-                                                    history.record_action(text, start);
-                                                });
-                                                element.set_value(&updated);
-                                                source.set(updated);
-                                                if let Some(on_change) = on_change_for_keydown.as_ref() {
-                                                    on_change.run(source.get_untracked());
-                                                }
-                                                cursor.set(new_cursor);
-                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
-                                                suggestions_requested.set(false);
-                                                set_caret_visible(
-                                                    &element,
-                                                    &source.get_untracked(),
+                                                commit_edit(
+                                                    updated,
                                                     new_cursor,
+                                                    None,
+                                                    text,
+                                                    start,
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    Some(element),
                                                     scroll_y,
+                                                    true,
                                                 );
+                                                suggestions_requested.set(false);
                                             }
                                         }
                                         _ => {}
@@ -1294,38 +1199,33 @@ pub fn YamlEditor(
                                             class="yaml-editor__completion"
                                             class:yaml-editor__completion-active=selected
                                             on:mousedown=move |event| event.prevent_default()
-                                            on:mouseenter=move |_| active_completion.set(index)
+                                            on:mouseenter=move |_| {
+                                                active_completion.set(index);
+                                                completion_navigated.set(true);
+                                            }
                                             on:click=move |_| {
                                                 let (updated, new_cursor) = apply_completion(&source.get_untracked(), &apply);
-                                                let editor = editor_ref.get();
-                                                history.update(|history| {
-                                                    history.record_action(
-                                                        source.get_untracked(),
-                                                        apply.start,
-                                                    );
-                                                });
-                                                if let Some(editor) = editor.as_ref() {
-                                                    editor.set_value(&updated);
-                                                }
                                                 let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
                                                 hide_hover();
-                                                source.set(updated);
-                                                if let Some(on_change) = on_change_for_completion.as_ref() {
-                                                    on_change.run(source.get_untracked());
-                                                }
-                                                cursor.set(new_cursor);
-                                                current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+                                                commit_edit(
+                                                    updated,
+                                                    new_cursor,
+                                                    None,
+                                                    source.get_untracked(),
+                                                    apply.start,
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    editor_ref.get(),
+                                                    scroll_y,
+                                                    false,
+                                                );
                                                 active_completion.set(0);
                                                 explicit_request.set(true);
+                                                completion_navigated.set(true);
                                                 suggestions_requested.set(request_completions);
-                                                if let Some(editor) = editor {
-                                                    editor
-                                                        .set_selection_range(
-                                                            new_cursor as u32,
-                                                            new_cursor as u32,
-                                                        )
-                                                        .expect("editor selection range should remain valid");
-                                                }
                                             }
                                         >
                                             <span class="yaml-editor__completion-icon" aria-hidden="true">
