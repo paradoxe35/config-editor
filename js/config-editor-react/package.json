@@ -1,0 +1,21 @@
+{
+  "name": "config-editor-react",
+  "version": "0.1.0",
+  "description": "React component for config-editor: schema-aware YAML, JSON, TOML, HCL and XML editing",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "peerDependencies": {
+    "config-editor": "^0.1.0",
+    "react": ">=18"
+  },
+  "license": "MIT OR Apache-2.0"
+}

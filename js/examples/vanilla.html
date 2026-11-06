@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>config-editor (vanilla)</title>
+    <style>
+      body { margin: 0; font: 13px system-ui, sans-serif; background: #1e1e1e; color: #ddd; }
+      header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 12px; }
+      pre { margin: 0; padding: 8px 12px; white-space: pre-wrap; max-height: 25vh; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>config-editor</strong>
+      <label>Edit as
+        <select id="edit-as">
+          <option value="">Same</option><option>json</option><option>toml</option><option>hcl</option><option>xml</option><option>env</option>
+        </select>
+      </label>
+      <label>Theme <select id="theme"></select></label>
+      <label><input id="read-only" type="checkbox" /> Read-only</label>
+      <button id="replace" type="button">Replace value</button>
+      <button id="destroy" type="button">Destroy</button>
+    </header>
+    <div id="editor"></div>
+    <pre id="saved"></pre>
+    <script type="module">
+      import init, { ConfigEditor, registerLanguage, themes, validate } from "../config-editor/pkg/config_editor.js";
+
+      await init();
+      const schema = await (await fetch("../../schema.json")).text();
+
+      // A language written in JavaScript: KEY=value lines.
+      registerLanguage({
+        label: "ENV",
+        icon: "E",
+        extensions: ["env"],
+        parse(text) {
+          const value = {};
+          text.split("\n").forEach((line, index) => {
+            if (!line.trim() || line.trim().startsWith("#")) return;
+            const at = line.indexOf("=");
+            if (at < 0) throw { message: "expected KEY=value", line: index + 1, column: 1 };
+            const raw = line.slice(at + 1).trim();
+            value[line.slice(0, at).trim()] = /^-?\d+$/.test(raw) ? Number(raw) : raw === "true" ? true : raw === "false" ? false : raw;
+          });
+          return value;
+        },
+        serialize(value) {
+          return Object.entries(value)
+            .map(([key, item]) => {
+              if (item !== null && typeof item === "object") throw { message: `${key}: env values are scalars` };
+              return `${key}=${item}`;
+            })
+            .join("\n") + "\n";
+        },
+        keySpan(text, pointer) {
+          const key = pointer.slice(1);
+          const lines = text.split("\n");
+          const index = lines.findIndex((line) => line.split("=")[0].trim() === key);
+          return index < 0 ? null : { line: index + 1, startColumn: 1, endColumn: key.length + 1 };
+        },
+        highlight(line) {
+          const at = line.indexOf("=");
+          if (line.trim().startsWith("#")) return [{ start: 0, end: line.length, kind: "comment" }];
+          if (at < 0) return [];
+          return [
+            { start: 0, end: at, kind: "key" },
+            { start: at, end: at + 1, kind: "punctuation" },
+            { start: at + 1, end: line.length, kind: "value" },
+          ];
+        },
+      });
+
+      const saved = document.getElementById("saved");
+      const initial = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+      saved.textContent = initial;
+      const editor = new ConfigEditor(document.getElementById("editor"), {
+        language: "yaml",
+        value: initial,
+        schema,
+        fileName: "burrow.yaml",
+        showToolbar: true,
+        showFooter: true,
+        onChange: (text) => (saved.textContent = text),
+        onEditAsChange: (language) => (document.body.dataset.editing = language),
+      });
+      window.editor = editor;
+      window.configEditor = { validate };
+
+      const themeSelect = document.getElementById("theme");
+      for (const name of themes()) themeSelect.append(new Option(name, name));
+      themeSelect.onchange = () => editor.setTheme(themeSelect.value);
+      document.getElementById("edit-as").onchange = (event) => editor.setEditAs(event.target.value || null);
+      document.getElementById("read-only").onchange = (event) => editor.setReadOnly(event.target.checked);
+      document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");
+      document.getElementById("destroy").onclick = () => editor.destroy();
+      document.body.dataset.ready = "true";
+    </script>
+  </body>
+</html>

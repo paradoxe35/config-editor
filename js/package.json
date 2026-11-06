@@ -1,0 +1,19 @@
+{
+  "name": "config-editor-workspace",
+  "private": true,
+  "workspaces": [
+    "config-editor",
+    "config-editor-react"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace config-editor && npm run build --workspace config-editor-react && npm run examples",
+    "examples": "esbuild examples/react.tsx --bundle --format=esm --jsx=automatic --target=es2022 --outfile=examples/dist/react.js"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5.8.0"
+  }
+}

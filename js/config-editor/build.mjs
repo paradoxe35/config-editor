@@ -40,4 +40,12 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 );
+// Optional: shrink further with binaryen's wasm-opt when it is installed.
+try {
+  const wasm = join(here, 'pkg', 'config_editor_bg.wasm');
+  execFileSync('wasm-opt', ['-Os', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
+    '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', wasm, '-o', wasm], { stdio: 'inherit' });
+} catch {
+  console.log('wasm-opt not found: skipping the optional size pass');
+}
 console.log('built js/config-editor/pkg');
