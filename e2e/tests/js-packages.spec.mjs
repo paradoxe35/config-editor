@@ -324,3 +324,49 @@ test.describe('react: parent updates and re-mounts', () => {
   }
 
 });
+
+test.describe('vanilla API: languages described by configuration', () => {
+  test('comments, brackets and separators give a JS language editing behavior', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    const refused = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      const attempt = (definition) => {
+        try {
+          module.registerLanguage({ label: 'Bad', parse: () => ({}), ...definition });
+          return 'no error';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      const refusals = {
+        comments: attempt({ comments: { lineComment: 5 } }),
+        brackets: attempt({ brackets: [['{{', '}}']] }),
+        separators: attempt({ separators: '=' }),
+      };
+      module.registerLanguage({
+        label: 'INI',
+        parse: (text) => Object.fromEntries(text.split('\n').filter((line) => line.includes('=')).map((line) => line.split('=').map((part) => part.trim()))),
+        comments: { lineComment: [';', '#'] },
+        brackets: [['[', ']']],
+        separators: ['='],
+      });
+      window.target = new module.ConfigEditor(document.getElementById('editor'), { language: 'ini', value: 'name = demo\n' });
+      return refusals;
+    });
+    expect(refused.comments).toContain('comments.lineComment');
+    expect(refused.brackets).toContain('single characters');
+    expect(refused.separators).toBe('no error');
+    // Ctrl+/ writes the first line comment.
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+Home');
+    await browserPage.keyboard.press('Control+/');
+    await expect(input(browserPage)).toHaveValue('; name = demo\n');
+    // Enter between brackets opens an indented line.
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('hosts = [');
+    await browserPage.keyboard.press('Enter');
+    await expect(input(browserPage)).toHaveValue('; name = demo\nhosts = [\n  \n]');
+    expect(errors).toEqual([]);
+  });
+});

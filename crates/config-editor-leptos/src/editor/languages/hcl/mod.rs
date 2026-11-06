@@ -34,7 +34,7 @@ use super::super::completion::{
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{bracket_newline, toggle_line_comments, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -53,6 +53,14 @@ impl ConfigLanguage for HclBehavior {
             label: "HCL",
             icon: "H",
             extensions: &["hcl", "tf", "tfvars"],
+        }
+    }
+
+    fn config(&self) -> LanguageConfig {
+        LanguageConfig {
+            line_comments: &["#", "//"],
+            brackets: &[('{', '}'), ('[', ']')],
+            separators: &["=", ":"],
         }
     }
 
@@ -154,15 +162,6 @@ impl ConfigLanguage for HclBehavior {
         )
     }
 
-    fn toggle_comments(
-        &self,
-        source: &str,
-        selection_start: usize,
-        selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
-        toggle_line_comments(source, selection_start, selection_end, &["#", "//"])
-    }
-
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
         let (quote, in_comment) = hcl_lexical_state(source, cursor);
         Lexical { quote, in_comment }
@@ -178,10 +177,6 @@ impl ConfigLanguage for HclBehavior {
         hcl::format::to_string(&hcl_body(map)?).map_err(|error| error.to_string())
     }
 
-    fn comment_start(&self, line: &str) -> Option<usize> {
-        super::super::language::comment_start_outside_quotes(line, &["#", "//"])
-    }
-
     /// An attribute's `=` (or `:` in an object), or a block's body after its
     /// type and labels (`pol| {`, `servi| "ssh" {`).
     fn value_follows_key(&self, rest: &str) -> bool {
@@ -190,13 +185,6 @@ impl ConfigLanguage for HclBehavior {
         rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
     }
 
-    fn line_has_value(&self, line_before: &str) -> bool {
-        super::super::language::value_after_separator(line_before, &['=', ':'])
-    }
-
-    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        super::super::language::empty_slots_at_line_ends(text, &[" = "])
-    }
 }
 
 fn utf16(text: &str) -> usize {

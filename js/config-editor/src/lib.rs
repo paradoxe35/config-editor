@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::language::{
-    ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
+    ConfigLanguage, LanguageConfig, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind,
+    Tokens,
 };
 use config_editor_leptos::{
     ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
@@ -83,6 +84,12 @@ export interface CustomLanguage {
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined;
   /** Byte ranges of one line: kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
   highlight?(line: string): { start: number; end: number; kind: string }[];
+  /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment. */
+  comments?: { lineComment?: string | string[] };
+  /** Bracket pairs Enter opens across lines, e.g. `[["{", "}"], ["[", "]"]]`. */
+  brackets?: [string, string][];
+  /** What separates a key from its value, e.g. `["="]` or `[":"]`: key renames, `Tab` through empty values. */
+  separators?: string[];
 }
 "#;
 
@@ -721,6 +728,7 @@ pub fn color_tokens() -> Names {
 struct JsLanguage {
     definition: JsValue,
     info: LanguageInfo,
+    config: LanguageConfig,
 }
 
 // SAFETY: wasm32 without the `atomics` target feature runs on one thread, so
@@ -865,6 +873,78 @@ impl ConfigLanguage for JsLanguage {
     fn lexical_state(&self, _source: &str, _cursor: usize) -> Lexical {
         Lexical::default()
     }
+
+    fn config(&self) -> LanguageConfig {
+        self.config
+    }
+}
+
+/// A list of strings, or one string, as `name` (absent is empty).
+fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
+    if value.is_undefined() || value.is_null() {
+        return Ok(Vec::new());
+    }
+    if let Some(text) = value.as_string() {
+        return Ok(vec![text]);
+    }
+    if !Array::is_array(value) {
+        return Err(JsError::new(&format!(
+            "{name} must be a string or an array of strings"
+        )));
+    }
+    Array::from(value)
+        .iter()
+        .map(|item| {
+            item.as_string()
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| JsError::new(&format!("{name} must hold non-empty strings")))
+        })
+        .collect()
+}
+
+/// The declarative part of a JavaScript language definition.
+fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
+    let comments = field(definition, "comments");
+    let line_comments = if comments.is_undefined() || comments.is_null() {
+        Vec::new()
+    } else {
+        string_list(&field(&comments, "lineComment"), "comments.lineComment")?
+    };
+    let separators = string_list(&field(definition, "separators"), "separators")?;
+    let brackets_value = field(definition, "brackets");
+    let mut brackets = Vec::new();
+    if !(brackets_value.is_undefined() || brackets_value.is_null()) {
+        if !Array::is_array(&brackets_value) {
+            return Err(JsError::new(
+                "brackets must be an array of [open, close] pairs",
+            ));
+        }
+        for pair in Array::from(&brackets_value).iter() {
+            let single = |index: u32| {
+                Array::is_array(&pair)
+                    .then(|| Array::from(&pair).get(index).as_string())
+                    .flatten()
+                    .filter(|text| text.chars().count() == 1)
+                    .and_then(|text| text.chars().next())
+            };
+            match (single(0), single(1)) {
+                (Some(open), Some(close)) => brackets.push((open, close)),
+                _ => {
+                    return Err(JsError::new(
+                        "brackets must be [open, close] pairs of single characters",
+                    ));
+                }
+            }
+        }
+    }
+    let leak_all = |items: Vec<String>| -> &'static [&'static str] {
+        Box::leak(items.into_iter().map(leak).collect())
+    };
+    Ok(LanguageConfig {
+        line_comments: leak_all(line_comments),
+        brackets: Box::leak(brackets.into_boxed_slice()),
+        separators: leak_all(separators),
+    })
 }
 
 /// Registers a language implemented in JavaScript and returns its name for
@@ -898,7 +978,9 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
         .map(leak)
         .collect();
     let name = label.to_ascii_lowercase();
+    let config = language_config(&definition)?;
     let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
+        config,
         definition,
         info: LanguageInfo {
             label: leak(label),

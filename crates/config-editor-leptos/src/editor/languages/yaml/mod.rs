@@ -25,7 +25,7 @@ use super::super::inline::{
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{bracket_newline, toggle_line_comments, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
@@ -41,6 +41,14 @@ impl ConfigLanguage for YamlBehavior {
             label: "YAML",
             icon: "Y",
             extensions: &["yaml", "yml"],
+        }
+    }
+
+    fn config(&self) -> LanguageConfig {
+        LanguageConfig {
+            line_comments: &["#"],
+            brackets: &[('{', '}'), ('[', ']')],
+            separators: &[":"],
         }
     }
 
@@ -153,15 +161,6 @@ impl ConfigLanguage for YamlBehavior {
         Newline::new(newline_with_indent(source, cursor))
     }
 
-    fn toggle_comments(
-        &self,
-        source: &str,
-        selection_start: usize,
-        selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
-        toggle_line_comments(source, selection_start, selection_end, &["#"])
-    }
-
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
         let (quote, in_comment) = yaml_lexical_state(source, cursor);
         Lexical { quote, in_comment }
@@ -175,17 +174,6 @@ impl ConfigLanguage for YamlBehavior {
         line_comment_start(line)
     }
 
-    fn value_follows_key(&self, rest: &str) -> bool {
-        rest.trim_start().starts_with(':')
-    }
-
-    fn line_has_value(&self, line_before: &str) -> bool {
-        super::super::language::value_after_separator(line_before, &[':'])
-    }
-
-    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        super::super::language::empty_slots_at_line_ends(text, &[": ", ":"])
-    }
 }
 
 

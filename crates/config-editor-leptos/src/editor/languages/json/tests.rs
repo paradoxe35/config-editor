@@ -222,7 +222,7 @@ fn typing_an_opening_quote_in_an_object_lists_every_key() {
 
 #[test]
 fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-    let super::Newline { text, caret, .. } = JsonBehavior.newline("{}", 1);
+    let super::super::super::language::Newline { text, caret, .. } = JsonBehavior.newline("{}", 1);
     assert_eq!(text, "\n  \n");
     assert_eq!(caret, 3);
 }
@@ -320,7 +320,7 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
 #[test]
 fn enter_inside_braces_indents_one_level() {
     // Between `{}` the closer moves down and the caret sits on the middle line.
-    assert_eq!(JsonBehavior.newline("{}", 1), super::Newline::with_caret("\n  \n", 3));
+    assert_eq!(JsonBehavior.newline("{}", 1), super::super::super::language::Newline::with_caret("\n  \n", 3));
     assert_eq!(
         JsonBehavior.newline("{\n  \"a\": 1,", 12).text,
         "\n  "

@@ -161,6 +161,10 @@ const env = registerLanguage({
     // Optional: [{ start, end, kind }] byte ranges of one line; kind is
     // "key" | "string" | "value" | "literal" | "comment" | "punctuation".
   },
+  // Optional syntax, as in VS Code's language configuration:
+  comments: { lineComment: "#" },   // Ctrl+/ (a list: the first is written)
+  brackets: [["{", "}"], ["[", "]"]], // Enter between them opens a line
+  separators: ["="],                // key renames, Tab through empty values
 });
 
 new ConfigEditor(element, { language: env, schema });
@@ -168,7 +172,8 @@ convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 ```
 
 A registered language gets schema validation, conversion to and from every
-other language, and Edit-as. Built-in names cannot be replaced; registering
+other language, and Edit-as; `comments`, `brackets` and `separators` add
+comment toggling, bracket-aware Enter, and key/value editing. Built-in names cannot be replaced; registering
 the same label again replaces it for new editors.
 
 ## Styling

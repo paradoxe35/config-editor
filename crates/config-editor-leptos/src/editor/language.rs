@@ -650,6 +650,37 @@ pub struct Lexical {
     pub in_comment: bool,
 }
 
+/// Syntax a language can describe as data instead of implementing editing
+/// hooks, like VS Code's `language-configuration.json`. The defaults of
+/// [`newline`](ConfigLanguage::newline),
+/// [`toggle_comments`](ConfigLanguage::toggle_comments),
+/// [`comment_start`](ConfigLanguage::comment_start) and the key/value hooks
+/// come from it, so a simple language gets them without code; a method a
+/// language implements itself takes precedence.
+///
+/// ```
+/// use config_editor_leptos::language::LanguageConfig;
+///
+/// const INI: LanguageConfig = LanguageConfig {
+///     line_comments: &[";", "#"],
+///     brackets: &[],
+///     separators: &["="],
+/// };
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LanguageConfig {
+    /// Markers that start a comment running to the end of the line. `Ctrl+/`
+    /// writes the first; all of them are recognized.
+    pub line_comments: &'static [&'static str],
+    /// Bracket pairs: Enter between them opens an indented line, and a closer
+    /// typed on its own line aligns with its opener.
+    pub brackets: &'static [(char, char)],
+    /// What separates a key from its value (`":"`, `"="`): completing a key
+    /// that already has a value renames only the key, a space after a complete
+    /// value ends the entry, and `Tab` walks values left empty after one.
+    pub separators: &'static [&'static str],
+}
+
 /// A document language for the editor.
 ///
 /// Only [`info`](Self::info) and [`parse`](Self::parse) are required; each
@@ -658,8 +689,10 @@ pub struct Lexical {
 /// Offsets named `cursor` and returned carets are UTF-16 indices into the
 /// document, as the browser reports them.
 ///
-/// The last five methods are optional refinements for some kinds of
-/// languages: key/value languages ([`value_follows_key`](Self::value_follows_key),
+/// Simple syntax (comments, brackets, key/value separators) can be described
+/// as data with [`config`](Self::config) instead of code. The last five
+/// methods are optional refinements for some kinds of languages, with
+/// defaults from that config: key/value languages ([`value_follows_key`](Self::value_follows_key),
 /// [`line_has_value`](Self::line_has_value),
 /// [`empty_value_slots`](Self::empty_value_slots)), markup
 /// ([`closing_markup_len`](Self::closing_markup_len)), and languages with
@@ -671,6 +704,11 @@ pub struct Lexical {
 pub trait ConfigLanguage: Send + Sync + 'static {
     /// The language's label, icon, and extensions.
     fn info(&self) -> LanguageInfo;
+
+    /// Syntax described as data; see [`LanguageConfig`]. Default: none.
+    fn config(&self) -> LanguageConfig {
+        LanguageConfig::default()
+    }
 
     /// The document as the shared data model, or its first syntax error.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
@@ -787,27 +825,28 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     }
 
     /// What Enter writes at `cursor` (UTF-16). The default keeps the line's
-    /// indentation.
+    /// indentation and opens the [`LanguageConfig::brackets`] it is between.
     fn newline(&self, source: &str, cursor: usize) -> Newline {
-        let byte = super::keyboard::utf16_to_byte_index(source, cursor);
-        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-        let indent: String = source[line_start..byte]
-            .chars()
-            .take_while(|character| matches!(character, ' ' | '\t'))
-            .collect();
-        Newline::new(format!("\n{indent}"))
+        bracket_newline(source, cursor, self.config().brackets, |line| {
+            &line[..self.comment_start(line).unwrap_or(line.len())]
+        })
     }
 
     /// The document with the selected lines commented or uncommented, and the
-    /// remapped selection; `None` when the language has no comments.
+    /// remapped selection; `None` when the language has no comments. The
+    /// default uses [`LanguageConfig::line_comments`].
     fn toggle_comments(
         &self,
         source: &str,
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
-        let _ = (source, selection_start, selection_end);
-        None
+        toggle_line_comments(
+            source,
+            selection_start,
+            selection_end,
+            self.config().line_comments,
+        )
     }
 
     /// Text to insert after the caret when `typed` is typed at `cursor`
@@ -852,16 +891,19 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// strings. Edit-as uses it to match lines that differ only in comments.
     /// See [`comment_start_outside_quotes`].
     fn comment_start(&self, line: &str) -> Option<usize> {
-        let _ = line;
-        None
+        comment_start_outside_quotes(line, self.config().line_comments)
     }
 
     /// Whether `rest`, the text after a key being completed, shows the key
     /// already has its value (`: 99`, ` = "x"`, an HCL block's `{`), so
     /// accepting a suggestion renames only the key.
     fn value_follows_key(&self, rest: &str) -> bool {
-        let _ = rest;
-        false
+        let rest = rest.trim_start();
+        // `==` is a comparison, not a separator.
+        self.config().separators.iter().any(|separator| {
+            rest.strip_prefix(separator)
+                .is_some_and(|after| !after.starts_with(separator))
+        })
     }
 
     /// Whether `line_before` (the caret's line up to the caret, without
@@ -869,16 +911,27 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// so a space typed after it ends the entry instead of opening values.
     /// See [`value_after_separator`].
     fn line_has_value(&self, line_before: &str) -> bool {
-        let _ = line_before;
-        false
+        let separators: Vec<char> = self
+            .config()
+            .separators
+            .iter()
+            .filter_map(|separator| separator.chars().next())
+            .collect();
+        !separators.is_empty() && value_after_separator(line_before, &separators)
     }
 
     /// Byte offsets in `text`, a block a suggestion just wrote, where a value
     /// is still empty besides empty quotes (`key: ` at a line end, `<k></k>`):
     /// `Tab` walks them like snippet placeholders. See [`empty_slots_at_line_ends`].
     fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        let _ = text;
-        Vec::new()
+        let endings: Vec<String> = self
+            .config()
+            .separators
+            .iter()
+            .flat_map(|separator| [format!("{separator} "), (*separator).to_string()])
+            .collect();
+        let endings: Vec<&str> = endings.iter().map(String::as_str).collect();
+        empty_slots_at_line_ends(text, &endings)
     }
 
     /// The length in bytes of markup at the start of `text` that closes an

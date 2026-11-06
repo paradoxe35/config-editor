@@ -201,3 +201,54 @@ fn highlighting_is_plain_data() {
         [TokenKind::Key, TokenKind::Punctuation, TokenKind::Value]
     );
 }
+
+/// A language described only by data: `info`, `parse` and `config`.
+struct Ini;
+
+impl ConfigLanguage for Ini {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "INI",
+            icon: "I",
+            extensions: &["ini"],
+        }
+    }
+
+    fn config(&self) -> config_editor_leptos::language::LanguageConfig {
+        config_editor_leptos::language::LanguageConfig {
+            line_comments: &[";", "#"],
+            brackets: &[('[', ']')],
+            separators: &["="],
+        }
+    }
+
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        let mut map = Map::new();
+        for line in source.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                map.insert(
+                    key.trim().to_string(),
+                    Value::String(value.trim().to_string()),
+                );
+            }
+        }
+        Ok(Value::Object(map))
+    }
+}
+
+#[test]
+fn a_language_described_by_config_gets_editing_without_code() {
+    let ini = Ini;
+    // Ctrl+/ writes the first comment marker; comments are found on lines.
+    let (commented, _, _) = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    assert_eq!(commented, "; a = 1\n");
+    assert_eq!(ini.comment_start("a = 1 # note"), Some(6));
+    // Enter between brackets opens an indented line.
+    assert_eq!(ini.newline("hosts = []", 9).text, "\n  \n");
+    // Key/value behavior from the separator.
+    assert!(ini.value_follows_key(" = 1"));
+    assert!(!ini.value_follows_key(" == 1"));
+    assert!(ini.line_has_value("debug = true"));
+    assert!(!ini.line_has_value("debug ="));
+    assert_eq!(ini.empty_value_slots("a = \nb = 1\n"), vec![4]);
+}

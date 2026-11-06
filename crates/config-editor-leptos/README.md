@@ -200,11 +200,31 @@ const ENV: Language = Language::new(&DOTENV);
 | `highlight`                                                                     | Syntax colors                                            |
 | `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                         |
 
+### Describing syntax as data
+
+Simple syntax doesn't need code: describe it with `config`, as VS Code's
+`language-configuration.json` does, and comment toggling, Enter between
+brackets, and the key/value behavior below follow from it.
+
+```rust
+use config_editor_leptos::language::LanguageConfig;
+
+fn config(&self) -> LanguageConfig {
+    LanguageConfig {
+        line_comments: &[";", "#"],     // Ctrl+/ writes the first
+        brackets: &[('[', ']')],        // Enter opens them across lines
+        separators: &["="],             // key = value
+    }
+}
+```
+
 ### Optional refinements
 
 Small hooks that polish editing for some kinds of languages. Each defaults to
-doing nothing, so skip the ones that don't fit; the built-in languages
-implement them in a line or two with the helpers named here.
+what `config` describes (or to nothing), so skip the ones that don't fit, and
+override one only when your syntax needs more than `config` says: HCL
+overrides `value_follows_key` for its `name { … }` blocks, XML overrides them
+all.
 
 | Kind of language                        | Method               | Adds                                                              | Helper                         |
 | --------------------------------------- | -------------------- | ----------------------------------------------------------------- | ------------------------------ |
