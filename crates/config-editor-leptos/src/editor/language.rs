@@ -347,29 +347,54 @@ pub fn unwrap_block_comments(
     if content.peek().is_none() || !content.all(wrapped) {
         return None;
     }
-    let unwrapped: Vec<String> = block
-        .split('\n')
-        .map(|line| {
-            if line.trim().is_empty() {
-                return line.to_string();
-            }
-            let indent = &line[..line.len() - line.trim_start().len()];
-            let inner = &line.trim()[open.len()..line.trim().len() - close.len()];
-            format!("{indent}{}", inner.trim())
-        })
-        .collect();
-    let replaced = unwrapped.join("\n");
+    // Each line unwrapped, with what it takes to map a position on it: its
+    // start before and after, its indent, and the bytes cut before the text.
+    let mut replaced = String::new();
+    let mut lines: Vec<(usize, usize, usize, usize, usize)> = Vec::new();
+    let mut offset = first_start;
+    for (index, line) in block.split('\n').enumerate() {
+        if index > 0 {
+            replaced.push('\n');
+        }
+        let new_start = first_start + replaced.len();
+        if line.trim().is_empty() {
+            replaced.push_str(line);
+            lines.push((offset, new_start, line.len(), 0, line.len()));
+        } else {
+            let indent = line.len() - line.trim_start().len();
+            let body = line.trim();
+            let inner = &body[open.len()..body.len() - close.len()];
+            let cut = open.len() + (inner.len() - inner.trim_start().len());
+            let text = inner.trim();
+            replaced.push_str(&line[..indent]);
+            replaced.push_str(text);
+            lines.push((offset, new_start, indent, cut, text.len()));
+        }
+        offset += line.len() + 1;
+    }
     let updated = format!(
         "{}{replaced}{}",
         &source[..first_start],
         &source[last_end..]
     );
-    let utf16 = |byte: usize| updated[..byte].encode_utf16().count();
-    Some((
-        updated.clone(),
-        utf16(first_start),
-        utf16(first_start + replaced.len()),
-    ))
+    // A position keeps its place in the text; on a marker it moves to the
+    // text's nearest end.
+    let map = |byte: usize| {
+        let (start, new_start, indent, cut, text) = lines
+            .iter()
+            .rev()
+            .find(|(start, ..)| *start <= byte)
+            .copied()
+            .unwrap_or((first_start, first_start, 0, 0, 0));
+        let column = byte - start;
+        let mapped = if column <= indent {
+            column
+        } else {
+            (column.saturating_sub(cut)).clamp(indent, indent + text)
+        };
+        updated[..new_start + mapped].encode_utf16().count()
+    };
+    Some((updated.clone(), map(start), map(end)))
 }
 
 /// Ctrl+/ for line-comment languages: the selected lines (UTF-16 offsets)
@@ -1118,6 +1143,17 @@ pub fn empty_slots_at_line_ends(text: &str, endings: &[&str]) -> Vec<usize> {
     slots
 }
 
+/// Whether UTF-16 `cursor` is on a line inside a multi-line string's body
+/// (see [`ConfigLanguage::string_body_lines`]).
+pub(crate) fn in_string_body(behavior: &dyn ConfigLanguage, source: &str, cursor: usize) -> bool {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line = source[..byte].bytes().filter(|byte| *byte == b'\n').count();
+    behavior
+        .string_body_lines(source)
+        .iter()
+        .any(|lines| lines.contains(&line))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1157,15 +1193,4 @@ mod tests {
         assert_eq!(slots(text, &[": ", ":"]), vec![3, 11]);
         assert_eq!(slots("x = \ny = 2", &[" = "]), vec![4]);
     }
-}
-
-/// Whether UTF-16 `cursor` is on a line inside a multi-line string's body
-/// (see [`ConfigLanguage::string_body_lines`]).
-pub(crate) fn in_string_body(behavior: &dyn ConfigLanguage, source: &str, cursor: usize) -> bool {
-    let byte = utf16_to_byte_index(source, cursor);
-    let line = source[..byte].bytes().filter(|byte| *byte == b'\n').count();
-    behavior
-        .string_body_lines(source)
-        .iter()
-        .any(|lines| lines.contains(&line))
 }

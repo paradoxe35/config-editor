@@ -135,3 +135,55 @@ fn the_caret_keeps_its_place_through_toggling_comments() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Ctrl+/ twice over a selection that starts or ends mid-line gives the text
+/// back (XML comments each line separately, so they must unwrap the same
+/// way), and a block comment unwrapped keeps the caret where it was.
+#[test]
+fn toggling_comments_twice_from_mid_line_restores_the_text() {
+    let mut failures = Vec::new();
+    for (language, text, from, to) in [
+        (
+            Language::XML,
+            "<web>\n  <path>a</path>\n  <host>b</host>\n</web>\n",
+            "a</path>",
+            "</host>",
+        ),
+        (
+            Language::XML,
+            "<web>\n  <path>a--b</path>\n  <host>c</host>\n</web>\n",
+            "--b",
+            "c</host>",
+        ),
+        (Language::YAML, "web:\n  path: a\n  host: b\n", "a\n", "b\n"),
+        (Language::TOML, "path = 1\nhost = 2\n", "1", "2"),
+        (Language::HCL, "path = 1\nhost = 2\n", "1", "2"),
+    ] {
+        let behavior = language.behavior();
+        let utf16 = |byte: usize| text[..byte].encode_utf16().count();
+        let (start, end) = (
+            utf16(text.find(from).unwrap()),
+            utf16(text.find(to).unwrap()),
+        );
+        let Some((once, a, b)) = behavior.toggle_comments(text, start, end) else {
+            continue;
+        };
+        match behavior.toggle_comments(&once, a, b) {
+            Some((twice, _, _)) if twice == text => {}
+            Some((twice, _, _)) => failures.push(format!("{}: {twice:?}", language.label())),
+            None => failures.push(format!("{}: second toggle does nothing", language.label())),
+        }
+    }
+    // HCL block comment: the caret stays on the same text.
+    let text = "tcp {\n  /* nodelay = true */\n}\n";
+    let caret = text.find(" = true").unwrap();
+    if let Some((unwrapped, start, end)) =
+        Language::HCL.behavior().toggle_comments(text, caret, caret)
+    {
+        let expected = unwrapped.find(" = true").unwrap();
+        if (start, end) != (expected, expected) {
+            failures.push(format!("HCL block: selection {start}..{end} in {unwrapped:?}, expected the caret at {expected}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -145,6 +145,9 @@ pub(super) fn toggle_xml_comments(
         && !source[open..start].contains("-->")
         && let Some(close) = source[end..].find("-->").map(|offset| end + offset)
         && source[open..close].contains('\n')
+        // One comment from start to end, not two per-line ones.
+        && !source[open + 4..close].contains("-->")
+        && !source[open + 4..close].contains("<!--")
     {
         // Markers alone on their lines take the whole line with them.
         let line_start = |at: usize| source[..at].rfind('\n').map_or(0, |index| index + 1);

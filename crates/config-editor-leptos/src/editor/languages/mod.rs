@@ -17,7 +17,6 @@ use serde_json::Value;
 
 #[cfg(all(
     test,
-    feature = "schema-validation",
     feature = "yaml",
     feature = "json",
     feature = "toml",
@@ -27,7 +26,6 @@ use serde_json::Value;
 mod accept_tests;
 #[cfg(all(
     test,
-    feature = "schema-validation",
     feature = "yaml",
     feature = "json",
     feature = "toml",
@@ -46,7 +44,6 @@ mod completion_matrix;
 mod editing_matrix;
 #[cfg(all(
     test,
-    feature = "schema-validation",
     feature = "yaml",
     feature = "json",
     feature = "toml",

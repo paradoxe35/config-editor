@@ -34,6 +34,9 @@ jobs:
           for features in yaml json toml hcl xml schema-validation; do
             cargo test --lib --no-default-features --features "$features"
           done
+      - name: Every language without schema validation (completions and hover from the schema alone)
+        working-directory: crates/config-editor-leptos
+        run: cargo test --no-default-features --features yaml,json,toml,hcl,xml
 
   browser:
     name: npm packages and end-to-end tests

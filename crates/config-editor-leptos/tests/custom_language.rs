@@ -217,6 +217,7 @@ impl ConfigLanguage for Ini {
     fn config(&self) -> config_editor_leptos::language::LanguageConfig {
         config_editor_leptos::language::LanguageConfig {
             line_comments: &[";", "#"],
+            block_comment: None,
             brackets: &[('[', ']')],
             separators: &["="],
         }

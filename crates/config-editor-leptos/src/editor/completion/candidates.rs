@@ -249,7 +249,29 @@ pub(crate) fn completions(
             option.insert.push_str(&option.label);
             option.end = name_end;
         }
-        rename_key_with_value(option, source, cursor, behavior);
+        // Typing in front of a key (`"|tcp"`) inserts; it never renames it.
+        let in_front = !replaces_word
+            && context
+                .entry_after
+                .as_deref()
+                .is_some_and(|word| !word.is_empty());
+        if !in_front {
+            rename_key_with_value(option, source, cursor, behavior);
+        }
+        // The key already written, the caret at its end and the key going on
+        // (`tcp|.nodelay`, `tcp|: …`, `tcp| {`): accepting changes nothing.
+        let rest = &source[cursor_byte..];
+        if !option.is_value
+            && option.label == context.typed
+            && (rest.starts_with('.') || behavior.value_follows_key(rest))
+        {
+            option.insert = option.label.clone();
+            option.end = cursor;
+            option.start = cursor - option.label.encode_utf16().count().min(cursor);
+            option.cursor_offset = option.insert.encode_utf16().count();
+            option.selected = 0;
+            option.renames = true;
+        }
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
         let typed_start = utf16_to_byte_index(source, option.start);
@@ -370,6 +392,10 @@ pub(crate) fn frame_insert(
                 .map_or("", |at| &option.insert[..at]);
             option.insert = format!("{lead}{}", option.label);
             option.cursor_offset = option.insert.encode_utf16().count();
+            // A rename writes no value: nothing of it is selected, and the
+            // list does not reopen on it.
+            option.selected = 0;
+            option.renames = true;
             renamed = true;
         }
         None => {

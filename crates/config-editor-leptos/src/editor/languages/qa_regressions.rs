@@ -1467,3 +1467,12 @@ fn a_deep_toml_dotted_unknown_key_is_marked_on_its_segment() {
         assert_eq!(markers, vec![(Some(line), Some(column))], "{source}");
     }
 }
+
+#[test]
+fn an_hcl_map_accepted_in_a_body_is_a_block_as_documents_write_it() {
+    let hcl = accept(Language::HCL, "cli|\n", "clients");
+    assert!(hcl.starts_with("clients {\n"), "{hcl}");
+    // In an object expression it stays an attribute.
+    let inline = accept(Language::HCL, "web = { le| }\n", "letsencrypt");
+    assert!(inline.contains("letsencrypt = {"), "{inline}");
+}

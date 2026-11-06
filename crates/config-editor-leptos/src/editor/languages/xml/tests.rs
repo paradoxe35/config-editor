@@ -675,3 +675,13 @@ fn an_element_with_text_beside_its_children_writes_back() {
     assert_eq!(XmlBehavior.parse(&written).unwrap(), value, "{written}");
 }
 
+
+#[test]
+fn a_tag_ending_right_after_a_name_splits_into_finite_tokens() {
+    let source = "<tcp no></tcp>";
+    let tokens = super::tokens::tokenize(source);
+    let open = tokens.first().unwrap();
+    let inner = super::tokens::tokenize_tag_inside(source, open);
+    assert_eq!(inner.len(), 1, "{inner:?}");
+    assert_eq!(&source[inner[0].start..inner[0].end], "no");
+}

@@ -212,6 +212,7 @@ use config_editor_leptos::language::LanguageConfig;
 fn config(&self) -> LanguageConfig {
     LanguageConfig {
         line_comments: &[";", "#"],     // Ctrl+/ writes the first
+        block_comment: None,            // e.g. Some(("/*", "*/")): Ctrl+/ unwraps it
         brackets: &[('[', ']')],        // Enter opens them across lines
         separators: &["="],             // key = value
     }
@@ -264,17 +265,20 @@ can set them too.
 
 All are on by default; turn off what you don't use to shrink the build.
 
-| Feature             | Enables                                                                                                                |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `schema-validation` | JSON Schema diagnostics, completions and hover (`jsonschema`). Without it the editor still checks syntax and converts. |
-| `yaml`              | `Language::YAML` (`noyalib`)                                                                                           |
-| `json`              | `Language::JSON`                                                                                                       |
-| `toml`              | `Language::TOML` (`toml`)                                                                                              |
-| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                             |
-| `xml`               | `Language::XML` (`quick-xml`)                                                                                          |
+| Feature             | Enables                                                                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schema-validation` | Live JSON Schema diagnostics (`jsonschema`, the heaviest dependency). Completions, hover docs and schema-shaped reading work without it, from the schema alone; leave it out when documents are validated on a server. Syntax is always checked. |
+| `yaml`              | `Language::YAML` (`noyalib`)                                                                                                                                                                                                                     |
+| `json`              | `Language::JSON`                                                                                                                                                                                                                                 |
+| `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                        |
+| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                       |
+| `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                    |
 
 ```toml
+# YAML with live schema diagnostics:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
+# YAML and TOML with schema completions and hover, validated on a server:
+config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml", "toml"] }
 ```
 
 With no language feature, use your own languages through `Language::new`.

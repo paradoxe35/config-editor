@@ -545,12 +545,11 @@ pub(super) fn property_insert(
             return Some((insert, caret));
         }
         let child_indent = format!("{base_indent}{unit}");
-        // In a body an object with properties is a block (`heartbeat {`), as
-        // documents and the converter write it; in an object expression, an
-        // attribute.
-        // A map (`tags`: any keys) stays an attribute, as in Terraform.
-        let structured = object_branch(property, root).is_some_and(|branch| branch.get("properties").is_some());
-        if in_body && structured {
+        // In a body an object is a block (`heartbeat {`), as documents and
+        // the converter write it; in an object expression, an attribute.
+        // Maps too (`clients`, `services`): the converter writes every
+        // object with identifier keys as a block.
+        if in_body {
             insert = format!("{key} ");
         }
         insert.push_str("{\n");

@@ -57,9 +57,11 @@
 //!
 //! All on by default:
 //!
-//! - `schema-validation`: JSON Schema diagnostics, completions, and hover
-//!   docs, through the `jsonschema` crate. Without it the editor still checks
-//!   syntax and converts.
+//! - `schema-validation`: live JSON Schema diagnostics, through the
+//!   `jsonschema` crate (the heaviest dependency). Completions, hover docs and
+//!   schema-shaped reading work without it, from the schema alone; leave it
+//!   out when documents are validated elsewhere (on a server). Syntax is
+//!   always checked.
 //! - `yaml`, `json`, `toml`, `hcl`, `xml`: the built-in languages
 //!   ([`Language::YAML`], …). Without any, use your own through
 //!   [`Language::new`].

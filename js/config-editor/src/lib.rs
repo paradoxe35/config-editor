@@ -134,6 +134,18 @@ fn language_named(name: &str) -> Result<Language, JsError> {
     if let Some(language) = REGISTERED.with(|languages| languages.borrow().get(&key).copied()) {
         return Ok(language);
     }
+    // A registered language's file extension names it too, as `yml` does.
+    let extension = key.trim_start_matches('.');
+    if let Some(language) = REGISTERED.with(|languages| {
+        languages.borrow().values().copied().find(|language| {
+            language
+                .extensions()
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(extension))
+        })
+    }) {
+        return Ok(language);
+    }
     name.parse::<Language>()
         .map_err(|error| JsError::new(&error.to_string()))
 }
@@ -1108,7 +1120,16 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
     let comments = field(definition, "comments");
     let (line_comments, block_comment) = if comments.is_undefined() || comments.is_null() {
         (Vec::new(), None)
+    } else if !comments.is_object() || Array::is_array(&comments) {
+        return Err(JsError::new(
+            "comments must be an object: { lineComment?, blockComment? }",
+        ));
     } else {
+        warn_unknown_keys(
+            &comments,
+            &["lineComment", "blockComment"],
+            "comments field",
+        );
         let block = string_list(&field(&comments, "blockComment"), "comments.blockComment")?;
         let block = match block.as_slice() {
             [] => None,
@@ -1176,12 +1197,23 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
     if field(&definition, "parse").dyn_into::<Function>().is_err() {
         return Err(JsError::new("a language needs parse(text)"));
     }
+    for name in ["serialize", "keySpan", "valueSpan", "highlight"] {
+        let value = field(&definition, name);
+        if !value.is_undefined() && !value.is_null() && !value.is_function() {
+            return Err(JsError::new(&format!("{name} must be a function")));
+        }
+    }
     let icon_value = field(&definition, "icon");
     let icon = if icon_value.is_undefined() || icon_value.is_null() {
         label.chars().next().map(String::from).unwrap_or_default()
     } else {
         match icon_value.as_string() {
-            Some(icon) if (1..=2).contains(&icon.chars().count()) => icon,
+            Some(icon)
+                if (1..=2).contains(&icon.chars().count())
+                    && icon.chars().all(char::is_alphanumeric) =>
+            {
+                icon
+            }
             _ => return Err(JsError::new("icon must be one or two letters")),
         }
     };
@@ -1193,11 +1225,18 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
             Array::from(&extensions_value)
                 .iter()
                 .map(|extension| {
-                    extension
+                    // Written without the dot (`env`); a built-in's is taken.
+                    let extension = extension
                         .as_string()
+                        .map(|text| text.trim().trim_start_matches('.').to_lowercase())
                         .filter(|text| !text.is_empty())
-                        .map(leak)
-                        .ok_or_else(|| JsError::new("extensions must hold non-empty strings"))
+                        .ok_or_else(|| JsError::new("extensions must hold non-empty strings"))?;
+                    if extension.parse::<Language>().is_ok() {
+                        return Err(JsError::new(&format!(
+                            "extension \"{extension}\" already names a built-in language"
+                        )));
+                    }
+                    Ok(leak(extension))
                 })
                 .collect::<Result<_, _>>()?
         } else {

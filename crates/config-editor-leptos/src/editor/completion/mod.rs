@@ -26,7 +26,12 @@ use super::language::{
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use super::state::Closer;
+// Matching `patternProperties` against keys: the engine validation links
+// anyway, else a small one.
+#[cfg(feature = "schema-validation")]
 use regex::Regex;
+#[cfg(not(feature = "schema-validation"))]
+use regex_lite::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;

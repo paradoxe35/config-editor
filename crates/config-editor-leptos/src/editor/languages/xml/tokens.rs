@@ -62,6 +62,11 @@ pub(super) fn tokenize(source: &str) -> Vec<Token> {
                 }
                 index += next.len_utf8();
             }
+            // Always past at least one character: no empty token, no loop.
+            if index == start {
+                index += character.len_utf8().max(1);
+                continue;
+            }
             tokens.push(Token {
                 start,
                 end: index,
@@ -176,7 +181,8 @@ pub(super) fn tokenize_tag_inside(source: &str, open: &Token) -> Vec<Token> {
     };
     while index < open.end {
         let character = source[index..].chars().next().unwrap_or('\0');
-        if character.is_whitespace() || character == '/' {
+        // The tag's end (`/`, `>`) and blanks separate attributes.
+        if character.is_whitespace() || matches!(character, '/' | '>') {
             index += character.len_utf8();
         } else if character == '=' {
             tokens.push(Token {
@@ -206,10 +212,16 @@ pub(super) fn tokenize_tag_inside(source: &str, open: &Token) -> Vec<Token> {
             let start = index;
             while index < open.end {
                 let next = source[index..].chars().next().unwrap_or('\0');
-                if next.is_whitespace() || matches!(next, '=' | '/' | '"' | '\'') {
+                // The tag's own `>` ends a name too (`<tcp no>`).
+                if next.is_whitespace() || matches!(next, '=' | '/' | '"' | '\'' | '>') {
                     break;
                 }
                 index += next.len_utf8();
+            }
+            // Always past at least one character: no empty token, no loop.
+            if index == start {
+                index += character.len_utf8().max(1);
+                continue;
             }
             tokens.push(Token {
                 start,

@@ -155,9 +155,7 @@ pub fn ConfigEditor(
         .map(Signal::get_untracked)
         .map_or_else(|| initial_value.clone(), normalize_newlines);
     let features = Features {
-        completions: enable_completions
-            && !read_only.get_untracked()
-            && cfg!(feature = "schema-validation"),
+        completions: enable_completions && !read_only.get_untracked(),
         auto_trigger: auto_trigger_completions,
         hover_docs: enable_hover_docs && has_schema,
         highlighting: enable_highlighting,

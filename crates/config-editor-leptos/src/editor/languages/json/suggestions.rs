@@ -113,12 +113,30 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     } else {
         (typed_start, String::new())
     };
+    // The caret right after an existing key's opening quote (`"|tcp"`) types
+    // in front of it: a new entry goes before the key, which is not offered.
+    let key_after = snapshot.partial.filter(|token| {
+        completing_key
+            && matches!(token.kind, Kind::Str { closed: true })
+            && cursor == token.start + 1
+            && token.end > cursor + 1
+    });
+    let (typed_start, replace_start, replace_end) = match key_after {
+        Some(token) => (cursor, token.start, token.start),
+        None => (typed_start, replace_start, replace_end),
+    };
+    let entry_after = key_after.map(|token| source[cursor..token.end - 1].to_string());
     let following = &source[replace_end..];
+    // An entry that starts its line (`  hea|"tcp"`) puts what follows on the
+    // next one, as the other languages do.
+    let entry_line = source[..replace_start].rfind('\n').map_or(0, |at| at + 1);
+    let starts_line = source[entry_line..replace_start].trim().is_empty();
     let entry_suffix = match following.trim_start().starts_with('"') {
         // A following key on its own line keeps it; no trailing space.
         true if following[..following.len() - following.trim_start().len()].contains('\n') => {
             ",".to_string()
         }
+        true if starts_line => format!(",\n{base_indent}"),
         true => ", ".to_string(),
         false => String::new(),
     };
@@ -142,6 +160,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         entry_prefix,
         explicit_entry_start,
         entry_suffix,
+        entry_after,
         ..Default::default()
     }
 }

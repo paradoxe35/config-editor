@@ -140,6 +140,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // counts as the parent's own value again (a parent that skipped a
     // render for an unchanged value never sends it).
     const pending = useRef<{ print: string; sent: number }[]>([]);
+    // Values still on their way when `ref.setValue` replaced the document.
+    const superseded = useRef<{ print: string; sent: number }[]>([]);
     // The `value` prop as last handled: a re-mount re-runs the value effect,
     // and an unchanged prop is not a new value from the parent.
     const handledValue = useRef<string | undefined>(undefined);
@@ -234,18 +236,26 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         const now = Date.now();
         pending.current = pending.current.filter((echo) => now - echo.sent < ECHO_WINDOW_MS);
         const print = fingerprint(value);
-        const prints = pending.current.map((echo) => echo.print);
-        // Which sent value this is. A parent applying every value sends them
-        // back in order: the oldest pending one (a typo fixed sends the same
-        // text twice: `a`, `ab`, `a`). A parent skipping to the latest sends a
-        // later one: its last copy. Equal to the newest value sent and to the
-        // document, the parent has caught up with everything.
-        const caughtUp = prints[prints.length - 1] === print && instance.value === value;
-        const sent = caughtUp
-          ? prints.length - 1
-          : prints[0] === print
-            ? 0
-            : prints.lastIndexOf(print);
+        // A value sent before a `ref.setValue` reset is a late echo of what
+        // the reset replaced: skipped, so the reset sticks.
+        const replaced = superseded.current.findIndex((echo) => echo.print === print && now - echo.sent < ECHO_WINDOW_MS);
+        if (replaced >= 0) {
+          superseded.current.splice(0, replaced + 1);
+          // The parent's state took that old value: tell it the document
+          // again, so both end on the reset.
+          if (superseded.current.length === 0 && instance.value !== value) {
+            const current = instance.value;
+            pending.current.push({ print: fingerprint(current), sent: now });
+            latest.current.onChange?.(current);
+          }
+          return;
+        }
+        // Echoes come back in the order they were sent, so this is the oldest
+        // pending copy (a typo fixed sends the same text twice: `a`, `ab`,
+        // `a`). A parent applying only the latest value leaves older copies
+        // pending until the echo window ends: a reset to such a text in the
+        // meantime is taken for its echo (`ref.setValue` always applies).
+        const sent = pending.current.findIndex((echo) => echo.print === print);
         if (sent >= 0) {
           // The parent caught up to this emission; newer ones may follow.
           pending.current.splice(0, sent + 1);
@@ -297,6 +307,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           return editor.current;
         },
         setValue(value: string) {
+          superseded.current = [...superseded.current, ...pending.current];
           pending.current = [];
           if (carried.current) carried.current.value = value;
           guard((instance) => {

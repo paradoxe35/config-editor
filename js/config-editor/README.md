@@ -149,8 +149,8 @@ import {
 
 const env = registerLanguage({
   label: "ENV", // its name is the label lowercased: "env"
-  icon: "E", // optional, toolbar icon: one or two letters
-  extensions: ["env"], // optional, an array
+  icon: "E", // optional, toolbar icon: one or two letters or digits
+  extensions: ["env"], // optional: also names the language (language: "env"), as "yml" does
   parse(text) {
     // Return a JSON value, or throw { message, line?, column? }.
     return Object.fromEntries(

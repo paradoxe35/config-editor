@@ -31,6 +31,35 @@ fn offered(language: Language, marked: &str) -> Vec<String> {
     .collect()
 }
 
+/// The document after accepting `label` at the caret, with the selection
+/// left (anchor, caret) as UTF-16 offsets, or why it could not be.
+fn accepted_with_selection(
+    language: Language,
+    marked: &str,
+    label: &str,
+) -> Result<(String, usize, usize), String> {
+    let at = marked.find('|').expect("a | caret marker");
+    let source = marked.replacen('|', "", 1);
+    let options = completions(
+        &source,
+        source[..at].encode_utf16().count(),
+        true,
+        Some(&burrow()),
+        true,
+        language.behavior(),
+    );
+    let option = options
+        .iter()
+        .find(|option| option.label == label)
+        .ok_or_else(|| {
+            format!(
+                "{label} not offered; offered {:?}",
+                options.iter().map(|o| &o.label).collect::<Vec<_>>()
+            )
+        })?;
+    Ok(apply_completion(&source, option))
+}
+
 /// The document after accepting `label` at the caret, or why it could not be.
 fn accepted(language: Language, marked: &str, label: &str) -> Result<String, String> {
     let at = marked.find('|').expect("a | caret marker");
@@ -495,6 +524,178 @@ fn an_xml_name_accepted_at_the_end_of_a_complete_tag_renames_it() {
             Ok(text) if text == expected => {}
             Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
             Err(error) => failures.push(format!("{marked:?} → {error}")),
+        }
+    }
+    report(failures);
+}
+
+/// A rename leaves the caret right after the new key, with nothing selected,
+/// so the next keystroke cannot replace part of the key.
+#[test]
+fn a_rename_leaves_the_caret_after_the_new_key() {
+    let cases = [
+        (
+            Language::YAML,
+            "limits:\n  max_h|pending: 1\n",
+            "max_handshakes",
+        ),
+        (Language::YAML, "tcp:\n  keep|x: 5\n", "keepalive_secs"),
+        (Language::YAML, "tcp: {keep|x: 5}\n", "keepalive_secs"),
+        (
+            Language::TOML,
+            "[limits]\nmax_h|pending = 1\n",
+            "max_handshakes",
+        ),
+        (
+            Language::HCL,
+            "limits {\n  max_h|pending = 1\n}\n",
+            "max_handshakes",
+        ),
+        (
+            Language::XML,
+            "<tcp>\n  <keep|>5</keep>\n</tcp>\n",
+            "keepalive_secs",
+        ),
+        (Language::XML, "<tcp keep|x=\"5\"/>\n", "keepalive_secs"),
+    ];
+    let mut failures = Vec::new();
+    for (language, marked, label) in cases {
+        match accepted_with_selection(language, marked, label) {
+            Ok((text, anchor, caret)) => {
+                let before: String = text
+                    .encode_utf16()
+                    .take(caret)
+                    .collect::<Vec<u16>>()
+                    .iter()
+                    .map(|unit| char::from_u32(u32::from(*unit)).unwrap_or('?'))
+                    .collect();
+                if anchor != caret || !before.ends_with(label) {
+                    failures.push(format!(
+                        "{} {marked:?} → {text:?} selection {anchor}..{caret}",
+                        language.label()
+                    ));
+                }
+            }
+            Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
+        }
+    }
+    report(failures);
+}
+
+/// Accepting the key already written, with the caret at its end, changes
+/// nothing, whatever follows it (`tcp|.nodelay`, `tcp|: 1`, `<tcp|>`).
+#[test]
+fn accepting_the_key_written_at_its_end_changes_nothing() {
+    let cases = [
+        (Language::TOML, "tcp|.nodelay = true\n", "tcp"),
+        (Language::TOML, "[tcp]\nnodelay| = true\n", "nodelay"),
+        (Language::YAML, "tcp|:\n  nodelay: true\n", "tcp"),
+        (Language::HCL, "tcp| {\n  nodelay = true\n}\n", "tcp"),
+        (
+            Language::XML,
+            "<burrow config-root=\"true\">\n  <tcp|/>\n</burrow>\n",
+            "tcp",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (language, marked, label) in cases {
+        let original = marked.replacen('|', "", 1);
+        match accepted(language, marked, label) {
+            Ok(text) if text == original => {}
+            Ok(text) => failures.push(format!("{} {marked:?} → {text:?}", language.label())),
+            Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
+        }
+    }
+    report(failures);
+}
+
+/// An XML attribute accepted right before the tag's end keeps the end and
+/// gets its `="…"`.
+#[test]
+fn an_xml_attribute_accepted_before_the_tag_end_is_whole() {
+    let mut failures = Vec::new();
+    for (marked, expected) in [
+        ("<tcp no|>\n</tcp>\n", "<tcp nodelay=\"true\">\n</tcp>\n"),
+        ("<tcp no|></tcp>\n", "<tcp nodelay=\"true\"></tcp>\n"),
+        ("<tcp no|/>\n", "<tcp nodelay=\"true\"/>\n"),
+    ] {
+        match accepted(Language::XML, marked, "nodelay") {
+            Ok(text) if text.replace("\"\"", "\"true\"") == expected || text == expected => {}
+            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
+            Err(error) => failures.push(format!("{marked:?} → {error}")),
+        }
+    }
+    report(failures);
+}
+
+/// JSON types in front of a key like the other languages: at a key's
+/// opening quote (`"|tcp"`) or before it (`hea|"tcp"`), a new entry goes
+/// before it on its own line, and the key is not offered.
+#[test]
+fn a_json_key_typed_in_front_of_a_key_goes_before_it_on_its_own_line() {
+    let mut failures = Vec::new();
+    let marked = "{\n  \"|tcp\": {}\n}\n";
+    if offered(Language::JSON, marked).contains(&"tcp".to_string()) {
+        failures.push(format!("{marked:?} offers tcp"));
+    }
+    for (marked, label, expected) in [
+        (
+            "{\n  \"|tcp\": {}\n}\n",
+            "clients",
+            "{\n  \"clients\": {},\n  \"tcp\": {}\n}\n",
+        ),
+        (
+            "{\n  hea|\"tcp\": {}\n}\n",
+            "heartbeat",
+            "{\n  \"heartbeat\": {},\n  \"tcp\": {}\n}\n",
+        ),
+    ] {
+        match accepted(Language::JSON, marked, label) {
+            Ok(text)
+                if parsed(Language::JSON, &text).is_ok()
+                    && text.contains(&expected[4..expected.find(",").unwrap()])
+                    && text.contains(",\n  \"tcp\"") => {}
+            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
+            Err(error) => failures.push(format!("{marked:?} → {error}")),
+        }
+    }
+    report(failures);
+}
+
+/// After a rename the list does not reopen on the renamed key (it would
+/// take the next Enter).
+#[test]
+fn a_rename_does_not_reopen_the_list() {
+    use super::super::completion::accept_reopens_suggestions;
+    let mut failures = Vec::new();
+    for (language, marked, label) in [
+        (Language::YAML, "t|cp:\n  nodelay: true\n", "metrics"),
+        (Language::HCL, "t|cp {\n  nodelay = true\n}\n", "metrics"),
+        (Language::TOML, "t|cp = { nodelay = true }\n", "metrics"),
+        (
+            Language::XML,
+            "<burrow config-root=\"true\">\n  <t|cp/>\n</burrow>\n",
+            "metrics",
+        ),
+        (Language::TOML, "tcp|.nodelay = true\n", "tcp"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        let options = completions(
+            &source,
+            source[..at].encode_utf16().count(),
+            true,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+        );
+        match options.iter().find(|option| option.label == label) {
+            Some(option) if !accept_reopens_suggestions(option, true) => {}
+            Some(_) => failures.push(format!("{} {marked:?}: the list reopens", language.label())),
+            None => failures.push(format!(
+                "{} {marked:?}: {label} not offered",
+                language.label()
+            )),
         }
     }
     report(failures);

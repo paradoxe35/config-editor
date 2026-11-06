@@ -466,7 +466,7 @@ test.describe('vanilla API: fourth-round findings', () => {
 });
 
 test.describe('react: late parents and failed mounts', () => {
-  test('a reset after a repeated value applies', async ({ page: browserPage }) => {
+  test('a reset to a repeated value applies once the echo window has passed', async ({ page: browserPage }) => {
     await browserPage.goto(page('react.html') + '?late');
     await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
     const before = await input(browserPage).inputValue();
@@ -477,8 +477,57 @@ test.describe('react: late parents and failed mounts', () => {
     await browserPage.keyboard.type('x');
     // The parent applies only the latest value, late.
     await expect(saved(browserPage)).toContainText('tunnel.example.com\nx');
+    // Within the window the reset could be a late echo (see the README);
+    // after it, it is the parent's own.
+    await browserPage.evaluate(() => {
+      const realNow = Date.now;
+      Date.now = () => realNow() + 11000;
+    });
     await browserPage.locator('#reset').click();
     await expect(input(browserPage)).toHaveValue(before);
+  });
+
+  test('backspacing a word against a slow parent never rolls the document back', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?slow');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.press('Enter');
+    const seen = [];
+    await browserPage.keyboard.type('hello world, ok', { delay: 100 });
+    for (let index = 0; index < 15; index += 1) {
+      await browserPage.keyboard.press('Backspace');
+      await browserPage.waitForTimeout(100);
+    }
+    for (const key of 'done') {
+      await browserPage.keyboard.type(key);
+      seen.push(await input(browserPage).inputValue());
+      await browserPage.waitForTimeout(100);
+    }
+    // While the echoes come back, keep checking the document never jumps.
+    for (let index = 0; index < 30; index += 1) {
+      seen.push(await input(browserPage).inputValue());
+      await browserPage.waitForTimeout(80);
+    }
+    const typed = before + '\ndone';
+    expect(seen.slice(4).every((value) => value === typed)).toBe(true);
+    await expect(saved(browserPage)).toHaveText(typed, { timeout: 5000 });
+  });
+
+  test('ref.setValue against a slow parent sticks, and the parent ends on it too', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?slow');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('q');
+    await browserPage.keyboard.press('Backspace');
+    await browserPage.keyboard.type('w');
+    await browserPage.evaluate((text) => window.editorHandle.current.setValue(text), before);
+    await browserPage.waitForTimeout(2500);
+    await expect(input(browserPage)).toHaveValue(before);
+    await expect(saved(browserPage)).toHaveText(before, { timeout: 5000 });
   });
 
   test('ref.setValue resets to a text the user just passed through', async ({ page: browserPage }) => {
@@ -601,15 +650,34 @@ test.describe('vanilla API: registerLanguage checks its fields', () => {
           return String(error.message ?? error);
         }
       };
-      return [
+      const results = [
         attempt({ label: 'IconLong', icon: 'ABCDEFG' }),
         attempt({ label: 'ExtString', extensions: 'env' }),
-        attempt({ label: 'Fine', icon: 'Fi', extensions: ['fine'] }),
+        attempt({ label: 'Fine', icon: 'Fi', extensions: ['.fine'] }),
+        attempt({ label: 'IconEmoji', icon: '\u{1F600}' }),
+        attempt({ label: 'ExtBuiltIn', extensions: ['yml'] }),
+        attempt({ label: 'CommentsString', comments: '#' }),
+        attempt({ label: 'SpanNumber', keySpan: 5 }),
+        attempt({ label: 'SerializeString', serialize: 'x' }),
       ];
+      // An extension names the language, as `yml` names YAML.
+      let byExtension = null;
+      try {
+        byExtension = module.convert('fine', 'x', 'json').text;
+      } catch (error) {
+        byExtension = String(error.message ?? error);
+      }
+      return [...results, byExtension];
     });
     expect(errors[0]).toContain('icon');
     expect(errors[1]).toContain('extensions');
     expect(errors[2]).toBeNull();
+    expect(errors[3]).toContain('icon');
+    expect(errors[4]).toContain('built-in');
+    expect(errors[5]).toContain('comments');
+    expect(errors[6]).toContain('keySpan must be a function');
+    expect(errors[7]).toContain('serialize must be a function');
+    expect(errors[8]).not.toContain('unknown');
   });
 });
 

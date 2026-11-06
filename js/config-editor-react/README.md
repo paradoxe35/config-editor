@@ -77,7 +77,9 @@ an older one: a `value` equal to one the editor sent in the last 10 seconds,
 while newer ones are still on their way, is taken as that late echo. Any other `value` (a revert, a reset)
 is applied. To reset to a text the user may have just passed through while a
 late parent is catching up, call `ref.current.setValue(text)`, which always
-applies.
+applies: echoes of values sent before it are skipped, and if the parent's
+state took one of them, `onChange` reports the document again so both end on
+the reset.
 
 ## Ref
 
@@ -90,7 +92,7 @@ const ref = useRef<ConfigEditorHandle>(null);
 
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted
-ref.current?.setValue(saved); // replace the document, always (onChange is not called)
+ref.current?.setValue(saved); // replace the document, always (onChange is not called for it)
 ```
 
 ## Other exports
