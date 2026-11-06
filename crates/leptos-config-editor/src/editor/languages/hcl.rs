@@ -12,7 +12,7 @@
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_value_len, statement_start, statements};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_value_len, statement_start, statements, entry_follows};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -948,9 +948,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             ..Default::default()
         };
     }
@@ -1005,7 +1005,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     replace_start: utf16(&source[..statement + start]),
                     replace_end: utf16(&source[..value_end]),
                     is_array_item: true,
-                    item_wrap: Some(("{ ", " }")),
+                    entry_wrap: Some(("{ ", " }")),
                     base_indent,
                     path: full,
                     ..Default::default()
@@ -1079,9 +1079,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 is_array_item: false,
                 base_indent,
                 path: map_path,
-                entry_prefix: "",
+                entry_prefix: String::new(),
                 explicit_entry_start: true,
-                entry_suffix: "",
+                entry_suffix: String::new(),
                 ..Default::default()
             };
         }
@@ -1098,14 +1098,14 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             replace_start: utf16(&source[..typed_start]),
             replace_end: utf16(&source[..replace_end]),
             value_key: Some(key),
-            value_needs_space: snapshot.partial.is_none()
-                && source[..cursor].trim_end().ends_with('='),
+            // Only directly after `=`; a space already typed is kept as is.
+            value_needs_space: snapshot.partial.is_none() && source[..cursor].ends_with('='),
             is_array_item: false,
             base_indent,
             path,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             ..Default::default()
         };
     }
@@ -1122,9 +1122,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             is_array_item: false,
             base_indent,
             path,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             ..Default::default()
         };
     }
@@ -1141,26 +1141,34 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
         _ => (cursor, String::new()),
     };
-    let replace_end = swallow_existing_assignment(
-        source,
-        snapshot
-            .partial
-            .map_or(cursor, |token| token.end.max(cursor))
-            .min(source.len()),
-    );
+    // Typed in front of an existing entry (`lim|listen = 1`): the new entry
+    // goes before it, which moves to its own line (see `entry_after`).
+    let rest = &source[cursor..line_end];
+    let splits = entry_follows(rest, b'=');
+    let word_after: String = rest
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    let replace_end = if splits {
+        cursor
+    } else {
+        swallow_existing_assignment(
+            source,
+            snapshot
+                .partial
+                .map_or(cursor, |token| token.end.max(cursor))
+                .min(source.len()),
+        )
+    };
     CompletionContext {
         block: hcl_block(source, typed_start, replace_end.min(source.len())),
         path,
         typed,
         replace_start: utf16(&source[..typed_start]),
         replace_end: utf16(&source[..replace_end.min(source.len())]),
-        value_key: None,
-        value_needs_space: false,
-        is_array_item: false,
+        entry_suffix: if splits { format!("\n{base_indent}") } else { String::new() },
+        entry_after: splits.then_some(word_after),
         base_indent,
-        entry_prefix: "",
-        explicit_entry_start: false,
-        entry_suffix: "",
         ..Default::default()
     }
 }
@@ -1420,18 +1428,33 @@ fn property_insert(
                 match schema_default(child, root) {
                     Some(default) => insert.push_str(&hcl_text(default)),
                     None if !takes_caret => insert.push_str(&hcl_text(&placeholder(child, root))),
+                    // The caret's own child: a string starts quoted, caret inside.
+                    None if placeholder(child, root).is_string() => {
+                        insert.push_str("\"\"");
+                        caret = caret.map(|position| position + 1);
+                    }
                     None => {}
                 }
                 insert.push('\n');
             }
         }
+        if caret.is_none() {
+            // No required children: the caret waits on an indented line inside.
+            insert.push_str(&child_indent);
+            caret = Some(utf16(&insert));
+            insert.push('\n');
+        }
         insert.push_str(base_indent);
         insert.push('}');
-        let caret = caret.unwrap_or_else(|| utf16(&insert));
-        return Some((insert, caret));
+        return Some((insert, caret.unwrap_or_default()));
     }
     if let Some(default) = schema_default(property, root) {
         insert.push_str(&hcl_text(default));
+    } else if placeholder(property, root).is_string() {
+        // A string value starts quoted, with the caret inside.
+        insert.push_str("\"\"");
+        let caret = utf16(&insert) - 1;
+        return Some((insert, caret));
     }
     let caret = utf16(&insert);
     Some((insert, caret))
@@ -1928,7 +1951,7 @@ mod tests {
         let schema = nested_schema();
         assert_eq!(
             accept_marked("web = {le|}\n", "letsencrypt", &schema, &HclBehavior),
-            "web = {\n  letsencrypt = {\n    email = |\n  }\n}\n"
+            "web = {\n  letsencrypt = {\n    email = \"|\"\n  }\n}\n"
         );
     }
 
@@ -1942,7 +1965,7 @@ mod tests {
                 &schema,
                 &HclBehavior
             ),
-            "web = {\n  letsencrypt = {\n    email = |\n  },\n  http = 80 }\n"
+            "web = {\n  letsencrypt = {\n    email = \"|\"\n  },\n  http = 80 }\n"
         );
     }
 
@@ -1960,7 +1983,7 @@ mod tests {
         let schema = nested_schema();
         assert_eq!(
             accept_marked("web {\n  le|\n}\n", "letsencrypt", &schema, &HclBehavior),
-            "web {\n  letsencrypt = {\n    email = |\n  }\n}\n"
+            "web {\n  letsencrypt = {\n    email = \"|\"\n  }\n}\n"
         );
     }
 
@@ -2041,7 +2064,7 @@ mod tests {
             .find(|option| option.label == "default")
             .expect("default should be suggested inside the block");
         let (updated, _) = apply_completion(source, &option);
-        assert!(updated.ends_with("default = "), "{updated}");
+        assert!(updated.ends_with("default = \"\""), "{updated}");
     }
 
     #[test]
@@ -2054,7 +2077,7 @@ mod tests {
             .find(|option| option.label == "default")
             .expect("default should be suggested inside the nested map");
         let (updated, _) = apply_completion(source, &option);
-        assert!(updated.ends_with("default = "), "{updated}");
+        assert!(updated.ends_with("default = \"\""), "{updated}");
     }
 
     #[test]
@@ -2233,8 +2256,9 @@ mod tests {
         let (insert, caret) = HclBehavior
             .property_insert("tags", tags, &schema.schema, &INSERT_AT_ROOT)
             .unwrap();
-        assert_eq!(insert, "tags = {\n  Name = \n}");
-        assert_eq!(caret, "tags = {\n  Name = ".encode_utf16().count());
+        assert_eq!(insert, "tags = {\n  Name = \"\"\n}");
+        // Inside the string's quotes.
+        assert_eq!(caret, "tags = {\n  Name = \"".encode_utf16().count());
     }
 
     fn highlighted(line: &str) -> Vec<(Option<TokenKind>, String)> {

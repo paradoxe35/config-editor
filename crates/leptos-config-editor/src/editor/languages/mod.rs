@@ -35,6 +35,16 @@ mod accept_tests;
     feature = "xml"
 ))]
 mod nested_tests;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod qa_regressions;
 
 /// A document language: a built-in one ([`Language::YAML`], …) or any
 /// [`ConfigLanguage`] implementation wrapped with [`Language::new`].

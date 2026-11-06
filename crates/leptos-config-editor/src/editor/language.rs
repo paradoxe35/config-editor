@@ -62,7 +62,7 @@ pub use super::completion::{
 };
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
-    InlineCaret, InlineEntry, InlineKey, inline_caret, inline_key_at, inline_keys,
+    InlineCaret, InlineEntry, InlineKey, entry_follows, inline_caret, inline_key_at, inline_keys,
     inline_sibling_keys, inline_value_len, skip_quoted,
 };
 pub use super::keyboard::utf16_to_byte_index;
@@ -255,13 +255,13 @@ pub struct CompletionContext {
     pub base_indent: String,
     /// Prepended verbatim to an inserted entry (for example a separator after
     /// a complete value).
-    pub entry_prefix: &'static str,
+    pub entry_prefix: String,
     /// An empty query still opens the suggestion list (for example after a
     /// typed opening quote in JSON).
     pub explicit_entry_start: bool,
     /// Appended verbatim to an inserted entry, after the caret (for example a
     /// separator before a following JSON entry).
-    pub entry_suffix: &'static str,
+    pub entry_suffix: String,
     /// How a property inserted here is written.
     pub position: EntryPosition,
     /// Containers opened earlier on the line; see [`inline_block`].
@@ -272,13 +272,20 @@ pub struct CompletionContext {
     /// The value position can also hold child entries (an empty XML element
     /// between its tags): an object value offers its properties as children.
     pub value_or_children: bool,
-    /// The caret is directly in an array (`is_array_item`) and a new object
-    /// item must be written between these delimiters, such as `("{ ", " }")`
-    /// for TOML. `None` where properties can follow directly (YAML `- `).
-    pub item_wrap: Option<(&'static str, &'static str)>,
+    /// Delimiters a new property entry must be written between: a key typed
+    /// directly in an array starts an object item (`("{ ", " }")` in TOML),
+    /// and the first key of an empty JSON document opens its root object.
+    /// `None` where properties can follow directly (YAML `- `).
+    pub entry_wrap: Option<(&'static str, &'static str)>,
     /// The language writes an array by repeating its key (XML sibling
     /// elements), so an array property already present is offered again.
     pub repeats_arrays: bool,
+    /// An existing entry starts right after the caret (`lim|listen = 1`),
+    /// and this is the word its key begins with. A suggestion ending in that
+    /// word completes it (`inse|cure_plaintext`) and renames the key; any
+    /// other is inserted before the entry, `entry_suffix` moving the entry to
+    /// its own line.
+    pub entry_after: Option<String>,
 }
 
 /// Splits a JSON pointer into unescaped segments.

@@ -33,11 +33,11 @@ test.describe('JSON', () => {
     await typeAt(page, e, '{\n  "web": {|}\n}', '"letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
     await expect(e.input).toHaveValue(
-      '{\n  "web": {\n    "letsencrypt": {\n      "email": \n    }\n  }\n}',
+      '{\n  "web": {\n    "letsencrypt": {\n      "email": ""\n    }\n  }\n}',
     );
     // The caret waits on the first value to fill.
-    expect(await e.caret()).toMatchObject({ line: 4, column: 16 });
-    await page.keyboard.type('"ops@example.com');
+    expect(await e.caret()).toMatchObject({ line: 4, column: 17 });
+    await page.keyboard.type('ops@example.com');
     await expect.poll(() => e.diagnosticCount()).toBe(0);
   });
 
@@ -53,7 +53,7 @@ test.describe('JSON', () => {
     await typeAt(page, e, '{\n  "web": {\n    |\n  }\n}', '"letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
     await expect(e.input).toHaveValue(
-      '{\n  "web": {\n    "letsencrypt": {\n      "email": \n    }\n  }\n}',
+      '{\n  "web": {\n    "letsencrypt": {\n      "email": ""\n    }\n  }\n}',
     );
   });
 });
@@ -65,9 +65,9 @@ test.describe('HCL', () => {
     const e = editor(page);
     await typeAt(page, e, 'web = {|}\n', 'letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
-    await expect(e.input).toHaveValue('web = {\n  letsencrypt = {\n    email = \n  }\n}\n');
-    expect(await e.caret()).toMatchObject({ line: 3, column: 13 });
-    await page.keyboard.type('"ops@example.com');
+    await expect(e.input).toHaveValue('web = {\n  letsencrypt = {\n    email = ""\n  }\n}\n');
+    expect(await e.caret()).toMatchObject({ line: 3, column: 14 });
+    await page.keyboard.type('ops@example.com');
     await expect.poll(() => e.diagnosticCount()).toBe(0);
   });
 
@@ -75,7 +75,7 @@ test.describe('HCL', () => {
     const e = editor(page);
     await typeAt(page, e, 'web {\n  |\n}\n', 'letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
-    await expect(e.input).toHaveValue('web {\n  letsencrypt = {\n    email = \n  }\n}\n');
+    await expect(e.input).toHaveValue('web {\n  letsencrypt = {\n    email = ""\n  }\n}\n');
   });
 });
 
@@ -86,8 +86,8 @@ test.describe('TOML', () => {
     const e = editor(page);
     await typeAt(page, e, 'web = { | }\n', 'letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
-    await expect(e.input).toHaveValue('web = { letsencrypt = { email =  } }\n');
-    await page.keyboard.type('"ops@example.com');
+    await expect(e.input).toHaveValue('web = { letsencrypt = { email = "" } }\n');
+    await page.keyboard.type('ops@example.com');
     await expect.poll(() => e.value()).toContain('email = "ops@example.com"');
     await expect.poll(() => e.diagnosticCount()).toBe(0);
   });
@@ -96,7 +96,7 @@ test.describe('TOML', () => {
     const e = editor(page);
     await typeAt(page, e, '[web]\nhttp = 80\n|', 'letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
-    await expect(e.input).toHaveValue('[web]\nhttp = 80\n[web.letsencrypt]\nemail = \n');
+    await expect(e.input).toHaveValue('[web]\nhttp = 80\n[web.letsencrypt]\nemail = ""\n');
   });
 });
 

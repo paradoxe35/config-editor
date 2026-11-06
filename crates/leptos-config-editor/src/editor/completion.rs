@@ -390,12 +390,17 @@ pub(super) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
 /// Lifts required keys within a match tier, never above the next tier.
 const REQUIRED_BONUS: i64 = 40;
 
+/// Best match first. Ties keep schema order for values (enum order, so a
+/// default listed first stays first) and sort alphabetically for properties.
 fn sorted_completions(mut scored: Vec<(i64, Completion)>) -> Vec<Completion> {
     scored.sort_by(|left, right| {
-        right
-            .0
-            .cmp(&left.0)
-            .then_with(|| left.1.label.cmp(&right.1.label))
+        right.0.cmp(&left.0).then_with(|| {
+            if left.1.is_value && right.1.is_value {
+                std::cmp::Ordering::Equal
+            } else {
+                left.1.label.cmp(&right.1.label)
+            }
+        })
     });
     scored.dedup_by(|left, right| left.1.label == right.1.label);
     scored
@@ -551,6 +556,14 @@ pub(super) fn completions(
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
     for option in &mut options {
         frame_insert(option, &context);
+        // An insert ending in a line break before an existing one would leave
+        // a blank line.
+        let end = utf16_to_byte_index(source, option.end);
+        if option.insert.ends_with('\n') && source[end..].starts_with('\n') {
+            option.insert.pop();
+            let units = option.insert.encode_utf16().count();
+            option.cursor_offset = option.cursor_offset.min(units);
+        }
     }
     options
 }
@@ -572,9 +585,27 @@ pub(super) fn frame_insert(option: &mut Completion, context: &CompletionContext)
             option.start = block.start;
             option.end = block.end;
         }
+        None if context
+            .entry_after
+            .as_deref()
+            .is_some_and(|word| !word.is_empty() && option.label.ends_with(word)) =>
+        {
+            // The suggestion completes the key the caret is inside: rename it,
+            // keeping the entry's existing separator and value.
+            option.end += context
+                .entry_after
+                .as_deref()
+                .map_or(0, |word| word.encode_utf16().count());
+            option.insert = option.label.clone();
+            option.cursor_offset = option.insert.encode_utf16().count();
+        }
         None => {
-            option.insert.insert_str(0, context.entry_prefix);
-            option.insert.push_str(context.entry_suffix);
+            option.insert.insert_str(0, &context.entry_prefix);
+            // A suffix starting a new line would double an insert's own break.
+            if context.entry_suffix.starts_with('\n') && option.insert.ends_with('\n') {
+                option.insert.pop();
+            }
+            option.insert.push_str(&context.entry_suffix);
             option.cursor_offset += context.entry_prefix.encode_utf16().count();
         }
     }
@@ -605,7 +636,10 @@ fn completions_for_context(
         if !force && unquoted(&context.typed).is_empty() {
             options.retain(|option| option.label != "null");
         }
-        if options.is_empty() && context.value_or_children {
+        let object_value = value_schemas
+            .iter()
+            .any(|schema| object_branch(schema, &bundle.schema).is_some());
+        if context.value_or_children && (options.is_empty() || object_value) {
             let children = CompletionContext {
                 path: path_with_key(&context.path, key),
                 value_key: None,
@@ -682,7 +716,7 @@ fn completions_for_context(
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.
-    if let Some((open, close)) = context.item_wrap.filter(|_| context.is_array_item) {
+    if let Some((open, close)) = context.entry_wrap {
         for option in &mut options {
             option.insert = format!("{open}{}{close}", option.insert);
             option.cursor_offset += open.encode_utf16().count();

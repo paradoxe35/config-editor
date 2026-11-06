@@ -604,12 +604,12 @@ pub fn ConfigEditor(
                                 children=move |index| {
                                     let line = index + 1;
                                     // Subscribe only to the row's own signal (see `line_rows`).
-                                    let state = rows_for_gutter.state_for(
-                                        index,
-                                        &lines.get_untracked(),
-                                        &diff.get_untracked(),
-                                        current_line.get_untracked(),
-                                    );
+                                    let active = current_line.get_untracked();
+                                    // Borrow, never clone: cloning the whole document per new row made
+                                    // large pastes quadratic.
+                                    let state = lines.with_untracked(|lines| {
+                                        diff.with_untracked(|diff| rows_for_gutter.state_for(index, lines, diff, active))
+                                    });
                                     let has_error = move || state.with(|row| row.has_error);
                                     let is_added = move || state.with(|row| row.change == DiffKind::Added);
                                     let is_modified = move || state.with(|row| row.change == DiffKind::Modified);
@@ -736,12 +736,12 @@ pub fn ConfigEditor(
                                         key=|index| *index
                                         children=move |index| {
                                             // Subscribe only to the row's own signal (see `line_rows`).
-                                            let state = rows_for_highlight.state_for(
-                                                index,
-                                                &lines.get_untracked(),
-                                                &diff.get_untracked(),
-                                                current_line.get_untracked(),
-                                            );
+                                            let active = current_line.get_untracked();
+                                            // Borrow, never clone: cloning the whole document per new row made
+                                            // large pastes quadratic.
+                                            let state = lines.with_untracked(|lines| {
+                                                diff.with_untracked(|diff| rows_for_highlight.state_for(index, lines, diff, active))
+                                            });
                                             let row_text = move || state.with(|row| row.text.clone());
                                             let has_error = move || state.with(|row| row.has_error);
                                             let is_added = move || state.with(|row| row.change == DiffKind::Added);

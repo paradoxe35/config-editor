@@ -10,7 +10,7 @@
 //!   headers cannot address, where they are written inline.
 //! - `Ctrl+/` toggles `#` line comments.
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, inline_value_len, statement_start};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, inline_value_len, statement_start, entry_follows};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -668,9 +668,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             value_needs_space: false,
             is_array_item: false,
             base_indent: String::new(),
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             ..Default::default()
         };
     }
@@ -723,7 +723,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     replace_start: utf16(&source[..at(start)]),
                     replace_end: utf16(&source[..value_end]),
                     is_array_item: true,
-                    item_wrap: Some(("{ ", " }")),
+                    entry_wrap: Some(("{ ", " }")),
                     path: full,
                     position: EntryPosition::Inline,
                     ..Default::default()
@@ -766,9 +766,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             is_array_item: false,
             base_indent: String::new(),
             path: full,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             ..Default::default()
         };
     }
@@ -794,18 +794,32 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
         _ => (typed_start, raw_typed.to_string()),
     };
+    // Typed in front of an existing entry (`lim|listen = 1`): the new entry
+    // goes before it, which moves to its own line.
+    let rest = split_toml_comment(&line[caret_in_line..]).0;
+    let splits = entry_follows(rest, b'=');
+    let word_after: String = rest
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    let indent: String = line.chars().take_while(|character| matches!(character, ' ' | '\t')).collect();
+    // A `[table]` header here would capture every key below it in this table,
+    // so tables are written inline when more keys follow.
+    let keys_follow = splits
+        || lines
+            .iter()
+            .skip(line_index + 1)
+            .map(|line| split_toml_comment(line).0)
+            .take_while(|code| parse_header(code).is_none())
+            .any(|code| key_assignment(code).is_some());
     CompletionContext {
         typed,
         replace_start: utf16(&source[..query_start]),
         replace_end: utf16(&source[..cursor]),
-        value_key: None,
-        value_needs_space: false,
-        is_array_item: false,
-        base_indent: String::new(),
         path,
-        entry_prefix: "",
-        explicit_entry_start: false,
-        entry_suffix: "",
+        entry_suffix: if splits { format!("\n{indent}") } else { String::new() },
+        entry_after: splits.then_some(word_after),
+        position: if keys_follow { EntryPosition::Inline } else { EntryPosition::Block },
         ..Default::default()
     }
 }
@@ -942,6 +956,11 @@ fn property_insert(
             match schema_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
                 None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                // The caret's own child: a string starts quoted, caret inside.
+                None if placeholder(child, root).is_string() => {
+                    insert.push_str("\"\"");
+                    cursor = cursor.map(|position| position + 1);
+                }
                 None => {}
             }
         }
@@ -1042,6 +1061,11 @@ fn property_insert(
             match schema_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
                 None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                // The caret's own child: a string starts quoted, caret inside.
+                None if placeholder(child, root).is_string() => {
+                    insert.push_str("\"\"");
+                    cursor = cursor.map(|position| position + 1);
+                }
                 None => {}
             }
             insert.push('\n');
@@ -1052,6 +1076,12 @@ fn property_insert(
     if let Some(default) = schema_default(property, root) {
         let insert = format!("{toml_key} = {}", toml_text(default));
         let cursor = insert.encode_utf16().count();
+        return Some((insert, cursor));
+    }
+    if placeholder(property, root).is_string() {
+        // A string value starts quoted, with the caret inside.
+        let insert = format!("{toml_key} = \"\"");
+        let cursor = insert.encode_utf16().count() - 1;
         return Some((insert, cursor));
     }
     let insert = format!("{toml_key} = ");
@@ -1440,7 +1470,7 @@ mod tests {
     fn an_object_accepted_inside_an_inline_table_stays_an_inline_table() {
         let schema = nested_schema();
         let accepted = accept_marked("web = { le| }\n", "letsencrypt", &schema, &TomlBehavior);
-        assert_eq!(accepted, "web = { letsencrypt = { email = | } }\n");
+        assert_eq!(accepted, "web = { letsencrypt = { email = \"|\" } }\n");
     }
 
     #[test]
@@ -1454,9 +1484,9 @@ mod tests {
     fn an_object_accepted_under_a_table_header_opens_the_nested_table_path() {
         let schema = nested_schema();
         let accepted = accept_marked("[web]\nle|", "letsencrypt", &schema, &TomlBehavior);
-        assert_eq!(accepted, "[web]\n[web.letsencrypt]\nemail = |\n");
+        assert_eq!(accepted, "[web]\n[web.letsencrypt]\nemail = \"|\"\n");
         let document = TomlBehavior
-            .parse(&accepted.replace('|', "\"a@b.c\""))
+            .parse(&accepted.replace('|', "a@b.c"))
             .expect("the accepted document parses");
         assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
     }
@@ -1465,7 +1495,7 @@ mod tests {
     fn a_dotted_key_completes_only_its_last_segment() {
         let schema = nested_schema();
         let accepted = accept_marked("[web]\nletsencrypt.em|", "email", &schema, &TomlBehavior);
-        assert_eq!(accepted, "[web]\nletsencrypt.email = |");
+        assert_eq!(accepted, "[web]\nletsencrypt.email = \"|\"");
     }
 
     #[test]

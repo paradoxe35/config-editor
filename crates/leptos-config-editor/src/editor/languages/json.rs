@@ -637,8 +637,14 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             ",",
         )
     });
+    // An empty document has no root object yet: the first key opens it.
+    let empty_document = source.trim().is_empty();
     CompletionContext {
-        item_wrap: is_array_item.then_some(("{", "}")),
+        entry_wrap: if empty_document {
+            Some(("{\n  ", "\n}\n"))
+        } else {
+            is_array_item.then_some(("{", "}"))
+        },
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
@@ -648,12 +654,12 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         value_needs_space: snapshot.partial.is_none() && source[..cursor].ends_with(':'),
         is_array_item,
         base_indent,
-        entry_prefix: if needs_separator { ", " } else { "" },
+        entry_prefix: if needs_separator { ", " } else { "" }.to_string(),
         explicit_entry_start,
         entry_suffix: if source[replace_end..].trim_start().starts_with('"') {
-            ", "
+            ", ".to_string()
         } else {
-            ""
+            String::new()
         },
         ..Default::default()
     }
@@ -743,6 +749,11 @@ fn property_insert(
                         match schema_default(child, root) {
                             Some(default) => insert.push_str(&json_text(default)),
                             None if !takes_caret => insert.push_str(&json_text(&placeholder(child, root))),
+                            // The caret's own child: a string starts quoted, caret inside.
+                            None if placeholder(child, root).is_string() => {
+                                insert.push_str("\"\"");
+                                caret = caret.map(|position| position + 1);
+                            }
                             None => {}
                         }
                     }
@@ -754,6 +765,10 @@ fn property_insert(
         }
     } else if let Some(default) = schema_default(property, root) {
         insert.push_str(&json_text(default));
+    } else if placeholder(property, root).is_string() {
+        // A string value starts quoted, with the caret inside.
+        insert.push_str("\"\"");
+        caret = Some(insert.len() - 1);
     }
     let caret = caret.unwrap_or(insert.len());
     let caret_units = utf16(&insert[..caret]);
@@ -932,7 +947,7 @@ mod tests {
         let schema = nested_schema();
         assert_eq!(
             accept_at("{\n  \"web\": {\"le|}\n}", "letsencrypt", &schema),
-            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    }\n  }\n}"
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": \"|\"\n    }\n  }\n}"
         );
     }
 
@@ -945,7 +960,7 @@ mod tests {
                 "letsencrypt",
                 &schema
             ),
-            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    },\n    \"http\": 80}\n}"
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": \"|\"\n    },\n    \"http\": 80}\n}"
         );
     }
 
@@ -963,7 +978,7 @@ mod tests {
         let schema = nested_schema();
         assert_eq!(
             accept_at("{\n  \"web\": {\n    \"le|\n  }\n}", "letsencrypt", &schema),
-            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    }\n  }\n}"
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": \"|\"\n    }\n  }\n}"
         );
     }
 
@@ -1030,7 +1045,7 @@ mod tests {
             .find(|option| option.label == "secret")
             .expect("a key typed inside an inline object should be suggested");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "{\"clients\": {\"acme\": {\"secret\": ");
+        assert_eq!(updated, "{\"clients\": {\"acme\": {\"secret\": \"\"");
     }
 
     #[cfg(feature = "schema-validation")]

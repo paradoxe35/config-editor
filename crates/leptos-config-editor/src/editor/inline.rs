@@ -168,6 +168,16 @@ pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<S
     })
 }
 
+/// Whether the text after the caret begins another entry (`listen = 7835`
+/// after `lim|`): accepting a key there must insert before that entry, on
+/// its own line, rather than replace it.
+pub fn entry_follows(rest: &str, separator: u8) -> bool {
+    let rest = rest.trim_start_matches([' ', '\t']);
+    inline_keys(rest, separator)
+        .first()
+        .is_some_and(|key| key.start == 0)
+}
+
 /// The byte just past the quoted string starting at `start`, or the end.
 pub fn skip_quoted(code: &str, start: usize) -> usize {
     let quote = code.as_bytes()[start];
@@ -587,6 +597,15 @@ mod tests {
             ]
         );
         assert_eq!(statements("a = 1\nb = [\n 1\n]\nc = 2\n"), vec![(6, 16)]);
+    }
+
+    #[test]
+    fn an_entry_after_the_caret_is_detected() {
+        assert!(entry_follows("listen = 7835", b'='));
+        assert!(entry_follows(" listen: 1", b':'));
+        assert!(!entry_follows(" = 7835", b'='));
+        assert!(!entry_follows("", b'='));
+        assert!(!entry_follows("}", b'='));
     }
 
     #[test]

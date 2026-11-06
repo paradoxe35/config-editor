@@ -380,6 +380,13 @@
   pointer-events: none;
 }
 
+/* The overlay must use exactly the textarea's font, or the caret and selection
+   drift off the text; browsers give <code> their own monospace otherwise. */
+.config-editor__highlight code,
+.config-editor__highlight span {
+  font: inherit;
+}
+
 .config-editor__code-line {
   width: max-content;
   min-width: 100%;

@@ -9,7 +9,7 @@ use super::super::commands::indent_unit;
 use super::super::highlight::{Token, TokenKind, Tokens};
 use super::super::inline::{
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys, inline_value_len,
-    statement_start,
+    statement_start, entry_follows,
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
@@ -815,13 +815,22 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 path.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     is_array_item: true,
-                    item_wrap: Some(("{ ", " }")),
+                    entry_wrap: Some(("{ ", " }")),
                     ..context(path, typed_from(start), start, value_end)
                 }
             }
         };
     }
     let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
+    // Typed in front of an existing entry (`lim|listen: 1`): the new entry goes
+    // before it, which moves to its own line (see `entry_after`).
+    let rest = &line_content[cursor_in_content..];
+    let splits = value_key.is_none() && entry_follows(rest, b':');
+    let word_after: String = rest
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    let replace_end_byte = if splits { cursor } else { replace_end_byte };
     CompletionContext {
         path,
         typed,
@@ -832,10 +841,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         value_key,
         value_needs_space,
         is_array_item: current_is_array_item,
+        entry_suffix: if splits { format!("\n{base_indent}") } else { String::new() },
+        entry_after: splits.then_some(word_after),
         base_indent,
-        entry_prefix: "",
-        explicit_entry_start: false,
-        entry_suffix: "",
         ..Default::default()
     }
 }

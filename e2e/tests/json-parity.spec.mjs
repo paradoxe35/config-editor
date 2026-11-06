@@ -158,7 +158,7 @@ test.describe('accepting keys and values', () => {
     await page.keyboard.type('"public_add');
     await expect.poll(() => e.keys()).toContain('public_address');
     await page.keyboard.press('Tab');
-    await expect(e.input).toHaveValue('{\n  "public_address": \n}');
+    await expect(e.input).toHaveValue('{\n  "public_address": ""\n}');
   });
 
   test('a value list opened after the colon offers values, and Escape closes it', async ({ page }) => {
@@ -501,7 +501,7 @@ test.describe('schema-driven completion', () => {
     await page.keyboard.type('prot');
     await expect.poll(() => e.keys()).toContain('protocol');
     await e.clickKey('protocol');
-    await expect(e.input).toHaveValue('{\n  "services": {\n    "billing": {\n      "protocol": \n    }\n  }\n}');
+    await expect(e.input).toHaveValue('{\n  "services": {\n    "billing": {\n      "protocol": ""\n    }\n  }\n}');
   });
 
   test('a service entry with required target suggests the target key', async ({ page }) => {

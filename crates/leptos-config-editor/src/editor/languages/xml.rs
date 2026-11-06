@@ -1319,9 +1319,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             repeats_arrays: true,
             ..Default::default()
         };
@@ -1337,9 +1337,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         value_needs_space: false,
         is_array_item: false,
         base_indent,
-        entry_prefix: "",
+        entry_prefix: String::new(),
         explicit_entry_start,
-        entry_suffix: "",
+        entry_suffix: String::new(),
         repeats_arrays: true,
 ..Default::default()
     }
@@ -1382,9 +1382,9 @@ fn tag_completion_context(
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             repeats_arrays: true,
 ..Default::default()
         };
@@ -1400,9 +1400,9 @@ fn tag_completion_context(
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             repeats_arrays: true,
 ..Default::default()
         };
@@ -1425,9 +1425,9 @@ fn tag_completion_context(
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: false,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             repeats_arrays: true,
 ..Default::default()
         };
@@ -1448,9 +1448,9 @@ fn tag_completion_context(
             value_needs_space: false,
             is_array_item: false,
             base_indent,
-            entry_prefix: "",
+            entry_prefix: String::new(),
             explicit_entry_start: true,
-            entry_suffix: "",
+            entry_suffix: String::new(),
             repeats_arrays: true,
 ..Default::default()
         };
@@ -1472,9 +1472,9 @@ fn tag_completion_context(
         value_needs_space: false,
         is_array_item: false,
         base_indent,
-        entry_prefix: "",
+        entry_prefix: String::new(),
         explicit_entry_start: false,
-        entry_suffix: "",
+        entry_suffix: String::new(),
         position: EntryPosition::Attribute,
         repeats_arrays: true,
 ..Default::default()
