@@ -124,6 +124,10 @@ pub(super) fn indent_lines(
                 };
                 edits.push((offset, remove, 0));
                 updated.push_str(&line[remove..]);
+            } else if body.trim().is_empty() {
+                // Blank lines stay blank, as in VS Code: indenting them
+                // would only leave trailing whitespace.
+                updated.push_str(line);
             } else {
                 edits.push((offset + indent, 0, unit.len()));
                 updated.push_str(&line[..indent]);
@@ -157,4 +161,137 @@ pub(super) fn indent_lines(
     let updated_selection_start = updated[..updated_start].encode_utf16().count();
     let updated_selection_end = updated[..updated_end].encode_utf16().count();
     Some((updated, updated_selection_start, updated_selection_end))
+}
+
+/// Backspace inside a line's leading indentation removes back to the previous
+/// indent stop (one unit), as VS Code does, instead of a single space.
+/// Returns the updated text and caret (UTF-16); `None` when the caret is not
+/// in leading spaces, so a plain Backspace applies.
+pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, usize)> {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let before = &source[line_start..byte];
+    if before.is_empty() || !before.bytes().all(|byte| byte == b' ') {
+        return None;
+    }
+    let unit = indent_unit(source);
+    if unit == "\t" || unit.len() < 2 {
+        return None;
+    }
+    let remove = match before.len() % unit.len() {
+        0 => unit.len(),
+        partial => partial,
+    };
+    let mut updated = String::with_capacity(source.len());
+    updated.push_str(&source[..byte - remove]);
+    updated.push_str(&source[byte..]);
+    Some((updated, cursor - remove))
+}
+
+/// Typing a closer (`}` or `]`) on a line holding only indentation aligns the
+/// line with the line that opened the bracket, as VS Code's bracket outdent
+/// does. Returns the updated text (with the closer typed) and caret, or `None`
+/// when the line has other content, no opener is found, or it already lines up.
+pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<(String, usize)> {
+    let opener = match closer {
+        '}' => '{',
+        ']' => '[',
+        _ => return None,
+    };
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let before = &source[line_start..byte];
+    if before.is_empty() || !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+        return None;
+    }
+    // The innermost unmatched opener above the caret's line.
+    let mut depth = 0usize;
+    let mut open_at = None;
+    for (index, character) in source[..line_start].char_indices().rev() {
+        if character == closer {
+            depth += 1;
+        } else if character == opener {
+            if depth == 0 {
+                open_at = Some(index);
+                break;
+            }
+            depth -= 1;
+        }
+    }
+    let open_line_start = source[..open_at?].rfind('\n').map_or(0, |index| index + 1);
+    let indent: String = source[open_line_start..]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect();
+    if indent == before {
+        return None;
+    }
+    let mut updated = String::with_capacity(source.len() + 1);
+    updated.push_str(&source[..line_start]);
+    updated.push_str(&indent);
+    updated.push(closer);
+    updated.push_str(&source[byte..]);
+    let caret = source[..line_start].encode_utf16().count() + indent.encode_utf16().count() + 1;
+    Some((updated, caret))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{backspace_indent, indent_lines, typed_closer};
+
+    /// Applies `edit` at the `|` marker and returns the text with `|` at the
+    /// new caret.
+    fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<(String, usize)>) -> Option<String> {
+        let at = marked.find('|').unwrap();
+        let source = marked.replace('|', "");
+        let (updated, caret) = edit(&source, source[..at].encode_utf16().count())?;
+        Some(format!("{}|{}", &updated[..caret], &updated[caret..]))
+    }
+
+    #[test]
+    fn backspace_in_indentation_removes_one_indent_unit() {
+        assert_eq!(
+            at("a:\n  b: 1\n    |", backspace_indent).as_deref(),
+            Some("a:\n  b: 1\n  |")
+        );
+        // Off a stop, it returns to the previous stop.
+        assert_eq!(
+            at("a:\n  b: 1\n   |", backspace_indent).as_deref(),
+            Some("a:\n  b: 1\n  |")
+        );
+        // After content it is a plain Backspace.
+        assert_eq!(at("a:\n  b|", backspace_indent), None);
+        assert_eq!(at("|a", backspace_indent), None);
+    }
+
+    #[test]
+    fn a_typed_closer_on_a_blank_line_aligns_with_its_opener() {
+        assert_eq!(
+            at("{\n  \"a\": 1,\n  |", |source, cursor| typed_closer(
+                source, cursor, '}'
+            ))
+            .as_deref(),
+            Some("{\n  \"a\": 1,\n}|")
+        );
+        assert_eq!(
+            at("x = {\n  a = [\n    1,\n    |", |source, cursor| {
+                typed_closer(source, cursor, ']')
+            })
+            .as_deref(),
+            Some("x = {\n  a = [\n    1,\n  ]|")
+        );
+        // A closer after content is typed as is.
+        assert_eq!(
+            at("{\n  \"a\": 1|", |source, cursor| typed_closer(
+                source, cursor, '}'
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn indenting_a_selection_leaves_blank_lines_blank() {
+        let (updated, _, _) = indent_lines("a:\n\n  b: 1\n", 0, 9, false).unwrap();
+        assert_eq!(updated, "  a:\n\n    b: 1\n");
+    }
 }

@@ -27,6 +27,10 @@ pub(super) fn replace_selection(
     (result, new_cursor)
 }
 
+/// Characters before which an opening bracket or quote auto-closes (VS Code's
+/// `autoCloseBefore` default), besides whitespace and the end of the text.
+const AUTO_CLOSE_BEFORE: &str = ";:.,=}])>\"'`";
+
 /// Shared pairing mechanics: the language behavior decides whether the caret
 /// sits inside a string or comment, where typed pairs must not expand.
 pub(super) fn paired_edit(
@@ -63,6 +67,23 @@ pub(super) fn paired_edit(
         return None;
     }
 
+    // VS Code's auto-closing rules: without a selection, a pair closes only
+    // before whitespace, the end of the text, or closing punctuation, and a
+    // quote never pairs right after a word character (`don't`). A selection
+    // is always wrapped.
+    if start == end {
+        let next = source[start_byte..].chars().next();
+        let closes_here =
+            next.is_none_or(|next| next.is_whitespace() || AUTO_CLOSE_BEFORE.contains(next));
+        let after_word = matches!(opening, '"' | '\'')
+            && source[..start_byte]
+                .chars()
+                .next_back()
+                .is_some_and(|previous| previous.is_alphanumeric() || previous == '_');
+        if !closes_here || after_word {
+            return None;
+        }
+    }
     let has_closing_ahead = start == end && source[start_byte..].starts_with(closing);
     let insertion = if has_closing_ahead {
         opening.to_string()

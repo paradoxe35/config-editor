@@ -24,11 +24,15 @@ use bridge::Bridge;
 use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, validate};
 mod completion;
 use completion::{
-    KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
-    key_hover, scroll_completion_into_view, should_accept_with_keyboard, should_auto_trigger,
+    COMPLETION_PAGE_ROWS, KeyHover, accept_reopens_suggestions, apply_completion,
+    completion_popup_style, completions, key_hover, scroll_completion_into_view,
+    should_auto_trigger,
 };
 mod commands;
-use commands::{cycle_offset, indent_lines, indent_unit, line_at_cursor, offset_at};
+use commands::{
+    backspace_indent, cycle_offset, indent_lines, indent_unit, line_at_cursor, offset_at,
+    typed_closer,
+};
 mod line_rows;
 use line_rows::{LineRows, RenderedLine};
 mod metrics;
@@ -268,11 +272,6 @@ pub fn ConfigEditor(
     let active_completion = RwSignal::new(0usize);
     let suggestions_requested = RwSignal::new(false);
     let explicit_request = RwSignal::new(false);
-    // Tracks whether the user explicitly engaged with the open list (arrow
-    // keys, hover, or Ctrl+Space). Enter/Tab accept only in that case; an
-    // auto-triggered list with the highlight still sitting on index 0 must
-    // never hijack Enter — the user asked for a newline, not the top match.
-    let completion_navigated = RwSignal::new(false);
     let hover_card = RwSignal::new(None::<HoverCard>);
     let hover_pending = StoredValue::new(None::<(usize, String)>);
     let hover_token = StoredValue::new(0u64);
@@ -404,7 +403,6 @@ pub fn ConfigEditor(
             );
             active_completion.set(0);
             explicit_request.set(true);
-            completion_navigated.set(true);
             suggestions_requested.set(request_completions);
         }
     };
@@ -437,11 +435,13 @@ pub fn ConfigEditor(
     let use_preset_style = styled;
     let has_schema = schema_bundle.is_some();
     let diff = Memo::new(move |_| {
-        if show_diff {
-            diff_lines(&baseline.get(), &source.get())
-        } else {
-            LineDiff::empty(source.get().split('\n').count())
-        }
+        source.with(|text| {
+            if show_diff {
+                baseline.with(|baseline| diff_lines(baseline, text))
+            } else {
+                LineDiff::empty(text.split('\n').count())
+            }
+        })
     });
     // One reactive snapshot of every rendered line: text plus the flags the
     // row views display. Rows never subscribe to this memo or `diff` directly
@@ -449,46 +449,56 @@ pub fn ConfigEditor(
     // per-row state signals, so a keystroke re-renders only rows whose visible
     // state actually changed, with no document-wide subscription churn.
     let lines = Memo::new(move |_| {
-        let text = source.get();
-        let errors = diagnostics.get();
-        let line_diff = diff.get();
-        text.split('\n')
-            .enumerate()
-            .map(|(index, line)| {
-                let line_number = index + 1;
-                RenderedLine {
-                    text: line.to_string(),
-                    has_error: errors.iter().any(|error| error.line == Some(line_number)),
-                    change: line_diff
-                        .current
-                        .get(index)
-                        .copied()
-                        .unwrap_or(DiffKind::Unchanged),
-                }
+        let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
+            errors
+                .iter()
+                .filter(|error| error.severity == Severity::Error)
+                .filter_map(|error| error.line)
+                .collect()
+        });
+        source.with(|text| {
+            diff.with(|line_diff| {
+                text.split('\n')
+                    .enumerate()
+                    .map(|(index, line)| RenderedLine {
+                        text: line.to_string(),
+                        has_error: error_lines.contains(&(index + 1)),
+                        change: line_diff
+                            .current
+                            .get(index)
+                            .copied()
+                            .unwrap_or(DiffKind::Unchanged),
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>()
+        })
     });
     let rows = LineRows::new();
     let rows_for_sync = rows.clone();
     let rows_for_gutter = rows.clone();
     let rows_for_highlight = rows.clone();
     Effect::new(move |_| {
-        rows_for_sync.sync(&lines.get(), &diff.get(), current_line.get());
+        let line = current_line.get();
+        lines.with(|lines| diff.with(|diff| rows_for_sync.sync(lines, diff, line)));
     });
     // A change preview survives typing elsewhere but dismisses when the edit
     // touches its anchor; see `peek_survives_edit`. Applying changes clears
     // the preview through the baseline, which recomputes the diff.
     Effect::new(move |_| {
-        let line_diff = diff.get();
-        let current: Vec<String> = source.get().split('\n').map(str::to_string).collect();
-        selected_diff_peek.update(|peek| {
-            if peek
-                .as_ref()
-                .is_some_and(|peek| !peek_survives_edit(peek, &current, &line_diff))
-            {
-                *peek = None;
-            }
+        // Subscribes to edits only; the preview itself is read untracked, so
+        // closing it here cannot re-trigger this effect.
+        diff.track();
+        source.track();
+        let survives = selected_diff_peek.with_untracked(|peek| {
+            peek.as_ref().is_none_or(|peek| {
+                let current: Vec<String> =
+                    source.with_untracked(|text| text.split('\n').map(str::to_string).collect());
+                diff.with_untracked(|line_diff| peek_survives_edit(peek, &current, line_diff))
+            })
         });
+        if !survives {
+            selected_diff_peek.set(None);
+        }
     });
 
     view! {
@@ -822,6 +832,11 @@ pub fn ConfigEditor(
                                         .unwrap_or_default();
                                     let auto_trigger = auto_trigger_completions
                                         && should_auto_trigger(&input_type, &before, &value);
+                                    // Backspace with the list open keeps it open and refilters
+                                    // (VS Code); it closes by itself once nothing matches.
+                                    let refilter = input_type == "deleteContentBackward"
+                                        && suggestions_requested.get_untracked()
+                                        && !suggestions.with_untracked(Vec::is_empty);
                                     if before != value {
                                         history.update(|history| {
                                             history.record_input(
@@ -845,9 +860,10 @@ pub fn ConfigEditor(
                                         on_change.run(source.get_untracked());
                                     }
                                     active_completion.set(0);
-                                    explicit_request.set(false);
-                                    completion_navigated.set(false);
-                                    suggestions_requested.set(auto_trigger);
+                                    if !refilter {
+                                        explicit_request.set(false);
+                                    }
+                                    suggestions_requested.set(auto_trigger || refilter);
                                     hide_hover();
                                 }
                                 on:mousemove=move |event: web_sys::MouseEvent| {
@@ -1011,7 +1027,6 @@ pub fn ConfigEditor(
                                         event.prevent_default();
                                         active_completion.set(0);
                                         explicit_request.set(true);
-                                        completion_navigated.set(true);
                                         suggestions_requested.set(true);
                                         return;
                                     }
@@ -1199,12 +1214,66 @@ pub fn ConfigEditor(
                                                 return;
                                             }
                                     }
+                                    // Indentation-aware keys (VS Code): Backspace in leading
+                                    // indentation removes one unit, and a closer typed on a
+                                    // blank line lines up with its opener.
+                                    if !event.ctrl_key()
+                                        && !event.meta_key()
+                                        && !event.alt_key()
+                                        && let Some(element) = event
+                                            .target()
+                                            .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                        let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                        let key = event.key();
+                                        let text = source.get_untracked();
+                                        let edit = match key.as_str() {
+                                            _ if start != end => None,
+                                            "Backspace" => backspace_indent(&text, start),
+                                            "}" => typed_closer(&text, start, '}'),
+                                            "]" => typed_closer(&text, start, ']'),
+                                            _ => None,
+                                        };
+                                        if let Some((updated, new_cursor)) = edit {
+                                            event.prevent_default();
+                                            commit_edit(
+                                                updated,
+                                                new_cursor,
+                                                None,
+                                                text,
+                                                start,
+                                                source,
+                                                cursor,
+                                                current_line,
+                                                history,
+                                                on_change,
+                                                Some(element),
+                                                scroll_y,
+                                                false,
+                                            );
+                                            return;
+                                        }
+                                    }
                                     match event.key().as_str() {
+                                        "PageDown" | "PageUp" if !options.is_empty() => {
+                                            event.prevent_default();
+                                            let current = active_completion.get_untracked();
+                                            let last = options.len() - 1;
+                                            let next = if event.key() == "PageDown" {
+                                                (current + COMPLETION_PAGE_ROWS).min(last)
+                                            } else {
+                                                current.saturating_sub(COMPLETION_PAGE_ROWS)
+                                            };
+                                            active_completion.set(next);
+                                            if let Some(list) = completion_ref.get() {
+                                                scroll_completion_into_view(&list, next);
+                                            }
+                                        }
                                         "ArrowDown" if !options.is_empty() => {
                                             event.prevent_default();
                                             let next = (active_completion.get_untracked() + 1) % options.len();
                                             active_completion.set(next);
-                                            completion_navigated.set(true);
                                             if let Some(list) = completion_ref.get() {
                                                 scroll_completion_into_view(&list, next);
                                             }
@@ -1216,7 +1285,6 @@ pub fn ConfigEditor(
                                                 .checked_sub(1)
                                                 .unwrap_or(options.len() - 1);
                                             active_completion.set(next);
-                                            completion_navigated.set(true);
                                             if let Some(list) = completion_ref.get() {
                                                 scroll_completion_into_view(&list, next);
                                             }
@@ -1228,18 +1296,9 @@ pub fn ConfigEditor(
                                             event.prevent_default();
                                             apply_selected();
                                         }
-                                        // Tab accepts only after explicit engagement (arrow
-                                        // keys, hover, Ctrl+Space, or a previous accept). An
-                                        // auto-triggered list must not swallow Tab, which
-                                        // indents, as in VS Code.
-                                        "Tab"
-                                            if !options.is_empty()
-                                                && !event.shift_key()
-                                                && should_accept_with_keyboard(
-                                                    explicit_request.get_untracked(),
-                                                    completion_navigated.get_untracked(),
-                                                ) =>
-                                        {
+                                        // Tab accepts the highlighted suggestion too, as in
+                                        // VS Code; with no list open it indents.
+                                        "Tab" if !options.is_empty() && !event.shift_key() => {
                                             event.prevent_default();
                                             apply_selected();
                                         }
@@ -1391,7 +1450,13 @@ pub fn ConfigEditor(
                                     popup_layout_revision.get();
                                     scroll_x.get();
                                     scroll_y.get();
-                                    let option_count = suggestions.get().len();
+                                    // Hidden popups need no layout: returning before
+                                    // reading the source and caret also keeps typing
+                                    // from forcing a synchronous layout.
+                                    let option_count = suggestions.with(Vec::len);
+                                    if option_count == 0 {
+                                        return "visibility:hidden".to_string();
+                                    }
                                     editor_ref
                                         .get()
                                         .map(|editor| {
@@ -1419,7 +1484,6 @@ pub fn ConfigEditor(
                                             on:mousedown=move |event| event.prevent_default()
                                             on:mouseenter=move |_| {
                                                 active_completion.set(index);
-                                                completion_navigated.set(true);
                                             }
                                             on:click=move |_| {
                                                 let (updated, new_cursor) = apply_completion(&source.get_untracked(), &apply);
@@ -1442,7 +1506,6 @@ pub fn ConfigEditor(
                                                 );
                                                 active_completion.set(0);
                                                 explicit_request.set(true);
-                                                completion_navigated.set(true);
                                                 suggestions_requested.set(request_completions);
                                             }
                                         >

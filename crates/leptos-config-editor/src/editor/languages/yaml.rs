@@ -1373,9 +1373,30 @@ mod tests {
 
     #[test]
     fn paired_brackets_leave_the_cursor_between_the_pair() {
-        let (updated, selection_start, selection_end) = paired_edit("ab", 1, 1, '[').unwrap();
-        assert_eq!(updated, "a[]b");
+        let (updated, selection_start, selection_end) = paired_edit("a b", 1, 1, '[').unwrap();
+        assert_eq!(updated, "a[] b");
         assert_eq!((selection_start, selection_end), (2, 2));
+        let (updated, _, _) = paired_edit("key: ", 5, 5, '{').unwrap();
+        assert_eq!(updated, "key: {}");
+    }
+
+    #[test]
+    fn a_pair_does_not_auto_close_before_a_word_character() {
+        // VS Code's autoCloseBefore rule: `|foo` + `[` types a lone bracket.
+        assert_eq!(paired_edit("ab", 1, 1, '['), None);
+        assert_eq!(paired_edit("foo", 0, 0, '"'), None);
+        // Before closing punctuation it still pairs.
+        let (updated, _, _) = paired_edit("[]", 1, 1, '"').unwrap();
+        assert_eq!(updated, "[\"\"]");
+    }
+
+    #[test]
+    fn a_quote_after_a_word_character_does_not_pair() {
+        // `don|` + `'` is an apostrophe, not a string.
+        assert_eq!(paired_edit("msg: don", 8, 8, '\''), None);
+        assert_eq!(paired_edit("name_", 5, 5, '"'), None);
+        let (updated, _, _) = paired_edit("msg: ", 5, 5, '\'').unwrap();
+        assert_eq!(updated, "msg: ''");
     }
 
     #[test]

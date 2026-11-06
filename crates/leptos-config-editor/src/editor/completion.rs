@@ -644,13 +644,9 @@ pub(super) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: 
     auto_trigger && !completion.is_value
 }
 
-/// Whether Tab accepts the highlighted completion instead of indenting. Accept
-/// only after explicit engagement: a `Ctrl+Space` (or accept-chained) request,
-/// or navigation via arrow keys/hover. An auto-triggered list must not hijack
-/// Tab, which indents as in VS Code. Enter accepts whenever a list is open.
-pub(super) fn should_accept_with_keyboard(explicit_request: bool, navigated: bool) -> bool {
-    explicit_request || navigated
-}
+/// Rows PageUp/PageDown move the highlight in the suggestion list: about one
+/// visible page of the popup (`COMPLETION_POPUP_MAX_HEIGHT / COMPLETION_ROW_HEIGHT`).
+pub(super) const COMPLETION_PAGE_ROWS: usize = 7;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct KeyHover {

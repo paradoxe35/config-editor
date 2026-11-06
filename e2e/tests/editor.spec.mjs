@@ -56,18 +56,14 @@ test.describe('accepting keys and values', () => {
     expect(await e.isOpen()).toBe(true);
   });
 
-  test('Tab with an auto-triggered list indents instead of accepting', async ({ page }) => {
+  test('Tab accepts the highlighted suggestion of an auto-triggered list', async ({ page }) => {
+    // VS Code: Tab and Enter both accept; Tab indents only with no list open.
     const e = editor(page);
-    await e.paste('listen: 7835\n');
-    await e.input.evaluate((element) => {
-      element.focus();
-      element.setSelectionRange(element.value.length, element.value.length);
-    });
-    await page.keyboard.type('l');
-    await expect.poll(() => e.isOpen()).toBe(true);
+    await e.typeDoc('');
+    await page.keyboard.type('public_add');
+    await expect.poll(() => e.keys()).toContain('public_address');
     await page.keyboard.press('Tab');
-    await expect(e.input).toHaveValue('listen: 7835\nl  ');
-    expect(await e.isOpen()).toBe(false);
+    await expect(e.input).toHaveValue('public_address: ');
   });
 
   test('a bare colon gets a separating space before the example value', async ({ page }) => {

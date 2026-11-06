@@ -167,19 +167,6 @@ fn match_ranges_cover_the_typed_characters_for_every_tier() {
 }
 
 #[test]
-fn keyboard_accepts_completions_only_after_explicit_engagement() {
-    // Auto-triggered list, highlight untouched: Tab must NOT accept (it
-    // indents). Enter accepts whenever a list is open, so it does not use
-    // this gate.
-    assert!(!should_accept_with_keyboard(false, false));
-    // Ctrl+Space (or an accept-chained value list): Enter accepts.
-    assert!(should_accept_with_keyboard(true, false));
-    // Arrow keys or hover moved the highlight: Enter/Tab accept.
-    assert!(should_accept_with_keyboard(false, true));
-    assert!(should_accept_with_keyboard(true, true));
-}
-
-#[test]
 fn auto_trigger_only_fires_for_genuine_insertions() {
     assert!(should_auto_trigger("insertText", "", "n"));
     assert!(should_auto_trigger("insertText", "na", "nam"));

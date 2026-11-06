@@ -148,17 +148,17 @@ test.describe('accepting keys and values', () => {
     expect(await e.isOpen()).toBe(true);
   });
 
-  test('Tab with an auto-triggered list indents instead of accepting', async ({ page }) => {
+  test('Tab accepts the highlighted suggestion of an auto-triggered list', async ({ page }) => {
     const e = editor(page);
-    await e.paste('{\n  "listen": 7835\n}');
+    await e.paste('{\n  \n}');
     await e.input.evaluate((element) => {
       element.focus();
-      element.setSelectionRange(element.value.length - 2, element.value.length - 2);
+      element.setSelectionRange(4, 4);
     });
-    await page.keyboard.type('"l');
-    await expect.poll(() => e.isOpen()).toBe(true);
+    await page.keyboard.type('"public_add');
+    await expect.poll(() => e.keys()).toContain('public_address');
     await page.keyboard.press('Tab');
-    expect(await e.isOpen()).toBe(false);
+    await expect(e.input).toHaveValue('{\n  "public_address": \n}');
   });
 
   test('a value list opened after the colon offers values, and Escape closes it', async ({ page }) => {
