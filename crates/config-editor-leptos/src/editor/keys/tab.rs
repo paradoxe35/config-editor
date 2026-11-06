@@ -6,7 +6,7 @@ use web_sys::KeyboardEvent;
 use super::super::commands::{indent_lines, line_range, tab_insert};
 use super::super::completion::next_slot;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::state::{Edit, EditorState, is_backward, select, textarea_selection};
 
 pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -19,7 +19,13 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if event.shift_key() || spans_lines(&text, start, end) {
-        indent_block(state, text, (start, end), event.shift_key());
+        indent_block(
+            state,
+            text,
+            (start, end),
+            event.shift_key(),
+            is_backward(&element),
+        );
         return;
     }
     // A selection within one line is replaced, as typing would.
@@ -75,7 +81,13 @@ fn spans_lines(text: &str, start: usize, end: usize) -> bool {
 
 /// Indents (or with Shift outdents) the selected lines, keeping them
 /// selected.
-fn indent_block(state: EditorState, text: String, (start, end): (usize, usize), outdent: bool) {
+fn indent_block(
+    state: EditorState,
+    text: String,
+    (start, end): (usize, usize),
+    outdent: bool,
+    backward: bool,
+) {
     let Some((updated, selection_start, selection_end)) = indent_lines(&text, start, end, outdent)
     else {
         return;
@@ -87,9 +99,9 @@ fn indent_block(state: EditorState, text: String, (start, end): (usize, usize), 
     } else {
         state.note_caret(selection_end);
     }
-    // Keep the block selected.
+    // Keep the block selected, in the same direction.
     if let Some(element) = state.textarea() {
-        let _ = element.set_selection_range(selection_start as u32, selection_end as u32);
+        select(&element, selection_start, selection_end, backward);
     }
     state.close_suggestions();
 }

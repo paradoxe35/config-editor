@@ -654,6 +654,23 @@ pub(super) fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Sele
     (start, end)
 }
 
+/// Selects `start..end`, keeping the caret at the start when `backward`
+/// (as a selection made with Shift+Left), so Shift+arrows extend the same end.
+pub(super) fn select(
+    element: &web_sys::HtmlTextAreaElement,
+    start: usize,
+    end: usize,
+    backward: bool,
+) {
+    let direction = if backward { "backward" } else { "forward" };
+    let _ = element.set_selection_range_with_direction(start as u32, end as u32, direction);
+}
+
+/// Whether the selection's caret is at its start.
+pub(super) fn is_backward(element: &web_sys::HtmlTextAreaElement) -> bool {
+    element.selection_direction().ok().flatten().as_deref() == Some("backward")
+}
+
 /// The selection as (anchor, caret): the caret is the end that moves.
 pub(super) fn directed_selection(element: &web_sys::HtmlTextAreaElement) -> (usize, usize) {
     let (start, end) = textarea_selection(element);

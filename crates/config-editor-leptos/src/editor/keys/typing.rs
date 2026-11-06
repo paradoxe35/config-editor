@@ -8,7 +8,7 @@ use super::super::commands::{backspace_indent, typed_closer};
 use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
 };
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::state::{Edit, EditorState, is_backward, select, textarea_selection};
 use super::{typed_character, unmodified};
 
 /// Ctrl+/ comments or uncomments the selected lines.
@@ -24,6 +24,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
         return true;
     };
     let (start, end) = textarea_selection(&element);
+    let backward = is_backward(&element);
     let before = state.source.get_untracked();
     let Some((updated, selection_start, selection_end)) =
         state.behavior().toggle_comments(&before, start, end)
@@ -37,7 +38,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     } else {
         state.note_caret(selection_end);
     }
-    let _ = element.set_selection_range(selection_start as u32, selection_end as u32);
+    select(&element, selection_start, selection_end, backward);
     state.close_suggestions();
     true
 }

@@ -1241,3 +1241,34 @@ fn xml_refuses_empty_element_names() {
             .is_err()
     );
 }
+
+#[test]
+fn hover_works_inside_an_object_missing_a_required_key() {
+    // `letsencrypt` requires `email`; its other keys still show their docs.
+    let json = "{\"web\": {\"letsencrypt\": {\"dns\": []}}}";
+    let column = json.find("dns").unwrap() + 1;
+    assert_eq!(
+        hover_key_at(Language::JSON, json, 0, column).as_deref(),
+        Some("dns")
+    );
+    let yaml = "web:\n  letsencrypt:\n    dns: []\n";
+    assert_eq!(
+        hover_key_at(Language::YAML, yaml, 2, 5).as_deref(),
+        Some("dns")
+    );
+    let hcl = "web {\n  letsencrypt {\n    dns = []\n  }\n}\n";
+    assert_eq!(
+        hover_key_at(Language::HCL, hcl, 2, 5).as_deref(),
+        Some("dns")
+    );
+    let toml = "[web.letsencrypt]\ndns = []\n";
+    assert_eq!(
+        hover_key_at(Language::TOML, toml, 1, 1).as_deref(),
+        Some("dns")
+    );
+    let xml = "<web>\n  <letsencrypt>\n    <dns></dns>\n  </letsencrypt>\n</web>\n";
+    assert_eq!(
+        hover_key_at(Language::XML, xml, 2, 6).as_deref(),
+        Some("dns")
+    );
+}

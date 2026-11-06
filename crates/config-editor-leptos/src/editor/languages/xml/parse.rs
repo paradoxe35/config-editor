@@ -35,6 +35,10 @@ pub(super) struct TopLevel {
     pub(super) config_root: bool,
 }
 
+/// Deepest element nesting read, as JSON's parser limits it: deeper documents
+/// are an error, not a stack overflow further on.
+const MAX_NESTING: usize = 128;
+
 /// Builds the document model from `quick-xml` events, reporting structural
 /// errors at the offending markup.
 pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
@@ -73,6 +77,13 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
             Event::Eof => break,
             Event::Start(element) => {
                 flush_text(&mut pending_text, &mut stack);
+                if stack.len() >= MAX_NESTING {
+                    return Err(syntax_error(
+                        source,
+                        event_start,
+                        format!("elements nest deeper than {MAX_NESTING} levels"),
+                    ));
+                }
                 let top_level = stack.is_empty();
                 stack.push(open_element(source, &element, event_start, top_level)?);
             }
