@@ -86,7 +86,7 @@ test.describe('switching languages', () => {
 
   test('the language picker reloads the same large config in another language', async ({ page }) => {
     for (const language of ['json', 'toml', 'hcl', 'xml', 'yaml']) {
-      await page.locator('.config-editor__demo-language-select').selectOption(language);
+      await page.locator('.demo__language-select').selectOption(language);
       await page.waitForURL((url) => url.search.includes(`language=${language}`));
       await page.locator('.config-editor__input').waitFor();
       expect(page.url()).toContain('sample=large');
@@ -96,7 +96,7 @@ test.describe('switching languages', () => {
   });
 
   test('the sample picker switches between the short and the large config', async ({ page }) => {
-    await page.locator('.config-editor__demo-sample-select').selectOption('small');
+    await page.locator('.demo__sample-select').selectOption('small');
     await page.waitForURL((url) => url.search.includes('sample=small'));
     await page.locator('.config-editor__input').waitFor();
     expect((await editor(page).value()).split('\n').length).toBeLessThan(20);

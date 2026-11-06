@@ -2,8 +2,16 @@
 name = "leptos-config-editor"
 version = "0.1.0"
 edition = "2024"
-description = "A reusable Leptos config editor with JSON Schema diagnostics and completions"
+description = "A lightweight VS Code-style Leptos editor for YAML, JSON, TOML, HCL, and XML configs, with JSON Schema completion, diagnostics, and conversion"
 license = "MIT OR Apache-2.0"
+rust-version = "1.88"
+readme = "README.md"
+keywords = ["leptos", "editor", "yaml", "json-schema", "config"]
+categories = ["gui", "web-programming", "config", "text-editors", "wasm"]
+include = ["src/**/*", "tests/**/*", "README.md", "Cargo.toml"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["schema-validation"]

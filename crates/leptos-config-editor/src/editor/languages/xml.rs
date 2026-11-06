@@ -48,6 +48,15 @@ use std::collections::{HashMap, HashSet};
 /// XML implementation of the shared text-layer trait.
 pub(super) struct XmlBehavior;
 
+/// This language's registry entry (see `languages/mod.rs`).
+pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
+    label: "XML",
+    icon: "X",
+    extensions: &["xml"],
+    behavior: &XmlBehavior,
+    codec: &XmlBehavior,
+};
+
 impl LanguageBehavior for XmlBehavior {
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         xml_parse(source)

@@ -92,26 +92,6 @@
 .config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
 .config-editor__schema-state { color: var(--config-editor-raised-muted); }
 .config-editor__schema-check { color: var(--config-editor-added); }
-.config-editor__demo-picker {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--config-editor-muted);
-  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
-}
-.config-editor__demo-select {
-  max-width: 190px;
-  padding: 4px 7px;
-  border: 1px solid var(--config-editor-border);
-  border-radius: 4px;
-  background: var(--config-editor-panel);
-  color: var(--config-editor-text);
-  font: inherit;
-}
-.config-editor__demo-select:focus-visible {
-  outline: 2px solid var(--config-editor-accent);
-  outline-offset: 1px;
-}
 .config-editor__language {
   padding-left: 12px;
   border-left: 1px solid var(--config-editor-border);
@@ -430,6 +410,11 @@
   cursor: help;
 }
 
+/* Warnings (for example a value a converted document's host language cannot
+   keep exactly) use VS Code's warning yellow unless a theme sets the token. */
+.config-editor__diagnostic-marker-warning {
+  text-decoration-color: var(--config-editor-warning, #cca700);
+}
 .config-editor__diagnostic-marker:focus-visible {
   outline: 1px solid #75beff;
   outline-offset: 1px;
@@ -973,8 +958,4 @@
   .config-editor__gutter { width: 40px; padding-right: 10px; }
   .config-editor__schema-state { font-size: 0; }
   .config-editor__status-meta { gap: 5px; }
-  .config-editor__demo-toolbar { gap: 8px; padding: 0 8px; }
-  .config-editor__demo-toolbar .config-editor__file > span:not(.config-editor__file-icon) { display: none; }
-  .config-editor__demo-picker { gap: 0; font-size: 0; }
-  .config-editor__demo-select { max-width: 112px; font-size: 11px; }
 }

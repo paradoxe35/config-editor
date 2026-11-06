@@ -35,10 +35,28 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
 /// whole document (such as an invalid schema) have no position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// One-based line.
     pub line: Option<usize>,
+    /// One-based character column where the marker starts.
     pub column: Option<usize>,
+    /// One-based character column just past the marker.
     pub end_column: Option<usize>,
+    /// What is wrong; schema problems start with the value's JSON pointer.
     pub message: String,
+    /// Error or warning.
+    pub severity: Severity,
+}
+
+/// How serious a [`Diagnostic`] is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Severity {
+    /// The document is invalid: a syntax error or a schema violation.
+    #[default]
+    Error,
+    /// The document is valid but something deserves attention, such as a
+    /// value the host language of a converted document cannot keep exactly.
+    Warning,
 }
 
 /// A JSON Schema that failed to compile.
@@ -69,6 +87,59 @@ impl std::error::Error for SchemaError {}
 #[derive(Clone)]
 pub struct Schema {
     pub(super) bundle: std::sync::Arc<SchemaBundle>,
+}
+
+impl std::fmt::Debug for Schema {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let title = self.bundle.schema.get("title").and_then(Value::as_str);
+        formatter
+            .debug_struct("Schema")
+            .field("title", &title)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
+/// document (compiled by the editor, which shows a compile error inline) or a
+/// [`Schema`] compiled once and shared between editors.
+///
+/// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
+/// `schema=compiled.clone()` both work.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum SchemaSource {
+    /// A JSON Schema document, compiled when the editor mounts.
+    Json(String),
+    /// An already compiled schema.
+    Compiled(Schema),
+}
+
+impl From<&str> for SchemaSource {
+    fn from(json: &str) -> Self {
+        SchemaSource::Json(json.to_string())
+    }
+}
+
+impl From<String> for SchemaSource {
+    fn from(json: String) -> Self {
+        SchemaSource::Json(json)
+    }
+}
+
+impl From<Schema> for SchemaSource {
+    fn from(schema: Schema) -> Self {
+        SchemaSource::Compiled(schema)
+    }
+}
+
+impl SchemaSource {
+    /// The compiled schema, or the compile error to show.
+    pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
+        match self {
+            SchemaSource::Json(json) => build_schema(&json).map(std::sync::Arc::new),
+            SchemaSource::Compiled(schema) => Ok(schema.bundle),
+        }
+    }
 }
 
 impl Schema {
@@ -118,6 +189,7 @@ pub(super) fn validate(
                 column: error.column,
                 end_column: error.column.map(|column| column + 1),
                 message: error.message,
+                severity: Severity::Error,
             }];
         }
     };
@@ -128,6 +200,7 @@ pub(super) fn validate(
             column: None,
             end_column: None,
             message: error.to_string(),
+            severity: Severity::Error,
         }];
     }
 
@@ -161,6 +234,7 @@ pub(super) fn validate(
                     } else {
                         format!("{path}: {message}")
                     },
+                    severity: Severity::Error,
                 }
             })
             .collect();

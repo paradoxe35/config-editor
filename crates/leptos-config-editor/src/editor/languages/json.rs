@@ -24,6 +24,15 @@ use std::collections::HashSet;
 /// JSON implementation of the shared text-layer trait.
 pub(super) struct JsonBehavior;
 
+/// This language's registry entry (see `languages/mod.rs`).
+pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
+    label: "JSON",
+    icon: "J",
+    extensions: &["json"],
+    behavior: &JsonBehavior,
+    codec: &JsonBehavior,
+};
+
 impl LanguageBehavior for JsonBehavior {
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         json_parse(source)

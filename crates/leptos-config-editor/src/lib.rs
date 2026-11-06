@@ -1,37 +1,65 @@
-//! A reusable config editor component for Leptos applications (YAML today,
-//! JSON next; TOML/INI pluggable later).
+//! A lightweight, VS Code–style config editor component for Leptos, plus a
+//! headless API for the same parsing, validation, and conversion.
 //!
-//! The editor is an input component, not a page or application shell. Its
-//! toolbar and footer are omitted by default and can be composed with the
-//! exported [`ConfigEditorToolbar`] and [`ConfigEditorFooter`] components.
-//! Diagnostics, completions, highlighting, and preset styling can be enabled
-//! independently. The optional JSON Schema string enables validation and
-//! schema-aware suggestions. Suggestions appear while typing by default; set
-//! `auto_trigger_completions=false` to require `Ctrl+Space`. Set
-//! `read_only=true` for a view mode that keeps highlighting, diagnostics,
-//! diffs, and hover docs while disabling all edits.
+//! Languages: YAML (default), JSON, TOML, HCL, and XML. They all parse into
+//! one data model (a [`serde_json::Value`]), so a single JSON Schema drives
+//! diagnostics, completions, and hover docs for every language, and a
+//! document converts between any two of them.
+//!
+//! # The component
 //!
 //! ```ignore
+//! use leptos::prelude::*;
 //! use leptos_config_editor::{ConfigEditor, Language};
 //!
+//! let saved = RwSignal::new("name: app\n".to_string());
 //! view! {
 //!     <ConfigEditor
 //!         language=Language::Yaml
-//!         initial_value="name: app\n".to_string()
-//!         schema_json=r#"{"type":"object","properties":{"name":{"type":"string"}}}"#.to_string()
-//!         class="settings-editor"
+//!         value=saved
+//!         on_change=move |text| saved.set(text)
+//!         schema=include_str!("schema.json")
 //!     />
 //! }
 //! ```
 //!
-//! Set `styled=false` to use the semantic editor markup without preset styles,
-//! then provide your own CSS. The preset stylesheet is also available as
-//! [`PRESET_CSS`].
+//! - `value`/`on_change` keep the host as the source of truth; `baseline`
+//!   adds a diff gutter; `read_only` gives a view mode.
+//! - `edit_as` edits a document in another language than the host stores it
+//!   in: `language=Language::Xml edit_as=Language::Hcl` shows HCL and sends
+//!   XML back through `on_change`.
+//! - The toolbar and footer are opt-in; compose your own chrome with
+//!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
+//!   [`EditorTheme`], or set `styled=false` and style the semantic
+//!   `config-editor__*` markup yourself ([`PRESET_CSS`] is the preset).
+//!
+//! # Headless use
+//!
+//! ```
+//! # #[cfg(feature = "schema-validation")] {
+//! use leptos_config_editor::{Language, Schema};
+//!
+//! let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
+//! assert!(schema.validate(Language::Toml, "listen = 7835\n").is_empty());
+//!
+//! let hcl = Language::Yaml.convert("listen: 7835\n", Language::Hcl).unwrap();
+//! assert_eq!(hcl.text, "listen = 7835\n");
+//! # }
+//! ```
+//!
+//! # Features
+//!
+//! - `schema-validation` (default): JSON Schema diagnostics, completions, and
+//!   hover docs, through the `jsonschema` crate. Without it the editor still
+//!   checks syntax and converts.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs, rust_2018_idioms)]
 
 mod editor;
 
 pub use editor::{
-    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Diagnostic, EditorTheme, Language,
-    PRESET_CSS, ParseError, Schema, SchemaError, check_syntax,
+    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
+    EditorTheme, Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource, Severity,
+    UnknownLanguage, UnknownTheme, check_syntax,
 };
-pub use editor::{Conversion, ConvertError};

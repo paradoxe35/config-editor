@@ -1,18 +1,18 @@
 use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
-use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
+mod bridge;
 mod chrome;
 mod codec;
 mod language;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;
 pub use codec::{Conversion, ConvertError};
-pub use diagnostics::{Diagnostic, Schema, SchemaError, check_syntax};
+pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, check_syntax};
 pub use language::ParseError;
-pub use languages::Language;
+pub use languages::{Language, UnknownLanguage};
 mod theme;
-pub use theme::EditorTheme;
+pub use theme::{EditorTheme, UnknownTheme};
 mod history;
 use history::EditHistory;
 mod diff;
@@ -20,7 +20,8 @@ use diff::{DiffKind, DiffPeek, LineDiff, diff_lines, peek_popup_style, peek_surv
 mod keyboard;
 use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
 mod diagnostics;
-use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, build_schema, validate};
+use bridge::Bridge;
+use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, validate};
 mod completion;
 use completion::{
     KeyHover, accept_reopens_suggestions, apply_completion, completion_popup_style, completions,
@@ -51,6 +52,8 @@ struct HoverCard {
     style: String,
 }
 
+/// The preset stylesheet (layout plus every bundled theme). The editor injects
+/// it unless `styled=false`; hosts can serve it themselves instead.
 pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
 
 /// Single funnel for programmatic edits: record undo, sync the textarea,
@@ -98,8 +101,17 @@ pub fn ConfigEditor(
     /// Document language. Selects the text layer (parsing, completion
     /// context, inserts, hover lookup, highlighting, newline/indent,
     /// comments); everything else stays shared. Defaults to YAML.
-    #[prop(default = Language::Yaml, into)]
+    #[prop(default = Language::default(), into)]
     language: Language,
+    /// Edit the document in another language than the host keeps it in.
+    /// `initial_value`, `value`, `baseline`, and `on_change` stay in
+    /// `language`; the user sees and edits `edit_as`. Edits convert back after
+    /// each pause in typing (invalid text is never sent), and values
+    /// `language` cannot carry exactly are flagged as warnings.
+    /// Accepts a `Language` or an `Option<Language>` (`None` edits as
+    /// `language`).
+    #[prop(default = None, into)]
+    edit_as: Option<Language>,
     /// Seeds the editor and its diff baseline. Not a controlled value prop:
     /// for externally controlled content and live diffs, provide reactive
     /// `value` and `baseline` signals instead.
@@ -114,10 +126,11 @@ pub fn ConfigEditor(
     /// example after applying changes) clears the diff decorations.
     #[prop(optional, into)]
     baseline: Option<Signal<String>>,
-    /// Optional JSON Schema string. Enables live schema diagnostics and
-    /// schema-aware completions and hover documentation.
+    /// JSON Schema for live diagnostics, completions, and hover docs: a JSON
+    /// string (`schema=include_str!("schema.json")`) or a shared, precompiled
+    /// [`Schema`]. One schema serves every language.
     #[prop(optional, into)]
-    schema_json: Option<String>,
+    schema: Option<SchemaSource>,
     /// Name shown when the built-in toolbar is enabled.
     #[prop(optional, into)]
     file_name: Option<String>,
@@ -128,8 +141,9 @@ pub fn ConfigEditor(
     /// can switch themes without recreating the editor.
     #[prop(default = EditorTheme::VsCodeDark.into(), into)]
     theme: Signal<EditorTheme>,
-    /// Callback with the updated document after every edit.
-    #[prop(optional)]
+    /// Called with the updated document after every edit (in `language`).
+    /// Accepts a closure: `on_change=move |text| saved.set(text)`.
+    #[prop(optional, into)]
     on_change: Option<Callback<String>>,
     /// Include the preset editor stylesheet. Set `false` with a custom
     /// `class` to style the semantic `config-editor__*` markup yourself.
@@ -171,32 +185,81 @@ pub fn ConfigEditor(
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
 ) -> impl IntoView {
+    let host_language = language;
+    let language = edit_as.unwrap_or(language);
+    let bridge = Bridge::new(host_language, language);
+    // With a bridge, edits reach the host through the conversion effect
+    // below instead of directly.
+    let host_on_change = on_change;
+    let on_change = if bridge.is_some() {
+        None
+    } else {
+        host_on_change
+    };
     let label = language.label();
     let file_icon = language.file_icon();
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
-    let (schema_bundle, schema_error) = match schema_json {
-        Some(schema_json) => match build_schema(&schema_json) {
-            Ok(schema) => (Some(Arc::new(schema)), None),
-            Err(error) => (None, Some(error)),
-        },
+    let (schema_bundle, schema_error) = match schema.map(SchemaSource::resolve) {
+        Some(Ok(schema)) => (Some(schema), None),
+        Some(Err(error)) => (None, Some(error)),
         None => (None, None),
     };
     let enable_completions =
         enable_completions && !read_only.get_untracked() && cfg!(feature = "schema-validation");
     let behavior = language.behavior();
-    let source = RwSignal::new(
+    // The host's text, its last known value (received or sent), and the
+    // edited text that corresponds to it. Without a bridge they coincide.
+    let host_text = StoredValue::new(
         value
             .as_ref()
             .map(Signal::get_untracked)
-            .unwrap_or_else(|| initial_value.clone()),
+            .map_or_else(|| initial_value.clone(), normalize_newlines),
     );
+    let load_problems = RwSignal::new(Vec::<Diagnostic>::new());
+    let shown = move |host: &str| -> String {
+        let Some(bridge) = bridge else {
+            return host.to_string();
+        };
+        match bridge.to_edit(host) {
+            Ok(conversion) => {
+                load_problems.set(Vec::new());
+                conversion.text
+            }
+            Err(error) => {
+                load_problems.set(vec![bridge.load_problem(&error)]);
+                host.to_string()
+            }
+        }
+    };
+    let synced_edit = StoredValue::new(shown(&host_text.get_value()));
+    let source = RwSignal::new(synced_edit.get_value());
     let baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
+    let baseline = match bridge {
+        Some(bridge) => {
+            let shown_baseline = Memo::new(move |_| {
+                let host = normalize_newlines(baseline.get());
+                bridge
+                    .to_edit(&host)
+                    .map_or(host, |conversion| conversion.text)
+            });
+            Signal::derive(move || shown_baseline.get())
+        }
+        None => baseline,
+    };
     let selected_diff_peek = RwSignal::new(None::<DiffPeek>);
     if let Some(value) = value {
         Effect::new(move |_| {
             let external_value = normalize_newlines(value.get());
-            if source.get_untracked() != external_value {
-                source.set(external_value);
+            // The host echoing what the editor just sent changes nothing:
+            // reconverting would reformat the text under the caret.
+            if external_value == host_text.get_value() {
+                return;
+            }
+            host_text.set_value(external_value.clone());
+            let edit = shown(&external_value);
+            synced_edit.set_value(edit.clone());
+            if source.get_untracked() != edit {
+                source.set(edit);
             }
         });
     }
@@ -263,14 +326,42 @@ pub fn ConfigEditor(
             diagnosed_text.set(text);
         }
     });
+    // Converted editing: after each pause, send the edited text to the host
+    // in its own language. Invalid or unconvertible text is not sent.
+    let conversion_problems = RwSignal::new(Vec::<Diagnostic>::new());
+    if let Some(bridge) = bridge {
+        Effect::new(move |_| {
+            let text = diagnosed_text.get();
+            if text == synced_edit.get_value() {
+                conversion_problems.set(Vec::new());
+                return;
+            }
+            let result = bridge.to_host(&text, &host_text.get_value());
+            conversion_problems.set(bridge.problems(&text, &result));
+            if let Ok(conversion) = result {
+                synced_edit.set_value(text);
+                if conversion.text != host_text.get_value() {
+                    host_text.set_value(conversion.text.clone());
+                    if let Some(on_change) = host_on_change {
+                        on_change.run(conversion.text);
+                    }
+                }
+            }
+        });
+    }
     let diagnostics = Memo::new(move |_| {
-        validate(
+        let mut found = validate(
             &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
             schema_error_for_diagnostics.as_deref(),
             show_diagnostics,
             behavior,
-        )
+        );
+        if show_diagnostics {
+            found.extend(load_problems.get());
+            found.extend(conversion_problems.get());
+        }
+        found
     });
     let schema_for_completions = schema_bundle.clone();
     let schema_for_hover = schema_bundle.clone();
@@ -657,10 +748,15 @@ pub fn ConfigEditor(
                                             <button
                                                 type="button"
                                                 class="config-editor__diagnostic-marker"
+                                                class:config-editor__diagnostic-marker-warning=diagnostic.severity == Severity::Warning
                                                 class:config-editor__diagnostic-marker-eof=is_eof
                                                 class:config-editor__diagnostic-marker-near-top=line <= 3
                                                 tabindex="-1"
-                                                aria-label=format!("{label} error on line {line}: {}", diagnostic.message)
+                                                aria-label=format!(
+                                                    "{label} {} on line {line}: {}",
+                                                    if diagnostic.severity == Severity::Warning { "warning" } else { "error" },
+                                                    diagnostic.message
+                                                )
                                                 data-message=diagnostic.message
                                                 style=format!(
                                                     "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch; --config-editor-diagnostic-tooltip-offset: -{}ch;",

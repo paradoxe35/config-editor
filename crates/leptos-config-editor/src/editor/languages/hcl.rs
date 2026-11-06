@@ -35,6 +35,15 @@ use std::collections::{HashMap, HashSet};
 /// HCL implementation of the shared text-layer trait.
 pub(super) struct HclBehavior;
 
+/// This language's registry entry (see `languages/mod.rs`).
+pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
+    label: "HCL",
+    icon: "H",
+    extensions: &["hcl", "tf", "tfvars"],
+    behavior: &HclBehavior,
+    codec: &HclBehavior,
+};
+
 impl LanguageBehavior for HclBehavior {
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         hcl_parse(source)

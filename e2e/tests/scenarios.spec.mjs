@@ -434,7 +434,7 @@ test.describe('gutter and caret', () => {
 
   test('the caret color follows every theme', async ({ page }) => {
     const e = editor(page);
-    const select = page.locator('.config-editor__demo-theme-select');
+    const select = page.locator('.demo__theme-select');
     const caret = () => e.input.evaluate((element) => getComputedStyle(element).caretColor);
     await select.selectOption('vscode-dark');
     expect(await caret()).toBe('rgb(174, 175, 173)');
@@ -698,7 +698,7 @@ test.describe('editor viewport and scrolling', () => {
   test('consumers can choose a shorter fixed editor height', async ({ page }) => {
     const e = editor(page);
     await page.addStyleTag({
-      content: '.config-editor__demo { --config-editor-height: 180px; --config-editor-min-height: 160px; --config-editor-max-height: 300px; }',
+      content: '.demo { --config-editor-height: 180px; --config-editor-min-height: 160px; --config-editor-max-height: 300px; }',
     });
     await expect.poll(() => e.input.evaluate((element) => Math.round(element.getBoundingClientRect().height))).toBe(180);
     await e.input.click();
@@ -736,7 +736,7 @@ test.describe('themes', () => {
   test('every theme keeps the same editor font size', async ({ page }) => {
     const e = editor(page);
     await e.paste('listen: 7835\n');
-    const select = page.locator('.config-editor__demo-theme-select');
+    const select = page.locator('.demo__theme-select');
     const values = await select.locator('option').evaluateAll((options) => options.map((o) => o.value));
     const sizes = new Set();
     for (const theme of values) {
@@ -749,7 +749,7 @@ test.describe('themes', () => {
 
   test('the suggestion list is readable in light and dark themes', async ({ page }) => {
     const e = editor(page);
-    const select = page.locator('.config-editor__demo-theme-select');
+    const select = page.locator('.demo__theme-select');
     await e.typeDoc('lis');
     await e.screenshot('theme-dark-suggestions');
     await select.selectOption('vscode-light');

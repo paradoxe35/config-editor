@@ -27,12 +27,15 @@ pub(super) trait Codec: Send + Sync {
 /// conversion round-trips.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversion {
+    /// The document in the target language.
     pub text: String,
+    /// JSON pointers of values the target reads back differently.
     pub losses: Vec<String>,
 }
 
 /// Why a conversion failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConvertError {
     /// The source text does not parse in its language.
     Parse(ParseError),
@@ -160,14 +163,6 @@ mod tests {
     use super::{ConvertError, convert, differences};
     use serde_json::json;
 
-    const ALL: [Language; 5] = [
-        Language::Yaml,
-        Language::Json,
-        Language::Toml,
-        Language::Hcl,
-        Language::Xml,
-    ];
-
     /// A document every language can carry exactly (arrays hold two or more
     /// items for XML; no nulls for TOML; keys are identifiers).
     fn portable() -> serde_json::Value {
@@ -184,10 +179,10 @@ mod tests {
     #[test]
     fn a_portable_document_round_trips_between_every_pair_of_languages() {
         let value = portable();
-        for from in ALL {
+        for &from in Language::ALL {
             let source = from.serialize(&value).expect("serializes");
             assert_eq!(from.parse(&source).expect("reads back"), value, "{from:?}");
-            for to in ALL {
+            for &to in Language::ALL {
                 let converted = from.convert(&source, to).expect("converts");
                 assert!(
                     converted.losses.is_empty(),

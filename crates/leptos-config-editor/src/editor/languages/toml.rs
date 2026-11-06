@@ -25,6 +25,15 @@ use std::collections::HashSet;
 /// TOML implementation of the shared text-layer trait.
 pub(super) struct TomlBehavior;
 
+/// This language's registry entry (see `languages/mod.rs`).
+pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
+    label: "TOML",
+    icon: "T",
+    extensions: &["toml"],
+    behavior: &TomlBehavior,
+    codec: &TomlBehavior,
+};
+
 impl LanguageBehavior for TomlBehavior {
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         toml_parse(source)

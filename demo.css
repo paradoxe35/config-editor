@@ -1,0 +1,48 @@
+/* Demo page only: the pickers and the saved-value panel around the editor.
+   The editor's own styles come from the crate (PRESET_CSS). */
+.demo__picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--config-editor-muted);
+  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__select {
+  max-width: 190px;
+  padding: 4px 7px;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 4px;
+  background: var(--config-editor-panel);
+  color: var(--config-editor-text);
+  font: inherit;
+}
+.demo__select:focus-visible {
+  outline: 2px solid var(--config-editor-accent);
+  outline-offset: 1px;
+}
+.demo__output {
+  max-height: 30vh;
+  overflow: auto;
+  border-top: 1px solid var(--config-editor-border);
+  background: var(--config-editor-panel);
+  color: var(--config-editor-muted);
+  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__output > summary {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.demo__output-text {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--config-editor-text);
+  font: 11px/1.5 var(--config-editor-mono);
+  white-space: pre;
+}
+
+@media (max-width: 600px) {
+  .demo__toolbar { gap: 8px; padding: 0 8px; }
+  .demo__toolbar .config-editor__file > span:not(.config-editor__file-icon) { display: none; }
+  .demo__picker { gap: 0; font-size: 0; }
+  .demo__select { max-width: 112px; font-size: 11px; }
+}

@@ -1,121 +1,119 @@
-//! Language registry: the [`Language`] selector plus each variant's behavior.
+//! Language registry: the one place a language is registered.
 //!
-//! This is the only place (besides the `<ConfigEditor language=…>` call site)
-//! that names document languages. Core (`language.rs`, `diagnostics.rs`,
-//! `completion.rs`, `keyboard.rs`, `commands.rs`, `editor.rs`) never matches on
-//! variants and never imports a language file — it calls `language.behavior()`
-//! and programs against the [`LanguageBehavior`](super::language::LanguageBehavior)
-//! trait. Adding a language means one new file here plus one line in the
-//! `match` below — no core changes.
+//! Core (`language.rs`, `diagnostics.rs`, `completion.rs`, `codec.rs`,
+//! `bridge.rs`, `keyboard.rs`, `commands.rs`, `editor.rs`) never names a
+//! language: it reads a [`LanguageSpec`] and programs against its traits.
+//! Adding a language:
+//!
+//! 1. write `languages/<name>.rs`: one struct implementing
+//!    [`LanguageBehavior`](super::language::LanguageBehavior) and
+//!    [`Codec`](super::codec::Codec), plus its `SPEC`;
+//! 2. add one line to the `registry!` call below: `Name => module,`.
+//!
+//! Everything else (labels, icons, extensions, name parsing, conversion,
+//! completion, highlighting, the component) follows from the spec.
 
 use super::codec::{self, Codec, Conversion, ConvertError, Side};
 use super::language::{LanguageBehavior, ParseError};
 use serde_json::Value;
 
-mod hcl;
-mod json;
-mod toml;
-mod xml;
-mod yaml;
-use hcl::HclBehavior;
-use json::JsonBehavior;
-use toml::TomlBehavior;
-use xml::XmlBehavior;
-use yaml::YamlBehavior;
+/// Everything the editor needs to know about one language, declared in the
+/// language's own file as `pub(super) const SPEC`.
+pub(super) struct LanguageSpec {
+    /// Short UI label, such as `"YAML"`.
+    pub(super) label: &'static str,
+    /// Single-letter file icon.
+    pub(super) icon: &'static str,
+    /// File extensions, lowercase and without the dot; the first is preferred.
+    pub(super) extensions: &'static [&'static str],
+    /// Text layer: parsing, structure, completion, editing, highlighting.
+    pub(super) behavior: &'static dyn LanguageBehavior,
+    /// Serialization, for conversion.
+    pub(super) codec: &'static dyn Codec,
+}
 
-static YAML_BEHAVIOR: YamlBehavior = YamlBehavior;
-static JSON_BEHAVIOR: JsonBehavior = JsonBehavior;
-static TOML_BEHAVIOR: TomlBehavior = TomlBehavior;
-static HCL_BEHAVIOR: HclBehavior = HclBehavior;
-static XML_BEHAVIOR: XmlBehavior = XmlBehavior;
+/// Declares the languages: for each `Variant => module` line, the module,
+/// the [`Language`] variant, its place in [`Language::ALL`], and its `spec`
+/// arm, so registering a language is that one line.
+macro_rules! registry {
+    ($($(#[$attribute:meta])* $variant:ident => $module:ident,)+) => {
+        $(mod $module;)+
 
-/// Document language edited by the component.
-///
-/// A plain selector: no syntax lives here. Selects the text layer (parsing,
-/// completion context, inserts, hover lookup, highlighting, newline/indent,
-/// comments). Everything else — history, diffs, completion ranking, schema
-/// navigation, popups — is language-independent and stays shared.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Language {
-    /// YAML documents (default; preserves the original editor behavior).
+        /// A document language.
+        ///
+        /// Parses from a name or file extension, case-insensitively:
+        ///
+        /// ```
+        /// use leptos_config_editor::Language;
+        /// assert_eq!("yml".parse::<Language>(), Ok(Language::Yaml));
+        /// assert_eq!(Language::from_path("infra/main.tf"), Some(Language::Hcl));
+        /// assert_eq!(Language::Toml.to_string(), "TOML");
+        /// ```
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+        #[non_exhaustive]
+        pub enum Language {
+            $($(#[$attribute])* $variant,)+
+        }
+
+        impl Language {
+            /// Every supported language, in registration order (for pickers).
+            pub const ALL: &'static [Language] = &[$(Language::$variant),+];
+
+            /// This language's registry entry.
+            fn spec(self) -> &'static LanguageSpec {
+                match self {
+                    $(Language::$variant => &$module::SPEC,)+
+                }
+            }
+        }
+    };
+}
+
+registry! {
+    /// YAML (the default).
     #[default]
-    Yaml,
-    /// JSON documents.
-    Json,
-    /// TOML documents.
-    Toml,
-    /// HCL documents (HashiCorp Configuration Language, as used by Terraform).
-    Hcl,
-    /// XML documents.
-    Xml,
+    Yaml => yaml,
+    /// JSON.
+    Json => json,
+    /// TOML.
+    Toml => toml,
+    /// HCL (HashiCorp Configuration Language, as used by Terraform).
+    Hcl => hcl,
+    /// XML.
+    Xml => xml,
 }
 
 impl Language {
-    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, `"HCL"`, or `"XML"`. Toolbar,
-    /// aria labels, and diagnostic messages derive from this so no language name
-    /// is hard-coded in markup.
+    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, `"HCL"`, or `"XML"`.
     pub fn label(self) -> &'static str {
-        match self {
-            Language::Yaml => "YAML",
-            Language::Json => "JSON",
-            Language::Toml => "TOML",
-            Language::Hcl => "HCL",
-            Language::Xml => "XML",
-        }
+        self.spec().label
     }
 
-    /// Single-letter file icon for the built-in toolbar.
+    /// Single-letter file icon for toolbars.
     pub fn file_icon(self) -> &'static str {
-        match self {
-            Language::Yaml => "Y",
-            Language::Json => "J",
-            Language::Toml => "T",
-            Language::Hcl => "H",
-            Language::Xml => "X",
-        }
+        self.spec().icon
     }
 
-    /// Default file name used by the built-in toolbar when the host provides
-    /// none.
-    pub fn default_file_name(self) -> &'static str {
-        match self {
-            Language::Yaml => "untitled.yaml",
-            Language::Json => "untitled.json",
-            Language::Toml => "untitled.toml",
-            Language::Hcl => "untitled.hcl",
-            Language::Xml => "untitled.xml",
-        }
+    /// File extensions, lowercase and without the dot; the first is the
+    /// preferred one.
+    pub fn extensions(self) -> &'static [&'static str] {
+        self.spec().extensions
     }
 
-    /// The behavior implementing this language's text layer. Returned as a
-    /// `&'static` reference so call sites and closures share it freely.
-    pub(super) fn behavior(self) -> &'static dyn LanguageBehavior {
-        match self {
-            Language::Yaml => &YAML_BEHAVIOR,
-            Language::Json => &JSON_BEHAVIOR,
-            Language::Toml => &TOML_BEHAVIOR,
-            Language::Hcl => &HCL_BEHAVIOR,
-            Language::Xml => &XML_BEHAVIOR,
-        }
+    /// The language of a file, from its extension.
+    pub fn from_path(path: &str) -> Option<Language> {
+        let (_, extension) = path.rsplit_once('.')?;
+        Language::ALL.iter().copied().find(|language| {
+            language
+                .extensions()
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(extension))
+        })
     }
 
-    /// This language's serializer: a separate registry from [`Self::behavior`]
-    /// so nothing reaches a serializer unless conversion is used.
-    pub(super) fn codec(self) -> &'static dyn Codec {
-        match self {
-            Language::Yaml => &YAML_BEHAVIOR,
-            Language::Json => &JSON_BEHAVIOR,
-            Language::Toml => &TOML_BEHAVIOR,
-            Language::Hcl => &HCL_BEHAVIOR,
-            Language::Xml => &XML_BEHAVIOR,
-        }
-    }
-
-    pub(super) fn side(self) -> Side<'static> {
-        Side {
-            behavior: self.behavior(),
-            codec: self.codec(),
-        }
+    /// File name the built-in toolbar shows when the host gives none.
+    pub fn default_file_name(self) -> String {
+        format!("untitled.{}", self.extensions()[0])
     }
 
     /// Parses a document into the shared data model (a JSON value), the same
@@ -154,37 +152,145 @@ impl Language {
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
         codec::convert(source, self.behavior(), &target.side(), None)
     }
+
+    pub(super) fn behavior(self) -> &'static dyn LanguageBehavior {
+        self.spec().behavior
+    }
+
+    pub(super) fn codec(self) -> &'static dyn Codec {
+        self.spec().codec
+    }
+
+    pub(super) fn side(self) -> Side<'static> {
+        Side {
+            behavior: self.behavior(),
+            codec: self.codec(),
+        }
+    }
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
+/// A name that is not a supported [`Language`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnknownLanguage(pub String);
+
+impl std::fmt::Display for UnknownLanguage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "unknown config language \"{}\"", self.0)
+    }
+}
+
+impl std::error::Error for UnknownLanguage {}
+
+impl std::str::FromStr for Language {
+    type Err = UnknownLanguage;
+
+    /// A language label or file extension, ignoring case and a leading dot.
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let wanted = name.trim().trim_start_matches('.');
+        Language::ALL
+            .iter()
+            .copied()
+            .find(|language| {
+                language.label().eq_ignore_ascii_case(wanted)
+                    || language
+                        .extensions()
+                        .iter()
+                        .any(|extension| extension.eq_ignore_ascii_case(wanted))
+            })
+            .ok_or_else(|| UnknownLanguage(name.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    //! Registry invariants. Generic over `Language::ALL`: registering or
+    //! removing a language never requires editing these tests.
+
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
-    fn default_language_is_yaml() {
-        assert_eq!(Language::default(), Language::Yaml);
+    fn every_language_has_a_complete_registry_entry() {
+        for &language in Language::ALL {
+            assert!(!language.label().is_empty(), "{language:?}");
+            assert_eq!(language.file_icon().chars().count(), 1, "{language:?}");
+            assert!(!language.extensions().is_empty(), "{language:?}");
+            for extension in language.extensions() {
+                assert_eq!(
+                    *extension,
+                    extension.to_ascii_lowercase(),
+                    "{language:?} extensions are lowercase"
+                );
+                assert!(
+                    !extension.starts_with('.'),
+                    "{language:?} extensions have no dot"
+                );
+            }
+        }
     }
 
     #[test]
-    fn language_labels_and_icons_are_stable() {
-        assert_eq!(Language::Yaml.label(), "YAML");
-        assert_eq!(Language::Json.label(), "JSON");
-        assert_eq!(Language::Toml.label(), "TOML");
-        assert_eq!(Language::Hcl.label(), "HCL");
-        assert_eq!(Language::Xml.label(), "XML");
-        assert_eq!(Language::Yaml.file_icon(), "Y");
-        assert_eq!(Language::Json.file_icon(), "J");
-        assert_eq!(Language::Toml.file_icon(), "T");
-        assert_eq!(Language::Hcl.file_icon(), "H");
-        assert_eq!(Language::Xml.file_icon(), "X");
+    fn labels_and_extensions_identify_one_language_each() {
+        let labels: HashSet<&str> = Language::ALL
+            .iter()
+            .map(|language| language.label())
+            .collect();
+        assert_eq!(labels.len(), Language::ALL.len(), "labels are unique");
+        let extensions: Vec<&str> = Language::ALL
+            .iter()
+            .flat_map(|language| language.extensions().iter().copied())
+            .collect();
+        let unique: HashSet<&str> = extensions.iter().copied().collect();
+        assert_eq!(unique.len(), extensions.len(), "extensions are unique");
     }
 
     #[test]
-    fn default_file_names_carry_the_language_extension() {
-        assert_eq!(Language::Yaml.default_file_name(), "untitled.yaml");
-        assert_eq!(Language::Json.default_file_name(), "untitled.json");
-        assert_eq!(Language::Toml.default_file_name(), "untitled.toml");
-        assert_eq!(Language::Hcl.default_file_name(), "untitled.hcl");
-        assert_eq!(Language::Xml.default_file_name(), "untitled.xml");
+    fn every_name_a_language_answers_to_parses_back_to_it() {
+        for &language in Language::ALL {
+            assert_eq!(language.label().parse::<Language>(), Ok(language));
+            assert_eq!(language.to_string(), language.label());
+            for extension in language.extensions() {
+                assert_eq!(extension.parse::<Language>(), Ok(language));
+                assert_eq!(
+                    format!(".{}", extension.to_ascii_uppercase()).parse::<Language>(),
+                    Ok(language)
+                );
+                assert_eq!(
+                    Language::from_path(&format!("dir/config.{extension}")),
+                    Some(language)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_file_names_carry_the_preferred_extension() {
+        for &language in Language::ALL {
+            assert_eq!(
+                language.default_file_name(),
+                format!("untitled.{}", language.extensions()[0])
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_names_and_paths_are_rejected() {
+        assert_eq!(Language::from_path("README"), None);
+        assert_eq!(Language::from_path("notes.unknown-extension"), None);
+        assert_eq!(
+            "unknown-language".parse::<Language>(),
+            Err(UnknownLanguage("unknown-language".to_string()))
+        );
+    }
+
+    #[test]
+    fn the_default_language_is_registered() {
+        assert!(Language::ALL.contains(&Language::default()));
     }
 }

@@ -21,6 +21,15 @@ use std::collections::HashSet;
 /// to a private free function below holding the YAML syntax rules.
 pub(super) struct YamlBehavior;
 
+/// This language's registry entry (see `languages/mod.rs`).
+pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
+    label: "YAML",
+    icon: "Y",
+    extensions: &["yaml", "yml"],
+    behavior: &YamlBehavior,
+    codec: &YamlBehavior,
+};
+
 impl LanguageBehavior for YamlBehavior {
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         yaml_parse(source)

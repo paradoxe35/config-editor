@@ -18,6 +18,7 @@ use std::collections::HashSet;
 /// language reports one. The editor shows it as an inline diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
+    /// What is wrong, as the language parser reports it.
     pub message: String,
     /// One-based line.
     pub line: Option<usize>,
