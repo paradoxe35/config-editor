@@ -44,12 +44,22 @@ impl Bridge {
                 losses: Vec::new(),
             });
         }
-        codec::convert(
-            edit_text,
-            self.edit.behavior(),
-            self.host.behavior(),
-            Some(previous_host),
-        )
+        let value = self
+            .edit
+            .behavior()
+            .parse(edit_text)
+            .map_err(ConvertError::Parse)?;
+        // A value edit rewrites just those values in the host's own text, so
+        // its comments and formatting survive; structural edits re-serialize.
+        if let Ok(old) = self.host.behavior().parse(previous_host)
+            && let Some(text) = codec::patch_scalars(self.host.behavior(), previous_host, &old, &value)
+        {
+            return Ok(Conversion {
+                text,
+                losses: Vec::new(),
+            });
+        }
+        codec::render(&value, self.host.behavior(), Some(previous_host))
     }
 
     /// A warning on each value the host cannot carry exactly, or an error when
@@ -192,5 +202,61 @@ mod tests {
         let edit = "a: [\n";
         let result = bridge.to_host(edit, "");
         assert!(bridge.problems(edit, &result).is_empty());
+    }
+
+    /// Host documents with comments and hand formatting, the port to change,
+    /// and the same document with only the port changed.
+    const HOSTS: [(Language, &str, &str); 5] = [
+        (
+            Language::YAML,
+            "# Burrow\nlisten: 7835 # the port\npublic_address: a.example\npool: {min_idle: 4, max_idle: 64}\n",
+            "# Burrow\nlisten: 9000 # the port\npublic_address: a.example\npool: {min_idle: 4, max_idle: 64}\n",
+        ),
+        (
+            Language::TOML,
+            "# Burrow\nlisten = 7835 # the port\npublic_address = \"a.example\"\npool = { min_idle = 4, max_idle = 64 }\n",
+            "# Burrow\nlisten = 9000 # the port\npublic_address = \"a.example\"\npool = { min_idle = 4, max_idle = 64 }\n",
+        ),
+        (
+            Language::HCL,
+            "# Burrow\nlisten = 7835 // the port\npublic_address = \"a.example\"\npool = { min_idle = 4, max_idle = 64 }\n",
+            "# Burrow\nlisten = 9000 // the port\npublic_address = \"a.example\"\npool = { min_idle = 4, max_idle = 64 }\n",
+        ),
+        (
+            Language::XML,
+            "<!-- Burrow -->\n<listen>7835</listen> <!-- the port -->\n<public_address>a.example</public_address>\n",
+            "<!-- Burrow -->\n<listen>9000</listen> <!-- the port -->\n<public_address>a.example</public_address>\n",
+        ),
+        (
+            Language::JSON,
+            "{ \"public_address\": \"a.example\", \"listen\": 7835,\n  \"pool\": {\"min_idle\": 4} }\n",
+            "{ \"public_address\": \"a.example\", \"listen\": 9000,\n  \"pool\": {\"min_idle\": 4} }\n",
+        ),
+    ];
+
+    #[test]
+    fn a_value_edit_changes_only_that_value_in_the_host_text() {
+        for (host, original, expected) in HOSTS {
+            for &edit in Language::ALL.iter().filter(|edit| **edit != host) {
+                let bridge = Bridge::new(host, edit).unwrap();
+                let shown = bridge.to_edit(original).unwrap().text;
+                let Some(at) = shown.find("7835") else {
+                    panic!("{host} -> {edit}: port not shown in {shown}");
+                };
+                let edited = format!("{}9000{}", &shown[..at], &shown[at + 4..]);
+                let saved = bridge.to_host(&edited, original).unwrap();
+                assert_eq!(saved.text, expected, "{host} edited as {edit}");
+                assert!(saved.losses.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn a_structural_edit_falls_back_to_serializing_the_host_document() {
+        let bridge = Bridge::new(Language::YAML, Language::JSON).unwrap();
+        let saved = bridge
+            .to_host("{\"listen\": 1, \"public_address\": \"b\"}", "listen: 1 # c\n")
+            .unwrap();
+        assert_eq!(saved.text, "listen: 1\npublic_address: b\n");
     }
 }

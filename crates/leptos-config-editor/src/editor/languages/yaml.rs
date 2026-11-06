@@ -293,6 +293,8 @@ fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, u
         .find(|(candidate, _, _, _)| *candidate == wanted)
         .map(|(_, line, _, _)| line)?;
     let line = source.lines().nth(line_number.saturating_sub(1))?;
+    // The value ends before a trailing `# comment`.
+    let line = line_comment_start(line).map_or(line, |start| &line[..start]);
     let (key, raw_value) = line.split_once(':')?;
     let value_start = raw_value.len() - raw_value.trim_start().len();
     let value = raw_value.trim();

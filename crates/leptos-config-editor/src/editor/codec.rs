@@ -2,7 +2,7 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
-use super::language::{ConfigLanguage, ParseError};
+use super::language::{ConfigLanguage, ParseError, Span};
 use serde_json::Value;
 use std::fmt;
 
@@ -79,6 +79,93 @@ pub(super) fn convert(
 ) -> Result<Conversion, ConvertError> {
     let value = from.parse(source).map_err(ConvertError::Parse)?;
     render(&value, to, previous)
+}
+
+/// `previous` with only its changed scalar values rewritten in place, when
+/// `old` and `new` have the same shape (same keys, same array lengths) and
+/// every changed value can be located: comments, formatting, and key order
+/// survive a value edit. `None` falls back to serializing the whole document.
+pub(super) fn patch_scalars(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    old: &Value,
+    new: &Value,
+) -> Option<String> {
+    // Whatever the language cannot express must still be refused, even when
+    // a patch would read back equal (TOML writes null as `nan`).
+    language.serialize(new, Some(previous)).ok()?;
+    let mut changes = Vec::new();
+    scalar_changes(old, new, String::new(), &mut changes)?;
+    if changes.is_empty() {
+        return Some(previous.to_string());
+    }
+    let mut edits = Vec::with_capacity(changes.len());
+    for (pointer, value) in changes {
+        let span = language.value_span(previous, &pointer)?;
+        edits.push((byte_range(previous, span)?, language.format_value(value)));
+    }
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut patched = previous.to_string();
+    for (range, text) in edits {
+        patched.replace_range(range, &text);
+    }
+    // Trust the patch only if it reads back as exactly the new document.
+    (language.parse(&patched).ok()? == *new).then_some(patched)
+}
+
+/// Collects `(pointer, new value)` for every changed scalar; `None` when the
+/// shape changed (keys added or removed, array lengths, types).
+fn scalar_changes<'a>(
+    old: &Value,
+    new: &'a Value,
+    pointer: String,
+    out: &mut Vec<(String, &'a Value)>,
+) -> Option<()> {
+    match (old, new) {
+        (Value::Object(left), Value::Object(right)) => {
+            // Only values are rewritten in place, so key order does not matter.
+            if left.len() != right.len() || !right.keys().all(|key| left.contains_key(key)) {
+                return None;
+            }
+            for (key, value) in right {
+                scalar_changes(&left[key], value, format!("{pointer}/{}", escape(key)), out)?;
+            }
+            Some(())
+        }
+        (Value::Array(left), Value::Array(right)) => {
+            if left.len() != right.len() {
+                return None;
+            }
+            for (index, (before, after)) in left.iter().zip(right).enumerate() {
+                scalar_changes(before, after, format!("{pointer}/{index}"), out)?;
+            }
+            Some(())
+        }
+        (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => None,
+        _ => {
+            if old != new {
+                out.push((pointer, new));
+            }
+            Some(())
+        }
+    }
+}
+
+/// The byte range of a one-based line/character-column span.
+fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
+    let line_start = if span.line <= 1 {
+        0
+    } else {
+        source.match_indices('\n').nth(span.line - 2)?.0 + 1
+    };
+    let line = &source[line_start..];
+    let byte_of = |column: usize| {
+        line.char_indices()
+            .nth(column.saturating_sub(1))
+            .map_or(line.len(), |(index, _)| index)
+    };
+    let (start, end) = (byte_of(span.start_column), byte_of(span.end_column));
+    (start < end).then_some(line_start + start..line_start + end)
 }
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level

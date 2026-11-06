@@ -194,3 +194,31 @@ test.describe('the large config converted', () => {
     expect(xml).toContain('<burrow config-root="true">');
   });
 });
+
+// A value edit made through another language changes only that value in the
+// stored document: comments, formatting, and key order are kept.
+for (const [stored, editAs] of [
+  ['hcl', 'yaml'],
+  ['yaml', 'json'],
+  ['toml', 'hcl'],
+  ['json', 'toml'],
+  ['xml', 'yaml'],
+]) {
+  test.describe(`large ${stored} edited as ${editAs}`, () => {
+    setupEditor(test, `?language=${stored}&edit=${editAs}&sample=large`);
+
+    test('changing one value changes exactly one line of the stored document', async ({ page }) => {
+      const e = editor(page);
+      const original = await saved(page);
+      await expect.poll(() => e.value()).toContain('7835');
+      await replaceText(page, e, '7835', '7999');
+      await expect.poll(() => saved(page), { timeout: 10000 }).toContain('7999');
+      const before = original.split('\n');
+      const after = (await saved(page)).split('\n');
+      expect(after.length).toBe(before.length);
+      const changed = after.filter((line, index) => line !== before[index]);
+      expect(changed).toHaveLength(1);
+      expect(changed[0]).toContain('7999');
+    });
+  });
+}
