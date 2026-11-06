@@ -467,3 +467,12 @@ fn typing_the_end_of_an_xml_start_tag_writes_its_end_tag() {
         assert_eq!(close(marked), None, "{marked}");
     }
 }
+
+#[test]
+fn hcl_keys_are_offered_after_a_sibling_in_a_multi_line_object_value() {
+    let offered = labels(Language::HCL, "web = {\n  hsts = true\n  le|\n}\n");
+    assert!(offered.contains(&"letsencrypt".to_string()), "{offered:?}");
+    assert!(
+        !labels(Language::HCL, "web = {\n  hsts = true\n  |\n}\n").contains(&"hsts".to_string())
+    );
+}

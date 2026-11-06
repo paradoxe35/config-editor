@@ -109,6 +109,15 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
             value_start = None;
             entry_start = at + 1;
         }
+        Event::Newline(at) => {
+            let value_begun =
+                value_start.is_some_and(|start| !code_before[start.min(at)..at].trim().is_empty());
+            if matches!(frames.last(), Some(Frame::Table { .. })) && value_begun {
+                entry_key = None;
+                value_start = None;
+                entry_start = at + 1;
+            }
+        }
     });
     if frames.is_empty() {
         return None;
@@ -158,6 +167,7 @@ pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<S
             stack.pop();
         }
         Event::Comma(position) => check_caret(&stack, position),
+        Event::Newline(_) => {}
     });
     let container = caret_container.unwrap_or_else(|| stack.last().copied().unwrap_or(0));
     (container != 0).then(|| {
@@ -225,6 +235,9 @@ enum Event {
     Open(u8, usize),
     Close(usize),
     Comma(usize),
+    /// A line break outside quotes; inside an object it ends an entry whose
+    /// value has begun (HCL separates entries with newlines).
+    Newline(usize),
 }
 
 /// Walks `code` once, reporting keys, brackets, and separating commas outside
@@ -255,6 +268,7 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
             // A line break also starts an entry: HCL objects separate
             // entries with newlines, not only commas.
             b'\n' => {
+                on(Event::Newline(index));
                 at_entry = true;
                 index += 1;
             }
@@ -336,6 +350,7 @@ pub fn inline_key_paths(code: &str, separator: u8) -> Vec<(Vec<SchemaPathSegment
             }
             entry_key = None;
         }
+        Event::Newline(_) => {}
     });
     found
 }

@@ -82,3 +82,20 @@ test.describe('HCL documents', () => {
     expect(rendered).toEqual(lines);
   });
 });
+
+test.describe('hcl: multi-line object values', () => {
+  setupEditor(test, '?language=hcl');
+
+  test('keys are offered after a sibling entry', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('web = {\n  hsts = true\n  \n}\n');
+    await e.input.evaluate((element) => {
+      const at = element.value.indexOf('true\n') + 7;
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.type('le');
+    await expect.poll(() => e.keys()).toContain('letsencrypt');
+    expect(await e.keys()).not.toContain('hsts');
+  });
+});
