@@ -913,7 +913,7 @@ mod bench_probe {
             .map(|i| format!("  key_{i}: value number {i}\n"))
             .collect();
         let mut edited = baseline.clone();
-        edited.insert_str(baseline.len() / 2, "x");
+        edited.insert(baseline.len() / 2, 'x');
         let started = std::time::Instant::now();
         for _ in 0..20 {
             let _ = super::diff_lines(&baseline, &edited);
