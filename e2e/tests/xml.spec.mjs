@@ -175,8 +175,6 @@ test.describe('XML config root', () => {
 
 test.describe('XML completion formatting', () => {
   test('a new element on its own line after </clients> stays on that line', async ({ page }) => {
-    // Regression: accepting `visitors` typed on a fresh line moved it to the
-    // end of the previous line (`</clients><visitors></visitors>`).
     const e = editor(page);
     const demo = await e.value();
     await e.input.evaluate((element) => {

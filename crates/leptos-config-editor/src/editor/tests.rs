@@ -205,8 +205,6 @@ fn replacing_a_selection_respects_utf16_cursor_offsets() {
 #[test]
 fn indentation_unit_matches_the_document_style() {
     use super::commands::{DEFAULT_INDENT_WIDTH, INDENT_SCAN_LINE_LIMIT, MAX_INDENT_WIDTH};
-    // Pins the scan bounds to their documented rationale: a screenful scan,
-    // eight-space alignment filter, two-space fallback.
     assert_eq!(INDENT_SCAN_LINE_LIMIT, 400);
     assert_eq!(MAX_INDENT_WIDTH, 8);
     assert_eq!(DEFAULT_INDENT_WIDTH, 2);
@@ -231,15 +229,13 @@ fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
 
 #[test]
 fn offset_at_maps_line_cells_to_utf16_offsets_and_clamps() {
-    // "one: 1\n🙂: 2\nthree: 3\n": line 2 starts after 7+1 units, and the
-    // emoji occupies two UTF-16 units, so column math must count UTF-16.
+    // The emoji is two UTF-16 units.
     let source = "one: 1\n\u{1F642}: 2\nthree: 3\n";
     assert_eq!(offset_at(source, 1, 1), 0);
     assert_eq!(offset_at(source, 1, 4), 3);
     assert_eq!(offset_at(source, 2, 1), 7);
     assert_eq!(offset_at(source, 2, 2), 9);
     assert_eq!(offset_at(source, 3, 6), 18);
-    // Past the end of a line or document clamps instead of panicking.
     assert_eq!(offset_at(source, 2, 99), 12);
     assert_eq!(offset_at(source, 99, 1), source.encode_utf16().count());
     assert_eq!(offset_at("", 1, 1), 0);

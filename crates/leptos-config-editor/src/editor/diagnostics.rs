@@ -6,9 +6,8 @@ use serde_json::Value;
 #[cfg(feature = "schema-validation")]
 const MAX_DIAGNOSTICS: usize = 20;
 
-/// Delay after the last keystroke before revalidating, in milliseconds. Long
-/// enough that intermediate states while typing (an unclosed bracket, a half
-/// typed key) do not flash squiggles on every keystroke.
+/// Milliseconds after the last keystroke before revalidating, so half-typed
+/// states do not flash squiggles.
 pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
 
 pub(super) struct SchemaBundle {
@@ -30,9 +29,11 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     })
 }
 
-/// A syntax or schema problem in a document. Positions are one-based; the
-/// marker spans `column..end_column` on `line`. Problems that concern the
-/// whole document (such as an invalid schema) have no position.
+/// A syntax or schema problem in a document.
+///
+/// Positions are one-based; the marker spans `column..end_column` on `line`.
+/// Problems that concern the whole document (such as an invalid schema) have
+/// no position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
     /// One-based line.
@@ -43,7 +44,7 @@ pub struct Diagnostic {
     pub end_column: Option<usize>,
     /// What is wrong; schema problems start with the value's JSON pointer.
     pub message: String,
-    /// Error or warning.
+    /// How serious the problem is.
     pub severity: Severity,
 }
 
@@ -54,12 +55,12 @@ pub enum Severity {
     /// The document is invalid: a syntax error or a schema violation.
     #[default]
     Error,
-    /// The document is valid but something deserves attention, such as a
-    /// value the host language of a converted document cannot keep exactly.
+    /// The document is valid but deserves attention, such as a value the host
+    /// language cannot keep exactly when editing with `edit_as`.
     Warning,
 }
 
-/// A JSON Schema that failed to compile.
+/// A JSON Schema that failed to compile, with the reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SchemaError(pub String);
 
@@ -71,9 +72,10 @@ impl std::fmt::Display for SchemaError {
 
 impl std::error::Error for SchemaError {}
 
-/// A compiled JSON Schema, cheap to clone and reusable across documents and
-/// languages: the same schema validates YAML, JSON, TOML, HCL, and XML,
-/// because every language parses into the same data model.
+/// A compiled JSON Schema, cheap to clone.
+///
+/// One schema validates documents in every language, because every language
+/// parses into the same data model.
 ///
 /// ```
 /// # #[cfg(feature = "schema-validation")] {
@@ -100,15 +102,15 @@ impl std::fmt::Debug for Schema {
 }
 
 /// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document (compiled by the editor, which shows a compile error inline) or a
-/// [`Schema`] compiled once and shared between editors.
+/// document, or a [`Schema`] compiled once and shared between editors.
 ///
 /// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
 /// `schema=compiled.clone()` both work.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum SchemaSource {
-    /// A JSON Schema document, compiled when the editor mounts.
+    /// A JSON Schema document, compiled when the editor mounts; a compile
+    /// error is shown inline.
     Json(String),
     /// An already compiled schema.
     Compiled(Schema),
@@ -133,7 +135,6 @@ impl From<Schema> for SchemaSource {
 }
 
 impl SchemaSource {
-    /// The compiled schema, or the compile error to show.
     pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
         match self {
             SchemaSource::Json(json) => build_schema(&json).map(std::sync::Arc::new),
@@ -144,6 +145,11 @@ impl SchemaSource {
 
 impl Schema {
     /// Compiles a JSON Schema document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError`] when `schema_json` is not JSON or not a valid
+    /// schema.
     pub fn compile(schema_json: &str) -> Result<Self, SchemaError> {
         build_schema(schema_json)
             .map(|bundle| Schema {
@@ -152,20 +158,23 @@ impl Schema {
             .map_err(SchemaError)
     }
 
-    /// Syntax and schema diagnostics for `source`, exactly as the editor
-    /// shows them.
+    /// Syntax and schema diagnostics for `source`, as the editor shows them.
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
         validate(source, Some(&self.bundle), None, true, language.behavior())
     }
 }
 
-/// Syntax diagnostics only, for documents without a schema.
+/// Syntax diagnostics for `source`, for documents without a schema.
+///
+/// ```
+/// use leptos_config_editor::{Language, check_syntax};
+/// assert!(check_syntax(Language::Json, "{\"a\": 1}").is_empty());
+/// assert_eq!(check_syntax(Language::Json, "{\"a\": }").len(), 1);
+/// ```
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
     validate(source, None, None, true, language.behavior())
 }
-/// Shared validation orchestration: parses through the language behavior,
-/// maps schema violations to source spans through it, and returns inline
-/// diagnostics.
+/// Parses through `behavior` and maps schema violations to source spans.
 pub(super) fn validate(
     source: &str,
     schema: Option<&SchemaBundle>,

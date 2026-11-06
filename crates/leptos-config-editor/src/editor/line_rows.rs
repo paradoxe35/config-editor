@@ -1,10 +1,7 @@
 use super::diff::{DiffKind, DiffPeek, LineDiff};
 use leptos::prelude::*;
 
-/// One rendered line: its text plus the flags the gutter, highlight, and
-/// diagnostic marker rows display. Computed once per document change by the
-/// `lines` memo in `editor.rs`; [`LineRows::sync`] fans it out to per-row
-/// state below.
+/// One line of the document plus its error and diff flags.
 #[derive(Clone, PartialEq)]
 pub(super) struct RenderedLine {
     pub(super) text: String,
@@ -12,9 +9,8 @@ pub(super) struct RenderedLine {
     pub(super) change: DiffKind,
 }
 
-/// Everything a single gutter/highlight row displays, as one comparable
-/// value so [`LineRows::sync`] can skip notifying rows whose visible state
-/// did not change.
+/// Everything one gutter/highlight row displays, comparable so unchanged rows
+/// are not notified.
 #[derive(Clone, PartialEq)]
 pub(super) struct RowUiState {
     pub(super) text: String,
@@ -26,8 +22,6 @@ pub(super) struct RowUiState {
     pub(super) deleted_after_peek: Option<DiffPeek>,
 }
 
-/// Builds the display state for one row from the shared snapshot data.
-/// Used both to seed newly created rows and by [`LineRows::sync`].
 pub(super) fn row_state(
     index: usize,
     rows: &[RenderedLine],
@@ -78,25 +72,18 @@ pub(super) fn row_state(
 
 /// Per-row display state for the `For`-keyed gutter and highlight rows.
 ///
-/// Each row owns one signal holding its [`RowUiState`]. [`LineRows::sync`]
-/// rewrites the signals whose visible state actually changed, so a keystroke
-/// re-renders exactly those rows. Rows never subscribe to the document-wide
-/// `lines`/`diff` memos: with thousands of rows, every keystroke would
-/// otherwise re-run every row's closures, and each re-run unsubscribes and
-/// re-subscribes through linear subscriber sets — quadratic work per
-/// keystroke that makes large documents feel stuck.
+/// Each row owns one signal and [`LineRows::sync`] writes only the signals
+/// whose state changed. Rows must not subscribe to the document-wide memos:
+/// with thousands of rows, every keystroke would re-run every row's closures
+/// and churn subscriptions, which is quadratic.
 ///
-/// Signals are positional: row `i` always shows line `i + 1`. Insertions and
-/// deletions shift positions, so a middle-of-document split rewrites the
-/// whole tail — one guarded write per shifted row, still a single pass with
-/// no subscription churn. The container only grows; entries past the current
-/// line count linger until reused, bounded by the longest document seen.
+/// Signals are positional (row `i` shows line `i + 1`) and the list only
+/// grows; unused tail entries are kept for reuse.
 #[derive(Clone)]
 pub(super) struct LineRows {
     states: RwSignal<Vec<RwSignal<RowUiState>>>,
-    /// Owner pinned at creation (the component owner). Row signals are
-    /// created under this owner so `For` row churn — which disposes the
-    /// row-local owner on every rebuild — can never dispose them.
+    /// Component owner; row signals live here because `For` disposes
+    /// row-local owners on rebuild.
     owner: Owner,
 }
 
@@ -108,10 +95,7 @@ impl LineRows {
         }
     }
 
-    /// Returns the state signal for `index`, creating it seeded from the
-    /// current snapshot when the document grew past all previous rows.
-    /// Called from `For` row constructors, which may build rows in any
-    /// order; extension is idempotent and single-threaded.
+    /// Returns the signal for row `index`, creating any missing rows.
     pub(super) fn state_for(
         &self,
         index: usize,
@@ -125,12 +109,7 @@ impl LineRows {
         {
             return signal;
         }
-        // Seed each missing slot from the snapshot individually: row
-        // constructors normally arrive in order, but sharing one signal across
-        // skipped indices would alias several rows to the same state.
-        // Signals are created under the pinned component owner, never the
-        // row-local one: `For` disposes row owners on rebuild, which would
-        // otherwise dispose the signals stored here.
+        // One signal per skipped slot; sharing one would alias rows.
         let mut seeded = None;
         self.owner.with(|| {
             self.states.update(|states| {
@@ -148,16 +127,13 @@ impl LineRows {
         seeded.expect("sync just pushed a signal for `index`")
     }
 
-    /// Rewrites the row signals whose visible state changed. Only notifying
-    /// changed rows keeps every other row's closures — and subscriptions —
-    /// quiet. The comparison must happen *before* touching the signal:
-    /// `set` notifies subscribers unconditionally, which would re-render
-    /// every row on every keystroke and defeat this type's whole point.
+    /// Writes only the row signals whose state changed.
+    ///
+    /// Compare before `set`: `set` always notifies, which would re-render
+    /// every row.
     pub(super) fn sync(&self, rows: &[RenderedLine], line_diff: &LineDiff, active_line: usize) {
-        // Extend first, on its own: `set` below notifies row subscribers
-        // synchronously, and notifying any signal while another signal's
-        // `update` guard is held traps in the reactive runtime. Keep every
-        // `set` outside of any guard.
+        // Extend in a separate step: calling `set` while an `update` guard is
+        // held traps in the reactive runtime.
         self.owner.with(|| {
             self.states.update(|states| {
                 while states.len() < rows.len() {
@@ -172,8 +148,6 @@ impl LineRows {
                 }
             });
         });
-        // Copy the handles out under a short read; compare and notify with
-        // no guard held.
         let signals: Vec<RwSignal<RowUiState>> = self
             .states
             .with_untracked(|states| states[..rows.len()].to_vec());

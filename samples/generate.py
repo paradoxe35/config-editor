@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 """Generates the large demo config in every supported language.
 
-One data model (`config()`) is rendered as JSON, YAML, TOML, HCL, and XML, so
-switching languages in the demo shows the same burrow server config. Every
-file must parse to exactly the same value and validate against `schema.json`;
-the crate test `editor::demo_samples` enforces both.
+One deterministic data model (`config()`) is rendered as JSON, YAML, TOML,
+HCL, and XML. Every file must parse to the same value and validate against
+`schema.json`; the test `tests/demo_samples.rs` enforces both.
 
-The data is deterministic (no randomness), so re-running produces identical
-files. Run from the repository root:
+Run from the repository root:
 
     python3 samples/generate.py
 
-XML note: XML has no array syntax; repeated sibling elements are an array, so a
-single element would read as a scalar. Every array here therefore holds at
-least two items, and the generator asserts it. Map keys must also be valid
-XML element names, so path-keyed maps such as a site's `redirects`
-(`/docs: …`) are left out of the shared data.
+XML constraints: repeated sibling elements form an array and a single one reads
+as a scalar, so every array holds at least two items (asserted). Map keys must
+be valid XML element names, so path-keyed maps (e.g. a site's `redirects`) are
+left out.
 """
 
 import json

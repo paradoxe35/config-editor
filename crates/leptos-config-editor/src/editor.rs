@@ -39,8 +39,7 @@ mod metrics;
 mod positioning;
 use positioning::{hover_card_style, pointer_text_position, schedule_hover, set_caret_visible};
 
-/// Files edited on Windows commonly use CRLF. The textarea works in LF, so normalize
-/// at the boundary to keep diagnostics, completions, and diffs line-based.
+/// Converts CRLF and CR to LF; the textarea and all line math assume LF.
 fn normalize_newlines(text: String) -> String {
     if text.contains('\r') {
         text.replace("\r\n", "\n").replace('\r', "\n")
@@ -56,14 +55,15 @@ struct HoverCard {
     style: String,
 }
 
-/// The preset stylesheet (layout plus every bundled theme). The editor injects
-/// it unless `styled=false`; hosts can serve it themselves instead.
+/// The preset stylesheet: layout plus every bundled theme.
+///
+/// The editor injects it unless `styled=false`, in which case a host can serve
+/// it itself.
 pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
 
-/// Single funnel for programmatic edits: record undo, sync the textarea,
-/// update reactive state, and notify the host. All keydown-driven mutations
-/// (pairing, Enter, Tab, comment toggle, completion accept, undo/redo) go
-/// through here so ordering can never drift between call sites.
+/// Applies a programmatic edit: records undo, syncs the textarea and state,
+/// and notifies the host. Every keydown edit goes through here to keep that
+/// order consistent.
 #[allow(clippy::too_many_arguments)]
 fn commit_edit(
     updated: String,
@@ -100,34 +100,32 @@ fn commit_edit(
     }
 }
 
+/// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
+///
+/// See the [crate docs](crate) for an example.
 #[component]
 pub fn ConfigEditor(
-    /// Document language. Selects the text layer (parsing, completion
-    /// context, inserts, hover lookup, highlighting, newline/indent,
-    /// comments); everything else stays shared. Defaults to YAML.
+    /// Language of the host's document. Defaults to YAML.
     #[prop(default = Language::default(), into)]
     language: Language,
-    /// Edit the document in another language than the host keeps it in.
+    /// Language the user edits in, when it differs from `language`.
+    ///
     /// `initial_value`, `value`, `baseline`, and `on_change` stay in
-    /// `language`; the user sees and edits `edit_as`. Edits convert back after
-    /// each pause in typing (invalid text is never sent), and values
-    /// `language` cannot carry exactly are flagged as warnings.
-    /// Accepts a `Language` or an `Option<Language>` (`None` edits as
-    /// `language`).
+    /// `language`. Edits convert back after each pause in typing; invalid text
+    /// is never sent, and values `language` cannot represent exactly are
+    /// flagged as warnings. `None` edits in `language`.
     #[prop(default = None, into)]
     edit_as: Option<Language>,
-    /// Seeds the editor and its diff baseline. Not a controlled value prop:
-    /// for externally controlled content and live diffs, provide reactive
-    /// `value` and `baseline` signals instead.
+    /// Initial text and diff baseline. For controlled content, use `value`
+    /// and `baseline` instead.
     #[prop(optional, into)]
     initial_value: Option<String>,
-    /// Optional reactive final value. Changes synchronize into the editor;
-    /// the editor sends each edit through `on_change`, so update `value`
-    /// in that callback to keep the external source of truth in sync.
+    /// Controlled document text. Changes flow into the editor; update it from
+    /// `on_change` to keep the host as the source of truth.
     #[prop(optional, into)]
     value: Option<Signal<String>>,
-    /// Optional reactive baseline used to show line diffs. Updating it (for
-    /// example after applying changes) clears the diff decorations.
+    /// Text to diff against. Set it to the current text (for example after
+    /// saving) to clear the diff.
     #[prop(optional, into)]
     baseline: Option<Signal<String>>,
     /// JSON Schema for live diagnostics, completions, and hover docs: a JSON
@@ -141,24 +139,20 @@ pub fn ConfigEditor(
     /// Extra class on the editor root for host styles.
     #[prop(optional, into)]
     class: Option<String>,
-    /// Bundled [`EditorTheme`] preset. Accepts a reactive signal, so the host
-    /// can switch themes without recreating the editor.
+    /// Color theme; may be a signal to switch themes live.
     #[prop(default = EditorTheme::VsCodeDark.into(), into)]
     theme: Signal<EditorTheme>,
-    /// Called with the updated document after every edit (in `language`).
-    /// Accepts a closure: `on_change=move |text| saved.set(text)`.
+    /// Called with the document, in `language`, after every edit.
     #[prop(optional, into)]
     on_change: Option<Callback<String>>,
-    /// Include the preset editor stylesheet. Set `false` with a custom
-    /// `class` to style the semantic `config-editor__*` markup yourself.
+    /// Inject [`PRESET_CSS`]. Set `false` to style the `config-editor__*`
+    /// markup yourself.
     #[prop(default = true)]
     styled: bool,
-    /// Show the built-in file/schema toolbar. Prefer the composable
-    /// [`ConfigEditorToolbar`] for host-owned chrome.
+    /// Show the built-in file/schema toolbar. See also [`ConfigEditorToolbar`].
     #[prop(default = false)]
     show_toolbar: bool,
-    /// Show the built-in status footer. Prefer the composable
-    /// [`ConfigEditorFooter`] for host-owned chrome.
+    /// Show the built-in status footer. See also [`ConfigEditorFooter`].
     #[prop(default = false)]
     show_footer: bool,
     /// Show inline parse/schema diagnostics and hover messages.
@@ -170,30 +164,29 @@ pub fn ConfigEditor(
     /// Show schema description, type, default, and examples when hovering a key.
     #[prop(default = true)]
     enable_hover_docs: bool,
-    /// Open suggestions while typing and after accepting a key (values close
-    /// the list). Set `false` to make them explicit with `Ctrl+Space`.
+    /// Open suggestions while typing and after accepting a key. When `false`,
+    /// suggestions open only with `Ctrl+Space`.
     #[prop(default = true)]
     auto_trigger_completions: bool,
     /// Enable syntax colors for the document language.
     #[prop(default = true)]
     enable_highlighting: bool,
-    /// Pair quotes/brackets, wrap selections, skip closing pairs, and delete
-    /// empty pairs on Backspace.
+    /// Auto-close quotes and brackets, wrap selections, and delete empty
+    /// pairs on Backspace.
     #[prop(default = true)]
     enable_auto_closing: bool,
     /// Show line changes against `baseline`.
     #[prop(default = true)]
     show_diff: bool,
-    /// View mode: disable typing, completions, and edits while keeping
-    /// highlighting, diagnostics, diffs, and hover docs.
+    /// Disable editing while keeping highlighting, diagnostics, diffs, and
+    /// hover docs.
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
 ) -> impl IntoView {
     let host_language = language;
     let language = edit_as.unwrap_or(language);
     let bridge = Bridge::new(host_language, language);
-    // With a bridge, edits reach the host through the conversion effect
-    // below instead of directly.
+    // With a bridge, edits reach the host through the conversion effect.
     let host_on_change = on_change;
     let on_change = if bridge.is_some() {
         None
@@ -211,8 +204,7 @@ pub fn ConfigEditor(
     let enable_completions =
         enable_completions && !read_only.get_untracked() && cfg!(feature = "schema-validation");
     let behavior = language.behavior();
-    // The host's text, its last known value (received or sent), and the
-    // edited text that corresponds to it. Without a bridge they coincide.
+    // Last host text received or sent, and the edited text matching it.
     let host_text = StoredValue::new(
         value
             .as_ref()
@@ -254,8 +246,8 @@ pub fn ConfigEditor(
     if let Some(value) = value {
         Effect::new(move |_| {
             let external_value = normalize_newlines(value.get());
-            // The host echoing what the editor just sent changes nothing:
-            // reconverting would reformat the text under the caret.
+            // Ignore the host echoing our own edit; reconverting would
+            // reformat the text under the caret.
             if external_value == host_text.get_value() {
                 return;
             }
@@ -301,10 +293,8 @@ pub fn ConfigEditor(
     });
     let schema_for_diagnostics = schema_bundle.clone();
     let schema_error_for_diagnostics = schema_error.clone();
-    // Validation runs against a debounced snapshot so intermediate states
-    // while typing (an unclosed bracket, a half typed key) do not flash
-    // squiggles on every keystroke. Hover, completions, and diffs keep
-    // reading the live source.
+    // Debounced so half-typed text does not flash squiggles; everything else
+    // reads the live source.
     let diagnosed_text = RwSignal::new(source.get_untracked());
     let diagnostics_token = StoredValue::new(0u64);
     Effect::new(move |_| {
@@ -325,8 +315,6 @@ pub fn ConfigEditor(
             diagnosed_text.set(text);
         }
     });
-    // Converted editing: after each pause, send the edited text to the host
-    // in its own language. Invalid or unconvertible text is not sent.
     let conversion_problems = RwSignal::new(Vec::<Diagnostic>::new());
     if let Some(bridge) = bridge {
         Effect::new(move |_| {
@@ -406,9 +394,7 @@ pub fn ConfigEditor(
             suggestions_requested.set(request_completions);
         }
     };
-    // Moves the caret to a diagnostic (F8 cycling and the status button share
-    // this). Diagnostics without a position (schema-level errors) have no
-    // caret target, so callers must pick a positioned index.
+    // Callers must pass a diagnostic that has a position.
     let go_to_diagnostic = move |index: usize| {
         let errors = diagnostics.get();
         let Some(diagnostic) = errors.get(index) else {
@@ -443,11 +429,8 @@ pub fn ConfigEditor(
             }
         })
     });
-    // One reactive snapshot of every rendered line: text plus the flags the
-    // row views display. Rows never subscribe to this memo or `diff` directly
-    // (see `line_rows`): the sync effect below fans the snapshot out to
-    // per-row state signals, so a keystroke re-renders only rows whose visible
-    // state actually changed, with no document-wide subscription churn.
+    // Rows must not subscribe to this memo or `diff`; the sync effect below
+    // fans it out to per-row signals (see `line_rows`).
     let lines = Memo::new(move |_| {
         let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
             errors
@@ -481,12 +464,9 @@ pub fn ConfigEditor(
         let line = current_line.get();
         lines.with(|lines| diff.with(|diff| rows_for_sync.sync(lines, diff, line)));
     });
-    // A change preview survives typing elsewhere but dismisses when the edit
-    // touches its anchor; see `peek_survives_edit`. Applying changes clears
-    // the preview through the baseline, which recomputes the diff.
+    // Close the change preview when an edit touches its anchor.
     Effect::new(move |_| {
-        // Subscribes to edits only; the preview itself is read untracked, so
-        // closing it here cannot re-trigger this effect.
+        // The preview is read untracked so closing it cannot re-trigger this.
         diff.track();
         source.track();
         let survives = selected_diff_peek.with_untracked(|peek| {
@@ -519,8 +499,6 @@ pub fn ConfigEditor(
             node_ref=root_ref
             on:keydown=move |event: web_sys::KeyboardEvent| {
                 if event.key() == "Escape" {
-                    // Escape is the single dismissal action for transient editor UI,
-                    // regardless of which editor child currently has focus.
                     event.prevent_default();
                     suggestions_requested.set(false);
                     explicit_request.set(false);
@@ -562,11 +540,7 @@ pub fn ConfigEditor(
                                 key=|index| *index
                                 children=move |index| {
                                     let line = index + 1;
-                                    // This row's whole visible state lives in one
-                                    // signal (see `line_rows`): the closures below
-                                    // subscribe only to it, so a keystroke
-                                    // re-renders exactly the rows whose text,
-                                    // flags, peeks, or active state changed.
+                                    // Subscribe only to the row's own signal (see `line_rows`).
                                     let state = rows_for_gutter.state_for(
                                         index,
                                         &lines.get_untracked(),
@@ -698,8 +672,7 @@ pub fn ConfigEditor(
                                         each={move || 0..lines.with(Vec::len)}
                                         key=|index| *index
                                         children=move |index| {
-                                            // Same per-row state signal the gutter reads;
-                                            // every closure below subscribes only to it.
+                                            // Subscribe only to the row's own signal (see `line_rows`).
                                             let state = rows_for_highlight.state_for(
                                                 index,
                                                 &lines.get_untracked(),
@@ -832,8 +805,7 @@ pub fn ConfigEditor(
                                         .unwrap_or_default();
                                     let auto_trigger = auto_trigger_completions
                                         && should_auto_trigger(&input_type, &before, &value);
-                                    // Backspace with the list open keeps it open and refilters
-                                    // (VS Code); it closes by itself once nothing matches.
+                                    // Backspace with the list open refilters it instead of closing.
                                     let refilter = input_type == "deleteContentBackward"
                                         && suggestions_requested.get_untracked()
                                         && !suggestions.with_untracked(Vec::is_empty);
@@ -956,8 +928,7 @@ pub fn ConfigEditor(
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
                                     hide_hover();
                                     if read_only.get_untracked() {
-                                        // Escape dismissal is handled by the root
-                                        // editor keydown listener; just swallow
+                                        // The root listener handles Escape; swallow
                                         // keys that would otherwise act here.
                                         if event.key() == "Escape"
                                             || (event.ctrl_key() && event.code() == "Space")
@@ -1044,9 +1015,6 @@ pub fn ConfigEditor(
                                             };
                                             positioned.push((offset_at(&text, line, column), index));
                                         }
-                                        // Cycle past the caret, wrapping at the
-                                        // ends like VS Code; equal offsets stay
-                                        // put so repeated F8 never stalls.
                                         let offsets: Vec<usize> = positioned
                                             .iter()
                                             .map(|(offset, _)| *offset)
@@ -1182,8 +1150,8 @@ pub fn ConfigEditor(
                                                     )
                                             {
                                                 event.prevent_default();
-                                                // A pair that begins an entry (JSON key quote) opens its list,
-                                                // since no input event follows a prevented keydown.
+                                                // A prevented keydown fires no input event, so open
+                                                // suggestions here when the pair starts an entry.
                                                 let opens_entry = selection_start == selection_end
                                                     && behavior.entry_started(&updated, selection_start);
                                                 commit_edit(
@@ -1201,9 +1169,7 @@ pub fn ConfigEditor(
                                                     scroll_y,
                                                     false,
                                                 );
-                                                // Paired edit with a selection keeps the wrapped
-                                                // text selected; commit_edit collapses to the
-                                                // end, so restore the selection range here.
+                                                // Keep the wrapped text selected; commit_edit collapses it.
                                                 if selection_start != selection_end {
                                                     let _ = element.set_selection_range(
                                                         selection_start as u32,
@@ -1214,9 +1180,8 @@ pub fn ConfigEditor(
                                                 return;
                                             }
                                     }
-                                    // Indentation-aware keys (VS Code): Backspace in leading
-                                    // indentation removes one unit, and a closer typed on a
-                                    // blank line lines up with its opener.
+                                    // Backspace in indentation removes one unit; a closer on a
+                                    // blank line aligns with its opener.
                                     if !event.ctrl_key()
                                         && !event.meta_key()
                                         && !event.alt_key()
@@ -1289,15 +1254,10 @@ pub fn ConfigEditor(
                                                 scroll_completion_into_view(&list, next);
                                             }
                                         }
-                                        // Enter accepts the highlighted suggestion whenever the
-                                        // list is open, including one opened by typing, so a
-                                        // typed key completes on Enter like the Ctrl+Space list.
                                         "Enter" if !options.is_empty() => {
                                             event.prevent_default();
                                             apply_selected();
                                         }
-                                        // Tab accepts the highlighted suggestion too, as in
-                                        // VS Code; with no list open it indents.
                                         "Tab" if !options.is_empty() && !event.shift_key() => {
                                             event.prevent_default();
                                             apply_selected();
@@ -1342,9 +1302,8 @@ pub fn ConfigEditor(
                                                                 selection_end,
                                                             ));
                                                         }
-                                                        // Indent/outdent keeps the block
-                                                        // selected; restore the range that
-                                                        // commit_edit collapses.
+                                                        // Keep the block selected; commit_edit
+                                                        // collapses it.
                                                         if let Some(editor) = editor_ref.get() {
                                                             let _ = editor.set_selection_range(
                                                                 selection_start as u32,
@@ -1386,7 +1345,7 @@ pub fn ConfigEditor(
                                                 let text = source.get_untracked();
                                                 let (insertion, caret) = behavior.newline_insertion(&text, start);
                                                 let (updated, _) = replace_selection(&text, start, end, &insertion);
-                                                // The caret position inside the insertion, in UTF-16 units from the start.
+                                                // `caret` is a byte index; the cursor is in UTF-16 units.
                                                 let new_cursor = start + insertion[..caret].encode_utf16().count();
                                                 commit_edit(
                                                     updated,
@@ -1450,9 +1409,8 @@ pub fn ConfigEditor(
                                     popup_layout_revision.get();
                                     scroll_x.get();
                                     scroll_y.get();
-                                    // Hidden popups need no layout: returning before
-                                    // reading the source and caret also keeps typing
-                                    // from forcing a synchronous layout.
+                                    // Return before reading source and caret so typing
+                                    // with the list hidden forces no layout.
                                     let option_count = suggestions.with(Vec::len);
                                     if option_count == 0 {
                                         return "visibility:hidden".to_string();

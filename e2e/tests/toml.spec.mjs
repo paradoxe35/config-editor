@@ -105,9 +105,6 @@ test.describe('TOML documents', () => {
   });
 
   test('the highlight overlay renders every character of the value', async ({ page }) => {
-    // Regression: the overlay once dropped the space after `=`
-    // (`listen = 7835` rendered as `listen =7835`), which also made
-    // Backspace look like it ate the wrong character.
     const e = editor(page);
     await e.paste(
       'listen = 7835\ninsecure_plaintext = false  # trailing\n[pool]\nmin_idle = 1\n"quoted key" = "v"\n',

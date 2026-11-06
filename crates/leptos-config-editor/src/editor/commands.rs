@@ -8,10 +8,8 @@ pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
         + 1
 }
 
-/// Picks the next caret offset to jump to when cycling diagnostics (F8),
-/// wrapping at the ends like VS Code. `offsets` are caret offsets in document
-/// order; the return is a position into that slice. Equal offsets stay put so
-/// repeated presses never stall on the current error.
+/// For F8: the index of the first of the sorted `offsets` strictly after
+/// (or before) `here`, wrapping at the ends.
 pub(super) fn cycle_offset(offsets: &[usize], here: usize, backward: bool) -> Option<usize> {
     if offsets.is_empty() {
         return None;
@@ -25,9 +23,8 @@ pub(super) fn cycle_offset(offsets: &[usize], here: usize, backward: bool) -> Op
         offsets.iter().position(|offset| *offset > here).or(Some(0))
     }
 }
-/// Returns the UTF-16 offset of the (`line`, `column`) cell, both 1-based.
-/// Positions past the end of a line or document clamp to what exists, so
-/// gutter clicks and squiggle clicks never produce an out-of-range caret.
+/// UTF-16 offset of one-based (`line`, `column`), clamped to the line and
+/// the document.
 pub(super) fn offset_at(source: &str, line: usize, column: usize) -> usize {
     let line_index = line.saturating_sub(1);
     let mut offset = source
@@ -46,23 +43,17 @@ pub(super) fn offset_at(source: &str, line: usize, column: usize) -> usize {
     offset.min(source.encode_utf16().count())
 }
 
-/// Lines scanned when guessing the document's indent unit. Bounded so a
-/// megabyte-sized document does not pay a full scan on every keystroke; the
-/// unit is almost always visible in the first screenful of lines.
+/// Lines scanned by `indent_unit`, so large documents are not scanned on
+/// every keystroke.
 pub(super) const INDENT_SCAN_LINE_LIMIT: usize = 400;
 
-/// Widest indent, in spaces, accepted as a deliberate unit. Filters out
-/// alignment padding and deeply nested one-off lines so the minimum-width
-/// heuristic below settles on the real step.
+/// Widest indent, in spaces, taken as a unit; wider ones are alignment.
 pub(super) const MAX_INDENT_WIDTH: usize = 8;
 
-/// Fallback indent width, in spaces, when no indented line is found.
+/// Indent width, in spaces, when no indented line is found.
 pub(super) const DEFAULT_INDENT_WIDTH: usize = 2;
 
-/// Returns the indentation unit used by the document. Config files in the wild
-/// use either two or four spaces, and occasionally tabs; honouring the
-/// document's own style keeps automatic indentation and expanded completions
-/// consistent with the surrounding text.
+/// The document's indentation unit (a tab, or its narrowest space indent).
 pub(super) fn indent_unit(source: &str) -> String {
     let mut widths = Vec::new();
     for line in source.lines().take(INDENT_SCAN_LINE_LIMIT) {
@@ -125,8 +116,7 @@ pub(super) fn indent_lines(
                 edits.push((offset, remove, 0));
                 updated.push_str(&line[remove..]);
             } else if body.trim().is_empty() {
-                // Blank lines stay blank, as in VS Code: indenting them
-                // would only leave trailing whitespace.
+                // Indenting a blank line would only leave trailing whitespace.
                 updated.push_str(line);
             } else {
                 edits.push((offset + indent, 0, unit.len()));
@@ -163,10 +153,8 @@ pub(super) fn indent_lines(
     Some((updated, updated_selection_start, updated_selection_end))
 }
 
-/// Backspace inside a line's leading indentation removes back to the previous
-/// indent stop (one unit), as VS Code does, instead of a single space.
-/// Returns the updated text and caret (UTF-16); `None` when the caret is not
-/// in leading spaces, so a plain Backspace applies.
+/// Backspace in leading spaces deletes back to the previous indent stop.
+/// Returns the text and caret, or `None` for a plain Backspace.
 pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, usize)> {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
@@ -188,10 +176,9 @@ pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, u
     Some((updated, cursor - remove))
 }
 
-/// Typing a closer (`}` or `]`) on a line holding only indentation aligns the
-/// line with the line that opened the bracket, as VS Code's bracket outdent
-/// does. Returns the updated text (with the closer typed) and caret, or `None`
-/// when the line has other content, no opener is found, or it already lines up.
+/// Typing `}` or `]` on a blank line re-indents it to match the opening
+/// bracket's line. Returns the text (closer included) and caret, or `None`
+/// when typing it plainly is already right.
 pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<(String, usize)> {
     let opener = match closer {
         '}' => '{',
@@ -204,7 +191,7 @@ pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<
     if before.is_empty() || !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
         return None;
     }
-    // The innermost unmatched opener above the caret's line.
+    // Find the innermost unmatched opener above the caret's line.
     let mut depth = 0usize;
     let mut open_at = None;
     for (index, character) in source[..line_start].char_indices().rev() {
@@ -239,8 +226,7 @@ pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<
 mod tests {
     use super::{backspace_indent, indent_lines, typed_closer};
 
-    /// Applies `edit` at the `|` marker and returns the text with `|` at the
-    /// new caret.
+    /// Applies `edit` at the `|` and returns the text with `|` at the new caret.
     fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<(String, usize)>) -> Option<String> {
         let at = marked.find('|').unwrap();
         let source = marked.replace('|', "");

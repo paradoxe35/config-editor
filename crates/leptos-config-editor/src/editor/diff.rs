@@ -20,13 +20,9 @@ pub(super) struct DiffPeek {
     pub(super) after: Vec<String>,
 }
 
-/// Whether an open change preview still refers to live content after an edit.
-/// A peek survives typing elsewhere in the document but dismisses when the
-/// edit touches its anchor: for modified lines the live diff must still mark
-/// the anchored line modified *and* its text must match the snapshot (so an
-/// insertion above, which shifts the anchor onto another line, dismisses
-/// instead of showing the wrong lines); for removed-line peeks the live diff
-/// must still report the same deleted hunk at the anchor.
+/// Whether an open change preview still shows live content after an edit:
+/// the same deleted hunk, or a still-modified line whose text matches the
+/// snapshot (so a line inserted above, shifting the anchor, dismisses it).
 pub(super) fn peek_survives_edit(
     peek: &DiffPeek,
     current: &[String],
@@ -67,8 +63,7 @@ pub(super) struct LineDiff {
 }
 
 impl LineDiff {
-    /// Shared empty diff for `show_diff=false`. The editor memo re-renders on    /// every keystroke, so returning fresh `Vec`s there would allocate four
-    /// vectors per keystroke for a statically empty result.
+    /// Every line unchanged, for `show_diff=false`.
     pub(super) fn empty(line_count: usize) -> Self {
         Self {
             current: vec![DiffKind::Unchanged; line_count],
@@ -81,8 +76,7 @@ impl LineDiff {
     }
 }
 
-/// Viewport rectangle inputs for [`peek_geometry`], extracted from the DOM by
-/// [`peek_popup_style`] so the placement math stays unit-testable.
+/// DOM measurements for [`peek_geometry`], read by [`peek_popup_style`].
 pub(super) struct PeekViewport {
     pub(super) viewport_width: f64,
     pub(super) viewport_height: f64,
@@ -93,48 +87,34 @@ pub(super) struct PeekViewport {
     pub(super) root_left: f64,
 }
 
-/// Change-preview header height, in pixels: the sticky `h3` row plus its
-/// padding and border in `preset.css`. Added to the per-line estimate so a
-/// one-line change still gets a readable popup.
+/// Change-preview header height, in pixels (sticky `h3` in `preset.css`).
 pub(super) const PEEK_HEADER_HEIGHT: f64 = 72.0;
 
-/// Estimated height of one diff line, in pixels. Mirrors the
-/// `.config-editor__diff-peek-line` rule (`12px` type at `1.5` line-height plus
-/// `2px` vertical padding = `22px`) so the popup can size itself before it
-/// renders.
+/// Height of one diff line, in pixels; mirrors `.config-editor__diff-peek-line`.
 pub(super) const PEEK_LINE_HEIGHT: f64 = 22.0;
 
-/// Change-preview height cap, in pixels: tall diffs scroll internally instead
-/// of covering the editor.
+/// Change-preview height cap, in pixels; taller diffs scroll.
 pub(super) const PEEK_MAX_HEIGHT: f64 = 360.0;
 
-/// Change-preview height cap as a fraction of the viewport: on short
-/// viewports the popup shrinks below [`PEEK_MAX_HEIGHT`] so it never traps
-/// the anchor line off-screen.
+/// Change-preview height cap as a fraction of the viewport height.
 pub(super) const PEEK_MAX_HEIGHT_VIEWPORT_FRACTION: f64 = 0.55;
 
-/// Minimum visible height, in pixels, that justifies placing the preview below
-/// the anchor: roughly [`PEEK_HEADER_HEIGHT`] plus five diff lines. Below
-/// that (and below the space available above), the popup flips.
+/// Space below the anchor, in pixels, enough to place the preview there
+/// (about the header plus five lines); with less, it may flip above.
 pub(super) const PEEK_MIN_BELOW_HEIGHT: f64 = 180.0;
 
-/// Change-preview minimum width, in pixels. Mirrors the `min-width: 180px`
-/// rule on `.config-editor__diff-peek` in `preset.css`; the left clamp reserves
-/// this plus [`POPUP_MARGIN`] so the popup never clips horizontally.
+/// Change-preview minimum width, in pixels; mirrors `preset.css`.
 pub(super) const PEEK_MIN_WIDTH: f64 = 180.0;
 
-/// Change-preview preferred width, in pixels: two side-by-side `minmax(240px,
-/// 1fr)` columns (see `.config-editor__diff-peek-columns` in `preset.css`) plus
-/// padding, so before/after rarely wrap before the viewport forces a shrink.
+/// Change-preview preferred width, in pixels: two `minmax(240px, 1fr)`
+/// columns plus padding.
 pub(super) const PEEK_PREFERRED_WIDTH: f64 = 560.0;
 
-/// Horizontal nudge, in pixels, aligning the preview's left edge with the
-/// gutter markers it annotates rather than the editor's text edge.
+/// Shift, in pixels, aligning the preview with the gutter markers.
 pub(super) const PEEK_GUTTER_NUDGE: f64 = 5.0;
 
-/// Pure popup placement: given viewport/editor geometry and the anchored line,
-/// decide above/below placement and clamp to the viewport. No DOM access, so
-/// this is directly unit-testable.
+/// Preview placement: below the anchored line when it fits, otherwise above,
+/// clamped to the viewport.
 pub(super) fn peek_geometry(
     viewport: &PeekViewport,
     metrics: &EditorMetrics,
@@ -234,12 +214,8 @@ enum DiffEdit {
     Delete,
 }
 
-/// Myers diff depth cap, in edit steps. The wavefront is `O(depth²)` time and
-/// memory, so beyond this the diff falls back to a delete-then-insert block
-/// (see the `None` arm in `diff_lines`): still correct and still context-rich,
-/// just without fine-grained pairing. Sized so a 1200-line insert (the largest
-/// covered unit case) stays exact while pathological inputs stay quadratic in
-/// a bounded constant instead of the document.
+/// Myers depth cap, in edit steps: the search costs `O(depth²)`, so beyond
+/// this the changed region is diffed as one delete-then-insert block.
 pub(super) const MYERS_MAX_DEPTH: usize = 1024;
 
 fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
@@ -332,8 +308,8 @@ fn backtrack_myers(
     edits
 }
 
-/// CRLF and LF documents must diff as the same lines; the textarea normalizes its
-/// value on the first edit, so comparing raw text would mark every line modified.
+/// The textarea turns CRLF into LF on the first edit, so both sides are
+/// compared as LF to keep every line from showing as modified.
 fn normalize_newlines(text: &str) -> Cow<'_, str> {
     if text.contains('\r') {
         Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
@@ -349,8 +325,8 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
     let current = normalize_newlines(current);
     let baseline: Vec<_> = baseline.split('\n').collect();
     let current: Vec<_> = current.split('\n').collect();
-    // Reserve a trailing baseline EOF slot for suffix matching when both files
-    // end in a newline. Added blank rows then stay before the current EOF slot.
+    // When both end in a newline, their trailing empty lines pair up, so added
+    // blank lines are marked before it rather than at the end.
     let baseline_eof_slot = baseline
         .len()
         .checked_sub(1)
@@ -834,11 +810,8 @@ mod trailing_blank_lines {
 
     #[test]
     fn adding_empty_lines_to_trailing_newline_file() {
-        // File ends with \n, so its existing final empty line is unchanged.
         let baseline = "a: 1\n";
-        // User presses Enter once -> "a: 1\n\n"
         let after_one = "a: 1\n\n";
-        // User presses Enter again -> "a: 1\n\n\n"
         let after_two = "a: 1\n\n\n";
 
         let d1 = diff_lines(baseline, after_one);

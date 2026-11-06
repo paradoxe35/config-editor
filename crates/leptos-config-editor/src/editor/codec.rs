@@ -1,12 +1,9 @@
-//! Language-to-language conversion through the shared document model.
-//! Language-free: a language only turns its own text into a `serde_json::Value`
-//! ([`LanguageBehavior::parse`]) and a `Value` back into its own text
-//! ([`Codec::serialize`]); it never knows which language is on the other side.
-//! Converting XML to HCL is `xml.parse` then `hcl.serialize`.
+//! Conversion between languages through the shared data model: XML to HCL is
+//! `xml.parse` then `hcl.serialize`. A language implements only its own side
+//! ([`LanguageBehavior::parse`] and [`Codec::serialize`]).
 //!
-//! Serialization lives in its own trait (and its own registry,
-//! `Language::codec`) rather than on `LanguageBehavior`, so an editor that
-//! never converts does not reach any serializer through the behavior vtable.
+//! `Codec` is separate from `LanguageBehavior` so an editor that never
+//! converts does not pull in any serializer.
 
 use super::language::{LanguageBehavior, ParseError};
 use serde_json::Value;
@@ -14,22 +11,20 @@ use std::fmt;
 
 /// Renders the shared document model as text in one language.
 pub(super) trait Codec: Send + Sync {
-    /// Renders `value` as a complete document. `previous` is the text this
-    /// language last held for the same document, if any: a language may keep
-    /// its own document framing from it (for example XML's config root and
-    /// declaration), never anything that depends on another language.
+    /// `value` as a complete document, or why the language cannot express it.
+    /// `previous` is this document's last text in this language; a language
+    /// may keep its own framing from it (XML's declaration and config root).
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String>;
 }
 
-/// The result of a conversion: the converted text, plus every JSON pointer
-/// whose value the target language could not carry exactly (for example a
-/// one-item array in XML reads back as a scalar). Empty `losses` means the
-/// conversion round-trips.
+/// A converted document, and the values the target language could not carry
+/// exactly. Empty `losses` means the conversion round-trips.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversion {
     /// The document in the target language.
     pub text: String,
-    /// JSON pointers of values the target reads back differently.
+    /// JSON pointers of values the target reads back differently (for example
+    /// a one-item array, which XML reads back as a scalar).
     pub losses: Vec<String>,
 }
 
@@ -55,14 +50,13 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
-/// One side of a conversion: how to read and how to write a language.
+/// How to read and write one language.
 pub(super) struct Side<'a> {
     pub(super) behavior: &'a dyn LanguageBehavior,
     pub(super) codec: &'a dyn Codec,
 }
 
-/// Renders an already parsed document in `target`, then parses the result
-/// back to list what the target could not carry.
+/// Renders `value` in `target`, reading the result back to find the losses.
 pub(super) fn render(
     value: &Value,
     target: &Side<'_>,
@@ -80,8 +74,7 @@ pub(super) fn render(
     Ok(Conversion { text, losses })
 }
 
-/// Serializes through `codec`, ending the document with exactly one newline
-/// whatever the underlying library writes.
+/// Serializes through `codec`, ending with exactly one newline.
 pub(super) fn serialize(
     codec: &dyn Codec,
     value: &Value,
@@ -95,7 +88,6 @@ pub(super) fn serialize(
     Ok(text)
 }
 
-/// Parses `source` with `from` and renders it with `to`.
 pub(super) fn convert(
     source: &str,
     from: &dyn LanguageBehavior,
@@ -107,7 +99,7 @@ pub(super) fn convert(
 }
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level
-/// that still has the same shape.
+/// where both still have the same shape.
 fn differences(expected: &Value, actual: &Value, pointer: String, out: &mut Vec<String>) {
     match (expected, actual) {
         (Value::Object(left), Value::Object(right)) => {
@@ -136,8 +128,8 @@ fn differences(expected: &Value, actual: &Value, pointer: String, out: &mut Vec<
     }
 }
 
-/// The JSON pointer of the first value (depth-first, document order) that
-/// matches `predicate`; lets a language name exactly what it cannot express.
+/// The JSON pointer of the first value, depth-first, matching `predicate`;
+/// lets a codec name exactly what it cannot express.
 pub(super) fn first_pointer(value: &Value, predicate: &dyn Fn(&Value) -> bool) -> Option<String> {
     if predicate(value) {
         return Some(String::new());
@@ -163,8 +155,8 @@ mod tests {
     use super::{ConvertError, convert, differences};
     use serde_json::json;
 
-    /// A document every language can carry exactly (arrays hold two or more
-    /// items for XML; no nulls for TOML; keys are identifiers).
+    /// Carried exactly by every language: arrays of two or more items (XML),
+    /// no nulls (TOML), identifier keys.
     fn portable() -> serde_json::Value {
         json!({
             "listen": "0.0.0.0:7835",

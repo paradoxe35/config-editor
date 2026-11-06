@@ -1,21 +1,17 @@
-//! Core language contract. Language-agnostic: defines the
-//! [`LanguageBehavior`] text-layer trait and the shared signature types.
-//! Shared orchestration (`diagnostics.rs`, `completion.rs`, `keyboard.rs`,
-//! `commands.rs`) only depends on this module. The [`Language`](super::languages::Language)
-//! selector and its registry live in `languages/`; language implementations
-//! (`languages/yaml.rs`, `languages/json.rs`, …) depend on this contract from
-//! the other side. Production code in core never names a language file and
-//! never matches on language variants — it programs against the trait.
+//! The language contract: the [`LanguageBehavior`] trait every language
+//! implements, plus the types it exchanges with the shared orchestration
+//! (`diagnostics.rs`, `completion.rs`, `keyboard.rs`, `commands.rs`).
 //!
-//! Test code is the deliberate exception: tests pin a concrete language via
-//! `Language::Yaml.behavior()` to exercise the shared orchestration.
+//! Core code programs against this trait and never names or matches on a
+//! language; tests may pin one (`Language::Yaml.behavior()`). Implementations
+//! live in `languages/<name>.rs` and are registered in `languages/mod.rs`.
 
 use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
 
 /// A syntax error in a document, with its one-based position when the
-/// language reports one. The editor shows it as an inline diagnostic.
+/// language reports one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
     /// What is wrong, as the language parser reports it.
@@ -40,8 +36,7 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// A path segment addressing a value inside the parsed document. Shared by
-/// every language: schema navigation reads parsed `Value`s, never syntax.
+/// One step of a path into the parsed document, used for schema navigation.
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum SchemaPathSegment {
     Key(String),
@@ -61,7 +56,6 @@ pub(super) enum EntryPosition {
     Attribute,
 }
 
-/// Everything a language needs to render one property insert.
 pub(super) struct InsertContext<'a> {
     /// Indentation of the line the entry starts on.
     pub(super) base_indent: &'a str,
@@ -72,28 +66,23 @@ pub(super) struct InsertContext<'a> {
     pub(super) path: &'a [SchemaPathSegment],
 }
 
-/// The caret sits after containers opened earlier on the same line
-/// (`"web": {"le|}`). A multi-line insert there is moved onto its own line at
-/// `indent`, and whatever followed the caret is pushed to `after`, so a nested
-/// block comes out formatted instead of glued to the opening brace. Computed by
-/// [`inline_block`]; only multi-line inserts use it.
+/// How a multi-line insert is laid out when the caret follows containers
+/// opened on the same line (`"web": {"le|}`): the insert moves onto its own
+/// line at `indent`, and whatever followed the caret moves to `after`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct InlineBlock {
-    /// UTF-16 replace range used when expanding: it swallows the blanks around
-    /// the caret so no trailing whitespace is left behind.
+    /// UTF-16 replace range; it swallows the blanks around the caret so no
+    /// trailing whitespace is left behind.
     pub(super) start: usize,
     pub(super) end: usize,
-    /// Indentation of the entry's own line.
     pub(super) indent: String,
-    /// Text placed after the insert: a line break plus the closing indent
-    /// before a closer, or a separator plus line break before a following
-    /// entry. Empty when nothing follows on the line.
+    /// Line break plus closing indent before a closer, separator plus line
+    /// break before a following entry, or empty.
     pub(super) after: String,
 }
 
-/// How many `{` / `[` opened on `line_prefix` (the line's text before the
-/// caret) are still open, ignoring brackets inside double-quoted strings.
-/// Shared by the brace languages (JSON, HCL, TOML inline tables).
+/// How many `{` / `[` opened on `line_prefix` are still open, ignoring
+/// brackets inside double-quoted strings.
 pub(super) fn unclosed_brackets(line_prefix: &str) -> usize {
     let mut depth = 0usize;
     let mut in_string = false;
@@ -119,12 +108,10 @@ pub(super) fn unclosed_brackets(line_prefix: &str) -> usize {
     depth
 }
 
-/// Computes the [`InlineBlock`] for a replace range `start..end` (bytes) on a
-/// line where `depth` containers opened before the caret are still open.
-/// `closes` tells whether the text after the caret starts with the language's
-/// closer (`}` / `]` / `</`); `separator` is written between the insert and an
-/// entry that follows on the same line (`,` in JSON, nothing in XML).
-/// Shared by every language whose containers can open mid-line.
+/// The [`InlineBlock`] for the byte range `start..end` on a line where `depth`
+/// containers are still open; `None` when `depth` is zero. `closes` tells
+/// whether text starts with the language's closer (`}`, `]`, `</`);
+/// `separator` goes between the insert and a following entry (`,` in JSON).
 pub(super) fn inline_block(
     source: &str,
     start: usize,
@@ -160,8 +147,7 @@ pub(super) fn inline_block(
             end + (rest.len() - following.len()),
         )
     } else {
-        // An entry follows: write one separator (swallowing the one already
-        // there) and move the entry onto its own line.
+        // Swallow the separator already there so exactly one is written.
         let following = match following.strip_prefix(separator) {
             Some(after) if !separator.is_empty() => after.trim_start_matches([' ', '\t']),
             _ => following,
@@ -179,9 +165,8 @@ pub(super) fn inline_block(
     })
 }
 
-/// Where the caret is inside the document's structure: the schema path of the
-/// enclosing mapping, the partially typed query, the replace range, and —
-/// when editing a mapping value — which key's value is being edited.
+/// Where the caret sits in the document's structure, as a language reports it.
+/// Offsets are UTF-16; `value_key` is set when the caret is in a value.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub(super) struct CompletionContext {
     pub(super) path: Vec<SchemaPathSegment>,
@@ -192,31 +177,24 @@ pub(super) struct CompletionContext {
     pub(super) value_needs_space: bool,
     pub(super) is_array_item: bool,
     pub(super) base_indent: String,
-    /// Text the language needs before any entry inserted at the caret (for
-    /// example a separator after a complete value). Core prepends it verbatim.
+    /// Prepended verbatim to an inserted entry (for example a separator after
+    /// a complete value).
     pub(super) entry_prefix: &'static str,
-    /// Whether the caret has begun an entry whose empty query should still open
-    /// the suggestion list (for example a typed opening quote in JSON).
+    /// An empty query still opens the suggestion list (for example after a
+    /// typed opening quote in JSON).
     pub(super) explicit_entry_start: bool,
-    /// Text the language needs after an entry inserted at the caret, such as a
-    /// separator before an existing entry that follows (JSON). Core appends it
-    /// verbatim; the caret stays before it.
+    /// Appended verbatim to an inserted entry, after the caret (for example a
+    /// separator before a following JSON entry).
     pub(super) entry_suffix: &'static str,
-    /// How a property inserted here is written (child entry, inline entry, or
-    /// XML attribute).
     pub(super) position: EntryPosition,
-    /// Set when containers opened earlier on the caret's line are still open:
-    /// multi-line property inserts then move onto their own line.
+    /// See [`inline_block`].
     pub(super) block: Option<InlineBlock>,
-    /// The caret is somewhere no property may be inserted (for example the
-    /// start tag of the XML config root, whose attributes are editor
-    /// metadata): property completion stays empty.
+    /// No property may be inserted here (for example the XML config root's
+    /// start tag, whose attributes are editor metadata).
     pub(super) no_properties: bool,
 }
 
-/// Splits a JSON-pointer path into unescaped segments. Generic path utility
-/// used by every language's span mapping; lives in the core contract so both
-/// the shared orchestration and the implementations share one definition.
+/// Splits a JSON pointer into unescaped segments.
 #[cfg(feature = "schema-validation")]
 pub(super) fn pointer_segments(path: &str) -> Vec<String> {
     path.split('/')
@@ -225,36 +203,34 @@ pub(super) fn pointer_segments(path: &str) -> Vec<String> {
         .collect()
 }
 
-/// The text layer each document language implements. The shared orchestration
-/// (validation flow, completion ranking, hover docs, pairing mechanics) calls
-/// into this; per-language files implement it.
-/// Every method is exercised by the editor or the shared orchestrators —
-/// helpers used only inside one language stay free functions in its file.
+/// The text layer a language implements; the shared orchestration calls it.
+/// Unless noted, `cursor` and returned offsets are UTF-16 indices. Helpers
+/// used by only one language stay free functions in its file.
 pub(super) trait LanguageBehavior: Send + Sync {
-    /// Parses the document into a schema-navigable `Value`.
+    /// The document as the shared data model, or its first syntax error.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
-    /// Source span of the key at a JSON-pointer path.
+    /// `(line, column, end_column)`, one-based, of the key at the JSON pointer
+    /// `path`.
     #[cfg(feature = "schema-validation")]
     fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)>;
-    /// Source span of the value at a JSON-pointer path.
+    /// Like `span_for_path`, but the span of the value.
     #[cfg(feature = "schema-validation")]
     fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)>;
-    /// Source span of the first non-blank content, for whole-document errors.
+    /// Span of the first non-blank content, for whole-document errors.
     #[cfg(feature = "schema-validation")]
     fn first_span(&self, source: &str) -> Option<(usize, usize, usize)>;
-    /// Structural context of the caret for completions and hover.
+    /// The caret's structural context, for completion and hover.
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext;
-    /// Keys already present in the mapping at `path`, to filter suggestions.
-    /// `cursor_byte` is a byte index; the active line is ignored so a
-    /// partially typed key does not hide the keys around it.
+    /// Keys already present in the mapping at `path`, ignoring the caret's
+    /// line (`cursor_byte` is a byte index) so a half-typed key hides nothing.
     fn existing_keys(
         &self,
         source: &str,
         cursor_byte: usize,
         path: &[SchemaPathSegment],
     ) -> Option<HashSet<String>>;
-    /// Insert text (plus caret offset, UTF-16) for a schema property
-    /// completion, written as `context.position` asks.
+    /// Text and caret offset for inserting property `key`, written as
+    /// `context.position` asks.
     fn property_insert(
         &self,
         key: &str,
@@ -262,48 +238,43 @@ pub(super) trait LanguageBehavior: Send + Sync {
         root: &Value,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)>;
-    /// Render a schema value (default, const, example) as document text.
+    /// A schema value (default, const, example) as document text.
     fn format_value(&self, value: &Value) -> String;
-    /// The mapping key under `column` (a character index) on a single line,
-    /// with its starting column. Comment-only lines yield `None`.
+    /// The key under character `column` of `line`, with its starting column.
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)>;
-    /// Byte offset within `line` where the hover context is read for the key at
-    /// `column`. YAML reads it at the line end; JSON reads it just after the key's
-    /// colon, because one line can open a nested object or hold several keys.
+    /// Byte offset in `line` where the hover context for the key at `column`
+    /// is read. Override when one line can hold several keys (JSON).
     fn hover_cursor(&self, line: &str, _column: usize) -> usize {
         line.len()
     }
-    /// Syntax-highlighted rendering of a single document line.
+    /// One document line, syntax-highlighted.
     fn highlight_line(&self, line: &str) -> AnyView;
-    /// Indented newline insertion honoring the document's own style.
+    /// The text Enter inserts: a newline plus the indentation to continue with.
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String;
-    /// The insertion for Enter, plus the caret's byte offset within it. Defaults
-    /// to the caret after the inserted text; a language that opens a block
-    /// between its own delimiters places the caret on the new middle line.
+    /// The text Enter inserts, plus the caret's byte offset within it.
+    /// Override to put the caret on a middle line between delimiters.
     fn newline_insertion(&self, source: &str, cursor: usize) -> (String, usize) {
         let text = self.newline_with_indent(source, cursor);
         let caret = text.len();
         (text, caret)
     }
-    /// Toggles line comments over the selection. Returns the updated
-    /// document with remapped UTF-16 selection bounds.
+    /// The document with the selected lines commented or uncommented, and the
+    /// remapped selection; `None` when the language has no comments.
     fn toggle_comments(
         &self,
         source: &str,
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)>;
-    /// Whether the caret has just begun an entry that should open the suggestion
-    /// list immediately (see `CompletionContext::explicit_entry_start`).
+    /// Whether the caret has just begun an entry, so suggestions open at once.
     fn entry_started(&self, _source: &str, _cursor: usize) -> bool {
         false
     }
-    /// Whether the caret sits inside a string or comment: the pairing guard.
+    /// The quote of the string the caret is in, and whether it is in a
+    /// comment; brackets and quotes do not auto-pair there.
     fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool);
-    /// How strongly `source` looks like this language (0–255). Reserved for a
-    /// future `Language::Auto` selector that will detect the document type at
-    /// runtime from the initial/baseline value and pick the highest-scoring
-    /// behavior. Defaults to zero so a new language compiles before tuning it.
+    /// How strongly `source` looks like this language (0 to 255), reserved for
+    /// automatic language detection.
     #[allow(dead_code)]
     fn confidence(&self, _source: &str) -> u8 {
         0

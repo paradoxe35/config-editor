@@ -1,23 +1,14 @@
-//! HCL text-layer behavior (HashiCorp Configuration Language / Terraform).
+//! HCL (Terraform) language support.
 //!
-//! Decisions, mirroring JSON (D2): duplicate attribute keys are a parse error,
-//! which `hcl-rs` already rejects (`expected unique attribute key`). Repeated
-//! blocks with the same type and labels are *not* an error: real HCL merges
-//! them (the JSON mapping renders them as arrays), and repeated blocks such as
-//! multiple `ingress {}` bodies are idiomatic Terraform. Comments are `#`,
-//! `//`, and `/* */`, so `Ctrl+/` toggles `#` line comments.
-//!
-//! Syntax errors come from `hcl-rs` (message carries `in line L, column C`,
-//! parsed back into a position). Structure (block path under the caret, key
-//! and value spans, the body holding the caret) comes from a tolerant token
-//! scan: mid-typing documents are invalid most of the time, and the scan tracks
-//! `type "label" { ... }` headers and `key = value` attributes the way the
-//! TOML scan tracks `[table]` headers and `key = value` lines.
-//!
-//! Schema paths follow the HCL JSON mapping: block types and labels nest as
-//! object keys (`resource "aws_x" "y"` with `count = 2` reads as
-//! `/resource/aws_x/y/count`), and repeated same-header blocks index like
-//! arrays (`/variable/name/1/default`).
+//! - Syntax errors come from `hcl-rs`; duplicate attribute keys are errors,
+//!   repeated blocks are not (multiple `ingress {}` is idiomatic).
+//! - Structure comes from a tolerant token scan of `type "label" { … }`
+//!   headers and `key = value` attributes.
+//! - Paths follow the HCL JSON mapping: block types and labels nest as object
+//!   keys (`resource "aws_x" "y" { count = 2 }` is `/resource/aws_x/y/count`),
+//!   and repeated same-header blocks index as arrays (`/variable/name/1`).
+//! - Objects insert as blocks, scalars as `key = value`; strings always quote.
+//! - `Ctrl+/` toggles `#` line comments; `//` and `/* */` are also read.
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
@@ -32,10 +23,8 @@ use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-/// HCL implementation of the shared text-layer trait.
 pub(super) struct HclBehavior;
 
-/// This language's registry entry (see `languages/mod.rs`).
 pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
     label: "HCL",
     icon: "H",
@@ -356,7 +345,6 @@ fn decode_string(text: &str, closed: bool) -> String {
     }
 }
 
-/// Name carried by an identifier or label token.
 fn token_name(source: &str, token: &Token) -> Option<String> {
     match token.kind {
         Kind::Ident => Some(source[token.start..token.end].to_string()),
@@ -401,7 +389,6 @@ struct AttributeInfo {
     value_span: (usize, usize),
 }
 
-/// The parser state at the caret.
 struct Snapshot {
     body: usize,
     in_value: bool,
@@ -778,14 +765,11 @@ fn classify_header(tokens: &[Token], index: usize) -> Option<usize> {
 // Parsing and spans
 // ---------------------------------------------------------------------------
 
-/// Parses with `hcl-rs` for syntax (duplicate attributes are already a parse
-/// error there), then converts to the schema-navigable `serde_json::Value`.
 /// References, interpolations, and function calls arrive as their
-/// `${ ... }`-style source text, which is what schemas match against.
+/// `${ ... }`-style source text.
 fn hcl_parse(source: &str) -> Result<Value, ParseError> {
     hcl::from_str::<Value>(source).map_err(|error| {
-        // Syntax errors carry a structured location from the HCL parser; other
-        // error kinds (conversion failures) have none and fall back to the top.
+        // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {
                 let location = parse.location();
@@ -934,14 +918,11 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
-    // Value position: the scan saw `key =` with the caret inside the value, or
-    // the line has an assignment `=` left of the caret.
+    // Value position.
     if snapshot.in_value
         && let Some(key) = snapshot.value_key.clone()
     {
-        // Inside `key = { ... }` the caret completes a key of the nested map,
-        // not a value: descend through the map chain and complete there. This
-        // covers `clients = { acme = { | } }` at any nesting depth.
+        // Inside `key = { … }` the caret completes a nested map key, at any depth.
         if snapshot.in_map {
             let mut map_path = path.clone();
             map_path.extend(
@@ -1029,7 +1010,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
-    // Key position: the token being typed, or an empty query at the caret.
+    // Key position.
     let (typed_start, typed) = match snapshot.partial {
         Some(token) if token.start < cursor => {
             let text = source[token.start..cursor].to_string();
@@ -1261,9 +1242,8 @@ fn current_line_key(line: &str) -> Option<String> {
     None
 }
 
-/// Insert text for a property suggestion, with the caret placed where the user
-/// will type the value. Scalars render `key = value`; objects expand to a
-/// block over their required children.
+/// Scalars render `key = value`; objects expand to a block over their
+/// required children.
 fn property_insert(
     key: &str,
     property: &Value,
@@ -1635,8 +1615,7 @@ fn hcl_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (quote, in_block_comment)
 }
 
-/// Heuristic confidence for a future `Language::Auto` selector: block headers
-/// and `key = value` lines score; JSON braces and YAML colons do not.
+/// Block headers and `key = value` lines score; JSON braces and YAML colons do not.
 fn hcl_confidence(source: &str) -> u8 {
     let mut score = 0u8;
     for line in source.lines().take(50) {
@@ -1699,7 +1678,6 @@ fn highlight_line(line: &str) -> AnyView {
     };
     let mut parts: Vec<AnyView> = Vec::new();
     let mut position = 0;
-    // Byte offsets above are relative to `content`; shift by the indent.
     let shift = indent_len;
     for token in &tokens {
         if token.start > position {
@@ -1751,9 +1729,8 @@ fn highlight_class(line: &str, token: &Token, key_end: Option<usize>) -> &'stati
 // ---------------------------------------------------------------------------
 
 impl super::super::codec::Codec for HclBehavior {
-    /// Idiomatic HCL through `hcl-rs`: an object whose keys are all
-    /// identifiers becomes a block (`web { … }`), anything else an attribute;
-    /// `hcl-rs` formats and escapes (`${` → `$${`).
+    /// An object whose keys are all identifiers becomes a block (`web { … }`),
+    /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
     fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
         let Value::Object(map) = value else {
             return Err("an HCL document is a body: the top level must be an object".to_string());
@@ -1809,8 +1786,6 @@ fn hcl_expression(value: &Value) -> hcl::Expression {
 
 #[cfg(test)]
 mod tests {
-    //! HCL behavior tests: parsing, spans, completion, hover, and inserts.
-
     use super::super::super::completion::{
         Completion, accept_marked, apply_completion, completions, key_hover,
     };
@@ -1842,7 +1817,6 @@ mod tests {
         .unwrap()
     }
 
-    /// Parses `source`, failing the test with the parse error.
     fn parse_ok(source: &str) -> serde_json::Value {
         match HclBehavior.parse(source) {
             Ok(document) => document,
@@ -1923,7 +1897,6 @@ mod tests {
 
     #[test]
     fn repeated_blocks_merge_instead_of_erroring() {
-        // Idiomatic Terraform (`ingress {}` twice) must validate, not fail.
         let document = parse_ok("ingress {\n  port = 1\n}\ningress {\n  port = 2\n}");
         assert_eq!(
             document["ingress"],

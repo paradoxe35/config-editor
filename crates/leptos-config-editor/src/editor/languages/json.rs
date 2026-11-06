@@ -1,12 +1,11 @@
 //! JSON text-layer behavior.
 //!
-//! Decisions: duplicate keys are a parse error, as in YAML (D2); JSON has no
-//! comments, so comment toggling is unsupported and `Ctrl+/` does nothing (D3).
+//! Decisions: duplicate keys are a parse error, as in YAML; JSON has no
+//! comments, so `Ctrl+/` does nothing.
 //!
 //! Syntax errors come from `serde_json`. Structure (key paths, key and value
 //! spans, the container under the caret) comes from a token scan that tolerates
-//! the document being invalid mid-typing, which is the normal state while the
-//! user is completing a key.
+//! invalid input, the normal state while a key is being typed.
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
@@ -21,7 +20,6 @@ use leptos::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
-/// JSON implementation of the shared text-layer trait.
 pub(super) struct JsonBehavior;
 
 /// This language's registry entry (see `languages/mod.rs`).
@@ -560,7 +558,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     });
     // Completing a key whose colon is already typed (`"key"|: value`): swallow
     // the existing colon and its spaces, since the key insert supplies its own
-    // `": "`. Without this the accept duplicates the colon.
+    // `": "`.
     let completing_key = matches!(
         snapshot.frame,
         Some(
@@ -897,8 +895,6 @@ impl super::super::codec::Codec for JsonBehavior {
 
 #[cfg(test)]
 mod tests {
-    //! JSON behavior tests: parsing, spans, completion, hover, and inserts.
-
     use super::super::super::completion::{
         Completion, accept_marked, apply_completion, completions, key_hover,
     };
@@ -1168,8 +1164,6 @@ mod tests {
         assert_eq!(context.entry_prefix, ", ");
     }
 
-    /// Every caret position in messy and malformed documents must produce
-    /// completions, hovers, and edits without panicking or slicing mid-character.
     #[cfg(feature = "schema-validation")]
     #[test]
     fn every_caret_position_in_messy_documents_is_handled_without_panicking() {

@@ -41,7 +41,6 @@ fn query_flags() -> Vec<String> {
         .collect()
 }
 
-/// The value of `name=value` in the query, if present.
 fn query_value(flags: &[String], name: &str) -> Option<String> {
     let prefix = format!("{name}=");
     flags

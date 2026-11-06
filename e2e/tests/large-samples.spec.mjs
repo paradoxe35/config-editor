@@ -12,7 +12,6 @@ import { editor, setupEditor } from './helpers.mjs';
 const LANGUAGES = ['yaml', 'json', 'toml', 'hcl', 'xml'];
 const KEYSTROKE_BUDGET_MS = 250;
 
-// Starts collecting event-timing entries (keydown/keypress/input/keyup).
 async function startLatencyProbe(page) {
   await page.evaluate(() => {
     window.__latencies = [];

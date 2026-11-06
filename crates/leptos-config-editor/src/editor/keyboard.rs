@@ -31,8 +31,8 @@ pub(super) fn replace_selection(
 /// `autoCloseBefore` default), besides whitespace and the end of the text.
 const AUTO_CLOSE_BEFORE: &str = ";:.,=}])>\"'`";
 
-/// Shared pairing mechanics: the language behavior decides whether the caret
-/// sits inside a string or comment, where typed pairs must not expand.
+/// Auto-closing and selection wrapping for a typed bracket or quote; the
+/// language's `lexical_state` blocks pairing inside strings and comments.
 pub(super) fn paired_edit(
     source: &str,
     start: usize,
@@ -67,10 +67,7 @@ pub(super) fn paired_edit(
         return None;
     }
 
-    // VS Code's auto-closing rules: without a selection, a pair closes only
-    // before whitespace, the end of the text, or closing punctuation, and a
-    // quote never pairs right after a word character (`don't`). A selection
-    // is always wrapped.
+    // As in VS Code: a quote never pairs right after a word character (`don't`).
     if start == end {
         let next = source[start_byte..].chars().next();
         let closes_here =

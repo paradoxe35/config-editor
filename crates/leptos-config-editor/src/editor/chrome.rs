@@ -1,9 +1,10 @@
 use super::theme::EditorTheme;
 use leptos::prelude::*;
 
-/// Optional toolbar shell for hosts that want the built-in file/schema bar.
-/// For custom page chrome, set `show_toolbar=false` on [`super::ConfigEditor`]
-/// and compose this component (or plain markup) in the host instead.
+/// Toolbar container styled to match the editor.
+///
+/// Use it to build your own toolbar with `show_toolbar=false` on
+/// [`ConfigEditor`](super::ConfigEditor).
 #[component]
 pub fn ConfigEditorToolbar(
     children: Children,
@@ -21,9 +22,10 @@ pub fn ConfigEditorToolbar(
     }
 }
 
-/// Optional status-footer shell for hosts that want the built-in status bar.
-/// For custom page chrome, set `show_footer=false` on [`super::ConfigEditor`]
-/// and compose this component (or plain markup) in the host instead.
+/// Status-bar container styled to match the editor.
+///
+/// Use it to build your own footer with `show_footer=false` on
+/// [`ConfigEditor`](super::ConfigEditor).
 #[component]
 pub fn ConfigEditorFooter(
     children: Children,

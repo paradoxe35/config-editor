@@ -2,13 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 
-/// Fallback type size, in pixels, when `get_computed_style` is unavailable.
-/// Matches the `--config-editor-font-size` default in `preset.css` so unit tests
-/// and non-browser renders use the same baseline as the real editor.
+/// Font size in pixels when computed style is unavailable; matches
+/// `--config-editor-font-size` in `preset.css`.
 pub(super) const FALLBACK_FONT_SIZE: f64 = 12.0;
 
-/// Fallback line-height multiplier. Matches the `1.8` in the editor
-/// `font: var(--config-editor-font-size)/1.8` shorthand in `preset.css`.
+/// Line-height multiplier fallback; matches the `font` shorthand in `preset.css`.
 pub(super) const FALLBACK_LINE_HEIGHT_FACTOR: f64 = 1.8;
 
 #[derive(Clone, Copy, Debug)]
@@ -19,14 +17,10 @@ pub(super) struct EditorMetrics {
     pub(super) padding_left: f64,
 }
 
-/// Fallback advance of one monospace column relative to the font size. Used
-/// only when canvas measurement is unavailable; the textarea uses a monospace
-/// stack so `0.6em` tracks real glyph advances closely enough to stay usable.
+/// Monospace column width in `em`, used when canvas measurement is unavailable.
 const CHAR_WIDTH_FACTOR: f64 = 0.6;
 
 impl EditorMetrics {
-    /// Fallback metrics when `window.get_computed_style` is unavailable (for
-    /// example in unit tests). Matches the `number()` fallbacks below.
     #[cfg(test)]
     pub(super) fn fallback() -> Self {
         Self {
@@ -39,15 +33,13 @@ impl EditorMetrics {
 }
 
 thread_local! {
-    /// Canvas-measured `0`-glyph advances keyed by canvas font string, so
-    /// pointer mapping pays for measurement once per font instead of once
-    /// per mousemove.
+    /// Measured column widths per canvas font string, so mousemove does not
+    /// re-measure.
     static CHAR_WIDTHS: RefCell<HashMap<String, f64>> = RefCell::new(HashMap::new());
 }
 
-/// Measures the advance of one monospace column with a canvas context, which
-/// tracks the real font (including host overrides of the mono stack) instead
-/// of assuming `0.6em`. Returns `None` outside a browser.
+/// Measures one monospace column with a canvas so host font overrides are
+/// honored. Returns `None` outside a browser.
 fn measured_char_width(font: &str) -> Option<f64> {
     if let Some(width) = CHAR_WIDTHS.with(|cache| cache.borrow().get(font).copied()) {
         return Some(width);
@@ -70,9 +62,8 @@ fn measured_char_width(font: &str) -> Option<f64> {
     width
 }
 
-/// Reads the editor's typography from CSS instead of hard-coding pixel values.
-/// This keeps caret-anchored popups aligned when a host overrides the public
-/// `--config-editor-font-size` or `--config-editor-line-height` variables.
+/// Reads typography from computed CSS so popups stay aligned when a host
+/// overrides the font-size or line-height variables.
 pub(super) fn read_editor_metrics(element: &web_sys::Element) -> EditorMetrics {
     let style =
         web_sys::window().and_then(|window| window.get_computed_style(element).ok().flatten());

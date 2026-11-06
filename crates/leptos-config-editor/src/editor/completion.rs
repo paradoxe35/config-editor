@@ -19,9 +19,7 @@ pub(super) struct Completion {
     pub(super) end: usize,
     pub(super) cursor_offset: usize,
     pub(super) is_value: bool,
-    /// Character-index ranges of `label` covered by the typed query, for
-    /// highlighting the match in the suggestion row. Empty when the query is
-    /// empty or when scoring fell through without tracking positions.
+    /// Character ranges of `label` matched by the query, for highlighting.
     pub(super) matched: Vec<(usize, usize)>,
 }
 
@@ -228,28 +226,21 @@ fn unquoted(typed: &str) -> &str {
     typed
 }
 
-/// Match-quality tiers for `match_score`, highest first: an exact-prefix hit
-/// outranks a case-insensitive one, which outranks word initials (for
-/// `max_connections`), which outranks a mid-label substring, which outranks a
-/// greedy subsequence. Within a tier, shorter labels win via the
-/// `- label_length` term; substrings additionally prefer earlier hits
-/// (`- 2 * index`) while tolerating a quarter-point length penalty
-/// (`- label_length / 4`) so a short late match does not beat a long early one.
+/// Base scores of the `match_score` tiers, highest first. Within a tier,
+/// shorter labels win.
 pub(super) const MATCH_TIER_EXACT_PREFIX: i64 = 1000;
 pub(super) const MATCH_TIER_CASE_INSENSITIVE_PREFIX: i64 = 900;
 pub(super) const MATCH_TIER_INITIALS: i64 = 800;
 pub(super) const MATCH_TIER_SUBSTRING: i64 = 700;
 pub(super) const MATCH_TIER_SUBSEQUENCE: i64 = 500;
 
-/// Penalty weights inside the substring tier: per-character position penalty
-/// and the length divisor. Kept as named constants so the ranking trade-off
-/// reads as intent rather than arithmetic.
+/// Substring tier: earlier hits win (`- 2 * index`) and length counts only a
+/// quarter, so a short late match does not beat a long early one.
 pub(super) const MATCH_SUBSTRING_INDEX_PENALTY: i64 = 2;
 pub(super) const MATCH_SUBSTRING_LENGTH_DIVISOR: i64 = 4;
 
-/// Ranks schema names against the typed prefix. Exact prefixes win, followed by
-/// case-insensitive prefixes, word initials (for `max_connections`), substrings,
-/// and finally an ordered subsequence match.
+/// Scores `label` against `typed`: exact prefix, case-insensitive prefix, word
+/// initials (`mc` for `max_connections`), substring, then subsequence.
 fn match_score(label: &str, typed: &str) -> Option<i64> {
     if typed.is_empty() {
         return Some(0);
@@ -291,11 +282,8 @@ fn match_score(label: &str, typed: &str) -> Option<i64> {
     (matched == typed_lower.chars().count()).then_some(MATCH_TIER_SUBSEQUENCE - label_length)
 }
 
-/// Character-index ranges of `label` covered by `typed`, mirroring the
-/// `match_score` tiers so the suggestion row can highlight what matched:
-/// prefixes cover the leading run, initials cover each consumed word start,
-/// substrings cover the found run, and subsequence matches cover the greedy
-/// per-character hits. Returns an empty vector when there is no match.
+/// Character ranges of `label` matched by `typed`, following the
+/// `match_score` tiers; empty when nothing matches.
 pub(super) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
     if typed.is_empty() {
         return Vec::new();
@@ -310,8 +298,7 @@ pub(super) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
         return vec![(0, typed_len)];
     }
     let mut initials: Vec<(usize, char)> = Vec::new();
-    // Word separators are single ASCII bytes, so a running byte offset
-    // tracks each part's start exactly.
+    // Separators are one ASCII byte, so this tracks each part's start exactly.
     let mut byte_offset = 0;
     for part in label.split(['_', '-', '.', ' ']) {
         if let Some(first) = part.chars().next() {
@@ -355,8 +342,7 @@ pub(super) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
     ranges
 }
 
-/// Required keys sort above optional ones with the same match quality, without
-/// overriding a stronger match tier.
+/// Lifts required keys within a match tier, never above the next tier.
 const REQUIRED_BONUS: i64 = 40;
 
 fn sorted_completions(mut scored: Vec<(i64, Completion)>) -> Vec<Completion> {
@@ -373,8 +359,8 @@ fn sorted_completions(mut scored: Vec<(i64, Completion)>) -> Vec<Completion> {
         .collect()
 }
 
-/// Schemas often document a port as a string example (`"7835"`) next to an integer
-/// branch. When the schema accepts numbers, insert the bare number.
+/// Schemas often give a port a string example (`"7835"`) next to an integer
+/// branch; when numbers are allowed, insert the bare number.
 fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> Value {
     if numeric_allowed
         && let Value::String(text) = &value
@@ -498,8 +484,6 @@ fn property_completions(
     sorted_completions(candidates)
 }
 
-/// Shared completion orchestration: language behavior supplies the context,
-/// existing-key filter, and inserts; ranking and schema navigation stay shared.
 pub(super) fn completions(
     source: &str,
     cursor: usize,
@@ -524,10 +508,8 @@ pub(super) fn completions(
     options
 }
 
-/// Wraps one accepted insert with the language's entry separators and, for a
-/// multi-line property insert after a container opened on the same line, the
-/// block expansion: the entry moves onto its own indented line and whatever
-/// followed the caret (a closer or the next entry) moves after it.
+/// Adds the context's entry prefix and suffix to an accepted insert, and lays
+/// out a multi-line insert per `context.block`.
 pub(super) fn frame_insert(option: &mut Completion, context: &CompletionContext) {
     let expand = !option.is_value && option.insert.contains('\n');
     match context.block.as_ref().filter(|_| expand) {
@@ -602,8 +584,6 @@ fn completions_for_context(
     }
 
     let query = unquoted(&context.typed);
-    // An explicit entry start (the language saw the user begin a key) opens the
-    // list even with nothing typed yet. Other empty queries stay silent.
     if query.is_empty() && !force && !context.explicit_entry_start {
         return Vec::new();
     }
@@ -616,7 +596,6 @@ fn completions_for_context(
     }
     let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
     let unit = indent_unit(source);
-    // A block-expanded insert starts on its own, deeper line.
     let base_indent = context
         .block
         .as_ref()
@@ -644,8 +623,8 @@ pub(super) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: 
     auto_trigger && !completion.is_value
 }
 
-/// Rows PageUp/PageDown move the highlight in the suggestion list: about one
-/// visible page of the popup (`COMPLETION_POPUP_MAX_HEIGHT / COMPLETION_ROW_HEIGHT`).
+/// Rows PageUp/PageDown move: one popup page
+/// (`COMPLETION_POPUP_MAX_HEIGHT / COMPLETION_ROW_HEIGHT`).
 pub(super) const COMPLETION_PAGE_ROWS: usize = 7;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -659,10 +638,8 @@ pub(super) struct KeyHover {
     pub(super) required: bool,
 }
 
-/// Returns the mapping key under `column` (a character index) on the 0-based
-/// `line_index`, together with its schema documentation.
-/// Shared hover orchestration: language behavior supplies the key lookup and
-/// completion context; schema documentation assembly stays shared. The
+/// The key under character `column` of zero-based `line_index`, with its
+/// schema documentation.
 pub(super) fn key_hover(
     source: &str,
     line_index: usize,
@@ -796,10 +773,8 @@ pub(super) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index:
     }
 }
 
-/// Tab-stop width, in columns, for caret-x estimation. Textareas render tab
-/// stops at 8 columns by default, but completion runs before the browser lays
-/// out the row; using 2 keeps the popup near the visible caret for the
-/// short keys this editor suggests without a canvas measurement pass.
+/// Tab width, in columns, for estimating the caret's x position without
+/// measuring text; close enough for the short keys suggested.
 pub(super) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
 
 fn visual_column(text: &str) -> f64 {
@@ -814,33 +789,25 @@ fn visual_column(text: &str) -> f64 {
     column
 }
 
-/// Completion popup width, in pixels. Wide enough for the key + type +
-/// detail columns (see the `padding: 5px 9px` row rule in `preset.css`)
-/// without covering the whole editor.
+/// Completion popup width, in pixels: room for key, type and detail.
 pub(super) const COMPLETION_POPUP_WIDTH: f64 = 420.0;
 
-/// Completion popup border thickness, in pixels: half comes from each side of
-/// the two-sided clamp (`viewport_width - 16.0`), keeping the popup inside the
-/// viewport with a [`POPUP_MARGIN`]-scale gutter.
+/// Total horizontal gutter, in pixels, kept between the popup and the
+/// viewport edges.
 pub(super) const COMPLETION_POPUP_VIEWPORT_GUTTER: f64 = 16.0;
 
-/// Estimated height of one suggestion row, in pixels. Mirrors the
-/// `.config-editor__completion` row (`12px` key + `11px` detail lines plus
-/// `5px` vertical padding): a canvas-free estimate good enough to size the
-/// popup before it renders.
+/// Height of one suggestion row, in pixels; mirrors the
+/// `.config-editor__completion` rule in `preset.css`.
 pub(super) const COMPLETION_ROW_HEIGHT: f64 = 44.0;
 
-/// Vertical padding inside the completion popup, in pixels: `2.0` reserves
-/// the popup's own top/bottom breathing room on top of per-row padding.
+/// Vertical padding of the completion list, in pixels.
 pub(super) const COMPLETION_LIST_PADDING: f64 = 2.0;
 
-/// Completion popup height cap, in pixels: shows roughly seven rows before
-/// the list scrolls internally instead of growing off-viewport.
+/// Completion popup height cap, in pixels (about seven rows).
 pub(super) const COMPLETION_POPUP_MAX_HEIGHT: f64 = 320.0;
 
-/// Pure completion-popup placement: given the caret position in viewport
-/// coordinates and the viewport size, decide above/below placement and clamp
-/// to the viewport. No DOM access, so this is directly unit-testable.
+/// Popup style for a caret at viewport coordinates: below the caret when it
+/// fits, otherwise above, clamped to the viewport.
 pub(super) fn completion_popup_geometry(
     viewport_width: f64,
     viewport_height: f64,
@@ -912,9 +879,8 @@ pub(super) fn completion_popup_style(
     )
 }
 
-/// Test driver shared by every language's tests: accepts `label` at the `|`
-/// marker of `marked` (a forced request, as Ctrl+Space) and returns the
-/// document with `|` at the resulting caret.
+/// Accepts `label` at the `|` in `marked` (as after Ctrl+Space) and returns
+/// the document with `|` at the new caret.
 #[cfg(test)]
 pub(super) fn accept_marked(
     marked: &str,
@@ -955,10 +921,7 @@ mod tests {
         MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, completion_popup_geometry,
     };
 
-    /// Pins the ranking tiers and popup sizing to their documented values so a
-    /// future tweak has to update the doc comments (and CSS) deliberately.
-    /// Tier order is exact > case-insensitive > initials > substring >
-    /// subsequence (1000 > 900 > 800 > 700 > 500).
+    /// Changing these must be deliberate: the sizes mirror `preset.css`.
     #[test]
     fn ranking_tiers_and_popup_sizing_match_their_documentation() {
         assert_eq!(MATCH_TIER_EXACT_PREFIX, 1000);
@@ -974,8 +937,6 @@ mod tests {
         assert_eq!(COMPLETION_POPUP_MAX_HEIGHT, 320.0);
     }
 
-    /// Regression test: the popup opens below the caret when there is room.
-    /// Behavior mirror of `peek_geometry_places_popup_below` in `diff.rs`.
     #[test]
     fn completion_popup_opens_below_caret_when_space_allows() {
         let style = completion_popup_geometry(1024.0, 768.0, 100.0, 200.0, 21.6, 3);
@@ -994,8 +955,6 @@ mod tests {
         );
     }
 
-    /// Regression test: near the bottom edge the popup flips above the caret
-    /// instead of clipping off-viewport.
     #[test]
     fn completion_popup_flips_above_caret_near_viewport_bottom() {
         let style = completion_popup_geometry(1024.0, 768.0, 100.0, 700.0, 21.6, 3);
@@ -1010,8 +969,6 @@ mod tests {
         );
     }
 
-    /// Regression test: caret near the right edge clamps the popup so it
-    /// stays inside the viewport (no horizontal overflow).
     #[test]
     fn completion_popup_clamps_to_viewport_right_edge() {
         let style = completion_popup_geometry(1024.0, 768.0, 1000.0, 200.0, 21.6, 3);

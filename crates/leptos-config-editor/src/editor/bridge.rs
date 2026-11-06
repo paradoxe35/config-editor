@@ -1,11 +1,9 @@
 //! Editing a document in one language while the host keeps it in another
-//! (`<ConfigEditor language=Language::Xml edit_as=Language::Hcl>`). Language
-//! free: both directions go through the shared data model (`codec`), so
-//! neither language knows about the other.
+//! (`<ConfigEditor language=Language::Xml edit_as=Language::Hcl>`).
 //!
-//! The host's text arrives through `value`/`baseline`/`initial_value` and is
-//! shown converted; edits convert back before `on_change`, keeping the host's
-//! own document framing (`Codec::serialize`'s `previous`).
+//! The host's text (`value`, `baseline`, `initial_value`) is shown converted;
+//! edits convert back before `on_change`, keeping the host's framing. Both
+//! directions go through `codec`, so no language needs bridge support.
 
 use super::Language;
 use super::codec::{self, Conversion, ConvertError};
@@ -19,12 +17,11 @@ pub(super) struct Bridge {
 }
 
 impl Bridge {
-    /// A bridge when the editing language differs from the host's.
+    /// `None` when both languages are the same.
     pub(super) fn new(host: Language, edit: Language) -> Option<Self> {
         (host != edit).then_some(Bridge { host, edit })
     }
 
-    /// The host's text shown in the editing language.
     pub(super) fn to_edit(self, host_text: &str) -> Result<Conversion, ConvertError> {
         if host_text.trim().is_empty() {
             return Ok(Conversion {
@@ -35,8 +32,7 @@ impl Bridge {
         self.host.convert(host_text, self.edit)
     }
 
-    /// The edited text in the host's language. `previous_host` is the host's
-    /// last text, whose framing the host language may keep.
+    /// `previous_host` is the host's last text, whose framing is kept.
     pub(super) fn to_host(
         self,
         edit_text: &str,
@@ -56,10 +52,8 @@ impl Bridge {
         )
     }
 
-    /// Diagnostics for a conversion back to the host: one warning per value
-    /// the host language cannot carry exactly, placed on that value in the
-    /// edited text; an error when the document cannot be saved at all. Syntax
-    /// errors are already reported by validation, so they add nothing here.
+    /// A warning on each value the host cannot carry exactly, or an error when
+    /// the document cannot be saved. Syntax errors are left to validation.
     pub(super) fn problems(
         self,
         edit_text: &str,
@@ -91,7 +85,7 @@ impl Bridge {
         }
     }
 
-    /// A document-level error for host text that cannot be shown converted.
+    /// The error shown when the host's text cannot be converted for editing.
     pub(super) fn load_problem(self, error: &ConvertError) -> Diagnostic {
         Diagnostic {
             line: Some(1),
@@ -167,7 +161,6 @@ mod tests {
         let problems = bridge.problems(edit, &result);
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].severity, Severity::Warning);
-        // Placed on the line of the key that owns the list.
         assert_eq!(problems[0].line, Some(1));
         assert!(
             problems[0].message.contains("XML cannot keep"),

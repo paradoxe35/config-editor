@@ -1,14 +1,14 @@
-//! TOML text-layer behavior.
+//! TOML language support.
 //!
-//! Decisions, mirroring JSON: duplicate keys are a parse error (D2-style —
-//! `toml` itself rejects them); TOML uses `#` line comments, so `Ctrl+/`
-//! toggles `#` comments (unlike JSON's no-op).
-//!
-//! Syntax errors come from `toml::de::Error` (message + byte span). Structure
-//! (table path under the caret, key and value spans) comes from a tolerant
-//! line-oriented scan: TOML tables are line-based, so mid-typing states only
-//! ever invalidate the active line, and the scan tracks `[table]` headers and
-//! `[[array]]` headers above the caret as schema-path segments.
+//! - Syntax errors come from the `toml` crate; duplicate keys are errors.
+//! - Structure comes from a tolerant line scan: `[table]` headers set the
+//!   path from the root, `[[array]]` headers add the occurrence index, and
+//!   dotted keys nest under the current table.
+//! - Inline tables (`key = { … }`) are scanned within their line; completion
+//!   inside one stays inline, since a `[table]` header is invalid there.
+//! - Objects insert as `[table]` headers, except beneath array items, which
+//!   headers cannot address, where they are written inline.
+//! - `Ctrl+/` toggles `#` line comments.
 
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
@@ -22,10 +22,8 @@ use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
 
-/// TOML implementation of the shared text-layer trait.
 pub(super) struct TomlBehavior;
 
-/// This language's registry entry (see `languages/mod.rs`).
 pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
     label: "TOML",
     icon: "T",
@@ -127,11 +125,8 @@ fn line_column(source: &str, byte: usize) -> (usize, usize) {
 // Parsing and spans
 // ---------------------------------------------------------------------------
 
-/// Parses with `toml` for syntax, then converts to the schema-navigable
-/// `serde_json::Value` (`toml::Value` serializes natively; datetimes become
-/// strings, which is what schemas match against). Parsing as a `Table` (not
-/// a bare `Value`) is what reports duplicate keys at their second occurrence
-/// instead of a confusing end-of-line error.
+/// Datetimes become strings. Parsing as a `Table`, not a bare `Value`,
+/// reports a duplicate key at its second occurrence rather than at line end.
 fn toml_parse(source: &str) -> Result<Value, ParseError> {
     let document: toml::Table = source.parse().map_err(|error: toml::de::Error| {
         let line_count = source.split('\n').count().max(1);
@@ -180,8 +175,7 @@ fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
                 quote = None;
             }
         } else if matches!(character, '"' | '\'') {
-            // Triple-quoted strings can span lines; a quote run of 3+ opens
-            // one even when unterminated on this line.
+            // A run of 3+ quotes opens a multi-line string even if unterminated here.
             let run = line[index..]
                 .chars()
                 .take_while(|next| *next == character)
@@ -356,9 +350,7 @@ fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPathSegment> {
 }
 
 #[cfg(feature = "schema-validation")]
-/// Plain-string form of a schema path for span matching: array indices
-/// render as their number, mirroring the JSON-pointer segments the schema
-/// validator reports.
+/// Array indices render as numbers, matching the validator's JSON-pointer segments.
 fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
     path.iter()
         .map(|segment| match segment {
@@ -651,7 +643,6 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
         let (code, _) = split_toml_comment(line);
         if let Some((key, start, end)) = key_assignment(code) {
             let mut full = table.clone();
-            // A dotted key (`a.b = 1`) nests under the table.
             for segment in split_key_path(&key).unwrap_or_else(|| vec![key.clone()]) {
                 full.push(segment);
             }
@@ -665,8 +656,7 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
                 return Some(span_between(source, offset + key_start, offset + key_end));
             }
         }
-        // A `[table]` header addresses the table itself: the last segment is
-        // the header's own name, so match headers too.
+        // A `[table]` header's last segment names the table itself.
         if let Some((segments, _)) = parse_header(code)
             && path_strings(&table_path_at(&lines, index + 1)) == wanted
             && !segments.is_empty()
@@ -737,8 +727,6 @@ fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
 // Completion
 // ---------------------------------------------------------------------------
 
-/// Structural context of the caret: the schema path of the enclosing table,
-/// the partially typed key or value, and the replace range.
 fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let lines: Vec<&str> = source.lines().collect();
@@ -768,10 +756,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
-    // Inline table (`key = { … }`) with the caret inside the braces: the keys
-    // being completed belong to the inline table, so the path descends through
-    // each enclosing inline table and the typed token is the segment after the
-    // last `{` or `,`.
+    // Inside `key = { … }`: the path descends through each enclosing inline
+    // table and the typed token follows the last `{` or `,`.
     if let Some(equals) = assignment_equals(code_before) {
         let after_equals = &code_before[equals + 1..];
         let spaces = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
@@ -811,15 +797,14 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
     }
 
-    // Value position: an `=` sits left of the caret on this line's code.
+    // Value position.
     if let Some(equals) = assignment_equals(code_before) {
         let raw_key = code_line[..assignment_equals(code_line).unwrap_or(equals)]
             .trim()
             .to_string();
         let key = unquote_key(&raw_key);
         let mut full = path.clone();
-        // The value may belong to a dotted key (`a.b = |`): only the last
-        // segment is the value's key, the rest extends the path.
+        // In `a.b = |` only `b` is the value's key; `a` extends the path.
         let mut dotted: Vec<SchemaPathSegment> = split_key_path(&key)
             .unwrap_or_else(|| vec![key.clone()])
             .into_iter()
@@ -834,8 +819,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         let value_start = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
         let typed_start = line_start + equals + 1 + value_start;
         let line_end = line_start + line.len();
-        // Accepting a value replaces the scalar under the caret, stopping at
-        // the trailing comment.
+        // Replace the scalar under the caret, but not a trailing comment.
         let value_len = value_token_len(&source[cursor..line_end.min(source.len())]);
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
@@ -854,7 +838,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
-    // Key position: the token being typed before any `=`.
+    // Key position.
     let token_start_in_line = code_before.rfind([' ', '\t']).map_or(0, |index| index + 1);
     let typed_start = line_start + token_start_in_line;
     let raw_typed = code_before[token_start_in_line..].trim_start();
@@ -891,7 +875,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     }
 }
 
-/// Byte offset of `line_index`'s start, and the clamped line index itself.
+/// Index of the line containing `byte` and that line's start offset.
 fn line_at(source: &str, lines: &[&str], byte: usize) -> (usize, usize) {
     let mut offset = 0;
     for (index, line) in lines.iter().enumerate() {
@@ -927,9 +911,8 @@ fn value_token_len(text: &str) -> usize {
     code.trim_end().len()
 }
 
-/// Keys already present in the table holding the caret. The partly typed key
-/// on the active line is ignored so it can still complete. Tables parse even
-/// mid-typing through the line scan, so no sanitizing pass is needed.
+/// Keys already present in the caret's table, ignoring the active line so
+/// its partly typed key can still complete.
 fn existing_table_keys(
     source: &str,
     cursor_byte: usize,
@@ -972,9 +955,7 @@ fn property_insert(
     context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
     let toml_key = toml_key_for_completion(key)?;
-    // Inside an inline table (`web = { le| }`) everything stays on one line:
-    // a nested object becomes a nested inline table, never a `[table]` header,
-    // which would be invalid there.
+    // Inside an inline table a nested object stays inline; a header is invalid there.
     if context.position == EntryPosition::Inline
         && let Some(branch) = object_branch(property, root)
         && schema_const(property, root).is_none()
@@ -1042,9 +1023,8 @@ fn property_insert(
             let cursor = insert.encode_utf16().count();
             return Some((insert, cursor));
         }
-        // A table header names the full path: inside `[web]`, `letsencrypt`
-        // opens `[web.letsencrypt]`, not a new top-level table. Headers cannot
-        // address array items, so beneath one the object is written inline.
+        // Headers name the full path (`[web.letsencrypt]` inside `[web]`).
+        // They cannot address array items, so beneath one the object is inline.
         let mut header = Vec::new();
         for segment in context.path {
             match segment {
@@ -1108,9 +1088,7 @@ fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
         .collect()
 }
 
-/// Renders a schema value as TOML text: strings quote (bare only when the
-/// schema default is already a valid bare scalar), everything else renders
-/// JSON-compatibly (numbers, booleans), which TOML also accepts.
+/// Non-string scalars render as JSON, which TOML also accepts.
 fn toml_text(value: &Value) -> String {
     match value {
         Value::String(text) if is_bare_scalar(text) => text.clone(),
@@ -1120,15 +1098,12 @@ fn toml_text(value: &Value) -> String {
             format!("[{}]", items.join(", "))
         }
         Value::Object(map) => toml_inline_table(&Value::Object(map.clone())),
-        // TOML has no null. `nan` is its float spelling of "no value", and
-        // parsing it back through `serde_json` yields `null` again, so schemas
-        // typed `["integer", "null"]` validate the inserted text.
+        // TOML has no null; `nan` reads back through `serde_json` as `null`.
         Value::Null => "nan".to_string(),
         _ => value.to_string(),
     }
 }
 
-/// A JSON object rendered as an inline TOML table (`{ a = 1 }`).
 fn toml_inline_table(value: &Value) -> String {
     let Value::Object(map) = value else {
         return toml_text(value);
@@ -1143,17 +1118,13 @@ fn toml_inline_table(value: &Value) -> String {
     format!("{{ {} }}", pairs.join(", "))
 }
 
-/// Words TOML reads back as the intended scalar stay bare; anything numeric-,
-/// boolean-, or datetime-looking, or with punctuation/whitespace, is quoted.
 fn is_bare_scalar(_text: &str) -> bool {
-    // Schema string defaults are quoted unconditionally: a bare word that the
-    // schema means as a string (an enum variant, a hostname) must not parse
-    // back as a date or number.
+    // Always quote: a bare string could read back as a date or number.
     false
 }
 
-/// A schema key rendered for TOML: bare when it matches the TOML bare-key
-/// grammar, quoted otherwise. Dotted keys quote per segment.
+/// Bare when the key matches TOML's bare-key grammar, quoted otherwise.
+/// Dotted keys quote per segment.
 fn toml_key_for_completion(key: &str) -> Option<String> {
     if key.is_empty() {
         return None;
@@ -1190,7 +1161,6 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
     let (key, start, _) = key_assignment(code)?;
     let start_column = line[..start].chars().count();
     let end_column = start_column + line[start..start + key.len()].chars().count();
-    // Dotted keys hover the segment under the caret.
     let dotted = split_key_path(&key).unwrap_or_else(|| vec![key.clone()]);
     if dotted.len() > 1 {
         let mut offset = start_column;
@@ -1210,8 +1180,7 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
 // Editing and highlighting
 // ---------------------------------------------------------------------------
 
-/// Enter keeps the current indentation; TOML blocks are line-based, so no
-/// deeper indent is inferred from an opening bracket.
+/// Keeps the current indentation; TOML never indents after a bracket.
 fn newline_with_indent(source: &str, cursor: usize) -> String {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
@@ -1341,8 +1310,7 @@ fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (quote, false)
 }
 
-/// Heuristic confidence for a future `Language::Auto` selector: table headers
-/// and `key = value` lines score; JSON braces and YAML colons do not.
+/// Table headers and `key = value` lines score; JSON braces and YAML colons do not.
 fn toml_confidence(source: &str) -> u8 {
     let mut score = 0u8;
     for line in source.lines().take(50) {
@@ -1391,10 +1359,8 @@ fn highlight_line(line: &str) -> AnyView {
         let Some(equals) = equals_at else {
             return view! { <span>{line.to_string()}</span> }.into_any();
         };
-        // Gap between `=` and the value must be re-emitted verbatim:
-        // `value_text` is trimmed, so slicing from the trimmed start keeps
-        // the overlay byte-identical to the textarea value. Rendering the
-        // raw `code[start..end]` slice also preserves quoted keys.
+        // Re-emit the whitespace after `=` so the overlay stays byte-identical
+        // to the textarea.
         let after_equals = &code[equals + 1..];
         let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
         let scalar_start = equals + 1 + gap_len;
@@ -1448,8 +1414,6 @@ impl super::super::codec::Codec for TomlBehavior {
 
 #[cfg(test)]
 mod tests {
-    //! TOML behavior tests: parsing, spans, completion, hover, and inserts.
-
     use super::super::super::completion::{
         Completion, accept_marked, apply_completion, completions, key_hover,
     };
@@ -1715,8 +1679,7 @@ mod tests {
                 "max_connections":{"type":["integer","null"],"minimum":1}}}"#,
         )
         .unwrap();
-        // The null option is offered at the value position (an explicit
-        // request, since an empty value hides it by default).
+        // An explicit request: an empty value hides the null option by default.
         let source = "max_connections = ";
         let options = completions(
             source,

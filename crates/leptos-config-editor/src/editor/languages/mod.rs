@@ -1,40 +1,34 @@
-//! Language registry: the one place a language is registered.
+//! The language registry. Core code never names a language; it reads a
+//! [`LanguageSpec`] and calls its traits.
 //!
-//! Core (`language.rs`, `diagnostics.rs`, `completion.rs`, `codec.rs`,
-//! `bridge.rs`, `keyboard.rs`, `commands.rs`, `editor.rs`) never names a
-//! language: it reads a [`LanguageSpec`] and programs against its traits.
-//! Adding a language:
+//! To add a language:
 //!
-//! 1. write `languages/<name>.rs`: one struct implementing
+//! 1. write `languages/<name>.rs`: a struct implementing
 //!    [`LanguageBehavior`](super::language::LanguageBehavior) and
-//!    [`Codec`](super::codec::Codec), plus its `SPEC`;
-//! 2. add one line to the `registry!` call below: `Name => module,`.
+//!    [`Codec`](super::codec::Codec), and a `pub(super) const SPEC`;
+//! 2. add one line to `registry!` below: `Name => module,`.
 //!
-//! Everything else (labels, icons, extensions, name parsing, conversion,
-//! completion, highlighting, the component) follows from the spec.
+//! Labels, extensions, name parsing, conversion, completion and highlighting
+//! all follow from the spec.
 
 use super::codec::{self, Codec, Conversion, ConvertError, Side};
 use super::language::{LanguageBehavior, ParseError};
 use serde_json::Value;
 
-/// Everything the editor needs to know about one language, declared in the
-/// language's own file as `pub(super) const SPEC`.
+/// Everything the editor knows about one language: its file's `SPEC`.
 pub(super) struct LanguageSpec {
-    /// Short UI label, such as `"YAML"`.
+    /// Short UI label, such as `"YAML"`; also accepted as a name.
     pub(super) label: &'static str,
     /// Single-letter file icon.
     pub(super) icon: &'static str,
-    /// File extensions, lowercase and without the dot; the first is preferred.
+    /// Lowercase, without the dot; the first is preferred.
     pub(super) extensions: &'static [&'static str],
-    /// Text layer: parsing, structure, completion, editing, highlighting.
     pub(super) behavior: &'static dyn LanguageBehavior,
-    /// Serialization, for conversion.
     pub(super) codec: &'static dyn Codec,
 }
 
-/// Declares the languages: for each `Variant => module` line, the module,
-/// the [`Language`] variant, its place in [`Language::ALL`], and its `spec`
-/// arm, so registering a language is that one line.
+/// Expands each `Variant => module` line into the module, the [`Language`]
+/// variant, its entry in [`Language::ALL`], and its `spec` arm.
 macro_rules! registry {
     ($($(#[$attribute:meta])* $variant:ident => $module:ident,)+) => {
         $(mod $module;)+
@@ -59,7 +53,6 @@ macro_rules! registry {
             /// Every supported language, in registration order (for pickers).
             pub const ALL: &'static [Language] = &[$(Language::$variant),+];
 
-            /// This language's registry entry.
             fn spec(self) -> &'static LanguageSpec {
                 match self {
                     $(Language::$variant => &$module::SPEC,)+
@@ -94,13 +87,12 @@ impl Language {
         self.spec().icon
     }
 
-    /// File extensions, lowercase and without the dot; the first is the
-    /// preferred one.
+    /// File extensions, lowercase and without the dot; the first is preferred.
     pub fn extensions(self) -> &'static [&'static str] {
         self.spec().extensions
     }
 
-    /// The language of a file, from its extension.
+    /// The language of a file, from its extension (case-insensitive).
     pub fn from_path(path: &str) -> Option<Language> {
         let (_, extension) = path.rsplit_once('.')?;
         Language::ALL.iter().copied().find(|language| {
@@ -111,13 +103,17 @@ impl Language {
         })
     }
 
-    /// File name the built-in toolbar shows when the host gives none.
+    /// `untitled.<preferred extension>`, shown when the host gives no file name.
     pub fn default_file_name(self) -> String {
         format!("untitled.{}", self.extensions()[0])
     }
 
     /// Parses a document into the shared data model (a JSON value), the same
     /// model schema validation sees.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first syntax error in `source`.
     ///
     /// ```
     /// use leptos_config_editor::Language;
@@ -130,6 +126,11 @@ impl Language {
 
     /// Renders a data model value as a document in this language.
     ///
+    /// # Errors
+    ///
+    /// [`ConvertError::Unsupported`] when the language cannot express `value`
+    /// (for example a `null` in TOML).
+    ///
     /// ```
     /// use leptos_config_editor::Language;
     /// let value = serde_json::json!({"web": {"http": 80}});
@@ -139,9 +140,15 @@ impl Language {
         codec::serialize(self.codec(), value, None)
     }
 
-    /// Converts a document from this language to `target`. The result lists
-    /// the JSON pointers `target` could not carry exactly (`losses`); comments
-    /// do not survive a conversion.
+    /// Converts a document from this language to `target`.
+    ///
+    /// The result lists the JSON pointers `target` could not carry exactly
+    /// (`losses`). Comments are not carried over.
+    ///
+    /// # Errors
+    ///
+    /// [`ConvertError::Parse`] when `source` does not parse, and
+    /// [`ConvertError::Unsupported`] when `target` cannot express the document.
     ///
     /// ```
     /// use leptos_config_editor::Language;
@@ -209,8 +216,7 @@ impl std::str::FromStr for Language {
 
 #[cfg(test)]
 mod tests {
-    //! Registry invariants. Generic over `Language::ALL`: registering or
-    //! removing a language never requires editing these tests.
+    //! Registry invariants, generic over `Language::ALL`.
 
     use super::*;
     use std::collections::HashSet;

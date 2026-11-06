@@ -2,8 +2,7 @@ use super::metrics::read_editor_metrics;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-/// Delay before schema hover documentation appears, in milliseconds. Long
-/// enough to stay out of the way while moving the mouse across keys.
+/// Hover delay in milliseconds, so moving across keys does not flash cards.
 pub(super) const HOVER_DELAY_MS: i32 = 350;
 
 /// Viewport edge margin for caret-anchored popups, in pixels.
@@ -12,24 +11,19 @@ pub(super) const POPUP_MARGIN: f64 = 8.0;
 /// Gap between the anchored line and a caret-anchored popup, in pixels.
 pub(super) const POPUP_GAP: f64 = 4.0;
 
-/// Fallback viewport size when `window.inner_width/height` is unavailable.
-/// Matches the fallbacks in `diff.rs` and `completion.rs` so offscreen tests
-/// and non-browser renders agree on placement.
+/// Viewport size when `window.inner_width/height` is unavailable; keep in sync
+/// with `diff.rs` and `completion.rs`.
 pub(super) const FALLBACK_VIEWPORT_WIDTH: f64 = 1024.0;
 pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
 
-/// Hover card width cap, in pixels. Mirrors the `max-width: 340px` rule on
-/// `.config-editor__hover` in `preset.css`; the right-edge clamp subtracts this
-/// plus [`POPUP_MARGIN`] so the card never overflows the viewport.
+/// Matches `max-width` on `.config-editor__hover` in `preset.css`.
 pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 
-/// Estimated hover card height, in pixels, used to decide whether the card
-/// flips above the line. Matches the default editor `min-height: 240px` so the
-/// flip threshold tracks the smallest editor the card must fit beside.
+/// Card height assumed when deciding to flip above the line; matches the
+/// editor `min-height` in `preset.css`.
 pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
 
-/// Line index (0-based) and character column of the textarea cell under a
-/// pointer position. Used to decide which key the mouse is hovering.
+/// Zero-based line and column of the textarea cell under a pointer position.
 pub(super) fn pointer_text_position(
     element: &web_sys::HtmlTextAreaElement,
     x: f64,
@@ -48,8 +42,8 @@ pub(super) fn pointer_text_position(
     )
 }
 
-/// Viewport-anchored style for the schema hover card at a key column. Flips
-/// above the line when there is not enough space below it.
+/// Fixed-position style for the hover card; flips above the line when space
+/// below is short.
 pub(super) fn hover_card_style(
     element: &web_sys::HtmlTextAreaElement,
     line: usize,
@@ -93,11 +87,10 @@ pub(super) fn hover_card_style(
     }
 }
 
-/// Keep the caret in the scrollport after programmatic edits. Textarea
-/// `set_selection_range` does not reliably scroll to a newly-set caret, so
-/// Enter and completion expansion adjust `scroll_top` directly. Reports the
-/// new scroll position through `scroll_y` so the highlight overlay stays in
-/// sync with the textarea.
+/// Places the caret and scrolls it into view, mirroring the scroll into
+/// `scroll_y` for the highlight overlay.
+///
+/// `set_selection_range` alone does not reliably scroll the textarea.
 pub(super) fn set_caret_visible(
     editor: &web_sys::HtmlTextAreaElement,
     text: &str,
@@ -163,15 +156,12 @@ pub(super) fn schedule_hover(callback: impl FnOnce() + 'static) {
 mod tests {
     use super::*;
 
-    /// Pins the popup geometry constants to their documented CSS sources so
-    /// a restyle of `preset.css` forces a deliberate update here too.
     #[test]
     fn popup_geometry_constants_match_the_preset_stylesheet() {
         assert_eq!(POPUP_MARGIN, 8.0);
         assert_eq!(POPUP_GAP, 4.0);
         assert_eq!(FALLBACK_VIEWPORT_WIDTH, 1024.0);
         assert_eq!(FALLBACK_VIEWPORT_HEIGHT, 768.0);
-        // `.config-editor__hover` max-width and the editor min-height.
         assert_eq!(HOVER_CARD_MAX_WIDTH, 340.0);
         assert_eq!(HOVER_CARD_ESTIMATED_HEIGHT, 240.0);
     }

@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
-/// Bundled editor color theme. `VsCodeDark` is the default and preserves the
-/// original VS Code-like appearance; the other variants reuse the same layout
-/// with different palettes.
+/// A bundled color theme.
+///
+/// All themes share the same layout; only the palette changes.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 #[non_exhaustive]
 pub enum EditorTheme {
@@ -81,8 +81,10 @@ impl EditorTheme {
         }
     }
 
-    /// Shared layout family (`data-theme`). Themes in the same family share
-    /// typography and spacing so switching palettes never changes text metrics.
+    /// Layout family emitted as `data-theme`.
+    ///
+    /// Themes in one family share typography and spacing, so switching between
+    /// them never changes text metrics.
     pub fn css_family(self) -> &'static str {
         match self {
             Self::VsCodeDark | Self::VsCodeLight | Self::Obsidian | Self::ObsidianLight => {

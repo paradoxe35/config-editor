@@ -1,9 +1,9 @@
 //! YAML text-layer behavior.
 //!
-//! All YAML-coupled logic lives here behind [`LanguageBehavior`]. Shared
-//! orchestration (`diagnostics.rs`, `completion.rs`, `keyboard.rs`) and the
-//! component (`editor.rs`) only touch this through the trait — never by name.
-//! Helpers used only inside YAML stay private free functions in this file.
+//! Decisions: duplicate keys are a parse error; comments are `#` line comments,
+//! toggled per line. Parsing goes through `noyalib`, but completion context and
+//! key/value spans come from line-based scans so they work while the document
+//! is mid-edit and unparsable.
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
@@ -17,8 +17,6 @@ use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use serde_json::Value;
 use std::collections::HashSet;
 
-/// YAML implementation of the shared text-layer trait. Each method delegates
-/// to a private free function below holding the YAML syntax rules.
 pub(super) struct YamlBehavior;
 
 /// This language's registry entry (see `languages/mod.rs`).
@@ -259,14 +257,11 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
         return Some((line, column, end_column));
     }
 
-    // Keys inside an inline `{ ... }` mapping: locate the key token on its
-    // parent's line rather than reporting the whole document's first line.
     if let Some(span) = flow_key_span(source, &wanted) {
         return Some(span);
     }
 
-    // Fall back to the previous first-match behavior for paths the scanner
-    // cannot represent.
+    // Last resort for paths the scanner cannot represent: first line with this key.
     source.lines().enumerate().find_map(|(index, line)| {
         let indent = line.len() - line.trim_start().len();
         let (candidate, _) = line.trim_start().split_once(':')?;
@@ -701,12 +696,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         .saturating_sub(current_line_start)
         .saturating_sub(content_start)
         .min(line_content.len());
-    // A colon to the right of the caret still belongs to the key being edited;
-    // treating it as a value separator can produce a reversed string slice.
+    // A colon right of the caret belongs to the key being edited.
     let colon = candidate_colon.filter(|colon| *colon < cursor_in_content);
-    // Only the text before the caret decides the value position. A trailing
-    // newline (for example from an expanded required property) must not move the
-    // insertion point past the end of the value.
+    // Only text before the caret decides the value start, so a trailing newline
+    // cannot push the insertion point past the value.
     let value_start = colon.map(|colon| {
         let after_colon = &line_content[colon + 1..];
         let before_caret = &after_colon[..cursor_in_content
@@ -823,9 +816,8 @@ fn existing_mapping_keys(
 ) -> Option<HashSet<String>> {
     let parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
-    // A partially typed mapping key makes the whole YAML document temporarily
-    // unparsable. Remove only the active line for the existing-key lookup so
-    // keys already present elsewhere in this mapping remain filtered.
+    // A half-typed key makes the document unparsable, so parse without the
+    // caret's line; the other keys in this mapping still get filtered.
     let line_start = source[..cursor_byte]
         .rfind('\n')
         .map_or(0, |newline| newline + 1);
@@ -957,8 +949,7 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
         if after_dash.trim().is_empty() {
             return format!("\n{indent}- ");
         }
-        // Preserve the document's spacing between the dash and the item's
-        // content so nested lines align exactly with the key column.
+        // Keep the document's dash spacing so nested lines align with the key.
         let content_offset =
             1 + after_dash.len() - after_dash.trim_start_matches([' ', '\t']).len();
         let item_indent = format!(" {}", &code[1..content_offset]);
@@ -968,8 +959,7 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
             if value.is_empty() || is_block_scalar(value) {
                 return format!("\n{indent}{item_indent}{unit}");
             }
-            // An inline mapping inside a sequence item: keep the next key in
-            // the same item, aligned with the current key.
+            // Mapping inside a sequence item: the next key stays in the same item.
             return format!("\n{indent}{item_indent}");
         }
         return format!("\n{indent}- ");
@@ -1229,11 +1219,6 @@ impl super::super::codec::Codec for YamlBehavior {
 
 #[cfg(test)]
 mod tests {
-    //! YAML behavior tests: every rule the YAML text layer implements, pinned
-    //! here next to the implementation. The shared orchestration is exercised
-    //! through thin local forwarders that pin `YamlBehavior`, so test bodies
-    //! read exactly like the old core call sites with zero drift.
-
     use super::super::super::completion::{
         accept_marked, accept_reopens_suggestions, apply_completion,
         completions as shared_completions, key_hover as shared_key_hover,
@@ -1346,10 +1331,8 @@ mod tests {
         .unwrap()
     }
 
-    /// Schema exercising nullable objects, `$ref` branches, `additionalProperties`
-    /// with dynamic keys, enums, and numeric-as-string examples. It lives in
-    /// `tests/fixtures/` (not the workspace-root demo schema) so crate tests never
-    /// reach outside the crate.
+    /// Nullable objects, `$ref` branches, dynamic `additionalProperties` keys,
+    /// enums, and numeric-as-string examples.
     #[cfg(feature = "schema-validation")]
     fn fixture_schema() -> SchemaBundle {
         build_schema(include_str!("../../../tests/fixtures/schema.json")).unwrap()
@@ -1382,17 +1365,14 @@ mod tests {
 
     #[test]
     fn a_pair_does_not_auto_close_before_a_word_character() {
-        // VS Code's autoCloseBefore rule: `|foo` + `[` types a lone bracket.
         assert_eq!(paired_edit("ab", 1, 1, '['), None);
         assert_eq!(paired_edit("foo", 0, 0, '"'), None);
-        // Before closing punctuation it still pairs.
         let (updated, _, _) = paired_edit("[]", 1, 1, '"').unwrap();
         assert_eq!(updated, "[\"\"]");
     }
 
     #[test]
     fn a_quote_after_a_word_character_does_not_pair() {
-        // `don|` + `'` is an apostrophe, not a string.
         assert_eq!(paired_edit("msg: don", 8, 8, '\''), None);
         assert_eq!(paired_edit("name_", 5, 5, '"'), None);
         let (updated, _, _) = paired_edit("msg: ", 5, 5, '\'').unwrap();
@@ -2363,8 +2343,7 @@ mod tests {
     #[test]
     fn value_for_an_expanded_required_key_stays_on_its_line() {
         let schema = fixture_schema();
-        // This is exactly what accepting `metrics` inserts: a trailing newline follows
-        // the empty value of its required `listen` key.
+        // What accepting `metrics` inserts.
         let input = "metrics:\n  listen: \n";
         let cursor = "metrics:\n  listen: ".encode_utf16().count();
         let option = completions(input, cursor, false, Some(&schema), true)
@@ -2417,9 +2396,7 @@ mod tests {
             r#"{"type":"object","properties":{"café":{"type":"string"},"listen":{"type":"integer"}}}"#,
         )
         .unwrap();
-        // `é` is one UTF-16 unit but two UTF-8 bytes, so byte and UTF-16 offsets
-        // diverge before the caret. A byte-based replace end would overshoot and
-        // eat the trailing value when the completion is accepted.
+        // `é` is one UTF-16 unit but two UTF-8 bytes.
         let input = "café: 1\nlis: 2";
         let cursor = "café: 1\nlis".encode_utf16().count();
         let option = completions(input, cursor, false, Some(&schema), true)
