@@ -2,6 +2,8 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
+mod kept_inline;
+
 use super::completion::conform_arrays;
 use super::language::{ConfigLanguage, ParseError, Repetition, Span};
 use serde_json::Value;
@@ -291,7 +293,7 @@ fn replace_inline(
 
 /// The byte offset of the bracket closing the one `text` starts with, on the
 /// same line, outside strings.
-fn matching_close(text: &str, close: char) -> Option<usize> {
+pub(super) fn matching_close(text: &str, close: char) -> Option<usize> {
     let open = text.chars().next()?;
     let mut depth = 0usize;
     let mut quote: Option<char> = None;
@@ -319,6 +321,10 @@ fn matching_close(text: &str, close: char) -> Option<usize> {
 /// line by line, keeping its comments and formatting elsewhere: the host
 /// serializer renders the old and the new value, their line diff is mapped
 /// onto `previous`, and the result is kept only if it reads back as `new`.
+///
+/// One-line containers the host wrote inline (`allow: [a, b]`) are kept as
+/// written: the serializer would spread them over several lines that match
+/// nothing in the host (see [`kept_inline`]).
 pub(super) fn patch_structure(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -326,11 +332,30 @@ pub(super) fn patch_structure(
     new: &Value,
     schema: Option<&Value>,
 ) -> Option<String> {
-    use super::diff::{DiffEdit, myers_edits};
     // An empty host is written whole: there is nothing to keep.
     if previous.trim().is_empty() {
         return None;
     }
+    let reads_as_new = |text: &str| read(language, text, schema).ok().as_ref() == Some(new);
+    if let Some(kept) = kept_inline::hide(language, previous, old, new)
+        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new)
+    {
+        let restored = kept.restore(&patched);
+        if reads_as_new(&restored) {
+            return Some(restored);
+        }
+    }
+    patch_lines(language, previous, old, new).filter(|patched| reads_as_new(patched))
+}
+
+/// [`patch_structure`]'s line diff, unchecked.
+fn patch_lines(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    old: &Value,
+    new: &Value,
+) -> Option<String> {
+    use super::diff::{DiffEdit, myers_edits};
     let before = serialize(language, old, Some(previous)).ok()?;
     let after = serialize(language, new, Some(previous)).ok()?;
     let rendered_old: Vec<&str> = before.lines().collect();
@@ -460,6 +485,7 @@ pub(super) fn patch_structure(
             }
         }
     }
+    drop_doubled_blank_lines(&host, &mut removed, &inserted);
     let mut inserted: Vec<Vec<String>> = inserted
         .into_iter()
         .map(|slot| slot.into_iter().map(str::to_string).collect())
@@ -492,12 +518,35 @@ pub(super) fn patch_structure(
     if previous.ends_with('\n') {
         patched.push('\n');
     }
-    (read(language, &patched, schema).ok()? == *new).then_some(patched)
+    Some(patched)
+}
+
+/// A removed run of lines between two blank lines (or after a blank line at
+/// the end) would leave the blank lines doubled: the one above goes.
+fn drop_doubled_blank_lines(host: &[&str], removed: &mut [bool], inserted: &[Vec<&str>]) {
+    let blank = |index: usize| host[index].trim().is_empty();
+    let mut index = 0;
+    while index < host.len() {
+        if !removed[index] {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < host.len() && removed[index] {
+            index += 1;
+        }
+        let untouched = (start..=index).all(|slot| inserted[slot].is_empty());
+        let after_blank = index == host.len() || blank(index);
+        if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
+            removed[start - 1] = true;
+        }
+    }
 }
 
 /// Shifts each run of deleted lines up while the line before it equals its
 /// last line, so a repeated block (`[[web.certificates]]` items) is deleted
-/// whole from its first line rather than straddling two items.
+/// whole from its first line rather than straddling two items. Closing
+/// brackets stay where the diff put them: they end the block above.
 fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
     use super::diff::DiffEdit;
     let mut changed = true;
@@ -511,7 +560,13 @@ fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
                     .iter()
                     .take_while(|edit| **edit == DiffEdit::Delete)
                     .count();
-                if run > 0 && old[old_index] == old[old_index + run] {
+                // A closer (`}`) ends the block above; sliding past it would
+                // delete that block's end and keep the deleted one's.
+                let closer = old[old_index]
+                    .trim()
+                    .chars()
+                    .all(|character| matches!(character, '}' | ']' | ')' | ','));
+                if run > 0 && !closer && old[old_index] == old[old_index + run] {
                     edits[index] = DiffEdit::Delete;
                     edits[index + run] = DiffEdit::Equal;
                     changed = true;

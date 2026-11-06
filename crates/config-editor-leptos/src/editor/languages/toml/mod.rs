@@ -20,7 +20,7 @@ use parse::*;
 use suggestions::*;
 use editing::*;
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start, entry_follows};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start, entry_follows, in_front_of_inline_entry};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -63,6 +63,10 @@ impl ConfigLanguage for TomlBehavior {
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         toml_value_span(source, pointer).map(Span::from)
+    }
+
+    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {

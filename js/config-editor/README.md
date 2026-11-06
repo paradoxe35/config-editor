@@ -15,7 +15,7 @@ which builds on this package.
 npm install @pngwasi/config-editor
 ```
 
-Browsers only (ES modules + WebAssembly). The `.wasm` file is about 1.4 MB
+Browsers only (ES modules + WebAssembly). The `.wasm` file is about 1.5 MB
 gzipped and loads once per page.
 
 ## Quick start

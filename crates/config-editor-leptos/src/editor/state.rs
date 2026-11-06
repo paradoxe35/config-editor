@@ -130,6 +130,9 @@ pub(super) struct EditorState {
     pub(super) cursor: RwSignal<usize>,
     pub(super) current_line: RwSignal<usize>,
     pub(super) history: RwSignal<EditHistory>,
+    /// The document's indent unit, detected when it is loaded, replaced or
+    /// pasted in (not after every edit, so Tab then Shift+Tab round-trips).
+    pub(super) indent: StoredValue<String>,
     /// Edits in the edit language; `None` while editing as another
     /// language (the conversion in `sync` reports them).
     pub(super) on_change: Option<Callback<String>>,
@@ -194,6 +197,9 @@ pub(super) struct EditorState {
     /// Only the rows in view (plus overscan) exist in the DOM.
     pub(super) visible_rows: Memo<Range<usize>>,
     pub(super) selected_diff_peek: RwSignal<Option<DiffPeek>>,
+    /// The problem F8 moved to, `(line, column)`: its message shows until the
+    /// next key, click or edit.
+    pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
 }
@@ -390,6 +396,7 @@ impl EditorState {
             cursor,
             current_line: RwSignal::new(1),
             history: RwSignal::new(EditHistory::default()),
+            indent: StoredValue::new(super::commands::indent_unit(&shown)),
             on_change,
             host_on_change,
             host_text: StoredValue::new(host_text),
@@ -422,6 +429,7 @@ impl EditorState {
             lines,
             visible_rows,
             selected_diff_peek: RwSignal::new(None),
+            shown_problem: RwSignal::new(None),
         };
         (state, pending)
     }
@@ -556,6 +564,14 @@ impl EditorState {
         });
     }
 
+    /// Detects the indent unit again, for a document loaded or replaced.
+    pub(super) fn redetect_indent(&self) {
+        let unit = self
+            .source
+            .with_untracked(|text| super::commands::indent_unit(text));
+        self.indent.set_value(unit);
+    }
+
     /// Records where the caret is, without touching the textarea.
     pub(super) fn note_caret(&self, offset: usize) {
         self.cursor.set(offset);
@@ -627,6 +643,14 @@ impl EditorState {
         });
         if let Some((line, column)) = position {
             self.focus_at(line, column);
+        }
+        self.shown_problem.set(position);
+    }
+
+    /// Hides the message F8 showed.
+    pub(super) fn hide_shown_problem(&self) {
+        if self.shown_problem.get_untracked().is_some() {
+            self.shown_problem.set(None);
         }
     }
 

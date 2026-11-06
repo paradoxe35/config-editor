@@ -374,3 +374,68 @@ pub(super) fn highlight_end_tag(line: &str, token: Token, out: &mut Tokens) {
     out.push(name_start, name_end, TokenKind::Key);
     out.push(name_end, token.end, TokenKind::Punctuation);
 }
+
+/// The indentation of the line holding the start tag of the innermost open
+/// `name` element in `before`, so a typed `</name>` lines up with it.
+pub(super) fn open_element_indent(before: &str, name: &str) -> Option<String> {
+    let mut open: Vec<(&str, usize)> = Vec::new();
+    let mut at = 0;
+    while let Some(offset) = before[at..].find('<') {
+        let start = at + offset;
+        let rest = &before[start..];
+        let skip_to = |close: &str| rest.find(close).map(|end| start + end + close.len());
+        let next = if rest.starts_with("<!--") {
+            skip_to("-->")
+        } else if rest.starts_with("<![CDATA[") {
+            skip_to("]]>")
+        } else if rest.starts_with("<?") {
+            skip_to("?>")
+        } else if rest.starts_with("<!") {
+            skip_to(">")
+        } else {
+            // The tag's end, outside quoted attribute values.
+            let mut quote = None;
+            let end = rest.char_indices().find_map(|(index, character)| {
+                match quote {
+                    Some(open) if character == open => quote = None,
+                    Some(_) => {}
+                    None if matches!(character, '"' | '\'') => quote = Some(character),
+                    None if character == '>' => return Some(index),
+                    None => {}
+                }
+                None
+            });
+            match end {
+                Some(end) => {
+                    let tag = &rest[..=end];
+                    let tag_name = tag
+                        .trim_start_matches(['<', '/'])
+                        .split(|character: char| character.is_whitespace() || matches!(character, '>' | '/'))
+                        .next()
+                        .unwrap_or("");
+                    if tag.starts_with("</") {
+                        if let Some(index) = open.iter().rposition(|(open_name, _)| *open_name == tag_name) {
+                            open.truncate(index);
+                        }
+                    } else if !tag.ends_with("/>") && !tag_name.is_empty() {
+                        open.push((tag_name, start));
+                    }
+                    Some(start + end + 1)
+                }
+                None => None,
+            }
+        };
+        match next {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    let (_, start) = open.iter().rev().find(|(open_name, _)| *open_name == name)?;
+    let line_start = before[..*start].rfind('\n').map_or(0, |index| index + 1);
+    Some(
+        before[line_start..*start]
+            .chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect(),
+    )
+}

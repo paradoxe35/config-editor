@@ -32,7 +32,12 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     // A selection within one line is replaced, as typing would.
-    let (updated, caret) = replace_selection(&text, start, end, &tab_insert(&text, start));
+    let (updated, caret) = replace_selection(
+        &text,
+        start,
+        end,
+        &tab_insert(&text, start, &state.indent.get_value()),
+    );
     state.commit(Edit::new(text, (start, end), updated, caret));
     state.close_suggestions();
 }
@@ -109,7 +114,8 @@ fn indent_block(
     outdent: bool,
     backward: bool,
 ) {
-    let Some((updated, selection_start, selection_end)) = indent_lines(&text, start, end, outdent)
+    let Some((updated, selection_start, selection_end)) =
+        indent_lines(&text, start, end, outdent, &state.indent.get_value())
     else {
         return;
     };

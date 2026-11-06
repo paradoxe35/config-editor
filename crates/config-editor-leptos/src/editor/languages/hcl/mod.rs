@@ -76,6 +76,10 @@ impl ConfigLanguage for HclBehavior {
         hcl_value_span(source, pointer).map(Span::from)
     }
 
+    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
     fn first_span(&self, source: &str) -> Option<Span> {
         first_line_span(source).map(Span::from)
     }

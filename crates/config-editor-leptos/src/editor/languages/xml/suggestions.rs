@@ -212,7 +212,14 @@ pub(super) fn tag_completion_context(
         ),
         None => (String::new(), replace_end),
     };
+    // Typed in front of an attribute (`<tcp k|nodelay="true"/>`): a suggestion
+    // completing its name renames it, any other goes before it.
+    let name_after = word
+        .filter(|(_, end)| *end > cursor)
+        .map(|(_, end)| source[cursor..end].to_string());
+    let entry_suffix = if name_after.is_some() { " ".to_string() } else { String::new() };
     CompletionContext {
+        entry_after: name_after,
         path: attribute_holder_path(&holder),
         typed,
         replace_start,
@@ -223,7 +230,7 @@ pub(super) fn tag_completion_context(
         base_indent,
         entry_prefix: String::new(),
         explicit_entry_start: false,
-        entry_suffix: String::new(),
+        entry_suffix,
         position: EntryPosition::Attribute,
 ..Default::default()
     }

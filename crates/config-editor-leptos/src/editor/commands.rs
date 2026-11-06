@@ -26,8 +26,8 @@ pub(super) fn line_range(source: &str, cursor: usize) -> (usize, usize) {
 /// What Tab inserts at `cursor` (UTF-16) with no multi-line selection:
 /// spaces up to the next tab stop (`abc|` → `abc |` with 2-space indents),
 /// or a tab in tab-indented documents.
-pub(super) fn tab_insert(source: &str, cursor: usize) -> String {
-    let unit = indent_unit(source);
+pub(super) fn tab_insert(source: &str, cursor: usize, unit: &str) -> String {
+    let unit = unit.to_string();
     if unit == "\t" {
         return unit;
     }
@@ -122,6 +122,7 @@ pub(super) fn indent_lines(
     selection_start: usize,
     selection_end: usize,
     outdent: bool,
+    unit: &str,
 ) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
@@ -137,7 +138,7 @@ pub(super) fn indent_lines(
         return None;
     }
 
-    let unit = indent_unit(source);
+    let unit = unit.to_string();
     let mut edits: Vec<(usize, usize, usize)> = Vec::new();
     let mut updated = String::with_capacity(source.len() + lines.len() * 2);
     let mut offset = 0;
@@ -201,14 +202,14 @@ pub(super) fn indent_lines(
 
 /// Backspace in leading spaces deletes back to the previous indent stop.
 /// Returns the text and caret, or `None` for a plain Backspace.
-pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, usize)> {
+pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Option<(String, usize)> {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
     if before.is_empty() || !before.bytes().all(|byte| byte == b' ') {
         return None;
     }
-    let unit = indent_unit(source);
+    let unit = unit.to_string();
     if unit == "\t" || unit.len() < 2 {
         return None;
     }
@@ -291,15 +292,15 @@ mod tab_tests {
 
     #[test]
     fn tab_goes_to_the_next_tab_stop() {
-        assert_eq!(tab_insert("a:\n  b: 1\nabc", 13), " ");
-        assert_eq!(tab_insert("a:\n  b: 1\n ", 11), " ");
-        assert_eq!(tab_insert("a:\n  b: 1\n", 10), "  ");
+        assert_eq!(tab_insert("a:\n  b: 1\nabc", 13, "  "), " ");
+        assert_eq!(tab_insert("a:\n  b: 1\n ", 11, "  "), " ");
+        assert_eq!(tab_insert("a:\n  b: 1\n", 10, "  "), "  ");
     }
 
     #[test]
     fn shift_tab_goes_back_to_the_previous_tab_stop() {
         let source = "a:\n  b: 1\n     c: 2\n";
-        let (updated, _, _) = indent_lines(source, 12, 12, true).unwrap();
+        let (updated, _, _) = indent_lines(source, 12, 12, true, "  ").unwrap();
         assert_eq!(updated, "a:\n  b: 1\n    c: 2\n");
     }
 }
@@ -342,17 +343,33 @@ mod tests {
     #[test]
     fn backspace_in_indentation_removes_one_indent_unit() {
         assert_eq!(
-            at("a:\n  b: 1\n    |", backspace_indent).as_deref(),
+            at("a:\n  b: 1\n    |", |source, cursor| backspace_indent(
+                source, cursor, "  "
+            ))
+            .as_deref(),
             Some("a:\n  b: 1\n  |")
         );
         // Off a stop, it returns to the previous stop.
         assert_eq!(
-            at("a:\n  b: 1\n   |", backspace_indent).as_deref(),
+            at("a:\n  b: 1\n   |", |source, cursor| backspace_indent(
+                source, cursor, "  "
+            ))
+            .as_deref(),
             Some("a:\n  b: 1\n  |")
         );
         // After content it is a plain Backspace.
-        assert_eq!(at("a:\n  b|", backspace_indent), None);
-        assert_eq!(at("|a", backspace_indent), None);
+        assert_eq!(
+            at("a:\n  b|", |source, cursor| backspace_indent(
+                source, cursor, "  "
+            )),
+            None
+        );
+        assert_eq!(
+            at("|a", |source, cursor| backspace_indent(
+                source, cursor, "  "
+            )),
+            None
+        );
     }
 
     #[test]
@@ -417,7 +434,7 @@ mod tests {
 
     #[test]
     fn indenting_a_selection_leaves_blank_lines_blank() {
-        let (updated, _, _) = indent_lines("a:\n\n  b: 1\n", 0, 9, false).unwrap();
+        let (updated, _, _) = indent_lines("a:\n\n  b: 1\n", 0, 9, false, "  ").unwrap();
         assert_eq!(updated, "  a:\n\n    b: 1\n");
     }
 }

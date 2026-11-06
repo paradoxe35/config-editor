@@ -113,14 +113,14 @@ pub(super) fn tokenize_markup(source: &str, bytes: &[u8], tag_start: usize) -> O
     let mut name_end = index;
     while name_end < source.len() {
         let next = source[name_end..].chars().next().unwrap_or('\0');
-        if next.is_whitespace() || matches!(next, '/' | '>' | '=' | '"' | '\'') {
+        if next.is_whitespace() || matches!(next, '/' | '>' | '<' | '=' | '"' | '\'') {
             break;
         }
         name_end += next.len_utf8();
     }
     Some(Token {
         start: tag_start,
-        end: find_markup_end(source, name_end),
+        end: open_tag_end(source, name_end),
         kind: Kind::OpenTag {
             closing: false,
             name_end,
@@ -152,6 +152,17 @@ pub(super) fn find_markup_end(source: &str, from: usize) -> usize {
     source[from..]
         .find('>')
         .map_or(source.len(), |relative| from + relative + 1)
+}
+
+/// The byte after a start tag's `>`. A tag still being typed (`<t` then a
+/// new line with `<tls>`) ends before the next `<`, which can only start
+/// the next tag, so the elements after it keep their places.
+pub(super) fn open_tag_end(source: &str, from: usize) -> usize {
+    match source[from..].find(['>', '<']) {
+        Some(relative) if source.as_bytes()[from + relative] == b'>' => from + relative + 1,
+        Some(relative) => from + relative,
+        None => source.len(),
+    }
 }
 
 /// Splits the inside of an open tag (`<name ...`) into attribute tokens:

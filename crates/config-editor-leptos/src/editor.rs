@@ -236,5 +236,14 @@ fn remeasure_on_window_changes(state: EditorState) {
     });
 }
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_tests;
 #[cfg(test)]
 mod tests;

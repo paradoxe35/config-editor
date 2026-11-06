@@ -6,6 +6,7 @@ use web_sys::KeyboardEvent;
 use super::super::completion::{
     COMPLETION_PAGE_ROWS, apply_completion, scroll_completion_into_view,
 };
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 
 /// Ctrl+Space opens the list, schema examples included.
@@ -23,10 +24,11 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Accepting what is already typed would change nothing, so Enter and Tab
 /// close the list and edit as usual, after stepping past the value
 /// (`"balance|"` → `"balance"|`) so Enter starts a new line instead of
-/// splitting it.
+/// splitting it. When the line goes on after the value (`nodelay| = true`),
+/// Enter only closes the list.
 ///
 /// Returns whether the list is still open for the key, or `None` when the
-/// key was handled here (Tab).
+/// key was handled here.
 pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> Option<bool> {
     let options = state.suggestions.get_untracked();
     if options.is_empty() {
@@ -55,7 +57,18 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         state.cursor.set(caret);
     }
     state.close_suggestions();
-    if key == "Tab" {
+    // Text after the caret on its line (`nodelay| = true`) would be split
+    // off by a new line: Enter only closes the list there. A closer the
+    // editor inserted (`</mode>`) is stepped out of by Enter instead.
+    let line_continues = state.closer_at(caret).is_none()
+        && state.source.with_untracked(|text| {
+            let byte = utf16_to_byte_index(text, caret);
+            text[byte..]
+                .lines()
+                .next()
+                .is_some_and(|rest| !rest.trim().is_empty())
+        });
+    if key == "Tab" || line_continues {
         event.prevent_default();
         return None;
     }

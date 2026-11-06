@@ -15,6 +15,12 @@ use super::state::EditorState;
 
 pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     state.hide_hover();
+    if !matches!(
+        event.key().as_str(),
+        "F8" | "Shift" | "Control" | "Alt" | "Meta"
+    ) {
+        state.hide_shown_problem();
+    }
     if navigation::smart_home(state, event) || navigation::keep_placeholder(state, event) {
         return;
     }
@@ -33,6 +39,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || suggestions::request(state, event)
         || navigation::next_problem(state, event)
         || typing::toggle_comments(state, event)
+        || typing::join_with_next_line(state, event)
         || (state.features.auto_closing && typing::pairs_and_tags(state, event))
         || typing::indentation(state, event);
     if handled {

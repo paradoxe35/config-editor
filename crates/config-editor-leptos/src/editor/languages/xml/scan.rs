@@ -83,7 +83,7 @@ pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
                 if name.is_empty() {
                     continue;
                 }
-                let self_closing = source[..token.end].ends_with("/>");
+                let self_closing = opens_nothing(source, token);
                 let id = nodes.len();
                 nodes.push(PlannedNode {
                     name,
@@ -220,7 +220,7 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
         }
         match token.kind {
             Kind::OpenTag { .. } => {
-                let self_closing = source[..token.end].ends_with("/>");
+                let self_closing = opens_nothing(source, &token);
                 let name = token_name(source, &token);
                 // A bare `<` (or `< >`) opens nothing; its attributes, if any,
                 // still belong to no element.
@@ -450,4 +450,11 @@ pub(super) fn xml_text(value: &Value) -> String {
         Value::String(value) => value.clone(),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
+}
+
+/// Whether a start tag holds no children: `<name/>`, or a tag still being
+/// typed that the next tag cut short (`<t` then `<tls>` on the next line).
+fn opens_nothing(source: &str, tag: &Token) -> bool {
+    let text = &source[..tag.end];
+    text.ends_with("/>") || (!text.ends_with('>') && tag.end < source.len())
 }

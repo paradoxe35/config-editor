@@ -62,9 +62,9 @@ pub use super::completion::{
 };
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
-    InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, inline_caret,
-    inline_key_at, inline_key_paths, inline_keys, inline_sibling_keys, inline_value_len,
-    skip_quoted, statement_start, statements, string_end_at_caret,
+    InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, in_front_of_inline_entry,
+    inline_caret, inline_key_at, inline_key_paths, inline_keys, inline_sibling_keys,
+    inline_value_len, skip_quoted, statement_start, statements, string_end_at_caret,
 };
 pub use super::keyboard::utf16_to_byte_index;
 use serde_json::Value;
@@ -737,6 +737,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// [`value_span`](Self::value_span) for each of `pointers`. A language
+    /// whose lookup reads the whole document overrides it to read it once.
+    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        pointers
+            .iter()
+            .map(|pointer| self.value_span(source, pointer))
+            .collect()
+    }
+
     /// Where whole-document problems are marked: the first non-blank
     /// character.
     fn first_span(&self, source: &str) -> Option<Span> {
@@ -948,6 +957,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// writes, and Enter after a value typed before one steps past it.
     fn closing_markup_len(&self, text: &str) -> Option<usize> {
         let _ = text;
+        None
+    }
+
+    /// The byte range of the container at `pointer` when the document writes
+    /// it on one line in a form other than `{…}` or `[…]` (an XML element
+    /// with its children on one line: the range between its tags). A
+    /// structural Edit-as save keeps such a container as written.
+    fn one_line_container(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+        let _ = (source, pointer);
         None
     }
 }

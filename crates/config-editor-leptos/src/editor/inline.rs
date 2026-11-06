@@ -4,7 +4,7 @@
 //! and containers spanning lines are handled here once. Functions taking
 //! `code` read one statement: a line, or from [`statement_start`] to the caret.
 
-use super::language::SchemaPathSegment;
+use super::language::{CompletionContext, SchemaPathSegment};
 
 /// A `key <separator>` on one line: the key's byte range and the byte just past
 /// the separator.
@@ -182,6 +182,8 @@ pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<S
         }
     };
     walk(code, separator, |event| match event {
+        // The key the caret is in is being typed or renamed: not a sibling.
+        Event::Key(key) if key.start < at && at <= key.end => {}
         Event::Key(key) => {
             check_caret(&stack, key.start);
             keys.push((
@@ -218,6 +220,33 @@ pub fn entry_follows(rest: &str, separator: u8) -> bool {
     inline_keys(rest, separator)
         .first()
         .is_some_and(|key| key.start == 0)
+}
+
+/// `context` for a key typed in an inline container right before more text
+/// (`{k|nodelay: true}`, `rest` being the line after the caret). When an
+/// entry follows, a suggestion completing its key renames it and any other
+/// is inserted before it with a comma between; a bare word after the caret
+/// is replaced.
+pub fn in_front_of_inline_entry(
+    mut context: CompletionContext,
+    rest: &str,
+    separator: u8,
+) -> CompletionContext {
+    let word: String = rest
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    if entry_follows(rest, separator) {
+        context.entry_suffix = if word.is_empty() {
+            ",".into()
+        } else {
+            ", ".into()
+        };
+        context.entry_after = Some(word);
+    } else {
+        context.replace_end += word.encode_utf16().count();
+    }
+    context
 }
 
 /// The byte just past the quoted string starting at `start`, or the end.

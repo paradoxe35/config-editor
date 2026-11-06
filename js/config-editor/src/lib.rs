@@ -42,7 +42,7 @@ export interface EditorOptions {
   schema?: string;
   /** Text the diff gutter compares against. Default: the initial `value`. */
   baseline?: string;
-  /** File name shown in the toolbar and footer. */
+  /** File name shown in the toolbar. */
   fileName?: string;
   theme?: ThemeName;
   colors?: ThemeColorMap;
@@ -84,12 +84,14 @@ export interface CustomLanguage {
   extensions?: string[];
   /** Parse to a JSON value, or throw `{ message, line?, column? }`. */
   parse(text: string): unknown;
-  serialize?(value: unknown): string;
+  /** Text for a JSON value (the document model, usually an object). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  serialize?(value: any): string;
   /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer. */
   keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
-  highlight?(line: string): { start: number; end: number; kind: string }[];
+  highlight?(line: string): { start: number; end: number; kind: string }[] | null | undefined | void;
   /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment. */
   comments?: { lineComment?: string | string[] };
   /** Bracket pairs Enter opens across lines, e.g. `[["{", "}"], ["[", "]"]]`. */
@@ -490,7 +492,7 @@ impl ConfigEditor {
                     if let Some(callback) = state.on_edit_as_change.try_get_value().flatten() {
                         call_host(
                             &callback,
-                            &JsValue::from_str(&language.label().to_ascii_lowercase()),
+                            &JsValue::from_str(&language.label().to_lowercase()),
                         );
                     }
                 };
@@ -640,7 +642,7 @@ impl ConfigEditor {
         Ok(())
     }
 
-    /// Replaces the color overrides; `{}` or `null` clears them.
+    /// Replaces the color overrides; `{}` clears them.
     #[wasm_bindgen(js_name = setColors)]
     pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
         let _ = self.state.colors.try_set(colors_from(&colors.into())?);
@@ -823,7 +825,7 @@ pub fn convert(
 pub fn languages() -> Names {
     let mut names: Vec<String> = Language::ALL
         .iter()
-        .map(|language| language.label().to_ascii_lowercase())
+        .map(|language| language.label().to_lowercase())
         .collect();
     REGISTERED.with(|languages| names.extend(languages.borrow().keys().cloned()));
     to_js(&names).unchecked_into()

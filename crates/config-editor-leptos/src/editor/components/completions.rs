@@ -75,7 +75,7 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
             class="config-editor__completion"
             class:config-editor__completion-active=selected
             on:mousedown=move |event| event.prevent_default()
-            on:mouseenter=move |_| state.active_completion.set(index)
+            on:mousemove=move |event| hover_selects(state, index, &event)
             on:click=move |_| state.accept(&option, false)
         >
             <span class="config-editor__completion-icon" aria-hidden="true">{icon}</span>
@@ -89,5 +89,14 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
                 })}
             </span>
         </button>
+    }
+}
+
+/// The pointer selects the item it moves over. The list opening under a
+/// pointer that stays still keeps the keyboard's selection.
+fn hover_selects(state: EditorState, index: usize, event: &web_sys::MouseEvent) {
+    let moved = event.movement_x() != 0 || event.movement_y() != 0;
+    if moved && state.active_completion.get_untracked() != index {
+        state.active_completion.set(index);
     }
 }

@@ -44,6 +44,18 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         };
     }
 
+    // A block label (`services "|" {`) names an entry; it is not a property.
+    if in_block_label(before_caret) {
+        return CompletionContext {
+            path,
+            replace_start: utf16(&source[..cursor]),
+            replace_end: utf16(&source[..cursor]),
+            base_indent,
+            no_properties: true,
+            ..Default::default()
+        };
+    }
+
     // Inside containers opened on this line (`a = { b = [{ … }, { | }] }`):
     // the path above the line comes from the scan at the line start, the
     // rest from the line itself.
@@ -606,4 +618,25 @@ pub(super) fn hcl_text(value: &Value) -> String {
             format!("{{ {} }}", pairs.join(", "))
         }
     }
+}
+
+/// Whether the caret ends `before_caret` inside a quoted label of a block
+/// header (`services "|`): a word, then labels, no `=`.
+fn in_block_label(before_caret: &str) -> bool {
+    let code = before_caret.trim_start();
+    if assignment_equals(code).is_some() || !code.starts_with(|character: char| character.is_alphabetic() || character == '_') {
+        return false;
+    }
+    let mut open = false;
+    let mut escaped = false;
+    for character in code.chars() {
+        match character {
+            _ if escaped => escaped = false,
+            '\\' if open => escaped = true,
+            '"' => open = !open,
+            '{' | '[' | '(' if !open => return false,
+            _ => {}
+        }
+    }
+    open
 }

@@ -483,6 +483,17 @@ pub(super) fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, u
                 let start = start + last_segment_start(&code[start..end]);
                 return Some(span_between(source, offset + start, offset + end));
             }
+            // A dotted key below the path (`bogus.deep` for `/limits/bogus`)
+            // names it with one of its segments.
+            if full.len() > wanted.len()
+                && full.starts_with(&wanted)
+                && wanted.len() > table.len()
+                && let Some((segment_start, segment_end)) =
+                    segment_range(&code[start..end], wanted.len() - table.len() - 1)
+            {
+                let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
+                return Some(span_between(source, offset + start + segment_start, offset + start + segment_end));
+            }
             // `key = { nested = … }` keeps every nested key on this line.
             if let Some((key_start, key_end, _, _)) = inline_entry_at(code, &full, &wanted) {
                 let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
@@ -507,41 +518,59 @@ pub(super) fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, u
 }
 
 pub(super) fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
+    toml_value_spans(source, &[path.to_string()]).pop().flatten()
+}
+
+/// [`toml_value_span`] for each of `paths`, reading the document once.
+pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
+    let wanted: Vec<Vec<String>> = paths.iter().map(|path| pointer_segments(path)).collect();
+    let mut found = vec![None; wanted.len()];
     let lines: Vec<&str> = source.lines().collect();
     let tables = table_paths(&lines);
+    let mut offset = 0;
     for (index, line) in lines.iter().enumerate() {
-        let table = path_strings(&tables[index]);
+        let line_offset = offset;
+        offset += line.len() + 1;
         let (code, _) = split_toml_comment(line);
         let Some((key, _, _)) = key_assignment(code) else {
             continue;
         };
-        let mut full = table.clone();
-        for segment in split_key_path(&key).unwrap_or_else(|| vec![key.clone()]) {
-            full.push(segment);
-        }
-        if full == wanted
-            && let Some((start, end)) = value_span_in_line(code)
-        {
-            let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
-            if code[start..].trim_start().starts_with(['{', '[']) {
-                let (line_number, column) = line_column(source, offset + start);
-                return Some((line_number, column, column + 1));
+        let mut full = path_strings(&tables[index]);
+        full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
+        for (slot, wanted) in found.iter_mut().zip(&wanted) {
+            if slot.is_some() || !wanted.starts_with(&full) {
+                continue;
             }
-            return Some(span_between(source, offset + start, offset + end));
-        }
-        // A value nested in an inline table points at that entry's value.
-        if let Some((_, _, value_start, value_end)) = inline_entry_at(code, &full, &wanted) {
-            let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
-            if code[value_start..].trim_start().starts_with(['{', '[']) {
-                let (line_number, column) = line_column(source, offset + value_start);
-                return Some((line_number, column, column + 1));
-            }
-            return (value_start < value_end)
-                .then(|| span_between(source, offset + value_start, offset + value_end));
+            *slot = line_value_span(source, code, line_offset, &full, wanted);
         }
     }
-    None
+    found
+}
+
+/// The span of `wanted` on a line whose key path is `full`: its value, or a
+/// value nested in an inline table there. A container is marked at its
+/// opening bracket.
+fn line_value_span(
+    source: &str,
+    code: &str,
+    offset: usize,
+    full: &[String],
+    wanted: &[String],
+) -> Option<(usize, usize, usize)> {
+    let (start, end) = if full == wanted {
+        value_span_in_line(code)?
+    } else {
+        let (_, _, value_start, value_end) = inline_entry_at(code, full, wanted)?;
+        if value_start >= value_end && !code[value_start..].trim_start().starts_with(['{', '[']) {
+            return None;
+        }
+        (value_start, value_end)
+    };
+    if code[start..].trim_start().starts_with(['{', '[']) {
+        let (line_number, column) = line_column(source, offset + start);
+        return Some((line_number, column, column + 1));
+    }
+    Some(span_between(source, offset + start, offset + end))
 }
 
 pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
@@ -557,6 +586,34 @@ pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
 
 /// Where the last segment of a dotted key starts (after its last `.` outside
 /// quotes, and any spaces), in bytes; 0 for a plain key.
+/// The byte range of segment `wanted` (from 0) of a dotted key, trimmed.
+fn segment_range(key: &str, wanted: usize) -> Option<(usize, usize)> {
+    let mut quote: Option<char> = None;
+    let mut segment = 0;
+    let mut segment_start = 0;
+    let trimmed = |from: usize, to: usize| {
+        let text = &key[from..to];
+        let start = from + text.len() - text.trim_start().len();
+        (start, start + text.trim().len())
+    };
+    for (index, character) in key.char_indices() {
+        match quote {
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if character == '.' => {
+                if segment == wanted {
+                    return Some(trimmed(segment_start, index));
+                }
+                segment += 1;
+                segment_start = index + 1;
+            }
+            None => {}
+        }
+    }
+    (segment == wanted).then(|| trimmed(segment_start, key.len()))
+}
+
 fn last_segment_start(key: &str) -> usize {
     let mut quote: Option<char> = None;
     let mut last_dot = None;

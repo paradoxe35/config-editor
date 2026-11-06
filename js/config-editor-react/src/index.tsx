@@ -90,6 +90,12 @@ export interface ConfigEditorHandle {
   readonly value: string;
   /** The underlying `@pngwasi/config-editor` instance, once mounted. */
   readonly editor: Editor | null;
+  /**
+   * Replaces the document, always. A `value` prop equal to one still on its
+   * way through a late parent is taken as that late echo; a reset to such a
+   * text goes through here.
+   */
+  setValue(value: string): void;
 }
 
 /**
@@ -257,6 +263,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         },
         get editor() {
           return editor.current;
+        },
+        setValue(value: string) {
+          pending.current = [];
+          if (carried.current) carried.current.value = value;
+          guard((instance) => {
+            if (instance.value !== value) instance.setValue(value);
+          });
         },
       }),
       [],

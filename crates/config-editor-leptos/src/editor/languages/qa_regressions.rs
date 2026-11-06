@@ -1393,3 +1393,77 @@ fn yaml_enter_after_block_scalars_anchors_and_tags_indents_their_content() {
         assert_eq!(newline.text, expected, "Enter after {source:?}");
     }
 }
+
+#[test]
+fn xml_leaves_out_children_that_come_after_the_caret() {
+    let offered = labels(
+        Language::XML,
+        "<websocket><listen>1</listen>\n  <t|\n  <tls><cert>a</cert><key>b</key></tls></websocket>\n",
+    );
+    assert!(!offered.contains(&"tls".to_string()), "{offered:?}");
+}
+
+#[test]
+fn accepting_the_key_already_typed_in_front_of_its_value_changes_nothing() {
+    assert_eq!(
+        accept(Language::TOML, "[tcp]\nnodelay| = true\n", "nodelay"),
+        "[tcp]\nnodelay| = true\n"
+    );
+    assert_eq!(
+        accept(Language::YAML, "tcp:\n  nodelay|: true\n", "nodelay"),
+        "tcp:\n  nodelay|: true\n"
+    );
+    assert_eq!(accept(Language::HCL, "tcp| {\n}\n", "tcp"), "tcp| {\n}\n");
+}
+
+#[test]
+fn a_key_typed_in_front_of_an_inline_entry_goes_before_it() {
+    assert_eq!(
+        accept(Language::XML, "<tcp k|nodelay=\"true\"/>", "keepalive_secs"),
+        "<tcp keepalive_secs=\"30|\" nodelay=\"true\"/>"
+    );
+    assert_eq!(
+        accept(Language::YAML, "tcp: {k|nodelay: true}\n", "keepalive_secs"),
+        "tcp: {keepalive_secs: 30|, nodelay: true}\n"
+    );
+    assert_eq!(
+        accept(
+            Language::TOML,
+            "tcp = {k|nodelay = true}\n",
+            "keepalive_secs"
+        ),
+        "tcp = {keepalive_secs = 30|, nodelay = true}\n"
+    );
+    // A suggestion completing the key renames it.
+    assert_eq!(
+        accept(Language::YAML, "tcp: {node|lay: true}\n", "nodelay"),
+        "tcp: {nodelay|: true}\n"
+    );
+}
+
+#[test]
+fn an_hcl_block_label_gets_no_property_suggestions() {
+    let offered = labels(Language::HCL, "services \"|\" {\n}\n");
+    assert!(offered.is_empty(), "{offered:?}");
+    let offered = labels(Language::HCL, "clients \"a\" \"|\" {\n}\n");
+    assert!(offered.is_empty(), "{offered:?}");
+    // A string value is still a value.
+    assert!(!labels(Language::HCL, "public_address = \"|\"\n").contains(&"listen".to_string()));
+}
+
+#[test]
+fn a_deep_toml_dotted_unknown_key_is_marked_on_its_segment() {
+    use super::super::diagnostics::validate;
+    let bundle = burrow();
+    for (source, line, column) in [
+        ("listen = 1\n[limits]\nbogus.deep = 1\n", 3, 1),
+        ("listen = 1\nlimits.bogus.deep = 1\n", 2, 8),
+    ] {
+        let markers: Vec<(Option<usize>, Option<usize>)> =
+            validate(source, Some(&bundle), None, true, Language::TOML.behavior())
+                .into_iter()
+                .map(|diagnostic| (diagnostic.line, diagnostic.column))
+                .collect();
+        assert_eq!(markers, vec![(Some(line), Some(column))], "{source}");
+    }
+}

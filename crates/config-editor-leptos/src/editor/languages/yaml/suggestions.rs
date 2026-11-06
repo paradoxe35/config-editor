@@ -510,20 +510,16 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         };
         return match caret.entry {
             CaretEntry::Key { start } => {
-                let tail: usize = source[cursor..]
-                    .chars()
-                    .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
-                    .map(char::len_utf8)
-                    .sum();
-                match caret.separator_at {
+                let base = match caret.separator_at {
                     // After a value with no comma yet, the comma goes right after it.
                     Some(separator) => CompletionContext {
                         entry_prefix: ", ".into(),
                         explicit_entry_start: true,
-                        ..context(path, typed_from(start), separator, cursor + tail)
+                        ..context(path, typed_from(start), separator, cursor)
                     },
-                    None => context(path, typed_from(start), start, cursor + tail),
-                }
+                    None => context(path, typed_from(start), start, cursor),
+                };
+                in_front_of_inline_entry(base, &source[cursor..line_end], b':')
             }
             CaretEntry::Value { key, start } => CompletionContext {
                 value_key: Some(key),

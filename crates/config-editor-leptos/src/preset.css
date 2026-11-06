@@ -501,7 +501,8 @@
 }
 
 .config-editor__diagnostic-marker:hover::after,
-.config-editor__diagnostic-marker:focus-visible::after { display: block; }
+.config-editor__diagnostic-marker:focus-visible::after,
+.config-editor__diagnostic-marker-shown::after { display: block; }
 
 .config-editor__diagnostic-marker-near-top::after {
   top: calc(100% + 5px);

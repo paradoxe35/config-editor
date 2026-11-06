@@ -34,6 +34,12 @@ function App({ schema }: { schema: string }) {
   useEffect(() => {
     void ready.then(() => setThemeNames(themes() as unknown as string[]));
   }, []);
+  // A discard that also drops an edit the late parent has not applied yet.
+  const discard = (text: string) => {
+    clearTimeout(lateTimer.current);
+    setValue(text);
+    handle.current?.setValue(text);
+  };
 
   return (
     <>
@@ -69,6 +75,9 @@ function App({ schema }: { schema: string }) {
         </button>
         <button id="reset" type="button" onClick={() => setValue(initialText)}>
           Reset
+        </button>
+        <button id="force-reset" type="button" onClick={() => discard(initialText)}>
+          Reset (always)
         </button>
         <button id="bad-theme" type="button" onClick={() => setTheme("not-a-theme")}>
           Invalid theme

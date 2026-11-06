@@ -481,6 +481,24 @@ test.describe('react: late parents and failed mounts', () => {
     await expect(input(browserPage)).toHaveValue(before);
   });
 
+  test('ref.setValue resets to a text the user just passed through', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?late');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('k2: 2');
+    await expect(saved(browserPage)).toContainText('k2: 2');
+    for (let count = 0; count < 5; count += 1) await browserPage.keyboard.press('Backspace');
+    await browserPage.keyboard.type('k3: 3');
+    // Before the late parent applies it, discard back to the initial text.
+    await browserPage.locator('#force-reset').click();
+    await expect(input(browserPage)).toHaveValue(before);
+    await browserPage.waitForTimeout(600);
+    await expect(input(browserPage)).toHaveValue(before);
+    await expect(saved(browserPage)).not.toContainText('k3');
+  });
+
   test('fixing a prop that failed a re-mount brings the editor back', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'react.html');
     await browserPage.locator('#bad-theme').click();

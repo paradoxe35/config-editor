@@ -100,14 +100,33 @@ pub(super) fn inline_key(source: &str, wanted: &[String]) -> Option<(usize, usiz
 }
 
 pub(super) fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
+    hcl_value_spans(source, &[path.to_string()]).pop().flatten()
+}
+
+/// [`hcl_value_span`] for each of `paths`, reading the document once.
+pub(super) fn hcl_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
     let scan = analyze(source, 0);
-    let Some(attribute) = scan
+    let attributes: Vec<(Vec<String>, (usize, usize))> = scan
         .attributes
         .iter()
-        .find(|attribute| attribute_path(&scan, attribute) == wanted)
+        .map(|attribute| (attribute_path(&scan, attribute), attribute.value_span))
+        .collect();
+    paths
+        .iter()
+        .map(|path| span_in_scan(source, &attributes, &pointer_segments(path)))
+        .collect()
+}
+
+fn span_in_scan(
+    source: &str,
+    attributes: &[(Vec<String>, (usize, usize))],
+    wanted: &[String],
+) -> Option<(usize, usize, usize)> {
+    let Some((_, value_span)) = attributes
+        .iter()
+        .find(|(path, _)| path == wanted)
     else {
-        let (_, _, value_start) = inline_key(source, &wanted)?;
+        let (_, _, value_start) = inline_key(source, wanted)?;
         let start = value_start + (source[value_start..].len() - source[value_start..].trim_start().len());
         if source[start..].starts_with(['{', '[']) {
             let (line, column) = line_column(source, start);
@@ -116,7 +135,7 @@ pub(super) fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, 
         let end = start + inline_value_len(&source[start..]);
         return (end > start).then(|| span_between(source, start, end));
     };
-    let (start, end) = attribute.value_span;
+    let (start, end) = *value_span;
     if end <= start {
         return None;
     }

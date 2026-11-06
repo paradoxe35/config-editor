@@ -66,11 +66,16 @@ impl ConfigLanguage for XmlBehavior {
         let indent = &line[..line.len() - content.len()];
         let closes = content.starts_with("</")
             && content[2..].chars().all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'));
-        if !closes || indent.is_empty() {
+        if !closes {
             return None;
         }
-        let unit = indent_unit(source);
-        Some(indent.strip_suffix(unit.as_str()).unwrap_or("").to_string())
+        // Lined up with the start tag it closes; without one in sight, one
+        // level out from this line.
+        let target = open_element_indent(&source[..line_start], &content[2..]).unwrap_or_else(|| {
+            let unit = indent_unit(source);
+            indent.strip_suffix(unit.as_str()).unwrap_or("").to_string()
+        });
+        (target != indent).then_some(target)
     }
 
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
@@ -169,13 +174,14 @@ impl ConfigLanguage for XmlBehavior {
     /// rootless unless `previous` had a config root, which is kept along with
     /// its declaration.
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        let Value::Object(map) = value else {
-            return Err("the XML document model is an object of elements".to_string());
-        };
         if let Some(pointer) = empty_key(value, String::new()) {
             return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
+        let attributes = previous.map(attribute_paths).unwrap_or_default();
+        let Value::Object(map) = &with_attributes(value, &attributes, &mut Vec::new()) else {
+            return Err("the XML document model is an object of elements".to_string());
+        };
         let mut out = String::new();
         if let Some(declaration) = &framing.declaration {
             out.push_str(declaration);
@@ -210,6 +216,10 @@ impl ConfigLanguage for XmlBehavior {
     /// Inside empty elements (`<k>|</k>`).
     fn empty_value_slots(&self, text: &str) -> Vec<usize> {
         text.match_indices("></").map(|(at, _)| at + 1).collect()
+    }
+
+    fn one_line_container(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+        one_line_element(source, pointer)
     }
 
     /// An end tag, `</name>`.

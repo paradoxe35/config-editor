@@ -76,6 +76,10 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         state.current_line.set(line_at_cursor(&value, position));
     }
     state.source.set(value);
+    // Pasted or dropped text may bring its own indentation.
+    if matches!(input_type.as_str(), "insertFromPaste" | "insertFromDrop") {
+        state.redetect_indent();
+    }
     if let Some(on_change) = state.on_change {
         on_change.run(state.source.get_untracked());
     }
@@ -85,6 +89,7 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
     }
     state.suggestions_requested.set(auto_trigger || refilter);
     state.hide_hover();
+    state.hide_shown_problem();
 }
 
 /// Hovering a key shows its schema docs after a short pause.
@@ -146,6 +151,7 @@ pub(super) fn blur(state: EditorState) {
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.forget_typing_aids();
+    state.hide_shown_problem();
     if let Some(element) = target_textarea(event) {
         let (position, _) = textarea_selection(&element);
         state.note_caret(position);
@@ -162,6 +168,10 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
         return;
     };
     let (start, end) = textarea_selection(&element);
+    // Whether the list was open when the key moved the caret: ArrowUp/Down
+    // with it closed are caret navigation, even when the new caret position
+    // would have suggestions.
+    let list_was_open = !state.suggestions.with_untracked(Vec::is_empty);
     // A selection (Ctrl+A, Shift+arrows) ends any suggestion list.
     if start != end && state.suggestions_requested.get_untracked() {
         state.close_suggestions();
@@ -173,9 +183,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     // open list instead (handled on keydown).
     let navigation = match event.key().as_str() {
         "ArrowLeft" | "ArrowRight" | "Home" | "End" => true,
-        "ArrowUp" | "ArrowDown" | "PageUp" | "PageDown" => {
-            state.suggestions.with_untracked(Vec::is_empty)
-        }
+        "ArrowUp" | "ArrowDown" | "PageUp" | "PageDown" => !list_was_open,
         _ => false,
     };
     if navigation {

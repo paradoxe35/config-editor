@@ -10,10 +10,10 @@ editor.setEditAs(null); editor.setTheme(null); editor.setCallbacks({ onChange: n
 const env = registerLanguage({
   label: "ENV", icon: "E", extensions: ["env"],
   parse(text) { return Object.fromEntries(text.split("\n").filter(Boolean).map((line) => line.split("="))); },
-  serialize(value) { return Object.entries(value as object).map(([key, item]) => `${key}=${item}`).join("\n") + "\n"; },
+  serialize(value) { return Object.entries(value).map(([key, item]) => `${key}=${item}`).join("\n") + "\n"; },
   keySpan(text, pointer) {},
   valueSpan(text, pointer) { },
-  highlight(line) { return []; },
+  highlight(line) {},
   comments: { lineComment: "#" },
   brackets: [["{", "}"], ["[", "]"]],
   separators: ["="],

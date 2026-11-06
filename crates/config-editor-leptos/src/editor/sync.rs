@@ -55,6 +55,7 @@ fn follow_value(state: EditorState, value: Signal<String>) {
                 let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
             }
             state.source.set(edit);
+            state.redetect_indent();
         }
     });
 }
@@ -260,6 +261,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
             }
             state.diagnosed_text.set(converted.clone());
             state.source.set(converted);
+            state.redetect_indent();
         }
         Err(error) => {
             state.pending_switch.set(Some(next));

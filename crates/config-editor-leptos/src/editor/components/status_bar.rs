@@ -49,7 +49,10 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                     </button>
                 })}
                 <span class="config-editor__line-count">
-                    {move || format!("{} lines", state.source.get().split('\n').count())}
+                    {move || {
+                        let count = state.source.with(|text| text.split('\n').count());
+                        format!("{count} {}", if count == 1 { "line" } else { "lines" })
+                    }}
                 </span>
             </span>
         </div>

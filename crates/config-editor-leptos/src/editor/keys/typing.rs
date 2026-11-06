@@ -114,6 +114,9 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         state.remember_closer(&source, next, closer.len - 1, closer.opener);
     }
     state.place_caret(next);
+    // The value or container is finished: its suggestions are done too.
+    state.close_suggestions();
+    state.explicit_request.set(false);
     true
 }
 
@@ -242,6 +245,30 @@ fn open_pair(
     true
 }
 
+/// Ctrl+Delete at the end of a line joins the next one to it, dropping its
+/// indentation, as in VS Code (the browser would delete its first word too).
+pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> bool {
+    if !(event.ctrl_key() || event.meta_key()) || event.shift_key() || event.key() != "Delete" {
+        return false;
+    }
+    let Some(element) = state.textarea() else {
+        return false;
+    };
+    let (start, end) = textarea_selection(&element);
+    let text = state.source.get_untracked();
+    let byte = utf16_to_byte_index(&text, start);
+    if start != end || !text[byte..].starts_with('\n') {
+        return false;
+    }
+    event.prevent_default();
+    let rest = &text[byte + 1..];
+    let indentation = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    let removed = text[byte..byte + 1 + indentation].encode_utf16().count();
+    let (updated, _) = replace_selection(&text, start, start + removed, "");
+    state.commit(Edit::new(text, (start, end), updated, start));
+    true
+}
+
 /// Backspace in indentation removes one unit; a closer on a blank line
 /// aligns with its opener.
 pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -257,7 +284,7 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     let text = state.source.get_untracked();
     let edit = match event.key().as_str() {
-        "Backspace" => backspace_indent(&text, start),
+        "Backspace" => backspace_indent(&text, start, &state.indent.get_value()),
         "}" => typed_closer(&text, start, '}', state.behavior()),
         "]" => typed_closer(&text, start, ']', state.behavior()),
         ")" => typed_closer(&text, start, ')', state.behavior()),

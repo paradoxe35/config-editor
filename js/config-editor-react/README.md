@@ -73,7 +73,11 @@ and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
 
 A parent that applies `onChange` values late cannot roll the document back to
-an older one; any other `value` it sets (a revert, a reset) is applied.
+an older one: a `value` equal to one the editor sent and newer ones are still
+on their way is taken as that late echo. Any other `value` (a revert, a reset)
+is applied. To reset to a text the user may have just passed through while a
+late parent is catching up, call `ref.current.setValue(text)`, which always
+applies.
 
 ## Ref
 
@@ -86,6 +90,7 @@ const ref = useRef<ConfigEditorHandle>(null);
 
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted
+ref.current?.setValue(saved); // replace the document, always
 ```
 
 ## Other exports

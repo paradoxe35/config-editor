@@ -96,16 +96,20 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let at = |offset: usize| statement + offset;
         return match caret.entry {
             // After a value with no comma yet, the comma goes right after it.
-            CaretEntry::Key { start } => CompletionContext {
-                typed: code_before[start..].trim_end().to_string(),
-                replace_start: utf16(&source[..at(caret.separator_at.unwrap_or(start))]),
-                replace_end: utf16(&source[..cursor]),
-                entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
-                explicit_entry_start: caret.separator_at.is_some(),
-                path: full,
-                position: EntryPosition::Inline,
-                ..Default::default()
-            },
+            CaretEntry::Key { start } => in_front_of_inline_entry(
+                CompletionContext {
+                    typed: code_before[start..].trim_end().to_string(),
+                    replace_start: utf16(&source[..at(caret.separator_at.unwrap_or(start))]),
+                    replace_end: utf16(&source[..cursor]),
+                    entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
+                    explicit_entry_start: caret.separator_at.is_some(),
+                    path: full,
+                    position: EntryPosition::Inline,
+                    ..Default::default()
+                },
+                source[cursor..].lines().next().unwrap_or(""),
+                b'=',
+            ),
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: code_before[start..].trim_end().to_string(),
                 replace_start: utf16(&source[..at(start)]),

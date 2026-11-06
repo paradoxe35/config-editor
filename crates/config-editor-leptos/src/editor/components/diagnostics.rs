@@ -57,6 +57,7 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
             class="config-editor__diagnostic-marker"
             class:config-editor__diagnostic-marker-warning=warning
             class:config-editor__diagnostic-marker-eof=at_end
+            class:config-editor__diagnostic-marker-shown=move || state.shown_problem.get() == Some((line, column))
             // Near the top of the viewport (not of the document), the message
             // opens below its line.
             class:config-editor__diagnostic-marker-near-top=move || {

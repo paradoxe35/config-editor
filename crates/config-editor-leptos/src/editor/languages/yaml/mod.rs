@@ -21,7 +21,7 @@ use super::super::commands::indent_unit;
 use super::super::highlight::{Token, TokenKind, Tokens};
 use super::super::inline::{caret_value_end, 
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
-    statement_start, entry_follows,
+    statement_start, entry_follows, in_front_of_inline_entry,
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;

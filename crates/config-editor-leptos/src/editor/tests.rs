@@ -225,12 +225,12 @@ fn indentation_unit_matches_the_document_style() {
 fn tab_indents_selected_lines_and_shift_tab_outdents_them() {
     let source = "one:\ntwo:\n";
     let (indented, start, end) =
-        indent_lines(source, 0, source.encode_utf16().count(), false).unwrap();
+        indent_lines(source, 0, source.encode_utf16().count(), false, "  ").unwrap();
     assert_eq!(indented, "  one:\n  two:\n");
     assert_eq!(start, 0);
     assert_eq!(end, indented.encode_utf16().count());
 
-    let (outdented, _, _) = indent_lines(&indented, start, end, true).unwrap();
+    let (outdented, _, _) = indent_lines(&indented, start, end, true, "  ").unwrap();
     assert_eq!(outdented, source);
 }
 
