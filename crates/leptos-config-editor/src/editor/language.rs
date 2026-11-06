@@ -62,8 +62,9 @@ pub use super::completion::{
 };
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
-    InlineCaret, InlineEntry, InlineKey, entry_follows, inline_caret, inline_key_at, inline_keys,
-    inline_sibling_keys, inline_value_len, skip_quoted,
+    InlineCaret, InlineEntry, InlineKey, entry_follows, inline_caret, inline_key_at,
+    inline_key_paths, inline_keys, inline_sibling_keys, inline_value_len, skip_quoted,
+    statement_start, statements,
 };
 pub use super::keyboard::utf16_to_byte_index;
 use serde_json::Value;
@@ -173,6 +174,87 @@ pub fn unclosed_brackets(line_prefix: &str) -> usize {
         }
     }
     depth
+}
+
+/// Enter in bracketed syntax, for the `pairs` the language allows to span
+/// lines:
+/// - between a pair (`[|]`) the caret lands on an indented middle line and
+///   the closer moves below it;
+/// - after an opener the new line is indented one level;
+/// - before a closer, the closer moves to a new line aligned with the line
+///   that opened it;
+/// - otherwise the line's indentation is kept.
+///
+/// `code` strips a trailing comment from the text before the caret on its
+/// line, so an opener inside a comment does not count.
+pub fn bracket_newline(
+    source: &str,
+    cursor: usize,
+    pairs: &[(char, char)],
+    code: impl Fn(&str) -> &str,
+) -> Newline {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let indent = line_indent(&source[line_start..]);
+    let before = code(&source[line_start..byte]).trim_end_matches([' ', '\t']);
+    let after = source[byte..].trim_start_matches([' ', '\t']);
+    let opens = before
+        .chars()
+        .last()
+        .filter(|last| pairs.iter().any(|(open, _)| open == last));
+    let closes = after
+        .chars()
+        .next()
+        .filter(|next| pairs.iter().any(|(_, close)| close == next));
+    let unit = super::commands::indent_unit(source);
+    match (opens, closes) {
+        (Some(_), Some(_)) => Newline::with_caret(
+            format!("\n{indent}{unit}\n{indent}"),
+            1 + indent.len() + unit.len(),
+        ),
+        (Some(_), None) => Newline::new(format!("\n{indent}{unit}")),
+        (None, Some(closer)) => {
+            let opener = pairs
+                .iter()
+                .find(|(_, close)| *close == closer)
+                .map(|(open, _)| *open);
+            let aligned = opener
+                .and_then(|opener| opener_line(source, byte, opener, closer))
+                .map_or(indent, |start| line_indent(&source[start..]));
+            Newline::new(format!("\n{aligned}"))
+        }
+        (None, None) => Newline::new(format!("\n{indent}")),
+    }
+}
+
+fn line_indent(line: &str) -> &str {
+    &line[..line.len() - line.trim_start_matches([' ', '\t']).len()]
+}
+
+/// The start of the line holding the innermost `opener` still open at
+/// `byte`, skipping double-quoted strings.
+fn opener_line(source: &str, byte: usize, opener: char, closer: char) -> Option<usize> {
+    let mut open = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, character) in source[..byte].char_indices() {
+        if in_string {
+            match character {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+        } else if character == '"' {
+            in_string = true;
+        } else if character == opener {
+            open.push(index);
+        } else if character == closer {
+            open.pop();
+        }
+    }
+    let index = *open.last()?;
+    Some(source[..index].rfind('\n').map_or(0, |newline| newline + 1))
 }
 
 /// The [`InlineBlock`] for the byte range `start..end` on a line where `depth`
@@ -291,6 +373,40 @@ pub fn pointer_segments(path: &str) -> Vec<String> {
         .skip(1)
         .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
         .collect()
+}
+
+/// What Enter writes: `text` replaces the caret's selection plus the next
+/// `replaces` bytes, and the caret lands `caret` bytes into `text`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Newline {
+    /// The text written.
+    pub text: String,
+    /// The caret's byte offset within `text`.
+    pub caret: usize,
+    /// Bytes after the caret that `text` replaces, so Enter can step over
+    /// closers (`{ a = 1| }` in TOML moves past ` }`).
+    pub replaces: usize,
+}
+
+impl Newline {
+    /// `text` written at the caret, with the caret after it.
+    pub fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
+        Newline {
+            caret: text.len(),
+            text,
+            replaces: 0,
+        }
+    }
+
+    /// `text` written at the caret, with the caret `caret` bytes into it.
+    pub fn with_caret(text: impl Into<String>, caret: usize) -> Self {
+        Newline {
+            text: text.into(),
+            caret,
+            replaces: 0,
+        }
+    }
 }
 
 /// What the editor shows for a language: its label, toolbar icon, and file
@@ -451,18 +567,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Vec::new()
     }
 
-    /// The text Enter inserts at `cursor` and the caret's byte offset within
-    /// it. The default keeps the line's indentation.
-    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
+    /// What Enter writes at `cursor` (UTF-16). The default keeps the line's
+    /// indentation.
+    fn newline(&self, source: &str, cursor: usize) -> Newline {
         let byte = super::keyboard::utf16_to_byte_index(source, cursor);
         let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
         let indent: String = source[line_start..byte]
             .chars()
             .take_while(|character| matches!(character, ' ' | '\t'))
             .collect();
-        let text = format!("\n{indent}");
-        let caret = text.len();
-        (text, caret)
+        Newline::new(format!("\n{indent}"))
     }
 
     /// The document with the selected lines commented or uncommented, and the
@@ -474,6 +588,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
         let _ = (source, selection_start, selection_end);
+        None
+    }
+
+    /// Text to insert after the caret when `typed` is typed at `cursor`
+    /// (UTF-16), such as the end tag XML writes when `>` finishes `<bob>`.
+    fn auto_close_tag(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        let _ = (source, cursor, typed);
         None
     }
 

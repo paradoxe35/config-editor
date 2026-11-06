@@ -20,14 +20,16 @@ use history::EditHistory;
 mod diff;
 use diff::{DiffKind, DiffPeek, LineDiff, diff_lines, peek_popup_style, peek_survives_edit};
 mod keyboard;
-use keyboard::{delete_empty_pair, paired_edit, replace_selection, skip_closing_pair};
+use keyboard::{
+    delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
+};
 mod diagnostics;
 use bridge::Bridge;
 use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, validate};
 mod completion;
 use completion::{
     COMPLETION_PAGE_ROWS, KeyHover, accept_reopens_suggestions, apply_completion,
-    completion_popup_style, completions, key_hover, scroll_completion_into_view,
+    completion_popup_style, completions, inserted_closers, key_hover, scroll_completion_into_view,
     should_auto_trigger,
 };
 mod commands;
@@ -284,6 +286,9 @@ pub fn ConfigEditor(
     let active_completion = RwSignal::new(0usize);
     let suggestions_requested = RwSignal::new(false);
     let explicit_request = RwSignal::new(false);
+    // Closers the editor inserted, as UTF-16 distances from the document end
+    // (typing inside the pair keeps them). Only these are typed over.
+    let auto_closers = StoredValue::new(Vec::<usize>::new());
     let hover_card = RwSignal::new(None::<HoverCard>);
     let hover_pending = StoredValue::new(None::<(usize, String)>);
     let hover_token = StoredValue::new(0u64);
@@ -483,6 +488,7 @@ pub fn ConfigEditor(
         if let Some(completion) = options.get(active_completion.get()) {
             let (updated, anchor, new_cursor) =
                 apply_completion(&source.get_untracked(), completion);
+            auto_closers.set_value(inserted_closers(completion, &updated, new_cursor));
             let before = source.get_untracked();
             let request_completions =
                 accept_reopens_suggestions(completion, auto_trigger_completions);
@@ -928,6 +934,12 @@ pub fn ConfigEditor(
                                         .unwrap_or_default();
                                     let auto_trigger = auto_trigger_completions
                                         && should_auto_trigger(&input_type, &before, &value);
+                                    if matches!(
+                                        input_type.as_str(),
+                                        "insertFromPaste" | "insertFromDrop" | "deleteByCut" | "deleteByDrag"
+                                    ) {
+                                        auto_closers.update_value(Vec::clear);
+                                    }
                                     // Backspace with the list open refilters it instead of closing.
                                     let refilter = input_type == "deleteContentBackward"
                                         && suggestions_requested.get_untracked()
@@ -1016,6 +1028,7 @@ pub fn ConfigEditor(
                                     hide_hover();
                                 }
                                 on:click=move |event| {
+                                    auto_closers.update_value(Vec::clear);
                                     if let Some(element) = event
                                         .target()
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
@@ -1047,6 +1060,9 @@ pub fn ConfigEditor(
                                             }
                                             _ => false,
                                         };
+                                        if navigation {
+                                            auto_closers.update_value(Vec::clear);
+                                        }
                                         if navigation && suggestions_requested.get_untracked() {
                                             suggestions_requested.set(false);
                                             explicit_request.set(false);
@@ -1084,6 +1100,7 @@ pub fn ConfigEditor(
                                             || (event.ctrl_key() && key == "y"));
                                     if is_undo || is_redo {
                                         event.prevent_default();
+                                        auto_closers.update_value(Vec::clear);
                                         let current = source.get_untracked();
                                         let current_cursor = event
                                             .target()
@@ -1231,7 +1248,14 @@ pub fn ConfigEditor(
                                                     ')' | ']' | '}' | '"' | '\'' => Some(character),
                                                     _ => None,
                                                 };
+                                                let distance = source.with_untracked(|text| text.encode_utf16().count()) - start;
+                                                // Typed over: closers the editor wrote, and the quote
+                                                // that ends the string the caret is in.
                                                 if let Some(closing) = closing
+                                                    && (auto_closers.with_value(|closers| closers.contains(&distance))
+                                                        || matches!(closing, '"' | '\'')
+                                                            && behavior().lexical_state(&source.get_untracked(), start).quote
+                                                                == Some(closing))
                                                     && let Some(next_cursor) = skip_closing_pair(
                                                         &source.get_untracked(),
                                                         start,
@@ -1239,6 +1263,7 @@ pub fn ConfigEditor(
                                                     )
                                                 {
                                                     event.prevent_default();
+                                                    auto_closers.update_value(|closers| closers.retain(|closer| *closer != distance));
                                                     cursor.set(next_cursor);
                                                     current_line.set(line_at_cursor(
                                                         &source.get_untracked(),
@@ -1258,6 +1283,8 @@ pub fn ConfigEditor(
                                                     delete_empty_pair(&before, start)
                                                 {
                                                     event.prevent_default();
+                                                    let distance = before.encode_utf16().count() - start;
+                                                    auto_closers.update_value(|closers| closers.retain(|closer| *closer != distance));
                                                     commit_edit(
                                                         updated,
                                                         new_cursor,
@@ -1277,6 +1304,34 @@ pub fn ConfigEditor(
                                                 }
                                             }
 
+                                            if start == end
+                                                && key.chars().count() == 1
+                                                && let Some(typed) = key.chars().next()
+                                                && let Some(end_tag) = behavior().auto_close_tag(&source.get_untracked(), start, typed)
+                                            {
+                                                event.prevent_default();
+                                                let before = source.get_untracked();
+                                                let (updated, _) = replace_selection(&before, start, end, &format!("{typed}{end_tag}"));
+                                                let caret = start + typed.len_utf16();
+                                                commit_edit(
+                                                    updated,
+                                                    caret,
+                                                    None,
+                                                    before,
+                                                    start,
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    Some(element.clone()),
+                                                    scroll_y,
+                                                    false,
+                                                );
+                                                suggestions_requested.set(false);
+                                                return;
+                                            }
+
                                             if key.chars().count() == 1
                                                 && let Some(opening) = key.chars().next()
                                                 && let Some((updated, selection_start, selection_end)) =
@@ -1293,6 +1348,8 @@ pub fn ConfigEditor(
                                                 // suggestions here when the pair starts an entry.
                                                 let opens_entry = selection_start == selection_end
                                                     && behavior().entry_started(&updated, selection_start);
+                                                let distance = updated.encode_utf16().count() - selection_end;
+                                                auto_closers.update_value(|closers| closers.push(distance));
                                                 commit_edit(
                                                     updated,
                                                     selection_end,
@@ -1486,10 +1543,14 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                let (insertion, caret) = behavior().newline(&text, start);
-                                                let (updated, _) = replace_selection(&text, start, end, &insertion);
-                                                // `caret` is a byte index; the cursor is in UTF-16 units.
-                                                let new_cursor = start + insertion[..caret].encode_utf16().count();
+                                                let newline = behavior().newline(&text, start);
+                                                // `replaces` and `caret` are bytes; the cursor is in UTF-16 units.
+                                                let end_byte = utf16_to_byte_index(&text, end);
+                                                let replaced_end = end + text[end_byte..(end_byte + newline.replaces).min(text.len())]
+                                                    .encode_utf16()
+                                                    .count();
+                                                let (updated, _) = replace_selection(&text, start, replaced_end, &newline.text);
+                                                let new_cursor = start + newline.text[..newline.caret].encode_utf16().count();
                                                 commit_edit(
                                                     updated,
                                                     new_cursor,
@@ -1588,6 +1649,7 @@ pub fn ConfigEditor(
                                             }
                                             on:click=move |_| {
                                                 let (updated, anchor, new_cursor) = apply_completion(&source.get_untracked(), &apply);
+                                                auto_closers.set_value(inserted_closers(&apply, &updated, new_cursor));
                                                 let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
                                                 hide_hover();
                                                 commit_edit(

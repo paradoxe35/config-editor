@@ -115,6 +115,7 @@ pub(super) fn render(line: &str, tokens: &[Token]) -> AnyView {
 /// runs, with plain text as `None`, after checking the tokens are ordered and
 /// in range.
 #[cfg(test)]
+#[allow(dead_code, reason = "used by the language test modules")]
 pub(super) fn runs(line: &str, tokens: &[Token]) -> Vec<(Option<TokenKind>, String)> {
     let mut out = Vec::new();
     let mut at = 0;

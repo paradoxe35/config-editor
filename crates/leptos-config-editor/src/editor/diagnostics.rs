@@ -1,4 +1,6 @@
-use super::language::{ConfigLanguage, Span};
+use super::language::ConfigLanguage;
+#[cfg(feature = "schema-validation")]
+use super::language::Span;
 #[cfg(feature = "schema-validation")]
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;

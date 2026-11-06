@@ -19,7 +19,7 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{CompletionContext, Newline, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -35,6 +35,10 @@ pub(super) struct XmlBehavior;
 impl ConfigLanguage for XmlBehavior {
     fn repeats_arrays(&self) -> bool {
         true
+    }
+
+    fn auto_close_tag(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        (typed == '>').then(|| end_tag_for(source, cursor)).flatten()
     }
 
     fn info(&self) -> LanguageInfo {
@@ -101,8 +105,9 @@ impl ConfigLanguage for XmlBehavior {
         highlight(line)
     }
 
-    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
-        newline_insertion(source, cursor)
+    fn newline(&self, source: &str, cursor: usize) -> Newline {
+        let (text, caret) = newline_insertion(source, cursor);
+        Newline::with_caret(text, caret)
     }
 
     fn toggle_comments(
@@ -1906,15 +1911,44 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
     }
 }
 
-/// Whether the `>` before the caret closes an opening tag (not a closing or
-/// self-closing one and not inside a comment).
+/// `</name>` when a `>` typed at `cursor` would finish the start tag `<name …`,
+/// unless that end tag already follows.
+fn end_tag_for(source: &str, cursor: usize) -> Option<String> {
+    let byte = utf16_to_byte_index(source, cursor);
+    let before = &source[..byte];
+    let tag_start = before.rfind('<')?;
+    let tag = &before[tag_start + 1..];
+    if tag.contains('>') || tag.starts_with(['/', '?', '!']) || tag.trim_end().ends_with('/') {
+        return None;
+    }
+    // A `>` inside an attribute value is text.
+    if tag.matches('"').count() % 2 == 1 || tag.matches('\'').count() % 2 == 1 {
+        return None;
+    }
+    let name: String = tag
+        .chars()
+        .take_while(|character| !character.is_whitespace() && *character != '/')
+        .collect();
+    if name.is_empty() {
+        return None;
+    }
+    let end_tag = format!("</{name}>");
+    (!source[byte..].trim_start().starts_with(&end_tag)).then_some(end_tag)
+}
+
+/// Whether the `>` before the caret closes an opening tag (not a closing,
+/// self-closing, or declaration tag, and not a comment).
 fn is_open_tag_tail(source: &str, byte: usize) -> bool {
     let before = &source[..byte];
     let Some(tag_start) = before.rfind('<') else {
         return false;
     };
     let tag = &before[tag_start..];
-    !(tag.starts_with("</") || tag.starts_with("<!--") || tag.trim_end().ends_with('/'))
+    // `<?xml …?>`, `<!-- … -->`, and `<!DOCTYPE …>` open no element.
+    !(tag.starts_with("</")
+        || tag.starts_with("<?")
+        || tag.starts_with("<!")
+        || tag.trim_end().ends_with('/'))
 }
 
 /// Enter between `<tag>|</tag>` opens a block: the caret lands on an indented
@@ -2657,7 +2691,7 @@ mod tests {
 
     #[test]
     fn enter_between_tags_puts_the_caret_on_an_indented_middle_line() {
-        let (text, caret) = XmlBehavior.newline("<a></a>", 3);
+        let super::Newline { text, caret, .. } = XmlBehavior.newline("<a></a>", 3);
         assert_eq!(text, "\n  \n");
         assert_eq!(caret, 3);
     }

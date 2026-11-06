@@ -13,7 +13,7 @@ use super::super::inline::{
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
@@ -90,10 +90,15 @@ impl ConfigLanguage for YamlBehavior {
         highlight(line)
     }
 
-    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
-        let text = newline_with_indent(source, cursor);
-        let caret = text.len();
-        (text, caret)
+    fn newline(&self, source: &str, cursor: usize) -> Newline {
+        // Between flow brackets (`[|]`) the collection opens across lines.
+        let byte = utf16_to_byte_index(source, cursor);
+        let before = source[..byte].trim_end_matches([' ', '\t']);
+        let after = source[byte..].trim_start_matches([' ', '\t']);
+        if before.ends_with(['[', '{']) && after.starts_with([']', '}']) {
+            return bracket_newline(source, cursor, &[('{', '}'), ('[', ']')], code_before_comment);
+        }
+        Newline::new(newline_with_indent(source, cursor))
     }
 
     fn toggle_comments(
@@ -1310,6 +1315,10 @@ fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
 
 
 #[cfg(test)]
+#[cfg_attr(
+    not(feature = "schema-validation"),
+    allow(unused_imports, dead_code, reason = "the completion tests need schema validation")
+)]
 mod tests {
     use super::super::super::completion::{
         accept_marked, accept_reopens_suggestions, apply_completion,
@@ -1406,7 +1415,7 @@ mod tests {
     }
 
     fn newline_with_indent(source: &str, cursor: usize) -> String {
-        YamlBehavior.newline(source, cursor).0
+        YamlBehavior.newline(source, cursor).text
     }
 
     fn toggle_yaml_line_comments(
@@ -1473,9 +1482,9 @@ mod tests {
     }
 
     #[test]
-    fn opening_bracket_does_not_duplicate_a_closing_bracket_ahead() {
+    fn an_opening_bracket_pairs_even_before_an_outer_closer() {
         let (updated, selection_start, selection_end) = paired_edit(")", 0, 0, '(').unwrap();
-        assert_eq!(updated, "()");
+        assert_eq!(updated, "())");
         assert_eq!((selection_start, selection_end), (1, 1));
     }
 

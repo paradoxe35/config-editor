@@ -140,6 +140,9 @@ fn line_diff_clears_after_baseline_is_accepted() {
 fn closing_pair_typing_moves_over_the_existing_character() {
     assert_eq!(skip_closing_pair("text)", 4, ')'), Some(5));
     assert_eq!(skip_closing_pair("text]", 4, ')'), None);
+    // An escaped quote is text, not the string's end.
+    assert_eq!(skip_closing_pair("\"a\\\"", 3, '"'), None);
+    assert_eq!(skip_closing_pair("\"a\\\\\"", 4, '"'), Some(5));
 }
 
 #[test]

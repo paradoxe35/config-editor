@@ -2,10 +2,12 @@
 //! (`KEY=value` lines). It gets schema validation with positions, highlighting,
 //! and conversion to and from every built-in language.
 
+use leptos_config_editor::Language;
+#[cfg(feature = "schema-validation")]
+use leptos_config_editor::Schema;
 use leptos_config_editor::language::{
     ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
 };
-use leptos_config_editor::{Language, Schema};
 use serde_json::{Map, Value};
 
 struct DotEnv;
@@ -121,6 +123,7 @@ impl ConfigLanguage for DotEnv {
 static DOTENV: DotEnv = DotEnv;
 const ENV: Language = Language::new(&DOTENV);
 
+#[cfg(feature = "schema-validation")]
 const SCHEMA: &str = r#"{
     "type": "object",
     "properties": {

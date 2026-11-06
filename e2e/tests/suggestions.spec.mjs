@@ -130,7 +130,9 @@ test.describe('TOML arrays of tables', () => {
     await expect.poll(() => e.keys()).toContain('certificates');
     await page.keyboard.press('Enter');
     await expect(e.input).toHaveValue('[web]\n[[web.certificates]]\nhosts = []\n');
-    await page.keyboard.type('"a.example"');
+    // The suggestion wrote the `]`, so typing one steps over it.
+    await page.keyboard.type('"a.example"]');
+    await expect(e.input).toHaveValue('[web]\n[[web.certificates]]\nhosts = ["a.example"]\n');
     await expect.poll(() => e.diagnosticCount()).toBe(0);
   });
 

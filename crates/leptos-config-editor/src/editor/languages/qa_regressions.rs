@@ -343,3 +343,127 @@ fn typing_a_number_does_not_open_value_suggestions_unless_asked() {
     // Asked for, they are listed.
     assert!(!labels(Language::YAML, "limits:\n  max_pending: 5|\n").is_empty());
 }
+
+/// The document after pressing Enter at `|`, with the caret marked.
+fn enter(language: Language, marked: &str) -> String {
+    let at = marked.find('|').unwrap();
+    let source = marked.replacen('|', "", 1);
+    let newline = language
+        .behavior()
+        .newline(&source, source[..at].encode_utf16().count());
+    let mut text = source[..at].to_string();
+    text.push_str(&newline.text[..newline.caret]);
+    text.push('|');
+    text.push_str(&newline.text[newline.caret..]);
+    text.push_str(&source[at + newline.replaces..]);
+    text
+}
+
+#[test]
+fn enter_between_brackets_opens_a_middle_line() {
+    assert_eq!(enter(Language::JSON, "{\"a\": [|]}"), "{\"a\": [\n  |\n]}");
+    assert_eq!(enter(Language::YAML, "ports: [|]\n"), "ports: [\n  |\n]\n");
+    assert_eq!(enter(Language::YAML, "web: {|}\n"), "web: {\n  |\n}\n");
+    assert_eq!(
+        enter(Language::TOML, "ports = [|]\n"),
+        "ports = [\n  |\n]\n"
+    );
+    assert_eq!(enter(Language::HCL, "ports = [|]\n"), "ports = [\n  |\n]\n");
+    assert_eq!(enter(Language::HCL, "web {|}\n"), "web {\n  |\n}\n");
+}
+
+#[test]
+fn enter_before_a_closer_aligns_it_with_its_opener() {
+    assert_eq!(
+        enter(Language::JSON, "{\n  \"a\": 1|}"),
+        "{\n  \"a\": 1\n|}"
+    );
+    assert_eq!(
+        enter(Language::JSON, "{\n  \"a\": [1, 2|]\n}"),
+        "{\n  \"a\": [1, 2\n  |]\n}"
+    );
+    // A bracket inside a string does not count.
+    assert_eq!(
+        enter(Language::JSON, "{\n  \"a\": \"[\",\n  \"b\": 1|}"),
+        "{\n  \"a\": \"[\",\n  \"b\": 1\n|}"
+    );
+    assert_eq!(
+        enter(Language::HCL, "web {\n  a = 1|}\n"),
+        "web {\n  a = 1\n|}\n"
+    );
+}
+
+#[test]
+fn toml_enter_steps_out_of_lines_that_cannot_span() {
+    // An inline table: the next key belongs to the enclosing table.
+    assert_eq!(
+        enter(
+            Language::TOML,
+            "[[web.letsencrypt.dns]]\ncloudflare = { token = \"tok\"| }\n"
+        ),
+        "[[web.letsencrypt.dns]]\ncloudflare = { token = \"tok\" }\n|\n"
+    );
+    assert_parses(
+        Language::TOML,
+        &enter(Language::TOML, "a = { b = { c = 1| } }\n").replace('|', "d = 2"),
+    );
+    // A table header typed with its auto-closed bracket.
+    assert_eq!(enter(Language::TOML, "[web|]\n"), "[web]\n|\n");
+    // Inside a string Enter is literal.
+    assert_eq!(
+        enter(Language::TOML, "a = { b = \"x| }\" }\n"),
+        "a = { b = \"x\n| }\" }\n"
+    );
+}
+
+#[test]
+fn enter_keeps_the_indentation_of_a_finished_line() {
+    assert_eq!(
+        enter(Language::YAML, "limits:\n  max_pending: 512|\n"),
+        "limits:\n  max_pending: 512\n  |\n"
+    );
+    assert_eq!(
+        enter(
+            Language::XML,
+            "<limits>\n  <max_pending>512</max_pending>|\n</limits>\n"
+        ),
+        "<limits>\n  <max_pending>512</max_pending>\n  |\n</limits>\n"
+    );
+    // The prolog and comments open nothing.
+    assert_eq!(
+        enter(Language::XML, "<?xml version=\"1.0\"?>|\n<burrow/>\n"),
+        "<?xml version=\"1.0\"?>\n|\n<burrow/>\n"
+    );
+    assert_eq!(
+        enter(Language::XML, "<!-- note -->|\n"),
+        "<!-- note -->\n|\n"
+    );
+}
+
+#[test]
+fn typing_the_end_of_an_xml_start_tag_writes_its_end_tag() {
+    let close = |marked: &str| {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        Language::XML
+            .behavior()
+            .auto_close_tag(&source, source[..at].encode_utf16().count(), '>')
+    };
+    assert_eq!(
+        close("<clients>\n  <bob|\n</clients>"),
+        Some("</bob>".into())
+    );
+    assert_eq!(close("<web enabled=\"true\"|"), Some("</web>".into()));
+    // Nothing to close: end tags, self-closing tags, declarations, comments,
+    // `>` inside an attribute value, or the end tag already there.
+    for marked in [
+        "</bob|",
+        "<bob/|",
+        "<?xml version=\"1.0\"?|",
+        "<!-- a -|",
+        "<a b=\"x|",
+        "<bob|</bob>",
+    ] {
+        assert_eq!(close(marked), None, "{marked}");
+    }
+}

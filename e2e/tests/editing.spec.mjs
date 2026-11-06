@@ -179,3 +179,107 @@ test.describe('suggestions open only while typing', () => {
     expect(await e.isOpen()).toBe(false);
   });
 });
+
+// Puts the caret at `|` in a pasted document.
+async function at(page, marked) {
+  const e = editor(page);
+  const position = marked.indexOf('|');
+  await e.paste(marked.replace('|', ''));
+  await e.input.evaluate((element, offset) => {
+    element.focus();
+    element.setSelectionRange(offset, offset);
+  }, position);
+  return e;
+}
+
+test.describe('json: pairs and overtyping', () => {
+  setupEditor(test, '?language=json');
+
+  test('an opening brace before an outer closer still pairs', async ({ page }) => {
+    const e = await at(page, '{"services": {"web": |}}');
+    await page.keyboard.type('{');
+    expect(await e.value()).toBe('{"services": {"web": {}}}');
+  });
+
+  test('a closer the editor inserted is typed over; one already there is not', async ({ page }) => {
+    const e = await at(page, '{"a": |}');
+    await page.keyboard.type('[1]');
+    expect(await e.value()).toBe('{"a": [1]}');
+    // The `}` was pasted, not inserted: typing one adds it.
+    await page.keyboard.type('}');
+    expect(await e.value()).toBe('{"a": [1]}}');
+  });
+
+  test('a quote after a backslash is text, not the end of the string', async ({ page }) => {
+    const e = await at(page, '{"a": |}');
+    await page.keyboard.type('"x\\"');
+    expect(await e.value()).toBe('{"a": "x\\""}');
+  });
+
+  test('Enter before a closer puts it on its own line, aligned with its opener', async ({ page }) => {
+    const e = await at(page, '{\n  "a": 1|}');
+    await page.keyboard.press('Enter');
+    expect(await e.value()).toBe('{\n  "a": 1\n}');
+    expect(await e.caret()).toMatchObject({ line: 3, column: 1 });
+  });
+});
+
+for (const [language, marked, expected] of [
+  ['yaml', 'ports: [|]\n', 'ports: [\n  \n]\n'],
+  ['toml', 'ports = [|]\n', 'ports = [\n  \n]\n'],
+  ['hcl', 'ports = [|]\n', 'ports = [\n  \n]\n'],
+]) {
+  test.describe(`${language}: Enter between brackets`, () => {
+    setupEditor(test, `?language=${language}`);
+
+    test('opens an indented middle line', async ({ page }) => {
+      const e = await at(page, marked);
+      await page.keyboard.press('Enter');
+      expect(await e.value()).toBe(expected);
+      expect(await e.caret()).toMatchObject({ line: 2, column: 3 });
+    });
+  });
+}
+
+test.describe('toml: Enter in lines that cannot span', () => {
+  setupEditor(test, '?language=toml');
+
+  test('Enter at the end of an inline table steps out to the next line', async ({ page }) => {
+    const e = await at(page, '[[web.letsencrypt.dns]]\ncloudflare = { token = "tok"| }\n');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('domains = ["a.example"]');
+    expect(await e.value()).toBe(
+      '[[web.letsencrypt.dns]]\ncloudflare = { token = "tok" }\ndomains = ["a.example"]\n',
+    );
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+  });
+
+  test('Enter after a typed table header leaves the header whole', async ({ page }) => {
+    const e = await at(page, '|');
+    await page.keyboard.type('[limits');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('max_pending = 1');
+    expect(await e.value()).toBe('[limits]\nmax_pending = 1');
+  });
+});
+
+test.describe('xml: tags', () => {
+  setupEditor(test, '?language=xml');
+
+  test('typing > after a start tag writes its end tag', async ({ page }) => {
+    const e = await at(page, '<clients>\n  |\n</clients>\n');
+    await page.keyboard.type('<bob');
+    await page.keyboard.press('Escape');
+    await page.keyboard.type('>');
+    expect(await e.value()).toBe('<clients>\n  <bob></bob>\n</clients>\n');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 8 });
+  });
+
+  test('Enter after the prolog does not indent', async ({ page }) => {
+    const e = await at(page, '<?xml version="1.0"?>|\n');
+    await page.keyboard.press('Enter');
+    expect(await e.value()).toBe('<?xml version="1.0"?>\n\n');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 1 });
+  });
+});

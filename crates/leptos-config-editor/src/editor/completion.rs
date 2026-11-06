@@ -1003,6 +1003,22 @@ pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &st
     )
 }
 
+/// The closers `completion` wrote after the caret (`[|]`, `"|"`), as UTF-16
+/// distances from the end of `updated`, so typing them steps over them.
+pub(super) fn inserted_closers(completion: &Completion, updated: &str, caret: usize) -> Vec<usize> {
+    let length = updated.encode_utf16().count();
+    let insert_start = caret.saturating_sub(completion.cursor_offset);
+    let mut offset = insert_start;
+    let mut closers = Vec::new();
+    for character in completion.insert.chars() {
+        if offset >= caret && matches!(character, ')' | ']' | '}' | '"' | '\'') {
+            closers.push(length - offset);
+        }
+        offset += character.len_utf16();
+    }
+    closers
+}
+
 /// The text with `completion` applied, and the selection after it as
 /// `(anchor, caret)`; they are equal unless a default is left selected.
 pub(super) fn apply_completion(source: &str, completion: &Completion) -> (String, usize, usize) {
@@ -1144,6 +1160,7 @@ pub(super) fn completion_popup_style(
 /// Accepts `label` at the `|` in `marked` (as after Ctrl+Space) and returns
 /// the document with `|` at the new caret.
 #[cfg(test)]
+#[allow(dead_code, reason = "used by the language test modules")]
 pub(super) fn accept_marked(
     marked: &str,
     label: &str,

@@ -18,7 +18,7 @@ use super::super::completion::{
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::language::{bracket_newline, CompletionContext, Newline, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -95,8 +95,13 @@ impl ConfigLanguage for HclBehavior {
         highlight(line)
     }
 
-    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
-        newline_insertion(source, cursor)
+    fn newline(&self, source: &str, cursor: usize) -> Newline {
+        bracket_newline(
+            source,
+            cursor,
+            &[('{', '}'), ('[', ']'), ('(', ')')],
+            |line| code_before_comment(line).unwrap_or(line),
+        )
     }
 
     fn toggle_comments(
@@ -1552,47 +1557,6 @@ fn byte_at_column(line: &str, column: usize) -> usize {
 // Editing and highlighting
 // ---------------------------------------------------------------------------
 
-/// Enter inside a block indents one level deeper; otherwise it keeps the
-/// current indentation.
-fn newline_with_indent(source: &str, cursor: usize) -> String {
-    let byte = utf16_to_byte_index(source, cursor);
-    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent: String = source[line_start..byte]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
-    let before = source[..byte].trim_end_matches([' ', '\t']);
-    let code = code_before_comment(before).unwrap_or(before);
-    if code.trim_end().ends_with('{') {
-        format!("\n{indent}{}", indent_unit(source))
-    } else {
-        format!("\n{indent}")
-    }
-}
-
-/// Enter between a matching pair (`{}`) opens a block: the caret lands on an
-/// indented middle line and the closing brace stays on its own line below.
-fn newline_insertion(source: &str, cursor: usize) -> (String, usize) {
-    let byte = utf16_to_byte_index(source, cursor);
-    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent: String = source[line_start..byte]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
-    let before = source[..byte].trim_end_matches([' ', '\t']);
-    let after = source[byte..].trim_start_matches([' ', '\t']);
-    if before.ends_with('{') && after.starts_with('}') {
-        let unit = indent_unit(source);
-        // The caret sits after the newline and one unit, on the middle line.
-        let caret = 1 + indent.len() + unit.len();
-        (format!("\n{indent}{unit}\n{indent}"), caret)
-    } else {
-        let text = newline_with_indent(source, cursor);
-        let caret = text.len();
-        (text, caret)
-    }
-}
-
 /// Comment toggling over whole lines with `#`, mirroring the TOML toggler's
 /// selection mapping: blank lines are skipped, commented selections uncomment.
 fn toggle_hcl_line_comments(
@@ -2247,15 +2211,15 @@ mod tests {
     #[test]
     fn enter_inside_a_block_indents_one_level() {
         assert_eq!(
-            HclBehavior.newline("variable \"a\" {", 15).0,
+            HclBehavior.newline("variable \"a\" {", 15).text,
             "\n  "
         );
-        assert_eq!(HclBehavior.newline("region = 1", 10).0, "\n");
+        assert_eq!(HclBehavior.newline("region = 1", 10).text, "\n");
     }
 
     #[test]
     fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-        let (text, caret) = HclBehavior.newline("{}", 1);
+        let super::Newline { text, caret, .. } = HclBehavior.newline("{}", 1);
         assert_eq!(text, "\n  \n");
         assert_eq!(caret, 3);
     }

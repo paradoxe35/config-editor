@@ -16,7 +16,7 @@ use super::super::completion::{
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use super::super::highlight::{Token, TokenKind, Tokens};
@@ -90,10 +90,10 @@ impl ConfigLanguage for TomlBehavior {
         highlight(line)
     }
 
-    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
-        let text = newline_with_indent(source, cursor);
-        let caret = text.len();
-        (text, caret)
+    fn newline(&self, source: &str, cursor: usize) -> Newline {
+        inline_table_exit(source, cursor).unwrap_or_else(|| {
+            bracket_newline(source, cursor, &[('[', ']')], |line| split_toml_comment(line).0)
+        })
     }
 
     fn toggle_comments(
@@ -1234,15 +1234,31 @@ fn hover_context_offset(line: &str, column: usize) -> usize {
 // Editing and highlighting
 // ---------------------------------------------------------------------------
 
-/// Keeps the current indentation; TOML never indents after a bracket.
-fn newline_with_indent(source: &str, cursor: usize) -> String {
+/// Inline tables and table headers cannot span lines, so Enter inside one
+/// with only closers after the caret (`{ token = "x"| }`, `[web|]`) steps
+/// past them and starts the next line there.
+fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent: String = source[line_start..byte]
-        .chars()
-        .take_while(|character| matches!(character, ' ' | '\t'))
-        .collect();
-    format!("\n{indent}")
+    let line_end = source[byte..].find('\n').map_or(source.len(), |index| byte + index);
+    let rest = &source[byte..line_end];
+    let closers = split_toml_comment(rest).0.trim_end();
+    let before = &source[line_start..byte];
+    let header = before.trim_start().starts_with('[') && !before.contains('=');
+    if closers.is_empty()
+        || !(closers.contains('}') || header)
+        || !closers.chars().all(|character| matches!(character, '}' | ']' | ' ' | '\t' | ','))
+        || toml_lexical_state(source, cursor).0.is_some()
+    {
+        return None;
+    }
+    let line = &source[line_start..];
+    let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
+    Some(Newline {
+        text: format!("{closers}\n{indent}"),
+        caret: closers.len() + 1 + indent.len(),
+        replaces: closers.len(),
+    })
 }
 
 /// Comment toggling over whole lines with `#`, mirroring the YAML toggler's

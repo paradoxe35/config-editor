@@ -83,27 +83,27 @@ pub(super) fn paired_edit(
             return None;
         }
     }
-    let has_closing_ahead = start == end && source[start_byte..].starts_with(closing);
-    let insertion = if has_closing_ahead {
-        opening.to_string()
-    } else {
-        format!("{opening}{selected}{closing}")
-    };
-    let (updated, _) = replace_selection(source, start, end, &insertion);
+    // A closer already ahead belongs to an outer pair, so the new pair is
+    // complete on its own (`{"web": |}` → `{"web": {|}}`).
+    let (updated, _) =
+        replace_selection(source, start, end, &format!("{opening}{selected}{closing}"));
     let selection_start = start + opening.len_utf16();
-    let selection_end = if start == end || has_closing_ahead {
-        selection_start
-    } else {
-        selection_start + selected.encode_utf16().count()
-    };
+    let selection_end = selection_start + selected.encode_utf16().count();
     Some((updated, selection_start, selection_end))
 }
 
+/// The caret after typing `closing` over the same closer at `cursor`; `None`
+/// after a `\`, where the character is escaped text.
 pub(super) fn skip_closing_pair(source: &str, cursor: usize, closing: char) -> Option<usize> {
     let byte_index = utf16_to_byte_index(source, cursor);
-    source[byte_index..]
-        .starts_with(closing)
-        .then_some(cursor + closing.len_utf16())
+    let escaped = source[..byte_index]
+        .chars()
+        .rev()
+        .take_while(|character| *character == '\\')
+        .count()
+        % 2
+        == 1;
+    (!escaped && source[byte_index..].starts_with(closing)).then_some(cursor + closing.len_utf16())
 }
 
 pub(super) fn delete_empty_pair(source: &str, cursor: usize) -> Option<(String, usize)> {
