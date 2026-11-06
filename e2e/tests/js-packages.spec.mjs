@@ -613,6 +613,34 @@ test.describe('vanilla API: registerLanguage checks its fields', () => {
   });
 });
 
+test.describe('vanilla API: multi-line text inserted without a paste event', () => {
+  test('is one change, fast, and undone in one step', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      let changes = 0;
+      const editor = new module.ConfigEditor(element, { value: 'a: 1\n', onChange: () => (changes += 1) });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const textarea = element.querySelector('textarea');
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      const lines = Array.from({ length: 200 }, (_, index) => `key_${index}: ${index}`).join('\n');
+      const started = performance.now();
+      document.execCommand('insertText', false, lines);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const took = performance.now() - started;
+      window.burstEditor = editor;
+      return { changes, took, value: editor.value, expected: 'a: 1\n' + lines };
+    });
+    expect(result.value).toBe(result.expected);
+    expect(result.changes).toBe(1);
+    expect(result.took).toBeLessThan(1000);
+    await browserPage.keyboard.press('Control+z');
+    expect(await browserPage.evaluate(() => window.burstEditor.value)).toBe('a: 1\n');
+  });
+});
+
 test.describe('vanilla API: misspelled keys are warned about', () => {
   test('setCallbacks and registerLanguage name the key they ignore, with a hint', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');

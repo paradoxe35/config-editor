@@ -14,6 +14,8 @@ use web_sys::KeyboardEvent;
 use super::state::EditorState;
 
 pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
+    // Keys act on the document as the browser last left it.
+    super::input::flush_input(state);
     state.hide_hover();
     if !matches!(
         event.key().as_str(),

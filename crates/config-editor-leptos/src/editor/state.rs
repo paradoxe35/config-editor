@@ -187,6 +187,8 @@ pub(super) struct EditorState {
     pub(super) copied_line: StoredValue<Option<String>>,
     /// The selection just before the browser applies an edit, for undo.
     pub(super) pre_edit_selection: StoredValue<Selection>,
+    /// Input events not applied yet (see `input::flush_input`).
+    pub(super) input_burst: StoredValue<Option<super::input::InputBurst>>,
 
     // Hover docs.
     pub(super) hover_card: RwSignal<Option<HoverCard>>,
@@ -427,6 +429,7 @@ impl EditorState {
             slot_region: StoredValue::new(None),
             copied_line: StoredValue::new(None),
             pre_edit_selection: StoredValue::new((0, 0)),
+            input_burst: StoredValue::new(None),
             hover_card: RwSignal::new(None),
             hover_pending: StoredValue::new(None),
             hover_token: StoredValue::new(0),

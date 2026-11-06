@@ -30,6 +30,19 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
     }
 }
 
+/// The input events of one burst: the browser can send many in one task
+/// (`execCommand("insertText")` with line breaks, dictation, some IMEs send
+/// one per line). They are applied once, at the end of the task.
+pub(super) struct InputBurst {
+    /// The document and selection before the first event.
+    before: String,
+    selection: (usize, usize),
+    /// The first event's type, and how many events came.
+    input_type: String,
+    events: usize,
+    time: f64,
+}
+
 /// An edit the browser applied (typing, paste, cut, drop, IME).
 pub(super) fn input(state: EditorState, event: &web_sys::Event) {
     if state.read_only.get_untracked() {
@@ -38,12 +51,45 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         }
         return;
     }
-    let value = event_target_value(event);
-    let before = state.source.get_untracked();
     let input_type = event
         .dyn_ref::<web_sys::InputEvent>()
         .map(web_sys::InputEvent::input_type)
         .unwrap_or_default();
+    if state.input_burst.with_value(Option::is_some) {
+        state.input_burst.update_value(|burst| {
+            if let Some(burst) = burst {
+                burst.events += 1;
+            }
+        });
+        return;
+    }
+    state.input_burst.set_value(Some(InputBurst {
+        before: state.source.get_untracked(),
+        selection: state.pre_edit_selection.get_value(),
+        input_type,
+        events: 1,
+        time: event.time_stamp(),
+    }));
+    queue_microtask(move || flush_input(state));
+}
+
+/// Applies the pending input burst, if any: one document change, one
+/// `onChange`, one undo step.
+pub(super) fn flush_input(state: EditorState) {
+    let Some(Some(burst)) = state.input_burst.try_update_value(Option::take) else {
+        return;
+    };
+    let Some(element) = state.textarea() else {
+        return;
+    };
+    let value = element.value();
+    let before = burst.before;
+    // Several events at once are text arriving whole, as a paste does.
+    let input_type = if burst.events > 1 {
+        "insertFromPaste".to_string()
+    } else {
+        burst.input_type
+    };
     let auto_trigger =
         state.features.auto_trigger && should_auto_trigger(&input_type, &before, &value);
     if matches!(
@@ -57,24 +103,23 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         && state.suggestions_requested.get_untracked()
         && !state.suggestions.with_untracked(Vec::is_empty);
     state.placeholder.set_value(None);
-    let after = target_textarea(event).map(|element| textarea_selection(&element));
+    let after = textarea_selection(&element);
     if before != value {
         state.history.update(|history| {
             history.record_input(
                 Snapshot {
                     value: before,
-                    selection: state.pre_edit_selection.get_value(),
+                    selection: burst.selection,
                 },
-                after.unwrap_or_default(),
+                after,
                 &input_type,
-                event.time_stamp(),
+                burst.time,
             );
         });
     }
-    if let Some((position, _)) = after {
-        state.cursor.set(position);
-        state.current_line.set(line_at_cursor(&value, position));
-    }
+    let (position, _) = after;
+    state.cursor.set(position);
+    state.current_line.set(line_at_cursor(&value, position));
     state.source.set(value);
     // Pasted or dropped text may bring its own indentation.
     if matches!(input_type.as_str(), "insertFromPaste" | "insertFromDrop") {
@@ -230,7 +275,11 @@ pub(super) fn attach_listeners(state: EditorState) {
             ),
             (
                 "compositionend",
-                clipboard(Box::new(move |_| state.history.update(EditHistory::seal))),
+                clipboard(Box::new(move |_| {
+                    // The composition's last input first, then the seal.
+                    flush_input(state);
+                    state.history.update(EditHistory::seal);
+                })),
             ),
         ];
         for (name, listener) in &listeners {
