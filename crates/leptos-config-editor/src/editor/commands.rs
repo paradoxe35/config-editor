@@ -8,6 +8,32 @@ pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
         + 1
 }
 
+/// For copy or cut with nothing selected: the UTF-16 range of the caret's
+/// whole line, its newline included, as VS Code copies it.
+pub(super) fn line_range(source: &str, cursor: usize) -> (usize, usize) {
+    let byte = utf16_to_byte_index(source, cursor);
+    let start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let end = source[byte..]
+        .find('\n')
+        .map_or(source.len(), |index| byte + index + 1);
+    (
+        source[..start].encode_utf16().count(),
+        source[..end].encode_utf16().count(),
+    )
+}
+
+/// Where Home moves the caret at `cursor` (UTF-16): the line's first
+/// non-blank character, or the line start when already there.
+pub(super) fn smart_home(source: &str, cursor: usize) -> usize {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let line = &source[line_start..];
+    let line = &line[..line.find('\n').unwrap_or(line.len())];
+    let first = line_start + (line.len() - line.trim_start_matches([' ', '\t']).len());
+    let target = if byte == first { line_start } else { first };
+    source[..target].encode_utf16().count()
+}
+
 /// For F8: the index of the first of the sorted `offsets` strictly after
 /// (or before) `here`, wrapping at the ends.
 pub(super) fn cycle_offset(offsets: &[usize], here: usize, backward: bool) -> Option<usize> {
@@ -176,13 +202,14 @@ pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, u
     Some((updated, cursor - remove))
 }
 
-/// Typing `}` or `]` on a blank line re-indents it to match the opening
+/// Typing `}`, `]`, or `)` on a blank line re-indents it to match the opening
 /// bracket's line. Returns the text (closer included) and caret, or `None`
 /// when typing it plainly is already right.
 pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<(String, usize)> {
     let opener = match closer {
         '}' => '{',
         ']' => '[',
+        ')' => '(',
         _ => return None,
     };
     let byte = utf16_to_byte_index(source, cursor);

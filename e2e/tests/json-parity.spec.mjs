@@ -301,7 +301,7 @@ test.describe('read-only view mode', () => {
     await page.goto(`${baseURL}?language=json&readonly=1`);
     await page.locator('.config-editor__input').waitFor();
     const e = editor(page);
-    await expect(e.input).toHaveAttribute('readonly', '');
+    await expect(e.input).toHaveAttribute('inputmode', 'none');
     await expect(e.input).toHaveAttribute('aria-readonly', 'true');
     const before = await e.value();
 

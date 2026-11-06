@@ -476,3 +476,61 @@ fn hcl_keys_are_offered_after_a_sibling_in_a_multi_line_object_value() {
         !labels(Language::HCL, "web = {\n  hsts = true\n  |\n}\n").contains(&"hsts".to_string())
     );
 }
+
+/// Toggles comments over the selection marked by `[` and `]` (or the caret
+/// `|`) and returns the result marked the same way.
+fn toggle(language: Language, marked: &str) -> String {
+    let (start, end) = match marked.find('|') {
+        Some(at) => (at, at),
+        None => (marked.find('[').unwrap(), marked.find(']').unwrap() - 1),
+    };
+    let source = marked
+        .replacen('|', "", 1)
+        .replacen('[', "", 1)
+        .replacen(']', "", 1);
+    let utf16 = |byte: usize| source[..byte].encode_utf16().count();
+    let (updated, from, to) = language
+        .behavior()
+        .toggle_comments(&source, utf16(start), utf16(end))
+        .unwrap();
+    let byte = |offset: usize| {
+        updated
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([updated.len()])
+            .find(|index| updated[..*index].encode_utf16().count() == offset)
+            .unwrap()
+    };
+    let (from, to) = (byte(from), byte(to));
+    if from == to {
+        format!("{}|{}", &updated[..from], &updated[from..])
+    } else {
+        format!(
+            "{}[{}]{}",
+            &updated[..from],
+            &updated[from..to],
+            &updated[to..]
+        )
+    }
+}
+
+#[test]
+fn xml_comment_toggling_keeps_the_caret_and_selection_on_the_text() {
+    assert_eq!(
+        toggle(Language::XML, "<a>\n  <b>|1</b>\n</a>"),
+        "<a>\n  <!-- <b>|1</b> -->\n</a>"
+    );
+    assert_eq!(
+        toggle(Language::XML, "<a>\n  <!-- <b>|1</b> -->\n</a>"),
+        "<a>\n  <b>|1</b>\n</a>"
+    );
+    let commented = toggle(Language::XML, "<a>\n[  <b>1</b>\n  <c>2</c>\n]</a>");
+    assert_eq!(
+        commented,
+        "<a>\n[  <!-- <b>1</b> -->\n  <!-- <c>2</c> -->\n]</a>"
+    );
+    assert_eq!(
+        toggle(Language::XML, &commented),
+        "<a>\n[  <b>1</b>\n  <c>2</c>\n]</a>"
+    );
+}

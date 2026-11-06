@@ -16,7 +16,7 @@ pub use languages::{Language, UnknownLanguage};
 mod theme;
 pub use theme::{EditorTheme, UnknownTheme};
 mod history;
-use history::EditHistory;
+use history::{EditHistory, Selection, Snapshot};
 mod diff;
 use diff::{DiffKind, DiffPeek, LineDiff, diff_lines, peek_popup_style, peek_survives_edit};
 mod keyboard;
@@ -34,8 +34,8 @@ use completion::{
 };
 mod commands;
 use commands::{
-    backspace_indent, cycle_offset, indent_lines, indent_unit, line_at_cursor, offset_at,
-    typed_closer,
+    backspace_indent, cycle_offset, indent_lines, indent_unit, line_at_cursor, line_range,
+    offset_at, smart_home, typed_closer,
 };
 mod line_rows;
 use line_rows::{LineRows, RenderedLine};
@@ -75,7 +75,7 @@ fn commit_edit(
     new_cursor: usize,
     selection_anchor: Option<usize>,
     before: String,
-    before_cursor: usize,
+    before_selection: Selection,
     source: RwSignal<String>,
     cursor: RwSignal<usize>,
     current_line: RwSignal<usize>,
@@ -85,7 +85,16 @@ fn commit_edit(
     scroll_y: RwSignal<f64>,
     ensure_visible: bool,
 ) {
-    history.update(|history| history.record_action(before, before_cursor));
+    let anchor = selection_anchor.unwrap_or(new_cursor);
+    history.update(|history| {
+        history.record_action(
+            Snapshot {
+                value: before,
+                selection: before_selection,
+            },
+            (anchor.min(new_cursor), anchor.max(new_cursor)),
+        );
+    });
     if let Some(editor) = editor.as_ref() {
         editor.set_value(&updated);
     }
@@ -100,10 +109,19 @@ fn commit_edit(
             set_caret_visible(&editor, &source.get_untracked(), new_cursor, scroll_y);
         }
         // The text between the anchor and the caret stays selected.
-        let anchor = selection_anchor.unwrap_or(new_cursor);
         let _ = editor
             .set_selection_range(anchor.min(new_cursor) as u32, anchor.max(new_cursor) as u32);
     }
+}
+
+fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Selection {
+    let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+    let end = element
+        .selection_end()
+        .ok()
+        .flatten()
+        .map_or(start, |end| end as usize);
+    (start, end)
 }
 
 /// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
@@ -289,6 +307,8 @@ pub fn ConfigEditor(
     // Closers the editor inserted, as UTF-16 distances from the document end
     // (typing inside the pair keeps them). Only these are typed over.
     let auto_closers = StoredValue::new(Vec::<usize>::new());
+    // The selection just before the browser applies an edit, for undo.
+    let pre_edit_selection = StoredValue::new((0usize, 0usize));
     let hover_card = RwSignal::new(None::<HoverCard>);
     let hover_pending = StoredValue::new(None::<(usize, String)>);
     let hover_token = StoredValue::new(0u64);
@@ -483,6 +503,43 @@ pub fn ConfigEditor(
             behavior(),
         )
     });
+    // Copy or cut with nothing selected takes the whole line, as in VS Code.
+    let copy_line = move |event: web_sys::ClipboardEvent, cut: bool| {
+        let Some(element) = editor_ref.get() else {
+            return;
+        };
+        let (start, end) = textarea_selection(&element);
+        let (Some(clipboard), true) = (event.clipboard_data(), start == end) else {
+            return;
+        };
+        let text = source.get_untracked();
+        let (line_start, line_end) = line_range(&text, start);
+        let line: String = String::from_utf16_lossy(
+            &text.encode_utf16().collect::<Vec<_>>()[line_start..line_end],
+        );
+        if clipboard.set_data("text/plain", &line).is_err() {
+            return;
+        }
+        event.prevent_default();
+        if cut && !read_only.get_untracked() {
+            let (updated, _) = replace_selection(&text, line_start, line_end, "");
+            commit_edit(
+                updated,
+                line_start,
+                None,
+                text,
+                (start, end),
+                source,
+                cursor,
+                current_line,
+                history,
+                on_change,
+                Some(element),
+                scroll_y,
+                true,
+            );
+        }
+    };
     let apply_selected = move || {
         let options = suggestions.get();
         if let Some(completion) = options.get(active_completion.get()) {
@@ -498,7 +555,7 @@ pub fn ConfigEditor(
                 new_cursor,
                 Some(anchor),
                 before,
-                cursor.get_untracked(),
+                (cursor.get_untracked(), cursor.get_untracked()),
                 source,
                 cursor,
                 current_line,
@@ -913,9 +970,26 @@ pub fn ConfigEditor(
                                 autocapitalize="off"
                                 autocomplete="off"
                                 wrap="off"
-                                readonly=move || read_only.get()
+                                // Read-only cancels edits in `beforeinput` instead of
+                                // setting `readonly`, which in Chromium also stops the
+                                // caret: keyboard navigation and selection keep working.
                                 aria-readonly=move || read_only.get().to_string()
+                                inputmode=move || read_only.get().then_some("none")
                                 prop:value=move || source.get()
+                                on:beforeinput=move |event: web_sys::InputEvent| {
+                                    if read_only.get_untracked() {
+                                        event.prevent_default();
+                                        return;
+                                    }
+                                    if let Some(element) = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                    {
+                                        pre_edit_selection.set_value(textarea_selection(&element));
+                                    }
+                                }
+                                on:copy=move |event: web_sys::ClipboardEvent| copy_line(event, false)
+                                on:cut=move |event: web_sys::ClipboardEvent| copy_line(event, true)
                                 on:input=move |event| {
                                     if read_only.get_untracked() {
                                         if let Some(element) = event
@@ -944,21 +1018,24 @@ pub fn ConfigEditor(
                                     let refilter = input_type == "deleteContentBackward"
                                         && suggestions_requested.get_untracked()
                                         && !suggestions.with_untracked(Vec::is_empty);
+                                    let after = event
+                                        .target()
+                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                                        .map(|element| textarea_selection(&element));
                                     if before != value {
                                         history.update(|history| {
                                             history.record_input(
-                                                before,
-                                                cursor.get_untracked(),
+                                                Snapshot {
+                                                    value: before,
+                                                    selection: pre_edit_selection.get_value(),
+                                                },
+                                                after.unwrap_or_default(),
                                                 &input_type,
                                                 event.time_stamp(),
                                             );
                                         });
                                     }
-                                    if let Some(element) = event
-                                        .target()
-                                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
-                                    {
-                                        let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                    if let Some((position, _)) = after {
                                         cursor.set(position);
                                         current_line.set(line_at_cursor(&value, position));
                                     }
@@ -1082,6 +1159,32 @@ pub fn ConfigEditor(
                                 }
                                 on:keydown=move |event: web_sys::KeyboardEvent| {
                                     hide_hover();
+                                    // Smart Home: the first non-blank character, then the line start.
+                                    if event.key() == "Home"
+                                        && !event.ctrl_key()
+                                        && !event.meta_key()
+                                        && !event.alt_key()
+                                        && let Some(element) = editor_ref.get()
+                                    {
+                                        let (start, end) = textarea_selection(&element);
+                                        let backward = element.selection_direction().ok().flatten().as_deref() == Some("backward");
+                                        let (anchor, caret) = if backward { (end, start) } else { (start, end) };
+                                        let target = source.with_untracked(|text| smart_home(text, caret));
+                                        event.prevent_default();
+                                        if event.shift_key() {
+                                            let direction = if target < anchor { "backward" } else { "forward" };
+                                            let _ = element.set_selection_range_with_direction(
+                                                anchor.min(target) as u32,
+                                                anchor.max(target) as u32,
+                                                direction,
+                                            );
+                                        } else {
+                                            let _ = element.set_selection_range(target as u32, target as u32);
+                                        }
+                                        cursor.set(target);
+                                        current_line.set(source.with_untracked(|text| line_at_cursor(text, target)));
+                                        return;
+                                    }
                                     if read_only.get_untracked() {
                                         // The root listener handles Escape; swallow
                                         // keys that would otherwise act here.
@@ -1102,46 +1205,23 @@ pub fn ConfigEditor(
                                         event.prevent_default();
                                         auto_closers.update_value(Vec::clear);
                                         let current = source.get_untracked();
-                                        let current_cursor = event
-                                            .target()
-                                            .and_then(|target| {
-                                                target.dyn_into::<web_sys::HtmlTextAreaElement>().ok()
-                                            })
-                                            .and_then(|element| {
-                                                element.selection_start().ok().flatten()
-                                            })
-                                            .map(|cursor| cursor as usize)
-                                            .unwrap_or_else(|| cursor.get_untracked());
                                         let mut restored = None;
                                         history.update(|history| {
                                             restored = if is_undo {
-                                                history.undo(current, current_cursor)
+                                                history.undo(current)
                                             } else {
-                                                history.redo(current, current_cursor)
+                                                history.redo(current)
                                             };
                                         });
                                         if let Some(restored) = restored {
+                                            let (start, end) = restored.selection;
                                             source.set(restored.value.clone());
-                                            cursor.set(restored.cursor);
-                                            current_line.set(line_at_cursor(
-                                                &restored.value,
-                                                restored.cursor,
-                                            ));
-                                            if let Some(element) = event
-                                                .target()
-                                                .and_then(|target| {
-                                                    target
-                                                        .dyn_into::<web_sys::HtmlTextAreaElement>()
-                                                        .ok()
-                                                })
-                                            {
+                                            cursor.set(end);
+                                            current_line.set(line_at_cursor(&restored.value, end));
+                                            if let Some(element) = editor_ref.get() {
                                                 element.set_value(&restored.value);
-                                                element
-                                                    .set_selection_range(
-                                                        restored.cursor as u32,
-                                                        restored.cursor as u32,
-                                                    )
-                                                    .expect("editor selection range should remain valid");
+                                                set_caret_visible(&element, &restored.value, end, scroll_y);
+                                                let _ = element.set_selection_range(start as u32, end as u32);
                                             }
                                             if let Some(on_change) = on_change.as_ref() {
                                                 on_change.run(restored.value);
@@ -1202,7 +1282,7 @@ pub fn ConfigEditor(
                                                         selection_end,
                                                         Some(selection_start),
                                                         before,
-                                                        start,
+                                                        (start, end),
                                                         source,
                                                         cursor,
                                                         current_line,
@@ -1290,7 +1370,7 @@ pub fn ConfigEditor(
                                                         new_cursor,
                                                         None,
                                                         before,
-                                                        start,
+                                                        (start, end),
                                                         source,
                                                         cursor,
                                                         current_line,
@@ -1318,7 +1398,7 @@ pub fn ConfigEditor(
                                                     caret,
                                                     None,
                                                     before,
-                                                    start,
+                                                    (start, end),
                                                     source,
                                                     cursor,
                                                     current_line,
@@ -1355,7 +1435,7 @@ pub fn ConfigEditor(
                                                     selection_end,
                                                     Some(selection_start),
                                                     source.get_untracked(),
-                                                    start,
+                                                    (start, end),
                                                     source,
                                                     cursor,
                                                     current_line,
@@ -1387,6 +1467,7 @@ pub fn ConfigEditor(
                                             "Backspace" => backspace_indent(&text, start),
                                             "}" => typed_closer(&text, start, '}'),
                                             "]" => typed_closer(&text, start, ']'),
+                                            ")" => typed_closer(&text, start, ')'),
                                             _ => None,
                                         };
                                         if let Some((updated, new_cursor)) = edit {
@@ -1396,7 +1477,7 @@ pub fn ConfigEditor(
                                                 new_cursor,
                                                 None,
                                                 text,
-                                                start,
+                                                (start, end),
                                                 source,
                                                 cursor,
                                                 current_line,
@@ -1485,7 +1566,7 @@ pub fn ConfigEditor(
                                                                 selection_end,
                                                                 Some(selection_start),
                                                                 text,
-                                                                start,
+                                                                (start, end),
                                                                 source,
                                                                 cursor,
                                                                 current_line,
@@ -1521,7 +1602,7 @@ pub fn ConfigEditor(
                                                     new_cursor,
                                                     None,
                                                     text,
-                                                    start,
+                                                    (start, end),
                                                     source,
                                                     cursor,
                                                     current_line,
@@ -1556,7 +1637,7 @@ pub fn ConfigEditor(
                                                     new_cursor,
                                                     None,
                                                     text,
-                                                    start,
+                                                    (start, end),
                                                     source,
                                                     cursor,
                                                     current_line,
@@ -1657,7 +1738,7 @@ pub fn ConfigEditor(
                                                     new_cursor,
                                                     Some(anchor),
                                                     source.get_untracked(),
-                                                    apply.start,
+                                                    (cursor.get_untracked(), cursor.get_untracked()),
                                                     source,
                                                     cursor,
                                                     current_line,

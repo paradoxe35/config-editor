@@ -283,3 +283,155 @@ test.describe('xml: tags', () => {
     expect(await e.caret()).toMatchObject({ line: 2, column: 1 });
   });
 });
+
+test.describe('undo and redo', () => {
+  setupEditor(test, '?language=yaml');
+
+  const selection = (e) =>
+    e.input.evaluate((element) => [element.selectionStart, element.selectionEnd]);
+  const select = (e, start, end) =>
+    e.input.evaluate((element, [from, to]) => {
+      element.focus();
+      element.setSelectionRange(from, to);
+    }, [start, end]);
+
+  test('edits in different places are separate steps', async ({ page }) => {
+    const e = await at(page, 'a: 1\nb: 2\nc: 3\n');
+    await select(e, 4, 4);
+    await page.keyboard.type('0');
+    await select(e, 15, 15);
+    await page.keyboard.type('9');
+    expect(await e.value()).toBe('a: 10\nb: 2\nc: 39\n');
+    await page.keyboard.press('Control+z');
+    expect(await e.value()).toBe('a: 10\nb: 2\nc: 3\n');
+    expect(await selection(e)).toEqual([15, 15]);
+    await page.keyboard.press('Control+z');
+    expect(await e.value()).toBe('a: 1\nb: 2\nc: 3\n');
+    expect(await selection(e)).toEqual([4, 4]);
+  });
+
+  test('undoing an indent restores the selected block', async ({ page }) => {
+    const e = await at(page, 'a: 1\nb: 2\n');
+    await select(e, 0, 9);
+    await page.keyboard.press('Tab');
+    expect(await e.value()).toBe('  a: 1\n  b: 2\n');
+    await page.keyboard.press('Control+z');
+    expect(await e.value()).toBe('a: 1\nb: 2\n');
+    expect(await selection(e)).toEqual([0, 9]);
+  });
+
+  test('undoing a deletion selects the deleted text again', async ({ page }) => {
+    const e = await at(page, 'a: hello x\n');
+    await select(e, 3, 8);
+    await page.keyboard.press('Delete');
+    expect(await e.value()).toBe('a:  x\n');
+    await page.keyboard.press('Control+z');
+    expect(await e.value()).toBe('a: hello x\n');
+    expect(await selection(e)).toEqual([3, 8]);
+  });
+
+  test('redo puts the caret where the edit left it', async ({ page }) => {
+    const e = await at(page, 'a: \n');
+    await select(e, 3, 3);
+    await page.keyboard.type('xyz');
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('Control+Shift+z');
+    expect(await e.value()).toBe('a: xyz\n');
+    expect(await selection(e)).toEqual([6, 6]);
+  });
+
+  test('a paste and the typing after it undo separately', async ({ page }) => {
+    const e = await at(page, '');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setRangeText('listen: 1', 0, 0, 'end');
+      element.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertFromPaste' }));
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: 'listen: 1' }));
+    });
+    await page.keyboard.type('2');
+    await page.keyboard.press('Control+z');
+    expect(await e.value()).toBe('listen: 1');
+  });
+});
+
+test.describe('caret keys', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('Home goes to the first character, then to the line start', async ({ page }) => {
+    const e = await at(page, 'a:\n    b: 1|\n');
+    await page.keyboard.press('Home');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 5 });
+    await page.keyboard.press('Home');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 1 });
+    await page.keyboard.press('Home');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 5 });
+    await page.keyboard.press('End');
+    await page.keyboard.press('Shift+Home');
+    const selected = await e.input.evaluate((element) =>
+      element.value.slice(element.selectionStart, element.selectionEnd),
+    );
+    expect(selected).toBe('b: 1');
+  });
+
+  test('Ctrl+X with nothing selected cuts the line, Ctrl+V puts it back', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const e = await at(page, 'a: 1\nb: |2\nc: 3\n');
+    await page.keyboard.press('Control+x');
+    expect(await e.value()).toBe('a: 1\nc: 3\n');
+    await page.keyboard.press('Control+v');
+    expect(await e.value()).toBe('a: 1\nb: 2\nc: 3\n');
+  });
+
+  test('Ctrl+C with nothing selected copies the line', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await at(page, 'a: |1\n');
+    await page.keyboard.press('Control+c');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('a: 1\n');
+  });
+});
+
+test.describe('hcl: closers', () => {
+  setupEditor(test, '?language=hcl');
+
+  test('typing ) on a blank line aligns it with its opener', async ({ page }) => {
+    const e = await at(page, 'x = max(\n  1,\n  |');
+    await page.keyboard.type(')');
+    expect(await e.value()).toBe('x = max(\n  1,\n)');
+  });
+});
+
+test.describe('xml: comment toggling', () => {
+  setupEditor(test, '?language=xml');
+
+  test('Ctrl+/ keeps the caret on the same text', async ({ page }) => {
+    const e = await at(page, '<a>\n  <b>|1</b>\n</a>\n');
+    await page.keyboard.press('Control+/');
+    expect(await e.value()).toBe('<a>\n  <!-- <b>1</b> -->\n</a>\n');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 11 });
+    await page.keyboard.press('Control+/');
+    expect(await e.value()).toBe('<a>\n  <b>1</b>\n</a>\n');
+    expect(await e.caret()).toMatchObject({ line: 2, column: 6 });
+  });
+});
+
+test.describe('read-only', () => {
+  setupEditor(test, '?language=yaml&readonly');
+
+  test('the keyboard moves and selects but never edits', async ({ page }) => {
+    const e = editor(page);
+    const original = await e.value();
+    await e.input.click({ position: { x: 60, y: 10 } });
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('ArrowDown');
+    expect((await e.caret()).line).toBe(2);
+    await page.keyboard.press('Shift+End');
+    const selected = await e.input.evaluate((element) => element.selectionEnd - element.selectionStart);
+    expect(selected).toBeGreaterThan(0);
+    for (const key of ['x', 'Enter', 'Backspace', 'Delete', 'Tab', 'Control+x', 'Control+v', 'Control+z']) {
+      await page.keyboard.press(key);
+    }
+    await page.keyboard.type('typed');
+    expect(await e.value()).toBe(original);
+  });
+});

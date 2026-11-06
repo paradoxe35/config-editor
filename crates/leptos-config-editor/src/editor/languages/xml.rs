@@ -2029,20 +2029,22 @@ fn toggle_xml_comments(
             } else if uncomment {
                 let trimmed = body.trim();
                 let indent_len = body.len() - body.trim_start().len();
-                let inner = trimmed
-                    .strip_prefix("<!--")
-                    .and_then(|rest| rest.strip_suffix("-->"))
-                    .map(|inner| inner.strip_prefix(' ').unwrap_or(inner))
-                    .map(|inner| inner.strip_suffix(' ').unwrap_or(inner))
-                    .unwrap_or(trimmed);
-                edits.push((offset + indent_len, trimmed.len(), inner.len()));
+                let after_open = &trimmed[4..];
+                let open = 4 + usize::from(after_open.starts_with(' '));
+                let before_close = &trimmed[..trimmed.len() - 3];
+                let close = 3 + usize::from(before_close.len() > open && before_close.ends_with(' '));
+                let inner = &trimmed[open..trimmed.len() - close];
+                // The markers are separate edits, so a caret inside the line stays put.
+                edits.push((offset + indent_len, open, 0));
+                edits.push((offset + indent_len + trimmed.len() - close, close, 0));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str(inner);
                 updated.push_str(&line[body.len()..]);
             } else {
                 let indent_len = body.len() - body.trim_start().len();
                 let trimmed = body.trim();
-                edits.push((offset + indent_len, trimmed.len(), trimmed.len() + 9));
+                edits.push((offset + indent_len, 0, 5));
+                edits.push((offset + indent_len + trimmed.len(), 0, 4));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str("<!-- ");
                 updated.push_str(trimmed);
