@@ -121,3 +121,68 @@ test.describe('react.html', () => {
     await expect(browserPage.locator('#editing')).toHaveText('toml');
   });
 });
+
+test.describe('vanilla API robustness', () => {
+  test('destroy right after typing is clean', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await input(browserPage).click();
+    await browserPage.keyboard.type('bogus');
+    await browserPage.evaluate(() => window.editor.destroy());
+    await browserPage.waitForTimeout(600);
+    expect(errors).toEqual([]);
+  });
+
+  test('bad arguments throw clear errors instead of crashing', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const messages = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const attempt = (run) => {
+        try {
+          run();
+          return 'no error';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return {
+        element: attempt(() => new module.ConfigEditor(null, {})),
+        theme: attempt(() => window.editor.setTheme(5)),
+        value: attempt(() => window.editor.setValue(null)),
+        validate: attempt(() => module.validate('yaml', 5)),
+        extensions: attempt(() => module.registerLanguage({ label: 'Plain', parse: () => ({}) })),
+        builtIn: attempt(() => module.registerLanguage({ label: 'YAML', parse: () => ({}) })),
+      };
+    });
+    expect(messages.element).toContain('HTMLElement');
+    expect(messages.theme).toContain('theme must be a string');
+    expect(messages.value).toContain('value must be a string');
+    expect(messages.validate).toContain('text must be a string');
+    expect(messages.extensions).toBe('no error');
+    expect(messages.builtIn).toContain('built-in');
+  });
+
+  test('an edit-as that cannot convert yet waits in the host language', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    const state = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      const host = document.getElementById('editor');
+      const changes = [];
+      const editor = new module.ConfigEditor(host, {
+        language: 'yaml',
+        value: 'listen: 1\npublic_address: null\n',
+        editAs: 'toml',
+        onChange: (text) => changes.push(text),
+      });
+      window.waiting = { editor, changes };
+      return editor.value;
+    });
+    expect(state).toContain('public_address: null');
+    await expect(browserPage.locator('.config-editor__input')).toHaveValue(/public_address: null/);
+    await expect(browserPage.locator('.config-editor__diagnostic-marker').first()).toHaveAttribute(
+      'data-message',
+      /Cannot switch to TOML yet/,
+    );
+    expect(errors).toEqual([]);
+  });
+});

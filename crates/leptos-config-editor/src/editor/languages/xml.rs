@@ -106,6 +106,32 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn newline(&self, source: &str, cursor: usize) -> Newline {
+        // After a value typed inside a one-line element (`<mode>balance|</mode>`),
+        // Enter steps past the end tag rather than breaking the value.
+        let byte = utf16_to_byte_index(source, cursor);
+        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+        let before = &source[line_start..byte];
+        if let Some(open) = before.rfind('<')
+            && !before[open..].starts_with("</")
+            && let Some(close) = before[open..].find('>')
+        {
+            let name: String = before[open + 1..]
+                .chars()
+                .take_while(|character| !character.is_whitespace() && !matches!(character, '>' | '/'))
+                .collect();
+            let value = &before[open + close + 1..];
+            let end_tag = format!("</{name}>");
+            if !name.is_empty() && !value.trim().is_empty() && source[byte..].starts_with(&end_tag) {
+                let indent = &before[..before.len() - before.trim_start().len()];
+                let text = format!("{end_tag}\n{indent}");
+                return Newline {
+                    caret: text.len(),
+                    text,
+                    replaces: end_tag.len(),
+                    replaces_before: 0,
+                };
+            }
+        }
         let (text, caret) = newline_insertion(source, cursor);
         Newline::with_caret(text, caret)
     }
@@ -764,15 +790,17 @@ fn is_attr_name(source: &str, open: &Token, inner: Token) -> bool {
         .is_some_and(|next| matches!(next.kind, Kind::Equals))
 }
 
-/// Whether `token` holds the caret. An open tag holds it strictly inside its
-/// `<...>`, or at its end while still unclosed; a caret right after a closing
-/// `>` is in the text that follows.
+/// Whether `token` holds the caret. A tag holds it strictly inside its
+/// `<...>`, or at its end while still unclosed; a caret right after a tag's
+/// closing `>` is in the text that follows.
 fn contains_caret(source: &str, token: &Token, cursor: usize) -> bool {
     if !(token.start < cursor && cursor <= token.end) {
         return false;
     }
     match token.kind {
-        Kind::OpenTag { .. } => cursor < token.end || !source[..token.end].ends_with('>'),
+        Kind::OpenTag { .. } | Kind::EndTag => {
+            cursor < token.end || !source[..token.end].ends_with('>')
+        }
         _ => true,
     }
 }
@@ -1350,7 +1378,16 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             path,
             typed,
             replace_start,
-            replace_end: cursor_bytes(source, cursor),
+            // The whole value is replaced, not just up to the caret.
+            replace_end: {
+                let rest = &source[cursor..];
+                let value_end = rest.find(['<', '\n']).unwrap_or(rest.len());
+                if rest[value_end..].starts_with('<') {
+                    cursor_bytes(source, cursor + rest[..value_end].trim_end().len())
+                } else {
+                    cursor_bytes(source, cursor)
+                }
+            },
             value_key: Some(key.clone()),
             value_or_children: may_be_child,
             value_needs_space: false,
@@ -1996,6 +2033,38 @@ fn toggle_xml_comments(
 ) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
+    // Inside an existing comment spanning lines: remove that comment (a
+    // comment cannot contain another).
+    if let Some(open) = source[..start].rfind("<!--")
+        && !source[open..start].contains("-->")
+        && let Some(close) = source[end..].find("-->").map(|offset| end + offset)
+        && source[open..close].contains('\n')
+    {
+        // Markers alone on their lines take the whole line with them.
+        let line_start = |at: usize| source[..at].rfind('\n').map_or(0, |index| index + 1);
+        let line_end = |at: usize| source[at..].find('\n').map_or(source.len(), |index| at + index);
+        let (open, open_end) = if source[line_start(open)..open].trim().is_empty()
+            && source[open + 4..line_end(open)].trim().is_empty()
+        {
+            (line_start(open), (line_end(open) + 1).min(source.len()))
+        } else {
+            (open, open + 4 + usize::from(source[open + 4..].starts_with(' ')))
+        };
+        let (close_start, cut_end) = if source[line_start(close)..close].trim().is_empty()
+            && source[close + 3..line_end(close)].trim().is_empty()
+        {
+            (line_start(close), (line_end(close) + 1).min(source.len()))
+        } else {
+            (close - usize::from(source[..close].ends_with(' ')), close + 3)
+        };
+        let mut updated = String::with_capacity(source.len());
+        updated.push_str(&source[..open]);
+        updated.push_str(&source[open_end..close_start]);
+        updated.push_str(&source[cut_end..]);
+        let removed = open_end - open;
+        let map = |byte: usize| updated[..byte - removed].encode_utf16().count();
+        return Some((updated.clone(), map(start.max(open_end)), map(end.min(close_start))));
+    }
     let first_line = source[..start]
         .bytes()
         .filter(|byte| *byte == b'\n')

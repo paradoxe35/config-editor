@@ -137,7 +137,9 @@ fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
     for entry in entries.iter() {
         let pair: Array = entry.unchecked_into();
         let token = pair.get(0).as_string().unwrap_or_default();
-        let css = pair.get(1).as_string().unwrap_or_default();
+        let css = pair.get(1).as_string().ok_or_else(|| {
+            JsError::new(&format!("color \"{token}\" must be a CSS color string"))
+        })?;
         let color = ThemeColor::ALL
             .iter()
             .copied()
@@ -146,6 +148,32 @@ fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
         colors = colors.set(color, css);
     }
     Ok(colors)
+}
+
+/// A string argument, or a `TypeError`-style error naming it.
+fn text_arg(value: &JsValue, name: &str) -> Result<String, JsError> {
+    value
+        .as_string()
+        .ok_or_else(|| JsError::new(&format!("{name} must be a string")))
+}
+
+/// An optional string argument: absent (`undefined`/`null`) or a string.
+fn optional_text(value: &JsValue, name: &str) -> Result<Option<String>, JsError> {
+    if value.is_undefined() || value.is_null() {
+        Ok(None)
+    } else {
+        text_arg(value, name).map(Some)
+    }
+}
+
+/// Calls a host callback; an exception it throws is logged, not swallowed.
+fn call_host(callback: &Function, argument: &JsValue) {
+    if let Err(error) = callback.call1(&JsValue::NULL, argument) {
+        web_sys::console::error_2(
+            &JsValue::from_str("config-editor: a callback threw"),
+            &error,
+        );
+    }
 }
 
 fn field(object: &JsValue, name: &str) -> JsValue {
@@ -188,6 +216,8 @@ struct State {
 #[wasm_bindgen]
 pub struct ConfigEditor {
     state: State,
+    /// The document when `destroy` ran, so `value` still answers afterwards.
+    final_value: Option<String>,
     /// Unmounts when dropped.
     mounted: Option<Box<dyn std::any::Any>>,
     owner: Owner,
@@ -198,9 +228,14 @@ impl ConfigEditor {
     /// Mounts an editor into `element` (its content is replaced).
     #[wasm_bindgen(constructor)]
     pub fn new(
-        element: web_sys::HtmlElement,
+        #[wasm_bindgen(unchecked_param_type = "HTMLElement")] element: JsValue,
         options: EditorOptions,
     ) -> Result<ConfigEditor, JsError> {
+        let element: web_sys::HtmlElement = element.dyn_into().map_err(|_| {
+            JsError::new(
+                "ConfigEditor needs an HTMLElement to mount into (got null or another value)",
+            )
+        })?;
         let options: JsValue = options.into();
         let language = match string_field(&options, "language") {
             Some(name) => language_named(&name)?,
@@ -250,15 +285,17 @@ impl ConfigEditor {
                     state.value.set(text.clone());
                     state.on_change.with_value(|callback| {
                         if let Some(callback) = callback {
-                            let _ = callback.call1(&JsValue::NULL, &JsValue::from_str(&text));
+                            call_host(callback, &JsValue::from_str(&text));
                         }
                     });
                 };
                 let switched = move |language: Language| {
                     state.on_edit_as_change.with_value(|callback| {
                         if let Some(callback) = callback {
-                            let name = JsValue::from_str(&language.label().to_ascii_lowercase());
-                            let _ = callback.call1(&JsValue::NULL, &name);
+                            call_host(
+                                callback,
+                                &JsValue::from_str(&language.label().to_ascii_lowercase()),
+                            );
                         }
                     });
                 };
@@ -316,6 +353,7 @@ impl ConfigEditor {
         });
         Ok(ConfigEditor {
             state,
+            final_value: None,
             mounted: Some(Box::new(mounted)),
             owner,
         })
@@ -324,61 +362,96 @@ impl ConfigEditor {
     /// The document, in `language`.
     #[wasm_bindgen(getter)]
     pub fn value(&self) -> String {
-        self.state.value.get_untracked()
+        match &self.final_value {
+            Some(value) => value.clone(),
+            None => self.state.value.try_get_untracked().unwrap_or_default(),
+        }
     }
 
     /// Replaces the document (as a host update; the caret is kept when the
     /// text is unchanged).
     #[wasm_bindgen(js_name = setValue)]
-    pub fn set_value(&self, value: String) {
-        self.state.value.set(value);
+    pub fn set_value(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
+    ) -> Result<(), JsError> {
+        let _ = self.state.value.try_set(text_arg(&value, "value")?);
+        Ok(())
     }
 
     /// Sets the text the diff gutter compares against.
     #[wasm_bindgen(js_name = setBaseline)]
-    pub fn set_baseline(&self, baseline: String) {
-        self.state.baseline.set(baseline);
+    pub fn set_baseline(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] baseline: JsValue,
+    ) -> Result<(), JsError> {
+        let _ = self
+            .state
+            .baseline
+            .try_set(text_arg(&baseline, "baseline")?);
+        Ok(())
     }
 
     /// Edits in another language, or in `language` again with `null`.
     #[wasm_bindgen(js_name = setEditAs)]
-    pub fn set_edit_as(&self, language: Option<String>) -> Result<(), JsError> {
-        let language = language.map(|name| language_named(&name)).transpose()?;
-        self.state.edit_as.set(language);
+    pub fn set_edit_as(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string | null | undefined")] language: JsValue,
+    ) -> Result<(), JsError> {
+        let language = if language.is_null() || language.is_undefined() {
+            None
+        } else {
+            Some(language_named(&text_arg(&language, "editAs")?)?)
+        };
+        let _ = self.state.edit_as.try_set(language);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = setTheme)]
-    pub fn set_theme(&self, theme: String) -> Result<(), JsError> {
-        self.state.theme.set(theme_named(&theme)?);
+    pub fn set_theme(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] theme: JsValue,
+    ) -> Result<(), JsError> {
+        let _ = self
+            .state
+            .theme
+            .try_set(theme_named(&text_arg(&theme, "theme")?)?);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = setColors)]
     pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
-        self.state.colors.set(colors_from(&colors.into())?);
+        let _ = self.state.colors.try_set(colors_from(&colors.into())?);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = setReadOnly)]
     pub fn set_read_only(&self, read_only: bool) {
-        self.state.read_only.set(read_only);
+        let _ = self.state.read_only.try_set(read_only);
     }
 
     /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
     #[wasm_bindgen(js_name = setCallbacks)]
     pub fn set_callbacks(&self, callbacks: EditorUpdate) {
         let callbacks: JsValue = callbacks.into();
-        if let Ok(callback) = field(&callbacks, "onChange").dyn_into::<Function>() {
-            self.state.on_change.set_value(Some(callback));
-        }
-        if let Ok(callback) = field(&callbacks, "onEditAsChange").dyn_into::<Function>() {
-            self.state.on_edit_as_change.set_value(Some(callback));
-        }
+        // A function replaces a callback; `null` removes it; absent keeps it.
+        let update = |name: &str, slot: StoredValue<Option<Function>, LocalStorage>| {
+            let value = field(&callbacks, name);
+            if value.is_null() {
+                let _ = slot.try_set_value(None);
+            } else if let Ok(callback) = value.dyn_into::<Function>() {
+                let _ = slot.try_set_value(Some(callback));
+            }
+        };
+        update("onChange", self.state.on_change);
+        update("onEditAsChange", self.state.on_edit_as_change);
     }
 
     /// Unmounts the editor. The instance cannot be used afterwards.
     pub fn destroy(&mut self) {
+        if self.final_value.is_none() {
+            self.final_value = Some(self.state.value.try_get_untracked().unwrap_or_default());
+        }
         self.mounted.take();
         self.owner.cleanup();
     }
@@ -404,11 +477,14 @@ fn to_js<T: Serialize>(value: &T) -> JsValue {
 /// schema only syntax is checked.
 #[wasm_bindgen]
 pub fn validate(
-    language: &str,
-    text: &str,
-    schema: Option<String>,
+    #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string | undefined")] schema: JsValue,
 ) -> Result<Diagnostics, JsError> {
-    let language = language_named(language)?;
+    let language = language_named(&text_arg(&language, "language")?)?;
+    let text = text_arg(&text, "text")?;
+    let text = text.as_str();
+    let schema = optional_text(&schema, "schema")?;
     let problems = match schema {
         Some(json) => Schema::compile(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
@@ -435,12 +511,16 @@ pub fn validate(
 /// elements where it expects a list convert as one-item lists.
 #[wasm_bindgen]
 pub fn convert(
-    from: &str,
-    text: &str,
-    to: &str,
-    schema: Option<String>,
+    #[wasm_bindgen(unchecked_param_type = "LanguageName")] from: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "LanguageName")] to: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string | undefined")] schema: JsValue,
 ) -> Result<ConversionResult, JsError> {
-    let (from, to) = (language_named(from)?, language_named(to)?);
+    let schema = optional_text(&schema, "schema")?;
+    let from = language_named(&text_arg(&from, "from")?)?;
+    let to = language_named(&text_arg(&to, "to")?)?;
+    let text = text_arg(&text, "text")?;
+    let text = text.as_str();
     let converted = match schema {
         Some(json) => Schema::compile(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
@@ -629,14 +709,24 @@ impl ConfigLanguage for JsLanguage {
 pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> {
     let definition: JsValue = definition.into();
     let label = string_field(&definition, "label")
-        .filter(|label| !label.trim().is_empty())
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
         .ok_or_else(|| JsError::new("a language needs a label"))?;
+    if label.parse::<Language>().is_ok() {
+        return Err(JsError::new(&format!("\"{label}\" is a built-in language")));
+    }
     if field(&definition, "parse").dyn_into::<Function>().is_err() {
         return Err(JsError::new("a language needs parse(text)"));
     }
     let icon = string_field(&definition, "icon")
         .unwrap_or_else(|| label.chars().next().map(String::from).unwrap_or_default());
-    let extensions: Vec<&'static str> = Array::from(&field(&definition, "extensions"))
+    let extensions_value = field(&definition, "extensions");
+    let extensions_list = if Array::is_array(&extensions_value) {
+        Array::from(&extensions_value)
+    } else {
+        Array::new()
+    };
+    let extensions: Vec<&'static str> = extensions_list
         .iter()
         .filter_map(|extension| extension.as_string())
         .map(leak)

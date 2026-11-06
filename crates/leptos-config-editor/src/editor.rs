@@ -114,6 +114,28 @@ fn commit_edit(
     }
 }
 
+/// Where UTF-16 `offset` in `old` lands in `new`, when one region between a
+/// common prefix and suffix changed: before it stays, after it shifts, inside
+/// it goes to the region's start.
+fn map_through_change(old: &str, new: &str, offset: usize) -> usize {
+    let old: Vec<u16> = old.encode_utf16().collect();
+    let new: Vec<u16> = new.encode_utf16().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    if offset <= prefix {
+        offset
+    } else if offset >= old.len() - suffix {
+        offset + new.len() - old.len()
+    } else {
+        prefix
+    }
+}
+
 fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Selection {
     let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
     let end = element
@@ -130,6 +152,28 @@ const OVERSCAN_ROWS: usize = 40;
 
 /// Rows rendered before the editor element exists to measure.
 const INITIAL_ROWS: usize = 120;
+
+/// `(shift, width)` CSS lengths for a diagnostic message starting at visual
+/// column `column`: as wide as the visible text area allows (up to
+/// [`DIAGNOSTIC_TOOLTIP_MAX_WIDTH`]) and shifted left to stay inside it.
+fn tooltip_placement(
+    editor: Option<web_sys::HtmlTextAreaElement>,
+    column: f64,
+    scroll: f64,
+) -> (String, String) {
+    let Some(editor) = editor else {
+        return (
+            "0px".to_string(),
+            format!("{DIAGNOSTIC_TOOLTIP_MAX_WIDTH}px"),
+        );
+    };
+    let metrics = read_editor_metrics(&editor);
+    let visible = f64::from(editor.client_width());
+    let width = DIAGNOSTIC_TOOLTIP_MAX_WIDTH.min(visible - 16.0).max(120.0);
+    let left = metrics.padding_left + column * metrics.char_width - scroll;
+    let shift = (visible - 8.0 - left - width).min(0.0).max(8.0 - left);
+    (format!("{shift}px"), format!("{width}px"))
+}
 
 /// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
 const DIAGNOSTIC_TOOLTIP_MAX_WIDTH: f64 = 360.0;
@@ -267,6 +311,19 @@ pub fn ConfigEditor(
             .map(Signal::get_untracked)
             .map_or_else(|| initial_value.clone(), normalize_newlines),
     );
+    // An `edit_as` the document cannot be converted to yet (TOML has no
+    // `null`) starts in `language`; the switch waits, as a live one does.
+    let initial_pending = Bridge::new(
+        host_language,
+        edit_language.get_untracked(),
+        bridge_schema.get_value(),
+    )
+    .filter(|bridge| bridge.to_edit(&host_text.get_value()).is_err())
+    .map(|bridge| bridge.edit);
+    if initial_pending.is_some() {
+        edit_language.set(host_language);
+    }
+    let editor_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
     let load_problems = RwSignal::new(Vec::<Diagnostic>::new());
     let shown = move |host: &str| -> String {
         let Some(bridge) = bridge() else {
@@ -312,7 +369,17 @@ pub fn ConfigEditor(
             host_text.set_value(external_value.clone());
             let edit = shown(&external_value);
             synced_edit.set_value(edit.clone());
-            if source.get_untracked() != edit {
+            let current = source.get_untracked();
+            if current != edit {
+                // Keep the caret on the same text: write the new value here
+                // and map the caret through the change, so the later
+                // `prop:value` (identical text) leaves the selection alone.
+                if let Some(element) = editor_ref.get_untracked() {
+                    let (start, end) = textarea_selection(&element);
+                    let map = |offset: usize| map_through_change(&current, &edit, offset);
+                    element.set_value(&edit);
+                    let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
+                }
                 source.set(edit);
             }
         });
@@ -346,7 +413,6 @@ pub fn ConfigEditor(
     let scroll_x = RwSignal::new(0.0);
     let scroll_y = RwSignal::new(0.0);
     let popup_layout_revision = RwSignal::new(0usize);
-    let editor_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
     let root_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     let completion_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     let resize_listener = window_event_listener(ev::resize, move |_| {
@@ -372,8 +438,9 @@ pub fn ConfigEditor(
         if let Some(window) = web_sys::window() {
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                 wasm_bindgen::closure::Closure::once_into_js(move || {
-                    if diagnostics_token.get_value() == token {
-                        diagnosed_text.set(text);
+                    // The editor may have been unmounted while this waited.
+                    if diagnostics_token.try_get_value() == Some(token) {
+                        let _ = diagnosed_text.try_set(text);
                     }
                 })
                 .unchecked_ref(),
@@ -478,6 +545,9 @@ pub fn ConfigEditor(
             }
         }
     };
+    if let Some(next) = initial_pending {
+        try_switch(next);
+    }
     Effect::new(move |previous: Option<Language>| {
         let next = edit_as.get().unwrap_or(host_language);
         if previous.is_some() {
@@ -568,9 +638,19 @@ pub fn ConfigEditor(
                 line_start
             };
             let (updated, _) = replace_selection(&text, line_start, line_end, "");
+            // The caret keeps its column on the line that moves up.
+            let column = start - line_range(&text, start).0;
+            let next_line = line_range(&updated, line_start.min(updated.encode_utf16().count()));
+            let caret = (next_line.0 + column).min(
+                next_line.1
+                    - usize::from(
+                        updated.encode_utf16().nth(next_line.1.wrapping_sub(1))
+                            == Some(u16::from(b'\n')),
+                    ),
+            );
             commit_edit(
                 updated,
-                line_start,
+                caret.max(next_line.0),
                 None,
                 text,
                 (start, end),
@@ -1104,25 +1184,13 @@ pub fn ConfigEditor(
                                                     line.saturating_sub(1),
                                                     visual_width.max(1.0),
                                                 )
-                                                // Shifted left so the message stays inside the visible text area.
+                                                // Shifted left, and no wider than the visible text area,
+                                                // so the message is never clipped.
                                                 style:--config-editor-diagnostic-tooltip-shift=move || {
-                                                    let scroll = scroll_x.get();
-                                                    let Some(editor) = editor_ref.get_untracked() else {
-                                                        return "0px".to_string();
-                                                    };
-                                                    let metrics = read_editor_metrics(&editor);
-                                                    let visible = f64::from(editor.client_width());
-                                                    let left = metrics.padding_left
-                                                        + visual_left * metrics.char_width
-                                                        - scroll;
-                                                    // As wide as `max-width` in preset.css allows.
-                                                    let window_width = web_sys::window()
-                                                        .and_then(|window| window.inner_width().ok())
-                                                        .and_then(|width| width.as_f64())
-                                                        .unwrap_or(visible);
-                                                    let tooltip = DIAGNOSTIC_TOOLTIP_MAX_WIDTH.min(window_width - 32.0);
-                                                    let shift = (visible - 8.0 - left - tooltip).min(0.0).max(8.0 - left);
-                                                    format!("{shift}px")
+                                                    tooltip_placement(editor_ref.get_untracked(), visual_left, scroll_x.get()).0
+                                                }
+                                                style:--config-editor-diagnostic-tooltip-width=move || {
+                                                    tooltip_placement(editor_ref.get_untracked(), visual_left, scroll_x.get()).1
                                                 }
                                                 on:mousedown=|event| event.prevent_default()
                                                 on:click=move |_| {
@@ -1282,9 +1350,10 @@ pub fn ConfigEditor(
                                     let token = hover_token.get_value();
                                     let anchor = hover_card_style(&element, line, info.start_column);
                                     schedule_hover(move || {
-                                        if hover_token.get_value() == token {
-                                            hover_pending.set_value(None);
-                                            hover_card.set(Some(HoverCard { info, line, style: anchor }));
+                                        // The editor may have been unmounted while this waited.
+                                        if hover_token.try_get_value() == Some(token) {
+                                            let _ = hover_pending.try_set_value(None);
+                                            let _ = hover_card.try_set(Some(HoverCard { info, line, style: anchor }));
                                         }
                                     });
                                 }
@@ -1371,6 +1440,17 @@ pub fn ConfigEditor(
                                             );
                                         } else {
                                             let _ = element.set_selection_range(target as u32, target as u32);
+                                        }
+                                        // Bring the caret back into view when the line is scrolled sideways.
+                                        let column = source.with_untracked(|text| {
+                                            let byte = utf16_to_byte_index(text, target);
+                                            let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
+                                            visual_column(&text[line_start..byte])
+                                        });
+                                        let metrics = read_editor_metrics(&element);
+                                        let caret_x = column * metrics.char_width;
+                                        if caret_x < f64::from(element.scroll_left()) {
+                                            element.set_scroll_left((caret_x - 2.0 * metrics.char_width).max(0.0) as i32);
                                         }
                                         cursor.set(target);
                                         current_line.set(source.with_untracked(|text| line_at_cursor(text, target)));
@@ -1579,11 +1659,12 @@ pub fn ConfigEditor(
 
                                             if key == "Backspace" && start == end {
                                                 let before = source.get_untracked();
-                                                if let Some((updated, new_cursor)) =
-                                                    delete_empty_pair(&before, start)
+                                                let distance = before.encode_utf16().count() - start;
+                                                // Only a pair the editor inserted goes as one.
+                                                if auto_closers.with_value(|closers| closers.contains(&distance))
+                                                    && let Some((updated, new_cursor)) = delete_empty_pair(&before, start)
                                                 {
                                                     event.prevent_default();
-                                                    let distance = before.encode_utf16().count() - start;
                                                     auto_closers.update_value(|closers| closers.retain(|closer| *closer != distance));
                                                     commit_edit(
                                                         updated,
@@ -1862,7 +1943,9 @@ pub fn ConfigEditor(
                                                 .target()
                                                 .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
                                             {
-                                                let (mut start, mut end) = textarea_selection(&element);
+                                                // The selection before the edit, for undo.
+                                                let selection = textarea_selection(&element);
+                                                let (mut start, mut end) = selection;
                                                 let text = source.get_untracked();
                                                 let line_start_of = |offset: usize| {
                                                     let byte = utf16_to_byte_index(&text, offset);
@@ -1872,9 +1955,52 @@ pub fn ConfigEditor(
                                                     let byte = utf16_to_byte_index(&text, offset);
                                                     text[..text[byte..].find('\n').map_or(text.len(), |index| byte + index)].encode_utf16().count()
                                                 };
+                                                // Ctrl+Shift+Enter opens a line above, at this line's indent.
+                                                if (event.ctrl_key() || event.meta_key()) && event.shift_key() {
+                                                    let line_start = line_start_of(start);
+                                                    let indent: String = text[utf16_to_byte_index(&text, line_start)..]
+                                                        .chars()
+                                                        .take_while(|character| matches!(character, ' ' | '\t'))
+                                                        .collect();
+                                                    let (updated, _) = replace_selection(&text, line_start, line_start, &format!("{indent}\n"));
+                                                    commit_edit(
+                                                        updated,
+                                                        line_start + indent.encode_utf16().count(),
+                                                        None,
+                                                        text,
+                                                        selection,
+                                                        source,
+                                                        cursor,
+                                                        current_line,
+                                                        history,
+                                                        on_change,
+                                                        Some(element),
+                                                        scroll_y,
+                                                        true,
+                                                    );
+                                                    suggestions_requested.set(false);
+                                                    return;
+                                                }
                                                 // Ctrl+Enter opens a line below without splitting this one.
                                                 if event.ctrl_key() || event.meta_key() {
                                                     start = line_end_of(end);
+                                                    end = start;
+                                                }
+                                                // After typing inside closers the editor inserted (`["box|"]`),
+                                                // Enter steps past them instead of splitting the value.
+                                                // Only after a value typed inside inserted quotes: an empty
+                                                // pair (`{|}`) still opens on Enter.
+                                                let at_byte = utf16_to_byte_index(&text, start);
+                                                let after_typed_quote = text[at_byte..].starts_with(['"', '\''])
+                                                    && !text[..at_byte].ends_with(['"', '\'']);
+                                                if start == end && after_typed_quote {
+                                                    let length = text.encode_utf16().count();
+                                                    while start < length
+                                                        && auto_closers.with_value(|closers| closers.contains(&(length - start)))
+                                                        && text[utf16_to_byte_index(&text, start)..].starts_with(['"', '\'', ']', '}', ')'])
+                                                    {
+                                                        start += 1;
+                                                    }
                                                     end = start;
                                                 }
                                                 let newline = behavior().newline(&text, start);
@@ -1895,6 +2021,11 @@ pub fn ConfigEditor(
                                                 let replaced_end = end + text[end_byte..(end_byte + newline.replaces).min(text.len())]
                                                     .encode_utf16()
                                                     .count();
+                                                let start = start
+                                                    - text[..utf16_to_byte_index(&text, start)]
+                                                        [utf16_to_byte_index(&text, start).saturating_sub(newline.replaces_before)..]
+                                                        .encode_utf16()
+                                                        .count();
                                                 let (updated, _) = replace_selection(&text, start, replaced_end, &newline.text);
                                                 let new_cursor = start + newline.text[..newline.caret].encode_utf16().count();
                                                 commit_edit(
@@ -1902,7 +2033,7 @@ pub fn ConfigEditor(
                                                     new_cursor,
                                                     None,
                                                     text,
-                                                    (start, end),
+                                                    selection,
                                                     source,
                                                     cursor,
                                                     current_line,
@@ -2057,7 +2188,7 @@ pub fn ConfigEditor(
                                 <button
                                     type="button"
                                     class="config-editor__diagnostic-status"
-                                    class:config-editor__diagnostic-status-error=move || !diagnostics.get().is_empty()
+                                    class:config-editor__diagnostic-status-error=move || diagnostics.with(|problems| problems.iter().any(|problem| problem.severity == Severity::Error))
                                     disabled=move || diagnostics.get().is_empty()
                                     aria-live="polite"
                                     title=move || {
@@ -2076,13 +2207,22 @@ pub fn ConfigEditor(
                                     }
                                 >
                                     {move || {
-                                        let errors = diagnostics.get();
-                                        match errors.len() {
-                                            0 => "No errors".to_string(),
-                                            count if errors.iter().any(|error| error.line.is_none()) => {
-                                                format!("{count} error(s) · {}", errors[0].message)
-                                            }
-                                            count => format!("{count} error(s) · hover or focus underlined text"),
+                                        let problems = diagnostics.get();
+                                        let warnings = problems.iter().filter(|problem| problem.severity == Severity::Warning).count();
+                                        let errors = problems.len() - warnings;
+                                        let count = match (errors, warnings) {
+                                            (0, 0) => return "No errors".to_string(),
+                                            (errors, 0) => format!("{errors} error{}", if errors == 1 { "" } else { "s" }),
+                                            (0, warnings) => format!("{warnings} warning{}", if warnings == 1 { "" } else { "s" }),
+                                            (errors, warnings) => format!(
+                                                "{errors} error{}, {warnings} warning{}",
+                                                if errors == 1 { "" } else { "s" },
+                                                if warnings == 1 { "" } else { "s" }
+                                            ),
+                                        };
+                                        match problems.iter().find(|problem| problem.line.is_none()) {
+                                            Some(unplaced) => format!("{count} · {}", unplaced.message),
+                                            None => format!("{count} · hover or focus underlined text"),
                                         }
                                     }}
                                 </button>

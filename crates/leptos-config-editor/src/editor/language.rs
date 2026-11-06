@@ -116,6 +116,9 @@ pub enum EntryPosition {
     Inline,
     /// An XML-style attribute on the current tag (`name="value"`).
     Attribute,
+    /// Only the key's name, such as a segment of a TOML table header
+    /// (`[web.lets|]`): no separator or value.
+    Name,
 }
 
 /// What [`ConfigLanguage::property_insert`] needs to lay out an insert.
@@ -200,14 +203,16 @@ pub fn bracket_newline(
     let indent = line_indent(&source[line_start..byte]);
     let before = code(&source[line_start..byte]).trim_end_matches([' ', '\t']);
     let after = source[byte..].trim_start_matches([' ', '\t']);
+    // Brackets inside a string literal are text.
+    let in_string = inside_string(before);
     let opens = before
         .chars()
         .last()
-        .filter(|last| pairs.iter().any(|(open, _)| open == last));
+        .filter(|last| !in_string && pairs.iter().any(|(open, _)| open == last));
     let closes = after
         .chars()
         .next()
-        .filter(|next| pairs.iter().any(|(_, close)| close == next));
+        .filter(|next| !in_string && pairs.iter().any(|(_, close)| close == next));
     let unit = super::commands::indent_unit(source);
     match (opens, closes) {
         (Some(_), Some(_)) => Newline::with_caret(
@@ -227,6 +232,32 @@ pub fn bracket_newline(
         }
         (None, None) => Newline::new(format!("\n{indent}")),
     }
+}
+
+/// Whether the end of `line` (text before the caret) is inside a string: a
+/// `"` string with `\\` escapes, or a `'` string opened where a value starts.
+fn inside_string(line: &str) -> bool {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut previous = ' ';
+    for character in line.chars() {
+        match quote {
+            Some('"') if escaped => escaped = false,
+            Some('"') if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '"' => quote = Some('"'),
+            None if character == '\''
+                && (previous.is_whitespace()
+                    || matches!(previous, ':' | '=' | '[' | '{' | ',' | '(')) =>
+            {
+                quote = Some('\'');
+            }
+            None => {}
+        }
+        previous = character;
+    }
+    quote.is_some()
 }
 
 fn line_indent(line: &str) -> &str {
@@ -285,7 +316,13 @@ pub fn toggle_line_comments(
         .saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
     let lines: Vec<&str> = source.split_inclusive('\n').collect();
     if first_line >= lines.len() {
-        return None;
+        // The caret is on the empty last line: start a comment there.
+        if start != end || start != source.len() {
+            return None;
+        }
+        let updated = format!("{source}{insert} ");
+        let caret = updated.encode_utf16().count();
+        return Some((updated, caret, caret));
     }
     let last_line = last_line.min(lines.len() - 1);
     let body = |line: &str| {
@@ -310,6 +347,15 @@ pub fn toggle_line_comments(
         .filter(|line| !line.trim().is_empty())
         .all(|line| marker_of(&line[indent_of(line)..]).is_some());
     let column = content_lines.map(|line| indent_of(line)).min().unwrap_or(0);
+    // On a blank line, start a comment there, after its indentation.
+    if first_line == last_line && selected[0].trim().is_empty() {
+        let line_start: usize = lines[..first_line].iter().map(|line| line.len()).sum();
+        let at = line_start + selected[0].len();
+        let mut updated = source.to_string();
+        updated.insert_str(at, &format!("{insert} "));
+        let caret = updated[..at + insert.len() + 1].encode_utf16().count();
+        return Some((updated, caret, caret));
+    }
 
     let mut edits: Vec<(usize, usize, usize)> = Vec::new();
     let mut updated = String::with_capacity(source.len() + lines.len() * (insert.len() + 1));
@@ -503,6 +549,9 @@ pub struct Newline {
     /// Bytes after the caret that `text` replaces, so Enter can step over
     /// closers (`{ a = 1| }` in TOML moves past ` }`).
     pub replaces: usize,
+    /// Bytes before the caret that `text` replaces, so Enter can clear what
+    /// it would otherwise continue (an empty YAML `- ` item).
+    pub replaces_before: usize,
 }
 
 impl Newline {
@@ -513,6 +562,7 @@ impl Newline {
             caret: text.len(),
             text,
             replaces: 0,
+            replaces_before: 0,
         }
     }
 
@@ -522,6 +572,7 @@ impl Newline {
             text: text.into(),
             caret,
             replaces: 0,
+            replaces_before: 0,
         }
     }
 }

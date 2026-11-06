@@ -125,6 +125,19 @@ impl ConfigLanguage for YamlBehavior {
         if before.ends_with(['[', '{']) && after.starts_with([']', '}']) {
             return bracket_newline(source, cursor, &[('{', '}'), ('[', ']')], code_before_comment);
         }
+        // Enter on an empty `- ` item ends the list: the dash goes, and the
+        // caret stays at the list's indentation.
+        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+        let line = &source[line_start..byte];
+        if line.trim() == "-" && after.split('\n').next().is_some_and(|rest| rest.trim().is_empty()) {
+            let content_start = line.len() - line.trim_start().len();
+            return Newline {
+                text: String::new(),
+                caret: 0,
+                replaces: 0,
+                replaces_before: line.len() - content_start,
+            };
+        }
         Newline::new(newline_with_indent(source, cursor))
     }
 
@@ -1170,6 +1183,10 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
             1 + after_dash.len() - after_dash.trim_start_matches([' ', '\t']).len();
         let item_indent = format!(" {}", &code[1..content_offset]);
         let content = &code[content_offset..];
+        // A nested sequence (`- - a`) continues at its inner dash.
+        if content == "-" || content.starts_with("- ") {
+            return format!("\n{indent}{item_indent}- ");
+        }
         if let Some(colon) = mapping_colon(content) {
             let value = content[colon + 1..].trim();
             if value.is_empty() || is_block_scalar(value) {
@@ -1182,7 +1199,15 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
     }
     if let Some(colon) = mapping_colon(code) {
         let value = code[colon + 1..].trim();
-        if value.is_empty() || is_block_scalar(value) {
+        // Children follow an empty value, a block scalar, a node property
+        // alone (`&anchor`, `!!map`), or an unclosed flow collection.
+        let node_property = !value.is_empty()
+            && value.split_whitespace().all(|token| token.starts_with(['&', '!']));
+        if value.is_empty()
+            || is_block_scalar(value)
+            || node_property
+            || value.ends_with(['[', '{'])
+        {
             return format!("\n{indent}{unit}");
         }
     }
@@ -2135,9 +2160,11 @@ mod tests {
             .iter()
             .find(|option| option.label == "auth")
             .unwrap();
+        // A line of only spaces does not set the unit (it would flip while
+        // typing), so children go one default unit deeper.
         assert_eq!(
             option.insert,
-            "auth:\n        enabled: false\n        token: \n"
+            "auth:\n      enabled: false\n      token: \n"
         );
     }
 
@@ -2233,8 +2260,10 @@ mod tests {
         let padded = "services:\n  -   web:";
         assert_eq!(newline_with_indent(padded, padded.len()), "\n        ");
 
+        // Enter on an empty item ends the list: the `- ` is removed.
         let empty_item = "services:\n  - ";
-        assert_eq!(newline_with_indent(empty_item, empty_item.len()), "\n  - ");
+        let ended = YamlBehavior.newline(empty_item, empty_item.len());
+        assert_eq!((ended.text.as_str(), ended.replaces_before), ("", 2));
 
         let plain_scalar_key = "services:\n  -web: 8080";
         assert_eq!(

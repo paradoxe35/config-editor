@@ -65,23 +65,26 @@ pub(super) fn hover_card_style(
         .ok()
         .and_then(|v| v.as_f64())
         .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
+    // At most the window's width, so narrow screens do not clip the text.
+    let width = HOVER_CARD_MAX_WIDTH.min(viewport_width - 2.0 * POPUP_MARGIN);
     let left = (rect.left() + metrics.padding_left + column as f64 * metrics.char_width
         - element.scroll_left() as f64)
         .clamp(
             POPUP_MARGIN,
-            (viewport_width - HOVER_CARD_MAX_WIDTH - POPUP_MARGIN).max(POPUP_MARGIN),
+            (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
         );
     let line_top = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
         - element.scroll_top() as f64;
-    if line_top > HOVER_CARD_ESTIMATED_HEIGHT
-        && line_top + metrics.line_height + HOVER_CARD_ESTIMATED_HEIGHT > viewport_height
-    {
+    // Room inside the visible part of the editor, not the whole window.
+    let room_below = rect.bottom().min(viewport_height) - (line_top + metrics.line_height);
+    let room_above = line_top - rect.top().max(0.0);
+    if room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below {
         format!(
-            "left:{left:.1}px;top:{line_top:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))"
+            "left:{left:.1}px;top:{line_top:.1}px;max-width:{width:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))"
         )
     } else {
         format!(
-            "left:{left:.1}px;top:{:.1}px",
+            "left:{left:.1}px;top:{:.1}px;max-width:{width:.1}px",
             line_top + metrics.line_height + POPUP_GAP
         )
     }

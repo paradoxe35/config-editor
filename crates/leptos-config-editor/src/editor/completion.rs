@@ -566,6 +566,10 @@ fn value_completions(
     let query = unquoted(typed);
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
+    // A language without null (TOML) is not offered one.
+    let null_writable = behavior
+        .serialize(&serde_json::json!({ "value": null }), None)
+        .is_ok();
     let numeric_allowed = schemas
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
@@ -580,7 +584,7 @@ fn value_completions(
             for value in schema_value_candidates(branch, open) {
                 let value = numeric_example_as_number(value, numeric_allowed);
                 let label = value_label(&value);
-                if !seen.insert(label.clone()) {
+                if !seen.insert(label.clone()) || (value.is_null() && !null_writable) {
                     continue;
                 }
                 if let Some(score) = match_score(&label, query) {
@@ -739,12 +743,17 @@ pub(super) fn completions(
     let Some(bundle) = schema else {
         return Vec::new();
     };
+    // Nothing is suggested inside a comment.
+    if behavior.lexical_state(source, cursor).in_comment {
+        return Vec::new();
+    }
     let cursor_byte = utf16_to_byte_index(source, cursor);
     let context = behavior.completion_context(source, cursor);
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
     for option in &mut options {
         frame_insert(option, &context);
+        rename_key_with_value(option, source, cursor);
         // An insert ending in a line break before an existing one would leave
         // a blank line, unless the caret goes on that line (`[pool]\n|`).
         let end = utf16_to_byte_index(source, option.end);
@@ -1075,6 +1084,36 @@ pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &st
             | "historyUndo"
             | "historyRedo"
     )
+}
+
+/// Completing a key that already has its separator and value after the caret
+/// (`keep|: 99`, `"publ|": "x"`) renames just the key and keeps the value.
+fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
+    if option.is_value || option.start > cursor {
+        return;
+    }
+    let caret = utf16_to_byte_index(source, cursor);
+    let line_rest = source[caret..].split('\n').next().unwrap_or("");
+    let after_quote = line_rest.strip_prefix('"').unwrap_or(line_rest);
+    let separator = after_quote.trim_start();
+    if !(separator.starts_with(':') || separator.starts_with('=') && !separator.starts_with("==")) {
+        return;
+    }
+    let quoted = option.insert.trim_start().starts_with('"');
+    option.insert = if quoted {
+        format!("\"{}\"", option.label)
+    } else {
+        option.label.clone()
+    };
+    // Up to the caret, plus the key's own closing quote.
+    option.end = cursor
+        + if quoted {
+            line_rest.len() - after_quote.len()
+        } else {
+            0
+        };
+    option.cursor_offset = option.insert.encode_utf16().count();
+    option.selected = 0;
 }
 
 /// The closers `completion` wrote after the caret (`[|]`, `"|"`), as UTF-16

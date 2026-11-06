@@ -27,6 +27,11 @@ function Settings({ schema }: { schema: string }) {
 }
 ```
 
+Errors (an unknown language, theme or color token, an invalid schema) go to
+`onError` when given, and are logged otherwise; they never unmount your tree.
+A parent that applies `onChange` values late cannot roll the document back to
+an older one.
+
 `value` is controlled (or use `defaultValue`); `editAs`, `theme`, `colors`,
 `readOnly` and `baseline` update live. `language`, `schema`, `fileName`,
 `showToolbar` and `showFooter` re-mount the editor when they change. A `ref`

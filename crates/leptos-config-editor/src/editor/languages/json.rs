@@ -629,6 +629,13 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             }
         )
     );
+    // After the root value closes nothing can follow, so nothing is offered.
+    if snapshot.frame.is_none() && !source[..typed_start].trim().is_empty() {
+        return CompletionContext {
+            no_properties: true,
+            ..Default::default()
+        };
+    }
     // A typed opening quote is the start of a key, so the key list opens now.
     let explicit_entry_start = snapshot.partial.is_some() && source[typed_start..].starts_with('"');
     let (path, value_key, is_array_item) = match snapshot.frame {

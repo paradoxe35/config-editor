@@ -389,8 +389,12 @@ test.describe('large documents', () => {
   test('a long document keeps the suggestion list inside the viewport near the bottom', async ({ page }) => {
     const e = editor(page);
     await e.paste(LARGE_JSON);
-    await e.input.click();
-    await page.keyboard.press('Control+End');
+    // The last line inside the root object (after its `}` nothing is offered).
+    await e.input.evaluate((element) => {
+      const at = element.value.lastIndexOf('}');
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
     await page.keyboard.press('Enter');
     await page.keyboard.type('"');
     await expect.poll(() => e.isOpen()).toBe(true);

@@ -72,6 +72,12 @@ export interface ConfigEditorProps {
   /** Class and style of the container element. */
   className?: string;
   style?: CSSProperties;
+  /**
+   * Called with an error from mounting or from a prop the editor rejects
+   * (an unknown language, theme or color token, an invalid schema). Without
+   * it errors are logged; they never unmount your React tree.
+   */
+  onError?: (error: unknown) => void;
 }
 
 /** Imperative access, through `ref`. */
@@ -96,6 +102,22 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     const latest = useRef(props);
     latest.current = props;
     const [mounted, setMounted] = useState(0);
+    // Values this editor sent through onChange, newest last: a parent that
+    // applies them late must not roll the document back to an older one.
+    const emitted = useRef<string[]>([]);
+    const report = (error: unknown) => {
+      if (latest.current.onError) latest.current.onError(error);
+      else console.error("config-editor-react:", error);
+    };
+    const guard = (apply: (instance: Editor) => void) => {
+      const instance = editor.current;
+      if (!instance) return;
+      try {
+        apply(instance);
+      } catch (error) {
+        report(error);
+      }
+    };
 
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
@@ -116,12 +138,20 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           showToolbar: current.showToolbar,
           showFooter: current.showFooter,
           className: current.editorClassName,
-          onChange: (value) => latest.current.onChange?.(value),
+          onChange: (value) => {
+            emitted.current.push(value);
+            if (emitted.current.length > 50) emitted.current.shift();
+            latest.current.onChange?.(value);
+          },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
         };
-        editor.current = new Editor(host.current, options);
-        setMounted((count) => count + 1);
-      });
+        try {
+          editor.current = new Editor(host.current, options);
+          setMounted((count) => count + 1);
+        } catch (error) {
+          report(error);
+        }
+      }, report);
       return () => {
         cancelled = true;
         editor.current?.destroy();
@@ -138,31 +168,35 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     ]);
 
     useEffect(() => {
-      const instance = editor.current;
-      if (instance && props.value !== undefined && instance.value !== props.value) {
-        instance.setValue(props.value);
-      }
+      guard((instance) => {
+        const value = props.value;
+        if (value === undefined || instance.value === value) return;
+        // A late echo of an older value this editor sent: keep the newer text.
+        const sent = emitted.current.lastIndexOf(value);
+        if (sent >= 0 && sent < emitted.current.length - 1) return;
+        instance.setValue(value);
+      });
     }, [mounted, props.value]);
 
     useEffect(() => {
-      if (props.baseline !== undefined) editor.current?.setBaseline(props.baseline);
+      if (props.baseline !== undefined) guard((instance) => instance.setBaseline(props.baseline!));
     }, [mounted, props.baseline]);
 
     useEffect(() => {
-      editor.current?.setEditAs(props.editAs ?? undefined);
+      guard((instance) => instance.setEditAs(props.editAs ?? undefined));
     }, [mounted, props.editAs]);
 
     useEffect(() => {
-      if (props.theme !== undefined) editor.current?.setTheme(props.theme);
+      if (props.theme !== undefined) guard((instance) => instance.setTheme(props.theme!));
     }, [mounted, props.theme]);
 
     const colors = JSON.stringify(props.colors ?? {});
     useEffect(() => {
-      editor.current?.setColors(JSON.parse(colors) as ThemeColorMap);
+      guard((instance) => instance.setColors(JSON.parse(colors) as ThemeColorMap));
     }, [mounted, colors]);
 
     useEffect(() => {
-      editor.current?.setReadOnly(props.readOnly ?? false);
+      guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
 
     useImperativeHandle(

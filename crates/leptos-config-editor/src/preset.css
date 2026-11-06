@@ -156,8 +156,11 @@
   overflow: hidden;
 }
 
+/* Above the text layers, opaque: code scrolled sideways passes under it. */
 .config-editor__gutter {
-  z-index: 2;
+  position: relative;
+  z-index: 5;
+  background: var(--config-editor-bg);
   width: 52px;
   flex: 0 0 auto;
   /* Its rows never size it: it stretches to the textarea, so resizing the
@@ -477,7 +480,7 @@
   bottom: calc(100% + 5px);
   left: var(--config-editor-diagnostic-tooltip-shift, 0px);
   width: max-content;
-  max-width: min(360px, calc(100vw - 32px));
+  max-width: var(--config-editor-diagnostic-tooltip-width, min(360px, calc(100vw - 32px)));
   display: none;
   padding: 7px 10px;
   border: 1px solid var(--config-editor-raised-border);

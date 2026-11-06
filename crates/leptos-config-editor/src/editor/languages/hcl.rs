@@ -133,7 +133,8 @@ impl ConfigLanguage for HclBehavior {
             source,
             cursor,
             &[('{', '}'), ('[', ']'), ('(', ')')],
-            |line| code_before_comment(line).unwrap_or(line),
+            // A comment-only line has no code: its braces open nothing.
+            |line| code_before_comment(line).unwrap_or(""),
         )
     }
 
@@ -767,6 +768,17 @@ fn analyze(source: &str, cursor: usize) -> Scan {
         index += 1;
     }
 
+    // Past the last token, a line break before the caret ends the value just
+    // as a following token's line break would (`listen = 7835\n|` at the end).
+    let last_end = tokens.last().map_or(0, |token| token.end);
+    if snapshot.is_none()
+        && source[last_end.min(cursor)..cursor.min(source.len())].contains('\n')
+        && open
+            .as_ref()
+            .is_some_and(|value| value.started && value.depth == 0)
+    {
+        open = None;
+    }
     let snapshot = snapshot
         .unwrap_or_else(|| take_snapshot(&attributes, &stack, open.as_ref(), cursor, partial));
     Scan {
@@ -2101,7 +2113,7 @@ mod tests {
     }
 
     #[test]
-    fn completing_a_key_before_its_existing_equals_swallows_the_equals() {
+    fn completing_a_key_before_its_existing_equals_keeps_the_value() {
         let source = "reg = \"a\"";
         let cursor = "reg".encode_utf16().count();
         let option = completions(source, cursor, false, Some(&schema()), true, &HclBehavior)
@@ -2109,7 +2121,7 @@ mod tests {
             .find(|option| option.label == "region")
             .expect("region should be suggested");
         let (updated, _, _) = apply_completion(source, &option);
-        assert_eq!(updated, "region = \"us-east-1\"");
+        assert_eq!(updated, "region = \"a\"");
     }
 
     /// Every caret position in messy and malformed documents must produce

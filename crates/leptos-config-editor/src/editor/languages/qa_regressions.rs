@@ -351,7 +351,7 @@ fn enter(language: Language, marked: &str) -> String {
     let newline = language
         .behavior()
         .newline(&source, source[..at].encode_utf16().count());
-    let mut text = source[..at].to_string();
+    let mut text = source[..at - newline.replaces_before].to_string();
     text.push_str(&newline.text[..newline.caret]);
     text.push('|');
     text.push_str(&newline.text[newline.caret..]);
@@ -881,5 +881,150 @@ fn an_empty_xml_element_is_empty_text_where_text_is_expected() {
             .iter()
             .any(|problem| problem.message.contains("text is not allowed")),
         "{mixed:?}"
+    );
+}
+
+#[test]
+fn comment_toggling_on_a_blank_line_starts_a_comment() {
+    assert_eq!(toggle(Language::YAML, "a: 1\n  |\n"), "a: 1\n  # |\n");
+    assert_eq!(toggle(Language::TOML, "|"), "# |");
+}
+
+#[test]
+fn yaml_enter_rules_for_lists_flow_and_node_properties() {
+    assert_eq!(
+        enter(Language::YAML, "hosts:\n  - a\n  - |\n"),
+        "hosts:\n  - a\n  |\n"
+    );
+    assert_eq!(enter(Language::YAML, "- - a|\n"), "- - a\n  - |\n");
+    assert_eq!(enter(Language::YAML, "list: [|\n"), "list: [\n  |\n");
+    assert_eq!(
+        enter(Language::YAML, "base: &defaults|\n"),
+        "base: &defaults\n  |\n"
+    );
+    assert_eq!(enter(Language::YAML, "a: !!map|\n"), "a: !!map\n  |\n");
+}
+
+#[test]
+fn enter_between_brackets_inside_a_string_is_a_plain_newline() {
+    assert_eq!(
+        enter(Language::JSON, "{\"p\": \"[|]\"}"),
+        "{\"p\": \"[\n|]\"}"
+    );
+    assert_eq!(enter(Language::TOML, "re = \"[|]\"\n"), "re = \"[\n|]\"\n");
+    assert_eq!(enter(Language::HCL, "# block {|\n"), "# block {\n|\n");
+}
+
+#[test]
+fn a_line_being_typed_does_not_set_the_indent_unit() {
+    assert_eq!(crate::editor::commands::indent_unit("root:\n    "), "  ");
+}
+
+#[test]
+fn xml_comment_toggling_inside_a_multi_line_comment_removes_it() {
+    assert_eq!(
+        toggle(Language::XML, "<a>\n<!-- <b/>\n  <c|/> -->\n</a>"),
+        "<a>\n<b/>\n  <c|/>\n</a>"
+    );
+    assert_eq!(toggle(Language::XML, "<!--\n  <a/>|\n  -->\n"), "  <a/>|\n");
+}
+
+#[test]
+fn nothing_is_suggested_in_comments_and_toml_gets_no_null() {
+    assert!(labels(Language::YAML, "# po|\n").is_empty());
+    assert!(labels(Language::TOML, "# po|\n").is_empty());
+    assert!(labels(Language::HCL, "# po|\n").is_empty());
+    assert!(!labels(Language::TOML, "public_address = |\n").contains(&"null".to_string()));
+    assert!(labels(Language::YAML, "public_address: |\n").contains(&"null".to_string()));
+}
+
+#[test]
+fn completing_a_key_that_has_a_value_renames_only_the_key() {
+    assert_eq!(
+        accept(Language::YAML, "tcp:\n  keep|: 99\n", "keepalive_secs"),
+        "tcp:\n  keepalive_secs|: 99\n"
+    );
+    assert_eq!(
+        accept(
+            Language::JSON,
+            "{\n  \"publ|\": \"my.host\"\n}",
+            "public_address"
+        ),
+        "{\n  \"public_address\"|: \"my.host\"\n}"
+    );
+    assert_eq!(
+        accept(Language::TOML, "[tcp]\nkeep| = 99\n", "keepalive_secs"),
+        "[tcp]\nkeepalive_secs| = 99\n"
+    );
+    assert_eq!(
+        accept(
+            Language::TOML,
+            "hea| = { interval_secs = 5 }\n",
+            "heartbeat"
+        ),
+        "heartbeat| = { interval_secs = 5 }\n"
+    );
+    assert_eq!(
+        accept(Language::HCL, "tcp {\n  keep| = 99\n}\n", "keepalive_secs"),
+        "tcp {\n  keepalive_secs| = 99\n}\n"
+    );
+}
+
+#[test]
+fn xml_enter_after_a_value_steps_past_the_end_tag() {
+    assert_eq!(
+        enter(
+            Language::XML,
+            "<services>\n  <mode>balance|</mode>\n</services>"
+        ),
+        "<services>\n  <mode>balance</mode>\n  |\n</services>"
+    );
+    // An empty element still opens a block.
+    assert_eq!(enter(Language::XML, "<web>|</web>"), "<web>\n  |\n</web>");
+}
+
+#[test]
+fn an_xml_value_accepted_mid_word_replaces_the_whole_value() {
+    assert_eq!(
+        accept(
+            Language::XML,
+            "<services><web><mode>fail|over</mode></web></services>",
+            "failover"
+        ),
+        "<services><web><mode>failover|</mode></web></services>"
+    );
+}
+
+#[test]
+fn nothing_is_offered_after_the_json_root_closes() {
+    assert!(labels(Language::JSON, "{\n  \"listen\": 1\n}|").is_empty());
+    assert!(labels(Language::JSON, "{\n  \"listen\": 1\n}\nli|").is_empty());
+    assert!(!labels(Language::JSON, "{\n  |\n}").is_empty());
+}
+#[test]
+fn keys_not_values_on_a_new_line_after_the_last_hcl_attribute() {
+    let offered = labels(Language::HCL, "listen = 7835\n|");
+    assert!(offered.contains(&"limits".to_string()), "{offered:?}");
+    assert!(!offered.contains(&"7835".to_string()));
+}
+
+#[test]
+fn after_an_xml_end_tag_the_parent_is_completed() {
+    let offered = labels(Language::XML, "<pool>\n  <min_idle>4</min_idle>\n</pool>|");
+    assert!(offered.contains(&"limits".to_string()), "{offered:?}");
+    assert!(!offered.contains(&"max_idle".to_string()));
+}
+#[test]
+fn toml_table_headers_complete_their_segment_with_tables_only() {
+    assert_eq!(labels(Language::TOML, "[hea|]\n"), ["heartbeat"]);
+    assert_eq!(labels(Language::TOML, "[web.lets|]\n"), ["letsencrypt"]);
+    assert!(!labels(Language::TOML, "[|]\n").contains(&"listen".to_string()));
+    assert_eq!(
+        accept(Language::TOML, "[hea|]\n", "heartbeat"),
+        "[heartbeat|]\n"
+    );
+    assert_eq!(
+        accept(Language::TOML, "[[web.cert|]]\n", "certificates"),
+        "[[web.certificates|]]\n"
     );
 }

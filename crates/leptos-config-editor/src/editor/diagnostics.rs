@@ -188,6 +188,10 @@ impl Schema {
     }
 }
 
+/// Characters of a value quoted in a message before it is abbreviated.
+#[cfg(feature = "schema-validation")]
+const MAX_QUOTED_VALUE: usize = 80;
+
 /// Syntax diagnostics for `source`, for documents without a schema.
 ///
 /// ```
@@ -208,10 +212,13 @@ pub(super) fn shift_diagnostics(
     current: &str,
     diagnostics: &[Diagnostic],
 ) -> Vec<Diagnostic> {
-    // A change within lines moves no line.
     let count = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
-    if diagnostics.is_empty() || count(validated) == count(current) {
-        return diagnostics.to_vec();
+    if diagnostics.is_empty() {
+        return Vec::new();
+    }
+    // A change within one line moves the markers after it on that line.
+    if count(validated) == count(current) {
+        return shift_columns(validated, current, diagnostics);
     }
     let old: Vec<&str> = validated.split('\n').collect();
     let new: Vec<&str> = current.split('\n').collect();
@@ -244,6 +251,46 @@ pub(super) fn shift_diagnostics(
         .collect()
 }
 
+/// `diagnostics` with columns on the one edited line moved by the characters
+/// typed or deleted before them.
+fn shift_columns(validated: &str, current: &str, diagnostics: &[Diagnostic]) -> Vec<Diagnostic> {
+    let edited = validated
+        .split('\n')
+        .zip(current.split('\n'))
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+        .map(|(index, (old, new))| (index + 1, old, new))
+        .collect::<Vec<_>>();
+    let [(line, old, new)] = edited.as_slice() else {
+        return diagnostics.to_vec();
+    };
+    let edit_column = old
+        .chars()
+        .zip(new.chars())
+        .take_while(|(a, b)| a == b)
+        .count()
+        + 1;
+    let delta = new.chars().count() as isize - old.chars().count() as isize;
+    let moved = |column: usize| {
+        if column >= edit_column {
+            (column as isize + delta).max(edit_column as isize) as usize
+        } else {
+            column
+        }
+    };
+    diagnostics
+        .iter()
+        .map(|diagnostic| match diagnostic.line {
+            Some(at) if at == *line => Diagnostic {
+                column: diagnostic.column.map(moved),
+                end_column: diagnostic.end_column.map(moved),
+                ..diagnostic.clone()
+            },
+            _ => diagnostic.clone(),
+        })
+        .collect()
+}
+
 /// Parses through `behavior` and maps schema violations to source spans.
 pub(super) fn validate(
     source: &str,
@@ -271,12 +318,24 @@ pub(super) fn validate(
                     .is_none()
                     .then(|| behavior.first_span(source))
                     .flatten();
+                // The marker covers the word at the error (a duplicate key),
+                // not just its first character.
+                let word_end = error.line.zip(error.column).and_then(|(line, column)| {
+                    let text = source.lines().nth(line.checked_sub(1)?)?;
+                    let width = text
+                        .chars()
+                        .skip(column.checked_sub(1)?)
+                        .take_while(|character| {
+                            character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
+                        })
+                        .count();
+                    (width > 1).then_some(column + width)
+                });
                 return vec![Diagnostic {
                     line: error.line.or(fallback.map(|span| span.line)),
                     column: error.column.or(fallback.map(|span| span.start_column)),
-                    end_column: error
-                        .column
-                        .map(|column| column + 1)
+                    end_column: word_end
+                        .or(error.column.map(|column| column + 1))
                         .or(fallback.map(|span| span.end_column)),
                     message: error.message,
                     severity: Severity::Error,
@@ -320,7 +379,17 @@ pub(super) fn validate(
                         ),
                         None => error.to_string(),
                     },
-                    _ => error.to_string(),
+                    _ => error
+                        .to_string()
+                        .replacen(" is not of types ", " is not of type ", 1),
+                };
+                // A large value is abbreviated rather than quoted whole.
+                let instance = error.instance().to_string();
+                let message = if instance.chars().count() > MAX_QUOTED_VALUE {
+                    let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
+                    message.replacen(&instance, &format!("{short}…"), 1)
+                } else {
+                    message
                 };
                 let message = if path.is_empty() {
                     message
@@ -332,8 +401,10 @@ pub(super) fn validate(
                 let locations: Vec<(Option<Span>, String)> =
                     if let ValidationErrorKind::AdditionalProperties { unexpected } = error.kind() {
                         let parent = error.instance_path().as_str();
+                        // Only as many as can be shown are located: each is a scan.
                         unexpected
                             .iter()
+                            .take(MAX_DIAGNOSTICS)
                             .map(|key| {
                                 let pointer = format!("{parent}/{}", escape_pointer(key));
                                 let span = inline_location(behavior, source, &pointer, true)
@@ -349,12 +420,18 @@ pub(super) fn validate(
                             })
                             .collect()
                     } else {
-                        vec![(
-                            inline_location(behavior, source, &path, false)
-                                .or_else(|| behavior.value_span(source, &path))
-                                .or_else(|| behavior.key_span(source, &path)),
-                            message,
-                        )]
+                        // A missing property is reported on the object's key.
+                        let location =
+                            if matches!(error.kind(), ValidationErrorKind::Required { .. }) {
+                                inline_location(behavior, source, &path, true)
+                                    .or_else(|| behavior.key_span(source, &path))
+                                    .or_else(|| behavior.value_span(source, &path))
+                            } else {
+                                inline_location(behavior, source, &path, false)
+                                    .or_else(|| behavior.value_span(source, &path))
+                                    .or_else(|| behavior.key_span(source, &path))
+                            };
+                        vec![(location, message)]
                     };
                 locations
                     .into_iter()
@@ -591,8 +668,56 @@ mod shift_tests {
     }
 
     #[test]
-    fn typing_within_a_line_moves_nothing() {
+    fn typing_within_a_line_moves_nothing_on_other_lines() {
         let shifted = shift_diagnostics("a: 1\nb: x", "a: 12\nb: x", &[on(2)]);
         assert_eq!(lines(shifted), [Some(2)]);
+    }
+
+    #[test]
+    fn typing_before_a_marker_on_its_line_moves_its_columns() {
+        let mut marker = on(1);
+        marker.column = Some(9);
+        marker.end_column = Some(10);
+        let shifted = shift_diagnostics("limits: {max: 0}", "limits:   {max: 0}", &[marker]);
+        assert_eq!(
+            (shifted[0].column, shifted[0].end_column),
+            (Some(11), Some(12))
+        );
+    }
+}
+
+#[cfg(all(test, feature = "schema-validation", feature = "yaml"))]
+mod scale_tests {
+    use super::super::Language;
+    use super::Schema;
+
+    #[test]
+    fn many_unknown_keys_stay_fast_and_messages_stay_short() {
+        let schema =
+            Schema::compile(include_str!("../../tests/fixtures/burrow.schema.json")).unwrap();
+        let document: String = (0..2000)
+            .map(|index| format!("unknown_{index}: 1\n"))
+            .collect();
+        let started = std::time::Instant::now();
+        let problems = schema.validate(Language::YAML, &document);
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(300),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(problems.iter().all(|problem| problem.message.len() < 200));
+        let services: String = format!(
+            "services:\n{}",
+            (0..200)
+                .map(|index| format!("  - name: s{index}\n"))
+                .collect::<String>()
+        );
+        let problems = schema.validate(Language::YAML, &services);
+        assert!(
+            problems
+                .iter()
+                .all(|problem| problem.message.chars().count() < 300),
+            "{problems:?}"
+        );
     }
 }

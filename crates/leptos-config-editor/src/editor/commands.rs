@@ -99,7 +99,8 @@ pub fn indent_unit(source: &str) -> String {
     for line in source.lines().take(INDENT_SCAN_LINE_LIMIT) {
         let trimmed = line.trim_start_matches([' ', '\t']);
         let leading = &line[..line.len() - trimmed.len()];
-        if leading.is_empty() {
+        // A line of only indentation (one being typed) says nothing yet.
+        if leading.is_empty() || trimmed.is_empty() {
             continue;
         }
         if leading.contains('\t') {

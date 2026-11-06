@@ -689,8 +689,42 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let mut path: Vec<SchemaPathSegment> = table_path_at(&lines, line_index);
     let (code_line, _) = split_toml_comment(line);
 
-    // The caret is on a table header: suggest child tables, not keys. Past a
-    // complete header, the context is that table (hover documents it).
+    // Inside a table header's brackets (`[web.lets|]`): complete that segment
+    // with the tables under the segments before it.
+    let header_text = code_before.trim_start();
+    if header_text.starts_with('[') && !header_text.trim_start_matches('[').contains(']') {
+        let inner = header_text.trim_start_matches('[');
+        let (parents, typed) = inner.rsplit_once('.').unwrap_or(("", inner));
+        let parents: Vec<&str> = parents.split('.').map(str::trim).filter(|part| !part.is_empty()).collect();
+        let arrays: HashSet<String> = lines[..line_index]
+            .iter()
+            .filter_map(|line| parse_header(split_toml_comment(line).0))
+            .filter(|(_, array)| *array)
+            .map(|(segments, _)| segments.join("."))
+            .collect();
+        let mut header_path = Vec::new();
+        for (depth, part) in parents.iter().enumerate() {
+            header_path.push(SchemaPathSegment::Key(unquote_key(part)));
+            if arrays.contains(&parents[..=depth].join(".")) {
+                header_path.push(SchemaPathSegment::ArrayItem(0));
+            }
+        }
+        let typed = typed.trim_start();
+        let word_end = source[cursor..]
+            .find(|character: char| matches!(character, '.' | ']' | '\n') || character.is_whitespace())
+            .map_or(source.len(), |offset| cursor + offset);
+        return CompletionContext {
+            path: header_path,
+            typed: typed.to_string(),
+            replace_start: utf16(&source[..cursor - typed.len()]),
+            replace_end: utf16(&source[..word_end]),
+            position: EntryPosition::Name,
+            explicit_entry_start: true,
+            ..Default::default()
+        };
+    }
+    // Past a complete table header, the context is that table (hover
+    // documents it); nothing is suggested there.
     if code_before.trim_start().starts_with('[') {
         let path = match parse_header(code_before.trim()) {
             Some((segments, _)) => segments.into_iter().map(SchemaPathSegment::Key).collect(),
@@ -969,6 +1003,17 @@ fn property_insert(
     context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
     let toml_key = toml_key_for_completion(key)?;
+    if context.position == EntryPosition::Name {
+        // A header segment names a table (or an array of tables).
+        let table = object_branch(property, root).is_some()
+            || array_branch(property, root)
+                .and_then(|array| array.get("items"))
+                .is_some_and(|items| object_branch(items, root).is_some());
+        return table.then(|| {
+            let length = toml_key.encode_utf16().count();
+            (toml_key, length)
+        });
+    }
     // Inside an inline table a nested object stays inline; a header is invalid there.
     if context.position == EntryPosition::Inline
         && let Some(branch) = object_branch(property, root)
@@ -1356,6 +1401,7 @@ fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> {
         text: format!("{closers}\n{indent}"),
         caret: closers.len() + 1 + indent.len(),
         replaces: closers.len(),
+        replaces_before: 0,
     })
 }
 
@@ -1709,35 +1755,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_null_schema_value_inserts_nan_and_reads_back_as_null() {
-        let schema_bundle = build_schema(
-            r#"{"type":"object","properties":{
-                "max_connections":{"type":["integer","null"],"minimum":1}}}"#,
-        )
-        .unwrap();
-        // An explicit request: an empty value hides the null option by default.
-        let source = "max_connections = ";
-        let options = completions(
-            source,
-            source.encode_utf16().count(),
-            true,
-            Some(&schema_bundle),
-            true,
-            &TomlBehavior,
-        );
-        let option = options
-            .iter()
-            .find(|option| option.label == "null")
-            .expect("the null option should be suggested");
-        let (updated, _, _) = apply_completion(source, option);
-        assert_eq!(updated, "max_connections = nan");
-        let parsed = match TomlBehavior.parse(&updated) {
-            Ok(parsed) => parsed,
-            Err(error) => panic!("nan should be valid TOML: {}", error.message),
-        };
-        assert_eq!(parsed["max_connections"], serde_json::Value::Null);
-    }
 
     #[test]
     fn object_properties_expand_to_a_table_header_with_required_children() {

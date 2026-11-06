@@ -148,23 +148,24 @@ pub(super) fn patch_structure(
     let rendered_old: Vec<&str> = before.lines().collect();
     let rendered_new: Vec<&str> = after.lines().collect();
     let host: Vec<&str> = previous.lines().collect();
-    // Where each line of the old rendering sits in the host's text.
-    let normalize = |line: &str| line.trim().replace(['"', '\''], "");
-    let normalized_old: Vec<String> = rendered_old.iter().map(|line| normalize(line)).collect();
-    let normalized_host: Vec<String> = host.iter().map(|line| normalize(line)).collect();
-    let old_refs: Vec<&str> = normalized_old.iter().map(String::as_str).collect();
-    let host_refs: Vec<&str> = normalized_host.iter().map(String::as_str).collect();
+    // Where each line of the old rendering sits in the host's text: a
+    // forward match that skips the host's comments and blank lines, and
+    // compares lines without quotes or trailing comments.
+    let normalized_host: Vec<String> = host.iter().map(|line| comparable(line)).collect();
     let mut place = vec![None; rendered_old.len()];
-    let (mut old_index, mut host_index) = (0, 0);
-    for edit in myers_edits(&old_refs, &host_refs)? {
-        match edit {
-            DiffEdit::Equal => {
-                place[old_index] = Some(host_index);
-                old_index += 1;
-                host_index += 1;
-            }
-            DiffEdit::Delete => old_index += 1,
-            DiffEdit::Insert => host_index += 1,
+    let mut next = 0;
+    for (index, line) in rendered_old.iter().enumerate() {
+        let wanted = comparable(line);
+        if wanted.is_empty() {
+            continue;
+        }
+        // Look ahead a bounded distance so a missing line cannot make the
+        // rest of the document unmatched.
+        let window = (next + 400).min(host.len());
+        if let Some(found) = (next..window).find(|candidate| normalized_host[*candidate] == wanted)
+        {
+            place[index] = Some(found);
+            next = found + 1;
         }
     }
     // The old → new edits, applied to the host's lines.
@@ -204,6 +205,32 @@ pub(super) fn patch_structure(
         patched.push('\n');
     }
     (read(language, &patched, schema).ok()? == *new).then_some(patched)
+}
+
+/// A line as the structural patch compares it: trimmed, without quotes and
+/// without a trailing `#`, `//`, or `<!-- -->` comment.
+fn comparable(line: &str) -> String {
+    let mut code = line;
+    let mut quote: Option<char> = None;
+    let mut previous = ' ';
+    for (index, character) in line.char_indices() {
+        match quote {
+            Some(open) if character == open && previous != '\\' => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if (character == '#'
+                || line[index..].starts_with("//")
+                || line[index..].starts_with("<!--"))
+                && (index == 0 || previous.is_whitespace() || previous == '>') =>
+            {
+                code = &line[..index];
+                break;
+            }
+            None => {}
+        }
+        previous = character;
+    }
+    code.trim().replace(['"', '\''], "")
 }
 
 /// Collects `(pointer, new value)` for every changed scalar; `None` when the

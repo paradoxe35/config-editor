@@ -61,33 +61,41 @@ impl Bridge {
                 losses: Vec::new(),
             });
         }
-        let value = codec::read(self.edit.behavior(), edit_text, self.shape())
+        let edited = codec::read(self.edit.behavior(), edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
-        // Edits are applied to the host's own text so its comments and
-        // formatting survive: a value edit rewrites just those values, a
-        // structural one (keys added or removed) just those lines. Only what
-        // neither can express re-serializes the document.
-        if let Ok(old) = codec::read(self.host.behavior(), previous_host, self.shape()) {
-            let host = self.host.behavior();
-            let patched = codec::patch_scalars(host, previous_host, &old, &value, self.shape())
-                .or_else(|| {
-                    // The serializer must accept the new value (TOML has no null).
-                    codec::serialize(host, &value, Some(previous_host)).ok()?;
-                    codec::patch_structure(host, previous_host, &old, &value, self.shape())
-                });
-            if let Some(text) = patched {
-                return Ok(Conversion {
-                    text,
-                    losses: Vec::new(),
-                });
-            }
-        }
-        codec::render(
-            &value,
-            self.host.behavior(),
-            Some(previous_host),
-            self.shape(),
-        )
+        let host = self.host.behavior();
+        let Ok(old) = codec::read(host, previous_host, self.shape()) else {
+            return codec::render(&edited, host, Some(previous_host), self.shape());
+        };
+        // Only what the user changed is saved: the edit is compared with the
+        // host value as the edit language showed it, so values that language
+        // cannot tell apart (XML reads `null`, `""` and `"1"` as text) keep
+        // the host's own.
+        let seen = self
+            .to_edit(previous_host)
+            .ok()
+            .and_then(|shown| codec::read(self.edit.behavior(), &shown.text, self.shape()).ok());
+        let value = match &seen {
+            Some(seen) => merge_changes(&old, seen, &edited),
+            None => edited,
+        };
+        let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
+        // The host's text is patched to read back exactly as a full render
+        // would (losses included), so its comments and formatting survive: a
+        // value edit rewrites just those values, a structural one just those
+        // lines.
+        let Ok(target) = codec::read(host, &rendered.text, self.shape()) else {
+            return Ok(rendered);
+        };
+        let patched = codec::patch_scalars(host, previous_host, &old, &target, self.shape())
+            .or_else(|| codec::patch_structure(host, previous_host, &old, &target, self.shape()));
+        Ok(match patched {
+            Some(text) => Conversion {
+                text,
+                losses: rendered.losses,
+            },
+            None => rendered,
+        })
     }
 
     /// A warning on each value the host cannot carry exactly, or an error when
@@ -135,6 +143,53 @@ impl Bridge {
             ),
             severity: Severity::Error,
         }
+    }
+}
+
+/// The host value with the user's edits applied: where the edit equals what
+/// the edit language showed, the host's original value is kept; elsewhere
+/// the edit wins. Keys and items added or removed follow the edit.
+fn merge_changes(
+    host: &serde_json::Value,
+    seen: &serde_json::Value,
+    edited: &serde_json::Value,
+) -> serde_json::Value {
+    use serde_json::Value;
+    if seen == edited {
+        return host.clone();
+    }
+    match (host, seen, edited) {
+        (Value::Object(host), Value::Object(seen), Value::Object(edited)) => {
+            let mut merged = serde_json::Map::new();
+            for (key, value) in edited {
+                let next = match (host.get(key), seen.get(key)) {
+                    (Some(host_value), Some(seen_value)) => {
+                        merge_changes(host_value, seen_value, value)
+                    }
+                    _ => value.clone(),
+                };
+                merged.insert(key.clone(), next);
+            }
+            // Keys the edit language could not show stay.
+            for (key, value) in host {
+                if !seen.contains_key(key) && !edited.contains_key(key) {
+                    merged.insert(key.clone(), value.clone());
+                }
+            }
+            Value::Object(merged)
+        }
+        (Value::Array(host), Value::Array(seen), Value::Array(edited))
+            if host.len() == seen.len() && seen.len() == edited.len() =>
+        {
+            Value::Array(
+                host.iter()
+                    .zip(seen)
+                    .zip(edited)
+                    .map(|((host, seen), edited)| merge_changes(host, seen, edited))
+                    .collect(),
+            )
+        }
+        _ => edited.clone(),
     }
 }
 
@@ -295,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn a_structural_edit_falls_back_to_serializing_the_host_document() {
+    fn a_structural_edit_adds_only_its_line_and_keeps_the_comment() {
         let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
         let saved = bridge
             .to_host(
@@ -303,7 +358,7 @@ mod tests {
                 "listen: 1 # c\n",
             )
             .unwrap();
-        assert_eq!(saved.text, "listen: 1\npublic_address: b\n");
+        assert_eq!(saved.text, "listen: 1 # c\npublic_address: b\n");
     }
 
     #[cfg(feature = "schema-validation")]
@@ -374,6 +429,50 @@ mod tests {
                 );
                 assert!(!saved.contains("public_address"), "{saved}");
             }
+        }
+    }
+
+    #[test]
+    fn values_the_edit_language_cannot_tell_apart_keep_the_hosts_own() {
+        let bridge = Bridge::new(Language::YAML, Language::XML, None).unwrap();
+        let host = "public_address: null\nname: \"\"\nflag: \"true\"\ncount: \"1\"\ninsecure_plaintext: false\n";
+        let shown = bridge.to_edit(host).unwrap().text;
+        let edited = shown.replace(">false<", ">true<");
+        let saved = bridge.to_host(&edited, host).unwrap().text;
+        assert_eq!(
+            saved,
+            host.replace("insecure_plaintext: false", "insecure_plaintext: true")
+        );
+    }
+
+    #[test]
+    fn a_key_added_after_a_line_with_a_trailing_comment_keeps_the_comments() {
+        for (host_language, host) in [
+            (
+                Language::YAML,
+                "# Burrow\nlisten: 7835 # main port\ninsecure_plaintext: false\n",
+            ),
+            (
+                Language::TOML,
+                "# Burrow\nlisten = 7835 # main port\ninsecure_plaintext = false\n",
+            ),
+            (
+                Language::HCL,
+                "# Burrow\nlisten = 7835 # main port\ninsecure_plaintext = false\n",
+            ),
+        ] {
+            let bridge = Bridge::new(host_language, Language::JSON, None).unwrap();
+            let shown = bridge.to_edit(host).unwrap().text;
+            let edited = shown.replace(
+                "\"listen\": 7835,",
+                "\"listen\": 7835,\n  \"public_address\": \"x\",",
+            );
+            let saved = bridge.to_host(&edited, host).unwrap().text;
+            assert!(
+                saved.contains("# Burrow") && saved.contains("# main port"),
+                "{host_language}:\n{saved}"
+            );
+            assert!(saved.contains("public_address"), "{saved}");
         }
     }
 }
