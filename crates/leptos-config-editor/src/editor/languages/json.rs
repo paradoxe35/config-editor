@@ -8,7 +8,9 @@
 //! invalid input, the normal state while a key is being typed.
 
 use super::super::commands::indent_unit;
-use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::completion::{
+    array_branch, object_branch, placeholder, schema_const, schema_default,
+};
 use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
@@ -636,6 +638,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         )
     });
     CompletionContext {
+        item_wrap: is_array_item.then_some(("{", "}")),
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
@@ -731,11 +734,16 @@ fn property_insert(
                         insert.push_str(&child_indent);
                         insert.push_str(&serde_json::to_string(name).ok()?);
                         insert.push_str(": ");
-                        if caret.is_none() {
+                        // The first child takes the caret; the others get a valid
+                        // placeholder so the document stays parseable.
+                        let takes_caret = caret.is_none();
+                        if takes_caret {
                             caret = Some(insert.len());
                         }
-                        if let Some(default) = schema_default(child, root) {
-                            insert.push_str(&json_text(default));
+                        match schema_default(child, root) {
+                            Some(default) => insert.push_str(&json_text(default)),
+                            None if !takes_caret => insert.push_str(&json_text(&placeholder(child, root))),
+                            None => {}
                         }
                     }
                     insert.push('\n');

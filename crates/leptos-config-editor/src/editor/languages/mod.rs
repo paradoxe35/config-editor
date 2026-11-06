@@ -24,6 +24,16 @@ use serde_json::Value;
     feature = "hcl",
     feature = "xml"
 ))]
+mod accept_tests;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nested_tests;
 
 /// A document language: a built-in one ([`Language::YAML`], …) or any

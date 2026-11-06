@@ -68,6 +68,47 @@ pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Valu
         .find_map(|branch| branch.get("default"))
 }
 
+/// A valid value for a property the user has not filled yet: its default,
+/// const, or first enum value, else an empty value of its first type (`""`,
+/// `0`, `false`, `[]`, `{}`, `null`). Inserting it keeps the document valid.
+pub fn placeholder(schema: &Value, root: &Value) -> Value {
+    let branches = resolve_branches(schema, root, 0);
+    if let Some(value) = branches
+        .iter()
+        .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
+    {
+        return value.clone();
+    }
+    if let Some(first) = branches
+        .iter()
+        .find_map(|branch| branch.get("enum").and_then(Value::as_array)?.first())
+    {
+        return first.clone();
+    }
+    let types = branches.iter().flat_map(|branch| match branch.get("type") {
+        Some(Value::String(name)) => vec![name.as_str()],
+        Some(Value::Array(names)) => names.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    });
+    for name in types {
+        match name {
+            "string" => return Value::String(String::new()),
+            "integer" | "number" => return Value::from(0),
+            "boolean" => return Value::Bool(false),
+            "array" => return Value::Array(Vec::new()),
+            "object" => return Value::Object(serde_json::Map::new()),
+            _ => {}
+        }
+    }
+    if branches
+        .iter()
+        .any(|branch| branch.get("properties").is_some())
+    {
+        return Value::Object(serde_json::Map::new());
+    }
+    Value::Null
+}
+
 /// The `const` of a property schema, through `$ref` and the combinators.
 pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
@@ -431,6 +472,7 @@ fn property_completions(
     end: usize,
     root: &Value,
     existing: Option<&HashSet<String>>,
+    repeats_arrays: bool,
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
@@ -448,7 +490,8 @@ fn property_completions(
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         for (key, property) in properties {
-            if existing.is_some_and(|existing| existing.contains(key)) {
+            let repeatable = repeats_arrays && array_branch(property, root).is_some();
+            if !repeatable && existing.is_some_and(|existing| existing.contains(key)) {
                 continue;
             }
             let Some(score) = match_score(key, typed) else {
@@ -621,13 +664,14 @@ fn completions_for_context(
         .block
         .as_ref()
         .map_or(context.base_indent.as_str(), |block| block.indent.as_str());
-    property_completions(
+    let mut options = property_completions(
         &schemas,
         query,
         context.replace_start,
         context.replace_end,
         &bundle.schema,
         existing_keys.as_ref(),
+        context.repeats_arrays,
         &InsertContext {
             base_indent,
             unit: &unit,
@@ -635,7 +679,16 @@ fn completions_for_context(
             path: &context.path,
         },
         behavior,
-    )
+    );
+    // A key typed directly in an array starts a new object item, which needs
+    // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.
+    if let Some((open, close)) = context.item_wrap.filter(|_| context.is_array_item) {
+        for option in &mut options {
+            option.insert = format!("{open}{}{close}", option.insert);
+            option.cursor_offset += open.encode_utf16().count();
+        }
+    }
+    options
 }
 
 /// Accepting a key keeps the list open so its child keys can be suggested. Accepting

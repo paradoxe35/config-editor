@@ -7,7 +7,10 @@
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
+use super::super::inline::{
+    InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys, inline_value_len,
+    statement_start,
+};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
@@ -627,7 +630,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let before_cursor = &source[..cursor];
     let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
-    let current_line = &source[current_line_start..];
+    let current_line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |index| cursor + index);
+    let current_line = &source[current_line_start..current_line_end];
     let leading_whitespace =
         current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
     let indent = leading_whitespace;
@@ -641,26 +647,25 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             continue;
         }
         let line_indent = line.len() - trimmed.len();
-        let is_array_item = trimmed == "-" || trimmed.starts_with("- ");
-        let (mapping, mapping_indent) = if is_array_item {
+        // Each leading `- ` opens an item at its own column, so `- - x: 1`
+        // is an item of an item (a sequence of sequences).
+        let mut mapping = trimmed;
+        let mut mapping_indent = line_indent;
+        item_counts.retain(|level, _| *level <= line_indent);
+        while let Some(after_dash) = dash_item(mapping) {
             while ancestors
                 .last()
-                .is_some_and(|(level, _)| *level >= line_indent)
+                .is_some_and(|(level, _)| *level >= mapping_indent)
             {
                 ancestors.pop();
             }
-            item_counts.retain(|level, _| *level <= line_indent);
-            let index = item_counts.entry(line_indent).or_default();
-            ancestors.push((line_indent, SchemaPathSegment::ArrayItem(*index)));
+            item_counts.retain(|level, _| *level <= mapping_indent);
+            let index = item_counts.entry(mapping_indent).or_default();
+            ancestors.push((mapping_indent, SchemaPathSegment::ArrayItem(*index)));
             *index += 1;
-            (
-                trimmed.strip_prefix('-').unwrap_or_default().trim_start(),
-                line_indent + 2,
-            )
-        } else {
-            item_counts.retain(|level, _| *level <= line_indent);
-            (trimmed, line_indent)
-        };
+            mapping_indent += mapping.len() - after_dash.len();
+            mapping = after_dash;
+        }
         let Some(colon) = mapping_colon_anywhere(mapping) else {
             continue;
         };
@@ -682,16 +687,24 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         ancestors.pop();
     }
     let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
-    let current_is_array_item = prefix == "-" || prefix.starts_with("- ");
-    let (line_content, content_offset) = if current_is_array_item {
-        let index = item_counts.get(&indent).copied().unwrap_or_default();
-        path.push(SchemaPathSegment::ArrayItem(index));
-        let after_dash = prefix.strip_prefix('-').unwrap_or_default();
-        let content = after_dash.trim_start();
-        let offset = 1 + after_dash.len() - content.len();
-        (content, offset)
-    } else {
-        (prefix, 0)
+    let current_is_array_item = dash_item(prefix).is_some();
+    let (line_content, content_offset) = {
+        // The caret line's dashes: the first continues the list at its
+        // column, any further one starts a new inner list.
+        let mut content = prefix;
+        let mut first = true;
+        while let Some(after_dash) = dash_item(content) {
+            let column = indent + (prefix.len() - content.len());
+            let index = if first {
+                item_counts.get(&column).copied().unwrap_or_default()
+            } else {
+                0
+            };
+            path.push(SchemaPathSegment::ArrayItem(index));
+            content = after_dash;
+            first = false;
+        }
+        (content, prefix.len() - content.len())
     };
     let candidate_colon = mapping_colon_anywhere(line_content);
     let content_start = indent + content_offset;
@@ -750,15 +763,30 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         )
     };
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
-    // Inside a flow mapping or sequence opened on this line
-    // (`key: { a: 1, se|`, `key: { mode: |`).
-    if let Some(caret) = inline_caret(&line_content[..cursor_in_content.min(line_content.len())], b':') {
-        let mut path = path.clone();
+    // Inside a flow mapping or sequence, opened on this line or an earlier one
+    // (`key: { a: 1, se|`, `key: [\n  { mode: |`).
+    let flow = match statement_start(&source[..cursor]) {
+        Some(statement) if statement < current_line_start => {
+            // The path above the statement comes from its own first line.
+            let first_line = &source[statement..];
+            let mut content = statement + (first_line.len() - first_line.trim_start_matches([' ', '\t']).len());
+            if source[content..].starts_with("- ") {
+                content += 2;
+            }
+            let base = completion_context(source, source[..content].encode_utf16().count()).path;
+            Some((base, content))
+        }
+        Some(_) => Some((path.clone(), current_line_start + content_start)),
+        None => None,
+    };
+    if let Some((base, content_byte)) = flow
+        && let Some(caret) = inline_caret(&source[content_byte..cursor], b':')
+    {
+        let mut path = base;
         path.extend(caret.path);
-        let content_byte = current_line_start + content_start;
         let line_end = source[cursor..].find('\n').map_or(source.len(), |end| cursor + end);
         let value_end = cursor + inline_value_len(&source[cursor..line_end]);
-        let typed_from = |start: usize| line_content[start..cursor_in_content].trim_end().to_string();
+        let typed_from = |start: usize| source[content_byte + start..cursor].trim_end().to_string();
         let context = |path, typed, start: usize, end: usize| CompletionContext {
             path,
             typed,
@@ -779,14 +807,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             }
             CaretEntry::Value { key, start } => CompletionContext {
                 value_key: Some(key),
-                value_needs_space: start == cursor_in_content
-                    && !line_content[..cursor_in_content].ends_with([' ', '\t']),
+                value_needs_space: content_byte + start == cursor
+                    && !source[..cursor].ends_with([' ', '\t']),
                 ..context(path, typed_from(start), start, value_end)
             },
             CaretEntry::Item { index, start } => {
                 path.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     is_array_item: true,
+                    item_wrap: Some(("{ ", " }")),
                     ..context(path, typed_from(start), start, value_end)
                 }
             }
@@ -826,8 +855,15 @@ fn existing_mapping_keys(
     let line_end = source[line_start..]
         .find('\n')
         .map_or(source.len(), |newline| line_start + newline);
+    if let Some(statement) = statement_start(&source[..cursor_byte])
+        && let Some(keys) = inline_sibling_keys(&source[statement..], b':', cursor_byte - statement)
+    {
+        return Some(keys.into_iter().collect());
+    }
     let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
-    let document: Value = noyalib::from_str_with_config(&sanitized, &parser_config).ok()?;
+    let Ok(document) = noyalib::from_str_with_config::<Value>(&sanitized, &parser_config) else {
+        return Some(sibling_block_keys(source, line_start, line_end));
+    };
     let mapping = path
         .iter()
         .try_fold(&document, |value, segment| match segment {
@@ -853,6 +889,39 @@ fn existing_mapping_keys(
             .cloned()
             .collect(),
     )
+}
+
+/// Keys of the block mapping holding the caret's line, by indentation: the
+/// run of lines at the caret's indent, bounded by shallower lines. Used when
+/// the rest of the document does not parse.
+fn sibling_block_keys(source: &str, line_start: usize, line_end: usize) -> HashSet<String> {
+    let indent_of = |line: &str| line.len() - line.trim_start_matches(' ').len();
+    let caret_line = &source[line_start..line_end];
+    let indent = indent_of(caret_line);
+    let key_of = |line: &str| -> Option<String> {
+        let body = line.trim_start();
+        let body = body.strip_prefix("- ").unwrap_or(body);
+        let colon = mapping_colon_anywhere(body)?;
+        Some(body[..colon].trim().trim_matches(['\'', '"']).to_string())
+    };
+    let is_sibling = |line: &&str| line.trim().is_empty() || line.trim_start().starts_with('#') || indent_of(line) >= indent;
+    let before = source[..line_start.saturating_sub(1)].lines().rev().take_while(is_sibling);
+    let after = source[line_end..].lines().skip(1).take_while(is_sibling);
+    before
+        .chain(after)
+        .filter(|line| indent_of(line) == indent && !line.trim().is_empty())
+        .filter_map(key_of)
+        .collect()
+}
+
+/// The text after a leading `- ` (a block sequence item), or `None`.
+fn dash_item(text: &str) -> Option<&str> {
+    if text == "-" {
+        return Some("");
+    }
+    text.strip_prefix("- ")
+        .or_else(|| text.strip_prefix("-\t"))
+        .map(|rest| rest.trim_start_matches([' ', '\t']))
 }
 
 /// Where hover reads the context for the key at `column`: just past its `:`,

@@ -10,8 +10,10 @@
 //!   headers cannot address, where they are written inline.
 //! - `Ctrl+/` toggles `#` line comments.
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_value_len};
-use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, inline_value_len, statement_start};
+use super::super::completion::{
+    array_branch, object_branch, placeholder, schema_const, schema_default,
+};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
@@ -674,7 +676,11 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     }
 
     // Inside `key = { … }` or `key = [ … ]` opened on this line.
-    if let Some(caret) = inline_caret(code_before, b'=') {
+    // The statement may span lines (`certificates = [` … the caret).
+    if let Some(statement) = statement_start(&source[..cursor])
+        && let Some(caret) = inline_caret(&source[statement..cursor], b'=')
+    {
+        let code_before = &source[statement..cursor];
         let mut full = path.clone();
         for (index, segment) in caret.path.into_iter().enumerate() {
             // The line's own key may be dotted (`a.b = { … }`).
@@ -690,7 +696,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
         let line_end = (line_start + line.len()).min(source.len());
         let value_end = cursor + inline_value_len(&source[cursor..line_end]);
-        let at = |offset: usize| line_start + offset;
+        let at = |offset: usize| statement + offset;
         return match caret.entry {
             CaretEntry::Key { start } => CompletionContext {
                 typed: code_before[start..].trim_end().to_string(),
@@ -717,6 +723,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     replace_start: utf16(&source[..at(start)]),
                     replace_end: utf16(&source[..value_end]),
                     is_array_item: true,
+                    item_wrap: Some(("{ ", " }")),
                     path: full,
                     position: EntryPosition::Inline,
                     ..Default::default()
@@ -846,31 +853,50 @@ fn existing_table_keys(
     cursor_byte: usize,
     path: &[SchemaPathSegment],
 ) -> Option<HashSet<String>> {
-    let document: Value = toml_parse(source).ok()?;
-    let mapping = path
-        .iter()
-        .try_fold(&document, |value, segment| match segment {
-            SchemaPathSegment::Key(key) => value.get(key),
-            SchemaPathSegment::ArrayItem(index) => value.get(index),
-        })?;
-    let table = mapping.as_object()?;
+    // A line scan, not a parse: mid-typing the document rarely parses.
     let lines: Vec<&str> = source.lines().collect();
     let (line_index, _) = line_at(source, &lines, cursor_byte);
-    let current_key = lines
-        .get(line_index)
-        .and_then(|line| key_assignment(split_toml_comment(line).0))
-        .map(|(key, _, _)| {
-            split_key_path(&key)
-                .and_then(|segments| segments.last().cloned())
-                .unwrap_or(key)
-        });
-    Some(
-        table
-            .keys()
-            .filter(|key| current_key.as_deref() != Some(key.as_str()))
-            .cloned()
-            .collect(),
-    )
+    if let Some(statement) = statement_start(&source[..cursor_byte])
+        && let Some(keys) = inline_sibling_keys(&source[statement..], b'=', cursor_byte - statement)
+    {
+        return Some(keys.into_iter().collect());
+    }
+    let child_of = |full: &[SchemaPathSegment]| match full.get(path.len()) {
+        Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
+        _ => None,
+    };
+    let mut keys = HashSet::new();
+    let mut section: Vec<SchemaPathSegment> = Vec::new();
+    let mut array_tables: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (index, line) in lines.iter().enumerate() {
+        let (code, _) = split_toml_comment(line);
+        if let Some((segments, is_array)) = parse_header(code) {
+            let header: Vec<SchemaPathSegment> =
+                segments.iter().cloned().map(SchemaPathSegment::Key).collect();
+            keys.extend(child_of(&header));
+            section = header;
+            if is_array {
+                let seen = array_tables.entry(code.trim().to_string()).or_insert(0);
+                section.push(SchemaPathSegment::ArrayItem(*seen));
+                *seen += 1;
+            }
+            continue;
+        }
+        if index == line_index {
+            continue;
+        }
+        if let Some((key, _, _)) = key_assignment(code) {
+            let mut full = section.clone();
+            full.extend(
+                split_key_path(&key)
+                    .unwrap_or_else(|| vec![unquote_key(&key)])
+                    .into_iter()
+                    .map(SchemaPathSegment::Key),
+            );
+            keys.extend(child_of(&full));
+        }
+    }
+    Some(keys)
 }
 
 /// Insert text for a property completion. Scalar values render as TOML
@@ -907,11 +933,16 @@ fn property_insert(
             first = false;
             insert.push_str(&child_key);
             insert.push_str(" = ");
-            if cursor.is_none() {
+            // The first child takes the caret; the others get a valid
+            // placeholder so the document stays parseable.
+            let takes_caret = cursor.is_none();
+            if takes_caret {
                 cursor = Some(insert.encode_utf16().count());
             }
-            if let Some(default) = schema_default(child, root) {
-                insert.push_str(&toml_text(default));
+            match schema_default(child, root) {
+                Some(default) => insert.push_str(&toml_text(default)),
+                None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                None => {}
             }
         }
         // No required children: the caret lands between padded braces.
@@ -927,7 +958,41 @@ fn property_insert(
         let cursor = insert.encode_utf16().count();
         return Some((insert, cursor));
     }
-    if array_branch(property, root).is_some() {
+    if let Some(array) = array_branch(property, root) {
+        // An array of tables at table level is idiomatic as `[[path.key]]`
+        // with the item's required keys.
+        if context.position == EntryPosition::Block
+            && let Some(item) = array
+                .get("items")
+                .and_then(|items| object_branch(items, root))
+            && let Some(header) = table_header(context.path, &toml_key)
+        {
+            let mut insert = format!("[[{header}]]\n");
+            let mut cursor = None;
+            for (name, child) in required_properties(item) {
+                if cursor.is_some() {
+                    // Later children get a valid placeholder.
+                    let Some(child_key) = toml_key_for_completion(name) else {
+                        continue;
+                    };
+                    insert.push_str(&format!("{child_key} = {}\n", toml_text(&placeholder(child, root))));
+                    continue;
+                }
+                let inline = InsertContext {
+                    position: EntryPosition::Inline,
+                    path: &[],
+                    ..*context
+                };
+                let Some((line, caret)) = property_insert(name, child, root, &inline) else {
+                    continue;
+                };
+                cursor = Some(insert.encode_utf16().count() + caret);
+                insert.push_str(&line);
+                insert.push('\n');
+            }
+            let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
+            return Some((insert, cursor));
+        }
         match schema_default(property, root)
             .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
         {
@@ -953,25 +1018,14 @@ fn property_insert(
         }
         // Headers name the full path (`[web.letsencrypt]` inside `[web]`).
         // They cannot address array items, so beneath one the object is inline.
-        let mut header = Vec::new();
-        for segment in context.path {
-            match segment {
-                SchemaPathSegment::Key(parent) => header.push(toml_key_for_completion(parent)?),
-                SchemaPathSegment::ArrayItem(_) => {
-                    return property_insert(
-                        key,
-                        property,
-                        root,
-                        &InsertContext {
-                            position: EntryPosition::Inline,
-                            ..*context
-                        },
-                    );
-                }
-            }
-        }
-        header.push(toml_key);
-        let mut insert = format!("[{}]\n", header.join("."));
+        let Some(header) = table_header(context.path, &toml_key) else {
+            let inline = InsertContext {
+                position: EntryPosition::Inline,
+                ..*context
+            };
+            return property_insert(key, property, root, &inline);
+        };
+        let mut insert = format!("[{header}]\n");
         let mut cursor = None;
         for (name, child) in required_properties(branch) {
             let Some(child_key) = toml_key_for_completion(name) else {
@@ -979,11 +1033,16 @@ fn property_insert(
             };
             insert.push_str(&child_key);
             insert.push_str(" = ");
-            if cursor.is_none() {
+            // The first child takes the caret; the others get a valid
+            // placeholder so the document stays parseable.
+            let takes_caret = cursor.is_none();
+            if takes_caret {
                 cursor = Some(insert.encode_utf16().count());
             }
-            if let Some(default) = schema_default(child, root) {
-                insert.push_str(&toml_text(default));
+            match schema_default(child, root) {
+                Some(default) => insert.push_str(&toml_text(default)),
+                None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                None => {}
             }
             insert.push('\n');
         }
@@ -998,6 +1057,20 @@ fn property_insert(
     let insert = format!("{toml_key} = ");
     let cursor = insert.encode_utf16().count();
     Some((insert, cursor))
+}
+
+/// The dotted header naming `key` under `path` (`web.certificates`), or
+/// `None` when the path crosses an array item, which headers cannot address.
+fn table_header(path: &[SchemaPathSegment], key: &str) -> Option<String> {
+    let mut segments = Vec::with_capacity(path.len() + 1);
+    for segment in path {
+        match segment {
+            SchemaPathSegment::Key(parent) => segments.push(toml_key_for_completion(parent)?),
+            SchemaPathSegment::ArrayItem(_) => return None,
+        }
+    }
+    segments.push(key.to_string());
+    Some(segments.join("."))
 }
 
 /// The required properties of an object schema that have a schema of their

@@ -1322,6 +1322,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
+            repeats_arrays: true,
             ..Default::default()
         };
     }
@@ -1339,7 +1340,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start,
         entry_suffix: "",
-        ..Default::default()
+        repeats_arrays: true,
+..Default::default()
     }
 }
 
@@ -1363,7 +1365,8 @@ fn tag_completion_context(
             replace_end,
             base_indent,
             no_properties: true,
-            ..Default::default()
+            repeats_arrays: true,
+..Default::default()
         };
     }
     let holder = snapshot.open_tag_path.clone();
@@ -1382,7 +1385,8 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            ..Default::default()
+            repeats_arrays: true,
+..Default::default()
         };
     }
     if let Some(name) = snapshot.pending_attr.clone() {
@@ -1399,7 +1403,8 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            ..Default::default()
+            repeats_arrays: true,
+..Default::default()
         };
     }
     // Just after the name of a complete tag (`<host|>`) the context is the
@@ -1423,7 +1428,8 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            ..Default::default()
+            repeats_arrays: true,
+..Default::default()
         };
     }
     // The insert carries its own `<`, so the replaced range starts at it.
@@ -1445,7 +1451,8 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: true,
             entry_suffix: "",
-            ..Default::default()
+            repeats_arrays: true,
+..Default::default()
         };
     }
     let word = word_at(&snapshot.inner, cursor);
@@ -1469,7 +1476,8 @@ fn tag_completion_context(
         explicit_entry_start: false,
         entry_suffix: "",
         position: EntryPosition::Attribute,
-        ..Default::default()
+        repeats_arrays: true,
+..Default::default()
     }
 }
 
@@ -1635,7 +1643,18 @@ fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>
             .is_none()
             .then(|| existing_attributes(source, &snapshot));
     }
-    None
+    // Children and attributes already on the element holding the caret; the
+    // tag being typed does not count. Arrays may still repeat (see
+    // `repeats_arrays`).
+    let holder = strings(&snapshot.path);
+    Some(
+        scan.key_spans
+            .iter()
+            .filter(|(_, start, end)| !(*start <= cursor_byte && cursor_byte <= *end))
+            .filter(|(segments, ..)| segments.len() > holder.len() && segments.starts_with(&holder))
+            .map(|(segments, ..)| segments[holder.len()].clone())
+            .collect(),
+    )
 }
 
 /// Attribute names already on the tag under the caret.
@@ -2575,13 +2594,21 @@ mod tests {
     }
 
     #[test]
-    fn a_repeated_element_does_not_filter_the_name() {
-        let source = "<root config-root=\"true\"><server><host>x</host></server><ser";
+    fn an_element_already_present_is_not_offered_again() {
+        // `server` is an object, not an array, so a second one would be data
+        // the schema does not describe.
+        let source = "<root config-root=\"true\"><server><host>x</host></server><ver";
         let labels: Vec<String> = complete(source, &schema())
             .into_iter()
             .map(|option| option.label)
             .collect();
-        assert!(labels.iter().any(|label| label == "server"), "{labels:?}");
+        assert!(labels.iter().any(|label| label == "version"), "{labels:?}");
+        let again = "<root config-root=\"true\"><server><host>x</host></server><ser";
+        let labels: Vec<String> = complete(again, &schema())
+            .into_iter()
+            .map(|option| option.label)
+            .collect();
+        assert!(!labels.iter().any(|label| label == "server"), "{labels:?}");
     }
 
     #[test]

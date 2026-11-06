@@ -1,7 +1,8 @@
-//! One-line containers shared by the brace languages: inline tables and
-//! arrays (TOML), flow mappings and sequences (YAML), value maps and lists
-//! (HCL). A language passes its key separator (`=` or `:`); quoting and
-//! nesting are handled here once.
+//! Inline containers shared by the brace languages: inline tables and arrays
+//! (TOML), flow mappings and sequences (YAML), value maps and lists (HCL). A
+//! language passes its key separator (`=` or `:`); quoting, comments, nesting,
+//! and containers spanning lines are handled here once. Functions taking
+//! `code` read one statement: a line, or from [`statement_start`] to the caret.
 
 use super::language::SchemaPathSegment;
 
@@ -95,7 +96,7 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
             value_start = None;
             entry_start = at + 1;
         }
-        Event::Close => {
+        Event::Close(_) => {
             frames.pop();
             entry_key = None;
             value_start = None;
@@ -124,6 +125,47 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
         },
     };
     Some(InlineCaret { path, entry })
+}
+
+/// The keys of the inline container holding byte `at` of a line of code,
+/// before and after it; `None` when `at` is at the line's top level. Completion
+/// uses it so a key already in the container is not offered again.
+pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<String>> {
+    let mut stack: Vec<usize> = Vec::new();
+    let mut next_id = 1;
+    let mut keys: Vec<(usize, String)> = Vec::new();
+    let mut caret_container = None;
+    let mut check_caret = |stack: &[usize], position: usize| {
+        if caret_container.is_none() && position >= at {
+            caret_container = Some(stack.last().copied().unwrap_or(0));
+        }
+    };
+    walk(code, separator, |event| match event {
+        Event::Key(key) => {
+            check_caret(&stack, key.start);
+            keys.push((
+                stack.last().copied().unwrap_or(0),
+                unquote(&code[key.start..key.end]),
+            ));
+        }
+        Event::Open(_, position) => {
+            check_caret(&stack, position + 1);
+            stack.push(next_id);
+            next_id += 1;
+        }
+        Event::Close(position) => {
+            check_caret(&stack, position);
+            stack.pop();
+        }
+        Event::Comma(position) => check_caret(&stack, position),
+    });
+    let container = caret_container.unwrap_or_else(|| stack.last().copied().unwrap_or(0));
+    (container != 0).then(|| {
+        keys.into_iter()
+            .filter(|(owner, _)| *owner == container)
+            .map(|(_, key)| key)
+            .collect()
+    })
 }
 
 /// The byte just past the quoted string starting at `start`, or the end.
@@ -171,7 +213,7 @@ impl Frame {
 enum Event {
     Key(InlineKey),
     Open(u8, usize),
-    Close,
+    Close(usize),
     Comma(usize),
 }
 
@@ -190,7 +232,7 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
                 index += 1;
             }
             b'}' | b']' => {
-                on(Event::Close);
+                on(Event::Close(index));
                 at_entry = false;
                 index += 1;
             }
@@ -199,7 +241,11 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
                 at_entry = true;
                 index += 1;
             }
-            b' ' | b'\t' => index += 1,
+            b' ' | b'\t' | b'\n' | b'\r' => index += 1,
+            b'#' if is_comment_start(code, index) => index = line_end(code, index),
+            b'/' if code[index..].starts_with("//") && is_comment_start(code, index) => {
+                index = line_end(code, index);
+            }
             b'"' | b'\'' if !at_entry => index = skip_quoted(code, index),
             _ if at_entry => {
                 at_entry = false;
@@ -234,9 +280,65 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
     }
 }
 
+/// Where the statement holding the end of `before_caret` starts: the line
+/// that opened its outermost still-open container, or `None` when the caret
+/// is at the top level. Only an opener at a value position counts (after
+/// `:`, `=`, `,`, `-`, another opener, or a line's indentation), so brackets
+/// in prose (a YAML block scalar) do not open a container.
+pub fn statement_start(before_caret: &str) -> Option<usize> {
+    let bytes = before_caret.as_bytes();
+    let mut depth = 0usize;
+    let mut start = None;
+    let mut index = 0;
+    let mut previous = b'\n';
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match byte {
+            b'"' | b'\'' if depth > 0 || matches!(previous, b':' | b'=' | b',' | b'[' | b'{') => {
+                index = skip_quoted(before_caret, index);
+                previous = b'"';
+                continue;
+            }
+            b'#' if is_comment_start(before_caret, index) => {
+                index = line_end(before_caret, index);
+                continue;
+            }
+            b'{' | b'[' if matches!(previous, b':' | b'=' | b',' | b'[' | b'{' | b'-' | b'\n') => {
+                if depth == 0 {
+                    start = Some(
+                        before_caret[..index]
+                            .rfind('\n')
+                            .map_or(0, |newline| newline + 1),
+                    );
+                }
+                depth += 1;
+            }
+            b'}' | b']' if depth > 0 => depth -= 1,
+            _ => {}
+        }
+        if !matches!(byte, b' ' | b'\t') {
+            previous = byte;
+        }
+        index += 1;
+    }
+    start.filter(|_| depth > 0)
+}
+
+fn is_comment_start(code: &str, index: usize) -> bool {
+    index == 0 || code.as_bytes()[index - 1].is_ascii_whitespace()
+}
+
+fn line_end(code: &str, from: usize) -> usize {
+    code[from..]
+        .find('\n')
+        .map_or(code.len(), |offset| from + offset)
+}
+
+/// Past the whitespace at `from`, line breaks included: an entry or value
+/// in a multi-line container starts on its own line.
 fn skip_blanks(code: &str, from: usize) -> usize {
     let from = from.min(code.len());
-    from + (code[from..].len() - code[from..].trim_start_matches([' ', '\t']).len())
+    from + (code[from..].len() - code[from..].trim_start().len())
 }
 
 fn unquote(key: &str) -> String {
@@ -334,6 +436,37 @@ mod tests {
         let code = "x = { \"k:=\" = 1 }";
         let found = inline_keys(code, b'=');
         assert_eq!(&code[found[1].start..found[1].end], "\"k:=\"");
+    }
+
+    #[test]
+    fn sibling_keys_are_those_of_the_caret_container() {
+        let code = "a = { x = 1, y = { z = 2 }, w = 3 }";
+        let caret = code.find("w").unwrap() - 2;
+        assert_eq!(
+            inline_sibling_keys(code, b'=', caret),
+            Some(vec!["x".into(), "y".into(), "w".into()])
+        );
+        let inner = code.find("z").unwrap();
+        assert_eq!(
+            inline_sibling_keys(code, b'=', inner),
+            Some(vec!["z".into()])
+        );
+        assert_eq!(inline_sibling_keys(code, b'=', 1), None);
+    }
+
+    #[test]
+    fn statements_span_the_lines_of_an_open_container() {
+        let source = "a = 1\ncerts = [\n  { hosts = [] },\n  ";
+        assert_eq!(statement_start(source), Some(6));
+        let statement = &source[6..];
+        assert_eq!(
+            inline_caret(statement, b'=').map(|caret| caret.path),
+            Some(vec![key("certs")])
+        );
+        assert_eq!(statement_start("a = [1]\nb = 2\n"), None);
+        // Prose brackets and comments do not open containers.
+        assert_eq!(statement_start("note: |\n  see [docs\nb: 1\n"), None);
+        assert_eq!(statement_start("a = 1 # [x\nb = "), None);
     }
 
     #[test]

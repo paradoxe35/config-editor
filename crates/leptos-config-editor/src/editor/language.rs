@@ -57,11 +57,13 @@
 
 pub use super::codec::first_pointer;
 pub use super::commands::indent_unit;
-pub use super::completion::{array_branch, object_branch, schema_const, schema_default};
+pub use super::completion::{
+    array_branch, object_branch, placeholder, schema_const, schema_default,
+};
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
     InlineCaret, InlineEntry, InlineKey, inline_caret, inline_key_at, inline_keys,
-    inline_value_len, skip_quoted,
+    inline_sibling_keys, inline_value_len, skip_quoted,
 };
 pub use super::keyboard::utf16_to_byte_index;
 use serde_json::Value;
@@ -270,6 +272,13 @@ pub struct CompletionContext {
     /// The value position can also hold child entries (an empty XML element
     /// between its tags): an object value offers its properties as children.
     pub value_or_children: bool,
+    /// The caret is directly in an array (`is_array_item`) and a new object
+    /// item must be written between these delimiters, such as `("{ ", " }")`
+    /// for TOML. `None` where properties can follow directly (YAML `- `).
+    pub item_wrap: Option<(&'static str, &'static str)>,
+    /// The language writes an array by repeating its key (XML sibling
+    /// elements), so an array property already present is offered again.
+    pub repeats_arrays: bool,
 }
 
 /// Splits a JSON pointer into unescaped segments.

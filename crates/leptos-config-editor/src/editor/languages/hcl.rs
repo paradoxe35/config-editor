@@ -12,8 +12,10 @@
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
-use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len, statement_start};
+use super::super::completion::{
+    array_branch, object_branch, placeholder, schema_const, schema_default,
+};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{CompletionContext, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
@@ -915,8 +917,12 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     // Inside containers opened on this line (`a = { b = [{ … }, { | }] }`):
     // the path above the line comes from the scan at the line start, the
     // rest from the line itself.
-    if let Some(caret) = inline_caret(before_caret, b'=') {
-        let outer = analyze(source, line_start);
+    // The statement may span lines (`certificates = [` … the caret).
+    if let Some(statement) = statement_start(&source[..cursor])
+        && let Some(caret) = inline_caret(&source[statement..cursor], b'=')
+    {
+        let before_caret = &source[statement..cursor];
+        let outer = analyze(source, statement);
         let mut full: Vec<SchemaPathSegment> = body_path(&outer, outer.snapshot.body)
             .into_iter()
             .map(|segment| match segment.parse::<usize>() {
@@ -933,17 +939,17 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         return match caret.entry {
             CaretEntry::Key { start } => CompletionContext {
                 typed: typed(start),
-                replace_start: utf16(&source[..line_start + start]),
+                replace_start: utf16(&source[..statement + start]),
                 replace_end: utf16(&source[..swallow_existing_assignment(source, cursor)]),
                 explicit_entry_start: true,
-                block: hcl_block(source, line_start + start, cursor),
+                block: hcl_block(source, statement + start, cursor),
                 base_indent,
                 path: full,
                 ..Default::default()
             },
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: typed(start),
-                replace_start: utf16(&source[..line_start + start]),
+                replace_start: utf16(&source[..statement + start]),
                 replace_end: utf16(&source[..value_end]),
                 value_key: Some(key),
                 value_needs_space: start == before_caret.len() && !before_caret.ends_with([' ', '\t']),
@@ -955,9 +961,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 full.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     typed: typed(start),
-                    replace_start: utf16(&source[..line_start + start]),
+                    replace_start: utf16(&source[..statement + start]),
                     replace_end: utf16(&source[..value_end]),
                     is_array_item: true,
+                    item_wrap: Some(("{ ", " }")),
                     base_indent,
                     path: full,
                     ..Default::default()
@@ -1363,11 +1370,16 @@ fn property_insert(
                 insert.push_str(&child_indent);
                 insert.push_str(&name);
                 insert.push_str(" = ");
-                if caret.is_none() {
+                // The first child takes the caret; the others get a valid
+                // placeholder so the document stays parseable.
+                let takes_caret = caret.is_none();
+                if takes_caret {
                     caret = Some(utf16(&insert));
                 }
-                if let Some(default) = schema_default(child, root) {
-                    insert.push_str(&hcl_text(default));
+                match schema_default(child, root) {
+                    Some(default) => insert.push_str(&hcl_text(default)),
+                    None if !takes_caret => insert.push_str(&hcl_text(&placeholder(child, root))),
+                    None => {}
                 }
                 insert.push('\n');
             }

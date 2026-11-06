@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "properties": {
+    "1_primitive_values": {
+      "type": "object",
+      "properties": {
+        "key_string": { "type": "string", "description": "A string" },
+        "key_number": { "type": "number" },
+        "key_boolean": { "type": "boolean" },
+        "key_null": { "type": "null" }
+      }
+    },
+    "2_key_and_object_value": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "integer", "description": "User id" },
+            "role": { "type": "string", "enum": ["admin", "member"] }
+          }
+        }
+      }
+    },
+    "3_key_and_array_value": {
+      "type": "object",
+      "properties": {
+        "tags": { "type": "array", "items": { "type": "string", "enum": ["javascript", "json", "api"] } }
+      }
+    },
+    "4_array_of_objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "integer" },
+          "status": { "type": "string", "enum": ["active", "pending"] }
+        }
+      }
+    },
+    "5_array_of_arrays": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": ["integer", "string"] } }
+    },
+    "6_deeply_nested_combinations": {
+      "type": "object",
+      "properties": {
+        "matrix_of_objects": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["x", "y"],
+              "properties": {
+                "x": { "type": "integer", "description": "Column" },
+                "y": { "type": "integer" },
+                "color": { "type": "string", "enum": ["red", "blue", "green", "yellow"] }
+              }
+            }
+          }
+        },
+        "object_containing_arrays_of_objects": {
+          "type": "object",
+          "properties": {
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "history": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["event"],
+                    "properties": {
+                      "event": { "type": "string", "enum": ["created", "updated"] },
+                      "timestamp": { "type": "integer" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
