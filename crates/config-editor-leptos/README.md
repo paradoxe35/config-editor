@@ -190,21 +190,33 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                           | Adds                                                                                                  |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `info`, `parse` (required)                                                       | Name, icon, extensions; syntax errors and the data model                                              |
-| `serialize`                                                                      | Conversion into the language (Edit-as target)                                                         |
-| `key_span`, `value_span`                                                         | Positions for schema diagnostics                                                                      |
-| `completion_context`, `property_insert`, …                                       | Schema completion                                                                                     |
-| `hover_key`                                                                      | Hover docs                                                                                            |
-| `highlight`                                                                      | Syntax colors                                                                                         |
-| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state`  | Editing behavior                                                                                      |
-| `value_follows_key`, `line_has_value`, `empty_value_slots`, `closing_markup_len` | Smarter completion: renaming keys in place, `Tab` through empty values, stepping out of a typed value |
-| `comment_start`                                                                  | Edit-as keeps comments when lines are added or renamed                                                |
+| Method                                                                          | Adds                                                     |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `info`, `parse` (required)                                                      | Name, icon, extensions; syntax errors and the data model |
+| `serialize`                                                                     | Conversion into the language (Edit-as target)            |
+| `key_span`, `value_span`                                                        | Positions for schema diagnostics                         |
+| `completion_context`, `property_insert`, …                                      | Schema completion                                        |
+| `hover_key`                                                                     | Hover docs                                               |
+| `highlight`                                                                     | Syntax colors                                            |
+| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                         |
 
-`config_editor_leptos::language` also exports the helpers the built-in
+### Optional refinements
+
+Small hooks that polish editing for some kinds of languages. Each defaults to
+doing nothing, so skip the ones that don't fit; the built-in languages
+implement them in a line or two with the helpers named here.
+
+| Kind of language                        | Method               | Adds                                                              | Helper                         |
+| --------------------------------------- | -------------------- | ----------------------------------------------------------------- | ------------------------------ |
+| Key/value (`key: value`, `key = value`) | `value_follows_key`  | Completing a key that already has a value renames just the key    | —                              |
+|                                         | `line_has_value`     | A space typed after a complete value ends the entry               | `value_after_separator`        |
+|                                         | `empty_value_slots`  | `Tab` walks the empty values of an accepted block                 | `empty_slots_at_line_ends`     |
+| Markup (`<k>…</k>`)                     | `closing_markup_len` | Enter after a typed value steps past the end tag the editor wrote | —                              |
+| With trailing comments                  | `comment_start`      | Edit-as keeps a line's comment when the line is renamed or moves  | `comment_start_outside_quotes` |
+
+`config_editor_leptos::language` also exports the other helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
-detection, comment and separator scanning). `tests/custom_language.rs` is a complete example.
+detection). `tests/custom_language.rs` is a complete example.
 
 ## Themes and colors
 

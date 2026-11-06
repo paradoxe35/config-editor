@@ -658,6 +658,14 @@ pub struct Lexical {
 /// Offsets named `cursor` and returned carets are UTF-16 indices into the
 /// document, as the browser reports them.
 ///
+/// The last five methods are optional refinements for some kinds of
+/// languages: key/value languages ([`value_follows_key`](Self::value_follows_key),
+/// [`line_has_value`](Self::line_has_value),
+/// [`empty_value_slots`](Self::empty_value_slots)), markup
+/// ([`closing_markup_len`](Self::closing_markup_len)), and languages with
+/// trailing comments ([`comment_start`](Self::comment_start)). Skip the ones
+/// that don't fit.
+///
 /// Built-in languages implement this trait the same way an external one does;
 /// wrap an implementation with [`Language::new`](crate::Language::new).
 pub trait ConfigLanguage: Send + Sync + 'static {
