@@ -588,10 +588,10 @@ fn default_selection(
         return (cursor_offset, length);
     }
     // The caret is after the closing quote: select inside the quotes.
-    if let Some(quoted) = before.strip_suffix(['"', '\'']) {
-        if quoted.ends_with(&text) {
-            return (cursor_offset - 1, length);
-        }
+    if let Some(quoted) = before.strip_suffix(['"', '\''])
+        && quoted.ends_with(&text)
+    {
+        return (cursor_offset - 1, length);
     }
     unselected
 }
