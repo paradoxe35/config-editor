@@ -281,6 +281,21 @@ fn conform(value: &mut Value, schema: &Value, root: &Value, repetition: Repetiti
             || branch.get("prefixItems").is_some()
             || type_includes(branch, "array")
     });
+    // XML text that looks like a number, boolean, or `null` is a string
+    // where only a string is allowed (`<public_address>123</…>`).
+    if repetition == Repetition::Elements
+        && matches!(value, Value::Number(_) | Value::Bool(_) | Value::Null)
+        && !branches.iter().any(|branch| accepts(branch, value))
+        && branches
+            .iter()
+            .any(|branch| type_includes(branch, "string"))
+    {
+        let text = match &*value {
+            Value::Null => "null".to_string(),
+            other => other.to_string(),
+        };
+        *value = Value::String(text);
+    }
     // An empty XML element reads as `{}`; where the schema wants text it is
     // the empty string.
     if repetition == Repetition::Elements

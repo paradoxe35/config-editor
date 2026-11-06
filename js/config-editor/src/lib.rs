@@ -166,9 +166,18 @@ fn optional_text(value: &JsValue, name: &str) -> Result<Option<String>, JsError>
     }
 }
 
+thread_local! {
+    /// How many host callbacks are running: `destroy` from inside one waits
+    /// until the editor's own handler has returned.
+    static IN_CALLBACK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Calls a host callback; an exception it throws is logged, not swallowed.
 fn call_host(callback: &Function, argument: &JsValue) {
-    if let Err(error) = callback.call1(&JsValue::NULL, argument) {
+    IN_CALLBACK.with(|depth| depth.set(depth.get() + 1));
+    let result = callback.call1(&JsValue::NULL, argument);
+    IN_CALLBACK.with(|depth| depth.set(depth.get() - 1));
+    if let Err(error) = result {
         web_sys::console::error_2(
             &JsValue::from_str("config-editor: a callback threw"),
             &error,
@@ -184,8 +193,85 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
     field(object, name).as_string()
 }
 
-fn bool_field(object: &JsValue, name: &str) -> Option<bool> {
-    field(object, name).as_bool()
+/// An optional string option: absent, or a string (anything else is an error).
+fn string_option(options: &JsValue, name: &str) -> Result<Option<String>, JsError> {
+    optional_text(&field(options, name), name)
+}
+
+/// An optional boolean option: absent, or a boolean.
+fn bool_option(options: &JsValue, name: &str) -> Result<Option<bool>, JsError> {
+    let value = field(options, name);
+    if value.is_undefined() || value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| JsError::new(&format!("{name} must be a boolean")))
+}
+
+/// An optional callback option: absent, or a function.
+fn function_option(options: &JsValue, name: &str) -> Result<Option<Function>, JsError> {
+    let value = field(options, name);
+    if value.is_undefined() || value.is_null() {
+        return Ok(None);
+    }
+    value
+        .dyn_into::<Function>()
+        .map(Some)
+        .map_err(|_| JsError::new(&format!("{name} must be a function")))
+}
+
+/// Deepest nesting accepted from a custom language's `parse`.
+const MAX_DEPTH: usize = 256;
+
+/// A JavaScript value as JSON: plain data only, bounded in depth so a cyclic
+/// or runaway result is an error instead of a crash.
+fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, String> {
+    if depth > MAX_DEPTH {
+        return Err(format!(
+            "it nests deeper than {MAX_DEPTH} levels (or is cyclic)"
+        ));
+    }
+    if value.is_null() {
+        return Ok(Value::Null);
+    }
+    if let Some(flag) = value.as_bool() {
+        return Ok(Value::Bool(flag));
+    }
+    if let Some(number) = value.as_f64() {
+        return serde_json::Number::from_f64(number)
+            .map(Value::Number)
+            .or_else(|| {
+                (number.fract() == 0.0 && number.abs() < 9.007_199_254_740_992e15)
+                    .then(|| Value::from(number as i64))
+            })
+            .ok_or_else(|| format!("{number} is not a JSON number"));
+    }
+    if let Some(text) = value.as_string() {
+        return Ok(Value::String(text));
+    }
+    if Array::is_array(value) {
+        return Array::from(value)
+            .iter()
+            .map(|item| json_from_js(&item, depth + 1))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array);
+    }
+    if value.is_object() && !value.is_function() {
+        let mut map = serde_json::Map::new();
+        for entry in Object::entries(value.unchecked_ref()).iter() {
+            let pair: Array = entry.unchecked_into();
+            let key = pair.get(0).as_string().unwrap_or_default();
+            let item = pair.get(1);
+            if item.is_undefined() {
+                continue;
+            }
+            map.insert(key, json_from_js(&item, depth + 1)?);
+        }
+        return Ok(Value::Object(map));
+    }
+    Err("it holds a value JSON cannot (undefined, a function, a symbol, or a bigint)".to_string())
 }
 
 /// The live state a mounted editor reads; setters write it.
@@ -200,6 +286,10 @@ struct State {
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
 }
+
+/// The latest document, outside the reactive arena: an edit saved while the
+/// editor unmounts arrives after its signals are gone.
+type Latest = std::sync::Arc<std::sync::Mutex<String>>;
 
 /// A config editor mounted into an element.
 ///
@@ -216,6 +306,7 @@ struct State {
 #[wasm_bindgen]
 pub struct ConfigEditor {
     state: State,
+    latest: Latest,
     /// The document when `destroy` ran, so `value` still answers afterwards.
     final_value: Option<String>,
     /// Unmounts when dropped.
@@ -237,37 +328,39 @@ impl ConfigEditor {
             )
         })?;
         let options: JsValue = options.into();
-        let language = match string_field(&options, "language") {
+        let language = match string_option(&options, "language")? {
             Some(name) => language_named(&name)?,
             None => Language::default(),
         };
-        let edit_as = string_field(&options, "editAs")
+        let edit_as = string_option(&options, "editAs")?
             .map(|name| language_named(&name))
             .transpose()?
             .filter(|edit| *edit != language);
-        let theme = match string_field(&options, "theme") {
+        let theme = match string_option(&options, "theme")? {
             Some(name) => theme_named(&name)?,
             None => EditorTheme::default(),
         };
         let colors = colors_from(&field(&options, "colors"))?;
-        let schema = match string_field(&options, "schema") {
+        let schema = match string_option(&options, "schema")? {
             Some(json) => {
                 Some(Schema::compile(&json).map_err(|error| JsError::new(&error.to_string()))?)
             }
             None => None,
         };
-        let value = string_field(&options, "value").unwrap_or_default();
-        let baseline = string_field(&options, "baseline").unwrap_or_else(|| value.clone());
-        let file_name = string_field(&options, "fileName");
-        let class = string_field(&options, "className");
-        let show_toolbar = bool_field(&options, "showToolbar").unwrap_or(false);
-        let show_footer = bool_field(&options, "showFooter").unwrap_or(false);
-        let read_only = bool_field(&options, "readOnly").unwrap_or(false);
-        let on_change = field(&options, "onChange").dyn_into::<Function>().ok();
-        let on_edit_as_change = field(&options, "onEditAsChange")
-            .dyn_into::<Function>()
-            .ok();
+        let value = string_option(&options, "value")?.unwrap_or_default();
+        let baseline = string_option(&options, "baseline")?.unwrap_or_else(|| value.clone());
+        let file_name = string_option(&options, "fileName")?;
+        let class = string_option(&options, "className")?;
+        let show_toolbar = bool_option(&options, "showToolbar")?.unwrap_or(false);
+        let show_footer = bool_option(&options, "showFooter")?.unwrap_or(false);
+        let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
+        let on_change = function_option(&options, "onChange")?;
+        let on_edit_as_change = function_option(&options, "onEditAsChange")?;
+        // The editor replaces whatever the element held.
+        element.set_text_content(None);
 
+        let latest: Latest = std::sync::Arc::new(std::sync::Mutex::new(value.clone()));
+        let latest_for_view = latest.clone();
         let owner = Owner::new();
         let state = owner.with(|| State {
             value: RwSignal::new(value.clone()),
@@ -281,23 +374,23 @@ impl ConfigEditor {
         });
         let mounted = owner.with(|| {
             leptos::mount::mount_to(element, move || {
+                let latest = latest_for_view.clone();
+                // The callback is taken out first: it may replace itself or
+                // destroy the editor.
                 let changed = move |text: String| {
-                    state.value.set(text.clone());
-                    state.on_change.with_value(|callback| {
-                        if let Some(callback) = callback {
-                            call_host(callback, &JsValue::from_str(&text));
-                        }
-                    });
+                    *latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
+                    let _ = state.value.try_set(text.clone());
+                    if let Some(callback) = state.on_change.try_get_value().flatten() {
+                        call_host(&callback, &JsValue::from_str(&text));
+                    }
                 };
                 let switched = move |language: Language| {
-                    state.on_edit_as_change.with_value(|callback| {
-                        if let Some(callback) = callback {
-                            call_host(
-                                callback,
-                                &JsValue::from_str(&language.label().to_ascii_lowercase()),
-                            );
-                        }
-                    });
+                    if let Some(callback) = state.on_edit_as_change.try_get_value().flatten() {
+                        call_host(
+                            &callback,
+                            &JsValue::from_str(&language.label().to_ascii_lowercase()),
+                        );
+                    }
                 };
                 let edit_as = Signal::derive(move || state.edit_as.get());
                 let value_signal = Signal::derive(move || state.value.get());
@@ -353,6 +446,7 @@ impl ConfigEditor {
         });
         Ok(ConfigEditor {
             state,
+            latest,
             final_value: None,
             mounted: Some(Box::new(mounted)),
             owner,
@@ -364,7 +458,7 @@ impl ConfigEditor {
     pub fn value(&self) -> String {
         match &self.final_value {
             Some(value) => value.clone(),
-            None => self.state.value.try_get_untracked().unwrap_or_default(),
+            None => self.latest.lock().map(|text| text.clone()).unwrap_or_default(),
         }
     }
 
@@ -375,7 +469,12 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
     ) -> Result<(), JsError> {
-        let _ = self.state.value.try_set(text_arg(&value, "value")?);
+        if self.mounted.is_none() {
+            return Ok(());
+        }
+        let value = text_arg(&value, "value")?;
+        *self.latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
+        let _ = self.state.value.try_set(value);
         Ok(())
     }
 
@@ -407,15 +506,17 @@ impl ConfigEditor {
         Ok(())
     }
 
+    /// Switches the theme; `null` returns to the default one.
     #[wasm_bindgen(js_name = setTheme)]
     pub fn set_theme(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "string")] theme: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "ThemeName | null | undefined")] theme: JsValue,
     ) -> Result<(), JsError> {
-        let _ = self
-            .state
-            .theme
-            .try_set(theme_named(&text_arg(&theme, "theme")?)?);
+        let theme = match optional_text(&theme, "theme")? {
+            Some(name) => theme_named(&name)?,
+            None => EditorTheme::default(),
+        };
+        let _ = self.state.theme.try_set(theme);
         Ok(())
     }
 
@@ -426,8 +527,15 @@ impl ConfigEditor {
     }
 
     #[wasm_bindgen(js_name = setReadOnly)]
-    pub fn set_read_only(&self, read_only: bool) {
+    pub fn set_read_only(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "boolean")] read_only: JsValue,
+    ) -> Result<(), JsError> {
+        let read_only = read_only
+            .as_bool()
+            .ok_or_else(|| JsError::new("readOnly must be a boolean"))?;
         let _ = self.state.read_only.try_set(read_only);
+        Ok(())
     }
 
     /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
@@ -447,13 +555,30 @@ impl ConfigEditor {
         update("onEditAsChange", self.state.on_edit_as_change);
     }
 
-    /// Unmounts the editor. The instance cannot be used afterwards.
+    /// Unmounts the editor. The instance cannot be used afterwards. An edit
+    /// still waiting to be saved (while editing as another language) is sent
+    /// to `onChange` first.
     pub fn destroy(&mut self) {
-        if self.final_value.is_none() {
-            self.final_value = Some(self.state.value.try_get_untracked().unwrap_or_default());
+        let Some(mounted) = self.mounted.take() else {
+            return;
+        };
+        let owner = self.owner.clone();
+        let unmount = move || {
+            drop(mounted);
+            owner.cleanup();
+        };
+        if IN_CALLBACK.with(|depth| depth.get()) > 0 {
+            // Called from a callback: the editor's handler is still running,
+            // so it unmounts once that returns.
+            self.final_value = Some(self.latest.lock().map(|text| text.clone()).unwrap_or_default());
+            let deferred = Closure::once_into_js(unmount);
+            if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
+                let _ = queue.call1(&JsValue::NULL, &deferred);
+            }
+        } else {
+            unmount();
+            self.final_value = Some(self.latest.lock().map(|text| text.clone()).unwrap_or_default());
         }
-        self.mounted.take();
-        self.owner.cleanup();
     }
 }
 
@@ -627,19 +752,36 @@ impl ConfigLanguage for JsLanguage {
             column: None,
         })?;
         match parse.call1(&self.definition, &JsValue::from_str(source)) {
-            Ok(value) => serde_wasm_bindgen::from_value(value).map_err(|error| ParseError {
+            Ok(value) if value.is_undefined() => Err(ParseError {
+                message: "parse() returned nothing".to_string(),
+                line: None,
+                column: None,
+            }),
+            Ok(value) => json_from_js(&value, 0).map_err(|error| ParseError {
                 message: format!("parse() returned a value that is not JSON: {error}"),
                 line: None,
                 column: None,
             }),
             Err(thrown) => {
-                let number = |key: &str| field(&thrown, key).as_f64().map(|value| value as usize);
+                // A position outside the text is clamped onto it.
+                let lines: Vec<&str> = source.split('\n').collect();
+                let number = |key: &str| {
+                    field(&thrown, key)
+                        .as_f64()
+                        .filter(|value| value.is_finite() && *value >= 1.0)
+                        .map(|value| value as usize)
+                };
+                let line = number("line").map(|line| line.min(lines.len()));
+                let column = number("column").map(|column| match line {
+                    Some(line) => column.min(lines[line - 1].chars().count() + 1),
+                    None => column,
+                });
                 Err(ParseError {
                     message: string_field(&thrown, "message")
                         .or_else(|| thrown.as_string())
                         .unwrap_or_else(|| "parse error".to_string()),
-                    line: number("line"),
-                    column: number("column"),
+                    line,
+                    column,
                 })
             }
         }
@@ -652,7 +794,9 @@ impl ConfigLanguage for JsLanguage {
         serialize
             .call1(&self.definition, &to_js(value))
             .map_err(|error| {
-                string_field(&error, "message").unwrap_or_else(|| format!("{error:?}"))
+                string_field(&error, "message")
+                    .or_else(|| error.as_string())
+                    .unwrap_or_else(|| "serialize() failed".to_string())
             })?
             .as_string()
             .ok_or_else(|| "serialize() must return a string".to_string())
@@ -673,6 +817,9 @@ impl ConfigLanguage for JsLanguage {
         let Ok(tokens) = highlight.call1(&self.definition, &JsValue::from_str(line)) else {
             return Vec::new();
         };
+        if !Array::is_array(&tokens) {
+            return Vec::new();
+        }
         let mut out = Tokens::new();
         for token in Array::from(&tokens).iter() {
             let number = |key: &str| field(&token, key).as_f64().map(|value| value as usize);

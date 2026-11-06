@@ -1183,3 +1183,61 @@ fn yaml_indentless_sequences_complete_their_items() {
             .contains(&"hsts".to_string())
     );
 }
+
+#[test]
+fn xml_text_is_typed_by_the_schema_and_kept_as_written() {
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    for text in ["123", "true", "1.5"] {
+        let document = format!("<public_address>{text}</public_address>");
+        assert_eq!(schema.validate(Language::XML, &document), [], "{text}");
+    }
+    assert_eq!(
+        Language::XML.parse("<a>1e3</a>").unwrap(),
+        serde_json::json!({"a": "1e3"})
+    );
+    assert_eq!(
+        Language::XML.parse("<a>15</a>").unwrap(),
+        serde_json::json!({"a": 15})
+    );
+}
+#[test]
+fn hcl_values_written_in_place_escape_templates() {
+    let bridge_host = "listen = 7835\npublic_address = \"$${HOST}\"\n";
+    let value = Language::HCL.parse(bridge_host).unwrap();
+    assert_eq!(value["public_address"], "${HOST}");
+    assert_eq!(
+        Language::HCL
+            .behavior()
+            .format_value(&serde_json::json!("${HOST}.example.com")),
+        "\"$${HOST}.example.com\""
+    );
+}
+
+#[test]
+fn an_error_in_a_single_hcl_block_points_inside_it() {
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    let problems = schema.validate(
+        Language::HCL,
+        "web {\n  certificates {\n    hosts = 1\n  }\n}\n",
+    );
+    assert!(
+        problems.iter().any(|problem| problem.line == Some(3)),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn xml_refuses_empty_element_names() {
+    assert!(
+        Language::XML
+            .parse("<services>\n  <>\n  </>\n</services>")
+            .is_err()
+    );
+    assert!(
+        Language::YAML
+            .convert("services: {\"\": {target: 80}}\n", Language::XML)
+            .is_err()
+    );
+}

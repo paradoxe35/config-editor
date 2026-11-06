@@ -482,6 +482,31 @@ pub fn ConfigEditor(
             }
         });
     }
+    // An edit still waiting out the typing pause is saved when the editor
+    // goes away, so unmounting right after typing loses nothing.
+    on_cleanup(move || {
+        let (Some(text), Some(synced), Some(host), Some(edit), Some(schema)) = (
+            source.try_get_untracked(),
+            synced_edit.try_get_value(),
+            host_text.try_get_value(),
+            edit_language.try_get_untracked(),
+            bridge_schema.try_get_value(),
+        ) else {
+            return;
+        };
+        if text == synced {
+            return;
+        }
+        let Some(bridge) = Bridge::new(host_language, edit, schema) else {
+            return;
+        };
+        if let Ok(conversion) = bridge.to_host(&text, &host)
+            && conversion.text != host
+            && let Some(on_change) = host_on_change
+        {
+            on_change.run(conversion.text);
+        }
+    });
     // Switching `edit_as` converts the open document in place. Without unsaved
     // edits the text is rebuilt from the host's own text, so returning to
     // `language` restores it exactly (comments included); unsaved edits are
@@ -1570,6 +1595,8 @@ pub fn ConfigEditor(
                                             };
                                             positioned.push((offset_at(&text, line, column), index));
                                         }
+                                        // F8 walks problems by position, not by the order they were found.
+                                        positioned.sort_unstable();
                                         let offsets: Vec<usize> = positioned
                                             .iter()
                                             .map(|(offset, _)| *offset)
@@ -2137,9 +2164,16 @@ pub fn ConfigEditor(
                                                 };
                                                 // `replaces` and `caret` are bytes; the cursor is in UTF-16 units.
                                                 let end_byte = utf16_to_byte_index(&text, end);
-                                                let replaced_end = end + text[end_byte..(end_byte + newline.replaces).min(text.len())]
-                                                    .encode_utf16()
-                                                    .count();
+                                                let replaced_byte = (end_byte + newline.replaces).min(text.len());
+                                                // Indentation already after the caret is replaced by the new line's own, not added to it.
+                                                let ends_indented = newline.text.rsplit('\n').next().is_some_and(|tail| tail.trim().is_empty())
+                                                    && newline.text.contains('\n');
+                                                let following = if ends_indented {
+                                                    text[replaced_byte..].len() - text[replaced_byte..].trim_start_matches([' ', '\t']).len()
+                                                } else {
+                                                    0
+                                                };
+                                                let replaced_end = end + text[end_byte..replaced_byte + following].encode_utf16().count();
                                                 let start = start
                                                     - text[..utf16_to_byte_index(&text, start)]
                                                         [utf16_to_byte_index(&text, start).saturating_sub(newline.replaces_before)..]

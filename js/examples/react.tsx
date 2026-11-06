@@ -10,10 +10,16 @@ import {
 // The bundle does not sit next to the package's wasm, so say where it is.
 const ready = loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 
+// `?uncontrolled` renders the editor with `defaultValue` instead of `value`.
+const uncontrolled = new URLSearchParams(location.search).has("uncontrolled");
+
 function App({ schema }: { schema: string }) {
   const [value, setValue] = useState(
     "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n",
   );
+  // The value before the latest edit, for the parent-side revert button.
+  const previous = useRef(value);
+  const [fileName, setFileName] = useState("burrow.yaml");
   const [editAs, setEditAs] = useState<string | null>(null);
   const [theme, setTheme] = useState("vscode-dark");
   const [readOnly, setReadOnly] = useState(false);
@@ -53,20 +59,31 @@ function App({ schema }: { schema: string }) {
         <button id="replace" type="button" onClick={() => setValue("listen: 9000\n")}>
           Replace value
         </button>
+        <button id="revert" type="button" onClick={() => setValue(previous.current)}>
+          Revert last edit
+        </button>
+        <button id="rename" type="button" onClick={() => setFileName((name) => `renamed-${name}`)}>
+          Rename (re-mounts)
+        </button>
         <span id="editing">{editing}</span>
       </header>
       <ConfigEditor
         ref={handle}
         language="yaml"
         schema={schema}
-        value={value}
-        onChange={setValue}
+        {...(uncontrolled ? { defaultValue: value } : { value })}
+        onChange={(next) => {
+          setValue((current) => {
+            previous.current = current;
+            return next;
+          });
+        }}
         editAs={editAs}
         onEditAsChange={setEditing}
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}
-        fileName="burrow.yaml"
+        fileName={fileName}
         showToolbar
         showFooter
       />

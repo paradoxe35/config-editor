@@ -156,6 +156,9 @@ impl ConfigLanguage for XmlBehavior {
         let Value::Object(map) = value else {
             return Err("the XML document model is an object of elements".to_string());
         };
+        if let Some(pointer) = empty_key(value, String::new()) {
+            return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
+        }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let mut out = String::new();
         if let Some(declaration) = &framing.declaration {
@@ -177,6 +180,24 @@ impl ConfigLanguage for XmlBehavior {
             }
         }
         Ok(out)
+    }
+}
+
+/// The pointer of the first object holding an empty key, if any.
+fn empty_key(value: &Value, pointer: String) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if map.contains_key("") {
+                return Some(if pointer.is_empty() { "/".to_string() } else { pointer });
+            }
+            map.iter()
+                .find_map(|(key, child)| empty_key(child, format!("{pointer}/{key}")))
+        }
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(index, item)| empty_key(item, format!("{pointer}/{index}"))),
+        _ => None,
     }
 }
 
@@ -930,6 +951,15 @@ fn xml_text(value: &Value) -> String {
 
 /// Every error carries a one-based line and character column.
 fn xml_parse(source: &str) -> Result<Value, ParseError> {
+    // `<>` and `</>` name no element.
+    if let Some(at) = source.find("<>").or_else(|| source.find("</>")) {
+        let (line, column) = line_column(source, at);
+        return Err(ParseError {
+            message: "an element needs a name".to_string(),
+            line: Some(line),
+            column: Some(column),
+        });
+    }
     build_value(source)
 }
 
@@ -1222,14 +1252,17 @@ fn insert_child(map: &mut Map<String, Value>, name: String, value: Value) {
 }
 
 /// Numbers, booleans, and `null` are recognized; everything else is a string.
+/// Where the schema wants a string, validation reads them back as text.
 fn typed_scalar(text: &str) -> Value {
     let trimmed = text.trim();
     match trimmed {
         "true" => Value::Bool(true),
         "false" => Value::Bool(false),
         "null" => Value::Null,
+        // Only text a number writes back unchanged (`1e3`, `1.50` and `-0`
+        // stay text, so saving them keeps what was typed).
         _ => match serde_json::from_str::<Value>(trimmed) {
-            Ok(Value::Number(number)) => Value::Number(number),
+            Ok(Value::Number(number)) if number.to_string() == trimmed => Value::Number(number),
             _ => Value::String(trimmed.to_string()),
         },
     }
@@ -2836,12 +2869,12 @@ mod tests {
         let local_schema = build_schema(
             r#"{"type":"object","properties":{
                 "clients":{"type":"object","additionalProperties":{
-                    "type":"object","properties":{"secret":{"type":"string"}}
+                    "type":"object","properties":{"secret":{"type":"integer"}}
                 }}
             }}"#,
         )
         .unwrap();
-        let source = "<root config-root=\"true\">\n  <clients>\n    <acme>\n      <secret>1</secret>\n    </acme>\n  </clients>\n</root>";
+        let source = "<root config-root=\"true\">\n  <clients>\n    <acme>\n      <secret>x</secret>\n    </acme>\n  </clients>\n</root>";
         let diagnostics = validate(source, Some(&local_schema), None, true, &XmlBehavior);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(4));

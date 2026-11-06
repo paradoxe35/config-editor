@@ -119,7 +119,11 @@ pub(super) fn patch_scalars(
     }
     let mut edits = Vec::with_capacity(changes.len());
     for (pointer, value) in changes {
-        let span = language.value_span(previous, &pointer)?;
+        // Values inside flow collections and inline tables are found by the
+        // shared scanner when the language has no span for them.
+        let span = language
+            .value_span(previous, &pointer)
+            .or_else(|| inline_location(language, previous, &pointer, false))?;
         edits.push((byte_range(previous, span)?, language.format_value(value)));
     }
     edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
@@ -193,9 +197,30 @@ pub(super) fn patch_structure(
             }
         }
     }
+    let mut inserted: Vec<Vec<String>> = inserted
+        .into_iter()
+        .map(|slot| slot.into_iter().map(str::to_string).collect())
+        .collect();
+    // A replaced line (a renamed key) keeps its trailing comment: the
+    // comment moves to the line inserted in its place at the same indent.
+    for index in 0..host.len() {
+        if !removed[index] {
+            continue;
+        }
+        let comment = trailing_comment(host[index]);
+        let indent = |line: &str| line.len() - line.trim_start().len();
+        if let Some(first) = inserted[index + 1].first_mut()
+            && !comment.is_empty()
+            && indent(first) == indent(host[index])
+            && trailing_comment(first).is_empty()
+        {
+            first.push(' ');
+            first.push_str(comment);
+        }
+    }
     let mut lines: Vec<&str> = Vec::with_capacity(host.len() + rendered_new.len());
     for index in 0..=host.len() {
-        lines.extend(inserted[index].iter().copied());
+        lines.extend(inserted[index].iter().map(String::as_str));
         if index < host.len() && !removed[index] {
             lines.push(host[index]);
         }
@@ -210,7 +235,17 @@ pub(super) fn patch_structure(
 /// A line as the structural patch compares it: trimmed, without quotes and
 /// without a trailing `#`, `//`, or `<!-- -->` comment.
 fn comparable(line: &str) -> String {
-    let mut code = line;
+    line[..comment_start(line)].trim().replace(['"', '\''], "")
+}
+
+/// The trailing `#`, `//`, or `<!-- -->` comment of `line`, or `""`.
+fn trailing_comment(line: &str) -> &str {
+    line[comment_start(line)..].trim_end()
+}
+
+/// Where the trailing comment of `line` starts, or its length.
+fn comment_start(line: &str) -> usize {
+    let mut code = line.len();
     let mut quote: Option<char> = None;
     let mut previous = ' ';
     for (index, character) in line.char_indices() {
@@ -223,14 +258,74 @@ fn comparable(line: &str) -> String {
                 || line[index..].starts_with("<!--"))
                 && (index == 0 || previous.is_whitespace() || previous == '>') =>
             {
-                code = &line[..index];
+                code = index;
                 break;
             }
             None => {}
         }
         previous = character;
     }
-    code.trim().replace(['"', '\''], "")
+    code
+}
+
+/// The span of what `pointer` names when it lies inside an inline container
+/// (a flow collection, inline table, or one-line object): the deepest
+/// ancestor whose value is `{…}` or `[…]` is located by the language, the
+/// rest by the shared scanner. `key` asks for the key rather than the value.
+pub(super) fn inline_location(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    key: bool,
+) -> Option<Span> {
+    use super::language::{SchemaPathSegment, pointer_segments};
+    let segments = pointer_segments(pointer);
+    for depth in (1..segments.len()).rev() {
+        let ancestor: String = segments[..depth]
+            .iter()
+            .map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1")))
+            .collect();
+        let Some(span) = behavior.value_span(source, &ancestor) else {
+            continue;
+        };
+        let line_start: usize = source
+            .split_inclusive('\n')
+            .take(span.line.saturating_sub(1))
+            .map(str::len)
+            .sum();
+        let start = line_start
+            + source[line_start..]
+                .char_indices()
+                .nth(span.start_column.saturating_sub(1))
+                .map_or(0, |(index, _)| index);
+        let text = &source[start..];
+        if !text.starts_with(['{', '[']) {
+            return None;
+        }
+        let rest: Vec<SchemaPathSegment> = segments[depth..]
+            .iter()
+            .map(|segment| match segment.parse::<usize>() {
+                Ok(index) => SchemaPathSegment::ArrayItem(index),
+                Err(_) => SchemaPathSegment::Key(segment.clone()),
+            })
+            .collect();
+        let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
+        let (from, to) = (start + from, start + to);
+        let line = source[..from].matches('\n').count() + 1;
+        let from_line = source[..from].rfind('\n').map_or(0, |index| index + 1);
+        let column = source[from_line..from].chars().count() + 1;
+        let to_column = if source[from..to].contains('\n') {
+            column + 1
+        } else {
+            column + source[from..to].chars().count()
+        };
+        return Some(Span {
+            line,
+            start_column: column,
+            end_column: to_column.max(column + 1),
+        });
+    }
+    None
 }
 
 /// Collects `(pointer, new value)` for every changed scalar; `None` when the

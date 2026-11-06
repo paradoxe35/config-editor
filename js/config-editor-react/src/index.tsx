@@ -102,9 +102,14 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     const latest = useRef(props);
     latest.current = props;
     const [mounted, setMounted] = useState(0);
-    // Values this editor sent through onChange, newest last: a parent that
-    // applies them late must not roll the document back to an older one.
-    const emitted = useRef<string[]>([]);
+    // Values sent through onChange that the parent has not passed back yet,
+    // oldest first. A parent applying them late must not roll the document
+    // back: an echo with newer values still pending is stale. Any other
+    // `value` (a revert, a reset) is the parent's own and is applied.
+    const pending = useRef<string[]>([]);
+    // What a re-mount (language, schema, … changed) starts from, so an
+    // uncontrolled document and its diff baseline survive it.
+    const carried = useRef<{ value: string; baseline: string } | null>(null);
     const report = (error: unknown) => {
       if (latest.current.onError) latest.current.onError(error);
       else console.error("config-editor-react:", error);
@@ -125,12 +130,16 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       void loadConfigEditor().then(() => {
         if (cancelled || !host.current) return;
         const current = latest.current;
+        const value = current.value ?? carried.current?.value ?? current.defaultValue ?? "";
+        const baseline = current.baseline ?? carried.current?.baseline ?? value;
+        carried.current = { value, baseline };
+        pending.current = [];
         const options: EditorOptions = {
-          value: current.value ?? current.defaultValue ?? "",
+          value,
           language: current.language,
           editAs: current.editAs ?? undefined,
           schema: current.schema,
-          baseline: current.baseline,
+          baseline,
           fileName: current.fileName,
           theme: current.theme,
           colors: current.colors,
@@ -139,8 +148,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           showFooter: current.showFooter,
           className: current.editorClassName,
           onChange: (value) => {
-            emitted.current.push(value);
-            if (emitted.current.length > 50) emitted.current.shift();
+            if (carried.current) carried.current.value = value;
+            pending.current.push(value);
+            if (pending.current.length > 50) pending.current.shift();
             latest.current.onChange?.(value);
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
@@ -154,7 +164,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       }, report);
       return () => {
         cancelled = true;
+        // destroy() first: it saves an edit still waiting to convert.
         editor.current?.destroy();
+        if (editor.current && carried.current) carried.current.value = editor.current.value;
         editor.current?.free();
         editor.current = null;
       };
@@ -170,16 +182,23 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     useEffect(() => {
       guard((instance) => {
         const value = props.value;
-        if (value === undefined || instance.value === value) return;
-        // A late echo of an older value this editor sent: keep the newer text.
-        const sent = emitted.current.lastIndexOf(value);
-        if (sent >= 0 && sent < emitted.current.length - 1) return;
-        instance.setValue(value);
+        if (value === undefined) return;
+        const sent = pending.current.indexOf(value);
+        if (sent >= 0) {
+          // The parent caught up to this emission; newer ones may follow.
+          pending.current.splice(0, sent + 1);
+          if (pending.current.length > 0) return;
+        } else {
+          pending.current = [];
+        }
+        if (instance.value !== value) instance.setValue(value);
       });
     }, [mounted, props.value]);
 
     useEffect(() => {
-      if (props.baseline !== undefined) guard((instance) => instance.setBaseline(props.baseline!));
+      if (props.baseline === undefined) return;
+      if (carried.current) carried.current.baseline = props.baseline;
+      guard((instance) => instance.setBaseline(props.baseline!));
     }, [mounted, props.baseline]);
 
     useEffect(() => {
@@ -187,7 +206,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     }, [mounted, props.editAs]);
 
     useEffect(() => {
-      if (props.theme !== undefined) guard((instance) => instance.setTheme(props.theme!));
+      guard((instance) => instance.setTheme(props.theme ?? null));
     }, [mounted, props.theme]);
 
     const colors = JSON.stringify(props.colors ?? {});

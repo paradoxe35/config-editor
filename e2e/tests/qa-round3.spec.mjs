@@ -156,3 +156,60 @@ test.describe('toml: headers by bracket kind', () => {
     expect(await e.value()).toBe('[[web.certificates]]');
   });
 });
+
+const markers = (page) =>
+  page.locator('.config-editor__diagnostic-marker').evaluateAll((all) => all.map((marker) => marker.dataset.message));
+
+test.describe('diagnostics found in the third round', () => {
+  test.describe('yaml', () => {
+    setupEditor(test, '?language=yaml');
+
+    test('F8 visits problems top to bottom', async ({ page }) => {
+      const e = await at(page, '|insecure_plaintext: maybe\nbogus: 1\nheartbeat: {interval_secs: -1}\n');
+      await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(3);
+      const lines = [];
+      for (let index = 0; index < 3; index += 1) {
+        await page.keyboard.press('F8');
+        lines.push((await e.caret()).line);
+      }
+      expect(lines).toEqual([1, 2, 3]);
+    });
+  });
+
+  test.describe('json', () => {
+    setupEditor(test, '?language=json');
+
+    test('Enter at column 0 of an indented closer keeps one indent', async ({ page }) => {
+      const e = await at(page, '{\n  "pool": {\n    "min_idle": 1\n|  }\n}');
+      await page.keyboard.press('Enter');
+      expect(await e.value()).toBe('{\n  "pool": {\n    "min_idle": 1\n\n  }\n}');
+    });
+  });
+
+  test.describe('xml', () => {
+    setupEditor(test, '?language=xml');
+
+    test('a number in a string field is a string', async ({ page }) => {
+      const e = editor(page);
+      await e.paste('<public_address>123</public_address>\n');
+      await page.waitForTimeout(400);
+      expect(await markers(page)).toEqual([]);
+    });
+
+    test('an empty element name is a syntax error', async ({ page }) => {
+      const e = editor(page);
+      await e.paste('<listen>1</listen>\n<></>\n');
+      await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(1);
+    });
+  });
+
+  test.describe('hcl edited as YAML', () => {
+    setupEditor(test, '?language=hcl&edit=yaml');
+
+    test('a template sequence in a value is escaped in the host', async ({ page }) => {
+      const e = editor(page);
+      await e.paste('public_address: "${host}"\n');
+      await expect.poll(() => page.locator('.demo__output-text').textContent()).toContain('"$${host}"');
+    });
+  });
+});

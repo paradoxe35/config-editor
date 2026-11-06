@@ -322,13 +322,18 @@ pub(super) fn validate(
                 // not just its first character.
                 let word_end = error.line.zip(error.column).and_then(|(line, column)| {
                     let text = source.lines().nth(line.checked_sub(1)?)?;
-                    let width = text
+                    // A quoted key (`"min_idle"`) is covered with its quotes.
+                    let rest: String = text.chars().skip(column.checked_sub(1)?).collect();
+                    let quoted = usize::from(rest.starts_with('"'));
+                    let body: String = rest.chars().skip(quoted).collect();
+                    let word = body
                         .chars()
-                        .skip(column.checked_sub(1)?)
                         .take_while(|character| {
                             character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
                         })
                         .count();
+                    let closing = usize::from(quoted == 1 && body.chars().nth(word) == Some('"'));
+                    let width = quoted + word + closing;
                     (width > 1).then_some(column + width)
                 });
                 return vec![Diagnostic {
@@ -413,9 +418,10 @@ pub(super) fn validate(
                                     .take(MAX_DIAGNOSTICS)
                                     .map(|key| {
                                         let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span =
-                                            inline_location(behavior, source, &pointer, true)
-                                                .or_else(|| behavior.key_span(source, &pointer));
+                                        let span = super::codec::inline_location(
+                                            behavior, source, &pointer, true,
+                                        )
+                                        .or_else(|| behavior.key_span(source, &pointer));
                                         let place = if parent.is_empty() { "/" } else { parent };
                                         let message = if key == "#text" {
                                             // XML mixed content: text beside child elements.
@@ -430,17 +436,29 @@ pub(super) fn validate(
                                     .collect()
                             } else {
                                 // A missing property is reported on the object's key.
-                                let location =
+                                let locate = |path: &str| {
                                     if matches!(error.kind(), ValidationErrorKind::Required { .. })
                                     {
-                                        inline_location(behavior, source, &path, true)
-                                            .or_else(|| behavior.key_span(source, &path))
-                                            .or_else(|| behavior.value_span(source, &path))
+                                        super::codec::inline_location(behavior, source, path, true)
+                                            .or_else(|| behavior.key_span(source, path))
+                                            .or_else(|| behavior.value_span(source, path))
                                     } else {
-                                        inline_location(behavior, source, &path, false)
-                                            .or_else(|| behavior.value_span(source, &path))
-                                            .or_else(|| behavior.key_span(source, &path))
-                                    };
+                                        super::codec::inline_location(behavior, source, path, false)
+                                            .or_else(|| behavior.value_span(source, path))
+                                            .or_else(|| behavior.key_span(source, path))
+                                    }
+                                };
+                                // A lone block or element read as a one-item list
+                                // is addressed `…/0/…` but written without it.
+                                let location = locate(&path).or_else(|| {
+                                    (behavior.repetition() != super::language::Repetition::None
+                                        && path.contains("/0"))
+                                    .then(|| {
+                                        let lone = path.replace("/0/", "/");
+                                        locate(lone.strip_suffix("/0").unwrap_or(&lone))
+                                    })
+                                    .flatten()
+                                });
                                 vec![(location, message)]
                             };
                         locations
@@ -541,67 +559,6 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
         Some(deepest) if depth(deepest) > depth(error) => vec![deepest],
         _ => vec![error],
     }
-}
-
-/// The span of what `pointer` names when it lies inside an inline container
-/// (a flow collection, inline table, or one-line object): the deepest
-/// ancestor whose value is `{…}` or `[…]` is located by the language, the
-/// rest by the shared scanner. `key` asks for the key rather than the value.
-#[cfg(feature = "schema-validation")]
-fn inline_location(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    pointer: &str,
-    key: bool,
-) -> Option<Span> {
-    use super::language::{SchemaPathSegment, pointer_segments};
-    let segments = pointer_segments(pointer);
-    for depth in (1..segments.len()).rev() {
-        let ancestor: String = segments[..depth]
-            .iter()
-            .map(|segment| format!("/{}", escape_pointer(segment)))
-            .collect();
-        let Some(span) = behavior.value_span(source, &ancestor) else {
-            continue;
-        };
-        let line_start: usize = source
-            .split_inclusive('\n')
-            .take(span.line.saturating_sub(1))
-            .map(str::len)
-            .sum();
-        let start = line_start
-            + source[line_start..]
-                .char_indices()
-                .nth(span.start_column.saturating_sub(1))
-                .map_or(0, |(index, _)| index);
-        let text = &source[start..];
-        if !text.starts_with(['{', '[']) {
-            return None;
-        }
-        let rest: Vec<SchemaPathSegment> = segments[depth..]
-            .iter()
-            .map(|segment| match segment.parse::<usize>() {
-                Ok(index) => SchemaPathSegment::ArrayItem(index),
-                Err(_) => SchemaPathSegment::Key(segment.clone()),
-            })
-            .collect();
-        let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
-        let (from, to) = (start + from, start + to);
-        let line = source[..from].matches('\n').count() + 1;
-        let from_line = source[..from].rfind('\n').map_or(0, |index| index + 1);
-        let column = source[from_line..from].chars().count() + 1;
-        let to_column = if source[from..to].contains('\n') {
-            column + 1
-        } else {
-            column + source[from..to].chars().count()
-        };
-        return Some(Span {
-            line,
-            start_column: column,
-            end_column: to_column.max(column + 1),
-        });
-    }
-    None
 }
 
 #[cfg(feature = "schema-validation")]

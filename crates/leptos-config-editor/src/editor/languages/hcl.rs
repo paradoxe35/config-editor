@@ -1558,7 +1558,12 @@ fn hcl_text(value: &Value) -> String {
         Value::Bool(true) => "true".to_string(),
         Value::Bool(false) => "false".to_string(),
         Value::Number(number) => number.to_string(),
-        Value::String(text) => serde_json::to_string(text).unwrap_or_else(|_| text.clone()),
+        // Template sequences are escaped, so `${HOST}` stays text, as the
+        // serializer writes it.
+        Value::String(text) => serde_json::to_string(text)
+            .unwrap_or_else(|_| text.clone())
+            .replace("${", "$${")
+            .replace("%{", "%%{"),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(hcl_text).collect();
             format!("[{}]", items.join(", "))

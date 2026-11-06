@@ -26,12 +26,15 @@ const editor = new ConfigEditor(document.getElementById("config"), {
 
 editor.setValue(text);       // host updates
 editor.setEditAs("toml");    // live switch; null edits in `language`
-editor.setTheme("nord");
+editor.setTheme("nord");    // null returns to the default theme
 editor.setColors({ bg: "#101418" });
 editor.setReadOnly(true);
 editor.value;                // current document
-editor.destroy();
+editor.destroy();            // saves an edit still converting; safe inside onChange
 ```
+
+Options are type-checked: a value of the wrong type throws instead of being
+ignored. The element's previous content is replaced.
 
 Headless helpers: `validate(language, text, schema?)`,
 `convert(from, text, to, schema?)`, `languages()`, `themes()`,

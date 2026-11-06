@@ -186,3 +186,141 @@ test.describe('vanilla API robustness', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('vanilla API: callbacks, teardown and custom languages', () => {
+  const withModule = (browserPage, run) =>
+    browserPage.evaluate(async (source) => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      const host = document.getElementById('editor');
+      // eslint-disable-next-line no-new-func
+      return new Function('module', 'host', `return (async () => { ${source} })()`)(module, host);
+    }, run);
+
+  test('destroy inside onChange unmounts cleanly', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await withModule(
+      browserPage,
+      `const editor = new module.ConfigEditor(host, { value: 'a: 1\\n', onChange: () => editor.destroy() });
+       window.target = editor;`,
+    );
+    await input(browserPage).click();
+    await browserPage.keyboard.type('x');
+    await expect(input(browserPage)).toHaveCount(0);
+    expect(await browserPage.evaluate(() => window.target.value)).toContain('x');
+    await browserPage.waitForTimeout(400);
+    expect(errors).toEqual([]);
+  });
+
+  test('destroy right after an edit-as edit still saves it', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await withModule(
+      browserPage,
+      `window.changes = [];
+       window.target = new module.ConfigEditor(host, {
+         value: 'listen: 1\\n', editAs: 'json', onChange: (text) => window.changes.push(text),
+       });`,
+    );
+    await input(browserPage).evaluate((element) => {
+      const at = element.value.indexOf('1');
+      element.focus();
+      element.setSelectionRange(at, at + 1);
+    });
+    await browserPage.keyboard.type('2');
+    const state = await browserPage.evaluate(() => {
+      window.target.destroy();
+      return { changes: window.changes, value: window.target.value };
+    });
+    expect(state.changes.at(-1)).toBe('listen: 2\n');
+    expect(state.value).toBe('listen: 2\n');
+    expect(errors).toEqual([]);
+  });
+
+  test('options of the wrong type are refused, and the element is cleared', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const messages = await withModule(
+      browserPage,
+      `const attempt = (options) => { try { new module.ConfigEditor(host, options).destroy(); return 'no error'; } catch (error) { return String(error.message ?? error); } };
+       host.innerHTML = '<p id="old">old</p>';
+       const kept = new module.ConfigEditor(host, { value: 'a: 1\\n' });
+       const cleared = !document.getElementById('old');
+       kept.destroy();
+       let readOnly;
+       try { const editor = new module.ConfigEditor(host, {}); editor.setReadOnly('yes'); editor.destroy(); readOnly = 'no error'; } catch (error) { readOnly = String(error.message); }
+       return {
+         cleared,
+         value: attempt({ value: 5 }),
+         readOnly: attempt({ readOnly: 'yes' }),
+         onChange: attempt({ onChange: 'save' }),
+         setReadOnly: readOnly,
+       };`,
+    );
+    expect(messages.cleared).toBe(true);
+    expect(messages.value).toContain('value must be a string');
+    expect(messages.readOnly).toContain('readOnly must be a boolean');
+    expect(messages.onChange).toContain('onChange must be a function');
+    expect(messages.setReadOnly).toContain('readOnly must be a boolean');
+  });
+
+  test('a custom language returning bad data is an error, not a crash', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    const problems = await withModule(
+      browserPage,
+      `module.registerLanguage({
+         label: 'Loop', extensions: [],
+         parse: () => { const value = {}; value.self = value; return value; },
+         highlight: () => null,
+         serialize: () => { throw 'no writer'; },
+       });
+       window.target = new module.ConfigEditor(host, { language: 'loop', value: 'anything' });
+       return module.validate('loop', 'anything');`,
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0].message).toMatch(/cyclic/);
+    await expect(input(browserPage)).toHaveValue('anything');
+    await input(browserPage).click();
+    await browserPage.keyboard.type('!');
+    await expect(input(browserPage)).toHaveValue('anything!');
+    const converted = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      try {
+        module.convert('json', '{}', 'loop');
+        return 'no error';
+      } catch (error) {
+        return String(error.message ?? error);
+      }
+    });
+    expect(converted).toContain('no writer');
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe('react: parent updates and re-mounts', () => {
+  test('the parent can revert to an earlier value', async ({ page: browserPage }) => {
+    await open(browserPage, 'react.html');
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('a');
+    await browserPage.keyboard.type('b');
+    await expect(saved(browserPage)).toContainText('ab');
+    await browserPage.locator('#revert').click();
+    await expect(input(browserPage)).toHaveValue(/tunnel\.example\.com\na$/);
+  });
+
+  for (const mode of ['', '?uncontrolled']) {
+    test(`a re-mount keeps the edited document ${mode || '(controlled)'}`, async ({ page: browserPage }) => {
+      await browserPage.goto(page('react.html') + mode);
+      await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await input(browserPage).waitFor();
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('limits: {}');
+      await browserPage.locator('#rename').click();
+      await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-burrow.yaml');
+      await expect(input(browserPage)).toHaveValue(/limits: \{\}/);
+      // The diff gutter still compares against the original text.
+      await expect(browserPage.locator('.config-editor__diff-marker-added').first()).toBeVisible();
+    });
+  }
+
+});

@@ -475,4 +475,25 @@ mod tests {
             assert!(saved.contains("public_address"), "{saved}");
         }
     }
+
+    #[test]
+    fn a_value_edit_inside_a_flow_map_keeps_the_comments() {
+        let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
+        let host = "# head\npool: {min_idle: 4, max_idle: 8} # tuned\nlisten: 7835\n";
+        let shown = bridge.to_edit(host).unwrap().text;
+        let edited = shown.replace("\"max_idle\": 8", "\"max_idle\": 9");
+        let saved = bridge.to_host(&edited, host).unwrap().text;
+        assert_eq!(saved, host.replace("max_idle: 8", "max_idle: 9"));
+    }
+
+    #[test]
+    fn renaming_a_key_keeps_its_trailing_comment() {
+        let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
+        let host = "# head\nlisten: 7835 # main port\ninsecure_plaintext: false\n";
+        let shown = bridge.to_edit(host).unwrap().text;
+        let edited = shown.replace("\"listen\"", "\"listen_port\"");
+        let saved = bridge.to_host(&edited, host).unwrap().text;
+        assert!(saved.contains("# head"), "{saved}");
+        assert!(saved.contains("listen_port: 7835 # main port"), "{saved}");
+    }
 }
