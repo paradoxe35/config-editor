@@ -14,14 +14,30 @@ use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
 
-/// A parse failure, mapped 1:1 to an inline diagnostic by the shared
-/// validation orchestration. The marker width rule (`end_column` one past
-/// `column`) lives at the map site, not here.
-pub(super) struct ParseError {
-    pub(super) message: String,
-    pub(super) line: Option<usize>,
-    pub(super) column: Option<usize>,
+/// A syntax error in a document, with its one-based position when the
+/// language reports one. The editor shows it as an inline diagnostic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseError {
+    pub message: String,
+    /// One-based line.
+    pub line: Option<usize>,
+    /// One-based character column.
+    pub column: Option<usize>,
 }
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => {
+                write!(formatter, "{} (line {line}, column {column})", self.message)
+            }
+            (Some(line), None) => write!(formatter, "{} (line {line})", self.message),
+            _ => formatter.write_str(&self.message),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 /// A path segment addressing a value inside the parsed document. Shared by
 /// every language: schema navigation reads parsed `Value`s, never syntax.

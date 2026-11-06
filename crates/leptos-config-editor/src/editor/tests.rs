@@ -151,7 +151,7 @@ fn backspace_removes_an_empty_pair() {
     assert_eq!(delete_empty_pair("value: [x]", 8), None);
 }
 
-#[cfg(feature = "completion")]
+#[cfg(feature = "schema-validation")]
 #[test]
 fn match_ranges_cover_the_typed_characters_for_every_tier() {
     use super::completion::match_ranges;

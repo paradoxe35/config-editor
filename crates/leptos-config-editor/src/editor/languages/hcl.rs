@@ -1737,6 +1737,67 @@ fn highlight_class(line: &str, token: &Token, key_end: Option<usize>) -> &'stati
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+impl super::super::codec::Codec for HclBehavior {
+    /// Idiomatic HCL through `hcl-rs`: an object whose keys are all
+    /// identifiers becomes a block (`web { … }`), anything else an attribute;
+    /// `hcl-rs` formats and escapes (`${` → `$${`).
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        let Value::Object(map) = value else {
+            return Err("an HCL document is a body: the top level must be an object".to_string());
+        };
+        hcl::format::to_string(&hcl_body(map)?).map_err(|error| error.to_string())
+    }
+}
+
+fn hcl_body(map: &serde_json::Map<String, Value>) -> Result<hcl::Body, String> {
+    let mut body = hcl::Body::builder();
+    for (key, value) in map {
+        let identifier = hcl::Identifier::new(key.as_str()).map_err(|_| {
+            format!("\"{key}\" is not an HCL identifier, so it cannot be a top-level key")
+        })?;
+        match value {
+            Value::Object(children)
+                if !children.is_empty() && children.keys().all(|child| is_ident(child)) =>
+            {
+                body = body.add_block(hcl::Block {
+                    identifier,
+                    labels: Vec::new(),
+                    body: hcl_body(children)?,
+                });
+            }
+            _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression(value))),
+        }
+    }
+    Ok(body.build())
+}
+
+/// A document value as an HCL expression; identifier keys stay unquoted.
+fn hcl_expression(value: &Value) -> hcl::Expression {
+    use hcl::expr::{Expression, Object, ObjectKey};
+    match value {
+        Value::Null => Expression::Null,
+        Value::Bool(flag) => Expression::Bool(*flag),
+        Value::Number(number) => hcl::to_expression(number).unwrap_or(Expression::Null),
+        Value::String(text) => Expression::String(text.clone()),
+        Value::Array(items) => Expression::Array(items.iter().map(hcl_expression).collect()),
+        Value::Object(map) => Expression::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    let key = match hcl::Identifier::new(key.as_str()) {
+                        Ok(identifier) if is_ident(key) => ObjectKey::Identifier(identifier),
+                        _ => ObjectKey::Expression(Expression::String(key.clone())),
+                    };
+                    (key, hcl_expression(value))
+                })
+                .collect::<Object<ObjectKey, Expression>>(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! HCL behavior tests: parsing, spans, completion, hover, and inserts.
@@ -1772,7 +1833,7 @@ mod tests {
         .unwrap()
     }
 
-    /// `ParseError` has no `Debug`, so unwrap through the message instead.
+    /// Parses `source`, failing the test with the parse error.
     fn parse_ok(source: &str) -> serde_json::Value {
         match HclBehavior.parse(source) {
             Ok(document) => document,
@@ -2020,7 +2081,7 @@ mod tests {
 
     /// Every caret position in messy and malformed documents must produce
     /// completions, hovers, and edits without panicking or slicing mid-character.
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
         let schema = schema();

@@ -1208,6 +1208,16 @@ fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (quote, comment)
 }
 
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+impl super::super::codec::Codec for YamlBehavior {
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        noyalib::to_string(value).map_err(|error| error.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! YAML behavior tests: every rule the YAML text layer implements, pinned
@@ -1254,10 +1264,7 @@ mod tests {
         let accepted = accept_marked("web: { le| }\n", "letsencrypt", &schema, &YamlBehavior);
         assert_eq!(accepted, "web: { letsencrypt: { email: | } }\n");
         let filled = accepted.replace('|', "a@b.c");
-        let document = YamlBehavior
-            .parse(&filled)
-            .ok()
-            .expect("flow mapping parses");
+        let document = YamlBehavior.parse(&filled).expect("flow mapping parses");
         assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
     }
 
@@ -1334,7 +1341,7 @@ mod tests {
     /// with dynamic keys, enums, and numeric-as-string examples. It lives in
     /// `tests/fixtures/` (not the workspace-root demo schema) so crate tests never
     /// reach outside the crate.
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     fn fixture_schema() -> SchemaBundle {
         build_schema(include_str!("../../../tests/fixtures/schema.json")).unwrap()
     }
@@ -1474,7 +1481,7 @@ mod tests {
         assert_eq!(errors[0].end_column, Some(21));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn top_level_property_suggestions_come_from_the_schema() {
         let input = "pub";
@@ -1489,7 +1496,7 @@ mod tests {
         assert_eq!(option.detail, "Address");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn explicit_completion_request_offers_schema_properties_at_an_empty_position() {
         let options = completions("", 0, true, Some(&test_schema()), true);
@@ -1501,7 +1508,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn property_completions_omit_keys_already_present_in_the_mapping() {
         let input = "public_address: existing\n";
@@ -1520,7 +1527,7 @@ mod tests {
         assert!(options.iter().any(|option| option.label == "websocket"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn partially_typed_keys_do_not_reoffer_existing_keys_when_yaml_is_temporarily_invalid() {
         let schema = fixture_schema();
@@ -1539,7 +1546,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn cursor_before_a_mapping_colon_is_treated_as_key_completion_without_panicking() {
         let schema = fixture_schema();
@@ -1552,7 +1559,7 @@ mod tests {
         assert_eq!(apply_completion(input, &option).0, input);
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn enum_suggestions_are_available_for_nested_values() {
         let input = "websocket:\n  challenge: t";
@@ -1569,7 +1576,7 @@ mod tests {
         assert_eq!(option.type_label, "enum");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn property_completion_displays_combined_schema_types() {
         let schema = build_schema(
@@ -1584,7 +1591,7 @@ mod tests {
         assert_eq!(option.type_label, "null | string");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn property_completion_quotes_keys_that_need_yaml_quoting() {
         let schema = build_schema(
@@ -1610,7 +1617,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn object_completion_expands_required_fields_and_places_cursor_at_first_value() {
         let schema = build_schema(
@@ -1634,7 +1641,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn completions_follow_additional_properties_into_dynamic_object_values() {
         let schema = build_schema(
@@ -1686,7 +1693,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn fixture_schema_covers_dynamic_client_keys_through_additional_properties() {
         let schema = fixture_schema();
@@ -1706,7 +1713,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn completions_follow_pattern_properties_and_quoted_mapping_keys() {
         let schema = build_schema(
@@ -1732,7 +1739,7 @@ mod tests {
         assert!(options.iter().any(|option| option.label == "enabled"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn array_item_completions_follow_items_and_prefix_items_schemas() {
         let schema = build_schema(
@@ -1787,7 +1794,7 @@ mod tests {
         assert!(enum_options.iter().any(|option| option.label == "fast"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn const_and_boolean_schema_values_are_suggested_and_inserted() {
         let schema = build_schema(
@@ -1821,7 +1828,7 @@ mod tests {
         assert!(value_options.iter().any(|option| option.label == "true"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn examples_and_example_schema_values_are_suggested_in_value_positions() {
         let schema = build_schema(
@@ -1865,7 +1872,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn nullable_type_arrays_expand_objects_and_offer_null_values() {
         let schema = build_schema(
@@ -1905,7 +1912,7 @@ mod tests {
         assert!(value_options.iter().any(|option| option.label == "null"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn fuzzy_completion_matches_word_initials_and_subsequences() {
         let schema = build_schema(
@@ -1948,7 +1955,7 @@ mod tests {
         assert_eq!(initials_options.len(), 2);
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn quoted_partial_keys_are_replaced_with_the_quoted_schema_key() {
         let schema =
@@ -1972,7 +1979,7 @@ mod tests {
         assert_eq!(cursor, updated.encode_utf16().count());
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn expanded_completions_follow_the_document_indentation_unit() {
         let schema = build_schema(
@@ -2015,7 +2022,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn typing_on_a_blank_line_suggests_missing_top_level_keys() {
         let schema = fixture_schema();
@@ -2034,7 +2041,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn typing_after_a_fresh_indent_suggests_nested_keys() {
         let schema = fixture_schema();
@@ -2053,7 +2060,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn empty_query_on_a_fresh_indent_stays_silent_without_force() {
         let schema = fixture_schema();
@@ -2069,7 +2076,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn fixture_web_http_value_completion_stays_on_the_same_line() {
         let schema = fixture_schema();
@@ -2135,7 +2142,7 @@ mod tests {
         assert_eq!(updated, "  first\n\n  second\n");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn accepting_a_value_closes_suggestions_but_accepting_a_key_reopens_them() {
         let schema = fixture_schema();
@@ -2166,7 +2173,7 @@ mod tests {
         assert!(!accept_reopens_suggestions(&key, false));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn value_directly_after_a_bare_colon_gets_a_separating_space() {
         let schema = fixture_schema();
@@ -2186,7 +2193,7 @@ mod tests {
         assert_eq!(cursor, updated.encode_utf16().count());
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn hovering_a_key_returns_its_schema_documentation() {
         let schema = fixture_schema();
@@ -2208,7 +2215,7 @@ mod tests {
         assert!(http.type_label.contains("integer") || http.type_label.contains("string"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn hovering_outside_a_key_or_on_an_unknown_key_shows_nothing() {
         let schema = fixture_schema();
@@ -2241,7 +2248,7 @@ mod tests {
         assert_eq!(port.default.as_deref(), Some("8080"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn null_is_offered_only_when_explicitly_requested_or_typed() {
         let schema = fixture_schema();
@@ -2256,7 +2263,7 @@ mod tests {
         assert!(typed.iter().any(|option| option.label == "null"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn numeric_examples_are_inserted_as_numbers_when_the_schema_allows_integers() {
         let schema = fixture_schema();
@@ -2275,7 +2282,7 @@ mod tests {
         assert_eq!(updated, "listen: 7835");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn enum_words_are_inserted_as_plain_scalars_and_ambiguous_strings_stay_quoted() {
         use crate::editor::languages::yaml::yaml_value;
@@ -2304,7 +2311,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn required_properties_sort_before_optional_ones() {
         let schema = fixture_schema();
@@ -2322,7 +2329,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn value_for_an_expanded_required_key_stays_on_its_line() {
         let schema = fixture_schema();
@@ -2344,7 +2351,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn typing_inside_a_value_uses_the_text_before_the_caret_and_replaces_the_token() {
         let schema = fixture_schema();
@@ -2359,7 +2366,7 @@ mod tests {
         assert_eq!(cursor_after, updated.encode_utf16().count());
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn accepting_a_value_keeps_an_inline_comment() {
         let schema = fixture_schema();
@@ -2373,7 +2380,7 @@ mod tests {
         assert_eq!(updated, "update:\n  remote: true # keep me");
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn completion_replace_range_survives_multibyte_characters_before_the_caret() {
         let schema = build_schema(
@@ -2547,7 +2554,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn keys_inside_an_inline_mapping_are_suggested_from_the_schema() {
         let schema = build_schema(

@@ -12,6 +12,9 @@ leptos = { version = "0.8.23", features = ["csr"] }
 leptos-config-editor = { path = "crates/leptos-config-editor" }
 web-sys = { version = "0.3", features = ["Window", "Location"] }
 
+[dev-dependencies]
+serde_json = "1"
+
 # Keep the editor responsive while developing: dependencies (schema validation,
 # YAML parsing) and the editor crate are optimised even in debug builds.
 [profile.dev.package."*"]

@@ -297,6 +297,7 @@ fn assignment_equals(line: &str) -> Option<usize> {
     None
 }
 
+#[cfg(feature = "schema-validation")]
 /// Byte span of the value after `=` on a value line: the scalar, or the whole
 /// rest of the line for inline tables/arrays that may span lines.
 fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
@@ -345,6 +346,7 @@ fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPathSegment> {
     path
 }
 
+#[cfg(feature = "schema-validation")]
 /// Plain-string form of a schema path for span matching: array indices
 /// render as their number, mirroring the JSON-pointer segments the schema
 /// validator reports.
@@ -357,6 +359,7 @@ fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "schema-validation")]
 /// One entry inside an inline table, with byte offsets relative to the line
 /// and its full schema path (outer table + inline key chain).
 struct InlineEntry {
@@ -365,6 +368,7 @@ struct InlineEntry {
     path: Vec<String>,
 }
 
+#[cfg(feature = "schema-validation")]
 /// Collects the entries of a single-line inline table starting just after its
 /// `{`. Nested inline tables recurse, so `a = { b = { c = 1 } }` yields `a`,
 /// `a.b`, and `a.b.c`. `offset` is where `text` starts inside the line.
@@ -419,6 +423,7 @@ fn inline_entries(text: &str, offset: usize, base: &[String], out: &mut Vec<Inli
     }
 }
 
+#[cfg(feature = "schema-validation")]
 /// Byte index of the `=` after `from`, outside strings, stopping at the entry
 /// boundary (`,` or `}`).
 fn inline_equals(text: &str, from: usize) -> Option<usize> {
@@ -441,6 +446,7 @@ fn inline_equals(text: &str, from: usize) -> Option<usize> {
     None
 }
 
+#[cfg(feature = "schema-validation")]
 /// Byte index of the closing brace matching the `{` at `open`, honoring
 /// strings, arrays, and nested braces.
 fn matching_brace(text: &str, open: usize) -> Option<usize> {
@@ -473,6 +479,7 @@ fn matching_brace(text: &str, open: usize) -> Option<usize> {
     None
 }
 
+#[cfg(feature = "schema-validation")]
 /// Byte index just past the value starting at `from`: the next `,` or `}` at
 /// the top level, with trailing whitespace trimmed.
 fn inline_item_end(text: &str, from: usize) -> usize {
@@ -594,6 +601,7 @@ fn inline_table_path(
     stack.pop().unwrap_or_else(|| base.to_vec())
 }
 
+#[cfg(feature = "schema-validation")]
 /// Span of a key nested in an inline-table value on `code`: `base` is the
 /// outer assignment's path. Returns the entry's key and value spans.
 fn inline_entry_at(
@@ -1412,6 +1420,23 @@ fn scalar_class(scalar: &str) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+impl super::super::codec::Codec for TomlBehavior {
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        use super::super::codec::first_pointer;
+        if !value.is_object() {
+            return Err("a TOML document is a table: the top level must be an object".to_string());
+        }
+        if let Some(pointer) = first_pointer(value, &Value::is_null) {
+            return Err(format!("TOML has no null value (at {pointer})"));
+        }
+        toml::to_string(value).map_err(|error| error.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! TOML behavior tests: parsing, spans, completion, hover, and inserts.
@@ -1483,7 +1508,6 @@ mod tests {
         assert_eq!(accepted, "[web]\n[web.letsencrypt]\nemail = |\n");
         let document = TomlBehavior
             .parse(&accepted.replace('|', "\"a@b.c\""))
-            .ok()
             .expect("the accepted document parses");
         assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
     }

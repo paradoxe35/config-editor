@@ -31,5 +31,7 @@
 mod editor;
 
 pub use editor::{
-    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, EditorTheme, Language, PRESET_CSS,
+    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Diagnostic, EditorTheme, Language,
+    PRESET_CSS, ParseError, Schema, SchemaError, check_syntax,
 };
+pub use editor::{Conversion, ConvertError};

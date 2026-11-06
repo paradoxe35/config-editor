@@ -30,12 +30,67 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     })
 }
 
-#[derive(Clone, PartialEq)]
-pub(super) struct Diagnostic {
-    pub(super) line: Option<usize>,
-    pub(super) column: Option<usize>,
-    pub(super) end_column: Option<usize>,
-    pub(super) message: String,
+/// A syntax or schema problem in a document. Positions are one-based; the
+/// marker spans `column..end_column` on `line`. Problems that concern the
+/// whole document (such as an invalid schema) have no position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diagnostic {
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub end_column: Option<usize>,
+    pub message: String,
+}
+
+/// A JSON Schema that failed to compile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchemaError(pub String);
+
+impl std::fmt::Display for SchemaError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SchemaError {}
+
+/// A compiled JSON Schema, cheap to clone and reusable across documents and
+/// languages: the same schema validates YAML, JSON, TOML, HCL, and XML,
+/// because every language parses into the same data model.
+///
+/// ```
+/// # #[cfg(feature = "schema-validation")] {
+/// use leptos_config_editor::{Language, Schema};
+/// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
+/// assert!(schema.validate(Language::Yaml, "listen: 7835\n").is_empty());
+/// let problems = schema.validate(Language::Toml, "listen = \"x\"\n");
+/// assert_eq!(problems[0].line, Some(1));
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct Schema {
+    pub(super) bundle: std::sync::Arc<SchemaBundle>,
+}
+
+impl Schema {
+    /// Compiles a JSON Schema document.
+    pub fn compile(schema_json: &str) -> Result<Self, SchemaError> {
+        build_schema(schema_json)
+            .map(|bundle| Schema {
+                bundle: std::sync::Arc::new(bundle),
+            })
+            .map_err(SchemaError)
+    }
+
+    /// Syntax and schema diagnostics for `source`, exactly as the editor
+    /// shows them.
+    pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
+        validate(source, Some(&self.bundle), None, true, language.behavior())
+    }
+}
+
+/// Syntax diagnostics only, for documents without a schema.
+pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
+    validate(source, None, None, true, language.behavior())
 }
 /// Shared validation orchestration: parses through the language behavior,
 /// maps schema violations to source spans through it, and returns inline
@@ -54,6 +109,7 @@ pub(super) fn validate(
         return Vec::new();
     }
 
+    #[cfg_attr(not(feature = "schema-validation"), allow(unused_variables))]
     let document: Value = match behavior.parse(source) {
         Ok(document) => document,
         Err(error) => {
@@ -137,6 +193,7 @@ fn most_specific_validation_error(error: &ValidationError<'_>) -> (String, Strin
     }
 }
 
+#[cfg(feature = "schema-validation")]
 fn escape_pointer(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
 }

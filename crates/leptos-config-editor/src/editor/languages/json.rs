@@ -865,6 +865,27 @@ fn token_class(line: &str, token: &Token) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+impl super::super::codec::Codec for JsonBehavior {
+    /// Pretty JSON, indented like `previous` when it is given.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        use serde::Serialize;
+        let unit = previous.map_or_else(|| "  ".to_string(), indent_unit);
+        let mut out = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(unit.as_bytes());
+        let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
+        value
+            .serialize(&mut serializer)
+            .map_err(|error| error.to_string())?;
+        let mut text = String::from_utf8(out).map_err(|error| error.to_string())?;
+        text.push('\n');
+        Ok(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! JSON behavior tests: parsing, spans, completion, hover, and inserts.
@@ -1069,7 +1090,7 @@ mod tests {
         assert_eq!(info.description.as_deref(), Some("Port"));
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn a_new_entry_after_a_value_without_a_comma_gets_one() {
         let source = r#"{"listen": 1"ins"#;
@@ -1081,7 +1102,7 @@ mod tests {
         assert_eq!(updated, r#"{"listen": 1, "insecure_plaintext": "#);
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn typing_an_opening_quote_in_an_object_lists_every_key() {
         let options = complete("{\n  \"", &schema());
@@ -1096,7 +1117,7 @@ mod tests {
         assert_eq!(caret, 3);
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn a_key_inserted_before_an_existing_key_gets_a_comma_after_it() {
         let source = r#"{"listen": 1}"#;
@@ -1109,7 +1130,7 @@ mod tests {
         assert_eq!(caret, r#"{"insecure_plaintext": "#.encode_utf16().count());
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn completing_a_key_before_its_existing_colon_swallows_the_colon() {
         let source = r#"{"insecure_pla": false}"#;
@@ -1124,7 +1145,7 @@ mod tests {
         assert_eq!(updated, r#"{"insecure_plaintext": false}"#);
     }
 
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn the_reported_text_is_flagged_and_its_keys_get_separators() {
         let source =
@@ -1140,7 +1161,7 @@ mod tests {
 
     /// Every caret position in messy and malformed documents must produce
     /// completions, hovers, and edits without panicking or slicing mid-character.
-    #[cfg(feature = "completion")]
+    #[cfg(feature = "schema-validation")]
     #[test]
     fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
         let schema = schema();

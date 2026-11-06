@@ -3,9 +3,13 @@ use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
 mod chrome;
+mod codec;
 mod language;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;
+pub use codec::{Conversion, ConvertError};
+pub use diagnostics::{Diagnostic, Schema, SchemaError, check_syntax};
+pub use language::ParseError;
 pub use languages::Language;
 mod theme;
 pub use theme::EditorTheme;
@@ -178,8 +182,7 @@ pub fn ConfigEditor(
         None => (None, None),
     };
     let enable_completions =
-        enable_completions && !read_only.get_untracked() && cfg!(feature = "completion");
-    let enable_highlighting = enable_highlighting && cfg!(feature = "syntax-highlighting");
+        enable_completions && !read_only.get_untracked() && cfg!(feature = "schema-validation");
     let behavior = language.behavior();
     let source = RwSignal::new(
         value
@@ -265,7 +268,7 @@ pub fn ConfigEditor(
             &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
             schema_error_for_diagnostics.as_deref(),
-            show_diagnostics && cfg!(feature = "diagnostics"),
+            show_diagnostics,
             behavior,
         )
     });
@@ -340,8 +343,7 @@ pub fn ConfigEditor(
     let default_file_name = language.default_file_name();
     let file_name = file_name.unwrap_or_else(|| default_file_name.to_string());
     let root_class = class.unwrap_or_default();
-    let show_diagnostics = show_diagnostics && cfg!(feature = "diagnostics");
-    let use_preset_style = styled && cfg!(feature = "preset-style");
+    let use_preset_style = styled;
     let has_schema = schema_bundle.is_some();
     let diff = Memo::new(move |_| {
         if show_diff {

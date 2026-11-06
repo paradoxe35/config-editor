@@ -8,10 +8,10 @@
 //! trait. Adding a language means one new file here plus one line in the
 //! `match` below — no core changes.
 
-use super::language::LanguageBehavior;
+use super::codec::{self, Codec, Conversion, ConvertError, Side};
+use super::language::{LanguageBehavior, ParseError};
+use serde_json::Value;
 
-#[cfg(all(test, feature = "schema-validation"))]
-mod demo_samples;
 mod hcl;
 mod json;
 mod toml;
@@ -97,6 +97,62 @@ impl Language {
             Language::Hcl => &HCL_BEHAVIOR,
             Language::Xml => &XML_BEHAVIOR,
         }
+    }
+
+    /// This language's serializer: a separate registry from [`Self::behavior`]
+    /// so nothing reaches a serializer unless conversion is used.
+    pub(super) fn codec(self) -> &'static dyn Codec {
+        match self {
+            Language::Yaml => &YAML_BEHAVIOR,
+            Language::Json => &JSON_BEHAVIOR,
+            Language::Toml => &TOML_BEHAVIOR,
+            Language::Hcl => &HCL_BEHAVIOR,
+            Language::Xml => &XML_BEHAVIOR,
+        }
+    }
+
+    pub(super) fn side(self) -> Side<'static> {
+        Side {
+            behavior: self.behavior(),
+            codec: self.codec(),
+        }
+    }
+
+    /// Parses a document into the shared data model (a JSON value), the same
+    /// model schema validation sees.
+    ///
+    /// ```
+    /// use leptos_config_editor::Language;
+    /// let value = Language::Toml.parse("listen = 7835\n").unwrap();
+    /// assert_eq!(value["listen"], 7835);
+    /// ```
+    pub fn parse(self, source: &str) -> Result<Value, ParseError> {
+        self.behavior().parse(source)
+    }
+
+    /// Renders a data model value as a document in this language.
+    ///
+    /// ```
+    /// use leptos_config_editor::Language;
+    /// let value = serde_json::json!({"web": {"http": 80}});
+    /// assert_eq!(Language::Hcl.serialize(&value).unwrap(), "web {\n  http = 80\n}\n");
+    /// ```
+    pub fn serialize(self, value: &Value) -> Result<String, ConvertError> {
+        codec::serialize(self.codec(), value, None)
+    }
+
+    /// Converts a document from this language to `target`. The result lists
+    /// the JSON pointers `target` could not carry exactly (`losses`); comments
+    /// do not survive a conversion.
+    ///
+    /// ```
+    /// use leptos_config_editor::Language;
+    /// let hcl = Language::Yaml.convert("web:\n  http: 80\n", Language::Hcl).unwrap();
+    /// assert_eq!(hcl.text, "web {\n  http = 80\n}\n");
+    /// assert!(hcl.losses.is_empty());
+    /// ```
+    pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
+        codec::convert(source, self.behavior(), &target.side(), None)
     }
 }
 

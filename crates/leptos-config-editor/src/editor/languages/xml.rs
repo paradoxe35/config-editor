@@ -2212,6 +2212,85 @@ fn highlight_text_segment(text: &str) -> AnyView {
     styled("config-editor__value", text)
 }
 
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+impl super::super::codec::Codec for XmlBehavior {
+    /// XML through `quick-xml`'s serializer: object keys become elements and
+    /// arrays repeated siblings. The document is a rootless fragment unless
+    /// `previous` had a config root, which is kept (with its declaration), so
+    /// round-tripping an XML document through another language keeps its
+    /// framing.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        let Value::Object(map) = value else {
+            return Err("the XML document model is an object of elements".to_string());
+        };
+        let framing = previous.map(xml_framing).unwrap_or_default();
+        let mut out = String::new();
+        if let Some(declaration) = &framing.declaration {
+            out.push_str(declaration);
+            out.push('\n');
+        }
+        match &framing.root {
+            Some(root) => {
+                // The marker is an attribute (`@` prefix for quick-xml).
+                let mut wrapped = serde_json::Map::new();
+                wrapped.insert(format!("@{CONFIG_ROOT_ATTRIBUTE}"), Value::Bool(true));
+                wrapped.extend(map.clone());
+                write_element(&mut out, root, &Value::Object(wrapped))?;
+            }
+            None => {
+                for (key, child) in map {
+                    write_element(&mut out, key, child)?;
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Document-level framing an XML text carries outside its data.
+#[derive(Default)]
+struct XmlFraming {
+    declaration: Option<String>,
+    root: Option<String>,
+}
+
+fn xml_framing(source: &str) -> XmlFraming {
+    let trimmed = source.trim_start();
+    let declaration = trimmed
+        .starts_with("<?xml")
+        .then(|| trimmed.find("?>").map(|end| trimmed[..end + 2].to_string()))
+        .flatten();
+    let tokens = tokenize(source);
+    let root = plan_paths(source, &tokens).root.and_then(|start| {
+        tokens
+            .iter()
+            .find(|token| token.start == start)
+            .map(|token| token_name(source, token))
+    });
+    XmlFraming { declaration, root }
+}
+
+/// One top-level element (or several, for an array) with two-space indent.
+fn write_element(out: &mut String, name: &str, value: &Value) -> Result<(), String> {
+    use serde::Serialize;
+    let items: Vec<&Value> = match value {
+        Value::Array(items) => items.iter().collect(),
+        other => vec![other],
+    };
+    for item in items {
+        let mut serializer = quick_xml::se::Serializer::with_root(&mut *out, Some(name))
+            .map_err(|error| format!("<{name}>: {error}"))?;
+        serializer.indent(' ', 2);
+        item.serialize(serializer)
+            .map_err(|error| format!("<{name}>: {error}"))?;
+        out.push('\n');
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     //! XML behavior tests: parsing, spans, completion, hover, and inserts.
@@ -2253,8 +2332,7 @@ mod tests {
         )
     }
 
-    /// The parse error for `source`; `ParseError` has no `Debug`, so the tests
-    /// avoid `unwrap`/`expect` on the `Result`.
+    /// The parse error for `source`.
     fn parse_error(source: &str) -> super::super::super::language::ParseError {
         XmlBehavior
             .parse(source)
@@ -2281,12 +2359,11 @@ mod tests {
     fn repeated_sibling_elements_fold_into_an_array() {
         let document = XmlBehavior
             .parse("<root config-root=\"true\"><item>1</item><item>2</item></root>")
-            .ok()
             .expect("document should parse");
         assert_eq!(document, serde_json::json!({"item": [1, 2]}));
     }
 
-    /// `ParseError` has no `Debug`; unwrap a parse through its message.
+    /// Parses `source`, failing the test with the parse error.
     fn parse_ok(source: &str) -> serde_json::Value {
         match XmlBehavior.parse(source) {
             Ok(document) => document,
@@ -2501,7 +2578,6 @@ mod tests {
     fn a_lone_scalar_element_is_a_document_property() {
         let document = XmlBehavior
             .parse("<listen>7835</listen>")
-            .ok()
             .expect("document should parse");
         assert_eq!(document, serde_json::json!({"listen": 7835}));
     }
@@ -2510,7 +2586,6 @@ mod tests {
     fn several_top_level_elements_form_an_implicit_root() {
         let document = XmlBehavior
             .parse("<listen>1</listen>\n<enabled>true</enabled>")
-            .ok()
             .expect("document should parse");
         assert_eq!(document, serde_json::json!({"listen": 1, "enabled": true}));
     }
@@ -2519,7 +2594,6 @@ mod tests {
     fn element_text_is_typed_against_the_schema() {
         let document = XmlBehavior
             .parse("<root config-root=\"true\"><port>80</port><tls><enabled>true</enabled></tls></root>")
-            .ok()
             .expect("document should parse");
         assert_eq!(
             document,
@@ -2544,7 +2618,6 @@ mod tests {
     fn attributes_and_text_make_an_object() {
         let document = XmlBehavior
             .parse("<server version=\"1\">up</server>")
-            .ok()
             .expect("document should parse");
         assert_eq!(
             document,
