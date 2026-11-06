@@ -223,13 +223,30 @@ dependencies = [
 name = "config-editor-js"
 version = "0.1.0"
 dependencies = [
+ "config-editor-leptos",
  "console_error_panic_hook",
  "js-sys",
  "leptos",
- "leptos-config-editor",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "config-editor-leptos"
+version = "0.1.0"
+dependencies = [
+ "hcl-rs",
+ "jsonschema",
+ "leptos",
+ "noyalib",
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde_json",
+ "toml",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -996,29 +1013,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "leptos-config-editor"
-version = "0.1.0"
-dependencies = [
- "hcl-rs",
- "jsonschema",
- "leptos",
- "noyalib",
- "quick-xml",
- "regex",
- "serde",
- "serde_json",
- "toml",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "leptos-yaml-editor"
 version = "0.1.0"
 dependencies = [
+ "config-editor-leptos",
  "console_error_panic_hook",
  "leptos",
- "leptos-config-editor",
  "serde_json",
  "web-sys",
 ]

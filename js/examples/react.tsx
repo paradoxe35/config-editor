@@ -5,7 +5,7 @@ import {
   type ConfigEditorHandle,
   loadConfigEditor,
   themes,
-} from "config-editor-react";
+} from "@pngwasi/config-editor-react";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
 const ready = loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });

@@ -7,8 +7,8 @@
 //! The helpers re-exported here are the building blocks they use.
 //!
 //! ```
-//! use leptos_config_editor::Language;
-//! use leptos_config_editor::language::{
+//! use config_editor_leptos::Language;
+//! use config_editor_leptos::language::{
 //!     ConfigLanguage, LanguageInfo, ParseError, Token, TokenKind, Tokens,
 //! };
 //! use serde_json::{Map, Value};
@@ -325,7 +325,7 @@ fn opener_line(source: &str, byte: usize, opener: char, closer: char) -> Option<
 /// the text and the selection mapped onto it.
 ///
 /// ```
-/// use leptos_config_editor::language::toggle_line_comments;
+/// use config_editor_leptos::language::toggle_line_comments;
 /// let (text, ..) = toggle_line_comments("a:\n  b: 1\n", 0, 9, &["#"]).unwrap();
 /// assert_eq!(text, "# a:\n#   b: 1\n");
 /// ```

@@ -81,7 +81,7 @@ impl std::error::Error for SchemaError {}
 ///
 /// ```
 /// # #[cfg(all(feature = "schema-validation", feature = "yaml", feature = "toml"))] {
-/// use leptos_config_editor::{Language, Schema};
+/// use config_editor_leptos::{Language, Schema};
 /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
 /// assert!(schema.validate(Language::YAML, "listen: 7835\n").is_empty());
 /// let problems = schema.validate(Language::TOML, "listen = \"x\"\n");
@@ -196,7 +196,7 @@ const MAX_QUOTED_VALUE: usize = 80;
 ///
 /// ```
 /// # #[cfg(feature = "json")] {
-/// use leptos_config_editor::{Language, check_syntax};
+/// use config_editor_leptos::{Language, check_syntax};
 /// assert!(check_syntax(Language::JSON, "{\"a\": 1}").is_empty());
 /// assert_eq!(check_syntax(Language::JSON, "{\"a\": }").len(), 1);
 /// # }

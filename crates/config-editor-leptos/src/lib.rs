@@ -10,7 +10,7 @@
 //!
 //! ```ignore
 //! use leptos::prelude::*;
-//! use leptos_config_editor::{ConfigEditor, Language};
+//! use config_editor_leptos::{ConfigEditor, Language};
 //!
 //! let saved = RwSignal::new("name: app\n".to_string());
 //! view! {
@@ -38,7 +38,7 @@
 //!
 //! ```
 //! # #[cfg(all(feature = "schema-validation", feature = "toml", feature = "yaml", feature = "hcl"))] {
-//! use leptos_config_editor::{Language, Schema};
+//! use config_editor_leptos::{Language, Schema};
 //!
 //! let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
 //! assert!(schema.validate(Language::TOML, "listen = 7835\n").is_empty());

@@ -1,5 +1,5 @@
 {
-  "name": "leptos-config-editor-e2e",
+  "name": "config-editor-leptos-e2e",
   "private": true,
   "type": "module",
   "scripts": {

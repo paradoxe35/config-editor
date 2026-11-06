@@ -4,7 +4,7 @@ import init, {
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
-} from "config-editor";
+} from "@pngwasi/config-editor";
 import {
   forwardRef,
   useEffect,
@@ -21,7 +21,7 @@ export {
   themes,
   colorTokens,
   validate,
-} from "config-editor";
+} from "@pngwasi/config-editor";
 export type {
   Conversion,
   CustomLanguage,
@@ -29,7 +29,7 @@ export type {
   LanguageName,
   ThemeColorMap,
   ThemeName,
-} from "config-editor";
+} from "@pngwasi/config-editor";
 
 type InitInput = Parameters<typeof init>[0];
 let loading: Promise<unknown> | undefined;
@@ -84,7 +84,7 @@ export interface ConfigEditorProps {
 export interface ConfigEditorHandle {
   /** The current document, in `language`. */
   readonly value: string;
-  /** The underlying `config-editor` instance, once mounted. */
+  /** The underlying `@pngwasi/config-editor` instance, once mounted. */
   readonly editor: Editor | null;
 }
 

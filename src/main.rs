@@ -1,4 +1,4 @@
-//! Demo host for `leptos-config-editor`: the same burrow server config in every
+//! Demo host for `config-editor-leptos`: the same burrow server config in every
 //! language, switchable from the toolbar (all state lives in the URL so a
 //! reload keeps it):
 //!
@@ -8,7 +8,7 @@
 //! - `?readonly` — view mode.
 
 use leptos::prelude::*;
-use leptos_config_editor::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Language};
+use config_editor_leptos::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Language};
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";

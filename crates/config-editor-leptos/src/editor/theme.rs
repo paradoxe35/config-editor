@@ -338,7 +338,7 @@ impl ThemeColor {
 /// Color overrides on top of a bundled [`EditorTheme`], for a custom palette.
 ///
 /// ```
-/// use leptos_config_editor::{ThemeColor, ThemeColors};
+/// use config_editor_leptos::{ThemeColor, ThemeColors};
 /// let brand = ThemeColors::new()
 ///     .set(ThemeColor::Background, "#101418")
 ///     .set(ThemeColor::Key, "#ffcc66");

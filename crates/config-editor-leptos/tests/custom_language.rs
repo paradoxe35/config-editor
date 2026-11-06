@@ -2,10 +2,10 @@
 //! (`KEY=value` lines). It gets schema validation with positions, highlighting,
 //! and conversion to and from every built-in language.
 
-use leptos_config_editor::Language;
+use config_editor_leptos::Language;
 #[cfg(feature = "schema-validation")]
-use leptos_config_editor::Schema;
-use leptos_config_editor::language::{
+use config_editor_leptos::Schema;
+use config_editor_leptos::language::{
     ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
 };
 use serde_json::{Map, Value};

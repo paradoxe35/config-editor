@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test -p config-editor-leptos
+      - name: Each language feature on its own
+        working-directory: crates/config-editor-leptos
+        run: |
+          for features in yaml json toml hcl xml schema-validation; do
+            cargo check --no-default-features --features "$features"
+          done
+
+  browser:
+    name: npm packages and end-to-end tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen version from Cargo.lock
+        id: versions
+        run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk,wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the npm packages
+        working-directory: js
+        run: npm ci && npm run build
+      - name: Build the demo
+        run: trunk build
+      - name: End-to-end tests
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test --reporter=line

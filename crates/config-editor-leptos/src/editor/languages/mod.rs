@@ -54,7 +54,7 @@ mod qa_regressions;
 ///
 /// ```
 /// # #[cfg(all(feature = "hcl", feature = "toml", feature = "yaml"))] {
-/// use leptos_config_editor::Language;
+/// use config_editor_leptos::Language;
 /// assert_eq!("yml".parse::<Language>(), Ok(Language::YAML));
 /// assert_eq!(Language::from_path("infra/main.tf"), Some(Language::HCL));
 /// assert_eq!(Language::TOML.to_string(), "TOML");
@@ -101,8 +101,8 @@ impl Language {
     /// Wraps a language implementation, built-in or external.
     ///
     /// ```
-    /// use leptos_config_editor::Language;
-    /// use leptos_config_editor::language::{ConfigLanguage, LanguageInfo, ParseError};
+    /// use config_editor_leptos::Language;
+    /// use config_editor_leptos::language::{ConfigLanguage, LanguageInfo, ParseError};
     ///
     /// struct Lines;
     /// impl ConfigLanguage for Lines {
@@ -172,7 +172,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "toml")] {
-    /// use leptos_config_editor::Language;
+    /// use config_editor_leptos::Language;
     /// let value = Language::TOML.parse("listen = 7835\n").unwrap();
     /// assert_eq!(value["listen"], 7835);
     /// # }
@@ -190,7 +190,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "hcl")] {
-    /// use leptos_config_editor::Language;
+    /// use config_editor_leptos::Language;
     /// let value = serde_json::json!({"web": {"http": 80}});
     /// assert_eq!(Language::HCL.serialize(&value).unwrap(), "web {\n  http = 80\n}\n");
     /// # }
@@ -210,7 +210,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(all(feature = "hcl", feature = "yaml"))] {
-    /// use leptos_config_editor::Language;
+    /// use config_editor_leptos::Language;
     /// let hcl = Language::YAML.convert("web:\n  http: 80\n", Language::HCL).unwrap();
     /// assert_eq!(hcl.text, "web {\n  http = 80\n}\n");
     /// assert!(hcl.losses.is_empty());

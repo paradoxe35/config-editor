@@ -1,4 +1,4 @@
-//! Browser bindings for `leptos-config-editor`, published to npm as
+//! Browser bindings for `config-editor-leptos`, published to npm as
 //! `config-editor`. The editor itself is the crate's Leptos component, mounted
 //! into any element; JavaScript sees a plain class and functions. Framework
 //! wrappers (`config-editor-react`, …) build on this package.
@@ -9,10 +9,10 @@ use std::collections::HashMap;
 
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
-use leptos_config_editor::language::{
+use config_editor_leptos::language::{
     ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
 };
-use leptos_config_editor::{
+use config_editor_leptos::{
     ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
 };
 use serde::Serialize;
@@ -294,7 +294,7 @@ type Latest = std::sync::Arc<std::sync::Mutex<String>>;
 /// A config editor mounted into an element.
 ///
 /// ```js
-/// import init, { ConfigEditor } from "config-editor";
+/// import init, { ConfigEditor } from "@pngwasi/config-editor";
 /// await init();
 /// const editor = new ConfigEditor(document.getElementById("config"), {
 ///   language: "yaml",
@@ -633,7 +633,7 @@ pub fn validate(
         Some(json) => Schema::compile(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
             .validate(language, text),
-        None => leptos_config_editor::check_syntax(language, text),
+        None => config_editor_leptos::check_syntax(language, text),
     };
     let out: Vec<DiagnosticOut> = problems
         .into_iter()
@@ -643,7 +643,7 @@ pub fn validate(
             end_column: problem.end_column,
             message: problem.message,
             severity: match problem.severity {
-                leptos_config_editor::Severity::Warning => "warning",
+                config_editor_leptos::Severity::Warning => "warning",
                 _ => "error",
             },
         })

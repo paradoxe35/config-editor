@@ -1,0 +1,255 @@
+# config-editor-leptos
+
+A lightweight, VS Code–style config editor component for [Leptos], plus a
+headless API for the same parsing, validation, and conversion.
+
+- **Languages:** YAML (default), JSON, TOML, HCL, XML, and your own through
+  the `ConfigLanguage` trait.
+- **One schema for all of them:** every language parses into the same data
+  model, so a single JSON Schema drives diagnostics, completions, and hover
+  documentation everywhere.
+- **Edit as another language:** show a YAML file as TOML (or any other pair);
+  edits are saved back in the file's own language, keeping its comments.
+- **Editing:** schema completion with formatted inserts, auto-closing pairs
+  and XML end tags, comment toggling, smart indentation, undo/redo, a diff
+  gutter against a baseline, read-only mode, and eleven bundled themes.
+- **Large files:** only visible rows are rendered; typing stays fast in
+  documents of thousands of lines.
+
+For JavaScript and React, see [`@pngwasi/config-editor`] and
+[`@pngwasi/config-editor-react`]; they wrap this crate.
+
+## Install
+
+```sh
+cargo add config-editor-leptos
+```
+
+Requires Leptos 0.8 with client-side rendering (`csr`), a Rust 1.88+
+toolchain, and the `wasm32-unknown-unknown` target for the browser build.
+The headless API also works natively (servers, CLIs, tests).
+
+## Quick start
+
+```rust
+use leptos::prelude::*;
+use config_editor_leptos::{ConfigEditor, Language};
+
+#[component]
+fn Settings() -> impl IntoView {
+    let saved = RwSignal::new("listen: 7835\n".to_string());
+    view! {
+        <ConfigEditor
+            language=Language::YAML
+            value=saved
+            on_change=move |text| saved.set(text)
+            schema=include_str!("schema.json")
+            show_toolbar=true
+            show_footer=true
+        />
+    }
+}
+```
+
+The editor injects its stylesheet ([`PRESET_CSS`]) by default.
+
+## `<ConfigEditor>` props
+
+| Prop | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `language` | `Language` | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it. |
+| `edit_as` | `Language`, `Option<Language>` or a signal | unset | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included. |
+| `initial_value` | `String` | `""` | Starting text, also the diff baseline (uncontrolled). |
+| `value` | `Signal<String>` | — | Controlled text. Updates flow in; the caret stays on the same text. |
+| `on_change` | `Fn(String)` | — | Called with the document after every edit (after each typing pause while editing as another language). |
+| `on_edit_as_change` | `Fn(Language)` | — | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`). |
+| `baseline` | `Signal<String>` | `initial_value` | Text the diff gutter compares against; set it to the saved text to clear the diff. |
+| `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
+| `theme` | `EditorTheme` or a signal | `VsCodeDark` | Color theme. |
+| `colors` | `ThemeColors` or a signal | — | Colors overriding the theme's. |
+| `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. |
+| `file_name` | `String` | `untitled.<ext>` | Name shown in the toolbar. |
+| `class` | `String` | — | Extra class on the editor root. |
+| `styled` | `bool` | `true` | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself. |
+| `show_toolbar` / `show_footer` | `bool` | `false` | Built-in file toolbar and status bar (problem counts, line count). |
+| `show_diagnostics` | `bool` | `true` | Syntax and schema problems, underlined with a message on hover. |
+| `enable_completions` | `bool` | `true` | Schema suggestions (`Ctrl+Space`). |
+| `auto_trigger_completions` | `bool` | `true` | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them. |
+| `enable_hover_docs` | `bool` | `true` | Schema description, type, default and examples when hovering a key. |
+| `enable_highlighting` | `bool` | `true` | Syntax colors. |
+| `enable_auto_closing` | `bool` | `true` | Close brackets, quotes and XML tags; wrap selections; delete empty pairs. |
+| `show_diff` | `bool` | `true` | Added, modified and deleted line markers with a before/after preview. |
+
+To build your own chrome, turn the built-in toolbar or footer off and compose
+`ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
+and `colors` so they match the editor.
+
+### Editing in another language
+
+```rust
+<ConfigEditor
+    language=Language::XML   // what the host stores and receives
+    edit_as=Language::HCL    // what the user edits
+    value=xml
+    on_change=move |text| xml.set(text)
+/>
+```
+
+- Only what the user changed is written back: untouched values keep their
+  exact host spelling, and the host's comments and formatting survive.
+- Invalid text is never sent to the host.
+- Values the host cannot carry exactly (for example an empty list in XML)
+  are flagged as warnings on the value.
+- With a schema, a single XML element or HCL block where the schema expects a
+  list reads as a one-item list.
+
+## Keyboard
+
+| Keys | Action |
+| --- | --- |
+| `Ctrl+Space` | Open suggestions (with schema examples) |
+| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept |
+| `Tab` after accepting a block | Jump to the next empty value |
+| `Tab` / `Shift+Tab` | Indent / outdent the line or selected lines |
+| `Enter` | New line with the right indentation; steps out of a just-typed string or element |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open a line below / above |
+| `Ctrl+/` | Toggle comments |
+| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y` | Undo, redo |
+| `F8` / `Shift+F8` | Next / previous problem |
+| `Home` | First non-blank character, then the line start |
+| `Ctrl+C` / `Ctrl+X` with nothing selected | Copy / cut the whole line (pasting it inserts above) |
+| `Escape` | Close popups, then collapse the selection |
+
+`Cmd` works in place of `Ctrl` on macOS.
+
+## Headless API
+
+The same engine without the component:
+
+```rust
+use config_editor_leptos::{check_syntax, Language, Schema};
+
+let schema = Schema::compile(include_str!("schema.json"))?;
+let problems = schema.validate(Language::TOML, &text); // Vec<Diagnostic>
+let syntax_only = check_syntax(Language::JSON, &text);
+
+let value = Language::YAML.parse(&text)?;              // serde_json::Value
+let yaml = Language::YAML.serialize(&value)?;
+let hcl = Language::YAML.convert(&text, Language::HCL)?;
+assert!(hcl.losses.is_empty());
+let xml = schema.convert(Language::YAML, &text, Language::XML)?; // schema-aware
+
+let language: Language = "yml".parse()?;               // names and extensions
+let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
+```
+
+| Item | Description |
+| --- | --- |
+| `Language` | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
+| `Schema` | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share. |
+| `SchemaSource` | What the `schema` prop takes: JSON text or a `Schema`. |
+| `check_syntax(language, text)` | Syntax problems only. |
+| `Diagnostic` | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`). |
+| `Conversion` | `text`, and `losses`: JSON pointers of values the target reads back differently. |
+| `ConvertError` | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document. |
+| `ParseError` | `message`, `line`, `column`. |
+| `EditorTheme`, `ThemeColor`, `ThemeColors` | Themes and color overrides (below). |
+| `PRESET_CSS` | The stylesheet the editor injects. |
+
+## XML mapping
+
+Child elements and attributes are object properties, element text is a typed
+scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
+an array. A top-level element marked `config-root="true"` is a transparent
+wrapper; without it, every top-level element is a document property.
+
+## Your own language
+
+Every built-in language implements the public `ConfigLanguage` trait, and
+yours can too. Only `info` and `parse` are required; each further method adds
+a capability (diagnostic positions, completion, hover, highlighting, editing,
+conversion):
+
+```rust
+use config_editor_leptos::Language;
+use config_editor_leptos::language::{ConfigLanguage, LanguageInfo, ParseError};
+
+struct DotEnv;
+
+impl ConfigLanguage for DotEnv {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo { label: "ENV", icon: "E", extensions: &["env"] }
+    }
+    fn parse(&self, source: &str) -> Result<serde_json::Value, ParseError> {
+        todo!("KEY=value lines into a JSON object")
+    }
+}
+
+static DOTENV: DotEnv = DotEnv;
+const ENV: Language = Language::new(&DOTENV);
+// <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
+```
+
+| Method | Adds |
+| --- | --- |
+| `info`, `parse` (required) | Name, icon, extensions; syntax errors and the data model |
+| `serialize` | Conversion into the language (Edit-as target) |
+| `key_span`, `value_span` | Positions for schema diagnostics |
+| `completion_context`, `property_insert`, … | Schema completion |
+| `hover_key` | Hover docs |
+| `highlight` | Syntax colors |
+| `newline`, `toggle_comments`, `auto_close`, `lexical_state`, … | Editing behavior |
+
+`config_editor_leptos::language` also exports the helpers the built-in
+languages use (tokens, schema lookups, inline-container scanning, indent
+detection). `tests/custom_language.rs` is a complete example.
+
+## Themes and colors
+
+Eleven themes ship as `EditorTheme`: `VsCodeDark`, `VsCodeLight`,
+`Obsidian`, `ObsidianLight`, `Dracula`, `Nord`, `AtomOneDark`,
+`GitHubLight`, `GitHubDark`, `SolarizedLight`, `ViraInspired`
+(`EditorTheme::ALL`; slugs such as `"vscode-dark"` parse with `FromStr`).
+
+Override any color for a brand palette; every token is a `ThemeColor`:
+
+```rust
+use config_editor_leptos::{EditorTheme, ThemeColor, ThemeColors};
+
+let brand = ThemeColors::new()
+    .set(ThemeColor::Background, "#101418")
+    .set(ThemeColor::Key, "#ffcc66")
+    .set(ThemeColor::Selection, "rgb(255 204 102 / 25%)");
+// <ConfigEditor theme=EditorTheme::Nord colors=brand .../>
+```
+
+The same tokens are CSS variables (`--config-editor-key`, …), so a stylesheet
+can set them too.
+
+## Cargo features
+
+All are on by default; turn off what you don't use to shrink the build.
+
+| Feature | Enables |
+| --- | --- |
+| `schema-validation` | JSON Schema diagnostics, completions and hover (`jsonschema`). Without it the editor still checks syntax and converts. |
+| `yaml` | `Language::YAML` (`noyalib`) |
+| `json` | `Language::JSON` |
+| `toml` | `Language::TOML` (`toml`) |
+| `hcl` | `Language::HCL` (`hcl-rs`) |
+| `xml` | `Language::XML` (`quick-xml`) |
+
+```toml
+config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
+```
+
+With no language feature, use your own languages through `Language::new`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+[Leptos]: https://leptos.dev
+[`PRESET_CSS`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/constant.PRESET_CSS.html
+[`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
+[`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react

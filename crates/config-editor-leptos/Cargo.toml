@@ -1,14 +1,17 @@
 [package]
-name = "leptos-config-editor"
+name = "config-editor-leptos"
 version = "0.1.0"
 edition = "2024"
 description = "A lightweight VS Code-style Leptos editor for YAML, JSON, TOML, HCL, and XML configs, with JSON Schema completion, diagnostics, and conversion"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 rust-version = "1.88"
 readme = "README.md"
+repository = "https://github.com/paradoxe35/laptos-yaml-editor"
+homepage = "https://github.com/paradoxe35/laptos-yaml-editor"
+documentation = "https://docs.rs/config-editor-leptos"
 keywords = ["leptos", "editor", "yaml", "json-schema", "config"]
 categories = ["gui", "web-programming", "config", "text-editors", "wasm"]
-include = ["src/**/*", "tests/**/*", "README.md", "Cargo.toml"]
+include = ["src/**/*", "tests/**/*", "README.md", "LICENSE", "Cargo.toml"]
 
 [package.metadata.docs.rs]
 all-features = true

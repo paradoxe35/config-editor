@@ -4,7 +4,7 @@
 //! `schema.json`, converts losslessly into every other language, and the
 //! hot paths stay fast on a document this size.
 
-use leptos_config_editor::{Language, Schema};
+use config_editor_leptos::{Language, Schema};
 use std::time::{Duration, Instant};
 
 const SCHEMA: &str = include_str!("../schema.json");

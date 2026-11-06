@@ -6,7 +6,7 @@
     "config-editor-react"
   ],
   "scripts": {
-    "build": "npm run build --workspace config-editor && npm run build --workspace config-editor-react && npm run examples",
+    "build": "npm run build --workspace @pngwasi/config-editor && npm run build --workspace @pngwasi/config-editor-react && npm run examples",
     "examples": "esbuild examples/react.tsx --bundle --format=esm --jsx=automatic --target=es2022 --outfile=examples/dist/react.js"
   },
   "devDependencies": {

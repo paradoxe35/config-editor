@@ -1,5 +1,5 @@
 {
-  "name": "config-editor",
+  "name": "@pngwasi/config-editor",
   "version": "0.1.0",
   "description": "Schema-aware config editor for YAML, JSON, TOML, HCL and XML in the browser (Rust/WebAssembly)",
   "type": "module",
@@ -13,11 +13,40 @@
     },
     "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm"
   },
-  "files": ["pkg/config_editor.js", "pkg/config_editor.d.ts", "pkg/config_editor_bg.wasm", "pkg/config_editor_bg.wasm.d.ts"],
+  "files": [
+    "pkg/config_editor.js",
+    "pkg/config_editor.d.ts",
+    "pkg/config_editor_bg.wasm",
+    "pkg/config_editor_bg.wasm.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "node build.mjs"
   },
-  "keywords": ["config", "editor", "yaml", "json", "toml", "hcl", "xml", "json-schema", "wasm"],
-  "license": "MIT OR Apache-2.0"
+  "keywords": [
+    "config",
+    "editor",
+    "yaml",
+    "json",
+    "toml",
+    "hcl",
+    "xml",
+    "json-schema",
+    "wasm"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paradoxe35/laptos-yaml-editor.git",
+    "directory": "js/config-editor"
+  },
+  "homepage": "https://github.com/paradoxe35/laptos-yaml-editor#readme",
+  "bugs": {
+    "url": "https://github.com/paradoxe35/laptos-yaml-editor/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
