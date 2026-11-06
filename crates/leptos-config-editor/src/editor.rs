@@ -115,9 +115,11 @@ pub fn ConfigEditor(
     /// `initial_value`, `value`, `baseline`, and `on_change` stay in
     /// `language`. Edits convert back after each pause in typing; invalid text
     /// is never sent, and values `language` cannot represent exactly are
-    /// flagged as warnings. `None` edits in `language`.
-    #[prop(default = None, into)]
-    edit_as: Option<Language>,
+    /// flagged as warnings. Accepts a `Language`, an `Option<Language>`, or a
+    /// signal: changing it converts the open document in place, unsaved edits
+    /// included. Unset edits in `language`.
+    #[prop(optional, into)]
+    edit_as: MaybeProp<Language>,
     /// Initial text and diff baseline. For controlled content, use `value`
     /// and `baseline` instead.
     #[prop(optional, into)]
@@ -186,17 +188,23 @@ pub fn ConfigEditor(
     read_only: Signal<bool>,
 ) -> impl IntoView {
     let host_language = language;
-    let language = edit_as.unwrap_or(language);
-    let bridge = Bridge::new(host_language, language);
-    // With a bridge, edits reach the host through the conversion effect.
+    // The editing language can change while mounted (`edit_as` may be a
+    // signal); everything that depends on it reads this signal.
+    let edit_language = RwSignal::new(edit_as.get_untracked().unwrap_or(host_language));
+    let behavior = move || edit_language.get_untracked().behavior();
+    let bridge = move || Bridge::new(host_language, edit_language.get_untracked());
+    let label = move || edit_language.get().label();
+    let file_icon = move || edit_language.get().file_icon();
+    // Edits reach the host directly in its own language, or converted through
+    // the conversion effect below.
     let host_on_change = on_change;
-    let on_change = if bridge.is_some() {
-        None
-    } else {
-        host_on_change
-    };
-    let label = language.label();
-    let file_icon = language.file_icon();
+    let on_change = host_on_change.map(|callback| {
+        Callback::new(move |text: String| {
+            if bridge().is_none() {
+                callback.run(text);
+            }
+        })
+    });
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let (schema_bundle, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -205,7 +213,6 @@ pub fn ConfigEditor(
     };
     let enable_completions =
         enable_completions && !read_only.get_untracked() && cfg!(feature = "schema-validation");
-    let behavior = language.behavior();
     // Last host text received or sent, and the edited text matching it.
     let host_text = StoredValue::new(
         value
@@ -215,7 +222,7 @@ pub fn ConfigEditor(
     );
     let load_problems = RwSignal::new(Vec::<Diagnostic>::new());
     let shown = move |host: &str| -> String {
-        let Some(bridge) = bridge else {
+        let Some(bridge) = bridge() else {
             return host.to_string();
         };
         match bridge.to_edit(host) {
@@ -231,19 +238,17 @@ pub fn ConfigEditor(
     };
     let synced_edit = StoredValue::new(shown(&host_text.get_value()));
     let source = RwSignal::new(synced_edit.get_value());
-    let baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
-    let baseline = match bridge {
-        Some(bridge) => {
-            let shown_baseline = Memo::new(move |_| {
-                let host = normalize_newlines(baseline.get());
-                bridge
-                    .to_edit(&host)
-                    .map_or(host, |conversion| conversion.text)
-            });
-            Signal::derive(move || shown_baseline.get())
+    let host_baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
+    let shown_baseline = Memo::new(move |_| {
+        let host = normalize_newlines(host_baseline.get());
+        match Bridge::new(host_language, edit_language.get()) {
+            Some(bridge) => bridge
+                .to_edit(&host)
+                .map_or(host, |conversion| conversion.text),
+            None => host,
         }
-        None => baseline,
-    };
+    });
+    let baseline = Signal::derive(move || shown_baseline.get());
     let selected_diff_peek = RwSignal::new(None::<DiffPeek>);
     if let Some(value) = value {
         Effect::new(move |_| {
@@ -318,9 +323,13 @@ pub fn ConfigEditor(
         }
     });
     let conversion_problems = RwSignal::new(Vec::<Diagnostic>::new());
-    if let Some(bridge) = bridge {
+    {
         Effect::new(move |_| {
             let text = diagnosed_text.get();
+            let Some(bridge) = Bridge::new(host_language, edit_language.get()) else {
+                conversion_problems.set(Vec::new());
+                return;
+            };
             if text == synced_edit.get_value() {
                 conversion_problems.set(Vec::new());
                 return;
@@ -338,13 +347,65 @@ pub fn ConfigEditor(
             }
         });
     }
+    // Switching `edit_as` converts the open document in place. Without unsaved
+    // edits the text is rebuilt from the host's own text, so returning to
+    // `language` restores it exactly (comments included); unsaved edits are
+    // converted directly. Undo history is per language, so it starts over.
+    Effect::new(move |previous: Option<Language>| {
+        let next = edit_as.get().unwrap_or(host_language);
+        let current = edit_language.get_untracked();
+        if previous.is_none() || next == current {
+            return next;
+        }
+        let text = source.get_untracked();
+        let unsaved = text != synced_edit.get_value();
+        let converted = if !unsaved {
+            match Bridge::new(host_language, next) {
+                Some(bridge) => bridge
+                    .to_edit(&host_text.get_value())
+                    .map(|conversion| conversion.text),
+                None => Ok(host_text.get_value()),
+            }
+        } else {
+            match Bridge::new(host_language, current).filter(|_| next == host_language) {
+                Some(bridge) => bridge
+                    .to_host(&text, &host_text.get_value())
+                    .map(|conversion| conversion.text),
+                None => current
+                    .convert(&text, next)
+                    .map(|conversion| conversion.text),
+            }
+        };
+        match converted {
+            Ok(text) => {
+                if !unsaved {
+                    synced_edit.set_value(text.clone());
+                }
+                load_problems.set(Vec::new());
+                history.set(EditHistory::default());
+                hide_hover();
+                suggestions_requested.set(false);
+                edit_language.set(next);
+                diagnosed_text.set(text.clone());
+                source.set(text);
+            }
+            Err(error) => load_problems.set(vec![Diagnostic {
+                line: Some(1),
+                column: Some(1),
+                end_column: Some(2),
+                message: format!("Cannot switch to {next}: {error}"),
+                severity: Severity::Error,
+            }]),
+        }
+        next
+    });
     let diagnostics = Memo::new(move |_| {
         let mut found = validate(
             &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
             schema_error_for_diagnostics.as_deref(),
             show_diagnostics,
-            behavior,
+            edit_language.get().behavior(),
         );
         if show_diagnostics {
             found.extend(load_problems.get());
@@ -365,7 +426,7 @@ pub fn ConfigEditor(
             explicit_request.get(),
             schema_for_completions.as_deref(),
             enable_completions,
-            behavior,
+            behavior(),
         )
     });
     let apply_selected = move || {
@@ -510,7 +571,7 @@ pub fn ConfigEditor(
             }
         >
             {use_preset_style.then(|| view! { <style>{PRESET_CSS}</style> })}
-            <section class="config-editor__frame" aria-label=format!("{label} editor")>
+            <section class="config-editor__frame" aria-label=move || format!("{} editor", label())>
                 {show_toolbar.then(|| view! {
                     <div class="config-editor__toolbar">
                         <div class="config-editor__file">
@@ -697,7 +758,7 @@ pub fn ConfigEditor(
                                                     {move || {
                                                         let text = row_text();
                                                         if enable_highlighting {
-                                                            highlight::render(&text, &behavior.highlight(&text))
+                                                            highlight::render(&text, &edit_language.get().behavior().highlight(&text))
                                                         } else {
                                                             view! { <span>{text}</span> }.into_any()
                                                         }
@@ -710,7 +771,7 @@ pub fn ConfigEditor(
                             </pre>
                             <div
                                 class="config-editor__diagnostic-overlay"
-                                aria-label=format!("Inline {label} diagnostics")
+                                aria-label=move || format!("Inline {} diagnostics", label())
                                 style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
                             >
                                 {move || {
@@ -738,7 +799,8 @@ pub fn ConfigEditor(
                                                 class:config-editor__diagnostic-marker-near-top=line <= 3
                                                 tabindex="-1"
                                                 aria-label=format!(
-                                                    "{label} {} on line {line}: {}",
+                                                    "{} {} on line {line}: {}",
+                                                    label(),
                                                     if diagnostic.severity == Severity::Warning { "warning" } else { "error" },
                                                     diagnostic.message
                                                 )
@@ -776,7 +838,7 @@ pub fn ConfigEditor(
                                     "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
                                     source.get().split('\n').count()
                                 )
-                                aria-label=format!("{label} source")
+                                aria-label=move || format!("{} source", label())
                                 aria-autocomplete=move || (!read_only.get()).then_some("list")
                                 aria-haspopup=move || (!read_only.get()).then_some("listbox")
                                 aria-expanded=move || (!suggestions.get().is_empty()).to_string()
@@ -864,7 +926,7 @@ pub fn ConfigEditor(
                                         line,
                                         column,
                                         schema_for_hover.as_deref(),
-                                        behavior,
+                                        behavior(),
                                     ) else {
                                         hide_hover();
                                         return;
@@ -1040,7 +1102,7 @@ pub fn ConfigEditor(
                                             let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                             let before = source.get_untracked();
                                             if let Some((updated, selection_start, selection_end)) =
-                                                behavior.toggle_comments(&before, start, end)
+                                                behavior().toggle_comments(&before, start, end)
                                             {
                                                 if updated != before {
                                                     commit_edit(
@@ -1148,14 +1210,14 @@ pub fn ConfigEditor(
                                                         start,
                                                         end,
                                                         opening,
-                                                        behavior,
+                                                        behavior(),
                                                     )
                                             {
                                                 event.prevent_default();
                                                 // A prevented keydown fires no input event, so open
                                                 // suggestions here when the pair starts an entry.
                                                 let opens_entry = selection_start == selection_end
-                                                    && behavior.entry_started(&updated, selection_start);
+                                                    && behavior().entry_started(&updated, selection_start);
                                                 commit_edit(
                                                     updated,
                                                     selection_end,
@@ -1345,7 +1407,7 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                let (insertion, caret) = behavior.newline(&text, start);
+                                                let (insertion, caret) = behavior().newline(&text, start);
                                                 let (updated, _) = replace_selection(&text, start, end, &insertion);
                                                 // `caret` is a byte index; the cursor is in UTF-16 units.
                                                 let new_cursor = start + insertion[..caret].encode_utf16().count();
@@ -1405,7 +1467,7 @@ pub fn ConfigEditor(
                                 class="config-editor__completions"
                                 class:hidden=move || suggestions.get().is_empty()
                                 role="listbox"
-                                aria-label=format!("{label} suggestions")
+                                aria-label=move || format!("{} suggestions", label())
                                 node_ref=completion_ref
                                 style=move || {
                                     popup_layout_revision.get();

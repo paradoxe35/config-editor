@@ -10,7 +10,7 @@ resolver = "3"
 [dependencies]
 leptos = { version = "0.8.23", features = ["csr"] }
 leptos-config-editor = { path = "crates/leptos-config-editor" }
-web-sys = { version = "0.3", features = ["Window", "Location"] }
+web-sys = { version = "0.3", features = ["History", "Location", "Window"] }
 
 [dev-dependencies]
 serde_json = "1"

@@ -102,19 +102,81 @@ test.describe('a document the host language cannot express', () => {
   });
 });
 
-test.describe('the edit-as picker', () => {
+test.describe('switching the editing language live', () => {
   setupEditor(test, '?language=yaml');
 
-  test('switches the editing language and back, keeping the stored language', async ({ page }) => {
-    await page.locator('.demo__edit-select').selectOption('toml');
-    await page.waitForURL((url) => url.search.includes('edit=toml'));
-    await page.locator('.config-editor__input').waitFor();
-    expect(page.url()).toContain('language=yaml');
-    expect(await editor(page).value()).toContain('listen = 7835');
-    await page.locator('.demo__edit-select').selectOption('');
-    await page.waitForURL((url) => !url.search.includes('edit='));
-    await page.locator('.config-editor__input').waitFor();
-    expect(await editor(page).value()).toContain('listen: 7835');
+  const pick = (page, value) => page.locator('.demo__edit-select').selectOption(value);
+
+  test('converts the open document in place without reloading the page', async ({ page }) => {
+    const e = editor(page);
+    await page.evaluate(() => {
+      window.__stillHere = true;
+    });
+    await pick(page, 'toml');
+    await expect.poll(() => e.value()).toContain('listen = 7835');
+    await pick(page, 'json');
+    await expect.poll(() => e.value()).toContain('"listen": 7835');
+    expect(await page.evaluate(() => window.__stillHere)).toBe(true);
+    await expect(page.locator('.config-editor__file')).toContainText('editing as JSON');
+    // The choice is remembered in the URL for reloads.
+    await expect.poll(() => page.url()).toContain('edit=json');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+  });
+
+  test('switching back without edits restores the original text, comments included', async ({ page }) => {
+    const e = editor(page);
+    const original = await e.value();
+    expect(original).toContain('# Burrow server configuration');
+    await pick(page, 'hcl');
+    await expect.poll(() => e.value()).toContain('listen = 7835');
+    await pick(page, '');
+    await expect.poll(() => e.value()).toBe(original);
+  });
+
+  test('unsaved edits are carried into the new language and back', async ({ page }) => {
+    const e = editor(page);
+    await e.input.evaluate((element) => {
+      const start = element.value.indexOf('7835');
+      element.focus();
+      element.setSelectionRange(start, start + 4);
+    });
+    // Switch before the edit has been sent to the host.
+    await page.keyboard.type('9000');
+    await pick(page, 'json');
+    await expect.poll(() => e.value()).toContain('"listen": 9000');
+    await pick(page, 'toml');
+    await expect.poll(() => e.value()).toContain('listen = 9000');
+    await pick(page, '');
+    await expect.poll(() => e.value()).toContain('listen: 9000');
+    // The host received the edit in its own language.
+    await expect.poll(() => saved(page)).toContain('listen: 9000');
+  });
+
+  test('a document that does not parse stays put and says why', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: [\n');
+    await pick(page, 'json');
+    await expect.poll(() =>
+      page
+        .locator('.config-editor__diagnostic-marker')
+        .evaluateAll((markers) => markers.map((marker) => marker.dataset.message).join('\n')),
+    ).toContain('Cannot switch to JSON');
+    expect(await e.value()).toBe('listen: [\n');
+  });
+
+  test('suggestions and highlighting follow the new language', async ({ page }) => {
+    const e = editor(page);
+    await pick(page, 'toml');
+    await expect.poll(() => e.value()).toContain('listen = 7835');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await page.keyboard.type('heart');
+    await expect.poll(() => e.keys()).toContain('heartbeat');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => e.value()).toContain('[heartbeat]');
+    await expect(page.locator('.config-editor__code-line .config-editor__key').first()).toHaveText('listen');
   });
 });
 

@@ -48,9 +48,9 @@ fn query_value(flags: &[String], name: &str) -> Option<String> {
         .find_map(|pair| pair.strip_prefix(&prefix).map(str::to_string))
 }
 
-/// Reloads the demo with `name=value` replacing that flag (an empty value
-/// removes it), keeping the others.
-fn navigate_with(name: &str, value: &str) {
+/// The query with `name=value` replacing that flag (an empty value removes
+/// it), keeping the others.
+fn query_with(name: &str, value: &str) -> String {
     let prefix = format!("{name}=");
     let mut flags: Vec<String> = query_flags()
         .into_iter()
@@ -59,8 +59,24 @@ fn navigate_with(name: &str, value: &str) {
     if !value.is_empty() {
         flags.push(format!("{name}={value}"));
     }
+    format!("?{}", flags.join("&"))
+}
+
+/// Reloads the demo with `name=value` (for choices that pick a new document).
+fn navigate_with(name: &str, value: &str) {
     if let Some(window) = web_sys::window() {
-        let _ = window.location().set_search(&flags.join("&"));
+        let _ = window.location().set_search(&query_with(name, value));
+    }
+}
+
+/// Records `name=value` in the URL without reloading (for live choices).
+fn remember(name: &str, value: &str) {
+    if let Some(history) = web_sys::window().and_then(|window| window.history().ok()) {
+        let _ = history.replace_state_with_url(
+            &web_sys::wasm_bindgen::JsValue::NULL,
+            "",
+            Some(&query_with(name, value)),
+        );
     }
 }
 
@@ -75,9 +91,12 @@ fn main() {
         let language = query_value(&flags, "language")
             .and_then(|name| name.parse::<Language>().ok())
             .unwrap_or_default();
-        let edit_as = query_value(&flags, "edit")
-            .and_then(|name| name.parse::<Language>().ok())
-            .filter(|edit| *edit != language);
+        // Live: switching converts the open document in place.
+        let edit_as = RwSignal::new(
+            query_value(&flags, "edit")
+                .and_then(|name| name.parse::<Language>().ok())
+                .filter(|edit| *edit != language),
+        );
         let large_sample = query_value(&flags, "sample").as_deref() == Some("large");
         let (small, large) = samples(language);
         let sample = if large_sample { large } else { small };
@@ -93,10 +112,13 @@ fn main() {
         let baseline = RwSignal::new(sample.to_string());
         let saved = RwSignal::new(sample.to_string());
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
-        let shown = edit_as.unwrap_or(language);
-        let toolbar_file = match edit_as {
-            Some(edit) => format!("{file_name} (editing as {edit})"),
-            None => file_name.clone(),
+        let shown = move || edit_as.get().unwrap_or(language);
+        let toolbar_file = {
+            let file_name = file_name.clone();
+            move || match edit_as.get() {
+                Some(edit) => format!("{file_name} (editing as {edit})"),
+                None => file_name.clone(),
+            }
         };
 
         view! {
@@ -107,7 +129,7 @@ fn main() {
             >
                 <ConfigEditorToolbar class="demo__toolbar" theme=theme>
                     <div class="config-editor__file">
-                        <span class="config-editor__file-icon">{shown.file_icon()}</span>
+                        <span class="config-editor__file-icon">{move || shown().file_icon()}</span>
                         <span>{toolbar_file}</span>
                     </div>
                     <label class="demo__picker">
@@ -133,15 +155,19 @@ fn main() {
                         <select
                             class="demo__select demo__edit-select"
                             aria-label="Editing language"
-                            on:change=move |event| navigate_with("edit", &event_target_value(&event))
+                            on:change=move |event| {
+                                let value = event_target_value(&event);
+                                edit_as.set(value.parse::<Language>().ok());
+                                remember("edit", &value);
+                            }
                         >
-                            <option value="" selected=edit_as.is_none()>"Same"</option>
+                            <option value="" selected=edit_as.get_untracked().is_none()>"Same"</option>
                             {Language::ALL
                                 .iter()
                                 .copied()
                                 .filter(|option| *option != language)
                                 .map(|option| view! {
-                                    <option value=key(option) selected=edit_as == Some(option)>
+                                    <option value=key(option) selected=edit_as.get_untracked() == Some(option)>
                                         {option.label()}
                                     </option>
                                 })
