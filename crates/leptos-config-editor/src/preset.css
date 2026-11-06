@@ -91,6 +91,7 @@
   gap: 14px;
   padding: 0 14px;
   border-bottom: 1px solid var(--config-editor-border);
+  background: var(--config-editor-panel);
   color: var(--config-editor-toolbar-text);
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
@@ -466,9 +467,9 @@
   position: absolute;
   z-index: 4;
   bottom: calc(100% + 5px);
-  left: 0;
+  left: var(--config-editor-diagnostic-tooltip-shift, 0px);
   width: max-content;
-  max-width: min(360px, 80vw);
+  max-width: min(360px, calc(100vw - 32px));
   display: none;
   padding: 7px 10px;
   border: 1px solid var(--config-editor-raised-border);
@@ -491,13 +492,6 @@
 .config-editor__diagnostic-marker-near-top::after {
   top: calc(100% + 5px);
   bottom: auto;
-}
-
-@media (max-width: 540px) {
-  .config-editor__diagnostic-marker::after {
-    left: var(--config-editor-diagnostic-tooltip-offset);
-    max-width: min(360px, calc(100vw - 84px));
-  }
 }
 
 .config-editor__diagnostic-marker-eof::before {
@@ -677,6 +671,7 @@
   gap: 12px;
   padding: 0 10px;
   border-top: 1px solid var(--config-editor-border);
+  background: var(--config-editor-panel);
   color: var(--config-editor-raised-muted);
   font: 10px/1.4 ui-sans-serif, system-ui, sans-serif;
 }

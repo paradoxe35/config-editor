@@ -200,6 +200,50 @@ impl Schema {
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
     validate(source, None, None, true, language.behavior())
 }
+/// `diagnostics` found in `validated`, moved to where their lines are in
+/// `current`: those after the edited lines shift by the lines it added or
+/// removed, those on edited lines are dropped until the next validation.
+pub(super) fn shift_diagnostics(
+    validated: &str,
+    current: &str,
+    diagnostics: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    // A change within lines moves no line.
+    let count = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
+    if diagnostics.is_empty() || count(validated) == count(current) {
+        return diagnostics.to_vec();
+    }
+    let old: Vec<&str> = validated.split('\n').collect();
+    let new: Vec<&str> = current.split('\n').collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take(old.len().min(new.len()) - prefix)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let delta = new.len() as isize - old.len() as isize;
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let Some(line) = diagnostic.line else {
+                return Some(diagnostic.clone());
+            };
+            if line <= prefix {
+                Some(diagnostic.clone())
+            } else if line > old.len() - suffix {
+                Some(Diagnostic {
+                    line: Some((line as isize + delta) as usize),
+                    ..diagnostic.clone()
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// Parses through `behavior` and maps schema violations to source spans.
 pub(super) fn validate(
     source: &str,
@@ -245,8 +289,25 @@ pub(super) fn validate(
         return schema
             .validator
             .iter_errors(&document)
-            .flat_map(|error| {
-                let (path, message) = most_specific_validation_error(&error);
+            .flat_map(|top| {
+                let error = most_specific(&top);
+                let path = error.instance_path().as_str().to_string();
+                let message = match error.kind() {
+                    // Every allowed value, not "or 2 other candidates".
+                    ValidationErrorKind::Enum { options } => match options.as_array() {
+                        Some(options) => format!(
+                            "{} is not one of {}",
+                            error.instance(),
+                            options
+                                .iter()
+                                .map(Value::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        None => error.to_string(),
+                    },
+                    _ => error.to_string(),
+                };
                 let message = if path.is_empty() {
                     message
                 } else {
@@ -292,31 +353,125 @@ pub(super) fn validate(
     Vec::new()
 }
 
+/// The error to show for `error`: inside `anyOf`/`oneOf`, the deepest error
+/// of the branches the value was meant for. A branch that fails only because
+/// the value has another type (`null` for an object) is skipped, so a typo in
+/// an object reports the typo rather than "not valid under any of the schemas".
 #[cfg(feature = "schema-validation")]
-fn most_specific_validation_error(error: &ValidationError<'_>) -> (String, String) {
-    let path = error.instance_path().as_str().to_string();
-    let nested = match error.kind() {
-        ValidationErrorKind::AnyOf { context }
-        | ValidationErrorKind::OneOfNotValid { context }
-        | ValidationErrorKind::OneOfMultipleValid { context } => context,
-        _ => return (path, error.to_string()),
-    };
-    let nested_error = nested
-        .iter()
-        .flatten()
-        .map(most_specific_validation_error)
-        .max_by_key(|(nested_path, _)| nested_path.matches('/').count());
-    match nested_error {
-        Some((nested_path, message))
-            if nested_path.matches('/').count() > path.matches('/').count() =>
-        {
-            (nested_path, message)
+fn most_specific<'e, 'a>(error: &'e ValidationError<'a>) -> &'e ValidationError<'a> {
+    let branches = match error.kind() {
+        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
+            context
         }
-        _ => (path, error.to_string()),
+        _ => return error,
+    };
+    let path = error.instance_path().as_str();
+    let wrong_type = |branch: &Vec<ValidationError<'a>>| {
+        branch.iter().all(|nested| {
+            matches!(nested.kind(), ValidationErrorKind::Type { .. })
+                && nested.instance_path().as_str() == path
+        })
+    };
+    let meant: Vec<&Vec<ValidationError<'a>>> = branches
+        .iter()
+        .filter(|branch| !wrong_type(branch))
+        .collect();
+    let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
+    let candidates = if meant.is_empty() {
+        branches.iter().collect()
+    } else {
+        meant.clone()
+    };
+    let Some(deepest) = candidates
+        .into_iter()
+        .flatten()
+        .map(most_specific)
+        .max_by_key(|nested| depth(nested))
+    else {
+        return error;
+    };
+    // Without a branch the value was meant for, only a deeper error says more.
+    if !meant.is_empty() || depth(deepest) > depth(error) {
+        deepest
+    } else {
+        error
     }
 }
 
 #[cfg(feature = "schema-validation")]
 fn escape_pointer(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
+}
+
+#[cfg(all(test, feature = "schema-validation", feature = "yaml"))]
+mod message_tests {
+    use super::super::Language;
+    use super::Schema;
+
+    fn messages(yaml: &str) -> Vec<String> {
+        Schema::compile(include_str!("../../tests/fixtures/burrow.schema.json"))
+            .unwrap()
+            .validate(Language::YAML, yaml)
+            .into_iter()
+            .map(|problem| problem.message)
+            .collect()
+    }
+
+    #[test]
+    fn a_typo_in_an_optional_object_names_the_typo() {
+        assert_eq!(
+            messages("web: {listen: 443}\n"),
+            ["/web: Additional properties are not allowed ('listen' was unexpected)"]
+        );
+    }
+
+    #[test]
+    fn a_wrong_choice_lists_every_allowed_value() {
+        assert_eq!(
+            messages("services:\n  web:\n    target: 80\n    mode: fastest\n"),
+            [
+                r#"/services/web/mode: "fastest" is not one of "failover", "balance", "least_connections", "ip_hash""#
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod shift_tests {
+    use super::{Diagnostic, Severity, shift_diagnostics};
+
+    fn on(line: usize) -> Diagnostic {
+        Diagnostic {
+            line: Some(line),
+            column: Some(1),
+            end_column: Some(2),
+            message: String::new(),
+            severity: Severity::Error,
+        }
+    }
+
+    fn lines(found: Vec<Diagnostic>) -> Vec<Option<usize>> {
+        found
+            .into_iter()
+            .map(|diagnostic| diagnostic.line)
+            .collect()
+    }
+
+    #[test]
+    fn markers_below_an_inserted_line_move_down() {
+        let shifted = shift_diagnostics("a\nb\nc", "a\n\nb\nc", &[on(1), on(3)]);
+        assert_eq!(lines(shifted), [Some(1), Some(4)]);
+    }
+
+    #[test]
+    fn markers_below_a_removed_line_move_up_and_the_removed_ones_go() {
+        let shifted = shift_diagnostics("a\nb\nc\nd", "a\nd", &[on(2), on(4)]);
+        assert_eq!(lines(shifted), [Some(2)]);
+    }
+
+    #[test]
+    fn typing_within_a_line_moves_nothing() {
+        let shifted = shift_diagnostics("a: 1\nb: x", "a: 12\nb: x", &[on(2)]);
+        assert_eq!(lines(shifted), [Some(2)]);
+    }
 }

@@ -33,6 +33,9 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        if let Some(error) = tab_indentation(source) {
+            return Err(error);
+        }
         yaml_parse(source)
     }
 
@@ -1015,6 +1018,38 @@ fn line_comment_start(line: &str) -> Option<usize> {
 
 fn code_before_comment(line: &str) -> &str {
     line_comment_start(line).map_or(line, |comment| &line[..comment])
+}
+
+/// YAML forbids tabs in indentation, though the parser accepts some. Block
+/// scalar content (after `key: |`) is text and may hold tabs.
+fn tab_indentation(source: &str) -> Option<ParseError> {
+    let mut scalar_indent: Option<usize> = None;
+    for (index, line) in source.lines().enumerate() {
+        let content = line.trim_start_matches([' ', '\t']);
+        let indent = line.len() - content.len();
+        if let Some(parent) = scalar_indent {
+            if content.is_empty() || indent > parent {
+                continue;
+            }
+            scalar_indent = None;
+        }
+        if content.is_empty() || content.starts_with('#') {
+            continue;
+        }
+        if let Some(tab) = line[..indent].find('\t') {
+            return Some(ParseError {
+                message: "tabs are not allowed in YAML indentation; use spaces".to_string(),
+                line: Some(index + 1),
+                column: Some(tab + 1),
+            });
+        }
+        let code = code_before_comment(content);
+        let value = code.rsplit_once(": ").map_or(code.trim_start_matches("- "), |(_, value)| value);
+        if is_block_scalar(value) {
+            scalar_indent = Some(indent);
+        }
+    }
+    None
 }
 
 fn is_block_scalar(value: &str) -> bool {

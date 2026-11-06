@@ -25,7 +25,7 @@ use keyboard::{
 };
 mod diagnostics;
 use bridge::Bridge;
-use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, validate};
+use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, shift_diagnostics, validate};
 mod completion;
 use completion::{
     COMPLETION_PAGE_ROWS, KeyHover, accept_reopens_suggestions, apply_completion,
@@ -123,6 +123,9 @@ fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Selection {
         .map_or(start, |end| end as usize);
     (start, end)
 }
+
+/// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
+const DIAGNOSTIC_TOOLTIP_MAX_WIDTH: f64 = 360.0;
 
 /// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
 ///
@@ -473,7 +476,7 @@ pub fn ConfigEditor(
             try_switch(next);
         }
     });
-    let diagnostics = Memo::new(move |_| {
+    let validated_diagnostics = Memo::new(move |_| {
         let mut found = validate(
             &diagnosed_text.get(),
             schema_for_diagnostics.as_deref(),
@@ -486,6 +489,14 @@ pub fn ConfigEditor(
             found.extend(conversion_problems.get());
         }
         found
+    });
+    // Until validation catches up with an edit, markers move with the lines
+    // the edit shifted, so they never sit on the wrong text.
+    let diagnostics = Memo::new(move |_| {
+        let validated = diagnosed_text.get();
+        source.with(|current| {
+            validated_diagnostics.with(|found| shift_diagnostics(&validated, current, found))
+        })
     });
     let schema_for_completions = schema_bundle.clone();
     let schema_for_hover = schema_bundle.clone();
@@ -928,12 +939,26 @@ pub fn ConfigEditor(
                                                 )
                                                 data-message=diagnostic.message
                                                 style=format!(
-                                                    "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch; --config-editor-diagnostic-tooltip-offset: -{}ch;",
+                                                    "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
                                                     column.saturating_sub(1),
                                                     line.saturating_sub(1),
                                                     width,
-                                                    column.saturating_sub(1)
                                                 )
+                                                // Shifted left so the message stays inside the visible text area.
+                                                style:--config-editor-diagnostic-tooltip-shift=move || {
+                                                    let scroll = scroll_x.get();
+                                                    let Some(editor) = editor_ref.get_untracked() else {
+                                                        return "0px".to_string();
+                                                    };
+                                                    let metrics = read_editor_metrics(&editor);
+                                                    let visible = f64::from(editor.client_width());
+                                                    let left = metrics.padding_left
+                                                        + column.saturating_sub(1) as f64 * metrics.char_width
+                                                        - scroll;
+                                                    let tooltip = DIAGNOSTIC_TOOLTIP_MAX_WIDTH.min(visible - 16.0);
+                                                    let shift = (visible - 8.0 - left - tooltip).min(0.0).max(8.0 - left);
+                                                    format!("{shift}px")
+                                                }
                                                 on:mousedown=|event| event.prevent_default()
                                                 on:click=move |_| {
                                                     if let Some(editor) = editor_ref.get() {

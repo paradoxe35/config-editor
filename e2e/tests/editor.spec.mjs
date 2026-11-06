@@ -294,3 +294,59 @@ test.describe('diagnostics navigation', () => {
     await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
   });
 });
+
+test.describe('diagnostics follow edits', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('a marker moves with its line as soon as Enter is pressed', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 1\nbogus: 2\n');
+    const marker = page.locator('.config-editor__diagnostic-marker');
+    await expect(marker).toHaveCount(1);
+    const before = await marker.evaluate((element) => element.getBoundingClientRect().top);
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(0, 0);
+    });
+    await page.keyboard.press('Enter');
+    // Checked before the validation debounce has run.
+    const after = await marker.evaluate((element) => element.getBoundingClientRect().top);
+    expect(after).toBeGreaterThan(before + 10);
+  });
+
+  test('a message near the right edge stays inside the editor', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(`listen: 1\n${'x'.repeat(70)}_unknown: 2\n`);
+    const marker = page.locator('.config-editor__diagnostic-marker');
+    await expect(marker).toHaveCount(1);
+    await marker.hover();
+    const overflow = await marker.evaluate((element) => {
+      const editorBox = document.querySelector('.config-editor__input').getBoundingClientRect();
+      const tip = getComputedStyle(element, '::after');
+      const left = element.getBoundingClientRect().left + parseFloat(tip.left);
+      return left + parseFloat(tip.width) - editorBox.right;
+    });
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe('yaml: tabs and choices', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('a tab in indentation is an error on its line', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 1\nregions:\n  - a\n\t- b\n');
+    const marker = page.locator('.config-editor__diagnostic-marker');
+    await expect(marker).toHaveAttribute('data-message', /tabs are not allowed/);
+    await expect(marker).toHaveAttribute('aria-label', /line 4/);
+  });
+
+  test('a typo in an optional object names the unexpected key', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('web: {listen: 443}\n');
+    await expect(page.locator('.config-editor__diagnostic-marker')).toHaveAttribute(
+      'data-message',
+      /'listen' was unexpected/,
+    );
+  });
+});

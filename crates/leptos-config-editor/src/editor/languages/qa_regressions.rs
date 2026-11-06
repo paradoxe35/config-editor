@@ -547,3 +547,20 @@ fn toml_triple_quotes_close_as_a_multi_line_string() {
     assert_eq!(close("a = \"", '"'), None);
     assert_eq!(close("a = \"\"\"", '"'), None);
 }
+
+#[test]
+fn yaml_tab_indentation_is_a_syntax_error_outside_block_scalars() {
+    let error = Language::YAML
+        .parse("regions:\n  - a\n\t  - b\n")
+        .unwrap_err();
+    assert_eq!((error.line, error.column), (Some(3), Some(1)));
+    assert!(error.message.contains("tabs"), "{}", error.message);
+    // Tabs inside a block scalar are text.
+    assert!(
+        Language::YAML
+            .parse("note: |\n  a\n  \tb\nnext: 1\n")
+            .is_ok()
+    );
+    // A tab after the indentation is fine.
+    assert!(Language::YAML.parse("a:\t1\n").is_ok());
+}

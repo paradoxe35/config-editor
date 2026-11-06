@@ -81,6 +81,9 @@ pub(super) struct PeekViewport {
     pub(super) viewport_width: f64,
     pub(super) viewport_height: f64,
     pub(super) editor_top: f64,
+    /// Bottom of the text area; the peek stays above it so it never covers
+    /// the footer or what follows the editor.
+    pub(super) editor_bottom: f64,
     pub(super) editor_left: f64,
     pub(super) editor_scroll_top: f64,
     pub(super) root_top: f64,
@@ -127,8 +130,11 @@ pub(super) fn peek_geometry(
         + metrics.padding_top
         + line.saturating_sub(1) as f64 * metrics.line_height
         - viewport.editor_scroll_top;
-    let space_above = (anchor_y - margin).max(0.0);
-    let space_below = (viewport.viewport_height - anchor_y - metrics.line_height - margin).max(0.0);
+    // The visible part of the text area bounds the peek.
+    let area_top = viewport.editor_top.max(0.0) + margin;
+    let area_bottom = viewport.editor_bottom.min(viewport.viewport_height) - margin;
+    let space_above = (anchor_y - area_top).max(0.0);
+    let space_below = (area_bottom - anchor_y - metrics.line_height).max(0.0);
     let desired_height = (PEEK_HEADER_HEIGHT
         + (old_line_count + new_line_count) as f64 * PEEK_LINE_HEIGHT)
         .min(PEEK_MAX_HEIGHT)
@@ -146,10 +152,7 @@ pub(super) fn peek_geometry(
     } else {
         anchor_y - height - POPUP_GAP
     }
-    .clamp(
-        margin,
-        (viewport.viewport_height - height - margin).max(margin),
-    );
+    .clamp(area_top, (area_bottom - height).max(area_top));
     let left_in_viewport = (viewport.editor_left + PEEK_GUTTER_NUDGE).clamp(
         margin,
         (viewport.viewport_width - PEEK_MIN_WIDTH - margin).max(margin),
@@ -195,6 +198,7 @@ pub(super) fn peek_popup_style(
             viewport_width,
             viewport_height,
             editor_top: editor_rect.top(),
+            editor_bottom: editor_rect.bottom(),
             editor_left: editor_rect.left(),
             editor_scroll_top: editor.scroll_top() as f64,
             root_top: root_rect.top(),
@@ -484,6 +488,7 @@ mod tests {
             viewport_width: 1100.0,
             viewport_height: 620.0,
             editor_top: 100.0,
+            editor_bottom: 600.0,
             editor_left: 50.0,
             editor_scroll_top: 0.0,
             root_top: 80.0,
@@ -517,6 +522,7 @@ mod tests {
         let mut viewport = test_viewport();
         viewport.viewport_height = 200.0;
         viewport.editor_top = 20.0;
+        viewport.editor_bottom = 200.0;
         viewport.root_top = 0.0;
         let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 5, 1, 1);
         // Anchor near the bottom of a short viewport: popup goes above it and
@@ -528,6 +534,28 @@ mod tests {
             .unwrap();
         assert!(top >= 8.0, "{style}");
         assert!(top < 110.0, "{style}");
+    }
+
+    #[test]
+    fn peek_geometry_stays_inside_the_text_area() {
+        let mut viewport = test_viewport();
+        viewport.editor_bottom = 300.0;
+        // A large change near the area's bottom edge.
+        let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 8, 6, 6);
+        let number = |name: &str| -> f64 {
+            style
+                .split(';')
+                .find_map(|part| part.strip_prefix(name))
+                .and_then(|value| value.strip_suffix("px"))
+                .and_then(|value| value.parse().ok())
+                .unwrap()
+        };
+        let bottom = viewport.root_top + number("top:") + number("max-height:");
+        assert!(bottom <= 300.0, "{style}");
+        assert!(
+            viewport.root_top + number("top:") >= viewport.editor_top,
+            "{style}"
+        );
     }
 
     #[test]
