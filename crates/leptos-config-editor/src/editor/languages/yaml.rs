@@ -6,13 +6,15 @@
 //! is mid-edit and unparsable.
 
 use super::super::commands::indent_unit;
+use super::super::highlight::{Token, TokenKind, Tokens};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::{
     CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
     SchemaPathSegment,
 };
-use leptos::prelude::*;
+use leptos::prelude::AnyView;
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -82,8 +84,12 @@ impl LanguageBehavior for YamlBehavior {
         key_at_column(line, column)
     }
 
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        hover_context_offset(line, column)
+    }
+
     fn highlight_line(&self, line: &str) -> AnyView {
-        highlight_line(line)
+        super::super::highlight::render(line, &highlight(line))
     }
 
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
@@ -747,48 +753,47 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         )
     };
     let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
-    // Inline mapping value (`key: { a: 1, sec`): the segment after the last `{`
-    // or `,` before the caret is a key of that flow mapping, not a value.
-    if let (Some(colon), Some(value_key)) = (colon, value_key.as_ref()) {
-        let value_begin = colon + 1;
-        let inner_end = cursor_in_content.clamp(value_begin, line_content.len());
-        let inner = &line_content[value_begin..inner_end];
-        if inner.trim_start().starts_with('{') && !inner.contains('}') {
-            let segment_start = inner.rfind([',', '{']).map_or(0, |index| index + 1);
-            let segment = &inner[segment_start..];
-            let typed_raw = segment.trim_start();
-            if !typed_raw.contains(':') {
-                let typed_start_byte = current_line_start
-                    + content_start
-                    + value_begin
-                    + segment_start
-                    + (segment.len() - typed_raw.len());
+    // Inside a flow mapping or sequence opened on this line
+    // (`key: { a: 1, se|`, `key: { mode: |`).
+    if let Some(caret) = inline_caret(&line_content[..cursor_in_content.min(line_content.len())], b':') {
+        let mut path = path.clone();
+        path.extend(caret.path);
+        let content_byte = current_line_start + content_start;
+        let line_end = source[cursor..].find('\n').map_or(source.len(), |end| cursor + end);
+        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let typed_from = |start: usize| line_content[start..cursor_in_content].trim_end().to_string();
+        let context = |path, typed, start: usize, end: usize| CompletionContext {
+            path,
+            typed,
+            replace_start: source[..content_byte + start].encode_utf16().count(),
+            replace_end: source[..end].encode_utf16().count(),
+            base_indent: base_indent.clone(),
+            position: EntryPosition::Inline,
+            ..Default::default()
+        };
+        return match caret.entry {
+            CaretEntry::Key { start } => {
                 let tail: usize = source[cursor..]
                     .chars()
-                    .take_while(|character| {
-                        character.is_alphanumeric() || matches!(character, '_' | '-')
-                    })
+                    .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
                     .map(char::len_utf8)
                     .sum();
-                let replace_end_byte = cursor + tail;
-                path.push(SchemaPathSegment::Key(value_key.clone()));
-                return CompletionContext {
-                    path,
-                    typed: typed_raw.trim_end().to_string(),
-                    replace_start: source[..typed_start_byte].encode_utf16().count(),
-                    replace_end: source[..replace_end_byte].encode_utf16().count(),
-                    value_key: None,
-                    value_needs_space: false,
-                    is_array_item: current_is_array_item,
-                    base_indent,
-                    entry_prefix: "",
-                    explicit_entry_start: false,
-                    entry_suffix: "",
-                    position: EntryPosition::Inline,
-                    ..Default::default()
-                };
+                context(path, typed_from(start), start, cursor + tail)
             }
-        }
+            CaretEntry::Value { key, start } => CompletionContext {
+                value_key: Some(key),
+                value_needs_space: start == cursor_in_content
+                    && !line_content[..cursor_in_content].ends_with([' ', '\t']),
+                ..context(path, typed_from(start), start, value_end)
+            },
+            CaretEntry::Item { index, start } => {
+                path.push(SchemaPathSegment::ArrayItem(index));
+                CompletionContext {
+                    is_array_item: true,
+                    ..context(path, typed_from(start), start, value_end)
+                }
+            }
+        };
     }
     let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
     CompletionContext {
@@ -853,7 +858,27 @@ fn existing_mapping_keys(
     )
 }
 
+/// Where hover reads the context for the key at `column`: just past its `:`,
+/// so a key inside a flow mapping resolves under that mapping.
+fn hover_context_offset(line: &str, column: usize) -> usize {
+    let code = line_comment_start(line).map_or(line, |start| &line[..start]);
+    let byte = line
+        .char_indices()
+        .nth(column)
+        .map_or(line.len(), |(index, _)| index);
+    inline_key_at(code, b':', byte).map_or(line.len(), |key| key.after_separator)
+}
+
 fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
+    let code = line_comment_start(line).map_or(line, |start| &line[..start]);
+    let byte = line
+        .char_indices()
+        .nth(column)
+        .map_or(line.len(), |(index, _)| index);
+    if let Some(key) = inline_key_at(code, b':', byte) {
+        let text = line[key.start..key.end].trim_matches(['\'', '"']);
+        return Some((text.to_string(), line[..key.start].chars().count()));
+    }
     let trimmed = line.trim_start_matches([' ', '\t']);
     let body = match trimmed.strip_prefix('-') {
         Some(rest) if rest.is_empty() || rest.starts_with([' ', '\t']) => {
@@ -1059,19 +1084,19 @@ fn toggle_yaml_line_comments(
     Some((updated, updated_selection_start, updated_selection_end))
 }
 
-fn highlight_line(line: &str) -> AnyView {
+fn highlight(line: &str) -> Vec<Token> {
+    let mut tokens = Tokens::new();
     let indent_len = line.len() - line.trim_start().len();
-    let (indent, content) = line.split_at(indent_len);
+    let content = &line[indent_len..];
     if content.starts_with('#') {
-        return view! {
-            <span>{indent}<span class="config-editor__comment">{content.to_string()}</span></span>
-        }
-        .into_any();
+        tokens.push(indent_len, line.len(), TokenKind::Comment);
+        return tokens.finish();
     }
 
-    let (dash, content) = content
+    let (dash_len, content) = content
         .strip_prefix("- ")
-        .map_or(("", content), |content| ("- ", content));
+        .map_or((0, content), |content| (2, content));
+    let content_start = indent_len + dash_len;
     if let Some((key, value)) = content.split_once(':')
         && !key.is_empty()
         && key
@@ -1079,44 +1104,40 @@ fn highlight_line(line: &str) -> AnyView {
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
         && (value.is_empty() || value.starts_with(' ') || value.starts_with('\t'))
     {
-        return view! {
-            <span>{indent}{dash}<span class="config-editor__key">{key.to_string()}</span><span class="config-editor__punctuation">:</span>{highlight_value(value)}</span>
-        }
-        .into_any();
+        // The dash before a key stays plain; only a bare item dash is punctuation.
+        let key_end = content_start + key.len();
+        tokens.push(content_start, key_end, TokenKind::Key);
+        tokens.push(key_end, key_end + 1, TokenKind::Punctuation);
+        highlight_value(&mut tokens, key_end + 1, value);
+        return tokens.finish();
     }
 
-    if !dash.is_empty() {
-        return view! {
-            <span>{indent}<span class="config-editor__punctuation">"- "</span>{highlight_value(content)}</span>
-        }
-        .into_any();
+    if dash_len > 0 {
+        tokens.push(indent_len, content_start, TokenKind::Punctuation);
+        highlight_value(&mut tokens, content_start, content);
     }
-    view! { <span>{line.to_string()}</span> }.into_any()
+    tokens.finish()
 }
 
-fn highlight_value(value: &str) -> AnyView {
-    let whitespace_len = value.len() - value.trim_start().len();
-    let (whitespace, value) = value.split_at(whitespace_len);
-    let (scalar, comment) = split_yaml_comment(value);
-    let class = scalar_class(scalar);
-    view! {
-        <span>
-            {whitespace}
-            <span class=class>{scalar.to_string()}</span>
-            {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
-        </span>
+/// Tokens for `value`, which starts at byte `offset` of the line.
+fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
+    let scalar_start = offset + value.len() - value.trim_start().len();
+    let (scalar, comment) = split_yaml_comment(value.trim_start());
+    let scalar_end = scalar_start + scalar.len();
+    tokens.push(scalar_start, scalar_end, scalar_kind(scalar));
+    if let Some(comment) = comment {
+        tokens.push(scalar_end, scalar_end + comment.len(), TokenKind::Comment);
     }
-    .into_any()
 }
 
-fn scalar_class(scalar: &str) -> &'static str {
+fn scalar_kind(scalar: &str) -> TokenKind {
     let scalar = scalar.trim_end();
     if matches!(scalar, "true" | "false" | "null" | "~") || scalar.parse::<f64>().is_ok() {
-        "config-editor__literal"
+        TokenKind::Literal
     } else if scalar.starts_with('\'') || scalar.starts_with('"') {
-        "config-editor__string"
+        TokenKind::String
     } else {
-        "config-editor__value"
+        TokenKind::Value
     }
 }
 
@@ -1229,7 +1250,8 @@ mod tests {
     use super::super::super::keyboard::paired_edit as shared_paired_edit;
     use super::super::super::language::LanguageBehavior;
     use super::YamlBehavior;
-    use super::{scalar_class, split_yaml_comment};
+    use super::super::super::highlight::{TokenKind, runs};
+    use super::{highlight, scalar_kind, split_yaml_comment};
 
     fn validate_yaml(
         source: &str,
@@ -2539,10 +2561,136 @@ mod tests {
 
     #[test]
     fn plain_scalars_are_colored_as_strings_and_yaml_literals_stay_distinct() {
-        assert_eq!(scalar_class("unquoted value"), "config-editor__value");
-        assert_eq!(scalar_class("\"quoted value\""), "config-editor__string");
-        assert_eq!(scalar_class("false"), "config-editor__literal");
-        assert_eq!(scalar_class("42"), "config-editor__literal");
+        assert_eq!(scalar_kind("unquoted value"), TokenKind::Value);
+        assert_eq!(scalar_kind("\"quoted value\""), TokenKind::String);
+        assert_eq!(scalar_kind("false"), TokenKind::Literal);
+        assert_eq!(scalar_kind("42"), TokenKind::Literal);
+    }
+
+    fn highlighted(line: &str) -> Vec<(Option<TokenKind>, String)> {
+        runs(line, &highlight(line))
+    }
+
+    fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
+        (kind, text.to_string())
+    }
+
+    #[test]
+    fn a_comment_line_is_one_comment_run_after_its_indent() {
+        assert_eq!(
+            highlighted("  # note: x"),
+            [run(None, "  "), run(Some(TokenKind::Comment), "# note: x")]
+        );
+    }
+
+    #[test]
+    fn a_mapping_key_gets_key_and_colon_runs_then_its_value() {
+        assert_eq!(
+            highlighted("  name: app"),
+            [
+                run(None, "  "),
+                run(Some(TokenKind::Key), "name"),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::Value), "app"),
+            ]
+        );
+        assert_eq!(
+            highlighted("parent:"),
+            [
+                run(Some(TokenKind::Key), "parent"),
+                run(Some(TokenKind::Punctuation), ":"),
+            ]
+        );
+    }
+
+    #[test]
+    fn values_are_classed_as_literal_string_or_value() {
+        let value_kind = |line: &str| highlighted(line).last().unwrap().clone();
+        assert_eq!(value_kind("a: 42"), run(Some(TokenKind::Literal), "42"));
+        assert_eq!(value_kind("a: ~"), run(Some(TokenKind::Literal), "~"));
+        assert_eq!(value_kind("a: true"), run(Some(TokenKind::Literal), "true"));
+        assert_eq!(
+            value_kind("a: 'x y'"),
+            run(Some(TokenKind::String), "'x y'")
+        );
+        assert_eq!(
+            value_kind("a: \"x\""),
+            run(Some(TokenKind::String), "\"x\"")
+        );
+        assert_eq!(value_kind("a: [1, 2]"), run(Some(TokenKind::Value), "[1, 2]"));
+    }
+
+    #[test]
+    fn an_inline_comment_after_a_value_is_its_own_run() {
+        assert_eq!(
+            highlighted("port: 80 # http"),
+            [
+                run(Some(TokenKind::Key), "port"),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::Literal), "80 "),
+                run(Some(TokenKind::Comment), "# http"),
+            ]
+        );
+        assert_eq!(
+            highlighted("a: \"x # y\""),
+            [
+                run(Some(TokenKind::Key), "a"),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::String), "\"x # y\""),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dash_before_a_key_stays_plain_but_a_bare_item_dash_is_punctuation() {
+        assert_eq!(
+            highlighted("  - name: x"),
+            [
+                run(None, "  - "),
+                run(Some(TokenKind::Key), "name"),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::Value), "x"),
+            ]
+        );
+        assert_eq!(
+            highlighted("- 1 # one"),
+            [
+                run(Some(TokenKind::Punctuation), "- "),
+                run(Some(TokenKind::Literal), "1 "),
+                run(Some(TokenKind::Comment), "# one"),
+            ]
+        );
+    }
+
+    #[test]
+    fn lines_matching_no_rule_stay_plain() {
+        for line in ["---", "key with spaces: x", "url:http", "plain text", "-x"] {
+            assert_eq!(highlighted(line), [run(None, line)], "{line:?}");
+        }
+        assert!(highlighted("").is_empty());
+    }
+
+    #[test]
+    fn highlighting_covers_every_character_of_tricky_lines() {
+        for line in [
+            "",
+            "   ",
+            "# only a comment",
+            "name: héllo 🙂 # ünïcode",
+            "- \"unterminated # still quoted",
+            "key: 'it''s # quoted' # real",
+            "key: value   ",
+            "- ",
+            "\u{3000}key: x",
+            "a:\tb",
+        ] {
+            let text: String = highlighted(line).into_iter().map(|(_, text)| text).collect();
+            assert_eq!(text, line);
+        }
     }
 
     #[test]

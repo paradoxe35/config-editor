@@ -29,6 +29,9 @@ pub(super) struct LanguageSpec {
 
 /// Expands each `Variant => module` line into the module, the [`Language`]
 /// variant, its entry in [`Language::ALL`], and its `spec` arm.
+#[cfg(all(test, feature = "schema-validation"))]
+mod nested_tests;
+
 macro_rules! registry {
     ($($(#[$attribute:meta])* $variant:ident => $module:ident,)+) => {
         $(mod $module;)+

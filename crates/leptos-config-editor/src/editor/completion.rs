@@ -558,6 +558,23 @@ fn completions_for_context(
         if !force && unquoted(&context.typed).is_empty() {
             options.retain(|option| option.label != "null");
         }
+        if options.is_empty() && context.value_or_children {
+            let children = CompletionContext {
+                path: path_with_key(&context.path, key),
+                value_key: None,
+                value_or_children: false,
+                explicit_entry_start: true,
+                ..context.clone()
+            };
+            return completions_for_context(
+                source,
+                cursor_byte,
+                &children,
+                force,
+                bundle,
+                behavior,
+            );
+        }
         return options;
     }
 

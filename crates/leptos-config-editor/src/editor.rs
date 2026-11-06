@@ -4,6 +4,8 @@ use wasm_bindgen::JsCast;
 mod bridge;
 mod chrome;
 mod codec;
+mod highlight;
+mod inline;
 mod language;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;

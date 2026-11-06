@@ -16,6 +16,7 @@
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
@@ -23,7 +24,7 @@ use super::super::language::{
     CompletionContext, EntryPosition, InlineBlock, InsertContext, LanguageBehavior, ParseError,
     SchemaPathSegment, inline_block,
 };
-use leptos::prelude::*;
+use leptos::prelude::AnyView;
 use quick_xml::XmlVersion;
 use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
@@ -98,7 +99,7 @@ impl LanguageBehavior for XmlBehavior {
     }
 
     fn highlight_line(&self, line: &str) -> AnyView {
-        highlight_line(line)
+        super::super::highlight::render(line, &highlight(line))
     }
 
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
@@ -1278,7 +1279,11 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let explicit_entry_start = kind == Typed::TagName;
     // Text right after a tag (`<listen>7|`) completes the element's value from
     // its parent path; a word on its own line names a new child element.
-    if !typed.trim().is_empty()
+    // Between an element's own tags (`<mode>|</mode>`) the caret may type
+    // its value or, for an object, its first child.
+    let between_own_tags = typed.is_empty()
+        && matches!(snapshot.path.last(), Some(Seg::Key(key)) if source[cursor..].starts_with(&format!("</{key}>")));
+    if (!typed.trim().is_empty() || between_own_tags)
         && kind == Typed::ElementText
         && let Some(Seg::Key(key)) = snapshot.path.last()
     {
@@ -1297,6 +1302,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             replace_start,
             replace_end: cursor_bytes(source, cursor),
             value_key: Some(key.clone()),
+            value_or_children: between_own_tags,
             value_needs_space: false,
             is_array_item: false,
             base_indent,
@@ -1816,9 +1822,17 @@ fn hover_context_end(line: &str, column: usize) -> usize {
             .nth(start_column)
             .map_or(line.len(), |(index, _)| index)
     });
-    line[name_start..]
+    let name_end = line[name_start..]
         .find(|character: char| matches!(character, '>' | '/' | '=') || character.is_whitespace())
-        .map_or(line.len(), |relative| name_start + relative)
+        .map_or(line.len(), |relative| name_start + relative);
+    // An attribute (`name="…"`) resolves inside its quotes, where its value
+    // is addressed.
+    let rest = &line[name_end..];
+    let after_equals = rest.trim_start().strip_prefix('=').map(str::trim_start);
+    match after_equals {
+        Some(value) if value.starts_with(['"', '\'']) => line.len() - value.len() + 1,
+        _ => name_end,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2041,100 +2055,60 @@ fn xml_confidence(source: &str) -> u8 {
     }
 }
 
-/// Renders every byte exactly once so the overlay lines up with the textarea.
-fn highlight_line(line: &str) -> AnyView {
-    let mut parts: Vec<AnyView> = Vec::new();
-    let mut position = 0;
+/// Colors a line: tags and their parts, comments, declarations, and element
+/// text. Whitespace between tokens and inside tags stays plain.
+fn highlight(line: &str) -> Vec<HighlightToken> {
+    let mut out = Tokens::new();
     for token in tokenize(line) {
-        if token.start > position {
-            parts.push(plain_span(&line[position..token.start]));
-        }
         match token.kind {
-            Kind::Comment => parts.push(styled(
-                "config-editor__comment",
-                &line[token.start..token.end],
-            )),
-            Kind::Special => parts.push(styled(
-                "config-editor__punctuation",
-                &line[token.start..token.end],
-            )),
-            Kind::OpenTag { name_end, .. } => highlight_open_tag(line, token, name_end, &mut parts),
-            Kind::EndTag => highlight_end_tag(line, token, &mut parts),
+            Kind::Comment => out.push(token.start, token.end, TokenKind::Comment),
+            Kind::Special => out.push(token.start, token.end, TokenKind::Punctuation),
+            Kind::OpenTag { name_end, .. } => highlight_open_tag(line, token, name_end, &mut out),
+            Kind::EndTag => highlight_end_tag(line, token, &mut out),
             Kind::Text { .. } | Kind::Equals => {
-                parts.push(highlight_text_segment(&line[token.start..token.end]));
+                out.push(token.start, token.end, TokenKind::Value);
             }
         }
-        position = token.end;
     }
-    if position < line.len() {
-        parts.push(plain_span(&line[position..]));
-    }
-    view! { <span>{parts}</span> }.into_any()
+    out.finish()
 }
 
-/// `<name attr="value" ...>` or `<name ...` while typing: the bracket and name,
-/// attribute names and quoted values, then the closing `>` or `/>`.
-fn highlight_open_tag(line: &str, token: Token, name_end: usize, parts: &mut Vec<AnyView>) {
-    parts.push(styled("config-editor__punctuation", "<"));
+/// `<name attr="value" ...>` or `<name ...` while typing. The tag-inside scan
+/// does not stop at `>`, so the closing `>` usually lands in the last word
+/// and is colored as a value.
+fn highlight_open_tag(line: &str, token: Token, name_end: usize, out: &mut Tokens) {
+    out.push(token.start, token.start + 1, TokenKind::Punctuation);
     let name_end = name_end.min(line.len());
-    if name_end > token.start + 1 {
-        parts.push(styled(
-            "config-editor__key",
-            &line[token.start + 1..name_end],
-        ));
-    }
+    out.push(token.start + 1, name_end, TokenKind::Key);
     let mut position = name_end;
-    for inner in tokenize_tag_inside(line, &token) {
-        if inner.start > position {
-            parts.push(plain_span(&line[position..inner.start]));
-        }
-        let text = &line[inner.start..inner.end];
-        parts.push(match inner.kind {
-            Kind::Text { quoted: true } => styled("config-editor__string", text),
-            Kind::Equals => styled("config-editor__punctuation", text),
-            _ if is_attr_name(line, &token, inner) => styled("config-editor__key", text),
-            _ => styled("config-editor__value", text),
-        });
-        position = inner.end;
+    let inner = tokenize_tag_inside(line, &token);
+    for (index, part) in inner.iter().enumerate() {
+        let kind = match part.kind {
+            Kind::Text { quoted: true } => TokenKind::String,
+            Kind::Equals => TokenKind::Punctuation,
+            _ if inner
+                .get(index + 1)
+                .is_some_and(|next| matches!(next.kind, Kind::Equals)) =>
+            {
+                TokenKind::Key
+            }
+            _ => TokenKind::Value,
+        };
+        out.push(part.start, part.end, kind);
+        position = part.end;
     }
-    if token.end > position {
-        parts.push(styled(
-            "config-editor__punctuation",
-            &line[position..token.end],
-        ));
-    }
+    out.push(position, token.end, TokenKind::Punctuation);
 }
 
 /// `</name>`: the `</`, the raw name (prefix included), then the `>`.
-fn highlight_end_tag(line: &str, token: Token, parts: &mut Vec<AnyView>) {
+fn highlight_end_tag(line: &str, token: Token, out: &mut Tokens) {
     let name_start = (token.start + 2).min(token.end);
     let name_end = line[name_start..token.end]
         .find(|character: char| character.is_whitespace() || character == '>')
         .map_or(token.end, |offset| name_start + offset);
-    parts.push(styled(
-        "config-editor__punctuation",
-        &line[token.start..name_start],
-    ));
-    parts.push(styled("config-editor__key", &line[name_start..name_end]));
-    parts.push(styled(
-        "config-editor__punctuation",
-        &line[name_end..token.end],
-    ));
-}
-
-fn styled(class: &'static str, text: &str) -> AnyView {
-    view! { <span class=class>{text.to_string()}</span> }.into_any()
-}
-
-fn plain_span(text: &str) -> AnyView {
-    view! { <span>{text.to_string()}</span> }.into_any()
-}
-
-fn highlight_text_segment(text: &str) -> AnyView {
-    if text.is_empty() {
-        return plain_span(text);
-    }
-    styled("config-editor__value", text)
+    out.push(token.start, name_start, TokenKind::Punctuation);
+    out.push(name_start, name_end, TokenKind::Key);
+    out.push(name_end, token.end, TokenKind::Punctuation);
 }
 
 // ---------------------------------------------------------------------------
@@ -2223,6 +2197,7 @@ mod tests {
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
     use super::super::super::language::LanguageBehavior;
+    use super::super::super::highlight::{TokenKind, runs};
     use super::XmlBehavior;
 
     fn schema() -> SchemaBundle {
@@ -2719,5 +2694,154 @@ mod tests {
             updated,
             "<root config-root=\"true\"><server><!-- <host> --><port></port>"
         );
+    }
+
+    fn highlighted(line: &str) -> Vec<(Option<TokenKind>, String)> {
+        runs(line, &super::highlight(line))
+    }
+
+    fn run(kind: TokenKind, text: &str) -> (Option<TokenKind>, String) {
+        (Some(kind), text.to_string())
+    }
+
+    fn plain(text: &str) -> (Option<TokenKind>, String) {
+        (None, text.to_string())
+    }
+
+    #[test]
+    fn highlights_an_open_tag_with_attributes() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("<a:b x=\"1\" y='2' flag>"),
+            vec![
+                run(Punctuation, "<"),
+                run(Key, "a:b"),
+                plain(" "),
+                run(Key, "x"),
+                run(Punctuation, "="),
+                run(String, "\"1\""),
+                plain(" "),
+                run(Key, "y"),
+                run(Punctuation, "="),
+                run(String, "'2'"),
+                plain(" "),
+                run(Value, "flag>"),
+            ]
+        );
+    }
+
+    #[test]
+    fn highlights_the_close_of_open_tags() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("<a>"),
+            vec![run(Punctuation, "<"), run(Key, "a"), run(Value, ">")]
+        );
+        assert_eq!(
+            highlighted("<a/>"),
+            vec![
+                run(Punctuation, "<"),
+                run(Key, "a"),
+                plain("/"),
+                run(Value, ">")
+            ]
+        );
+        assert_eq!(
+            highlighted("<a x=\"1\">"),
+            vec![
+                run(Punctuation, "<"),
+                run(Key, "a"),
+                plain(" "),
+                run(Key, "x"),
+                run(Punctuation, "="),
+                run(String, "\"1\""),
+                run(Value, ">"),
+            ]
+        );
+    }
+
+    #[test]
+    fn highlights_an_end_tag() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("</p:a >"),
+            vec![run(Punctuation, "</"), run(Key, "p:a"), run(Punctuation, " >")]
+        );
+    }
+
+    #[test]
+    fn highlights_element_text_as_values() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("<n>12 true</n>"),
+            vec![
+                run(Punctuation, "<"),
+                run(Key, "n"),
+                run(Value, ">"),
+                run(Value, "12"),
+                plain(" "),
+                run(Value, "true"),
+                run(Punctuation, "</"),
+                run(Key, "n"),
+                run(Punctuation, ">"),
+            ]
+        );
+    }
+
+    #[test]
+    fn highlights_comments_whole() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("  <!-- <a> --> x"),
+            vec![
+                plain("  "),
+                run(Comment, "<!-- <a> -->"),
+                plain(" "),
+                run(Value, "x"),
+            ]
+        );
+    }
+
+    #[test]
+    fn highlights_declarations_and_cdata_as_punctuation() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("<?xml version=\"1.0\"?>"),
+            vec![run(Punctuation, "<?xml version=\"1.0\"?>")]
+        );
+        assert_eq!(
+            highlighted("<!DOCTYPE x>"),
+            vec![run(Punctuation, "<!DOCTYPE x>")]
+        );
+        assert_eq!(
+            highlighted("<![CDATA[<a>]]>"),
+            vec![run(Punctuation, "<![CDATA[<a>]]>")]
+        );
+    }
+
+    #[test]
+    fn highlighting_covers_every_character_of_tricky_lines() {
+        for line in [
+            "",
+            "   ",
+            "<",
+            "</",
+            "<a",
+            "<a x=\"unterminated",
+            "<a x='",
+            "<!-- open",
+            "<![CDATA[ open",
+            "<?xml",
+            "<a>text</a>   ",
+            "<a><b>1</b></a>",
+            "<é ü=\"ñ\">日本</é>",
+            "<a =\"v\" / >",
+            "text < more",
+        ] {
+            let text: std::string::String =
+                highlighted(line).into_iter().map(|(_, text)| text).collect();
+            assert_eq!(text, line);
+        }
+        assert!(highlighted("").is_empty());
     }
 }

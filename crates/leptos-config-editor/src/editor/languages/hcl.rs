@@ -11,6 +11,8 @@
 //! - `Ctrl+/` toggles `#` line comments; `//` and `/* */` are also read.
 
 use super::super::commands::indent_unit;
+use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
@@ -19,7 +21,7 @@ use super::super::language::{
     CompletionContext, InlineBlock, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
-use leptos::prelude::*;
+use leptos::prelude::AnyView;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -84,12 +86,16 @@ impl LanguageBehavior for HclBehavior {
         key_at_column(line, column)
     }
 
-    fn hover_cursor(&self, line: &str, _column: usize) -> usize {
-        line.len()
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        // Just past the hovered key's `=`, so a key inside a value map
+        // resolves under that map.
+        code_before_comment(line)
+            .and_then(|code| inline_key_at(code, b'=', byte_at_column(line, column)))
+            .map_or(line.len(), |key| key.after_separator)
     }
 
     fn highlight_line(&self, line: &str) -> AnyView {
-        highlight_line(line)
+        super::super::highlight::render(line, &highlight(line))
     }
 
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
@@ -918,12 +924,89 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
+    // Inside containers opened on this line (`a = { b = [{ … }, { | }] }`):
+    // the path above the line comes from the scan at the line start, the
+    // rest from the line itself.
+    if let Some(caret) = inline_caret(before_caret, b'=') {
+        let outer = analyze(source, line_start);
+        let mut full: Vec<SchemaPathSegment> = body_path(&outer, outer.snapshot.body)
+            .into_iter()
+            .map(|segment| match segment.parse::<usize>() {
+                Ok(index) => SchemaPathSegment::ArrayItem(index),
+                Err(_) => SchemaPathSegment::Key(segment),
+            })
+            .collect();
+        if outer.snapshot.in_map {
+            full.extend(outer.snapshot.value_prefix.iter().cloned().map(SchemaPathSegment::Key));
+        }
+        full.extend(caret.path);
+        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let typed = |start: usize| before_caret[start..].trim_end().trim_start_matches('"').to_string();
+        return match caret.entry {
+            CaretEntry::Key { start } => CompletionContext {
+                typed: typed(start),
+                replace_start: utf16(&source[..line_start + start]),
+                replace_end: utf16(&source[..swallow_existing_assignment(source, cursor)]),
+                explicit_entry_start: true,
+                block: hcl_block(source, line_start + start, cursor),
+                base_indent,
+                path: full,
+                ..Default::default()
+            },
+            CaretEntry::Value { key, start } => CompletionContext {
+                typed: typed(start),
+                replace_start: utf16(&source[..line_start + start]),
+                replace_end: utf16(&source[..value_end]),
+                value_key: Some(key),
+                value_needs_space: start == before_caret.len() && !before_caret.ends_with([' ', '\t']),
+                base_indent,
+                path: full,
+                ..Default::default()
+            },
+            CaretEntry::Item { index, start } => {
+                full.push(SchemaPathSegment::ArrayItem(index));
+                CompletionContext {
+                    typed: typed(start),
+                    replace_start: utf16(&source[..line_start + start]),
+                    replace_end: utf16(&source[..value_end]),
+                    is_array_item: true,
+                    base_indent,
+                    path: full,
+                    ..Default::default()
+                }
+            }
+        };
+    }
+
     // Value position.
     if snapshot.in_value
         && let Some(key) = snapshot.value_key.clone()
     {
         // Inside `key = { … }` the caret completes a nested map key, at any depth.
         if snapshot.in_map {
+            let mut map_path = path.clone();
+            map_path.extend(
+                snapshot
+                    .value_prefix
+                    .iter()
+                    .cloned()
+                    .map(SchemaPathSegment::Key),
+            );
+            // `mode = |` on its own line inside a multi-line map.
+            if let Some((key, start)) = line_assignment(before_caret) {
+                let typed_start = line_start + start;
+                let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+                return CompletionContext {
+                    typed: source[typed_start..cursor].trim_end().to_string(),
+                    replace_start: utf16(&source[..typed_start]),
+                    replace_end: utf16(&source[..value_end]),
+                    value_key: Some(key),
+                    value_needs_space: typed_start == cursor && !before_caret.ends_with([' ', '\t']),
+                    base_indent,
+                    path: map_path,
+                    ..Default::default()
+                };
+            }
             let mut map_path = path.clone();
             map_path.extend(
                 snapshot
@@ -1359,15 +1442,16 @@ fn hcl_text(value: &Value) -> String {
 /// reads values, and headers open no value. Comment-only lines yield `None`.
 fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
     let code = code_before_comment(line)?;
-    let equals = assignment_equals(code)?;
-    let raw = code[..equals].trim();
-    if !is_ident(raw) {
-        return None;
-    }
-    let start = code[..equals].find(raw).unwrap_or(0);
-    let start_column = line[..start].chars().count();
-    let end_column = start_column + raw.chars().count();
-    (column >= start_column && column < end_column).then(|| (raw.to_string(), start_column))
+    let key = inline_key_at(code, b'=', byte_at_column(line, column))?;
+    let raw = line[key.start..key.end].trim_matches('"');
+    (!raw.is_empty()).then(|| (raw.to_string(), line[..key.start].chars().count()))
+}
+
+/// The byte offset of character `column` (0-based) in `line`.
+fn byte_at_column(line: &str, column: usize) -> usize {
+    line.char_indices()
+        .nth(column)
+        .map_or(line.len(), |(index, _)| index)
 }
 
 // ---------------------------------------------------------------------------
@@ -1637,22 +1721,18 @@ fn hcl_confidence(source: &str) -> u8 {
     score.min(200)
 }
 
-fn highlight_line(line: &str) -> AnyView {
-    let indent_len = line.len() - line.trim_start().len();
-    let (indent, content) = line.split_at(indent_len);
-    // A comment starting the content (or the whole line) renders as one span.
+fn highlight(line: &str) -> Vec<HighlightToken> {
+    let indent = line.len() - line.trim_start().len();
+    let content = &line[indent..];
+    let mut out = Tokens::new();
+    // A comment starting the content (or the whole line) is one token.
     if let Some(comment_at) = line_comment_start(content)
         && content[..comment_at].trim().is_empty()
     {
-        return view! {
-            <span>{indent}<span class="config-editor__comment">{content.to_string()}</span></span>
-        }
-        .into_any();
+        out.push(indent, line.len(), TokenKind::Comment);
+        return out.finish();
     }
     let tokens = tokenize(content);
-    if tokens.is_empty() {
-        return view! { <span>{line.to_string()}</span> }.into_any();
-    }
     // A leading identifier that opens an attribute (`key =`) or a block
     // (`type {`, `type "label" {`) is the line's key.
     let key_end = match tokens.first() {
@@ -1676,37 +1756,24 @@ fn highlight_line(line: &str) -> AnyView {
         }
         _ => None,
     };
-    let mut parts: Vec<AnyView> = Vec::new();
-    let mut position = 0;
-    let shift = indent_len;
     for token in &tokens {
-        if token.start > position {
-            let gap = content[position..token.start].to_string();
-            parts.push(view! { <span>{gap}</span> }.into_any());
-        }
-        let text = content[token.start..token.end].to_string();
-        let class = highlight_class(content, token, key_end);
-        parts.push(view! { <span class=class>{text}</span> }.into_any());
-        position = token.end;
+        out.push(
+            indent + token.start,
+            indent + token.end,
+            token_kind(content, token, key_end),
+        );
     }
-    if position < content.len() {
-        let tail = content[position..].to_string();
-        parts.push(view! { <span>{tail}</span> }.into_any());
-    }
-    let _ = shift;
-    view! { <span>{indent}{parts}</span> }.into_any()
+    out.finish()
 }
 
-fn highlight_class(line: &str, token: &Token, key_end: Option<usize>) -> &'static str {
+fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> TokenKind {
     match token.kind {
-        Kind::Comment => "config-editor__comment",
-        Kind::Punct(_) => "config-editor__punctuation",
-        Kind::Str { .. } => "config-editor__string",
-        Kind::Heredoc => "config-editor__string",
-        Kind::Template => "config-editor__string",
+        Kind::Comment => TokenKind::Comment,
+        Kind::Punct(_) => TokenKind::Punctuation,
+        Kind::Str { .. } | Kind::Heredoc | Kind::Template => TokenKind::String,
         Kind::Ident => {
             if key_end.is_some_and(|end| token.end <= end) {
-                "config-editor__key"
+                TokenKind::Key
             } else {
                 let text = &line[token.start..token.end];
                 if matches!(text, "true" | "false" | "null")
@@ -1715,9 +1782,9 @@ fn highlight_class(line: &str, token: &Token, key_end: Option<usize>) -> &'stati
                         .next()
                         .is_some_and(|character| character.is_ascii_digit())
                 {
-                    "config-editor__literal"
+                    TokenKind::Literal
                 } else {
-                    "config-editor__value"
+                    TokenKind::Value
                 }
             }
         }
@@ -1801,6 +1868,7 @@ mod tests {
         path: &[],
     };
     use super::HclBehavior;
+    use super::super::super::highlight::{TokenKind, runs};
 
     fn schema() -> SchemaBundle {
         build_schema(
@@ -2162,5 +2230,233 @@ mod tests {
             .unwrap();
         assert_eq!(insert, "tags = {\n  Name = \n}");
         assert_eq!(caret, "tags = {\n  Name = ".encode_utf16().count());
+    }
+
+    fn highlighted(line: &str) -> Vec<(Option<TokenKind>, String)> {
+        runs(line, &super::highlight(line))
+    }
+
+    fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
+        (kind, text.to_string())
+    }
+
+    #[test]
+    fn block_headers_color_the_type_as_key_and_labels_as_strings() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted(r#"resource "aws_x" "y" {"#),
+            vec![
+                run(Some(Key), "resource"),
+                run(None, " "),
+                run(Some(String), r#""aws_x""#),
+                run(None, " "),
+                run(Some(String), r#""y""#),
+                run(None, " "),
+                run(Some(Punctuation), "{"),
+            ]
+        );
+        assert_eq!(
+            highlighted("  ingress {"),
+            vec![
+                run(None, "  "),
+                run(Some(Key), "ingress"),
+                run(None, " "),
+                run(Some(Punctuation), "{"),
+            ]
+        );
+        assert_eq!(
+            highlighted("module web {"),
+            vec![
+                run(Some(Key), "module"),
+                run(None, " "),
+                run(Some(Value), "web"),
+                run(None, " "),
+                run(Some(Punctuation), "{"),
+            ]
+        );
+    }
+
+    #[test]
+    fn attributes_color_key_equals_and_value() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("  name = var.name"),
+            vec![
+                run(None, "  "),
+                run(Some(Key), "name"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(Value), "var"),
+                run(Some(Punctuation), "."),
+                run(Some(Value), "name"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_leading_word_without_equals_or_brace_is_a_value() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("name"),
+            vec![run(Some(Value), "name")]
+        );
+    }
+
+    #[test]
+    fn strings_heredocs_and_templates_color_as_strings() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted(r#"a = "x\"y""#),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(String), r#""x\"y""#),
+            ]
+        );
+        assert_eq!(
+            highlighted("a = <<EOT"),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(String), "<<EOT"),
+            ]
+        );
+        assert_eq!(
+            highlighted("a = ${var.x}"),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(String), "${var.x}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn numbers_booleans_and_null_are_literals() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("x = [1.5, true, null, false]"),
+            vec![
+                run(Some(Key), "x"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(Punctuation), "["),
+                run(Some(Literal), "1.5"),
+                run(Some(Punctuation), ","),
+                run(None, " "),
+                run(Some(Literal), "true"),
+                run(Some(Punctuation), ","),
+                run(None, " "),
+                run(Some(Literal), "null"),
+                run(Some(Punctuation), ","),
+                run(None, " "),
+                run(Some(Literal), "false"),
+                run(Some(Punctuation), "]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn braces_and_brackets_are_punctuation() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("  }]"),
+            vec![
+                run(None, "  "),
+                run(Some(Punctuation), "}"),
+                run(Some(Punctuation), "]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_comment_only_line_is_one_comment_after_the_indent() {
+        use TokenKind::*;
+        for comment in ["# note \"x\" { = }", "// note"] {
+            let line = format!("  {comment}");
+            assert_eq!(
+                highlighted(&line),
+                vec![run(None, "  "), run(Some(Comment), comment)]
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_and_block_comments_are_comments() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted("a = 1 # one"),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(Literal), "1"),
+                run(None, " "),
+                run(Some(Comment), "# one"),
+            ]
+        );
+        assert_eq!(
+            highlighted("a /* k */ = 1 // one"),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Comment), "/* k */"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(Literal), "1"),
+                run(None, " "),
+                run(Some(Comment), "// one"),
+            ]
+        );
+        assert_eq!(
+            highlighted("/* open"),
+            vec![run(Some(Comment), "/* open")]
+        );
+    }
+
+    #[test]
+    fn a_hash_inside_a_string_is_not_a_comment() {
+        use TokenKind::*;
+        assert_eq!(
+            highlighted(r#"a = "x # y""#),
+            vec![
+                run(Some(Key), "a"),
+                run(None, " "),
+                run(Some(Punctuation), "="),
+                run(None, " "),
+                run(Some(String), r#""x # y""#),
+            ]
+        );
+    }
+
+    #[test]
+    fn tricky_lines_cover_every_character() {
+        for line in [
+            "",
+            "   ",
+            "# only a comment",
+            "  // only a comment",
+            r#"name = "héllo ✓""#,
+            r#"name = "unterminated"#,
+            r#"a = "x # y" # z"#,
+            "a = 1   ",
+            "ключ = \"значение\" # ✓",
+            "a = ${ \"}\" ",
+            "<< = é",
+        ] {
+            let text: std::string::String =
+                highlighted(line).into_iter().map(|(_, text)| text).collect();
+            assert_eq!(text, line);
+        }
     }
 }

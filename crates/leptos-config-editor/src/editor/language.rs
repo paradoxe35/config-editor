@@ -37,7 +37,7 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// One step of a path into the parsed document, used for schema navigation.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SchemaPathSegment {
     Key(String),
     ArrayItem(usize),
@@ -192,6 +192,9 @@ pub(super) struct CompletionContext {
     /// No property may be inserted here (for example the XML config root's
     /// start tag, whose attributes are editor metadata).
     pub(super) no_properties: bool,
+    /// The value position can also hold child entries (an empty XML element
+    /// between its tags): an object value offers its properties as children.
+    pub(super) value_or_children: bool,
 }
 
 /// Splits a JSON pointer into unescaped segments.

@@ -10,6 +10,7 @@
 //!   headers cannot address, where they are written inline.
 //! - `Ctrl+/` toggles `#` line comments.
 
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
@@ -18,7 +19,8 @@ use super::super::language::{
     CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
     SchemaPathSegment,
 };
-use leptos::prelude::*;
+use super::super::highlight::{Token, TokenKind, Tokens};
+use leptos::prelude::AnyView;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -83,8 +85,12 @@ impl LanguageBehavior for TomlBehavior {
         key_at_column(line, column)
     }
 
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        hover_context_offset(line, column)
+    }
+
     fn highlight_line(&self, line: &str) -> AnyView {
-        highlight_line(line)
+        super::super::highlight::render(line, &highlight(line))
     }
 
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
@@ -519,89 +525,6 @@ fn inline_item_end(text: &str, from: usize) -> usize {
     from + end.trim_end_matches([' ', '\t']).len()
 }
 
-/// Unclosed `{` count at the end of `text`, ignoring quoted strings.
-fn inline_depth(text: &str) -> usize {
-    let mut depth = 0usize;
-    let mut quote = None;
-    let mut escaped = false;
-    for character in text.chars() {
-        if let Some(active) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' && active == '"' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
-            }
-            continue;
-        }
-        match character {
-            '"' | '\'' => quote = Some(character),
-            '{' => depth += 1,
-            '}' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    depth
-}
-
-/// Path of the inline table holding the caret. `base` is the path of the
-/// outer table (the assignment's key included) and `open` the byte index of
-/// its `{`. Nested `key = {` entries extend the path, so
-/// `clients = { acme = { |` completes under `clients.acme`.
-fn inline_table_path(
-    base: &[SchemaPathSegment],
-    code: &str,
-    open: usize,
-) -> Vec<SchemaPathSegment> {
-    let mut stack = vec![base.to_vec()];
-    let mut segment_start = open + 1;
-    let mut index = open + 1;
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    while index < code.len() {
-        let character = code[index..].chars().next().unwrap_or('\0');
-        let width = character.len_utf8();
-        if let Some(active) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' && active == '"' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
-            }
-            index += width;
-            continue;
-        }
-        match character {
-            '"' | '\'' => quote = Some(character),
-            '{' => {
-                let raw = code[segment_start..index].trim();
-                let mut path = stack.last().cloned().unwrap_or_else(|| base.to_vec());
-                if let Some(equals) = raw.rfind('=') {
-                    let key = raw[..equals].trim();
-                    match split_key_path(&unquote_key(key)) {
-                        Some(parts) => path.extend(parts.into_iter().map(SchemaPathSegment::Key)),
-                        None => path.push(SchemaPathSegment::Key(unquote_key(key))),
-                    }
-                }
-                stack.push(path);
-                segment_start = index + 1;
-            }
-            '}' => {
-                if stack.len() > 1 {
-                    stack.pop();
-                }
-                segment_start = index + 1;
-            }
-            ',' => segment_start = index + 1,
-            _ => {}
-        }
-        index += width;
-    }
-    stack.pop().unwrap_or_else(|| base.to_vec())
-}
-
 #[cfg(feature = "schema-validation")]
 /// Span of a key nested in an inline-table value on `code`: `base` is the
 /// outer assignment's path. Returns the entry's key and value spans.
@@ -756,45 +679,56 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         };
     }
 
-    // Inside `key = { … }`: the path descends through each enclosing inline
-    // table and the typed token follows the last `{` or `,`.
-    if let Some(equals) = assignment_equals(code_before) {
-        let after_equals = &code_before[equals + 1..];
-        let spaces = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
-        let value_text = &after_equals[spaces..];
-        if value_text.starts_with('{') && inline_depth(value_text) > 0 {
-            let raw_key = code_line[..assignment_equals(code_line).unwrap_or(equals)]
-                .trim()
-                .to_string();
-            let mut full = path.clone();
-            full.extend(
-                split_key_path(&unquote_key(&raw_key))
-                    .unwrap_or_else(|| vec![unquote_key(&raw_key)])
-                    .into_iter()
-                    .map(SchemaPathSegment::Key),
-            );
-            let brace = equals + 1 + spaces;
-            let full = inline_table_path(&full, code_before, brace);
-            let segment_start = code_before.rfind([',', '{']).map_or(0, |index| index + 1);
-            let raw = &code_before[segment_start..];
-            let typed = raw.trim_start();
-            let typed_start = line_start + segment_start + (raw.len() - typed.len());
-            return CompletionContext {
-                typed: typed.trim_end().to_string(),
-                replace_start: utf16(&source[..typed_start]),
+    // Inside `key = { … }` or `key = [ … ]` opened on this line.
+    if let Some(caret) = inline_caret(code_before, b'=') {
+        let mut full = path.clone();
+        for (index, segment) in caret.path.into_iter().enumerate() {
+            // The line's own key may be dotted (`a.b = { … }`).
+            match segment {
+                SchemaPathSegment::Key(key) if index == 0 => full.extend(
+                    split_key_path(&key)
+                        .unwrap_or_else(|| vec![key])
+                        .into_iter()
+                        .map(SchemaPathSegment::Key),
+                ),
+                segment => full.push(segment),
+            }
+        }
+        let line_end = (line_start + line.len()).min(source.len());
+        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let at = |offset: usize| line_start + offset;
+        return match caret.entry {
+            CaretEntry::Key { start } => CompletionContext {
+                typed: code_before[start..].trim_end().to_string(),
+                replace_start: utf16(&source[..at(start)]),
                 replace_end: utf16(&source[..cursor]),
-                value_key: None,
-                value_needs_space: false,
-                is_array_item: false,
-                base_indent: String::new(),
                 path: full,
-                entry_prefix: "",
-                explicit_entry_start: false,
-                entry_suffix: "",
                 position: EntryPosition::Inline,
                 ..Default::default()
-            };
-        }
+            },
+            CaretEntry::Value { key, start } => CompletionContext {
+                typed: code_before[start..].trim_end().to_string(),
+                replace_start: utf16(&source[..at(start)]),
+                replace_end: utf16(&source[..value_end]),
+                value_needs_space: start == code_before.len() && !code_before.ends_with([' ', '\t']),
+                value_key: Some(key),
+                path: full,
+                position: EntryPosition::Inline,
+                ..Default::default()
+            },
+            CaretEntry::Item { index, start } => {
+                full.push(SchemaPathSegment::ArrayItem(index));
+                CompletionContext {
+                    typed: code_before[start..].trim_end().to_string(),
+                    replace_start: utf16(&source[..at(start)]),
+                    replace_end: utf16(&source[..value_end]),
+                    is_array_item: true,
+                    path: full,
+                    position: EntryPosition::Inline,
+                    ..Default::default()
+                }
+            }
+        };
     }
 
     // Value position.
@@ -1153,6 +1087,14 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
         let end_column = line.trim_end().len();
         return (column >= start_column && column <= end_column).then_some((last, start_column));
     }
+    if let Some(entry) = inline_keys(code, b'=')
+        .into_iter()
+        .skip(1)
+        .find(|entry| (entry.start..entry.end).contains(&byte_at_column(line, column)))
+    {
+        let key = unquote_key(&line[entry.start..entry.end]);
+        return Some((key, line[..entry.start].chars().count()));
+    }
     let (key, start, _) = key_assignment(code)?;
     let start_column = line[..start].chars().count();
     let end_column = start_column + line[start..start + key.len()].chars().count();
@@ -1169,6 +1111,21 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
         return None;
     }
     (column >= start_column && column < end_column).then_some((key, start_column))
+}
+
+/// The byte offset of character `column` (0-based) in `line`.
+fn byte_at_column(line: &str, column: usize) -> usize {
+    line.char_indices()
+        .nth(column)
+        .map_or(line.len(), |(index, _)| index)
+}
+
+/// Where hover reads the context for the key at `column`: just past its `=`,
+/// so a key inside an inline table resolves under that table.
+fn hover_context_offset(line: &str, column: usize) -> usize {
+    let (code, _) = split_toml_comment(line);
+    inline_key_at(code, b'=', byte_at_column(line, column))
+        .map_or(line.len(), |key| key.after_separator)
 }
 
 // ---------------------------------------------------------------------------
@@ -1326,67 +1283,55 @@ fn toml_confidence(source: &str) -> u8 {
     score.min(200)
 }
 
-fn highlight_line(line: &str) -> AnyView {
-    let indent_len = line.len() - line.trim_start().len();
-    let (indent, content) = line.split_at(indent_len);
-    let (code, comment) = split_toml_comment(content);
-    if code.trim().is_empty() {
-        return match comment {
-            Some(comment) => view! {
-                <span>{indent}<span class="config-editor__comment">{comment.to_string()}</span></span>
-            }
-            .into_any(),
-            None => view! { <span>{line.to_string()}</span> }.into_any(),
-        };
-    }
-    if code.trim_start().starts_with('[') {
-        return view! {
-            <span>
-                {indent}
-                <span class="config-editor__punctuation">{code.trim().to_string()}</span>
-                {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
-            </span>
+fn highlight(line: &str) -> Vec<Token> {
+    let mut tokens = Tokens::new();
+    let code_start = line.len() - line.trim_start().len();
+    let (code, comment) = split_toml_comment(&line[code_start..]);
+    let comment_start = code_start + code.len();
+    let push_comment = |tokens: &mut Tokens| {
+        if let Some(comment) = comment {
+            tokens.push(comment_start, comment_start + comment.len(), TokenKind::Comment);
         }
-        .into_any();
-    }
-    if let Some((_, start, end)) = key_assignment(code) {
-        let equals_at = code[end..].find('=').map(|index| end + index);
-        let Some(equals) = equals_at else {
-            return view! { <span>{line.to_string()}</span> }.into_any();
-        };
-        // Re-emit the whitespace after `=` so the overlay stays byte-identical
-        // to the textarea.
+    };
+    if code.trim().is_empty() {
+        push_comment(&mut tokens);
+    } else if code.starts_with('[') {
+        let header_len = code.trim_end().len();
+        tokens.push(code_start, code_start + header_len, TokenKind::Punctuation);
+        push_comment(&mut tokens);
+    } else if let Some((_, start, end)) = key_assignment(code)
+        && let Some(equals) = code[end..].find('=').map(|index| end + index)
+    {
         let after_equals = &code[equals + 1..];
         let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
         let scalar_start = equals + 1 + gap_len;
+        // Includes any whitespace before the comment.
         let (scalar, trailing) = split_toml_comment(&code[scalar_start..]);
-        let class = scalar_class(scalar);
-        return view! {
-            <span>
-                {indent}
-                {code[..start].to_string()}
-                <span class="config-editor__key">{code[start..end].to_string()}</span>
-                {code[end..scalar_start].to_string()}
-                <span class=class>{scalar.to_string()}</span>
-                {trailing.map(|trailing| view! { <span class="config-editor__comment">{trailing.to_string()}</span> })}
-                {comment.map(|comment| view! { <span class="config-editor__comment">{comment.to_string()}</span> })}
-            </span>
+        let scalar_end = scalar_start + scalar.len();
+        tokens.push(code_start + start, code_start + end, TokenKind::Key);
+        tokens.push(code_start + scalar_start, code_start + scalar_end, scalar_kind(scalar));
+        if let Some(trailing) = trailing {
+            tokens.push(
+                code_start + scalar_end,
+                code_start + scalar_end + trailing.len(),
+                TokenKind::Comment,
+            );
         }
-        .into_any();
+        push_comment(&mut tokens);
     }
-    view! { <span>{line.to_string()}</span> }.into_any()
+    tokens.finish()
 }
 
-fn scalar_class(scalar: &str) -> &'static str {
+fn scalar_kind(scalar: &str) -> TokenKind {
     let scalar = scalar.trim();
     if scalar.is_empty() {
-        "config-editor__value"
+        TokenKind::Value
     } else if matches!(scalar, "true" | "false") || scalar.parse::<f64>().is_ok() {
-        "config-editor__literal"
-    } else if scalar.starts_with(['"', '\'']) || scalar.starts_with(['{', '[']) {
-        "config-editor__string"
+        TokenKind::Literal
+    } else if scalar.starts_with(['"', '\'', '{', '[']) {
+        TokenKind::String
     } else {
-        "config-editor__value"
+        TokenKind::Value
     }
 }
 
@@ -1416,7 +1361,8 @@ mod tests {
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
     use super::super::super::language::LanguageBehavior;
-    use super::TomlBehavior;
+    use super::super::super::highlight::{TokenKind, runs};
+    use super::{TomlBehavior, highlight};
 
     fn schema() -> SchemaBundle {
         build_schema(
@@ -1780,6 +1726,159 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    fn colored(line: &str) -> Vec<(Option<TokenKind>, String)> {
+        runs(line, &highlight(line))
+    }
+
+    fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
+        (kind, text.to_string())
+    }
+
+    #[test]
+    fn table_headers_are_punctuation_with_a_trailing_comment() {
+        assert_eq!(
+            colored("  [server.http] # main"),
+            vec![
+                run(None, "  "),
+                run(Some(TokenKind::Punctuation), "[server.http]"),
+                run(None, " "),
+                run(Some(TokenKind::Comment), "# main"),
+            ]
+        );
+        assert_eq!(
+            colored("[[bin]]"),
+            vec![run(Some(TokenKind::Punctuation), "[[bin]]")]
+        );
+    }
+
+    #[test]
+    fn keys_and_equals_color_the_key_and_leave_the_separator_plain() {
+        assert_eq!(
+            colored("  name = plain"),
+            vec![
+                run(None, "  "),
+                run(Some(TokenKind::Key), "name"),
+                run(None, " = "),
+                run(Some(TokenKind::Value), "plain"),
+            ]
+        );
+        assert_eq!(
+            colored("\"a=b\".c=x"),
+            vec![
+                run(Some(TokenKind::Key), "\"a=b\".c"),
+                run(None, "="),
+                run(Some(TokenKind::Value), "x"),
+            ]
+        );
+    }
+
+    #[test]
+    fn quoted_values_and_inline_tables_and_arrays_are_strings() {
+        for value in ["\"hi\"", "'hi'", "{ a = 1 }", "[1, 2]", "\"\"\"open"] {
+            let line = format!("k = {value}");
+            assert_eq!(
+                colored(&line),
+                vec![
+                    run(Some(TokenKind::Key), "k"),
+                    run(None, " = "),
+                    run(Some(TokenKind::String), value),
+                ],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn numbers_and_booleans_are_literals_including_whitespace_before_a_comment() {
+        for value in ["true", "false", "8080", "-1.5e3", "inf"] {
+            let line = format!("k = {value}");
+            assert_eq!(
+                colored(&line),
+                vec![
+                    run(Some(TokenKind::Key), "k"),
+                    run(None, " = "),
+                    run(Some(TokenKind::Literal), value),
+                ],
+                "{line}"
+            );
+        }
+        assert_eq!(
+            colored("port = 80  # http"),
+            vec![
+                run(Some(TokenKind::Key), "port"),
+                run(None, " = "),
+                run(Some(TokenKind::Literal), "80  "),
+                run(Some(TokenKind::Comment), "# http"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_hash_right_after_equals_is_a_comment_and_an_empty_value_is_uncolored() {
+        assert_eq!(
+            colored("k =#x"),
+            vec![
+                run(Some(TokenKind::Key), "k"),
+                run(None, " ="),
+                run(Some(TokenKind::Comment), "#x"),
+            ]
+        );
+        assert_eq!(
+            colored("k = "),
+            vec![run(Some(TokenKind::Key), "k"), run(None, " = ")]
+        );
+    }
+
+    #[test]
+    fn comment_lines_and_unrecognized_lines() {
+        assert_eq!(
+            colored("   # note"),
+            vec![run(None, "   "), run(Some(TokenKind::Comment), "# note")]
+        );
+        assert_eq!(colored("no equals here"), vec![run(None, "no equals here")]);
+        assert_eq!(colored("= 1"), vec![run(None, "= 1")]);
+        assert_eq!(colored(""), vec![]);
+        assert_eq!(colored("   "), vec![run(None, "   ")]);
+    }
+
+    #[test]
+    fn a_hash_inside_a_string_is_part_of_the_string() {
+        assert_eq!(
+            colored("k = \"a # b\" # c"),
+            vec![
+                run(Some(TokenKind::Key), "k"),
+                run(None, " = "),
+                run(Some(TokenKind::String), "\"a # b\" "),
+                run(Some(TokenKind::Comment), "# c"),
+            ]
+        );
+    }
+
+    #[test]
+    fn tricky_lines_are_covered_exactly_once() {
+        for line in [
+            "",
+            "# only a comment",
+            "\t# indented comment",
+            "名前 = \"値 ✓\" # コメント",
+            "k = \"unterminated # not a comment",
+            "k = 'unterminated",
+            "k = \"\"\"multi # still string",
+            "k = \"a # b\"",
+            "[table]   ",
+            "[[arr]] # c  ",
+            "k = 1   ",
+            "k = { a = \"#\", b = [1, 2] }  # x",
+            "\"quoted key\" = true",
+            "[unclosed",
+            "  = ",
+            "é=ü",
+        ] {
+            let text: String = colored(line).into_iter().map(|(_, text)| text).collect();
+            assert_eq!(text, line);
         }
     }
 }

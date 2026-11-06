@@ -9,6 +9,7 @@
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
@@ -16,7 +17,7 @@ use super::super::language::{
     CompletionContext, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
-use leptos::prelude::*;
+use leptos::prelude::AnyView;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
@@ -91,7 +92,7 @@ impl LanguageBehavior for JsonBehavior {
     }
 
     fn highlight_line(&self, line: &str) -> AnyView {
-        highlight_line(line)
+        highlight::render(line, &highlight(line))
     }
 
     fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
@@ -835,41 +836,25 @@ fn open_string_quote(source: &str, cursor: usize) -> Option<char> {
     in_string.then_some('"')
 }
 
-fn highlight_line(line: &str) -> AnyView {
-    let tokens = tokenize(line);
-    let mut parts: Vec<AnyView> = Vec::new();
-    let mut position = 0;
-    for token in &tokens {
-        if token.start > position {
-            let gap = line[position..token.start].to_string();
-            parts.push(view! { <span>{gap}</span> }.into_any());
-        }
-        let text = line[token.start..token.end].to_string();
-        let class = token_class(line, token);
-        parts.push(view! { <span class=class>{text}</span> }.into_any());
-        position = token.end;
-    }
-    if position < line.len() {
-        let tail = line[position..].to_string();
-        parts.push(view! { <span>{tail}</span> }.into_any());
-    }
-    view! { <span>{parts}</span> }.into_any()
-}
-
-fn token_class(line: &str, token: &Token) -> &'static str {
-    match token.kind {
-        Kind::Punct(_) => "config-editor__punctuation",
-        Kind::Str { .. } if line[token.end..].trim_start().starts_with(':') => "config-editor__key",
-        Kind::Str { .. } => "config-editor__string",
-        Kind::Word => {
-            let text = &line[token.start..token.end];
-            if matches!(text, "true" | "false" | "null") || text.parse::<f64>().is_ok() {
-                "config-editor__literal"
-            } else {
-                "config-editor__value"
+fn highlight(line: &str) -> Vec<highlight::Token> {
+    let mut tokens = Tokens::new();
+    for token in tokenize(line) {
+        let kind = match token.kind {
+            Kind::Punct(_) => TokenKind::Punctuation,
+            Kind::Str { .. } if line[token.end..].trim_start().starts_with(':') => TokenKind::Key,
+            Kind::Str { .. } => TokenKind::String,
+            Kind::Word => {
+                let text = &line[token.start..token.end];
+                if matches!(text, "true" | "false" | "null") || text.parse::<f64>().is_ok() {
+                    TokenKind::Literal
+                } else {
+                    TokenKind::Value
+                }
             }
-        }
+        };
+        tokens.push(token.start, token.end, kind);
     }
+    tokens.finish()
 }
 
 // ---------------------------------------------------------------------------
@@ -909,7 +894,8 @@ mod tests {
         position: super::super::super::language::EntryPosition::Block,
         path: &[],
     };
-    use super::JsonBehavior;
+    use super::super::super::highlight::{TokenKind, runs};
+    use super::{JsonBehavior, highlight};
 
     fn schema() -> SchemaBundle {
         build_schema(
@@ -1241,5 +1227,109 @@ mod tests {
             .unwrap();
         assert_eq!(insert, "\"auth\": {\n  \"enabled\": false\n}");
         assert_eq!(caret, "\"auth\": {\n  \"enabled\": ".encode_utf16().count());
+    }
+
+    fn hl(line: &str) -> Vec<(Option<TokenKind>, String)> {
+        runs(line, &highlight(line))
+    }
+
+    fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
+        (kind, text.to_string())
+    }
+
+    #[test]
+    fn a_string_followed_by_a_colon_is_a_key() {
+        assert_eq!(
+            hl(r#"  "name" : "x","#),
+            vec![
+                run(None, "  "),
+                run(Some(TokenKind::Key), r#""name""#),
+                run(None, " "),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::String), r#""x""#),
+                run(Some(TokenKind::Punctuation), ","),
+            ]
+        );
+    }
+
+    #[test]
+    fn numbers_booleans_and_null_are_literals_and_other_words_are_values() {
+        assert_eq!(
+            hl("[1, -2.5e3, true, false, null, nope]"),
+            vec![
+                run(Some(TokenKind::Punctuation), "["),
+                run(Some(TokenKind::Literal), "1"),
+                run(Some(TokenKind::Punctuation), ","),
+                run(None, " "),
+                run(Some(TokenKind::Literal), "-2.5e3"),
+                run(Some(TokenKind::Punctuation), ","),
+                run(None, " "),
+                run(Some(TokenKind::Literal), "true"),
+                run(Some(TokenKind::Punctuation), ","),
+                run(None, " "),
+                run(Some(TokenKind::Literal), "false"),
+                run(Some(TokenKind::Punctuation), ","),
+                run(None, " "),
+                run(Some(TokenKind::Literal), "null"),
+                run(Some(TokenKind::Punctuation), ","),
+                run(None, " "),
+                run(Some(TokenKind::Value), "nope"),
+                run(Some(TokenKind::Punctuation), "]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_bracket_and_separator_is_punctuation() {
+        assert_eq!(
+            hl("{}[],:"),
+            "{}[],:"
+                .chars()
+                .map(|c| run(Some(TokenKind::Punctuation), &c.to_string()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_escaped_quote_does_not_end_the_string() {
+        assert_eq!(
+            hl(r#""a\"b": "c\"""#),
+            vec![
+                run(Some(TokenKind::Key), r#""a\"b""#),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::String), r#""c\"""#),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_string_runs_to_the_line_end() {
+        assert_eq!(
+            hl(r#""k": "open, [1"#),
+            vec![
+                run(Some(TokenKind::Key), r#""k""#),
+                run(Some(TokenKind::Punctuation), ":"),
+                run(None, " "),
+                run(Some(TokenKind::String), r#""open, [1"#),
+            ]
+        );
+    }
+
+    #[test]
+    fn highlighting_covers_every_character_of_tricky_lines() {
+        for line in [
+            "",
+            "   ",
+            r#"{"clé": "日本語 🎉"}  "#,
+            r#""unterminated \""#,
+            r#""esc\\": "q\"x""#,
+            "\t1,\t",
+            "🎉: wörd",
+        ] {
+            let text: String = hl(line).into_iter().map(|(_, text)| text).collect();
+            assert_eq!(text, line);
+        }
     }
 }
