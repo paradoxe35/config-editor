@@ -100,3 +100,82 @@ test.describe('the suggestion list', () => {
     await expect.poll(() => e.highlighted()).toEqual([keys[0]]);
   });
 });
+
+// Suggestions follow typing only: moving the caret is navigation and never
+// opens the list (and closes an open one); typing, and accepting a key,
+// open it.
+test.describe('suggestions open only while typing', () => {
+  setupEditor(test);
+
+  const end = async (e) =>
+    e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+
+  test('arrow keys, Home, End, and PageUp/PageDown never open the list', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\npublic_address: tunnel.example.com\n');
+    await end(e);
+    for (const key of ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'End', 'Home', 'ArrowDown', 'PageUp', 'PageDown']) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(60);
+      expect(await e.isOpen(), `after ${key}`).toBe(false);
+    }
+  });
+
+  test('moving the caret closes an open list, and typing reopens it', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await end(e);
+    // ArrowUp/ArrowDown move inside an open list instead (tested below).
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+      await page.keyboard.type('pub');
+      await expect.poll(() => e.isOpen()).toBe(true);
+      await page.keyboard.press(key);
+      await expect.poll(() => e.isOpen(), `after ${key}`).toBe(false);
+      await e.paste('listen: 7835\n');
+      await end(e);
+    }
+  });
+
+  test('a click elsewhere closes an open list', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\n');
+    await end(e);
+    await page.keyboard.type('pub');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    await e.input.click({ position: { x: 20, y: 10 } });
+    await expect.poll(() => e.isOpen()).toBe(false);
+  });
+
+  test('ArrowUp and ArrowDown move inside an open list without closing it', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('');
+    await page.keyboard.type('i');
+    await expect.poll(async () => (await e.keys()).length).toBeGreaterThan(1);
+    const keys = await e.keys();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => e.highlighted()).toEqual([keys[1]]);
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(() => e.highlighted()).toEqual([keys[0]]);
+    expect(await e.isOpen()).toBe(true);
+  });
+
+  test('accepting a key continues into its children', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('');
+    await page.keyboard.type('pool');
+    await expect.poll(() => e.keys()).toContain('pool');
+    await page.keyboard.press('Enter');
+    // The list reopens for the children of the accepted key.
+    await expect.poll(() => e.keys()).toContain('min_idle');
+  });
+
+  test('typing where nothing can follow keeps the list closed', async ({ page }) => {
+    const e = editor(page);
+    await e.typeDoc('# a comment about pool');
+    await page.waitForTimeout(150);
+    expect(await e.isOpen()).toBe(false);
+  });
+});

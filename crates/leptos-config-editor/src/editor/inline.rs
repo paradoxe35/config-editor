@@ -241,7 +241,13 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
                 at_entry = true;
                 index += 1;
             }
-            b' ' | b'\t' | b'\n' | b'\r' => index += 1,
+            b' ' | b'\t' | b'\r' => index += 1,
+            // A line break also starts an entry: HCL objects separate
+            // entries with newlines, not only commas.
+            b'\n' => {
+                at_entry = true;
+                index += 1;
+            }
             b'#' if is_comment_start(code, index) => index = line_end(code, index),
             b'/' if code[index..].starts_with("//") && is_comment_start(code, index) => {
                 index = line_end(code, index);
@@ -278,6 +284,98 @@ fn walk(code: &str, separator: u8, mut on: impl FnMut(Event)) {
             _ => index += 1,
         }
     }
+}
+
+/// Every key in `code` (one statement) with its path from the statement's
+/// first key: `a = [{ b = 1 }]` yields `a` at `[a]` and `b` at `[a, 0, b]`.
+/// Diagnostics use it to place a problem inside nested inline containers.
+pub fn inline_key_paths(code: &str, separator: u8) -> Vec<(Vec<SchemaPathSegment>, InlineKey)> {
+    let mut found = Vec::new();
+    let mut frames: Vec<Frame> = Vec::new();
+    let mut entry_key: Option<String> = None;
+    walk(code, separator, |event| match event {
+        Event::Key(key) => {
+            let name = unquote(&code[key.start..key.end]);
+            let mut path: Vec<SchemaPathSegment> =
+                frames.iter().filter_map(Frame::segment).cloned().collect();
+            if let Some(Frame::Array { index, .. }) = frames.last() {
+                path.push(SchemaPathSegment::ArrayItem(*index));
+            }
+            path.push(SchemaPathSegment::Key(name.clone()));
+            found.push((path, key));
+            entry_key = Some(name);
+        }
+        Event::Open(bracket, _) => {
+            let segment = match frames.last() {
+                Some(Frame::Array { index, .. }) => Some(SchemaPathSegment::ArrayItem(*index)),
+                _ => entry_key.take().map(SchemaPathSegment::Key),
+            };
+            frames.push(if bracket == b'{' {
+                Frame::Table { segment }
+            } else {
+                Frame::Array { segment, index: 0 }
+            });
+        }
+        Event::Close(_) => {
+            frames.pop();
+            entry_key = None;
+        }
+        Event::Comma(_) => {
+            if let Some(Frame::Array { index, .. }) = frames.last_mut() {
+                *index += 1;
+            }
+            entry_key = None;
+        }
+    });
+    found
+}
+
+/// Byte ranges of the statements in `source` that open inline containers:
+/// from the start of the line opening the outermost container to just past
+/// its closer (or the end of `source`). Same opener rules as
+/// [`statement_start`].
+pub fn statements(source: &str) -> Vec<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut ranges = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    let mut index = 0;
+    let mut previous = b'\n';
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match byte {
+            b'"' | b'\'' if depth > 0 || matches!(previous, b':' | b'=' | b',' | b'[' | b'{') => {
+                index = skip_quoted(source, index);
+                previous = b'"';
+                continue;
+            }
+            b'#' if is_comment_start(source, index) => {
+                index = line_end(source, index);
+                continue;
+            }
+            b'{' | b'[' if matches!(previous, b':' | b'=' | b',' | b'[' | b'{' | b'-' | b'\n') => {
+                if depth == 0 {
+                    start = source[..index].rfind('\n').map_or(0, |newline| newline + 1);
+                }
+                depth += 1;
+            }
+            b'}' | b']' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    ranges.push((start, index + 1));
+                }
+            }
+            _ => {}
+        }
+        if !matches!(byte, b' ' | b'\t') {
+            previous = byte;
+        }
+        index += 1;
+    }
+    if depth > 0 {
+        ranges.push((start, source.len()));
+    }
+    ranges
 }
 
 /// Where the statement holding the end of `before_caret` starts: the line
@@ -467,6 +565,28 @@ mod tests {
         // Prose brackets and comments do not open containers.
         assert_eq!(statement_start("note: |\n  see [docs\nb: 1\n"), None);
         assert_eq!(statement_start("a = 1 # [x\nb = "), None);
+    }
+
+    #[test]
+    fn key_paths_include_array_indexes() {
+        let code = "dns = [\n  { domains = [\"a\"] },\n  {\n    x = 1\n    wait_secs = 60\n  }\n]";
+        let paths: Vec<(Vec<SchemaPathSegment>, &str)> = inline_key_paths(code, b'=')
+            .into_iter()
+            .map(|(path, key)| (path, &code[key.start..key.end]))
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                (vec![key("dns")], "dns"),
+                (vec![key("dns"), ArrayItem(0), key("domains")], "domains"),
+                (vec![key("dns"), ArrayItem(1), key("x")], "x"),
+                (
+                    vec![key("dns"), ArrayItem(1), key("wait_secs")],
+                    "wait_secs"
+                ),
+            ]
+        );
+        assert_eq!(statements("a = 1\nb = [\n 1\n]\nc = 2\n"), vec![(6, 16)]);
     }
 
     #[test]

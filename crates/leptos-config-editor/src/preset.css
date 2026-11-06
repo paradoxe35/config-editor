@@ -31,8 +31,33 @@
   --config-editor-modified-line: rgb(117 190 255 / 10%);
   --config-editor-selection: rgb(38 79 120 / 75%);
   --config-editor-caret: #aeafad;
+  --config-editor-warning: #cca700;
+  --config-editor-line-number: #858585;
+  --config-editor-file-icon-bg: #8a6e2f;
+  --config-editor-file-icon-text: #fff;
+  --config-editor-control-disabled-text: #777777;
+  --config-editor-focus-ring: #75beff;
+  --config-editor-diff-focus-ring: #ffffff;
+  --config-editor-diff-peek-divider: #383838;
+  --config-editor-diff-removed-bg: rgb(241 76 76 / 18%);
+  --config-editor-diff-removed-text: #f1b3b3;
+  --config-editor-diff-current-bg: rgb(117 190 255 / 13%);
+  --config-editor-diff-current-text: #c5e1f9;
+  --config-editor-tooltip-text: #f0f0f0;
+  --config-editor-completion-key: #e8e8e8;
+  --config-editor-completion-type: #9da0a3;
+  --config-editor-completion-detail: #a7a7a7;
+  --config-editor-completion-icon-border: #6b6b6b;
+  --config-editor-completion-icon-text: #bdbdbd;
+  --config-editor-scrollbar-thumb: #686868;
+  --config-editor-status-error: #f48771;
+  --config-editor-popup-shadow: rgb(0 0 0 / 35%);
+  --config-editor-peek-shadow: rgb(0 0 0 / 45%);
+  --config-editor-hover-shadow: rgba(0, 0, 0, 0.28);
   --config-editor-font-size: 12px;
-  --config-editor-line-height: calc(var(--config-editor-font-size) * 1.8);
+  /* A whole number of pixels: fractional line heights round differently in the
+     textarea and the overlay, and the gap grows with every line. */
+  --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
   --config-editor-padding-top: 15px;
   --config-editor-padding-bottom: 15px;
   --config-editor-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -54,7 +79,7 @@
 }
 
 .config-editor__frame:focus-within {
-  border-color: #007acc;
+  border-color: var(--config-editor-accent);
 }
 
 .config-editor__toolbar {
@@ -84,8 +109,8 @@
   display: grid;
   place-items: center;
   border-radius: 3px;
-  background: #8a6e2f;
-  color: #fff;
+  background: var(--config-editor-file-icon-bg);
+  color: var(--config-editor-file-icon-text);
   font: 10px var(--config-editor-mono);
 }
 
@@ -100,20 +125,20 @@
 
 .config-editor__action-button {
   padding: 5px 10px;
-  border: 1px solid #454545;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
-  background: #333333;
-  color: #cccccc;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
   font: 12px ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
 
 .config-editor__action-button:hover:not(:disabled) {
-  background: #3c3c3c;
+  background: var(--config-editor-raised-hover);
 }
 
 .config-editor__action-button:disabled {
-  color: #777777;
+  color: var(--config-editor-control-disabled-text);
   cursor: default;
 }
 
@@ -136,7 +161,7 @@
   max-height: var(--config-editor-max-height, 80vh);
   overflow: hidden;
   padding: var(--config-editor-padding-top) 13px var(--config-editor-padding-bottom) 0;
-  color: #858585;
+  color: var(--config-editor-line-number);
   text-align: right;
   user-select: none;
   font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
@@ -251,7 +276,7 @@
 
 .config-editor__diff-change-trigger:focus-visible,
 .config-editor__diff-deleted:focus-visible {
-  outline: 1px solid #ffffff;
+  outline: 1px solid var(--config-editor-diff-focus-ring);
   outline-offset: 1px;
 }
 
@@ -260,11 +285,11 @@
   z-index: 5;
   min-width: 180px;
   overflow: auto;
-  border: 1px solid #454545;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 5px;
-  background: #252526;
-  color: #d4d4d4;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 6px 20px var(--config-editor-peek-shadow);
   font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -277,8 +302,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 7px 10px;
-  border-bottom: 1px solid #454545;
-  background: #252526;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  background: var(--config-editor-raised);
 }
 
 .config-editor__diff-peek-header button {
@@ -288,13 +313,13 @@
   border: 0;
   border-radius: 3px;
   background: transparent;
-  color: #cccccc;
+  color: var(--config-editor-control-text);
   cursor: pointer;
   font: 18px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
 .config-editor__diff-peek-header button:hover,
-.config-editor__diff-peek-header button:focus-visible { background: #3c3c3c; }
+.config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
 
 .config-editor__diff-peek-columns {
   display: grid;
@@ -302,12 +327,12 @@
 }
 
 .config-editor__diff-peek-side { min-width: 0; }
-.config-editor__diff-peek-side + .config-editor__diff-peek-side { border-left: 1px solid #454545; }
+.config-editor__diff-peek-side + .config-editor__diff-peek-side { border-left: 1px solid var(--config-editor-raised-border); }
 
 .config-editor__diff-peek-side h3 {
   margin: 0;
   padding: 5px 10px;
-  border-bottom: 1px solid #383838;
+  border-bottom: 1px solid var(--config-editor-diff-peek-divider);
   color: var(--config-editor-raised-muted);
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
@@ -322,8 +347,15 @@
 
 .config-editor__diff-peek-line > span { flex: 0 0 10px; text-align: center; }
 .config-editor__diff-peek-line code { overflow-wrap: anywhere; white-space: pre-wrap; }
-.config-editor__diff-peek-removed { background: rgb(241 76 76 / 18%); color: #f1b3b3; }
-.config-editor__diff-peek-current { background: rgb(117 190 255 / 13%); color: #c5e1f9; }
+.config-editor__diff-peek-removed {
+  background: var(--config-editor-diff-removed-bg);
+  color: var(--config-editor-diff-removed-text);
+}
+
+.config-editor__diff-peek-current {
+  background: var(--config-editor-diff-current-bg);
+  color: var(--config-editor-diff-current-text);
+}
 
 .config-editor__input-wrap { position: relative; min-width: 0; min-height: 0; flex: 1; }
 .config-editor__highlight,
@@ -377,7 +409,7 @@
   overscroll-behavior: contain;
 }
 
-.config-editor__input::selection { background: rgb(38 79 120 / 75%); color: transparent; }
+.config-editor__input::selection { background: var(--config-editor-selection); color: transparent; }
 .config-editor__input:focus-visible { outline: none; }
 
 .config-editor__diagnostic-overlay {
@@ -413,10 +445,10 @@
 /* Warnings (for example a value a converted document's host language cannot
    keep exactly) use VS Code's warning yellow unless a theme sets the token. */
 .config-editor__diagnostic-marker-warning {
-  text-decoration-color: var(--config-editor-warning, #cca700);
+  text-decoration-color: var(--config-editor-warning);
 }
 .config-editor__diagnostic-marker:focus-visible {
-  outline: 1px solid #75beff;
+  outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
@@ -429,14 +461,14 @@
   max-width: min(360px, 80vw);
   display: none;
   padding: 7px 10px;
-  border: 1px solid #454545;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
-  background: #252526;
-  color: #f0f0f0;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-tooltip-text);
   content: attr(data-message);
   white-space: normal;
   overflow-wrap: anywhere;
-  box-shadow: 0 3px 10px rgb(0 0 0 / 35%);
+  box-shadow: 0 3px 10px var(--config-editor-popup-shadow);
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
   text-decoration: none;
   -webkit-text-fill-color: currentColor;
@@ -467,12 +499,12 @@
   content: "";
 }
 
-.config-editor__comment { color: #6a9955; }
-.config-editor__key { color: #9cdcfe; }
-.config-editor__punctuation { color: #d4d4d4; }
-.config-editor__string { color: #ce9178; }
-.config-editor__literal { color: #569cd6; }
-.config-editor__value { color: #ce9178; }
+.config-editor__comment { color: var(--config-editor-comment); }
+.config-editor__key { color: var(--config-editor-key); }
+.config-editor__punctuation { color: var(--config-editor-punctuation); }
+.config-editor__string { color: var(--config-editor-string); }
+.config-editor__literal { color: var(--config-editor-literal); }
+.config-editor__value { color: var(--config-editor-value); }
 
 .config-editor__completions {
   position: fixed;
@@ -481,10 +513,11 @@
   max-height: min(320px, 45vh, calc(100vh - 64px));
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid #454545;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
-  background: #252526;
-  box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 6px 16px var(--config-editor-popup-shadow);
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
@@ -493,7 +526,7 @@
 .config-editor__completions::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 8px;
-  background: #686868;
+  background: var(--config-editor-scrollbar-thumb);
   background-clip: padding-box;
 }
 
@@ -526,7 +559,7 @@
   border-radius: 6px;
   background: var(--config-editor-raised);
   color: var(--config-editor-raised-text);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 24px var(--config-editor-hover-shadow);
   pointer-events: none;
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
@@ -540,7 +573,7 @@
 
 .config-editor__hover-key {
   font: 12px var(--config-editor-mono);
-  color: var(--config-editor-key, #9cdcfe);
+  color: var(--config-editor-key);
 }
 
 .config-editor__hover-type {
@@ -581,9 +614,9 @@
   display: grid;
   place-items: center;
   margin-top: 1px;
-  border: 1px solid #6b6b6b;
+  border: 1px solid var(--config-editor-completion-icon-border);
   border-radius: 3px;
-  color: #bdbdbd;
+  color: var(--config-editor-completion-icon-text);
   font: 10px var(--config-editor-mono);
 }
 
@@ -604,7 +637,7 @@
 
 .config-editor__completion-key {
   overflow: hidden;
-  color: #e8e8e8;
+  color: var(--config-editor-completion-key);
   font: 12px var(--config-editor-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -614,13 +647,13 @@
 
 .config-editor__completion-type {
   flex: 0 0 auto;
-  color: #9da0a3;
+  color: var(--config-editor-completion-type);
   font: 11px var(--config-editor-mono);
 }
 
 .config-editor__completion-detail {
   overflow: hidden;
-  color: #a7a7a7;
+  color: var(--config-editor-completion-detail);
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -634,7 +667,7 @@
   gap: 12px;
   padding: 0 10px;
   border-top: 1px solid var(--config-editor-border);
-  color: #a0a0a0;
+  color: var(--config-editor-raised-muted);
   font: 10px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -643,10 +676,10 @@
 .config-editor__status-meta { display: flex; align-items: center; gap: 8px; }
 .config-editor__hint kbd {
   padding: 1px 4px;
-  border: 1px solid #454545;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 3px;
-  background: #333333;
-  color: #cccccc;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
   font: 10px var(--config-editor-mono);
 }
 
@@ -673,11 +706,11 @@
 .config-editor__diagnostic-status:disabled { cursor: default; }
 
 .config-editor__diagnostic-status:focus-visible {
-  outline: 1px solid #75beff;
+  outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 
-.config-editor__diagnostic-status-error { color: #f48771; }
+.config-editor__diagnostic-status-error { color: var(--config-editor-status-error); }
 
 .config-editor[data-theme="vscode-light"] {
   --config-editor-bg: #ffffff;
@@ -781,93 +814,31 @@
   --config-editor-caret: #35413a;
 }
 
-.config-editor[data-theme="vscode-light"] .config-editor__frame:focus-within,
-.config-editor[data-theme="obsidian"] .config-editor__frame:focus-within,
-.config-editor[data-theme="obsidian-light"] .config-editor__frame:focus-within {
-  border-color: var(--config-editor-accent);
+/* Tokens that VS Code Dark tunes by hand; the other families derive them
+   from their palette, so every data-color-theme on top of them follows. */
+.config-editor[data-theme="vscode-light"],
+.config-editor[data-theme="obsidian"],
+.config-editor[data-theme="obsidian-light"] {
+  --config-editor-control-disabled-text: var(--config-editor-control-text);
+  --config-editor-diff-removed-bg: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
+  --config-editor-diff-removed-text: var(--config-editor-text);
+  --config-editor-diff-current-bg: color-mix(in srgb, var(--config-editor-modified) 12%, transparent);
+  --config-editor-diff-current-text: var(--config-editor-text);
+  --config-editor-tooltip-text: var(--config-editor-raised-text);
+  --config-editor-completion-key: var(--config-editor-raised-text);
+  --config-editor-completion-type: var(--config-editor-raised-muted);
+  --config-editor-completion-detail: var(--config-editor-raised-muted);
 }
 
-.config-editor[data-theme="vscode-light"] .config-editor__toolbar,
-.config-editor[data-theme="obsidian"] .config-editor__toolbar,
-.config-editor[data-theme="obsidian-light"] .config-editor__toolbar { color: var(--config-editor-toolbar-text); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__toolbar-meta,
-.config-editor[data-theme="obsidian"] .config-editor__toolbar-meta,
-.config-editor[data-theme="obsidian-light"] .config-editor__toolbar-meta,
-.config-editor[data-theme="vscode-light"] .config-editor__schema-state,
-.config-editor[data-theme="obsidian"] .config-editor__schema-state,
-.config-editor[data-theme="obsidian-light"] .config-editor__schema-state,
-.config-editor[data-theme="vscode-light"] .config-editor__status,
-.config-editor[data-theme="obsidian"] .config-editor__status,
-.config-editor[data-theme="obsidian-light"] .config-editor__status { color: var(--config-editor-raised-muted); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__action-button,
-.config-editor[data-theme="obsidian"] .config-editor__action-button,
-.config-editor[data-theme="obsidian-light"] .config-editor__action-button {
-  border-color: var(--config-editor-raised-border);
-  background: var(--config-editor-control-bg);
-  color: var(--config-editor-control-text);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__action-button:hover:not(:disabled),
-.config-editor[data-theme="obsidian"] .config-editor__action-button:hover:not(:disabled),
-.config-editor[data-theme="obsidian-light"] .config-editor__action-button:hover:not(:disabled) {
-  background: var(--config-editor-raised-hover);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__schema-check,
-.config-editor[data-theme="obsidian"] .config-editor__schema-check,
-.config-editor[data-theme="obsidian-light"] .config-editor__schema-check { color: var(--config-editor-added); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek,
-.config-editor[data-theme="vscode-light"] .config-editor__completions,
-.config-editor[data-theme="obsidian"] .config-editor__completions,
-.config-editor[data-theme="obsidian-light"] .config-editor__completions {
-  border-color: var(--config-editor-raised-border);
-  background: var(--config-editor-raised);
-  color: var(--config-editor-raised-text);
-}
-
+/* The peek's single-side dividers also colour their undrawn sides in these
+   families (invisible; kept so computed styles stay identical). */
 .config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header,
 .config-editor[data-theme="obsidian"] .config-editor__diff-peek-header,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header {
-  border-color: var(--config-editor-raised-border);
-  background: var(--config-editor-raised);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header button,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-header button,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header button { color: var(--config-editor-raised-text); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header button:hover,
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header button:focus-visible,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-header button:hover,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-header button:focus-visible,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header button:hover,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
-
+.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header,
 .config-editor[data-theme="vscode-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
 .config-editor[data-theme="obsidian"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side { border-color: var(--config-editor-raised-border); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-side h3,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-side h3,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side h3 { color: var(--config-editor-raised-muted); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-removed,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-removed,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-removed {
-  background: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
-  color: var(--config-editor-text);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-current,
-.config-editor[data-theme="obsidian"] .config-editor__diff-peek-current,
-.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-current {
-  background: color-mix(in srgb, var(--config-editor-modified) 12%, transparent);
-  color: var(--config-editor-text);
+.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side {
+  border-color: var(--config-editor-raised-border);
 }
 
 .config-editor__code-line-active.config-editor__code-line-added {
@@ -886,71 +857,6 @@
   background:
     linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
     var(--config-editor-error-line);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__input,
-.config-editor[data-theme="obsidian"] .config-editor__input,
-.config-editor[data-theme="obsidian-light"] .config-editor__input {
-  caret-color: var(--config-editor-caret);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__input::selection,
-.config-editor[data-theme="obsidian"] .config-editor__input::selection,
-.config-editor[data-theme="obsidian-light"] .config-editor__input::selection { background: var(--config-editor-selection); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__diagnostic-marker::after,
-.config-editor[data-theme="obsidian"] .config-editor__diagnostic-marker::after,
-.config-editor[data-theme="obsidian-light"] .config-editor__diagnostic-marker::after {
-  border-color: var(--config-editor-raised-border);
-  background: var(--config-editor-raised);
-  color: var(--config-editor-raised-text);
-}
-
-.config-editor[data-theme="vscode-light"] .config-editor__comment,
-.config-editor[data-theme="obsidian"] .config-editor__comment,
-.config-editor[data-theme="obsidian-light"] .config-editor__comment { color: var(--config-editor-comment); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__key,
-.config-editor[data-theme="obsidian"] .config-editor__key,
-.config-editor[data-theme="obsidian-light"] .config-editor__key { color: var(--config-editor-key); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__punctuation,
-.config-editor[data-theme="obsidian"] .config-editor__punctuation,
-.config-editor[data-theme="obsidian-light"] .config-editor__punctuation { color: var(--config-editor-punctuation); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__string,
-.config-editor[data-theme="obsidian"] .config-editor__string,
-.config-editor[data-theme="obsidian-light"] .config-editor__string { color: var(--config-editor-string); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__literal,
-.config-editor[data-theme="obsidian"] .config-editor__literal,
-.config-editor[data-theme="obsidian-light"] .config-editor__literal { color: var(--config-editor-literal); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__value,
-.config-editor[data-theme="obsidian"] .config-editor__value,
-.config-editor[data-theme="obsidian-light"] .config-editor__value { color: var(--config-editor-value); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__completion-active,
-.config-editor[data-theme="obsidian"] .config-editor__completion-active,
-.config-editor[data-theme="obsidian-light"] .config-editor__completion-active { background: var(--config-editor-completion-active); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__completion-key,
-.config-editor[data-theme="obsidian"] .config-editor__completion-key,
-.config-editor[data-theme="obsidian-light"] .config-editor__completion-key { color: var(--config-editor-raised-text); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__completion-type,
-.config-editor[data-theme="obsidian"] .config-editor__completion-type,
-.config-editor[data-theme="obsidian-light"] .config-editor__completion-type,
-.config-editor[data-theme="vscode-light"] .config-editor__completion-detail,
-.config-editor[data-theme="obsidian"] .config-editor__completion-detail,
-.config-editor[data-theme="obsidian-light"] .config-editor__completion-detail { color: var(--config-editor-raised-muted); }
-
-.config-editor[data-theme="vscode-light"] .config-editor__hint kbd,
-.config-editor[data-theme="obsidian"] .config-editor__hint kbd,
-.config-editor[data-theme="obsidian-light"] .config-editor__hint kbd {
-  border-color: var(--config-editor-raised-border);
-  background: var(--config-editor-control-bg);
-  color: var(--config-editor-control-text);
 }
 
 @media (max-width: 600px) {

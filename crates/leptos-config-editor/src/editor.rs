@@ -975,8 +975,24 @@ pub fn ConfigEditor(
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
                                     {
                                         let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
-                                        cursor.set(position);
-                                        current_line.set(line_at_cursor(&source.get_untracked(), position));
+                                        if position != cursor.get_untracked() {
+                                            cursor.set(position);
+                                            current_line.set(line_at_cursor(&source.get_untracked(), position));
+                                        }
+                                        // Caret navigation never shows suggestions. ArrowUp/Down
+                                        // move inside an open list instead (handled on keydown).
+                                        let navigation = match event.key().as_str() {
+                                            "ArrowLeft" | "ArrowRight" | "Home" | "End" => true,
+                                            "ArrowUp" | "ArrowDown" | "PageUp" | "PageDown" => {
+                                                suggestions.with_untracked(Vec::is_empty)
+                                            }
+                                            _ => false,
+                                        };
+                                        if navigation && suggestions_requested.get_untracked() {
+                                            suggestions_requested.set(false);
+                                            explicit_request.set(false);
+                                            active_completion.set(0);
+                                        }
                                     }
                                 }
                                 on:scroll=move |event| {

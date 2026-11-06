@@ -12,7 +12,7 @@
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len, statement_start};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_value_len, statement_start, statements};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -815,16 +815,57 @@ fn hcl_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     }
     // A block type or label address (`/resource`, `/resource/aws_x`): point at
     // the header word or label token.
-    header_span(&scan, &wanted).map(|(start, end)| span_between(source, start, end))
+    if let Some((start, end)) = header_span(&scan, &wanted) {
+        return Some(span_between(source, start, end));
+    }
+    inline_key(source, &wanted).map(|(start, end, _)| span_between(source, start, end))
+}
+
+/// A key nested in inline containers (`dns = [{ wait_secs = 60 }]`), which
+/// the block scan does not index: `(key start, key end, value start)`.
+fn inline_key(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
+    let segment = |segment: &SchemaPathSegment| match segment {
+        SchemaPathSegment::Key(key) => key.clone(),
+        SchemaPathSegment::ArrayItem(index) => index.to_string(),
+    };
+    for (start, end) in statements(source) {
+        for (path, key) in inline_key_paths(&source[start..end], b'=') {
+            let tail: Vec<String> = path.iter().map(segment).collect();
+            if !wanted.ends_with(&tail) {
+                continue;
+            }
+            // The path above the statement, from the block scan at its start.
+            let outer = analyze(source, start);
+            let mut full = body_path(&outer, outer.snapshot.body);
+            if outer.snapshot.in_map {
+                full.extend(outer.snapshot.value_prefix.iter().cloned());
+            }
+            full.extend(tail);
+            if full == wanted {
+                return Some((start + key.start, start + key.end, start + key.after_separator));
+            }
+        }
+    }
+    None
 }
 
 fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let scan = analyze(source, 0);
-    let attribute = scan
+    let Some(attribute) = scan
         .attributes
         .iter()
-        .find(|attribute| attribute_path(&scan, attribute) == wanted)?;
+        .find(|attribute| attribute_path(&scan, attribute) == wanted)
+    else {
+        let (_, _, value_start) = inline_key(source, &wanted)?;
+        let start = value_start + (source[value_start..].len() - source[value_start..].trim_start().len());
+        if source[start..].starts_with(['{', '[']) {
+            let (line, column) = line_column(source, start);
+            return Some((line, column, column + 1));
+        }
+        let end = start + inline_value_len(&source[start..]);
+        return (end > start).then(|| span_between(source, start, end));
+    };
     let (start, end) = attribute.value_span;
     if end <= start {
         return None;

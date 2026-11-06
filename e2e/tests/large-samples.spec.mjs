@@ -66,6 +66,41 @@ for (const language of LANGUAGES) {
       await expect.poll(() => e.diagnosticCount(), { timeout: 10000 }).toBe(0);
     });
 
+    test('the overlay, caret line, and diagnostics stay aligned to the last line', async ({ page }) => {
+      const e = editor(page);
+      // A wrong value near the end: its squiggle must sit on its own line.
+      await e.input.evaluate((element) => {
+        const lines = element.value.split('\n');
+        const index = lines
+          .map((line, i) => (/[:=]\s*\d+,?$/.test(line) || /<\w+>\d+<\/\w+>/.test(line) ? i : -1))
+          .filter((i) => i >= 0)
+          .pop();
+        lines[index] = lines[index].replace(/(\d+)(,?)$/, '-1$2').replace(/>(\d+)</, '>-1<');
+        element.value = lines.join('\n');
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
+        element.scrollTop = element.scrollHeight;
+        element.dispatchEvent(new Event('scroll'));
+        window.__errorLine = index + 1;
+      });
+      await expect.poll(() => e.diagnosticCount(), { timeout: 10000 }).toBeGreaterThan(0);
+      const geometry = await page.evaluate(() => {
+        const input = document.querySelector('.config-editor__input');
+        const lineHeight = parseFloat(getComputedStyle(input).lineHeight);
+        const rows = [...document.querySelectorAll('.config-editor__code-line')];
+        const first = rows[0].getBoundingClientRect().top;
+        const drift = Math.max(...rows.map((row, i) => Math.abs(row.getBoundingClientRect().top - first - i * lineHeight)));
+        const row = rows[window.__errorLine - 1].getBoundingClientRect();
+        const marks = [...document.querySelectorAll('.config-editor__diagnostic-marker')].map((m) => m.getBoundingClientRect().top);
+        const nearest = Math.min(...marks.map((top) => Math.abs(top - row.top)));
+        return { lineHeight, drift, nearest };
+      });
+      // Fractional line heights accumulate rounding differences between the
+      // textarea and the overlay over thousands of lines.
+      expect(Number.isInteger(geometry.lineHeight), `line height ${geometry.lineHeight}`).toBe(true);
+      expect(geometry.drift).toBeLessThan(0.5);
+      expect(geometry.nearest).toBeLessThan(0.5);
+    });
+
     test('scrolling to the end renders the last line in the overlay', async ({ page }) => {
       const e = editor(page);
       const last = (await e.value()).trimEnd().split('\n').pop();
