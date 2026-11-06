@@ -1387,7 +1387,7 @@ pub fn ConfigEditor(
                                             if start == end
                                                 && key.chars().count() == 1
                                                 && let Some(typed) = key.chars().next()
-                                                && let Some(end_tag) = behavior().auto_close_tag(&source.get_untracked(), start, typed)
+                                                && let Some(end_tag) = behavior().auto_close(&source.get_untracked(), start, typed)
                                             {
                                                 event.prevent_default();
                                                 let before = source.get_untracked();

@@ -37,7 +37,7 @@ impl ConfigLanguage for XmlBehavior {
         true
     }
 
-    fn auto_close_tag(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         (typed == '>').then(|| end_tag_for(source, cursor)).flatten()
     }
 

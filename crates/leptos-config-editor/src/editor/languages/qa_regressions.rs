@@ -447,7 +447,7 @@ fn typing_the_end_of_an_xml_start_tag_writes_its_end_tag() {
         let source = marked.replacen('|', "", 1);
         Language::XML
             .behavior()
-            .auto_close_tag(&source, source[..at].encode_utf16().count(), '>')
+            .auto_close(&source, source[..at].encode_utf16().count(), '>')
     };
     assert_eq!(
         close("<clients>\n  <bob|\n</clients>"),
@@ -533,4 +533,17 @@ fn xml_comment_toggling_keeps_the_caret_and_selection_on_the_text() {
         toggle(Language::XML, &commented),
         "<a>\n[  <b>1</b>\n  <c>2</c>\n]</a>"
     );
+}
+
+#[test]
+fn toml_triple_quotes_close_as_a_multi_line_string() {
+    let close = |source: &str, typed: char| {
+        Language::TOML
+            .behavior()
+            .auto_close(source, source.encode_utf16().count(), typed)
+    };
+    assert_eq!(close("a = \"\"", '"'), Some("\"\"\"".into()));
+    assert_eq!(close("a = ''", '\''), Some("'''".into()));
+    assert_eq!(close("a = \"", '"'), None);
+    assert_eq!(close("a = \"\"\"", '"'), None);
 }

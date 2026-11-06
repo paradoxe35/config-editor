@@ -592,8 +592,10 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     }
 
     /// Text to insert after the caret when `typed` is typed at `cursor`
-    /// (UTF-16), such as the end tag XML writes when `>` finishes `<bob>`.
-    fn auto_close_tag(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+    /// (UTF-16): the end tag XML writes when `>` finishes `<bob>`, or the
+    /// closing `"""` of a TOML multi-line string. Checked before the shared
+    /// bracket and quote pairing.
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         let _ = (source, cursor, typed);
         None
     }

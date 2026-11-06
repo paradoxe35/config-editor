@@ -435,3 +435,24 @@ test.describe('read-only', () => {
     expect(await e.value()).toBe(original);
   });
 });
+
+test.describe('toml: multi-line strings', () => {
+  setupEditor(test, '?language=toml');
+
+  test('typing three quotes opens and closes a multi-line string', async ({ page }) => {
+    const e = await at(page, 'a = |\n');
+    await page.keyboard.type('"""');
+    expect(await e.value()).toBe('a = """"""\n');
+    expect(await e.caret()).toMatchObject({ line: 1, column: 8 });
+  });
+});
+
+test.describe('a phone-width page', () => {
+  test.use({ viewport: { width: 390, height: 800 } });
+  setupEditor(test, '?language=yaml');
+
+  test('nothing scrolls sideways', async ({ page }) => {
+    const width = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(width).toBeLessThanOrEqual(390);
+  });
+});

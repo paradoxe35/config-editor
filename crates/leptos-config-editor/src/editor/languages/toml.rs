@@ -105,6 +105,20 @@ impl ConfigLanguage for TomlBehavior {
         toggle_toml_line_comments(source, selection_start, selection_end)
     }
 
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        // A third quote typed in a row opens a multi-line string.
+        if !matches!(typed, '"' | '\'') {
+            return None;
+        }
+        let byte = utf16_to_byte_index(source, cursor);
+        let before = &source[..byte];
+        let pair: String = [typed, typed].iter().collect();
+        let opens = before.ends_with(&pair)
+            && !before[..before.len() - 2].ends_with(typed)
+            && toml_lexical_state(source, cursor.saturating_sub(2)).0.is_none();
+        opens.then(|| [typed; 3].iter().collect())
+    }
+
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
         let (quote, in_comment) = toml_lexical_state(source, cursor);
         Lexical { quote, in_comment }
