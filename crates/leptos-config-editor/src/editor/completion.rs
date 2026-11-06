@@ -18,6 +18,9 @@ pub(super) struct Completion {
     pub(super) start: usize,
     pub(super) end: usize,
     pub(super) cursor_offset: usize,
+    /// UTF-16 length of the text before the caret that is left selected (an
+    /// inserted default), so typing replaces it.
+    pub(super) selected: usize,
     pub(super) is_value: bool,
     /// Character ranges of `label` matched by the query, for highlighting.
     pub(super) matched: Vec<(usize, usize)>,
@@ -162,27 +165,56 @@ fn resolve_branches<'a>(schema: &'a Value, root: &'a Value, depth: usize) -> Vec
     branches
 }
 
-fn schema_at_path<'a>(root: &'a Value, path: &[SchemaPathSegment]) -> Vec<&'a Value> {
+/// The schemas `path` leads to from the root. With `repeats_arrays` a key
+/// naming an array is one of its items as well (each XML `<dns>` element is
+/// one entry of `dns`).
+fn schema_at_path<'a>(
+    root: &'a Value,
+    path: &[SchemaPathSegment],
+    repeats_arrays: bool,
+) -> Vec<&'a Value> {
     let mut schemas = vec![root];
     for segment in path {
-        let mut next = Vec::new();
-        for current in schemas {
-            for branch in resolve_branches(current, root, 0) {
-                if let SchemaPathSegment::ArrayItem(index) = segment {
-                    if let Some(prefix_items) = branch.get("prefixItems").and_then(Value::as_array)
-                        && let Some(item_schema) = prefix_items.get(*index)
-                    {
-                        next.push(item_schema);
-                    } else if let Some(items) =
-                        branch.get("items").filter(|items| items.is_object())
-                    {
-                        next.push(items);
-                    }
-                    continue;
+        let mut next: Vec<&Value> = schemas
+            .into_iter()
+            .flat_map(|schema| child_schemas(schema, root, segment))
+            .collect();
+        if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
+            let items: Vec<&Value> = next
+                .iter()
+                .flat_map(|schema| child_schemas(schema, root, &SchemaPathSegment::ArrayItem(0)))
+                .collect();
+            next.extend(items);
+        }
+        schemas = next;
+        if schemas.is_empty() {
+            break;
+        }
+    }
+    schemas
+}
+
+/// The schemas of one child (a key or an array item) of a value of `schema`.
+fn child_schemas<'a>(
+    schema: &'a Value,
+    root: &'a Value,
+    segment: &SchemaPathSegment,
+) -> Vec<&'a Value> {
+    let mut next = Vec::new();
+    for branch in resolve_branches(schema, root, 0) {
+        match segment {
+            SchemaPathSegment::ArrayItem(index) => {
+                if let Some(item_schema) = branch
+                    .get("prefixItems")
+                    .and_then(Value::as_array)
+                    .and_then(|prefix_items| prefix_items.get(*index))
+                {
+                    next.push(item_schema);
+                } else if let Some(items) = branch.get("items").filter(|items| items.is_object()) {
+                    next.push(items);
                 }
-                let SchemaPathSegment::Key(key) = segment else {
-                    continue;
-                };
+            }
+            SchemaPathSegment::Key(key) => {
                 let mut matched = false;
                 if let Some(property) = branch
                     .get("properties")
@@ -207,12 +239,69 @@ fn schema_at_path<'a>(root: &'a Value, path: &[SchemaPathSegment]) -> Vec<&'a Va
                 }
             }
         }
-        schemas = next;
-        if schemas.is_empty() {
-            break;
-        }
     }
-    schemas
+    next
+}
+
+/// Reads `value` the way the schema expects for a language that writes arrays
+/// by repeating their key: each lone value where only an array is allowed
+/// becomes a one-item array (a single XML `<dns>` element is `dns: [...]`).
+pub(super) fn conform_arrays(value: &mut Value, schema: &Value) {
+    conform(value, schema, schema, 0);
+}
+
+fn conform(value: &mut Value, schema: &Value, root: &Value, depth: usize) {
+    if depth > 64 {
+        return;
+    }
+    let branches = resolve_branches(schema, root, 0);
+    let wants_array = branches.iter().any(|branch| {
+        branch.get("items").is_some()
+            || branch.get("prefixItems").is_some()
+            || type_includes(branch, "array")
+    });
+    if wants_array && !value.is_array() && !branches.iter().any(|branch| accepts(branch, value)) {
+        *value = Value::Array(vec![value.take()]);
+    }
+    match value {
+        Value::Array(items) => {
+            for (index, item) in items.iter_mut().enumerate() {
+                for item_schema in child_schemas(schema, root, &SchemaPathSegment::ArrayItem(index))
+                {
+                    conform(item, item_schema, root, depth + 1);
+                }
+            }
+        }
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                let segment = SchemaPathSegment::Key(key.clone());
+                for child_schema in child_schemas(schema, root, &segment) {
+                    conform(child, child_schema, root, depth + 1);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether one resolved branch allows `value`'s kind as it is.
+fn accepts(branch: &Value, value: &Value) -> bool {
+    match value {
+        Value::Object(_) => {
+            type_includes(branch, "object")
+                || branch.get("properties").is_some()
+                || branch.get("additionalProperties").is_some()
+                || branch.get("patternProperties").is_some()
+        }
+        Value::String(_) => type_includes(branch, "string"),
+        Value::Bool(_) => type_includes(branch, "boolean"),
+        Value::Null => type_includes(branch, "null"),
+        Value::Number(number) => {
+            type_includes(branch, "number")
+                || (number.is_i64() || number.is_u64()) && type_includes(branch, "integer")
+        }
+        Value::Array(_) => true,
+    }
 }
 
 fn schema_value_candidates(branch: &Value) -> Vec<Value> {
@@ -458,6 +547,7 @@ fn value_completions(
                             insert,
                             start,
                             end,
+                            selected: 0,
                             is_value: true,
                             matched: match_ranges(&label, query),
                         },
@@ -467,6 +557,43 @@ fn value_completions(
         }
     }
     sorted_completions(candidates)
+}
+
+/// `(cursor_offset, selected)` for an inserted key: a scalar default the
+/// insert wrote just before the caret (`max_pending: 512|`, `mode = "fail|"`)
+/// is selected, so typing replaces it instead of appending to it.
+fn default_selection(
+    insert: &str,
+    cursor_offset: usize,
+    property: &Value,
+    root: &Value,
+) -> (usize, usize) {
+    let unselected = (cursor_offset, 0);
+    let Some(default) = schema_default(property, root)
+        .or_else(|| schema_const(property, root))
+        .filter(|value| !value.is_object() && !value.is_array() && !value.is_null())
+    else {
+        return unselected;
+    };
+    let text = match default {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    if text.is_empty() {
+        return unselected;
+    }
+    let before = &insert[..utf16_to_byte_index(insert, cursor_offset)];
+    let length = text.encode_utf16().count();
+    if before.ends_with(&text) {
+        return (cursor_offset, length);
+    }
+    // The caret is after the closing quote: select inside the quotes.
+    if let Some(quoted) = before.strip_suffix(['"', '\'']) {
+        if quoted.ends_with(&text) {
+            return (cursor_offset - 1, length);
+        }
+    }
+    unselected
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -513,6 +640,8 @@ fn property_completions(
             else {
                 continue;
             };
+            let (cursor_offset, selected) =
+                default_selection(&insert, cursor_offset, property, root);
             candidates.push((
                 score,
                 Completion {
@@ -527,6 +656,7 @@ fn property_completions(
                     start,
                     end,
                     cursor_offset,
+                    selected,
                     is_value: false,
                     matched: match_ranges(key, typed),
                 },
@@ -619,10 +749,20 @@ fn completions_for_context(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
-    let schemas = schema_at_path(&bundle.schema, &context.path);
+    let schemas = schema_at_path(&bundle.schema, &context.path, behavior.repeats_arrays());
 
     if let Some(key) = context.value_key.as_deref() {
-        let value_schemas = schema_at_path(&bundle.schema, &path_with_key(&context.path, key));
+        // A number being typed is the user's own value: suggesting a longer
+        // one (`1` → `10`) would make Enter replace it. Ctrl+Space still lists them.
+        let typed_value = unquoted(&context.typed);
+        if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
+            return Vec::new();
+        }
+        let value_schemas = schema_at_path(
+            &bundle.schema,
+            &path_with_key(&context.path, key),
+            behavior.repeats_arrays(),
+        );
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
             &value_schemas,
@@ -705,7 +845,7 @@ fn completions_for_context(
         context.replace_end,
         &bundle.schema,
         existing_keys.as_ref(),
-        context.repeats_arrays,
+        behavior.repeats_arrays(),
         &InsertContext {
             base_indent,
             unit: &unit,
@@ -786,7 +926,7 @@ pub(super) fn key_hover(
     };
     let parent = &path[..path.len() - 1];
     let root = &bundle.schema;
-    let schemas = schema_at_path(root, &path);
+    let schemas = schema_at_path(root, &path, behavior.repeats_arrays());
     if schemas.is_empty() {
         return None;
     }
@@ -819,7 +959,7 @@ pub(super) fn key_hover(
         }
     }
     examples.truncate(5);
-    let required = schema_at_path(root, parent)
+    let required = schema_at_path(root, parent, behavior.repeats_arrays())
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .any(|branch| {
@@ -863,16 +1003,16 @@ pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &st
     )
 }
 
-pub(super) fn apply_completion(source: &str, completion: &Completion) -> (String, usize) {
+/// The text with `completion` applied, and the selection after it as
+/// `(anchor, caret)`; they are equal unless a default is left selected.
+pub(super) fn apply_completion(source: &str, completion: &Completion) -> (String, usize, usize) {
     let (updated, end_cursor) =
         replace_selection(source, completion.start, completion.end, &completion.insert);
     let end_offset = completion.insert.encode_utf16().count();
-    (
-        updated,
-        end_cursor
-            .saturating_sub(end_offset)
-            .saturating_add(completion.cursor_offset),
-    )
+    let caret = end_cursor
+        .saturating_sub(end_offset)
+        .saturating_add(completion.cursor_offset);
+    (updated, caret.saturating_sub(completion.selected), caret)
 }
 
 pub(super) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index: usize) {
@@ -1024,7 +1164,7 @@ pub(super) fn accept_marked(
         let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
         panic!("{label} is not offered at the caret; offered {labels:?}");
     };
-    let (updated, caret) = apply_completion(&source, option);
+    let (updated, _, caret) = apply_completion(&source, option);
     let byte = updated
         .char_indices()
         .map(|(index, _)| index)

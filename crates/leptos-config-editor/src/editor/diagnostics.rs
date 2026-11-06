@@ -162,6 +162,28 @@ impl Schema {
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
         validate(source, Some(&self.bundle), None, true, language.behavior())
     }
+
+    /// Converts `source` from one language to another, reading it as this
+    /// schema expects: a single XML element where the schema wants an array
+    /// is a one-item array, and converts to one.
+    ///
+    /// # Errors
+    ///
+    /// As [`Language::convert`](super::Language::convert).
+    pub fn convert(
+        &self,
+        from: super::Language,
+        source: &str,
+        to: super::Language,
+    ) -> Result<super::Conversion, super::ConvertError> {
+        super::codec::convert(
+            source,
+            from.behavior(),
+            to.behavior(),
+            None,
+            Some(&self.bundle.schema),
+        )
+    }
 }
 
 /// Syntax diagnostics for `source`, for documents without a schema.
@@ -192,18 +214,19 @@ pub(super) fn validate(
     }
 
     #[cfg_attr(not(feature = "schema-validation"), allow(unused_variables))]
-    let document: Value = match behavior.parse(source) {
-        Ok(document) => document,
-        Err(error) => {
-            return vec![Diagnostic {
-                line: error.line,
-                column: error.column,
-                end_column: error.column.map(|column| column + 1),
-                message: error.message,
-                severity: Severity::Error,
-            }];
-        }
-    };
+    let document: Value =
+        match super::codec::read(behavior, source, schema.map(|schema| &schema.schema)) {
+            Ok(document) => document,
+            Err(error) => {
+                return vec![Diagnostic {
+                    line: error.line,
+                    column: error.column,
+                    end_column: error.column.map(|column| column + 1),
+                    message: error.message,
+                    severity: Severity::Error,
+                }];
+            }
+        };
 
     if let Some(error) = schema_error {
         return vec![Diagnostic {

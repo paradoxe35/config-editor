@@ -33,6 +33,10 @@ pub(super) struct XmlBehavior;
 
 
 impl ConfigLanguage for XmlBehavior {
+    fn repeats_arrays(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "XML",
@@ -1237,21 +1241,35 @@ fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize)
 }
 
 fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
-    analyze(source, 0)
-        .key_spans
-        .into_iter()
-        .find(|(segments, _, _)| *segments == wanted)
-        .map(|(_, start, end)| span_between(source, start, end))
+    let (start, end) = span_at(analyze(source, 0).key_spans, &pointer_segments(path))?;
+    Some(span_between(source, start, end))
 }
 
 fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
-    let (_, start, end) = analyze(source, 0)
-        .value_spans
-        .into_iter()
-        .find(|(segments, _, _)| *segments == wanted)?;
+    let (start, end) = span_at(analyze(source, 0).value_spans, &pointer_segments(path))?;
     Some(span_between(source, start, end))
+}
+
+/// The span recorded for `wanted`. A lone element read as a one-item array
+/// is addressed as `/dns/0` but recorded as `/dns`, so a `0` the recorded
+/// path lacks also matches.
+fn span_at(spans: Vec<(Vec<String>, usize, usize)>, wanted: &[String]) -> Option<(usize, usize)> {
+    let lone_items = |segments: &[String]| {
+        let mut recorded = segments.iter().peekable();
+        for segment in wanted {
+            if recorded.peek() == Some(&segment) {
+                recorded.next();
+            } else if segment != "0" {
+                return false;
+            }
+        }
+        recorded.next().is_none()
+    };
+    spans
+        .iter()
+        .find(|(segments, _, _)| segments == wanted)
+        .or_else(|| spans.iter().find(|(segments, _, _)| lone_items(segments)))
+        .map(|(_, start, end)| (*start, *end))
 }
 
 fn first_content_span(source: &str) -> Option<(usize, usize, usize)> {
@@ -1334,7 +1352,6 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: String::new(),
             explicit_entry_start: false,
             entry_suffix: String::new(),
-            repeats_arrays: true,
             ..Default::default()
         };
     }
@@ -1352,7 +1369,6 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: String::new(),
         explicit_entry_start,
         entry_suffix: String::new(),
-        repeats_arrays: true,
 ..Default::default()
     }
 }
@@ -1377,7 +1393,6 @@ fn tag_completion_context(
             replace_end,
             base_indent,
             no_properties: true,
-            repeats_arrays: true,
 ..Default::default()
         };
     }
@@ -1397,7 +1412,6 @@ fn tag_completion_context(
             entry_prefix: String::new(),
             explicit_entry_start: false,
             entry_suffix: String::new(),
-            repeats_arrays: true,
 ..Default::default()
         };
     }
@@ -1415,7 +1429,6 @@ fn tag_completion_context(
             entry_prefix: String::new(),
             explicit_entry_start: false,
             entry_suffix: String::new(),
-            repeats_arrays: true,
 ..Default::default()
         };
     }
@@ -1440,7 +1453,6 @@ fn tag_completion_context(
             entry_prefix: String::new(),
             explicit_entry_start: false,
             entry_suffix: String::new(),
-            repeats_arrays: true,
 ..Default::default()
         };
     }
@@ -1463,7 +1475,6 @@ fn tag_completion_context(
             entry_prefix: String::new(),
             explicit_entry_start: true,
             entry_suffix: String::new(),
-            repeats_arrays: true,
 ..Default::default()
         };
     }
@@ -1488,7 +1499,6 @@ fn tag_completion_context(
         explicit_entry_start: false,
         entry_suffix: String::new(),
         position: EntryPosition::Attribute,
-        repeats_arrays: true,
 ..Default::default()
     }
 }
@@ -1703,19 +1713,10 @@ fn property_insert(
     let mut caret = None;
     if let Some(value) = schema_const(property, root) {
         insert.push_str(&escape_text(&xml_text(value)));
-    } else if array_branch(property, root).is_some() {
+    } else if let Some(branch) = object_branch(property, root).or_else(|| item_object(property, root)) {
+        // An array default lists items, which are separate elements.
         match schema_default(property, root)
-            .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
-        {
-            Some(default) => insert.push_str(&escape_text(&xml_text(default))),
-            None => {
-                insert.push_str(&format_child_placeholder(base_indent, unit));
-                caret = Some(insert.len());
-            }
-        }
-    } else if let Some(branch) = object_branch(property, root) {
-        match schema_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(Map::is_empty))
+            .filter(|value| !value.is_array() && !value.as_object().is_some_and(Map::is_empty))
         {
             Some(default) => insert.push_str(&escape_text(&xml_text(default))),
             None => {
@@ -1741,13 +1742,20 @@ fn property_insert(
                 }
             }
         }
-    } else if let Some(default) = schema_default(property, root) {
+    } else if let Some(default) = schema_default(property, root).filter(|value| !value.is_array()) {
         insert.push_str(&escape_text(&xml_text(default)));
     }
     let caret = caret.unwrap_or(insert.len());
     insert.push_str(&format!("</{key}>"));
     let caret = utf16(&insert[..caret]);
     Some((insert, caret))
+}
+
+/// The object schema of an array's items: each repeated element is one item,
+/// so accepting the array key writes an item.
+fn item_object<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    let items = array_branch(property, root)?.get("items")?;
+    object_branch(items, root)
 }
 
 /// `name="|"`, or with the default/const filled in. Objects and arrays have
@@ -1784,11 +1792,6 @@ fn required_children(branch: &Value) -> Vec<(String, &Value)> {
             properties.get(key).map(|child| (key.to_string(), child))
         })
         .collect()
-}
-
-/// Placeholder for the first array item: `<item>|</item>` on its own line.
-fn format_child_placeholder(base_indent: &str, unit: &str) -> String {
-    format!("\n{base_indent}{unit}")
 }
 
 fn escape_text(text: &str) -> String {
@@ -2548,7 +2551,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "host")
             .expect("host should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "<root config-root=\"true\"><server><host></host>");
     }
 
@@ -2561,7 +2564,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "version")
             .expect("version should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(
             updated,
             "<server><host>x</host></server><version></version>"
@@ -2575,7 +2578,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "true")
             .expect("true should be suggested for a boolean");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(
             updated,
             "<root config-root=\"true\"><server><tls><enabled>true"
@@ -2593,7 +2596,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "fast")
             .expect("fast should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "<server mode=\"fast");
     }
 
@@ -2604,7 +2607,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "port")
             .expect("port should be suggested as an attribute");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "<server port=\"\"");
     }
 
@@ -2706,7 +2709,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "port")
             .expect("port should be suggested despite the comment");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(
             updated,
             "<root config-root=\"true\"><server><!-- <host> --><port></port>"

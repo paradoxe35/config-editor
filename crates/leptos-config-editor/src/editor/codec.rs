@@ -2,6 +2,7 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
+use super::completion::conform_arrays;
 use super::language::{ConfigLanguage, ParseError, Span};
 use serde_json::Value;
 use std::fmt;
@@ -13,7 +14,7 @@ pub struct Conversion {
     /// The document in the target language.
     pub text: String,
     /// JSON pointers of values the target reads back differently (for example
-    /// a one-item array, which XML reads back as a scalar).
+    /// an empty array, which XML cannot write).
     pub losses: Vec<String>,
 }
 
@@ -39,14 +40,29 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
+/// Parses `source`, reading lone values as the arrays `schema` expects in a
+/// language that repeats keys for arrays.
+pub(super) fn read(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    schema: Option<&Value>,
+) -> Result<Value, ParseError> {
+    let mut value = language.parse(source)?;
+    if let Some(schema) = schema.filter(|_| language.repeats_arrays()) {
+        conform_arrays(&mut value, schema);
+    }
+    Ok(value)
+}
+
 /// Renders `value` in `target`, reading the result back to find the losses.
 pub(super) fn render(
     value: &Value,
     target: &dyn ConfigLanguage,
     previous: Option<&str>,
+    schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     let text = serialize(target, value, previous)?;
-    let reread = target.parse(&text).map_err(|error| {
+    let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",
             error.message
@@ -76,9 +92,10 @@ pub(super) fn convert(
     from: &dyn ConfigLanguage,
     to: &dyn ConfigLanguage,
     previous: Option<&str>,
+    schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
-    let value = from.parse(source).map_err(ConvertError::Parse)?;
-    render(&value, to, previous)
+    let value = read(from, source, schema).map_err(ConvertError::Parse)?;
+    render(&value, to, previous, schema)
 }
 
 /// `previous` with only its changed scalar values rewritten in place, when
@@ -90,6 +107,7 @@ pub(super) fn patch_scalars(
     previous: &str,
     old: &Value,
     new: &Value,
+    schema: Option<&Value>,
 ) -> Option<String> {
     // Whatever the language cannot express must still be refused, even when
     // a patch would read back equal (TOML writes null as `nan`).
@@ -110,7 +128,7 @@ pub(super) fn patch_scalars(
         patched.replace_range(range, &text);
     }
     // Trust the patch only if it reads back as exactly the new document.
-    (language.parse(&patched).ok()? == *new).then_some(patched)
+    (read(language, &patched, schema).ok()? == *new).then_some(patched)
 }
 
 /// Collects `(pointer, new value)` for every changed scalar; `None` when the
@@ -313,7 +331,7 @@ mod tests {
         let previous = "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>1</listen>\n</burrow>\n";
         let value = json!({"listen": 2, "pool": {"min_idle": 4}});
         let converted =
-            super::render(&value, Language::XML.behavior(), Some(previous)).expect("renders");
+            super::render(&value, Language::XML.behavior(), Some(previous), None).expect("renders");
         assert_eq!(
             converted.text,
             "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>2</listen>\n  <pool>\n    <min_idle>4</min_idle>\n  </pool>\n</burrow>\n"
@@ -329,6 +347,7 @@ mod tests {
             Language::YAML.behavior(),
             Language::JSON.behavior(),
             Some(previous),
+            None,
         )
         .expect("converts");
         assert_eq!(converted.text, "{\n    \"b\": 2\n}\n");

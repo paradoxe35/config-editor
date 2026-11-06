@@ -1012,7 +1012,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "listen")
             .expect("listen should be suggested");
-        let (updated, _) = apply_completion(source, option);
+        let (updated, _, _) = apply_completion(source, option);
         assert_eq!(updated, "{\n  \"listen\": ");
     }
 
@@ -1033,7 +1033,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "true")
             .expect("true should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "{\"insecure_plaintext\": true");
     }
 
@@ -1044,7 +1044,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "secret")
             .expect("a key typed inside an inline object should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "{\"clients\": {\"acme\": {\"secret\": \"\"");
     }
 
@@ -1096,7 +1096,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "insecure_plaintext")
             .expect("insecure_plaintext should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, r#"{"listen": 1, "insecure_plaintext": "#);
     }
 
@@ -1123,7 +1123,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "insecure_plaintext")
             .expect("insecure_plaintext should be suggested");
-        let (updated, caret) = apply_completion(source, &option);
+        let (updated, _, caret) = apply_completion(source, &option);
         assert_eq!(updated, r#"{"insecure_plaintext": , "listen": 1}"#);
         assert_eq!(caret, r#"{"insecure_plaintext": "#.encode_utf16().count());
     }
@@ -1139,7 +1139,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "insecure_plaintext")
             .expect("insecure_plaintext should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, r#"{"insecure_plaintext": false}"#);
     }
 

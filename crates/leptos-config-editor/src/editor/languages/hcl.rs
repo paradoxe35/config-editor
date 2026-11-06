@@ -2072,7 +2072,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "region")
             .expect("region should be suggested");
-        let (updated, _) = apply_completion(source, option);
+        let (updated, _, _) = apply_completion(source, option);
         assert_eq!(updated, "region = \"us-east-1\"");
     }
 
@@ -2093,7 +2093,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "default")
             .expect("default should be suggested inside the block");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert!(updated.ends_with("default = \"\""), "{updated}");
     }
 
@@ -2106,7 +2106,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "default")
             .expect("default should be suggested inside the nested map");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert!(updated.ends_with("default = \"\""), "{updated}");
     }
 
@@ -2138,7 +2138,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "true")
             .expect("true should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "enabled = true");
     }
 
@@ -2188,7 +2188,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "region")
             .expect("region should be suggested");
-        let (updated, _) = apply_completion(source, &option);
+        let (updated, _, _) = apply_completion(source, &option);
         assert_eq!(updated, "region = \"us-east-1\"");
     }
 

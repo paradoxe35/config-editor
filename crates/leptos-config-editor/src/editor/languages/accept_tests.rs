@@ -222,7 +222,7 @@ fn check_accepts(schema_text: &str, minimum: usize) {
                     continue;
                 };
                 checked += 1;
-                let (updated, new_caret) = apply_completion(&source, option);
+                let (updated, _, new_caret) = apply_completion(&source, option);
                 let caret_at = updated
                     .char_indices()
                     .map(|(index, _)| index)
@@ -266,7 +266,7 @@ fn check_accepts(schema_text: &str, minimum: usize) {
 
 /// Accepts `option` and types a value at the caret, returning the result.
 fn accept_and_fill(source: &str, option: &super::super::completion::Completion) -> String {
-    let (updated, new_caret) = apply_completion(source, option);
+    let (updated, _, new_caret) = apply_completion(source, option);
     let caret_at = updated
         .char_indices()
         .map(|(index, _)| index)

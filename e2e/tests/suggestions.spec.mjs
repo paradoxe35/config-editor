@@ -213,3 +213,79 @@ for (const [language, document, typed, fillWith] of [
     });
   });
 }
+
+// Puts the caret at `|` in a pasted document.
+async function pasteAt(page, marked) {
+  const e = editor(page);
+  const at = marked.indexOf('|');
+  await e.paste(marked.replace('|', ''));
+  await e.input.evaluate((element, position) => {
+    element.focus();
+    element.setSelectionRange(position, position);
+  }, at);
+  return e;
+}
+
+for (const [language, marked, typed, expected] of [
+  ['yaml', 'limits:\n  |', 'max_p', 'max_pending: 900'],
+  ['toml', '[limits]\n|', 'max_p', 'max_pending = 900'],
+  ['hcl', 'limits {\n  |\n}\n', 'max_p', 'max_pending = 900'],
+  ['xml', '<limits>\n  |\n</limits>\n', '<max_p', '<max_pending>900</max_pending>'],
+]) {
+  test.describe(`${language}: inserted defaults`, () => {
+    setupEditor(test, `?language=${language}`);
+
+    test('typing right after accepting replaces the default', async ({ page }) => {
+      const e = await pasteAt(page, marked);
+      await page.keyboard.type(typed);
+      await expect.poll(() => e.keys()).toContain('max_pending');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('900');
+      await expect.poll(() => e.value()).toContain(expected);
+      expect(await e.value()).not.toContain('512');
+    });
+  });
+}
+
+for (const [language, marked, typed, after] of [
+  ['yaml', 'listen: |\n', '7835', 'listen: 7835\n\n'],
+  ['toml', 'listen = |\n', '7835', 'listen = 7835\n\n'],
+]) {
+  test.describe(`${language}: Enter after a complete value`, () => {
+    setupEditor(test, `?language=${language}`);
+
+    test('starts a new line instead of re-accepting the same value', async ({ page }) => {
+      const e = await pasteAt(page, marked);
+      await page.keyboard.press('Control+Space');
+      await page.keyboard.type(typed);
+      await page.keyboard.press('Enter');
+      await expect.poll(() => e.value()).toBe(after);
+      expect((await e.caret()).line).toBe(2);
+    });
+
+    test('a number being typed is not completed to a longer suggestion', async ({ page }) => {
+      const e = await pasteAt(page, marked);
+      await page.keyboard.type('78');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => e.value()).toBe(after.replace('7835', '78'));
+    });
+  });
+}
+
+test.describe('xml: list keys', () => {
+  setupEditor(test, '?language=xml');
+
+  test('accepting dns writes one valid item and offers its keys', async ({ page }) => {
+    const e = await pasteAt(page, '<web>\n  <letsencrypt>\n    <email>a@b.c</email>\n    |\n  </letsencrypt>\n</web>\n');
+    await page.keyboard.type('<dn');
+    await expect.poll(() => e.keys()).toContain('dns');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => e.value()).toContain('<dns></dns>');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => e.keys()).toContain('cloudflare');
+    await e.clickKey('cloudflare');
+    await page.keyboard.press('Escape');
+    await page.keyboard.type('tok');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+  });
+});

@@ -217,7 +217,7 @@ impl Language {
     /// # }
     /// ```
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
-        codec::convert(source, self.0, target.0, None)
+        codec::convert(source, self.0, target.0, None, None)
     }
 
     pub(super) fn behavior(self) -> &'static dyn ConfigLanguage {

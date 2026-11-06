@@ -241,3 +241,105 @@ fn hcl_syntax_errors_read_as_a_sentence() {
     );
     assert_eq!(error.line, Some(2));
 }
+
+#[test]
+fn an_xml_array_key_writes_one_item_that_validates_as_a_one_item_array() {
+    let marked =
+        "<web>\n  <letsencrypt>\n    <email>a@b.c</email>\n    <dn|\n  </letsencrypt>\n</web>\n";
+    let xml = accept(Language::XML, marked, "dns");
+    assert!(xml.contains("    <dns>|</dns>\n"), "{xml}");
+    // The element is one item: the item's keys are offered inside it.
+    assert!(labels(Language::XML, &xml).contains(&"cloudflare".to_string()));
+    let done = accept(Language::XML, &xml, "cloudflare").replace('|', "x");
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    assert_eq!(schema.validate(Language::XML, &done), [], "{done}");
+    // A second item makes a two-item array.
+    let two = done.replace("</dns>", "</dns>\n    <dns><domains>b.example</domains><cloudflare><token>y</token></cloudflare></dns>");
+    assert_eq!(schema.validate(Language::XML, &two), [], "{two}");
+}
+
+#[test]
+fn an_xml_client_secret_list_accepts_one_secret() {
+    let marked = "<clients>\n  <bob>\n    <sec|\n  </bob>\n</clients>\n";
+    let xml = accept(Language::XML, marked, "secret");
+    assert!(xml.contains("    <secret>|</secret>\n"), "{xml}");
+    let done = xml.replace('|', "s3cret");
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    assert_eq!(schema.validate(Language::XML, &done), [], "{done}");
+}
+
+/// The text left selected after accepting `label` at the caret.
+fn selected_after_accept(language: Language, marked: &str, label: &str) -> String {
+    let at = marked.find('|').unwrap();
+    let source = marked.replacen('|', "", 1);
+    let options = completions(
+        &source,
+        source[..at].encode_utf16().count(),
+        true,
+        Some(&burrow()),
+        true,
+        language.behavior(),
+    );
+    let option = options.iter().find(|option| option.label == label).unwrap();
+    let (updated, anchor, caret) = super::super::completion::apply_completion(&source, option);
+    String::from_utf16(&updated.encode_utf16().collect::<Vec<_>>()[anchor..caret]).unwrap()
+}
+
+#[test]
+fn an_inserted_default_is_selected_so_typing_replaces_it() {
+    for (language, marked) in [
+        (Language::YAML, "limits:\n  max_p|\n"),
+        (Language::TOML, "[limits]\nmax_p|\n"),
+        (Language::HCL, "limits {\n  max_p|\n}\n"),
+        (Language::JSON, "{\n  \"limits\": {\n    \"max_p|\n  }\n}\n"),
+        (Language::XML, "<limits>\n  <max_p|\n</limits>\n"),
+    ] {
+        assert_eq!(
+            selected_after_accept(language, marked, "max_pending"),
+            "512",
+            "{language}"
+        );
+    }
+    // A quoted default is selected inside its quotes.
+    for (language, marked) in [
+        (Language::TOML, "[websocket]\npa|\n"),
+        (Language::JSON, "{\n  \"websocket\": {\n    \"pa|\n  }\n}\n"),
+        (Language::HCL, "websocket {\n  pa|\n}\n"),
+        (Language::YAML, "websocket:\n  pa|\n"),
+        (Language::XML, "<websocket>\n  <pa|\n</websocket>\n"),
+    ] {
+        assert_eq!(
+            selected_after_accept(language, marked, "path"),
+            "/burrow",
+            "{language}"
+        );
+    }
+    // A key without a default leaves nothing selected.
+    assert_eq!(
+        selected_after_accept(Language::YAML, "web:\n  hst|\n", "hsts"),
+        ""
+    );
+}
+
+#[test]
+fn typing_a_number_does_not_open_value_suggestions_unless_asked() {
+    let auto = |language: Language, marked: &str| {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        completions(
+            &source,
+            source[..at].encode_utf16().count(),
+            false,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+        )
+        .len()
+    };
+    assert_eq!(auto(Language::YAML, "limits:\n  max_pending: 5|\n"), 0);
+    assert_eq!(auto(Language::TOML, "[limits]\nmax_pending = 5|\n"), 0);
+    // Asked for, they are listed.
+    assert!(!labels(Language::YAML, "limits:\n  max_pending: 5|\n").is_empty());
+}

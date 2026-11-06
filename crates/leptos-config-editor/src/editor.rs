@@ -71,7 +71,7 @@ pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("t
 fn commit_edit(
     updated: String,
     new_cursor: usize,
-    selection_end: Option<usize>,
+    selection_anchor: Option<usize>,
     before: String,
     before_cursor: usize,
     source: RwSignal<String>,
@@ -91,15 +91,16 @@ fn commit_edit(
     if let Some(on_change) = on_change.as_ref() {
         on_change.run(source.get_untracked());
     }
-    let end = selection_end.unwrap_or(new_cursor);
-    cursor.set(end);
-    current_line.set(line_at_cursor(&source.get_untracked(), end));
-    if ensure_visible {
-        if let Some(editor) = editor {
+    cursor.set(new_cursor);
+    current_line.set(line_at_cursor(&source.get_untracked(), new_cursor));
+    if let Some(editor) = editor {
+        if ensure_visible {
             set_caret_visible(&editor, &source.get_untracked(), new_cursor, scroll_y);
         }
-    } else if let Some(editor) = editor {
-        let _ = editor.set_selection_range(end as u32, end as u32);
+        // The text between the anchor and the caret stays selected.
+        let anchor = selection_anchor.unwrap_or(new_cursor);
+        let _ = editor
+            .set_selection_range(anchor.min(new_cursor) as u32, anchor.max(new_cursor) as u32);
     }
 }
 
@@ -192,8 +193,20 @@ pub fn ConfigEditor(
     // The editing language can change while mounted (`edit_as` may be a
     // signal); everything that depends on it reads this signal.
     let edit_language = RwSignal::new(edit_as.get_untracked().unwrap_or(host_language));
+    let (schema_bundle, schema_error) = match schema.map(SchemaSource::resolve) {
+        Some(Ok(schema)) => (Some(schema), None),
+        Some(Err(error)) => (None, Some(error)),
+        None => (None, None),
+    };
+    let bridge_schema = StoredValue::new(schema_bundle.clone());
     let behavior = move || edit_language.get_untracked().behavior();
-    let bridge = move || Bridge::new(host_language, edit_language.get_untracked());
+    let bridge = move || {
+        Bridge::new(
+            host_language,
+            edit_language.get_untracked(),
+            bridge_schema.get_value(),
+        )
+    };
     let label = move || edit_language.get().label();
     let file_icon = move || edit_language.get().file_icon();
     // Edits reach the host directly in its own language, or converted through
@@ -207,11 +220,6 @@ pub fn ConfigEditor(
         })
     });
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
-    let (schema_bundle, schema_error) = match schema.map(SchemaSource::resolve) {
-        Some(Ok(schema)) => (Some(schema), None),
-        Some(Err(error)) => (None, Some(error)),
-        None => (None, None),
-    };
     let enable_completions =
         enable_completions && !read_only.get_untracked() && cfg!(feature = "schema-validation");
     // Last host text received or sent, and the edited text matching it.
@@ -242,7 +250,11 @@ pub fn ConfigEditor(
     let host_baseline = baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone()));
     let shown_baseline = Memo::new(move |_| {
         let host = normalize_newlines(host_baseline.get());
-        match Bridge::new(host_language, edit_language.get()) {
+        match Bridge::new(
+            host_language,
+            edit_language.get(),
+            bridge_schema.get_value(),
+        ) {
             Some(bridge) => bridge
                 .to_edit(&host)
                 .map_or(host, |conversion| conversion.text),
@@ -327,7 +339,11 @@ pub fn ConfigEditor(
     {
         Effect::new(move |_| {
             let text = diagnosed_text.get();
-            let Some(bridge) = Bridge::new(host_language, edit_language.get()) else {
+            let Some(bridge) = Bridge::new(
+                host_language,
+                edit_language.get(),
+                bridge_schema.get_value(),
+            ) else {
                 conversion_problems.set(Vec::new());
                 return;
             };
@@ -360,20 +376,29 @@ pub fn ConfigEditor(
         let text = source.get_untracked();
         let unsaved = text != synced_edit.get_value();
         let converted = if !unsaved {
-            match Bridge::new(host_language, next) {
+            match Bridge::new(host_language, next, bridge_schema.get_value()) {
                 Some(bridge) => bridge
                     .to_edit(&host_text.get_value())
                     .map(|conversion| conversion.text),
                 None => Ok(host_text.get_value()),
             }
         } else {
-            match Bridge::new(host_language, current).filter(|_| next == host_language) {
+            match Bridge::new(host_language, current, bridge_schema.get_value())
+                .filter(|_| next == host_language)
+            {
                 Some(bridge) => bridge
                     .to_host(&text, &host_text.get_value())
                     .map(|conversion| conversion.text),
-                None => current
-                    .convert(&text, next)
-                    .map(|conversion| conversion.text),
+                None => bridge_schema.with_value(|schema| {
+                    codec::convert(
+                        &text,
+                        current.behavior(),
+                        next.behavior(),
+                        None,
+                        schema.as_deref().map(|bundle| &bundle.schema),
+                    )
+                    .map(|conversion| conversion.text)
+                }),
             }
         };
         match converted {
@@ -456,7 +481,8 @@ pub fn ConfigEditor(
     let apply_selected = move || {
         let options = suggestions.get();
         if let Some(completion) = options.get(active_completion.get()) {
-            let (updated, new_cursor) = apply_completion(&source.get_untracked(), completion);
+            let (updated, anchor, new_cursor) =
+                apply_completion(&source.get_untracked(), completion);
             let before = source.get_untracked();
             let request_completions =
                 accept_reopens_suggestions(completion, auto_trigger_completions);
@@ -464,7 +490,7 @@ pub fn ConfigEditor(
             commit_edit(
                 updated,
                 new_cursor,
-                None,
+                Some(anchor),
                 before,
                 cursor.get_untracked(),
                 source,
@@ -1157,7 +1183,7 @@ pub fn ConfigEditor(
                                                     commit_edit(
                                                         updated,
                                                         selection_end,
-                                                        Some(selection_end),
+                                                        Some(selection_start),
                                                         before,
                                                         start,
                                                         source,
@@ -1282,13 +1308,6 @@ pub fn ConfigEditor(
                                                     scroll_y,
                                                     false,
                                                 );
-                                                // Keep the wrapped text selected; commit_edit collapses it.
-                                                if selection_start != selection_end {
-                                                    let _ = element.set_selection_range(
-                                                        selection_start as u32,
-                                                        selection_end as u32,
-                                                    );
-                                                }
                                                 suggestions_requested.set(opens_entry);
                                                 return;
                                             }
@@ -1333,6 +1352,17 @@ pub fn ConfigEditor(
                                             return;
                                         }
                                     }
+                                    // Accepting what is already typed would change nothing,
+                                    // so Enter and Tab close the list and edit as usual.
+                                    let options = if matches!(event.key().as_str(), "Enter" | "Tab")
+                                        && options.get(active_completion.get_untracked()).is_some_and(|option| {
+                                            source.with_untracked(|text| apply_completion(text, option).0 == *text)
+                                        }) {
+                                        suggestions_requested.set(false);
+                                        Vec::new()
+                                    } else {
+                                        options
+                                    };
                                     match event.key().as_str() {
                                         "PageDown" | "PageUp" if !options.is_empty() => {
                                             event.prevent_default();
@@ -1557,13 +1587,13 @@ pub fn ConfigEditor(
                                                 active_completion.set(index);
                                             }
                                             on:click=move |_| {
-                                                let (updated, new_cursor) = apply_completion(&source.get_untracked(), &apply);
+                                                let (updated, anchor, new_cursor) = apply_completion(&source.get_untracked(), &apply);
                                                 let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
                                                 hide_hover();
                                                 commit_edit(
                                                     updated,
                                                     new_cursor,
-                                                    None,
+                                                    Some(anchor),
                                                     source.get_untracked(),
                                                     apply.start,
                                                     source,

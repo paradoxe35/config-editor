@@ -7,34 +7,51 @@
 
 use super::Language;
 use super::codec::{self, Conversion, ConvertError};
-use super::diagnostics::{Diagnostic, Severity};
+use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
 use super::language::ConfigLanguage;
+use std::sync::Arc;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Bridge {
     pub(super) host: Language,
     pub(super) edit: Language,
+    /// Reads lone values as arrays where the schema expects them (XML).
+    pub(super) schema: Option<Arc<SchemaBundle>>,
 }
 
 impl Bridge {
     /// `None` when both languages are the same.
-    pub(super) fn new(host: Language, edit: Language) -> Option<Self> {
-        (host != edit).then_some(Bridge { host, edit })
+    pub(super) fn new(
+        host: Language,
+        edit: Language,
+        schema: Option<Arc<SchemaBundle>>,
+    ) -> Option<Self> {
+        (host != edit).then_some(Bridge { host, edit, schema })
     }
 
-    pub(super) fn to_edit(self, host_text: &str) -> Result<Conversion, ConvertError> {
+    fn shape(&self) -> Option<&serde_json::Value> {
+        self.schema.as_deref().map(|bundle| &bundle.schema)
+    }
+
+    pub(super) fn to_edit(&self, host_text: &str) -> Result<Conversion, ConvertError> {
         if host_text.trim().is_empty() {
             return Ok(Conversion {
                 text: String::new(),
                 losses: Vec::new(),
             });
         }
-        self.host.convert(host_text, self.edit)
+        codec::convert(
+            host_text,
+            self.host.behavior(),
+            self.edit.behavior(),
+            None,
+            self.shape(),
+        )
     }
 
     /// `previous_host` is the host's last text, whose framing is kept.
     pub(super) fn to_host(
-        self,
+        &self,
         edit_text: &str,
         previous_host: &str,
     ) -> Result<Conversion, ConvertError> {
@@ -44,29 +61,36 @@ impl Bridge {
                 losses: Vec::new(),
             });
         }
-        let value = self
-            .edit
-            .behavior()
-            .parse(edit_text)
+        let value = codec::read(self.edit.behavior(), edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
         // A value edit rewrites just those values in the host's own text, so
         // its comments and formatting survive; structural edits re-serialize.
-        if let Ok(old) = self.host.behavior().parse(previous_host)
-            && let Some(text) =
-                codec::patch_scalars(self.host.behavior(), previous_host, &old, &value)
+        if let Ok(old) = codec::read(self.host.behavior(), previous_host, self.shape())
+            && let Some(text) = codec::patch_scalars(
+                self.host.behavior(),
+                previous_host,
+                &old,
+                &value,
+                self.shape(),
+            )
         {
             return Ok(Conversion {
                 text,
                 losses: Vec::new(),
             });
         }
-        codec::render(&value, self.host.behavior(), Some(previous_host))
+        codec::render(
+            &value,
+            self.host.behavior(),
+            Some(previous_host),
+            self.shape(),
+        )
     }
 
     /// A warning on each value the host cannot carry exactly, or an error when
     /// the document cannot be saved. Syntax errors are left to validation.
     pub(super) fn problems(
-        self,
+        &self,
         edit_text: &str,
         result: &Result<Conversion, ConvertError>,
     ) -> Vec<Diagnostic> {
@@ -96,7 +120,7 @@ impl Bridge {
     }
 
     /// The error shown when the host's text cannot be converted for editing.
-    pub(super) fn load_problem(self, error: &ConvertError) -> Diagnostic {
+    pub(super) fn load_problem(&self, error: &ConvertError) -> Diagnostic {
         Diagnostic {
             line: Some(1),
             column: Some(1),
@@ -165,12 +189,12 @@ mod tests {
 
     #[test]
     fn the_same_language_needs_no_bridge() {
-        assert!(Bridge::new(Language::YAML, Language::YAML).is_none());
+        assert!(Bridge::new(Language::YAML, Language::YAML, None).is_none());
     }
 
     #[test]
     fn host_text_is_shown_converted_and_edits_convert_back_keeping_framing() {
-        let bridge = Bridge::new(Language::XML, Language::HCL).unwrap();
+        let bridge = Bridge::new(Language::XML, Language::HCL, None).unwrap();
         let host = "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>7835</listen>\n</burrow>\n";
         let shown = bridge.to_edit(host).unwrap();
         assert_eq!(shown.text, "listen = 7835\n");
@@ -183,7 +207,7 @@ mod tests {
 
     #[test]
     fn a_value_the_host_cannot_carry_is_a_warning_on_that_value() {
-        let bridge = Bridge::new(Language::XML, Language::YAML).unwrap();
+        let bridge = Bridge::new(Language::XML, Language::YAML, None).unwrap();
         let edit = "hosts:\n  - only.example\nport: 80\n";
         let result = bridge.to_host(edit, "");
         let problems = bridge.problems(edit, &result);
@@ -199,7 +223,7 @@ mod tests {
 
     #[test]
     fn a_document_the_host_cannot_express_is_an_error_and_not_saved() {
-        let bridge = Bridge::new(Language::TOML, Language::JSON).unwrap();
+        let bridge = Bridge::new(Language::TOML, Language::JSON, None).unwrap();
         let edit = "{\n  \"https\": null\n}\n";
         let result = bridge.to_host(edit, "");
         assert!(result.is_err());
@@ -214,7 +238,7 @@ mod tests {
 
     #[test]
     fn syntax_errors_are_left_to_validation() {
-        let bridge = Bridge::new(Language::JSON, Language::YAML).unwrap();
+        let bridge = Bridge::new(Language::JSON, Language::YAML, None).unwrap();
         let edit = "a: [\n";
         let result = bridge.to_host(edit, "");
         assert!(bridge.problems(edit, &result).is_empty());
@@ -254,7 +278,7 @@ mod tests {
     fn a_value_edit_changes_only_that_value_in_the_host_text() {
         for (host, original, expected) in HOSTS {
             for &edit in Language::ALL.iter().filter(|edit| **edit != host) {
-                let bridge = Bridge::new(host, edit).unwrap();
+                let bridge = Bridge::new(host, edit, None).unwrap();
                 let shown = bridge.to_edit(original).unwrap().text;
                 let Some(at) = shown.find("7835") else {
                     panic!("{host} -> {edit}: port not shown in {shown}");
@@ -269,7 +293,7 @@ mod tests {
 
     #[test]
     fn a_structural_edit_falls_back_to_serializing_the_host_document() {
-        let bridge = Bridge::new(Language::YAML, Language::JSON).unwrap();
+        let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
         let saved = bridge
             .to_host(
                 "{\"listen\": 1, \"public_address\": \"b\"}",
@@ -277,5 +301,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(saved.text, "listen: 1\npublic_address: b\n");
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn one_item_arrays_round_trip_through_xml_with_a_schema() {
+        let schema = super::super::diagnostics::build_schema(include_str!(
+            "../../tests/fixtures/burrow.schema.json"
+        ))
+        .unwrap();
+        let host = "web:\n  letsencrypt:\n    email: a@b.c\n    dns:\n      - domains:\n          - a.example\n        cloudflare:\n          token: x\n";
+        let bridge = Bridge::new(
+            Language::YAML,
+            Language::XML,
+            Some(std::sync::Arc::new(schema)),
+        )
+        .unwrap();
+        let shown = bridge.to_edit(host).unwrap();
+        assert_eq!(shown.losses, Vec::<String>::new(), "{}", shown.text);
+        let edited = shown.text.replace(">x<", ">y<");
+        let saved = bridge.to_host(&edited, host).unwrap();
+        assert_eq!(saved.text, host.replace("token: x", "token: \"y\""));
     }
 }

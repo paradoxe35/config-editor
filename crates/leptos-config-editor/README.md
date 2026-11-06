@@ -59,8 +59,10 @@ fn Settings() -> impl IntoView {
 ```
 
 Invalid text is never sent to the host. Values the host language cannot
-carry exactly (for example a one-item list in XML) are flagged as warnings
-on the value, and comments do not survive a conversion.
+carry exactly (for example an empty list in XML) are flagged as warnings on
+the value, and comments do not survive a conversion. With a schema, a single
+XML element where the schema expects a list reads as a one-item list, so it
+validates and converts as one (`Schema::convert` does the same headlessly).
 
 ## Headless API
 

@@ -1537,7 +1537,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "listen")
             .expect("listen should be suggested");
-        let (updated, _) = apply_completion(source, option);
+        let (updated, _, _) = apply_completion(source, option);
         assert_eq!(updated, "listen = ");
     }
 
@@ -1704,7 +1704,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "null")
             .expect("the null option should be suggested");
-        let (updated, _) = apply_completion(source, option);
+        let (updated, _, _) = apply_completion(source, option);
         assert_eq!(updated, "max_connections = nan");
         let parsed = match TomlBehavior.parse(&updated) {
             Ok(parsed) => parsed,
@@ -1722,7 +1722,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "server")
             .expect("server should be suggested");
-        let (updated, _) = apply_completion(source, option);
+        let (updated, _, _) = apply_completion(source, option);
         assert_eq!(updated, "[server]\nhost = \"localhost\"\n");
     }
 

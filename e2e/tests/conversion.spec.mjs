@@ -66,20 +66,19 @@ test.describe('XML edited as HCL', () => {
 test.describe('values the host language cannot carry', () => {
   setupEditor(test, '?language=xml&edit=yaml');
 
-  test('a one-item list is a warning, because XML reads it back as a scalar', async ({ page }) => {
+  test('a one-item list saves as one element, because the schema says it is a list', async ({ page }) => {
     const e = editor(page);
-    await e.input.evaluate((element) => {
-      element.focus();
-      element.setSelectionRange(element.value.length, element.value.length);
-    });
     await e.paste(`${await e.value()}self:\n  allow:\n    - 127.0.0.1/32\n`);
+    await expect.poll(() => saved(page)).toContain('<allow>127.0.0.1/32</allow>');
+    await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(0);
+  });
+
+  test('an empty list is a warning, because XML cannot write one', async ({ page }) => {
+    const e = editor(page);
+    await e.paste(`${await e.value()}self:\n  allow: []\n`);
     const warning = page.locator('.config-editor__diagnostic-marker-warning');
     await expect(warning).toHaveCount(1);
     await expect(warning).toHaveAttribute('data-message', /XML cannot keep this value exactly/);
-    // Two items form a real XML array, so the value converts exactly.
-    await e.paste(`${await e.value()}`.replace('    - 127.0.0.1/32\n', '    - 127.0.0.1/32\n    - 10.0.0.0/8\n'));
-    await expect(warning).toHaveCount(0);
-    await expect.poll(() => saved(page)).toContain('<allow>10.0.0.0/8</allow>');
   });
 });
 

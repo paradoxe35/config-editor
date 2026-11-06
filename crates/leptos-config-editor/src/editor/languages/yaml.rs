@@ -1736,7 +1736,7 @@ mod tests {
             option.insert,
             "auth:\n  enabled: false\n  token: \n  mode: safe\n"
         );
-        let (updated, cursor) = apply_completion("", option);
+        let (updated, _, cursor) = apply_completion("", option);
         assert_eq!(updated, option.insert);
         assert_eq!(
             cursor,
@@ -2077,7 +2077,7 @@ mod tests {
             .find(|option| option.label == "display:name")
             .unwrap();
         assert_eq!(option.insert, "\"display:name\": ");
-        let (updated, cursor) = apply_completion(input, option);
+        let (updated, _, cursor) = apply_completion(input, option);
         assert_eq!(updated, "\"display:name\": ");
         assert_eq!(cursor, updated.encode_utf16().count());
     }
@@ -2195,7 +2195,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "0.0.0.0:7835")
             .expect("Bind examples should be offered for web.http");
-        let (updated, cursor) = apply_completion(input, option);
+        let (updated, _, cursor) = apply_completion(input, option);
         assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
         assert_eq!(cursor, updated.encode_utf16().count());
     }
@@ -2291,7 +2291,7 @@ mod tests {
         .into_iter()
         .find(|option| option.label == "0.0.0.0:7835")
         .expect("web.http example should be suggested after a bare colon");
-        let (updated, cursor) = apply_completion(input, &option);
+        let (updated, _, cursor) = apply_completion(input, &option);
         assert_eq!(updated, "web:\n  http: \"0.0.0.0:7835\"");
         assert_eq!(cursor, updated.encode_utf16().count());
     }
@@ -2381,7 +2381,7 @@ mod tests {
         .into_iter()
         .find(|option| option.label == "7835")
         .expect("port example should be suggested");
-        let (updated, _) = apply_completion(input, &port);
+        let (updated, _, _) = apply_completion(input, &port);
         assert_eq!(updated, "listen: 7835");
     }
 
@@ -2443,7 +2443,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "0.0.0.0:7835")
             .expect("metrics.listen should offer Bind examples");
-        let (updated, cursor_after) = apply_completion(input, &option);
+        let (updated, _, cursor_after) = apply_completion(input, &option);
         assert_eq!(updated, "metrics:\n  listen: \"0.0.0.0:7835\"\n");
         assert_eq!(
             cursor_after,
@@ -2463,7 +2463,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "false")
             .expect("typing before existing text should suggest the matching value");
-        let (updated, cursor_after) = apply_completion(input, &option);
+        let (updated, _, cursor_after) = apply_completion(input, &option);
         assert_eq!(updated, "update:\n  remote: false");
         assert_eq!(cursor_after, updated.encode_utf16().count());
     }
@@ -2478,7 +2478,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "true")
             .expect("true should match the partial value");
-        let (updated, _) = apply_completion(input, &option);
+        let (updated, _, _) = apply_completion(input, &option);
         assert_eq!(updated, "update:\n  remote: true # keep me");
     }
 
@@ -2496,7 +2496,7 @@ mod tests {
             .into_iter()
             .find(|option| option.label == "listen")
             .expect("partial key should complete to the schema property");
-        let (updated, _) = apply_completion(input, &option);
+        let (updated, _, _) = apply_completion(input, &option);
         assert_eq!(updated, "café: 1\nlisten: 2");
     }
 
@@ -2799,7 +2799,7 @@ mod tests {
             .iter()
             .find(|option| option.label == "secret")
             .expect("a key typed inside { } should be suggested");
-        let (updated, _) = apply_completion(input, option);
+        let (updated, _, _) = apply_completion(input, option);
         assert_eq!(updated, "clients:\n  acme: { secret: ");
     }
 

@@ -277,9 +277,6 @@ pub struct CompletionContext {
     /// and the first key of an empty JSON document opens its root object.
     /// `None` where properties can follow directly (YAML `- `).
     pub entry_wrap: Option<(&'static str, &'static str)>,
-    /// The language writes an array by repeating its key (XML sibling
-    /// elements), so an array property already present is offered again.
-    pub repeats_arrays: bool,
     /// An existing entry starts right after the caret (`lim|listen = 1`),
     /// and this is the word its key begins with. A suggestion ending in that
     /// word completes it (`inse|cure_plaintext`) and renames the key; any
@@ -478,6 +475,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     ) -> Option<(String, usize, usize)> {
         let _ = (source, selection_start, selection_end);
         None
+    }
+
+    /// Whether an array is written by repeating its key (XML sibling
+    /// elements). A single entry then reads back as a bare value, so where
+    /// the schema expects an array it is read as a one-item array before
+    /// validating or converting, and an array key already present is offered
+    /// again.
+    fn repeats_arrays(&self) -> bool {
+        false
     }
 
     /// Whether the caret has just begun an entry (a JSON key's opening
