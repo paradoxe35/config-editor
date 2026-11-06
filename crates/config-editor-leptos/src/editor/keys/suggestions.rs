@@ -32,6 +32,9 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     if options.is_empty() {
         return Some(false);
     }
+    if super::modified(event) {
+        return Some(true);
+    }
     let key = event.key();
     if !matches!(key.as_str(), "Enter" | "Tab") {
         return Some(true);
@@ -62,7 +65,9 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
 /// Page and arrow keys move through an open list; Enter and Tab accept.
 pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     let count = state.suggestions.with_untracked(Vec::len);
-    if count == 0 {
+    // With a modifier the keys keep their editing meaning (Shift+arrows
+    // select, Ctrl+Enter opens a line below).
+    if count == 0 || super::modified(event) {
         return false;
     }
     let current = state.active_completion.get_untracked();
@@ -76,7 +81,7 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
             state.accept_active();
             return true;
         }
-        "Tab" if !event.shift_key() => {
+        "Tab" => {
             event.prevent_default();
             state.accept_active();
             return true;

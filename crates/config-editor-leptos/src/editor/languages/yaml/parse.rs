@@ -192,6 +192,26 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     if value.is_empty() || value.starts_with('#') {
         return Some((line_number, column, column + 1));
     }
+    // A block scalar (`|`, `>-`) runs through its indented lines below; the
+    // span's end column counts on past this line, as a heredoc's does.
+    if value.starts_with(['|', '>']) {
+        let full_line = source.lines().nth(line_number - 1)?;
+        let key_indent = full_line.len() - full_line.trim_start().len();
+        let mut end_chars = full_line.chars().count() + 1;
+        let mut text_end = full_line.chars().count();
+        for next in source.lines().skip(line_number) {
+            let indent = next.len() - next.trim_start().len();
+            if !next.trim().is_empty() && indent <= key_indent {
+                break;
+            }
+            end_chars += next.chars().count();
+            if !next.trim().is_empty() {
+                text_end = end_chars;
+            }
+            end_chars += 1;
+        }
+        return Some((line_number, column, text_end + 1));
+    }
 
     Some((line_number, column, column + value.chars().count()))
 }

@@ -88,6 +88,7 @@ impl Bridge {
             return Ok(rendered);
         };
         let patched = codec::patch_scalars(host, previous_host, &old, &target, self.shape())
+            .or_else(|| codec::patch_inline(host, previous_host, &old, &target, self.shape()))
             .or_else(|| codec::patch_structure(host, previous_host, &old, &target, self.shape()));
         Ok(match patched {
             Some(text) => Conversion {
@@ -131,6 +132,25 @@ impl Bridge {
     }
 
     /// The error shown when the host's text cannot be converted for editing.
+    /// A warning on each value the edit language cannot show exactly (XML has
+    /// no nested or empty lists): editing it there may change it.
+    pub(super) fn view_problems(&self, shown: &Conversion) -> Vec<Diagnostic> {
+        let edit = self.edit.label();
+        shown
+            .losses
+            .iter()
+            .map(|pointer| {
+                located(
+                    self.edit.behavior(),
+                    &shown.text,
+                    pointer,
+                    format!("{pointer}: {edit} cannot show this value exactly; editing it here may change it"),
+                    Severity::Warning,
+                )
+            })
+            .collect()
+    }
+
     pub(super) fn load_problem(&self, error: &ConvertError) -> Diagnostic {
         Diagnostic {
             line: Some(1),
@@ -160,23 +180,35 @@ fn merge_changes(
     }
     match (host, seen, edited) {
         (Value::Object(host), Value::Object(seen), Value::Object(edited)) => {
-            let mut merged = serde_json::Map::new();
-            for (key, value) in edited {
-                let next = match (host.get(key), seen.get(key)) {
-                    (Some(host_value), Some(seen_value)) => {
-                        merge_changes(host_value, seen_value, value)
+            // In the host's key order (the edit language may order keys its
+            // own way: TOML puts plain keys before tables).
+            let mut entries: Vec<(String, Value)> = Vec::new();
+            for (key, host_value) in host {
+                match (seen.get(key), edited.get(key)) {
+                    (Some(seen_value), Some(value)) => {
+                        entries.push((key.clone(), merge_changes(host_value, seen_value, value)));
                     }
-                    _ => value.clone(),
-                };
-                merged.insert(key.clone(), next);
-            }
-            // Keys the edit language could not show stay.
-            for (key, value) in host {
-                if !seen.contains_key(key) && !edited.contains_key(key) {
-                    merged.insert(key.clone(), value.clone());
+                    // Removed by the user.
+                    (Some(_), None) => {}
+                    // Re-added after the edit language could not show it, or
+                    // never shown: the edit wins, else the host's stays.
+                    (None, Some(value)) => entries.push((key.clone(), value.clone())),
+                    (None, None) => entries.push((key.clone(), host_value.clone())),
                 }
             }
-            Value::Object(merged)
+            // A new key goes after the key before it in the edit, so a renamed
+            // key keeps its place.
+            let mut previous: Option<&String> = None;
+            for (key, value) in edited {
+                if !host.contains_key(key) {
+                    let at = previous
+                        .and_then(|before| entries.iter().position(|(name, _)| name == before))
+                        .map_or(0, |index| index + 1);
+                    entries.insert(at, (key.clone(), value.clone()));
+                }
+                previous = Some(key);
+            }
+            Value::Object(entries.into_iter().collect())
         }
         (Value::Array(host), Value::Array(seen), Value::Array(edited))
             if host.len() == seen.len() && seen.len() == edited.len() =>
@@ -495,5 +527,174 @@ mod tests {
         let saved = bridge.to_host(&edited, host).unwrap().text;
         assert!(saved.contains("# head"), "{saved}");
         assert!(saved.contains("listen_port: 7835 # main port"), "{saved}");
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod structural_saves {
+    use super::*;
+
+    /// The host text saved after `change` is made to the shown text.
+    fn save(
+        host: Language,
+        edit: Language,
+        host_text: &str,
+        change: impl Fn(&str) -> String,
+    ) -> String {
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(host_text).unwrap().text;
+        bridge.to_host(&change(&shown), host_text).unwrap().text
+    }
+
+    #[test]
+    fn deleting_a_table_removes_it_and_its_comment_only() {
+        let toml = "# head\nlisten = 7835 # port\n\n# acme client\n[clients.acme]\nsecret = \"s1\" # the secret\n\n# beta client\n[clients.beta]\nsecret = \"s2\"\n";
+        let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+            shown.replace("  beta:\n    secret: s2\n", "")
+        });
+        assert_eq!(
+            saved,
+            "# head\nlisten = 7835 # port\n\n# acme client\n[clients.acme]\nsecret = \"s1\" # the secret\n"
+        );
+    }
+
+    #[test]
+    fn deleting_a_block_removes_it_and_its_comment_only() {
+        let hcl = "# head\nlisten = 7835 # port\n\nclients {\n  # acme\n  acme {\n    secret = \"s1\" # s\n  }\n\n  # beta\n  beta {\n    secret = \"s2\"\n  }\n}\n";
+        let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+            shown.replace("  beta:\n    secret: s2\n", "")
+        });
+        assert_eq!(
+            saved,
+            "# head\nlisten = 7835 # port\n\nclients {\n  # acme\n  acme {\n    secret = \"s1\" # s\n  }\n}\n"
+        );
+    }
+
+    #[test]
+    fn an_edit_language_with_its_own_key_order_keeps_the_hosts() {
+        let yaml = "# head\nclients:\n  acme:\n    secret: s1\npublic_address: x.example # addr\nlisten: 1 # port\n";
+        let saved = save(Language::YAML, Language::TOML, yaml, |shown| {
+            shown.replace(
+                "secret = \"s1\"\n",
+                "secret = \"s1\"\nmax_connections = 3\n",
+            )
+        });
+        assert_eq!(
+            saved,
+            "# head\nclients:\n  acme:\n    secret: s1\n    max_connections: 3\npublic_address: x.example # addr\nlisten: 1 # port\n"
+        );
+    }
+
+    #[test]
+    fn adding_to_an_inline_container_rewrites_only_that_container() {
+        let flow = "# head\ntcp: {nodelay: true} # tcp\nlisten: 1 # port\n";
+        let saved = save(Language::YAML, Language::JSON, flow, |shown| {
+            shown.replace(
+                "\"nodelay\": true",
+                "\"nodelay\": true,\n    \"keepalive_secs\": 3",
+            )
+        });
+        assert_eq!(
+            saved,
+            "# head\ntcp: {nodelay: true, keepalive_secs: 3} # tcp\nlisten: 1 # port\n"
+        );
+        let sequence = "# head\nallow: [a, b] # s\nlisten: 1\n";
+        let saved = save(Language::YAML, Language::JSON, sequence, |shown| {
+            shown.replace("\"b\"", "\"b\",\n    \"c\"")
+        });
+        assert_eq!(saved, "# head\nallow: [a, b, c] # s\nlisten: 1\n");
+        let inline = "# head\ntcp = { nodelay = true } # tcp\nlisten = 1\n";
+        let saved = save(Language::TOML, Language::YAML, inline, |shown| {
+            shown.replace("nodelay: true", "nodelay: true\n  keepalive_secs: 3")
+        });
+        assert_eq!(
+            saved,
+            "# head\ntcp = { nodelay = true, keepalive_secs = 3 } # tcp\nlisten = 1\n"
+        );
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn a_value_in_a_lone_block_read_as_a_list_changes_only_that_value() {
+        let schema = super::super::diagnostics::build_schema(include_str!(
+            "../../tests/fixtures/burrow.schema.json"
+        ))
+        .unwrap();
+        let bridge = Bridge::new(
+            Language::HCL,
+            Language::YAML,
+            Some(std::sync::Arc::new(schema)),
+        )
+        .unwrap();
+        let host = "web {\n  # certs\n  certificates {\n    hosts = [\"a\"]\n    cert = \"c\" # c\n  }\n}\n";
+        let shown = bridge.to_edit(host).unwrap().text;
+        assert!(shown.contains("cert: c"), "{shown}");
+        let saved = bridge
+            .to_host(&shown.replace("cert: c", "cert: d"), host)
+            .unwrap()
+            .text;
+        assert_eq!(saved, host.replace("cert = \"c\"", "cert = \"d\""));
+    }
+
+    #[test]
+    fn a_value_in_multi_line_string_syntax_keeps_what_follows_it() {
+        let toml = "public_address = \'\'\'ab\'\'\' # real\nlisten = 1\n";
+        let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+            shown.replace("public_address: ab", "public_address: cd")
+        });
+        assert_eq!(saved, "public_address = \"cd\" # real\nlisten = 1\n");
+        let hcl = "public_address = <<EOT\nab\nEOT\n\n# after\nlisten = 1\n";
+        let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+            shown.replace("public_address: |\n  ab", "public_address: |\n  cd")
+        });
+        assert_eq!(saved, "public_address = \"cd\\n\"\n\n# after\nlisten = 1\n");
+        let yaml = "public_address: >- # c\n  ab\nlisten: 1\n";
+        let saved = save(Language::YAML, Language::JSON, yaml, |shown| {
+            shown.replace("\"ab\"", "\"cd\"")
+        });
+        assert_eq!(saved, "public_address: cd # c\nlisten: 1\n");
+    }
+
+    #[test]
+    fn values_the_view_cannot_show_are_warned_about() {
+        let bridge = Bridge::new(Language::YAML, Language::XML, None).unwrap();
+        let shown = bridge
+            .to_edit("listen: 1\nx:\n  - [1, 2]\n  - [3]\nallow: []\n")
+            .unwrap();
+        let warnings = bridge.view_problems(&shown);
+        let messages: Vec<&str> = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect();
+        assert!(
+            messages.iter().any(|message| message.starts_with("/x")),
+            "{messages:?}\n{}",
+            shown.text
+        );
+        assert!(
+            messages.iter().any(|message| message.starts_with("/allow")),
+            "{messages:?}\n{}",
+            shown.text
+        );
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.severity == Severity::Warning)
+        );
+    }
+
+    #[test]
+    fn the_first_key_of_a_comment_only_document_goes_under_its_header() {
+        let saved = save(Language::YAML, Language::JSON, "# header\n", |_| {
+            "{\"listen\": 1}".to_string()
+        });
+        assert_eq!(saved, "# header\nlisten: 1\n");
     }
 }

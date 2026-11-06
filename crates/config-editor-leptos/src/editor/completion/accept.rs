@@ -86,6 +86,7 @@ pub(super) fn rename_key_with_value(
         };
     option.cursor_offset = option.insert.encode_utf16().count();
     option.selected = 0;
+    option.renames = true;
 }
 
 /// The next empty value slot after UTF-16 `caret` and before `end` in

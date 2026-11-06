@@ -19,9 +19,12 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if state.read_only.get_untracked() {
-        // The root listener handles Escape; swallow keys that would
-        // otherwise act here.
-        if event.key() == "Escape" || (event.ctrl_key() && event.code() == "Space") {
+        // Navigation works as usual: Escape collapses a selection (the root
+        // listener closes popups); suggestions never open.
+        if event.key() == "Escape" {
+            event.prevent_default();
+            navigation::escape(state, event);
+        } else if event.ctrl_key() && event.code() == "Space" {
             event.prevent_default();
         }
         return;
@@ -58,6 +61,11 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         state.selected_diff_peek.set(None);
         state.hide_hover();
     }
+}
+
+/// Ctrl, Cmd, Alt or Shift held.
+fn modified(event: &KeyboardEvent) -> bool {
+    event.ctrl_key() || event.meta_key() || event.alt_key() || event.shift_key()
 }
 
 /// No Ctrl, Cmd or Alt held.

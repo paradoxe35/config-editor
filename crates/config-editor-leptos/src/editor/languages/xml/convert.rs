@@ -36,9 +36,27 @@ pub(super) fn write_element(out: &mut String, name: &str, value: &Value) -> Resu
         let mut serializer = quick_xml::se::Serializer::with_root(&mut *out, Some(name))
             .map_err(|error| format!("<{name}>: {error}"))?;
         serializer.indent(' ', 2);
-        item.serialize(serializer)
+        with_serializer_text(item)
+            .serialize(serializer)
             .map_err(|error| format!("<{name}>: {error}"))?;
         out.push('\n');
     }
     Ok(())
+}
+
+/// `value` with the model's `#text` (an element's text beside its children)
+/// renamed to `$text`, the key `quick-xml` writes as element text.
+fn with_serializer_text(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, child)| {
+                    let key = if key == "#text" { "$text".to_string() } else { key.clone() };
+                    (key, with_serializer_text(child))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(with_serializer_text).collect()),
+        other => other.clone(),
+    }
 }

@@ -44,6 +44,9 @@ pub(super) struct Completion {
     /// inserted default), so typing replaces it.
     pub(super) selected: usize,
     pub(super) is_value: bool,
+    /// Renames a key that already has its value (`ht|: 80`): accepting it
+    /// completes the entry, so the list does not reopen.
+    pub(super) renames: bool,
     /// Character ranges of `label` matched by the query, for highlighting.
     pub(super) matched: Vec<(usize, usize)>,
 }

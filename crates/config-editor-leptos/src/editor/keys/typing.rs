@@ -167,6 +167,9 @@ fn open_pair(
     else {
         return false;
     };
+    let backward = state
+        .textarea()
+        .is_some_and(|element| is_backward(&element));
     event.prevent_default();
     // A prevented keydown fires no input event, so open suggestions here
     // when the pair starts an entry.
@@ -179,6 +182,13 @@ fn open_pair(
     state.commit(
         Edit::new(before, (start, end), updated, selection_end).selecting_from(selection_start),
     );
+    // A wrapped selection keeps its direction.
+    if backward
+        && selection_start != selection_end
+        && let Some(element) = state.textarea()
+    {
+        select(&element, selection_start, selection_end, true);
+    }
     state.suggestions_requested.set(opens_entry);
     true
 }
@@ -199,9 +209,9 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
     let text = state.source.get_untracked();
     let edit = match event.key().as_str() {
         "Backspace" => backspace_indent(&text, start),
-        "}" => typed_closer(&text, start, '}'),
-        "]" => typed_closer(&text, start, ']'),
-        ")" => typed_closer(&text, start, ')'),
+        "}" => typed_closer(&text, start, '}', state.behavior()),
+        "]" => typed_closer(&text, start, ']', state.behavior()),
+        ")" => typed_closer(&text, start, ')', state.behavior()),
         _ => None,
     };
     let Some((updated, caret)) = edit else {

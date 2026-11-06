@@ -2,7 +2,7 @@
 // into pkg/. Needs a wasm-bindgen CLI of the version in Cargo.lock: on PATH,
 // in WASM_BINDGEN, or the one trunk caches.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,16 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 );
+// The public types: wasm-bindgen also declares its own internals (the start
+// hook, stream adapters) and `[Symbol.dispose]`, which needs `lib: esnext`.
+{
+  const types = join(here, 'pkg', 'config_editor.d.ts');
+  const cleaned = readFileSync(types, 'utf8')
+    .replace(/(?:\/\*\*(?:[^*]|\*(?!\/))*\*\/\n)?export class IntoUnderlying\w+ \{[\s\S]*?\n\}\n\n?/g, '')
+    .replace(/(?:\/\*\*(?:[^*]|\*(?!\/))*\*\/\n)?export function start\(\): void;\n\n?/g, '')
+    .replace(/^ *\[Symbol\.dispose\]\(\): void;\n/gm, '');
+  writeFileSync(types, cleaned);
+}
 // Optional: shrink further with binaryen's wasm-opt when it is installed.
 try {
   const wasm = join(here, 'pkg', 'config_editor_bg.wasm');

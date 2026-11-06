@@ -23,6 +23,25 @@ pub(super) fn yaml_value(value: &Value) -> String {
     match value {
         Value::String(value) if is_plain_identifier(value) => value.clone(),
         Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),
+        // Flow style, as people write it: `{a: 1, b: x}`, `[a, b]`.
+        Value::Array(items) => {
+            let items: Vec<String> = items.iter().map(yaml_value).collect();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Object(map) => {
+            let pairs: Vec<String> = map
+                .iter()
+                .map(|(key, child)| {
+                    let key = if is_plain_identifier(key) {
+                        key.clone()
+                    } else {
+                        serde_json::to_string(key).unwrap_or_else(|_| key.clone())
+                    };
+                    format!("{key}: {}", yaml_value(child))
+                })
+                .collect();
+            format!("{{{}}}", pairs.join(", "))
+        }
         _ => value.to_string(),
     }
 }

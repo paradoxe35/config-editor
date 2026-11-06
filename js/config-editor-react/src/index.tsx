@@ -102,6 +102,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     const latest = useRef(props);
     latest.current = props;
     const [mounted, setMounted] = useState(0);
+    // Bumped to retry a mount that failed on a bad prop once a live prop
+    // (theme, colors, editAs) changes, as a re-mount prop change would.
+    const [retry, setRetry] = useState(0);
+    const failed = useRef(false);
     // Values sent through onChange that the parent has not passed back yet,
     // oldest first. A parent applying them late must not roll the document
     // back: an echo with newer values still pending is stale. Any other
@@ -157,8 +161,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         };
         try {
           editor.current = new Editor(host.current, options);
+          failed.current = false;
           setMounted((count) => count + 1);
         } catch (error) {
+          failed.current = true;
           report(error);
         }
       }, report);
@@ -177,13 +183,20 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.showToolbar,
       props.showFooter,
       props.editorClassName,
+      retry,
     ]);
+
+    const liveProps = JSON.stringify([props.theme ?? null, props.colors ?? null, props.editAs ?? null]);
+    useEffect(() => {
+      if (failed.current) setRetry((count) => count + 1);
+    }, [liveProps]);
 
     useEffect(() => {
       guard((instance) => {
         const value = props.value;
         if (value === undefined) return;
-        const sent = pending.current.indexOf(value);
+        // The latest copy: a value typed twice may be pending twice.
+        const sent = pending.current.lastIndexOf(value);
         if (sent >= 0) {
           // The parent caught up to this emission; newer ones may follow.
           pending.current.splice(0, sent + 1);

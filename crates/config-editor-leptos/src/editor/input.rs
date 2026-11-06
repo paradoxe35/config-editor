@@ -283,7 +283,12 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    state.commit(Edit::new(text, (start, end), updated, caret.max(next_line.0)).revealed());
+    state.commit(Edit::new(
+        text,
+        (start, end),
+        updated,
+        caret.max(next_line.0),
+    ));
 }
 
 /// Pasting a line copied with nothing selected puts it above the caret's
@@ -309,5 +314,5 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     let (line_start, _) = line_range(&text, start);
     let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
     let caret = start + pasted.encode_utf16().count();
-    state.commit(Edit::new(text, (start, end), updated, caret).revealed());
+    state.commit(Edit::new(text, (start, end), updated, caret));
 }

@@ -7,7 +7,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @pngwasi/config-editor && npm run build --workspace @pngwasi/config-editor-react && npm run examples",
-    "examples": "esbuild examples/react.tsx --bundle --format=esm --jsx=automatic --target=es2022 --outfile=examples/dist/react.js"
+    "examples": "esbuild examples/react.tsx --bundle --format=esm --jsx=automatic --target=es2022 --outfile=examples/dist/react.js",
+    "typecheck": "tsc -p typecheck"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",

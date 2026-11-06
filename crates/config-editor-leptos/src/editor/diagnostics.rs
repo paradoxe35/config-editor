@@ -435,6 +435,13 @@ pub(super) fn validate(
                                     })
                                     .collect()
                             } else {
+                                // A non-empty object or list may be written as an
+                                // indented block below its key.
+                                let written_as_block = match error.instance().as_ref() {
+                                    serde_json::Value::Object(map) => !map.is_empty(),
+                                    serde_json::Value::Array(items) => !items.is_empty(),
+                                    _ => false,
+                                };
                                 // A missing property is reported on the object's key.
                                 let locate = |path: &str| {
                                     if matches!(error.kind(), ValidationErrorKind::Required { .. })
@@ -443,9 +450,26 @@ pub(super) fn validate(
                                             .or_else(|| behavior.key_span(source, path))
                                             .or_else(|| behavior.value_span(source, path))
                                     } else {
+                                        // A value written as an indented block has no
+                                        // text on its key's line: underline the key.
                                         super::codec::inline_location(behavior, source, path, false)
-                                            .or_else(|| behavior.value_span(source, path))
+                                            .or_else(|| {
+                                                behavior.value_span(source, path).filter(|span| {
+                                                    !written_as_block
+                                                        || source
+                                                            .lines()
+                                                            .nth(span.line.saturating_sub(1))
+                                                            .is_some_and(|line| {
+                                                                span.start_column
+                                                                    <= line
+                                                                        .trim_end()
+                                                                        .chars()
+                                                                        .count()
+                                                            })
+                                                })
+                                            })
                                             .or_else(|| behavior.key_span(source, path))
+                                            .or_else(|| behavior.value_span(source, path))
                                     }
                                 };
                                 // A lone block or element read as a one-item list

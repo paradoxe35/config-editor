@@ -17,11 +17,33 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             column: Some(column.max(1)),
         }
     })?;
-    serde_json::to_value(&document).map_err(|error| ParseError {
-        message: error.to_string(),
-        line: Some(1),
-        column: Some(1),
-    })
+    Ok(Value::Object(
+        document
+            .iter()
+            .map(|(key, value)| (key.clone(), toml_to_json(value)))
+            .collect(),
+    ))
+}
+
+/// A TOML value in the shared data model: dates and times are their TOML
+/// text (`1979-05-27`), not serde's private wrapper object; `nan` and
+/// infinities, which JSON cannot hold, are `null`.
+fn toml_to_json(value: &toml::Value) -> Value {
+    match value {
+        toml::Value::String(text) => Value::String(text.clone()),
+        toml::Value::Integer(number) => Value::from(*number),
+        toml::Value::Float(number) => serde_json::Number::from_f64(*number)
+            .map_or(Value::Null, Value::Number),
+        toml::Value::Boolean(flag) => Value::Bool(*flag),
+        toml::Value::Datetime(datetime) => Value::String(datetime.to_string()),
+        toml::Value::Array(items) => Value::Array(items.iter().map(toml_to_json).collect()),
+        toml::Value::Table(table) => Value::Object(
+            table
+                .iter()
+                .map(|(key, value)| (key.clone(), toml_to_json(value)))
+                .collect(),
+        ),
+    }
 }
 
 pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
@@ -38,7 +60,12 @@ pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, us
 pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
     let mut quote: Option<char> = None;
     let mut escaped = false;
+    // The end of a triple-quoted string closed on this line.
+    let mut skip_until = 0;
     for (index, character) in line.char_indices() {
+        if index < skip_until {
+            continue;
+        }
         if let Some(active) = quote {
             if active == '"' && escaped {
                 escaped = false;
@@ -57,7 +84,19 @@ pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
                 .take_while(|next| *next == character)
                 .count();
             if run >= 3 {
-                return (line, None);
+                let delimiter = &line[index..index + 3];
+                let Some(close) = line[index + 3..].find(delimiter) else {
+                    return (line, None);
+                };
+                // Up to two more quotes end the string's own text.
+                let end = index + 3 + close + 3;
+                let extra = line[end..]
+                    .chars()
+                    .take_while(|next| *next == character)
+                    .count()
+                    .min(2);
+                skip_until = end + extra;
+                continue;
             }
             quote = Some(character);
         } else if character == '#'
@@ -440,6 +479,8 @@ pub(super) fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, u
             }
             if full == wanted {
                 let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
+                // A dotted key (`websocket.bogus`) names its last segment.
+                let start = start + last_segment_start(&code[start..end]);
                 return Some(span_between(source, offset + start, offset + end));
             }
             // `key = { nested = … }` keeps every nested key on this line.
@@ -511,5 +552,25 @@ pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
             line[..start].chars().count() + 1,
             line.chars().count() + 1,
         ))
+    })
+}
+
+/// Where the last segment of a dotted key starts (after its last `.` outside
+/// quotes, and any spaces), in bytes; 0 for a plain key.
+fn last_segment_start(key: &str) -> usize {
+    let mut quote: Option<char> = None;
+    let mut last_dot = None;
+    for (index, character) in key.char_indices() {
+        match quote {
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if character == '.' => last_dot = Some(index),
+            None => {}
+        }
+    }
+    last_dot.map_or(0, |dot| {
+        let rest = &key[dot + 1..];
+        dot + 1 + rest.len() - rest.trim_start().len()
     })
 }

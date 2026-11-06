@@ -30,7 +30,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     }
     // A selection within one line is replaced, as typing would.
     let (updated, caret) = replace_selection(&text, start, end, &tab_insert(&text, start));
-    state.commit(Edit::new(text, (start, end), updated, caret).revealed());
+    state.commit(Edit::new(text, (start, end), updated, caret));
     state.close_suggestions();
 }
 

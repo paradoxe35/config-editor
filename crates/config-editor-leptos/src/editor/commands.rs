@@ -1,4 +1,5 @@
 use super::keyboard::utf16_to_byte_index;
+use super::language::ConfigLanguage;
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -224,7 +225,12 @@ pub(super) fn backspace_indent(source: &str, cursor: usize) -> Option<(String, u
 /// Typing `}`, `]`, or `)` on a blank line re-indents it to match the opening
 /// bracket's line. Returns the text (closer included) and caret, or `None`
 /// when typing it plainly is already right.
-pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<(String, usize)> {
+pub(super) fn typed_closer(
+    source: &str,
+    cursor: usize,
+    closer: char,
+    behavior: &dyn ConfigLanguage,
+) -> Option<(String, usize)> {
     let opener = match closer {
         '}' => '{',
         ']' => '[',
@@ -234,21 +240,32 @@ pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
-    if before.is_empty() || !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+    if !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
         return None;
     }
-    // Find the innermost unmatched opener above the caret's line.
+    // At column 0 only on a blank line: typing `}` before text is not closing.
+    let line_end = source[byte..]
+        .find('\n')
+        .map_or(source.len(), |offset| byte + offset);
+    if before.is_empty() && !source[byte..line_end].trim().is_empty() {
+        return None;
+    }
+    // Find the innermost unmatched opener above the caret's line, ignoring
+    // brackets in strings and comments.
     let mut depth = 0usize;
     let mut open_at = None;
-    for (index, character) in source[..line_start].char_indices().rev() {
-        if character == closer {
-            depth += 1;
-        } else if character == opener {
-            if depth == 0 {
-                open_at = Some(index);
-                break;
+    'lines: for (line_offset, line) in line_offsets(&source[..line_start]).into_iter().rev() {
+        let code = &line[..behavior.comment_start(line).unwrap_or(line.len())];
+        for (index, character) in brackets_outside_strings(code).into_iter().rev() {
+            if character == closer {
+                depth += 1;
+            } else if character == opener {
+                if depth == 0 {
+                    open_at = Some(line_offset + index);
+                    break 'lines;
+                }
+                depth -= 1;
             }
-            depth -= 1;
         }
     }
     let open_line_start = source[..open_at?].rfind('\n').map_or(0, |index| index + 1);
@@ -289,7 +306,30 @@ mod tab_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
     use super::{backspace_indent, indent_lines, typed_closer};
+
+    /// A language with `#` comments, for the bracket scan.
+    struct Hash;
+
+    impl ConfigLanguage for Hash {
+        fn info(&self) -> LanguageInfo {
+            LanguageInfo {
+                label: "Hash",
+                icon: "H",
+                extensions: &[],
+            }
+        }
+        fn config(&self) -> LanguageConfig {
+            LanguageConfig {
+                line_comments: &["#"],
+                ..LanguageConfig::default()
+            }
+        }
+        fn parse(&self, _source: &str) -> Result<serde_json::Value, ParseError> {
+            Ok(serde_json::Value::Null)
+        }
+    }
 
     /// Applies `edit` at the `|` and returns the text with `|` at the new caret.
     fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<(String, usize)>) -> Option<String> {
@@ -316,17 +356,52 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_closer_ignores_brackets_in_strings_and_comments() {
+        let closer = |marked: &str, typed: char| {
+            at(marked, |source, cursor| {
+                typed_closer(source, cursor, typed, &Hash)
+            })
+        };
+        assert_eq!(
+            closer("ports: [\n  \"[\",\n  |", ']').as_deref(),
+            Some("ports: [\n  \"[\",\n]|")
+        );
+        assert_eq!(
+            closer("a {\n  # TODO: {\n  b = 1\n  |", '}').as_deref(),
+            Some("a {\n  # TODO: {\n  b = 1\n}|")
+        );
+    }
+
+    #[test]
+    fn a_closer_typed_at_column_0_of_a_blank_line_aligns() {
+        assert_eq!(
+            at("{\n  \"a\": {\n    \"b\": 1\n|", |source, cursor| {
+                typed_closer(source, cursor, '}', &Hash)
+            })
+            .as_deref(),
+            Some("{\n  \"a\": {\n    \"b\": 1\n  }|")
+        );
+        // Before text it is just a character.
+        assert_eq!(
+            at("{\n|x", |source, cursor| typed_closer(
+                source, cursor, '}', &Hash
+            )),
+            None
+        );
+    }
+
+    #[test]
     fn a_typed_closer_on_a_blank_line_aligns_with_its_opener() {
         assert_eq!(
             at("{\n  \"a\": 1,\n  |", |source, cursor| typed_closer(
-                source, cursor, '}'
+                source, cursor, '}', &Hash
             ))
             .as_deref(),
             Some("{\n  \"a\": 1,\n}|")
         );
         assert_eq!(
             at("x = {\n  a = [\n    1,\n    |", |source, cursor| {
-                typed_closer(source, cursor, ']')
+                typed_closer(source, cursor, ']', &Hash)
             })
             .as_deref(),
             Some("x = {\n  a = [\n    1,\n  ]|")
@@ -334,7 +409,7 @@ mod tests {
         // A closer after content is typed as is.
         assert_eq!(
             at("{\n  \"a\": 1|", |source, cursor| typed_closer(
-                source, cursor, '}'
+                source, cursor, '}', &Hash
             )),
             None
         );
@@ -345,4 +420,38 @@ mod tests {
         let (updated, _, _) = indent_lines("a:\n\n  b: 1\n", 0, 9, false).unwrap();
         assert_eq!(updated, "  a:\n\n    b: 1\n");
     }
+}
+
+/// Each line of `text` with its byte offset.
+fn line_offsets(text: &str) -> Vec<(usize, &str)> {
+    let mut offset = 0;
+    text.split_inclusive('\n')
+        .map(|line| {
+            let at = offset;
+            offset += line.len();
+            (at, line.trim_end_matches('\n'))
+        })
+        .collect()
+}
+
+/// The brackets of `code` outside `"…"` and `'…'` strings, with their byte
+/// offsets.
+fn brackets_outside_strings(code: &str) -> Vec<(usize, char)> {
+    let mut found = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (index, character) in code.char_indices() {
+        match quote {
+            Some(_) if escaped => escaped = false,
+            Some(_) if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if matches!(character, '{' | '}' | '[' | ']' | '(' | ')') => {
+                found.push((index, character));
+            }
+            None => {}
+        }
+    }
+    found
 }

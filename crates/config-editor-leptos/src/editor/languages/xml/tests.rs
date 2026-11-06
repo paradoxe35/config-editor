@@ -666,3 +666,11 @@ fn nesting_deeper_than_the_limit_is_an_error_not_a_crash() {
     let fine = "<a>".repeat(100) + "1" + &"</a>".repeat(100);
     assert!(XmlBehavior.parse(&fine).is_ok());
 }
+
+#[test]
+fn an_element_with_text_beside_its_children_writes_back() {
+    let value = XmlBehavior.parse("<listen port=\"1\">7835</listen>\n").unwrap();
+    assert_eq!(value["listen"]["#text"], "7835");
+    let written = XmlBehavior.serialize(&value, None).unwrap();
+    assert_eq!(XmlBehavior.parse(&written).unwrap(), value, "{written}");
+}

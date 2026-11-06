@@ -43,14 +43,16 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     // `replaces` and `caret` are bytes; the cursor is in UTF-16 units.
     let end_byte = utf16_to_byte_index(&text, end);
     let replaced_byte = (end_byte + newline.replaces).min(text.len());
-    // Indentation already after the caret is replaced by the new line's
-    // own, not added to it.
+    // When the new line writes its own indentation (`|    }` moving the
+    // closer to its opener's indent), indentation already after the caret is
+    // replaced, not added to. Enter at column 0 of an indented line writes
+    // none, and the line keeps its indentation.
     let ends_indented = newline.text.contains('\n')
         && newline
             .text
             .rsplit('\n')
             .next()
-            .is_some_and(|tail| tail.trim().is_empty());
+            .is_some_and(|tail| !tail.is_empty() && tail.trim().is_empty());
     let following = if ends_indented {
         let rest = &text[replaced_byte..];
         rest.len() - rest.trim_start_matches([' ', '\t']).len()
@@ -68,7 +70,7 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
             .count();
     let (updated, _) = replace_selection(&text, start, replaced_end, &newline.text);
     let caret = start + newline.text[..newline.caret].encode_utf16().count();
-    state.commit(Edit::new(text, selection, updated, caret).revealed());
+    state.commit(Edit::new(text, selection, updated, caret));
     state.close_suggestions();
 }
 
@@ -81,14 +83,14 @@ fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) 
         .collect();
     let (updated, _) = replace_selection(&text, line_start, line_start, &format!("{indent}\n"));
     let caret = line_start + indent.encode_utf16().count();
-    state.commit(Edit::new(text, selection, updated, caret).revealed());
+    state.commit(Edit::new(text, selection, updated, caret));
     state.close_suggestions();
 }
 
 /// After a value typed before a closer the editor wrote that ends it (the
 /// quote in `["box|"]`, the end tag in `<mode>balance|</mode>`), Enter steps
-/// past it, and past brackets it wrote right after, instead of splitting the
-/// value. An empty value (`"|"`) or bracket pair (`{|}`) still opens.
+/// past it, past brackets it wrote right after, and past the comma ending the
+/// item, instead of splitting the value. An empty value (`"|"`) or bracket pair (`{|}`) still opens.
 fn step_past_inserted_closers(state: EditorState, text: &str, mut start: usize) -> usize {
     let Some(first) = state.closer_at(start) else {
         return start;
@@ -104,6 +106,11 @@ fn step_past_inserted_closers(state: EditorState, text: &str, mut start: usize) 
         && next.opener.is_none()
     {
         start += next.len;
+    }
+    // The comma ending the item comes along, so the next item starts on the
+    // new line (`"cert": "a",|` rather than `"cert": "a"|,`).
+    if text[utf16_to_byte_index(text, start)..].starts_with(',') {
+        start += 1;
     }
     start
 }

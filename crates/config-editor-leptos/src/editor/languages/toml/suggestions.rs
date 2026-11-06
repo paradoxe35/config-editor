@@ -270,7 +270,12 @@ pub(super) fn existing_table_keys(
     // A line scan, not a parse: mid-typing the document rarely parses.
     let lines: Vec<&str> = source.lines().collect();
     let (line_index, _) = line_at(source, &lines, cursor_byte);
-    if let Some(statement) = statement_start(&source[..cursor_byte])
+    // A table header being typed (`[w|]`) is not an inline array.
+    let in_header = lines
+        .get(line_index)
+        .is_some_and(|line| line.trim_start().starts_with('['));
+    if !in_header
+        && let Some(statement) = statement_start(&source[..cursor_byte])
         && let Some(keys) = inline_sibling_keys(&source[statement..], b'=', cursor_byte - statement)
     {
         return Some(keys.into_iter().collect());

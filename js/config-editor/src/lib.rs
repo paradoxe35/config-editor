@@ -57,6 +57,12 @@ export interface EditorOptions {
   onEditAsChange?: (language: LanguageName) => void;
 }
 
+/** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
+export interface CallbackUpdate {
+  onChange?: ((value: string) => void) | null;
+  onEditAsChange?: ((language: LanguageName) => void) | null;
+}
+
 export interface Diagnostic {
   line?: number;
   column?: number;
@@ -80,8 +86,8 @@ export interface CustomLanguage {
   parse(text: string): unknown;
   serialize?(value: unknown): string;
   /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer. */
-  keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined;
-  valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined;
+  keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
+  valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   /** Byte ranges of one line: kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
   highlight?(line: string): { start: number; end: number; kind: string }[];
   /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment. */
@@ -97,7 +103,7 @@ export interface CustomLanguage {
 extern "C" {
     #[wasm_bindgen(typescript_type = "EditorOptions")]
     pub type EditorOptions;
-    #[wasm_bindgen(typescript_type = "Partial<EditorOptions>")]
+    #[wasm_bindgen(typescript_type = "CallbackUpdate")]
     pub type EditorUpdate;
     #[wasm_bindgen(typescript_type = "CustomLanguage")]
     pub type CustomLanguage;
@@ -139,6 +145,11 @@ fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
     let mut colors = ThemeColors::new();
     if value.is_undefined() || value.is_null() {
         return Ok(colors);
+    }
+    if !value.is_object() || Array::is_array(value) || value.is_function() {
+        return Err(JsError::new(
+            "colors must be an object of token: CSS color, such as { key: \"#ffcc66\" }",
+        ));
     }
     let entries = Object::entries(value.unchecked_ref());
     for entry in entries.iter() {
@@ -247,12 +258,12 @@ fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, String> {
         return Ok(Value::Bool(flag));
     }
     if let Some(number) = value.as_f64() {
+        // Whole numbers stay integers (5, not 5.0), as JSON.parse reads them.
+        if number.fract() == 0.0 && number.abs() < 9.007_199_254_740_992e15 {
+            return Ok(Value::from(number as i64));
+        }
         return serde_json::Number::from_f64(number)
             .map(Value::Number)
-            .or_else(|| {
-                (number.fract() == 0.0 && number.abs() < 9.007_199_254_740_992e15)
-                    .then(|| Value::from(number as i64))
-            })
             .ok_or_else(|| format!("{number} is not a JSON number"));
     }
     if let Some(text) = value.as_string() {
@@ -316,9 +327,19 @@ pub struct ConfigEditor {
     latest: Latest,
     /// The document when `destroy` ran, so `value` still answers afterwards.
     final_value: Option<String>,
-    /// Unmounts when dropped.
-    mounted: Option<Box<dyn std::any::Any>>,
-    owner: Owner,
+    /// The editor's entry in [`MOUNTED`] until `destroy`.
+    id: Option<u32>,
+}
+
+/// The unmount handle and reactive owner of an editor.
+type Mounted = (Box<dyn std::any::Any>, Owner);
+
+thread_local! {
+    /// Mounted editors, kept here rather than in the JavaScript object: an
+    /// instance the page no longer references is garbage-collected (and its
+    /// Rust side dropped), but the editor stays on the page until `destroy`.
+    static MOUNTED: RefCell<HashMap<u32, Mounted>> = RefCell::new(HashMap::new());
+    static NEXT_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 #[wasm_bindgen]
@@ -453,12 +474,19 @@ impl ConfigEditor {
                 }
             })
         });
+        let id = NEXT_ID.with(|next| {
+            let id = next.get();
+            next.set(id.wrapping_add(1));
+            id
+        });
+        MOUNTED.with(|editors| {
+            editors.borrow_mut().insert(id, (Box::new(mounted), owner));
+        });
         Ok(ConfigEditor {
             state,
             latest,
             final_value: None,
-            mounted: Some(Box::new(mounted)),
-            owner,
+            id: Some(id),
         })
     }
 
@@ -482,7 +510,7 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
     ) -> Result<(), JsError> {
-        if self.mounted.is_none() {
+        if self.id.is_none() {
             return Ok(());
         }
         let value = text_arg(&value, "value")?;
@@ -536,6 +564,7 @@ impl ConfigEditor {
         Ok(())
     }
 
+    /// Replaces the color overrides; `{}` or `null` clears them.
     #[wasm_bindgen(js_name = setColors)]
     pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
         let _ = self.state.colors.try_set(colors_from(&colors.into())?);
@@ -556,29 +585,50 @@ impl ConfigEditor {
 
     /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
     #[wasm_bindgen(js_name = setCallbacks)]
-    pub fn set_callbacks(&self, callbacks: EditorUpdate) {
+    pub fn set_callbacks(&self, callbacks: EditorUpdate) -> Result<(), JsError> {
         let callbacks: JsValue = callbacks.into();
-        // A function replaces a callback; `null` removes it; absent keeps it.
-        let update = |name: &str, slot: StoredValue<Option<Function>, LocalStorage>| {
+        if !callbacks.is_object() || Array::is_array(&callbacks) {
+            return Err(JsError::new(
+                "setCallbacks takes an object: { onChange?, onEditAsChange? }",
+            ));
+        }
+        // Check both before changing either.
+        let read = |name: &str| -> Result<Option<Option<Function>>, JsError> {
             let value = field(&callbacks, name);
-            if value.is_null() {
-                let _ = slot.try_set_value(None);
-            } else if let Ok(callback) = value.dyn_into::<Function>() {
-                let _ = slot.try_set_value(Some(callback));
+            if value.is_undefined() {
+                Ok(None)
+            } else if value.is_null() {
+                Ok(Some(None))
+            } else {
+                value
+                    .dyn_into::<Function>()
+                    .map(|callback| Some(Some(callback)))
+                    .map_err(|_| JsError::new(&format!("{name} must be a function or null")))
             }
         };
-        update("onChange", self.state.on_change);
-        update("onEditAsChange", self.state.on_edit_as_change);
+        // A function replaces a callback; `null` removes it; absent keeps it.
+        let on_change = read("onChange")?;
+        let on_edit_as_change = read("onEditAsChange")?;
+        if let Some(callback) = on_change {
+            let _ = self.state.on_change.try_set_value(callback);
+        }
+        if let Some(callback) = on_edit_as_change {
+            let _ = self.state.on_edit_as_change.try_set_value(callback);
+        }
+        Ok(())
     }
 
     /// Unmounts the editor. The instance cannot be used afterwards. An edit
     /// still waiting to be saved (while editing as another language) is sent
     /// to `onChange` first.
     pub fn destroy(&mut self) {
-        let Some(mounted) = self.mounted.take() else {
+        let Some((mounted, owner)) = self
+            .id
+            .take()
+            .and_then(|id| MOUNTED.with(|editors| editors.borrow_mut().remove(&id)))
+        else {
             return;
         };
-        let owner = self.owner.clone();
         let unmount = move || {
             drop(mounted);
             owner.cleanup();
@@ -630,7 +680,7 @@ fn to_js<T: Serialize>(value: &T) -> JsValue {
 pub fn validate(
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
     #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "string | undefined")] schema: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "string")] schema: JsValue,
 ) -> Result<Diagnostics, JsError> {
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
@@ -665,7 +715,7 @@ pub fn convert(
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] from: JsValue,
     #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] to: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "string | undefined")] schema: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "string")] schema: JsValue,
 ) -> Result<ConversionResult, JsError> {
     let schema = optional_text(&schema, "schema")?;
     let from = language_named(&text_arg(&from, "from")?)?;
@@ -753,11 +803,23 @@ impl JsLanguage {
                 &JsValue::from_str(pointer),
             )
             .ok()?;
-        let number = |key: &str| field(&span, key).as_f64().map(|value| value as usize);
+        let number = |key: &str| {
+            field(&span, key)
+                .as_f64()
+                .filter(|value| value.is_finite() && *value >= 1.0)
+                .map(|value| value as usize)
+        };
+        // A position outside the text is no position (the problem is shown
+        // unplaced); columns are clamped onto their line.
+        let line = number("line")?;
+        let text = source.split('\n').nth(line - 1)?;
+        let width = text.chars().count() + 1;
+        let start = number("startColumn")?.min(width);
+        let end = number("endColumn")?.min(width).max(start);
         Some(Span {
-            line: number("line")?,
-            start_column: number("startColumn")?,
-            end_column: number("endColumn")?,
+            line,
+            start_column: start,
+            end_column: end,
         })
     }
 }

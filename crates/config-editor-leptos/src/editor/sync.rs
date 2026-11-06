@@ -158,6 +158,18 @@ fn switch_languages(state: EditorState, host: Host) {
     let try_switch = move |next: Language| switch_to(state, next, on_edit_as_change);
     if let Some(next) = initial_pending {
         try_switch(next);
+    } else if let Some(callback) = on_edit_as_change
+        && state.edit_language.get_untracked() != state.host_language
+    {
+        // Mounted already editing as another language: that switch completed
+        // too. Reported after mounting, so a host's callback can use the
+        // editor it is creating.
+        let edit = state.edit_language.get_untracked();
+        Effect::new(move |previous: Option<()>| {
+            if previous.is_none() {
+                callback.run(edit);
+            }
+        });
     }
     Effect::new(move |previous: Option<Language>| {
         let next = edit_as.get().unwrap_or(state.host_language);
@@ -186,10 +198,15 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
     let current = state.edit_language.get_untracked();
     let text = state.source.get_untracked();
     let host_text = state.host_text.get_value();
+    let host_text_before = host_text.clone();
     let unsaved = text != state.synced_edit.get_value();
+    let mut view_warnings = Vec::new();
     let converted = if !unsaved {
         match state.bridge_to(next) {
-            Some(bridge) => bridge.to_edit(&host_text).map(|conversion| conversion.text),
+            Some(bridge) => bridge.to_edit(&host_text).map(|conversion| {
+                view_warnings = bridge.view_problems(&conversion);
+                conversion.text
+            }),
             None => Ok(host_text),
         }
     } else {
@@ -216,9 +233,24 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
         Ok(converted) => {
             if !unsaved {
                 state.synced_edit.set_value(converted.clone());
+                state.shown_cache.set_value(Some((
+                    next,
+                    host_text_before.clone(),
+                    converted.clone(),
+                )));
+            } else if next == state.host_language {
+                // Back to the host language with an edit still waiting out
+                // the typing pause: the converted text is the host's now.
+                state.synced_edit.set_value(converted.clone());
+                if converted != host_text_before {
+                    state.host_text.set_value(converted.clone());
+                    if let Some(on_change) = state.host_on_change {
+                        on_change.run(converted.clone());
+                    }
+                }
             }
             state.pending_switch.set(None);
-            state.load_problems.set(Vec::new());
+            state.load_problems.set(view_warnings);
             state.history.set(EditHistory::default());
             state.hide_hover();
             state.close_suggestions();

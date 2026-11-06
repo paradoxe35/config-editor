@@ -12,11 +12,14 @@ const ready = loadConfigEditor({ module_or_path: "../config-editor/pkg/config_ed
 
 // `?uncontrolled` renders the editor with `defaultValue` instead of `value`.
 const uncontrolled = new URLSearchParams(location.search).has("uncontrolled");
+// `?late` applies onChange values 400 ms late and only the latest, as a
+// debounced parent (a store, a network round trip) would.
+const late = new URLSearchParams(location.search).has("late");
+const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
-  const [value, setValue] = useState(
-    "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n",
-  );
+  const [value, setValue] = useState(initialText);
+  const lateTimer = useRef<ReturnType<typeof setTimeout>>();
   // The value before the latest edit, for the parent-side revert button.
   const previous = useRef(value);
   const [fileName, setFileName] = useState("burrow.yaml");
@@ -62,6 +65,12 @@ function App({ schema }: { schema: string }) {
         <button id="revert" type="button" onClick={() => setValue(previous.current)}>
           Revert last edit
         </button>
+        <button id="reset" type="button" onClick={() => setValue(initialText)}>
+          Reset
+        </button>
+        <button id="bad-theme" type="button" onClick={() => setTheme("not-a-theme")}>
+          Invalid theme
+        </button>
         <button id="rename" type="button" onClick={() => setFileName((name) => `renamed-${name}`)}>
           Rename (re-mounts)
         </button>
@@ -73,10 +82,14 @@ function App({ schema }: { schema: string }) {
         schema={schema}
         {...(uncontrolled ? { defaultValue: value } : { value })}
         onChange={(next) => {
-          setValue((current) => {
-            previous.current = current;
-            return next;
-          });
+          const apply = () =>
+            setValue((current) => {
+              previous.current = current;
+              return next;
+            });
+          if (!late) return apply();
+          clearTimeout(lateTimer.current);
+          lateTimer.current = setTimeout(apply, 400);
         }}
         editAs={editAs}
         onEditAsChange={setEditing}

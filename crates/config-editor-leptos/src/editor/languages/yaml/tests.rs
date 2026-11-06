@@ -1490,3 +1490,4 @@ fn an_error_inside_an_inline_mapping_points_at_its_key() {
     assert_eq!(diagnostics[0].line, Some(2));
     assert_eq!(diagnostics[0].column, Some(11));
 }
+

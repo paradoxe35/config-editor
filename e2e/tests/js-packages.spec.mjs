@@ -370,3 +370,151 @@ test.describe('vanilla API: languages described by configuration', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('vanilla API: fourth-round findings', () => {
+  test('an editor nobody references stays mounted through garbage collection', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      window.editor = undefined;
+      // No reference kept, as in the README quick start.
+      new module.ConfigEditor(document.getElementById('editor'), { value: 'listen: 1\n' });
+    });
+    const client = await browserPage.context().newCDPSession(browserPage);
+    for (let round = 0; round < 3; round += 1) {
+      await client.send('HeapProfiler.collectGarbage');
+      await browserPage.waitForTimeout(200);
+    }
+    await expect(input(browserPage)).toHaveValue('listen: 1\n');
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('x');
+    await expect(input(browserPage)).toHaveValue('listen: 1\nx');
+    expect(errors).toEqual([]);
+  });
+
+  test('whole numbers from a JavaScript language stay integers', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const converted = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      module.registerLanguage({ label: 'Num', parse: () => ({ n: 5, list: [1, 2], ratio: 0.5 }) });
+      return ['yaml', 'toml', 'json'].map((target) => module.convert('num', 'x', target).text);
+    });
+    expect(converted[0]).toBe('n: 5\nlist:\n  - 1\n  - 2\nratio: 0.5\n');
+    expect(converted[1]).toContain('n = 5\n');
+    expect(converted[2]).toContain('"n": 5');
+  });
+
+  test('an editAs applied at mount reports onEditAsChange', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const reported = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      const languages = [];
+      window.target = new module.ConfigEditor(document.getElementById('editor'), {
+        value: 'listen: 1\n',
+        editAs: 'json',
+        onEditAsChange: (language) => languages.push(language),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return languages;
+    });
+    expect(reported).toEqual(['json']);
+  });
+
+  test('setCallbacks and setColors check their arguments', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const messages = await browserPage.evaluate(() => {
+      const attempt = (run) => {
+        try {
+          run();
+          return 'no error';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return {
+        callbackType: attempt(() => window.editor.setCallbacks({ onChange: 'x' })),
+        callbacksNumber: attempt(() => window.editor.setCallbacks(5)),
+        colorsNumber: attempt(() => window.editor.setColors(5)),
+        colorsString: attempt(() => window.editor.setColors('red')),
+        removal: attempt(() => window.editor.setCallbacks({ onChange: null })),
+      };
+    });
+    expect(messages.callbackType).toContain('onChange must be a function or null');
+    expect(messages.callbacksNumber).toContain('setCallbacks takes an object');
+    expect(messages.colorsNumber).toContain('colors must be an object');
+    expect(messages.colorsString).toContain('colors must be an object');
+    expect(messages.removal).toBe('no error');
+  });
+
+  test('switching back to the host language during the typing pause saves the edit', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    await browserPage.locator('#edit-as').selectOption('json');
+    await expect(input(browserPage)).toHaveValue(/"listen": 7835/);
+    await input(browserPage).evaluate((element) => {
+      const at = element.value.indexOf('7835') + 4;
+      element.focus();
+      element.setSelectionRange(at, at);
+    });
+    await browserPage.keyboard.type('1');
+    await browserPage.evaluate(() => window.editor.setEditAs(null));
+    await expect(saved(browserPage)).toContainText('listen: 78351');
+    expect(await browserPage.evaluate(() => window.editor.value)).toContain('listen: 78351');
+  });
+});
+
+test.describe('react: late parents and failed mounts', () => {
+  test('a reset after a repeated value applies', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?late');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('x');
+    await browserPage.keyboard.press('Backspace');
+    await browserPage.keyboard.type('x');
+    // The parent applies only the latest value, late.
+    await expect(saved(browserPage)).toContainText('tunnel.example.com\nx');
+    await browserPage.locator('#reset').click();
+    await expect(input(browserPage)).toHaveValue(before);
+  });
+
+  test('fixing a prop that failed a re-mount brings the editor back', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'react.html');
+    await browserPage.locator('#bad-theme').click();
+    await browserPage.locator('#rename').click();
+    await expect(input(browserPage)).toHaveCount(0);
+    await browserPage.locator('#theme').selectOption('nord');
+    await expect(input(browserPage)).toHaveCount(1);
+    await expect(browserPage.locator('.config-editor').first()).toHaveAttribute('data-color-theme', 'nord');
+    // The failures went to the console (the example has no onError).
+    expect(errors.some((error) => error.includes('not-a-theme') || error.includes('theme'))).toBe(true);
+  });
+});
+
+test.describe('vanilla API: positions from a JavaScript language', () => {
+  test('a span outside the text is no position, not a wrong one', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const problems = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      module.registerLanguage({
+        label: 'Far',
+        parse: () => ({ listen: 'not a port' }),
+        keySpan: () => ({ line: 999, startColumn: 5, endColumn: 2 }),
+        valueSpan: () => ({ line: 1, startColumn: 50, endColumn: 9 }),
+      });
+      const schema = JSON.stringify({ type: 'object', properties: { listen: { type: 'integer' } } });
+      return module.validate('far', 'listen=x', schema);
+    });
+    expect(problems).toHaveLength(1);
+    const [problem] = problems;
+    // On line 1 and clamped onto it, or unplaced: never line 999.
+    expect(problem.line === undefined || problem.line === 1).toBe(true);
+    if (problem.line === 1) {
+      expect(problem.column).toBeLessThanOrEqual(9);
+      expect(problem.endColumn).toBeGreaterThanOrEqual(problem.column);
+    }
+  });
+});

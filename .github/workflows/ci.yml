@@ -32,7 +32,7 @@ jobs:
         working-directory: crates/config-editor-leptos
         run: |
           for features in yaml json toml hcl xml schema-validation; do
-            cargo check --no-default-features --features "$features"
+            cargo test --lib --no-default-features --features "$features"
           done
 
   browser:
@@ -56,6 +56,9 @@ jobs:
       - name: Build the npm packages
         working-directory: js
         run: npm ci && npm run build
+      - name: Type-check the README examples
+        working-directory: js
+        run: npm run typecheck
       - name: Build the demo
         run: trunk build
       - name: End-to-end tests

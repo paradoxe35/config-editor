@@ -1272,3 +1272,39 @@ fn hover_works_inside_an_object_missing_a_required_key() {
         Some("dns")
     );
 }
+
+#[test]
+fn toml_header_completion_with_a_prefix_leaves_out_existing_tables() {
+    let offered = |marked: &str| labels(Language::TOML, marked);
+    assert!(!offered("[web]\nhttp = 1\n\n[w|]").contains(&"web".to_string()));
+    assert!(offered("[web]\nhttp = 1\n\n[w|]").contains(&"websocket".to_string()));
+    assert!(!offered("[websocket]\nlisten = 1\n\n[webs|]").contains(&"websocket".to_string()));
+    assert!(
+        !offered("[web.letsencrypt]\nemail = \"a\"\n\n[web.l|]")
+            .contains(&"letsencrypt".to_string())
+    );
+}
+
+#[test]
+fn a_wrong_type_value_written_as_a_block_underlines_its_key() {
+    let schema = burrow();
+    for (source, key) in [
+        ("tcp:\n  nodelay:\n    a: 1\n", "nodelay"),
+        ("listen:\n  port: 1\n", "listen"),
+    ] {
+        let problems = super::super::diagnostics::validate(
+            source,
+            Some(&schema),
+            None,
+            true,
+            Language::YAML.behavior(),
+        );
+        let problem = problems
+            .first()
+            .unwrap_or_else(|| panic!("no problem in {source:?}"));
+        let line = source.lines().nth(problem.line.unwrap() - 1).unwrap();
+        let start = problem.column.unwrap() - 1;
+        let end = problem.end_column.unwrap() - 1;
+        assert_eq!(&line[start..end], key, "{source:?}: {}", problem.message);
+    }
+}

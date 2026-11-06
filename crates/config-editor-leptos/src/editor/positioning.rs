@@ -100,10 +100,21 @@ pub(super) fn set_caret_visible(
     offset: usize,
     scroll_y: RwSignal<f64>,
 ) {
+    let offset = offset.min(text.encode_utf16().count());
+    let _ = editor.set_selection_range(offset as u32, offset as u32);
+    reveal_offset(editor, text, offset, scroll_y);
+}
+
+/// Scrolls UTF-16 `offset` into view without touching the selection.
+pub(super) fn reveal_offset(
+    editor: &web_sys::HtmlTextAreaElement,
+    text: &str,
+    offset: usize,
+    scroll_y: RwSignal<f64>,
+) {
     use super::keyboard::utf16_to_byte_index;
 
     let offset = offset.min(text.encode_utf16().count());
-    let _ = editor.set_selection_range(offset as u32, offset as u32);
     let byte_offset = utf16_to_byte_index(text, offset);
     let line = text[..byte_offset]
         .bytes()

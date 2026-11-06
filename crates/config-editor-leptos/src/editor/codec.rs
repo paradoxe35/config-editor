@@ -121,10 +121,46 @@ pub(super) fn patch_scalars(
     for (pointer, value) in changes {
         // Values inside flow collections and inline tables are found by the
         // shared scanner when the language has no span for them.
-        let span = language
-            .value_span(previous, &pointer)
-            .or_else(|| inline_location(language, previous, &pointer, false))?;
-        edits.push((byte_range(previous, span)?, language.format_value(value)));
+        let find = |pointer: &str| {
+            language
+                .value_span(previous, pointer)
+                .or_else(|| inline_location(language, previous, pointer, false))
+        };
+        // A lone block or element read as a one-item list is addressed
+        // `…/0/…` but written without it.
+        let span = find(&pointer).or_else(|| {
+            (language.repetition() != Repetition::None && pointer.contains("/0")).then(|| {
+                let lone = pointer.replace("/0/", "/");
+                find(lone.strip_suffix("/0").unwrap_or(&lone))
+            })?
+        })?;
+        // A value never takes the line break after it (a heredoc's span runs
+        // through its terminator line).
+        let mut range = byte_range(previous, span)?;
+        while range.end > range.start && previous[..range.end].ends_with('\n') {
+            range.end -= 1;
+        }
+        let mut text = language.format_value(value);
+        // A value written across lines (`key: >- # note` then its text) may
+        // hold its first line's comment; the one-line value keeps it.
+        let line_start = previous[..range.start]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let line_end = previous[range.start..]
+            .find('\n')
+            .map_or(previous.len(), |offset| range.start + offset);
+        if range.end > line_end {
+            let line = &previous[line_start..line_end];
+            if let Some(comment) = language
+                .comment_start(line)
+                .map(|start| line[start..].trim_end())
+                && line_start + line.len() - comment.len() > range.start
+                && !comment.is_empty()
+            {
+                text = format!("{text} {comment}");
+            }
+        }
+        edits.push((range, text));
     }
     edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     let mut patched = previous.to_string();
@@ -133,6 +169,137 @@ pub(super) fn patch_scalars(
     }
     // Trust the patch only if it reads back as exactly the new document.
     (read(language, &patched, schema).ok()? == *new).then_some(patched)
+}
+
+/// `previous` with a structural edit inside one inline container (a key
+/// added to `tcp: {nodelay: true}`, an item to `allow = ["a"]`) applied by
+/// rewriting just that container on its line, in the host's inline syntax.
+/// Kept only if it reads back as `new`.
+pub(super) fn patch_inline(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    old: &Value,
+    new: &Value,
+    schema: Option<&Value>,
+) -> Option<String> {
+    let changed = changed_container(old, new, String::new())?;
+    // The container that changed, or the nearest inline one around it.
+    let mut pointer = changed;
+    loop {
+        let span = language
+            .value_span(previous, &pointer)
+            .or_else(|| inline_location(language, previous, &pointer, false));
+        if let Some(span) = span
+            && let Some(patched) = replace_inline(language, previous, &span, new, &pointer)
+            && read(language, &patched, schema).ok().as_ref() == Some(new)
+        {
+            return Some(patched);
+        }
+        let parent = pointer.rfind('/')?;
+        if parent == 0 && pointer.is_empty() {
+            return None;
+        }
+        pointer.truncate(parent);
+        if pointer.is_empty() {
+            return None;
+        }
+    }
+}
+
+/// The pointer of the deepest value holding every difference between `old`
+/// and `new`.
+fn changed_container(old: &Value, new: &Value, pointer: String) -> Option<String> {
+    if old == new {
+        return None;
+    }
+    let child = |key: &str| format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+    match (old, new) {
+        (Value::Object(old), Value::Object(new))
+            if old.len() == new.len() && old.keys().all(|key| new.contains_key(key)) =>
+        {
+            let differing: Vec<&String> = old.keys().filter(|key| old[*key] != new[*key]).collect();
+            match differing.as_slice() {
+                [key] => changed_container(&old[*key], &new[*key], child(key)),
+                _ => Some(pointer),
+            }
+        }
+        (Value::Array(old), Value::Array(new)) if old.len() == new.len() => {
+            let differing: Vec<usize> = (0..old.len())
+                .filter(|index| old[*index] != new[*index])
+                .collect();
+            match differing.as_slice() {
+                [index] => changed_container(&old[*index], &new[*index], child(&index.to_string())),
+                _ => Some(pointer),
+            }
+        }
+        _ => Some(pointer),
+    }
+}
+
+/// `previous` with the inline container at `span` written as `new`'s value at
+/// `pointer`, or `None` when the span holds no one-line `{…}` or `[…]`.
+fn replace_inline(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    span: &Span,
+    new: &Value,
+    pointer: &str,
+) -> Option<String> {
+    let value = new.pointer(pointer)?;
+    if !(value.is_object() || value.is_array()) {
+        return None;
+    }
+    let line_start: usize = previous
+        .split_inclusive('\n')
+        .take(span.line.checked_sub(1)?)
+        .map(str::len)
+        .sum();
+    let line = previous[line_start..].split('\n').next()?;
+    let column_byte = |column: usize| {
+        line.char_indices()
+            .nth(column.saturating_sub(1))
+            .map_or(line.len(), |(index, _)| index)
+    };
+    let start = column_byte(span.start_column);
+    let text = &line[start..];
+    let close = match text.chars().next()? {
+        '{' => '}',
+        '[' => ']',
+        _ => return None,
+    };
+    let end = start + matching_close(text, close)? + 1;
+    let mut patched = previous.to_string();
+    patched.replace_range(
+        line_start + start..line_start + end,
+        &language.format_value(value),
+    );
+    Some(patched)
+}
+
+/// The byte offset of the bracket closing the one `text` starts with, on the
+/// same line, outside strings.
+fn matching_close(text: &str, close: char) -> Option<usize> {
+    let open = text.chars().next()?;
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut previous = ' ';
+    for (index, character) in text.char_indices() {
+        match quote {
+            Some(open_quote) if character == open_quote && previous != '\\' => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if character == open => depth += 1,
+            None if character == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            None => {}
+        }
+        previous = character;
+    }
+    None
 }
 
 /// `previous` with a structural edit (keys or items added or removed) applied
@@ -183,17 +350,43 @@ pub(super) fn patch_structure(
                 new_index += 1;
             }
             DiffEdit::Delete => {
-                removed[place[old_index]?] = true;
+                // A rendered line with no host line (a blank line the
+                // serializer writes between tables) has nothing to remove;
+                // a real mismatch is caught by the read-back below.
+                if let Some(at) = place[old_index] {
+                    removed[at] = true;
+                }
                 old_index += 1;
             }
             DiffEdit::Insert => {
-                // After the host line of the previous rendered line.
-                let slot = match old_index {
-                    0 => 0,
-                    index => place[index - 1]? + 1,
+                // After the host line of the nearest placed rendered line
+                // above; at the top, before the first placed line (after a
+                // header comment); with nothing placed, at the end.
+                let slot = match place[..old_index].iter().rev().find_map(|at| *at) {
+                    Some(at) => at + 1,
+                    None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
                 };
                 inserted[slot].push(rendered_new[new_index]);
                 new_index += 1;
+            }
+        }
+    }
+    // A removed entry takes the comment lines directly above it when a blank
+    // line separates them from what comes before (`# beta client` above a
+    // deleted `[clients.beta]`); a file's header comment is never taken.
+    for index in 0..host.len() {
+        if !removed[index] || index == 0 || removed[index - 1] {
+            continue;
+        }
+        let is_comment =
+            |line: &str| !line.trim().is_empty() && comparable(language, line).is_empty();
+        let mut top = index;
+        while top > 0 && is_comment(host[top - 1]) {
+            top -= 1;
+        }
+        if top < index && top > 0 && host[top - 1].trim().is_empty() {
+            for line in removed.iter_mut().take(index).skip(top - 1) {
+                *line = true;
             }
         }
     }

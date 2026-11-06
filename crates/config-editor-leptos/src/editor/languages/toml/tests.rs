@@ -496,3 +496,22 @@ fn tricky_lines_are_covered_exactly_once() {
         assert_eq!(text, line);
     }
 }
+
+#[test]
+fn dates_and_times_read_as_their_text() {
+    let value = TomlBehavior
+        .parse("day = 1979-05-27\nat = 07:32:00\nstamp = 1979-05-27T07:32:00Z\n")
+        .unwrap();
+    assert_eq!(value["day"], "1979-05-27");
+    assert_eq!(value["at"], "07:32:00");
+    assert_eq!(value["stamp"], "1979-05-27T07:32:00Z");
+}
+
+#[test]
+fn a_dotted_keys_span_is_its_last_segment() {
+    let source = "websocket.bogus = 2\n\"a.b\".c = 1\n";
+    let span = TomlBehavior.key_span(source, "/websocket/bogus").unwrap();
+    assert_eq!((span.start_column, span.end_column), (11, 16));
+    let span = TomlBehavior.key_span(source, "/a.b/c").unwrap();
+    assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
+}

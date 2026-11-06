@@ -64,6 +64,7 @@ pub(super) fn value_completions(
                             end,
                             selected: 0,
                             is_value: true,
+                            renames: false,
                             matched: match_ranges(&label, query),
                         },
                     ));
@@ -186,6 +187,7 @@ pub(super) fn property_completions(
                     // A name alone (a table header segment) completes the
                     // entry, so the list does not reopen on it.
                     is_value: insert_context.position == EntryPosition::Name,
+                    renames: false,
                     matched: match_ranges(key, typed),
                 },
             ));
@@ -434,5 +436,5 @@ pub(super) fn completions_for_context(
 /// A key whose default is left selected is a placeholder: typing replaces it,
 /// so there is nothing to suggest.
 pub(crate) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: bool) -> bool {
-    auto_trigger && !completion.is_value && completion.selected == 0
+    auto_trigger && !completion.is_value && !completion.renames && completion.selected == 0
 }

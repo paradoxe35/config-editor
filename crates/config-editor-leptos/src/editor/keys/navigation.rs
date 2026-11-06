@@ -8,7 +8,7 @@ use super::super::commands::{cycle_offset, line_at_cursor, offset_at, smart_home
 use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
-use super::super::positioning::set_caret_visible;
+use super::super::positioning::{reveal_offset, set_caret_visible};
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 
 /// Smart Home: the first non-blank character, then the line start.
@@ -47,6 +47,10 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     if caret_x < f64::from(element.scroll_left()) {
         element.set_scroll_left((caret_x - 2.0 * metrics.char_width).max(0.0) as i32);
     }
+    // And vertically, when the caret's line is scrolled out of view.
+    state
+        .source
+        .with_untracked(|text| reveal_offset(&element, text, target, state.scroll_y));
     state.note_caret(target);
     true
 }

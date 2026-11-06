@@ -174,6 +174,20 @@ impl ConfigLanguage for YamlBehavior {
         line_comment_start(line)
     }
 
+
+    /// Values left empty at line ends (`key: `) and in flow maps
+    /// (`{ cert: , key:  }`).
+    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
+        let mut slots = super::super::language::empty_slots_at_line_ends(text, &[": ", ":"]);
+        for (at, _) in text.match_indices(':') {
+            let rest = &text[at + 1..];
+            let spaces = rest.len() - rest.trim_start_matches(' ').len();
+            if spaces > 0 && rest[spaces..].starts_with([',', '}']) {
+                slots.push(at + 2);
+            }
+        }
+        slots
+    }
 }
 
 

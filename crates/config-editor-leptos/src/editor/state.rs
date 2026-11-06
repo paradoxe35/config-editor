@@ -10,6 +10,7 @@ use super::bridge::Bridge;
 use super::commands::{line_at_cursor, offset_at};
 use super::completion::{
     Completion, accept_reopens_suggestions, apply_completion, completions, inserted_closers,
+    next_slot,
 };
 use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
@@ -81,7 +82,7 @@ pub(super) struct Edit {
     pub(super) caret: usize,
     /// The other end of a selection left after the edit.
     pub(super) anchor: Option<usize>,
-    /// Scroll the caret into view.
+    /// Scroll the caret into view (the default).
     pub(super) reveal: bool,
 }
 
@@ -98,7 +99,7 @@ impl Edit {
             text,
             caret,
             anchor: None,
-            reveal: false,
+            reveal: true,
         }
     }
 
@@ -107,8 +108,10 @@ impl Edit {
         self
     }
 
-    pub(super) fn revealed(mut self) -> Self {
-        self.reveal = true;
+    /// Leaves the scroll position alone (an edit made with the mouse, where
+    /// the caret is already in view).
+    pub(super) fn quiet(mut self) -> Self {
+        self.reveal = false;
         self
     }
 }
@@ -143,6 +146,8 @@ pub(super) struct EditorState {
     pub(super) conversion_problems: RwSignal<Vec<Diagnostic>>,
     /// An `edit_as` switch waiting until the document can convert.
     pub(super) pending_switch: RwSignal<Option<Language>>,
+    /// The last host text converted for display: (language, host, shown).
+    pub(super) shown_cache: StoredValue<Option<(Language, String, String)>>,
 
     // Elements and layout.
     pub(super) editor_ref: NodeRef<leptos::html::Textarea>,
@@ -207,12 +212,15 @@ impl EditorState {
             features,
             host_on_change,
         } = init;
-        let load_problem = Vec::new();
+        let mut load_problem = Vec::new();
         let mut pending = None;
         let mut shown = host_text.clone();
         if let Some(bridge) = Bridge::new(host_language, edit_language, schema.clone()) {
             match bridge.to_edit(&host_text) {
-                Ok(conversion) => shown = conversion.text,
+                Ok(conversion) => {
+                    load_problem = bridge.view_problems(&conversion);
+                    shown = conversion.text;
+                }
                 Err(_) => pending = Some(edit_language),
             }
         }
@@ -284,9 +292,25 @@ impl EditorState {
             )
         });
         // The baseline as shown, in the language on screen.
+        let shown_cache = StoredValue::new(Some((
+            edit_language.get_untracked(),
+            host_text.clone(),
+            shown.clone(),
+        )));
         let shown_baseline = Memo::new(move |_| {
             let host = normalize_newlines(baseline.get());
-            match Bridge::new(host_language, edit_language.get(), schema_store.get_value()) {
+            let edit = edit_language.get();
+            // Usually the baseline is the host text a switch just converted.
+            let cached = shown_cache.with_value(|cache| {
+                cache
+                    .as_ref()
+                    .filter(|(language, from, _)| *language == edit && *from == host)
+                    .map(|(_, _, shown)| shown.clone())
+            });
+            if let Some(shown) = cached {
+                return shown;
+            }
+            match Bridge::new(host_language, edit, schema_store.get_value()) {
                 Some(bridge) => bridge
                     .to_edit(&host)
                     .map_or(host, |conversion| conversion.text),
@@ -368,6 +392,7 @@ impl EditorState {
             load_problems,
             conversion_problems,
             pending_switch: RwSignal::new(None),
+            shown_cache,
             editor_ref,
             completion_ref: NodeRef::new(),
             root_ref: NodeRef::new(),
@@ -403,7 +428,7 @@ impl EditorState {
         };
         match bridge.to_edit(host) {
             Ok(conversion) => {
-                self.load_problems.set(Vec::new());
+                self.load_problems.set(bridge.view_problems(&conversion));
                 conversion.text
             }
             Err(error) => {
@@ -534,10 +559,12 @@ impl EditorState {
         );
     }
 
-    /// Puts the caret at `offset` in the textarea and records it.
+    /// Puts the caret at `offset` in the textarea, in view, and records it.
     pub(super) fn place_caret(&self, offset: usize) {
         if let Some(element) = self.textarea() {
             let _ = element.set_selection_range(offset as u32, offset as u32);
+            self.source
+                .with_untracked(|text| set_caret_visible(&element, text, offset, self.scroll_y));
         }
         self.note_caret(offset);
     }
@@ -569,8 +596,13 @@ impl EditorState {
         let offset = self
             .source
             .with_untracked(|text| offset_at(text, line, column));
+        // Focusing scrolls back to the old caret; keep the view where the
+        // user clicked (a line number, an underline), then reveal if needed.
+        let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
         let _ = element.set_selection_range(offset as u32, offset as u32);
+        element.set_scroll_top(top);
+        element.set_scroll_left(left);
         self.source
             .with_untracked(|text| set_caret_visible(&element, text, offset, self.scroll_y));
         self.cursor.set(offset);
@@ -597,25 +629,33 @@ impl EditorState {
     pub(super) fn accept(&self, option: &Completion, reveal: bool) {
         let before = self.source.get_untracked();
         let (updated, anchor, caret) = apply_completion(&before, option);
-        self.auto_closers.set_value(inserted_closers(
-            option,
-            &updated,
-            (anchor, caret),
-            self.behavior(),
-        ));
+        // Closers after the replaced text stay (an XML end tag the editor
+        // wrote before a value was accepted into it); the insert adds its own.
+        let old_length = before.encode_utf16().count();
+        let inserted = inserted_closers(option, &updated, (anchor, caret), self.behavior());
+        self.auto_closers.update_value(|closers| {
+            closers.retain(|closer| old_length - closer.distance.min(old_length) >= option.end);
+            closers.extend(inserted);
+        });
         self.placeholder
             .set_value((anchor != caret).then_some((anchor, caret)));
+        // Tab walks the empty values the insert wrote after the caret, on one
+        // line (`{ server = "|", key_name = "" }`) or several.
+        let insert_start = caret.saturating_sub(option.cursor_offset);
+        let insert_end = insert_start + option.insert.encode_utf16().count();
+        let has_slots = next_slot(&updated, caret, insert_end, self.behavior()).is_some();
         self.slot_region
-            .set_value(option.insert.contains('\n').then(|| {
-                let start = caret.saturating_sub(option.cursor_offset);
-                let end = start + option.insert.encode_utf16().count();
-                (start, updated.encode_utf16().count().saturating_sub(end))
+            .set_value((option.insert.contains('\n') || has_slots).then(|| {
+                (
+                    insert_start,
+                    updated.encode_utf16().count().saturating_sub(insert_end),
+                )
             }));
         let reopen = accept_reopens_suggestions(option, self.features.auto_trigger);
         self.hide_hover();
         let at = self.cursor.get_untracked();
         let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
-        self.commit(if reveal { edit.revealed() } else { edit });
+        self.commit(if reveal { edit } else { edit.quiet() });
         self.active_completion.set(0);
         self.explicit_request.set(true);
         self.suggestions_requested.set(reopen);
