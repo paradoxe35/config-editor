@@ -17,6 +17,7 @@ use super::diagnostics::{SchemaBundle, build_schema};
 use super::diff::{DiffEdit, myers_edits};
 use super::language::Repetition;
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Commented hosts with the shapes saves must keep: one-line containers,
@@ -382,12 +383,109 @@ fn check(
             problems.push(format!("loses comments {lost:?}"));
         }
     }
+    // Forms consumers tell apart stay as the host wrote them: an XML
+    // attribute is not turned into an element, an HCL block not into an
+    // attribute (or the reverse).
+    // The entry whose value changed between a scalar and a container may
+    // need the other form (an attribute cannot hold an object).
+    let retyped = matches!(op, Op::ScalarToContainer | Op::ContainerToScalar).then(|| {
+        label
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('"')
+            .to_string()
+    });
+    if let Some(switched) = switched_forms(host, host_text, &saved, retyped.as_deref()) {
+        problems.push(switched);
+    }
     (!problems.is_empty()).then(|| {
         format!(
             "{case}: {}\n--- host\n{host_text}--- saved\n{saved}",
             problems.join("; ")
         )
     })
+}
+
+/// XML attribute and element names, or HCL block and object-attribute
+/// names, written in `text`.
+fn written_forms(host: Language, text: &str) -> (HashSet<String>, HashSet<String>) {
+    let mut first = HashSet::new();
+    let mut second = HashSet::new();
+    let name = |word: &str| -> String {
+        word.chars()
+            .take_while(|character| {
+                character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':')
+            })
+            .collect()
+    };
+    if host.label() == "XML" {
+        // Attributes, then elements.
+        for tag in text.split('<').skip(1) {
+            if tag.starts_with(['/', '!', '?']) {
+                continue;
+            }
+            let tag = tag.split('>').next().unwrap_or("");
+            let mut words = tag.split_whitespace();
+            if let Some(element) = words.next() {
+                second.insert(name(element.trim_end_matches('/')));
+            }
+            for word in words {
+                if let Some((attribute, _)) = word.split_once('=') {
+                    first.insert(name(attribute));
+                }
+            }
+        }
+    } else if host.label() == "HCL" {
+        // Blocks (`name {`, `name "label" {`), then attributes holding an
+        // object (`name = {`).
+        for line in text.lines() {
+            let code = line.split('#').next().unwrap_or("").trim();
+            let word = name(code);
+            if word.is_empty() || !code.ends_with('{') {
+                continue;
+            }
+            let rest = code[word.len()..].trim_start();
+            if rest.starts_with('=') {
+                second.insert(word);
+            } else if rest.starts_with(['{', '"']) {
+                first.insert(word);
+            }
+        }
+    }
+    (first, second)
+}
+
+/// How `saved` switched a form the host wrote (see [`written_forms`]).
+fn switched_forms(
+    host: Language,
+    host_text: &str,
+    saved: &str,
+    retyped: Option<&str>,
+) -> Option<String> {
+    let (mut host_first, mut host_second) = written_forms(host, host_text);
+    if let Some(name) = retyped {
+        host_first.remove(name);
+        host_second.remove(name);
+    }
+    let (saved_first, saved_second) = written_forms(host, saved);
+    let (first, second) = if host.label() == "XML" {
+        ("attribute", "element")
+    } else {
+        ("block", "attribute")
+    };
+    let to_second: Vec<&String> = host_first
+        .iter()
+        .filter(|name| saved_second.contains(*name) && !host_second.contains(*name))
+        .collect();
+    let to_first: Vec<&String> = host_second
+        .iter()
+        .filter(|name| saved_first.contains(*name) && !host_first.contains(*name))
+        .collect();
+    if !to_second.is_empty() {
+        return Some(format!("{first} {to_second:?} written as {second}"));
+    }
+    (!to_first.is_empty()).then(|| format!("{second} {to_first:?} written as {first}"))
 }
 
 #[test]
