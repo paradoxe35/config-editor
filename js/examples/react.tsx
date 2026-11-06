@@ -15,6 +15,9 @@ const uncontrolled = new URLSearchParams(location.search).has("uncontrolled");
 // `?late` applies onChange values 400 ms late and only the latest, as a
 // debounced parent (a store, a network round trip) would.
 const late = new URLSearchParams(location.search).has("late");
+// `?slow` applies every onChange value 1.5 s late, none skipped: a slow store
+// round trip with many values in flight.
+const slow = new URLSearchParams(location.search).has("slow");
 const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -31,6 +34,8 @@ function App({ schema }: { schema: string }) {
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
   (window as unknown as { editorHandle: typeof handle }).editorHandle = handle;
+  // For tests: the parent's own state setter.
+  (window as unknown as { setParentValue: typeof setValue }).setParentValue = setValue;
   useEffect(() => {
     void ready.then(() => setThemeNames(themes() as unknown as string[]));
   }, []);
@@ -98,6 +103,7 @@ function App({ schema }: { schema: string }) {
               previous.current = current;
               return next;
             });
+          if (slow) return void setTimeout(apply, 1500);
           if (!late) return apply();
           clearTimeout(lateTimer.current);
           lateTimer.current = setTimeout(apply, 400);

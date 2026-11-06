@@ -34,6 +34,25 @@ mod accept_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod completion_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod editing_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nested_tests;
 #[cfg(all(
     test,

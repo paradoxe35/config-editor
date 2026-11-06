@@ -28,13 +28,13 @@ use convert::*;
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start, statements, entry_follows};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start, statements, entry_follows, in_front_of_inline_entry, matching_close};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::language::{OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -78,6 +78,34 @@ impl ConfigLanguage for HclBehavior {
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
         hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
+    /// A one-line block holds a single attribute; more open it over lines.
+    fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
+        let map = value.as_object()?;
+        if let Some((key, child)) = map.iter().next().filter(|_| map.len() == 1)
+            && is_ident(key)
+            && !child.is_object()
+        {
+            return Some(format!("{{ {key} = {} }}", hcl_text(child)));
+        }
+        let body = hcl::format::to_string(&hcl_body(map, &LabelledBlocks::new(), &[]).ok()?).ok()?;
+        let mut text = String::from("{\n");
+        for line in body.lines() {
+            if !line.is_empty() {
+                text.push_str(indent);
+                text.push_str(unit);
+                text.push_str(line);
+            }
+            text.push('\n');
+        }
+        text.push_str(indent);
+        text.push('}');
+        Some(text)
+    }
+
+    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
+        one_line_block(source, pointer)
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {

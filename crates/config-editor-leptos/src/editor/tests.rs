@@ -276,3 +276,16 @@ fn auto_trigger_still_fires_when_the_document_ends_with_a_newline() {
     assert!(!should_auto_trigger("insertLineBreak", "a: 1", "a: 1\n"));
     assert!(!should_auto_trigger("insertText", "a: 1", "a: 1\n"));
 }
+
+#[test]
+fn tab_moves_a_selection_start_inside_the_indentation_with_its_text() {
+    let source = "{\n    \"a\": 1,\n    \"b\": 2\n}\n";
+    let start = source.find("\"a\"").unwrap();
+    let end = source.find("2").unwrap() + 1;
+    let (indented, new_start, new_end) = indent_lines(source, start, end, false, "  ").unwrap();
+    assert_eq!(&indented[new_start..new_end], "\"a\": 1,\n      \"b\": 2");
+    // From column 0 the selection keeps covering the indent.
+    let (indented, new_start, _) = indent_lines(source, 2, end, false, "  ").unwrap();
+    assert_eq!(new_start, 2);
+    assert!(indented.starts_with("{\n      \"a\""));
+}

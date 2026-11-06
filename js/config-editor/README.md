@@ -20,12 +20,12 @@ gzipped and loads once per page.
 
 ## Quick start
 
-```js
+```ts
 import init, { ConfigEditor } from "@pngwasi/config-editor";
 
 await init();
 
-const editor = new ConfigEditor(document.getElementById("config"), {
+const editor = new ConfigEditor(document.getElementById("config")!, {
   language: "yaml",
   value: "listen: 7835\n",
   schema: await (await fetch("/schema.json")).text(),
@@ -139,7 +139,7 @@ convert("yaml", "listen: 7835\n", "toml");
 ## Languages written in JavaScript
 
 ```js
-import { registerLanguage, ConfigEditor } from "@pngwasi/config-editor";
+import { registerLanguage, ConfigEditor, convert } from "@pngwasi/config-editor";
 
 const env = registerLanguage({
   label: "ENV", // its name is the label lowercased: "env"

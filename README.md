@@ -77,11 +77,11 @@ fn Settings() -> impl IntoView {
 npm install @pngwasi/config-editor
 ```
 
-```js
+```ts
 import init, { ConfigEditor } from "@pngwasi/config-editor";
 
 await init();
-const editor = new ConfigEditor(document.getElementById("config"), {
+const editor = new ConfigEditor(document.getElementById("config")!, {
   language: "yaml",
   value: "listen: 7835\n",
   schema: schemaJsonText,

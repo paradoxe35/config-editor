@@ -6,8 +6,9 @@
 //! hidden behind a marker scalar for the line patch, then written back as it
 //! was; one the edit changed is written out by the serializer instead.
 
-use super::super::language::{ConfigLanguage, Span};
-use super::{escape, matching_close};
+use super::super::inline::matching_close;
+use super::super::language::{ConfigLanguage, OneLine, Span};
+use super::escape;
 use serde_json::Value;
 use std::ops::Range;
 
@@ -17,16 +18,23 @@ pub(super) struct Kept {
     pub host: String,
     pub old: Value,
     pub new: Value,
-    texts: Vec<(String, String)>,
+    /// Each marker with what the host wrote before it, the original text,
+    /// and the text that stands for it as a plain value.
+    texts: Vec<(String, String, String, String)>,
 }
 
 impl Kept {
-    /// `patched` with each marker replaced by the text it stands for.
+    /// `patched` with each marker replaced by the text it stands for: the
+    /// original where the host's own form (`tcp = <marker>`) is still there,
+    /// else the value's text.
     pub fn restore(&self, patched: &str) -> String {
         let mut restored = patched.to_string();
-        for (marker, text) in &self.texts {
+        for (marker, written, text, value) in &self.texts {
             for quote in ["\"", "'", ""] {
-                restored = restored.replace(&format!("{quote}{marker}{quote}"), text);
+                if !written.is_empty() {
+                    restored = restored.replace(&format!("{written}{quote}{marker}{quote}"), text);
+                }
+                restored = restored.replace(&format!("{quote}{marker}{quote}"), value);
             }
         }
         restored
@@ -65,7 +73,7 @@ pub(super) fn hide(
     let mut candidates = Vec::new();
     collect(old, &lines, String::new(), &mut candidates);
     let spans = language.value_spans(previous, &candidates);
-    let mut found: Vec<(String, Range<usize>)> = Vec::new();
+    let mut found: Vec<(String, OneLine)> = Vec::new();
     // Outermost first (`collect` lists parents before their children).
     for (pointer, span) in candidates.into_iter().zip(spans) {
         let inside_found = found.iter().any(|(outer, _)| {
@@ -74,17 +82,22 @@ pub(super) fn hide(
         if inside_found {
             continue;
         }
-        let range = span
+        let one_line = span
             .and_then(|span| braced_one_line(previous, span))
+            .map(|range| OneLine {
+                range: range.clone(),
+                written: String::new(),
+                value: range,
+            })
             .or_else(|| language.one_line_container(previous, &pointer));
-        if let Some(range) = range {
-            found.push((pointer, range));
+        if let Some(one_line) = one_line {
+            found.push((pointer, one_line));
         }
     }
     if found.is_empty() {
         return None;
     }
-    found.sort_by_key(|(_, range)| range.start);
+    found.sort_by_key(|(_, one_line)| one_line.range.start);
     let mut kept = Kept {
         host: previous.to_string(),
         old: old.clone(),
@@ -93,15 +106,16 @@ pub(super) fn hide(
     };
     let mut values = Vec::new();
     // Replaced from the end, so earlier ranges keep their offsets.
-    for (index, (pointer, range)) in found.into_iter().enumerate().rev() {
+    for (index, (pointer, one_line)) in found.into_iter().enumerate().rev() {
         let name = marker(index);
         let marker = Value::String(name.clone());
-        let text = previous[range.clone()].to_string();
-        kept.host
-            .replace_range(range, &language.format_value(&marker));
+        let text = previous[one_line.range.clone()].to_string();
+        let value = previous[one_line.value.clone()].to_string();
+        let written = format!("{}{}", one_line.written, language.format_value(&marker));
+        kept.host.replace_range(one_line.range, &written);
         let slot = kept.old.pointer_mut(&pointer)?;
         values.push((std::mem::replace(slot, marker.clone()), marker));
-        kept.texts.push((name, text));
+        kept.texts.push((name, one_line.written, text, value));
     }
     // The new value holds a kept container wherever it holds an equal one:
     // items may have moved (the first of a list deleted).

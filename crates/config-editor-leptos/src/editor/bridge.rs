@@ -87,7 +87,14 @@ impl Bridge {
         let Ok(target) = codec::read(host, &rendered.text, self.shape()) else {
             return Ok(rendered);
         };
+        // The host writer may order keys its own way (TOML puts `reach = {}`
+        // after arrays); the patch keeps the edit's order, the host's own.
+        let target = in_order_of(target, &value);
         let patched = codec::patch_scalars(host, previous_host, &old, &target, self.shape())
+            .or_else(|| codec::patch_renames(host, previous_host, &old, &target, self.shape()))
+            .or_else(|| {
+                codec::patch_scalar_to_container(host, previous_host, &old, &target, self.shape())
+            })
             .or_else(|| codec::patch_inline(host, previous_host, &old, &target, self.shape()))
             .or_else(|| codec::patch_structure(host, previous_host, &old, &target, self.shape()));
         Ok(match patched {
@@ -275,6 +282,36 @@ fn located(
 }
 
 // Conversion tests pair languages, so they need every built-in one.
+
+/// `value` with each object's keys in `order`'s order (keys `order` lacks
+/// last, as they were).
+fn in_order_of(value: serde_json::Value, order: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match (value, order) {
+        (Value::Object(mut map), Value::Object(reference)) => {
+            let mut ordered = serde_json::Map::new();
+            for (key, child_order) in reference {
+                if let Some(child) = map.remove(key) {
+                    ordered.insert(key.clone(), in_order_of(child, child_order));
+                }
+            }
+            ordered.extend(map);
+            Value::Object(ordered)
+        }
+        (Value::Array(items), Value::Array(reference)) => Value::Array(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| match reference.get(index) {
+                    Some(child_order) => in_order_of(item, child_order),
+                    None => item,
+                })
+                .collect(),
+        ),
+        (value, _) => value,
+    }
+}
+
 #[cfg(all(
     test,
     feature = "yaml",

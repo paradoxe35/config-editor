@@ -176,7 +176,7 @@ fn deleting_a_one_line_xml_element_removes_only_its_line() {
 
 #[test]
 fn deleting_a_client_of_the_large_hcl_sample_removes_only_its_block() {
-    let hcl = include_str!("../../../../samples/burrow.large.hcl");
+    let hcl = include_str!("../../tests/fixtures/samples/burrow.large.hcl");
     let block =
         "  etiolles-pve-ai {\n    secret = \"«secret 705fde3f»\"\n    max_connections = 264\n  }\n";
     assert!(hcl.contains(block));
@@ -189,4 +189,80 @@ fn deleting_a_client_of_the_large_hcl_sample_removes_only_its_block() {
         format!("{}{}", &shown[..start], &shown[end..])
     });
     assert_eq!(saved, hcl.replacen(block, "", 1));
+}
+
+#[test]
+fn a_one_line_hcl_block_keeps_the_host_when_deleted_or_extended() {
+    let hcl = "# c\ntcp { nodelay = true }\nlisten = \"a\" # p\n";
+    let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+        shown.replace("tcp:\n  nodelay: true\n", "")
+    });
+    assert_eq!(saved, "# c\nlisten = \"a\" # p\n");
+    let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+        shown.replace(
+            "  nodelay: true\n",
+            "  nodelay: true\n  keepalive_secs: 3\n",
+        )
+    });
+    assert_eq!(
+        saved,
+        "# c\ntcp {\n  nodelay = true\n  keepalive_secs = 3\n}\nlisten = \"a\" # p\n"
+    );
+    let nested = "# c\nclients {\n  # a\n  acme { secret = \"x\" }\n  # b\n  beta {\n    secret = \"y\"\n  }\n}\n";
+    let saved = save(Language::HCL, Language::YAML, nested, |shown| {
+        shown.replace("  acme:\n    secret: x\n", "")
+    });
+    assert_eq!(
+        saved,
+        "# c\nclients {\n  # b\n  beta {\n    secret = \"y\"\n  }\n}\n"
+    );
+}
+
+#[test]
+fn toml_saves_keep_dotted_keys_inline_tables_and_comments() {
+    let toml = "# h\nlisten = 1 # port\nlimits.max_pending = 1 # mp\ntcp.nodelay = true # t\n\n[visitors.a]\nsecret = \"s\"\nreach = {}\nadmin_from = [\"x\"]\n\n[pool]\nmin_idle = 1\n";
+    // Renaming a dotted prefix keeps the line and its comment.
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("tcp:", "udp:")
+    });
+    assert_eq!(saved, toml.replace("tcp.nodelay", "udp.nodelay"));
+    // A scalar becoming a table is written in its place.
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("listen: 1\n", "listen:\n  port: 1\n")
+    });
+    assert_eq!(
+        saved,
+        toml.replace("listen = 1 # port", "listen = { port = 1 } # port")
+    );
+    // An edit elsewhere leaves the inline tables of other tables in place.
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("  min_idle: 1\n", "  min_idle: 1\n  max_idle: 2\n")
+    });
+    assert_eq!(
+        saved,
+        toml.replace("min_idle = 1\n", "min_idle = 1\nmax_idle = 2\n")
+    );
+    // The last dotted key deleted leaves its table, empty; the rest stays.
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("tcp:\n  nodelay: true\n", "tcp: {}\n")
+    });
+    assert!(saved.contains("tcp = {}"), "{saved}");
+    assert_eq!(
+        saved.replace("tcp = {}\n", ""),
+        toml.replace("tcp.nodelay = true # t\n", "")
+    );
+}
+
+#[test]
+fn renaming_an_xml_element_keeps_its_attributes_and_comments() {
+    let xml =
+        "<clients>\n  <!-- acme -->\n  <acme secret=\"x\" max_connections=\"3\"/>\n</clients>\n";
+    let saved = save(Language::XML, Language::YAML, xml, |shown| {
+        shown.replace("acme:", "acme2:")
+    });
+    assert_eq!(saved, xml.replace("<acme ", "<acme2 "));
+    let saved = save(Language::XML, Language::YAML, xml, |shown| {
+        shown.replace("clients:", "visitors:")
+    });
+    assert_eq!(saved, xml.replace("clients>", "visitors>"));
 }

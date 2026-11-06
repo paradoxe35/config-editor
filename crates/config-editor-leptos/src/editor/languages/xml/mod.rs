@@ -35,7 +35,7 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -218,8 +218,16 @@ impl ConfigLanguage for XmlBehavior {
         text.match_indices("></").map(|(at, _)| at + 1).collect()
     }
 
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        one_line_element(source, pointer)
+    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
+        rename_element(source, pointer, new_key)
+    }
+
+    fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {
+        one_line_children(value)
+    }
+
+    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
+        one_line_element(source, pointer).map(|range| OneLine { range: range.clone(), written: String::new(), value: range })
     }
 
     /// An end tag, `</name>`.

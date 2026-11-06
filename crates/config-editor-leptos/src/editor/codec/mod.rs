@@ -3,8 +3,12 @@
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
 mod kept_inline;
+mod renames;
+
+pub(super) use renames::{patch_renames, patch_scalar_to_container};
 
 use super::completion::conform_arrays;
+use super::inline::matching_close;
 use super::language::{ConfigLanguage, ParseError, Repetition, Span};
 use serde_json::Value;
 use std::fmt;
@@ -210,6 +214,25 @@ pub(super) fn patch_inline(
         {
             return Some(patched);
         }
+        // A one-line block or element (`tcp { nodelay = true }`).
+        if let Some(one_line) = language.one_line_container(previous, &pointer)
+            && let Some(body) = new.pointer(&pointer).and_then(|value| {
+                let line_start = previous[..one_line.range.start]
+                    .rfind('\n')
+                    .map_or(0, |at| at + 1);
+                let indent: String = previous[line_start..]
+                    .chars()
+                    .take_while(|character| matches!(character, ' ' | '\t'))
+                    .collect();
+                language.one_line_body(value, &indent, &super::commands::indent_unit(previous))
+            })
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(one_line.value, &body);
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
+        }
         let parent = pointer.rfind('/')?;
         if parent == 0 && pointer.is_empty() {
             return None;
@@ -289,32 +312,6 @@ fn replace_inline(
         &language.format_value(value),
     );
     Some(patched)
-}
-
-/// The byte offset of the bracket closing the one `text` starts with, on the
-/// same line, outside strings.
-pub(super) fn matching_close(text: &str, close: char) -> Option<usize> {
-    let open = text.chars().next()?;
-    let mut depth = 0usize;
-    let mut quote: Option<char> = None;
-    let mut previous = ' ';
-    for (index, character) in text.char_indices() {
-        match quote {
-            Some(open_quote) if character == open_quote && previous != '\\' => quote = None,
-            Some(_) => {}
-            None if character == '"' || character == '\'' => quote = Some(character),
-            None if character == open => depth += 1,
-            None if character == close => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            None => {}
-        }
-        previous = character;
-    }
-    None
 }
 
 /// `previous` with a structural edit (keys or items added or removed) applied

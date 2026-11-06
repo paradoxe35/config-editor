@@ -158,10 +158,12 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
         match token.kind {
             Kind::Str { closed } => {
                 let name = decode_string(&source[token.start..token.end], closed);
+                // A string where `:` or `,` was due is the next key: the line
+                // above is still being written (`"pub|"` then `"pool": {}`).
                 let in_key_slot = matches!(
                     frames.last(),
                     Some(Frame::Object {
-                        mode: Mode::Key,
+                        mode: Mode::Key | Mode::Colon(_) | Mode::After,
                         ..
                     })
                 );
@@ -251,6 +253,17 @@ pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
     (line, before[line_start..].chars().count() + 1)
 }
 
+/// One-line JSON, spaced as people write it: `{"a": 1, "b": [1, 2]}`.
 pub(super) fn json_text(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_default()
+    match value {
+        Value::Object(map) => {
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(key, child)| format!("{}: {}", serde_json::to_string(key).unwrap_or_default(), json_text(child)))
+                .collect();
+            format!("{{{}}}", entries.join(", "))
+        }
+        Value::Array(items) => format!("[{}]", items.iter().map(json_text).collect::<Vec<_>>().join(", ")),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
 }

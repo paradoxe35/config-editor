@@ -80,17 +80,21 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let typed = |start: usize| before_caret[start..].trim_end().trim_start_matches('"').to_string();
         return match caret.entry {
             // After a value with no comma yet, the comma goes right after it.
-            CaretEntry::Key { start } => CompletionContext {
-                typed: typed(start),
-                replace_start: utf16(&source[..statement + caret.separator_at.unwrap_or(start)]),
-                entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
-                replace_end: utf16(&source[..swallow_existing_assignment(source, cursor)]),
-                explicit_entry_start: true,
-                block: hcl_block(source, statement + start, cursor),
-                base_indent,
-                path: full,
-                ..Default::default()
-            },
+            CaretEntry::Key { start } => in_front_of_inline_entry(
+                CompletionContext {
+                    typed: typed(start),
+                    replace_start: utf16(&source[..statement + caret.separator_at.unwrap_or(start)]),
+                    entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
+                    replace_end: utf16(&source[..swallow_existing_assignment(source, cursor)]),
+                    explicit_entry_start: true,
+                    block: hcl_block(source, statement + start, cursor),
+                    base_indent,
+                    path: full,
+                    ..Default::default()
+                },
+                &source[cursor..line_end],
+                b'=',
+            ),
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: typed(start),
                 replace_start: utf16(&source[..statement + start]),
@@ -620,12 +624,24 @@ pub(super) fn hcl_text(value: &Value) -> String {
     }
 }
 
-/// Whether the caret ends `before_caret` inside a quoted label of a block
-/// header (`services "|`): a word, then labels, no `=`.
+/// Whether the caret ends `before_caret` at a label of a block header: a
+/// quoted one (`services "|`) or a bare word after the block type
+/// (`services we|`, `services |`). A word, then labels, no `=`.
 fn in_block_label(before_caret: &str) -> bool {
     let code = before_caret.trim_start();
     if assignment_equals(code).is_some() || !code.starts_with(|character: char| character.is_alphabetic() || character == '_') {
         return false;
+    }
+    let block_type_end = code
+        .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-')))
+        .unwrap_or(code.len());
+    let after_type = &code[block_type_end..];
+    let bare_label = after_type.starts_with([' ', '\t'])
+        && after_type
+            .split_whitespace()
+            .all(|word| word.chars().all(|character| character.is_alphanumeric() || matches!(character, '_' | '-')));
+    if bare_label {
+        return true;
     }
     let mut open = false;
     let mut escaped = false;

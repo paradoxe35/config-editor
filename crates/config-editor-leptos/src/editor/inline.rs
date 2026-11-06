@@ -191,10 +191,12 @@ pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<S
                 unquote(&code[key.start..key.end]),
             ));
         }
+        // A caret up to the bracket is outside; right after it, inside.
         Event::Open(_, position) => {
-            check_caret(&stack, position + 1);
+            check_caret(&stack, position);
             stack.push(next_id);
             next_id += 1;
+            check_caret(&stack, position + 1);
         }
         Event::Close(position) => {
             check_caret(&stack, position);
@@ -309,6 +311,32 @@ fn closing_quote(text: &str, quote: char) -> Option<usize> {
         } else if character == quote {
             return Some(index);
         }
+    }
+    None
+}
+
+/// The byte offset of the bracket closing the one `text` starts with, on the
+/// same line, outside strings.
+pub fn matching_close(text: &str, close: char) -> Option<usize> {
+    let open = text.chars().next()?;
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut previous = ' ';
+    for (index, character) in text.char_indices() {
+        match quote {
+            Some(open_quote) if character == open_quote && previous != '\\' => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if character == open => depth += 1,
+            None if character == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            None => {}
+        }
+        previous = character;
     }
     None
 }

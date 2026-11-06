@@ -32,6 +32,21 @@ export type {
 } from "@pngwasi/config-editor";
 
 type InitInput = Parameters<typeof init>[0];
+
+/** `onChange` values remembered as still on their way back. */
+const MAX_PENDING = 1000;
+/** How long a sent value can come back as a late echo. */
+const ECHO_WINDOW_MS = 10_000;
+
+/** A short stand-in for a document: its length and a 32-bit FNV-1a hash. */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${text.length}:${hash >>> 0}`;
+}
 let loading: Promise<unknown> | undefined;
 
 /**
@@ -120,7 +135,11 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // oldest first. A parent applying them late must not roll the document
     // back: an echo with newer values still pending is stale. Any other
     // `value` (a revert, a reset) is the parent's own and is applied.
-    const pending = useRef<string[]>([]);
+    // Kept as fingerprints with the time sent: a fast typist against a slow
+    // parent has many in flight, and an echo older than `ECHO_WINDOW_MS`
+    // counts as the parent's own value again (a parent that skipped a
+    // render for an unchanged value never sends it).
+    const pending = useRef<{ print: string; sent: number }[]>([]);
     // The `value` prop as last handled: a re-mount re-runs the value effect,
     // and an unchanged prop is not a new value from the parent.
     const handledValue = useRef<string | undefined>(undefined);
@@ -168,8 +187,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
-            pending.current.push(value);
-            if (pending.current.length > 50) pending.current.shift();
+            pending.current.push({ print: fingerprint(value), sent: Date.now() });
+            if (pending.current.length > MAX_PENDING) pending.current.shift();
             latest.current.onChange?.(value);
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
@@ -212,8 +231,11 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         if (value === undefined) return;
         if (value === handledValue.current) return;
         handledValue.current = value;
+        const now = Date.now();
+        pending.current = pending.current.filter((echo) => now - echo.sent < ECHO_WINDOW_MS);
         // The latest copy: a value typed twice may be pending twice.
-        const sent = pending.current.lastIndexOf(value);
+        const print = fingerprint(value);
+        const sent = pending.current.map((echo) => echo.print).lastIndexOf(print);
         if (sent >= 0) {
           // The parent caught up to this emission; newer ones may follow.
           pending.current.splice(0, sent + 1);

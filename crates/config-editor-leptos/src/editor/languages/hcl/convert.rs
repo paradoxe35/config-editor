@@ -123,3 +123,25 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
         ),
     }
 }
+
+/// The unlabelled block at `pointer` when written on one line
+/// (`tcp { nodelay = true }`): kept as written by a structural save, where
+/// the serializer writes `tcp = …`.
+pub(super) fn one_line_block(source: &str, pointer: &str) -> Option<OneLine> {
+    let wanted = pointer_segments(pointer);
+    let scan = analyze(source, 0);
+    let header = scan.headers.iter().find(|header| {
+        let mut path = body_path(&scan, header.parent);
+        path.push(header.block_type.clone());
+        header.labels.is_empty() && path == wanted
+    })?;
+    let start = header.type_span.0;
+    let line_end = source[start..].find('\n').map_or(source.len(), |at| start + at);
+    let open = start + source[start..line_end].find('{')?;
+    let close = open + matching_close(&source[open..line_end], '}')?;
+    Some(OneLine {
+        range: start..close + 1,
+        written: format!("{} = ", header.block_type),
+        value: open..close + 1,
+    })
+}

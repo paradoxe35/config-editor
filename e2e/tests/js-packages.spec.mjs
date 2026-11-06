@@ -499,6 +499,38 @@ test.describe('react: late parents and failed mounts', () => {
     await expect(saved(browserPage)).not.toContainText('k3');
   });
 
+  test('more than 50 values in flight to a slow parent never roll the document back', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?slow');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.press('Enter');
+    await browserPage.keyboard.type('# ' + 'a'.repeat(80), { delay: 5 });
+    const typed = before + '\n# ' + 'a'.repeat(80);
+    await expect(saved(browserPage)).toHaveText(typed, { timeout: 10000 });
+    expect(await input(browserPage).inputValue()).toBe(typed);
+  });
+
+  test('a value the user only passed through is applied once the parent sets it', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?late');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('x');
+    await browserPage.keyboard.press('Backspace');
+    // The late parent applies the unchanged text: no render, nothing echoed.
+    await browserPage.waitForTimeout(600);
+    // Later than the echo window, the parent sets the passed-through text.
+    await browserPage.evaluate((text) => {
+      const realNow = Date.now;
+      Date.now = () => realNow() + 11000;
+      window.setParentValue(text);
+    }, before + 'x');
+    await expect(input(browserPage)).toHaveValue(before + 'x');
+  });
+
   test('fixing a prop that failed a re-mount brings the editor back', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'react.html');
     await browserPage.locator('#bad-theme').click();
@@ -509,6 +541,29 @@ test.describe('react: late parents and failed mounts', () => {
     await expect(browserPage.locator('.config-editor').first()).toHaveAttribute('data-color-theme', 'nord');
     // The failures went to the console (the example has no onError).
     expect(errors.some((error) => error.includes('not-a-theme') || error.includes('theme'))).toBe(true);
+  });
+});
+
+test.describe('vanilla API: setters right after construction', () => {
+  test('setEditAs in the same task as the constructor switches the view', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.createElement('div');
+      document.body.append(element);
+      const reported = [];
+      const editor = new module.ConfigEditor(element, { value: 'listen: 7835\n', onEditAsChange: (name) => reported.push(name) });
+      editor.setEditAs('json');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const shown = element.querySelector('textarea').value;
+      const back = new module.ConfigEditor(document.body.appendChild(document.createElement('div')), { value: 'listen: 7835\n', editAs: 'json' });
+      back.setEditAs(null);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return { shown, reported, back: back.value, backShown: document.body.lastChild.querySelector('textarea').value };
+    });
+    expect(result.shown).toContain('"listen": 7835');
+    expect(result.reported).toEqual(['json']);
+    expect(result.backShown).toBe('listen: 7835\n');
   });
 });
 

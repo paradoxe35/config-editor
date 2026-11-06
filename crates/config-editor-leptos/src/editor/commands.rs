@@ -193,7 +193,10 @@ pub(super) fn indent_lines(
         }
         (position as isize + delta) as usize
     };
-    let updated_start = map_offset(start, start == end).min(updated.len());
+    // As in VS Code, a selection starting at a line's start keeps covering
+    // the new indent; one starting in the line moves with its text.
+    let at_line_start = start == 0 || source.as_bytes()[start - 1] == b'\n';
+    let updated_start = map_offset(start, start == end || !at_line_start).min(updated.len());
     let updated_end = map_offset(end, true).min(updated.len());
     let updated_selection_start = updated[..updated_start].encode_utf16().count();
     let updated_selection_end = updated[..updated_end].encode_utf16().count();

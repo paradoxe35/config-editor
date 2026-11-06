@@ -143,6 +143,11 @@ pub(super) struct EditorState {
     pub(super) host_text: StoredValue<String>,
     /// The edited text matching `host_text`.
     pub(super) synced_edit: StoredValue<String>,
+    /// Edited texts already saved, each with the host text it saved as: an
+    /// undo back to one restores that host exactly, comments a fresh save
+    /// could not bring back included. Cleared when the host or the edit
+    /// language changes.
+    pub(super) synced_hosts: StoredValue<Vec<(String, String)>>,
     /// `source` after the typing pause; validation and conversion read it.
     pub(super) diagnosed_text: RwSignal<String>,
     pub(super) load_problems: RwSignal<Vec<Diagnostic>>,
@@ -401,6 +406,7 @@ impl EditorState {
             host_on_change,
             host_text: StoredValue::new(host_text),
             synced_edit: StoredValue::new(shown),
+            synced_hosts: StoredValue::new(Vec::new()),
             diagnosed_text,
             load_problems,
             conversion_problems,

@@ -96,11 +96,15 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>) -> St
             })
             .collect::<Vec<_>>()
             .join(".");
-        let lines: Vec<String> = body
+        let mut lines: Vec<String> = body
             .into_iter()
             .filter(|line| !line.trim().is_empty())
             .map(|line| format!("{quoted}.{}", line.trim_start()))
             .collect();
+        // An emptied table has no keys to carry it: it is written empty.
+        if lines.is_empty() {
+            lines.push(format!("{quoted} = {{}}"));
+        }
         let position = sections
             .iter()
             .position(|(header, _)| table_of(header).as_ref() == Some(&table));

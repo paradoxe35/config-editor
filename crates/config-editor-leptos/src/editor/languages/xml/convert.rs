@@ -138,6 +138,47 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
     }
 }
 
+/// The token index of the start tag at `pointer`, and of its end tag unless
+/// it is self-closing.
+fn element_at(source: &str, tokens: &[Token], pointer: &str) -> Option<(usize, Option<usize>)> {
+    let wanted = pointer_segments(pointer);
+    let plan = plan_paths(source, tokens);
+    let index = tokens.iter().position(|token| {
+        matches!(token.kind, Kind::OpenTag { .. })
+            && plan.path_of(token.start).is_some_and(|path| strings(path) == wanted)
+    })?;
+    if source[..tokens[index].end].ends_with("/>") {
+        return Some((index, None));
+    }
+    let mut depth = 0usize;
+    for (offset, token) in tokens[index + 1..].iter().enumerate() {
+        match token.kind {
+            Kind::OpenTag { .. } if !source[..token.end].ends_with("/>") => depth += 1,
+            Kind::EndTag if depth == 0 => return Some((index, Some(index + 1 + offset))),
+            Kind::EndTag => depth -= 1,
+            _ => {}
+        }
+    }
+    Some((index, None))
+}
+
+/// `source` with the element at `pointer` renamed in its start and end tags.
+pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Option<String> {
+    let tokens = tokenize(source);
+    let (open, close) = element_at(source, &tokens, pointer)?;
+    let mut renamed = source.to_string();
+    if let Some(close) = close {
+        let token = &tokens[close];
+        let name = token_name(source, token);
+        let at = token.start + source[token.start..token.end].find(name.as_str())?;
+        renamed.replace_range(at..at + name.len(), new_key);
+    }
+    let token = &tokens[open];
+    let name_len = token_name(source, token).len();
+    renamed.replace_range(token.start + 1..token.start + 1 + name_len, new_key);
+    Some(renamed)
+}
+
 /// The range between the tags of the element at `pointer` when it has child
 /// elements and is written on one line
 /// (`<heartbeat><interval_secs>15</interval_secs></heartbeat>`).
@@ -170,4 +211,24 @@ pub(super) fn one_line_element(source: &str, pointer: &str) -> Option<std::ops::
         }
     }
     None
+}
+
+/// The children of an element on one line (`<a>1</a><b>2</b>`), when every
+/// child is text or a list of text.
+pub(super) fn one_line_children(value: &Value) -> Option<String> {
+    let mut out = String::new();
+    for (key, child) in value.as_object()? {
+        let items: Vec<&Value> = match child {
+            Value::Array(items) => items.iter().collect(),
+            other => vec![other],
+        };
+        for item in items {
+            if item.is_object() || item.is_array() || key.starts_with(['@', '#', '$']) {
+                return None;
+            }
+            let text = quick_xml::escape::escape(xml_text(item)).into_owned();
+            out.push_str(&format!("<{key}>{text}</{key}>"));
+        }
+    }
+    Some(out)
 }

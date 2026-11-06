@@ -165,11 +165,14 @@ pub(super) fn toggle_xml_comments(
         };
         let mut updated = String::with_capacity(source.len());
         updated.push_str(&source[..open]);
-        updated.push_str(&source[open_end..close_start]);
+        updated.push_str(&unescape_comment_text(&source[open_end..close_start]));
         updated.push_str(&source[cut_end..]);
-        let removed = open_end - open;
-        let map = |byte: usize| updated[..byte - removed].encode_utf16().count();
-        return Some((updated.clone(), map(start.max(open_end)), map(end.min(close_start))));
+        // Where a position inside the comment's text lands once unwrapped.
+        let map = |byte: usize| {
+            let byte = byte.clamp(open_end, close_start);
+            (source[..open].to_string() + &unescape_comment_text(&source[open_end..byte])).encode_utf16().count()
+        };
+        return Some((updated.clone(), map(start), map(end)));
     }
     let first_line = source[..start]
         .bytes()
@@ -218,7 +221,8 @@ pub(super) fn toggle_xml_comments(
                 let open = 4 + usize::from(after_open.starts_with(' '));
                 let before_close = &trimmed[..trimmed.len() - 3];
                 let close = 3 + usize::from(before_close.len() > open && before_close.ends_with(' '));
-                let inner = &trimmed[open..trimmed.len() - close];
+                let inner = unescape_comment_text(&trimmed[open..trimmed.len() - close]);
+                let inner = inner.as_str();
                 // The markers are separate edits, so a caret inside the line stays put.
                 edits.push((offset + indent_len, open, 0));
                 edits.push((offset + indent_len + trimmed.len() - close, close, 0));
@@ -232,7 +236,7 @@ pub(super) fn toggle_xml_comments(
                 edits.push((offset + indent_len + trimmed.len(), 0, 4));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str("<!-- ");
-                updated.push_str(trimmed);
+                updated.push_str(&escape_comment_text(trimmed));
                 updated.push_str(" -->");
                 updated.push_str(&line[body.len()..]);
             }
@@ -266,17 +270,36 @@ pub(super) fn toggle_xml_comments(
 }
 
 /// One `<!-- -->` pair around the raw selection, used when it already holds
-/// commented lines that per-line wrapping would corrupt.
+/// commented lines that per-line wrapping would corrupt. Their markers are
+/// escaped (see [`escape_comment_text`]), so the result is valid XML and
+/// toggling again restores them.
 pub(super) fn wrap_xml_selection(source: &str, start: usize, end: usize) -> Option<(String, usize, usize)> {
-    let mut updated = String::with_capacity(source.len() + 9);
+    let inner = escape_comment_text(&source[start..end]);
+    let mut updated = String::with_capacity(source.len() + inner.len() + 9);
     updated.push_str(&source[..start]);
     updated.push_str("<!-- ");
-    updated.push_str(&source[start..end]);
+    updated.push_str(&inner);
     updated.push_str(" -->");
     updated.push_str(&source[end..]);
-    let selection_start = updated[..start].encode_utf16().count();
-    let selection_end = updated[..end + 9].encode_utf16().count();
+    // The selection stays on the text, inside the comment, so the next toggle
+    // unwraps it.
+    let selection_start = updated[..start + 5].encode_utf16().count();
+    let selection_end = updated[..start + 5 + inner.len()].encode_utf16().count();
     Some((updated, selection_start, selection_end))
+}
+
+/// The escape for `--`, which a comment cannot contain: commented-out text
+/// holding a comment (`<!-- c -->`) or `--` stays valid XML.
+const ESCAPED_DASHES: &str = "&#45;&#45;";
+
+/// `text` to put inside a comment the editor writes.
+pub(super) fn escape_comment_text(text: &str) -> String {
+    text.replace("--", ESCAPED_DASHES)
+}
+
+/// The text of a comment the editor wrote, as it was before.
+pub(super) fn unescape_comment_text(text: &str) -> String {
+    text.replace(ESCAPED_DASHES, "--")
 }
 
 /// The open attribute quote at the caret and whether it is in a comment:

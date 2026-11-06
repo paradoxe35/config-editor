@@ -244,6 +244,15 @@ fn remeasure_on_window_changes(state: EditorState) {
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_properties;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_tests;
 #[cfg(test)]
 mod tests;

@@ -303,7 +303,12 @@ pub(crate) fn frame_insert(option: &mut Completion, context: &CompletionContext)
                 .entry_after
                 .as_deref()
                 .map_or(0, |word| word.encode_utf16().count());
-            option.insert = option.label.clone();
+            // What the insert writes before the name stays (XML's `<`).
+            let lead = option
+                .insert
+                .find(option.label.as_str())
+                .map_or("", |at| &option.insert[..at]);
+            option.insert = format!("{lead}{}", option.label);
             option.cursor_offset = option.insert.encode_utf16().count();
         }
         None => {

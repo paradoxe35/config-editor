@@ -960,14 +960,45 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// The byte range of the container at `pointer` when the document writes
-    /// it on one line in a form other than `{…}` or `[…]` (an XML element
-    /// with its children on one line: the range between its tags). A
-    /// structural Edit-as save keeps such a container as written.
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+    /// The container at `pointer` when the document writes it on one line in
+    /// a form other than a `{…}` or `[…]` value: an XML element with its
+    /// children on one line, an HCL one-line block. A structural Edit-as
+    /// save keeps such a container as written.
+    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
         let _ = (source, pointer);
         None
     }
+
+    /// `source` with the key at `pointer` renamed `new_key` everywhere the
+    /// language writes it (an XML element's start and end tags), or `None`
+    /// to rename just the text at [`key_span`](Self::key_span).
+    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
+        let _ = (source, pointer, new_key);
+        None
+    }
+
+    /// The text for the `value` range of a [`OneLine`] now holding `value`
+    /// (`{ nodelay = true }`), so a save edits the container where it is.
+    /// When one line cannot hold it, the text may span lines, indented by
+    /// `unit` from the container's line indent `indent`.
+    fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
+        let _ = (value, indent, unit);
+        None
+    }
+}
+
+/// A container written on one line (see
+/// [`ConfigLanguage::one_line_container`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OneLine {
+    /// The bytes kept as written.
+    pub range: std::ops::Range<usize>,
+    /// What the language writes in their place before a scalar value: `""`
+    /// when the range is the value itself, `tcp = ` for `tcp { … }`.
+    pub written: String,
+    /// The bytes that also read as the container's value (`{ … }` of
+    /// `tcp { … }`), for where the serializer writes it as a value.
+    pub value: std::ops::Range<usize>,
 }
 
 /// The byte offset of the first of `markers` on `line` that starts a comment:

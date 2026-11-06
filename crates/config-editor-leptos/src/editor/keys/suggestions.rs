@@ -68,7 +68,10 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
                 .next()
                 .is_some_and(|rest| !rest.trim().is_empty())
         });
-    if key == "Tab" || line_continues {
+    // After an explicit Ctrl+Space, Enter on what is already written only
+    // closes the list.
+    let asked = state.explicit_request.get_untracked();
+    if key == "Tab" || line_continues || asked {
         event.prevent_default();
         return None;
     }

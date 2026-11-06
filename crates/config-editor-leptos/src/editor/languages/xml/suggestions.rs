@@ -188,8 +188,17 @@ pub(super) fn tag_completion_context(
         .filter(|tag| is_element_name_position(tag, cursor))
     {
         let name_start = (tag.start + 1).min(cursor);
+        // Typed in front of, or inside, an existing name (`<pu|tcp/>`): a
+        // suggestion completing it renames the tag; any other is its own
+        // element before it, the `<` it replaced written back.
+        let name_end = match tag.kind {
+            Kind::OpenTag { name_end, .. } => name_end.max(cursor),
+            _ => cursor,
+        };
+        let name_after = (name_end > cursor).then(|| source[cursor..name_end].to_string());
+        let entry_suffix = if name_after.is_some() { format!("\n{base_indent}<") } else { String::new() };
         return CompletionContext {
-            block: xml_block(source, tag.start.min(cursor), cursor),
+            block: xml_block(source, tag.start.min(cursor), cursor).filter(|_| name_after.is_none()),
             path,
             typed: source[name_start..cursor].to_string(),
             replace_start: cursor_bytes(source, tag.start.min(cursor)),
@@ -200,7 +209,8 @@ pub(super) fn tag_completion_context(
             base_indent,
             entry_prefix: String::new(),
             explicit_entry_start: true,
-            entry_suffix: String::new(),
+            entry_suffix,
+            entry_after: name_after,
 ..Default::default()
         };
     }
@@ -396,7 +406,7 @@ pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<Hash
         return snapshot
             .pending_attr
             .is_none()
-            .then(|| existing_attributes(source, &snapshot));
+            .then(|| existing_attributes(source, &snapshot, cursor_byte));
     }
     // Children and attributes already on the element holding the caret; the
     // tag being typed does not count. Arrays may still repeat (see
@@ -413,10 +423,13 @@ pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<Hash
 }
 
 /// Attribute names already on the tag under the caret.
-pub(super) fn existing_attributes(source: &str, snapshot: &Snapshot) -> HashSet<String> {
+///
+/// The name the caret is inside or at the end of is being typed or renamed,
+/// so it does not count.
+pub(super) fn existing_attributes(source: &str, snapshot: &Snapshot, cursor: usize) -> HashSet<String> {
     let mut names = HashSet::new();
     for (position, token) in snapshot.inner.iter().enumerate() {
-        if !matches!(token.kind, Kind::Text { quoted: false }) {
+        if !matches!(token.kind, Kind::Text { quoted: false }) || (token.start < cursor && cursor <= token.end) {
             continue;
         }
         let is_name = snapshot

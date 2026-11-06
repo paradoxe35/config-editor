@@ -19,7 +19,9 @@ import json
 import re
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent
+# Written into the editor crate, whose tests read them (a crate only reads
+# files inside its own folder); the demo includes them from there.
+OUT = Path(__file__).resolve().parent.parent / "crates/config-editor-leptos/tests/fixtures/samples"
 
 SITES = [
     "etiolles", "hetzner", "ikoula", "scaleway", "ovh", "gravelines",

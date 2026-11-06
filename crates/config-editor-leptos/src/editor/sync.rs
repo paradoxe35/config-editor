@@ -43,6 +43,7 @@ fn follow_value(state: EditorState, value: Signal<String>) {
         state.host_text.set_value(external.clone());
         let edit = state.shown(&external);
         state.synced_edit.set_value(edit.clone());
+        state.synced_hosts.update_value(Vec::clear);
         let current = state.source.get_untracked();
         if current != edit {
             // Keep the caret on the same text: write the new value here and
@@ -99,11 +100,25 @@ fn convert_edits(state: EditorState) {
             state.conversion_problems.set(Vec::new());
             return;
         }
+        remember_synced(
+            state,
+            state.synced_edit.get_value(),
+            state.host_text.get_value(),
+        );
         let result = bridge.to_host(&text, &state.host_text.get_value());
         state
             .conversion_problems
             .set(bridge.problems(&text, &result));
-        if let Ok(conversion) = result {
+        if let Ok(mut conversion) = result {
+            // Back to a text saved before (an undo): its host text exactly.
+            if let Some(host) = state.synced_hosts.with_value(|saved| {
+                saved
+                    .iter()
+                    .find(|(edit, _)| *edit == text)
+                    .map(|(_, host)| host.clone())
+            }) {
+                conversion.text = host;
+            }
             state.synced_edit.set_value(text);
             if conversion.text != state.host_text.get_value() {
                 state.host_text.set_value(conversion.text.clone());
@@ -111,6 +126,19 @@ fn convert_edits(state: EditorState) {
                     on_change.run(conversion.text);
                 }
             }
+        }
+    });
+}
+
+/// Edited texts remembered with their host text (see `synced_hosts`).
+const SYNCED_HOSTS_KEPT: usize = 64;
+
+fn remember_synced(state: EditorState, edit: String, host: String) {
+    state.synced_hosts.update_value(|saved| {
+        saved.retain(|(known, _)| *known != edit);
+        saved.push((edit, host));
+        if saved.len() > SYNCED_HOSTS_KEPT {
+            saved.remove(0);
         }
     });
 }
@@ -174,7 +202,14 @@ fn switch_languages(state: EditorState, host: Host) {
     }
     Effect::new(move |previous: Option<Language>| {
         let next = edit_as.get().unwrap_or(state.host_language);
-        if previous.is_some() {
+        // Changed before this first ran (`setEditAs` right after mounting):
+        // that is a switch too.
+        let changed_before_mount = previous.is_none()
+            && next != state.edit_language.get_untracked()
+            && state.pending_switch.get_untracked() != Some(next);
+        if changed_before_mount {
+            try_switch(next);
+        } else if previous.is_some() {
             if next == state.edit_language.get_untracked() {
                 // Back to the current language: nothing to convert.
                 if state.pending_switch.get_untracked().is_some() {
@@ -200,6 +235,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
     let text = state.source.get_untracked();
     let host_text = state.host_text.get_value();
     let host_text_before = host_text.clone();
+    state.synced_hosts.update_value(Vec::clear);
     let unsaved = text != state.synced_edit.get_value();
     let mut view_warnings = Vec::new();
     let converted = if !unsaved {
