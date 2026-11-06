@@ -1,16 +1,16 @@
-use super::theme::{EditorTheme, ThemeColors};
+use super::super::theme::{EditorTheme, ThemeColors};
 use leptos::prelude::*;
 
 /// Toolbar container styled to match the editor.
 ///
 /// Use it to build your own toolbar with `show_toolbar=false` on
-/// [`ConfigEditor`](super::ConfigEditor).
+/// [`ConfigEditor`](crate::ConfigEditor).
 #[component]
 pub fn ConfigEditorToolbar(
     children: Children,
     #[prop(optional, into)] class: Option<String>,
     #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
-    /// Colors overriding the theme's, as on [`ConfigEditor`](super::ConfigEditor).
+    /// Colors overriding the theme's, as on [`ConfigEditor`](crate::ConfigEditor).
     #[prop(optional, into)]
     colors: MaybeProp<ThemeColors>,
 ) -> impl IntoView {
@@ -29,13 +29,13 @@ pub fn ConfigEditorToolbar(
 /// Status-bar container styled to match the editor.
 ///
 /// Use it to build your own footer with `show_footer=false` on
-/// [`ConfigEditor`](super::ConfigEditor).
+/// [`ConfigEditor`](crate::ConfigEditor).
 #[component]
 pub fn ConfigEditorFooter(
     children: Children,
     #[prop(optional, into)] class: Option<String>,
     #[prop(default = EditorTheme::VsCodeDark.into(), into)] theme: Signal<EditorTheme>,
-    /// Colors overriding the theme's, as on [`ConfigEditor`](super::ConfigEditor).
+    /// Colors overriding the theme's, as on [`ConfigEditor`](crate::ConfigEditor).
     #[prop(optional, into)]
     colors: MaybeProp<ThemeColors>,
 ) -> impl IntoView {

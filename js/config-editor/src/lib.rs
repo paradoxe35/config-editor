@@ -378,7 +378,9 @@ impl ConfigEditor {
                 // The callback is taken out first: it may replace itself or
                 // destroy the editor.
                 let changed = move |text: String| {
-                    *latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
+                    *latest
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
                     let _ = state.value.try_set(text.clone());
                     if let Some(callback) = state.on_change.try_get_value().flatten() {
                         call_host(&callback, &JsValue::from_str(&text));
@@ -458,7 +460,11 @@ impl ConfigEditor {
     pub fn value(&self) -> String {
         match &self.final_value {
             Some(value) => value.clone(),
-            None => self.latest.lock().map(|text| text.clone()).unwrap_or_default(),
+            None => self
+                .latest
+                .lock()
+                .map(|text| text.clone())
+                .unwrap_or_default(),
         }
     }
 
@@ -473,7 +479,10 @@ impl ConfigEditor {
             return Ok(());
         }
         let value = text_arg(&value, "value")?;
-        *self.latest.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
+        *self
+            .latest
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
         let _ = self.state.value.try_set(value);
         Ok(())
     }
@@ -570,14 +579,24 @@ impl ConfigEditor {
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns.
-            self.final_value = Some(self.latest.lock().map(|text| text.clone()).unwrap_or_default());
+            self.final_value = Some(
+                self.latest
+                    .lock()
+                    .map(|text| text.clone())
+                    .unwrap_or_default(),
+            );
             let deferred = Closure::once_into_js(unmount);
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
             }
         } else {
             unmount();
-            self.final_value = Some(self.latest.lock().map(|text| text.clone()).unwrap_or_default());
+            self.final_value = Some(
+                self.latest
+                    .lock()
+                    .map(|text| text.clone())
+                    .unwrap_or_default(),
+            );
         }
     }
 }

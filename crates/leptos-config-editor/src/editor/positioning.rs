@@ -12,7 +12,7 @@ pub(super) const POPUP_MARGIN: f64 = 8.0;
 pub(super) const POPUP_GAP: f64 = 4.0;
 
 /// Viewport size when `window.inner_width/height` is unavailable; keep in sync
-/// with `diff.rs` and `completion.rs`.
+/// with `diff` and `completion`.
 pub(super) const FALLBACK_VIEWPORT_WIDTH: f64 = 1024.0;
 pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
 

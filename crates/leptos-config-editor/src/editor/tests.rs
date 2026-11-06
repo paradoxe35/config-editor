@@ -1,5 +1,8 @@
-use super::*;
-use commands::indent_unit;
+use super::EditorTheme;
+use super::commands::{cycle_offset, indent_lines, indent_unit, offset_at};
+use super::completion::should_auto_trigger;
+use super::diff::{DiffKind, diff_lines};
+use super::keyboard::{delete_empty_pair, replace_selection, skip_closing_pair};
 
 #[test]
 fn theme_names_and_layout_families_are_stable() {

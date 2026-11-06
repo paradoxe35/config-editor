@@ -1,0 +1,634 @@
+//! Where suggestions apply and how accepted keys and values are written.
+
+use super::*;
+
+pub(super) fn yaml_key_for_completion(key: &str) -> Option<String> {
+    let plain_key = !key.is_empty()
+        && key
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && key.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+        && !matches!(key.to_ascii_lowercase().as_str(), "true" | "false" | "null");
+    if plain_key {
+        Some(key.to_string())
+    } else {
+        serde_json::to_string(key).ok()
+    }
+}
+
+pub(super) fn yaml_value(value: &Value) -> String {
+    match value {
+        Value::String(value) if is_plain_identifier(value) => value.clone(),
+        Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),
+        _ => value.to_string(),
+    }
+}
+
+/// Enum-style words (`udp`, `least_connections`) read as plain YAML scalars, the way
+/// the YAML language server writes them. Anything that YAML could read as a number,
+/// boolean, or null, or that contains punctuation, stays quoted.
+pub(super) fn is_plain_identifier(text: &str) -> bool {
+    text.chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && text.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+        && !matches!(
+            text.to_ascii_lowercase().as_str(),
+            "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n"
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_required_properties(
+    schema: &Value,
+    root: &Value,
+    child_indent: &str,
+    unit: &str,
+    base_offset: usize,
+    output: &mut String,
+    cursor_offset: &mut Option<usize>,
+) -> bool {
+    let Some(branch) = object_branch(schema, root) else {
+        return false;
+    };
+    let required = branch.get("required").and_then(Value::as_array);
+    let properties = branch.get("properties").and_then(Value::as_object);
+    let Some(required) = required else {
+        return false;
+    };
+    let nested_indent = format!("{child_indent}{unit}");
+    let mut appended = false;
+    for required_key in required.iter().filter_map(Value::as_str) {
+        let Some(property) = properties.and_then(|properties| properties.get(required_key)) else {
+            continue;
+        };
+        let Some(yaml_key) = yaml_key_for_completion(required_key) else {
+            continue;
+        };
+        output.push_str(child_indent);
+        output.push_str(&yaml_key);
+        output.push(':');
+        if let Some(default) = schema_default(property, root) {
+            output.push(' ');
+            output.push_str(&yaml_value(default));
+            output.push('\n');
+        } else if object_branch(property, root).is_some() {
+            let mut children = String::new();
+            if append_required_properties(
+                property,
+                root,
+                &nested_indent,
+                unit,
+                base_offset + output.encode_utf16().count() + 1,
+                &mut children,
+                cursor_offset,
+            ) {
+                output.push('\n');
+                output.push_str(&children);
+            } else {
+                output.push_str(" {}\n");
+            }
+        } else {
+            output.push(' ');
+            if cursor_offset.is_none() {
+                *cursor_offset = Some(base_offset + output.encode_utf16().count());
+            }
+            output.push('\n');
+        }
+        appended = true;
+    }
+    appended
+}
+
+/// Insert text for a property inside a flow mapping (`key: { a: 1, | }`):
+/// everything stays in flow style on one line, since a block mapping is
+/// invalid there. Nested objects open `{ child: | }`, arrays open `[|]`.
+pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
+    let yaml_key = yaml_key_for_completion(key)?;
+    let flow = |value: &Value| match value {
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
+        _ => yaml_value(value),
+    };
+    let mut insert = format!("{yaml_key}: ");
+    let mut cursor = None;
+    if let Some(value) = schema_const(property, root) {
+        insert.push_str(&flow(value));
+    } else if let Some(default) = schema_default(property, root).filter(|value| {
+        !value.as_array().is_some_and(Vec::is_empty)
+            && !value.as_object().is_some_and(serde_json::Map::is_empty)
+    }) {
+        insert.push_str(&flow(default));
+    } else if array_branch(property, root).is_some() {
+        insert.push('[');
+        cursor = Some(insert.len());
+        insert.push(']');
+    } else if let Some(branch) = object_branch(property, root) {
+        insert.push('{');
+        let properties = branch.get("properties").and_then(Value::as_object);
+        let required = branch
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(|name| Some((name, properties?.get(name)?)));
+        let mut first = true;
+        for (name, child) in required {
+            let Some(child_key) = yaml_key_for_completion(name) else {
+                continue;
+            };
+            insert.push_str(if first { " " } else { ", " });
+            first = false;
+            insert.push_str(&child_key);
+            insert.push_str(": ");
+            if cursor.is_none() {
+                cursor = Some(insert.len());
+            }
+            if let Some(default) = schema_default(child, root) {
+                insert.push_str(&flow(default));
+            }
+        }
+        insert.push(' ');
+        if cursor.is_none() {
+            cursor = Some(insert.len());
+        }
+        insert.push_str(if first { " }" } else { "}" });
+    }
+    let cursor = insert[..cursor.unwrap_or(insert.len())]
+        .encode_utf16()
+        .count();
+    Some((insert, cursor))
+}
+
+pub(super) fn property_completion_insert(
+    key: &str,
+    property: &Value,
+    root: &Value,
+    base_indent: &str,
+    unit: &str,
+) -> Option<(String, usize)> {
+    let yaml_key = yaml_key_for_completion(key)?;
+    let child_indent = format!("{base_indent}{unit}");
+    let mut insert = format!("{yaml_key}:");
+    if let Some(value) = schema_const(property, root) {
+        insert.push(' ');
+        insert.push_str(&yaml_value(value));
+    } else if array_branch(property, root).is_some() {
+        let default = schema_default(property, root);
+        if let Some(default) = default.filter(|value| !value.as_array().is_some_and(Vec::is_empty))
+        {
+            insert.push(' ');
+            insert.push_str(&yaml_value(default));
+        } else {
+            insert.push('\n');
+            insert.push_str(&child_indent);
+            insert.push_str("- ");
+        }
+    } else if let Some(branch) = object_branch(property, root) {
+        let default = schema_default(property, root);
+        if let Some(default) =
+            default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
+        {
+            insert.push(' ');
+            insert.push_str(&yaml_value(default));
+            let cursor = insert.encode_utf16().count();
+            return Some((insert, cursor));
+        }
+        let mut cursor_offset = None;
+        let mut children = String::new();
+        if append_required_properties(
+            branch,
+            root,
+            &child_indent,
+            unit,
+            insert.encode_utf16().count() + 1,
+            &mut children,
+            &mut cursor_offset,
+        ) {
+            insert.push('\n');
+            insert.push_str(&children);
+        } else if branch.get("properties").is_some()
+            || branch.get("patternProperties").is_some()
+            || branch.get("additionalProperties").is_some()
+        {
+            insert.push('\n');
+            insert.push_str(&child_indent);
+        } else {
+            insert.push_str(" {}");
+        }
+        let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
+        return Some((insert, cursor));
+    } else if let Some(default) = schema_default(property, root) {
+        insert.push(' ');
+        insert.push_str(&yaml_value(default));
+    } else {
+        insert.push(' ');
+    }
+    let cursor = insert.encode_utf16().count();
+    Some((insert, cursor))
+}
+
+/// Finds the mapping colon on a single line, ignoring colons inside quoted
+/// scalars and comments.
+pub(super) fn mapping_colon(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if quote.is_none() && character == '#' {
+            let starts_comment = index == 0
+                || line[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace);
+            if starts_comment {
+                return None;
+            }
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Comment-blind variant of [`mapping_colon`], used when scanning value
+/// context: a `#` never ends the scan, so colons after it still count.
+pub(super) fn mapping_colon_anywhere(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match (quote, character) {
+            (Some('"'), '\\') => escaped = true,
+            (Some(active), character) if active == character => quote = None,
+            (None, '"' | '\'') => quote = Some(character),
+            (None, ':')
+                if line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Length of the scalar at the start of `text`, stopping before an inline comment.
+pub(super) fn value_token_len(text: &str) -> usize {
+    let mut end = text.len();
+    for (index, character) in text.char_indices() {
+        let comment_start =
+            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
+        if comment_start {
+            end = index;
+            break;
+        }
+    }
+    text[..end].trim_end().len()
+}
+
+pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
+    let cursor = utf16_to_byte_index(source, cursor);
+    let before_cursor = &source[..cursor];
+    let current_line_start = before_cursor.rfind('\n').map_or(0, |index| index + 1);
+    let current_line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |index| cursor + index);
+    let current_line = &source[current_line_start..current_line_end];
+    let leading_whitespace =
+        current_line.len() - current_line.trim_start_matches([' ', '\t']).len();
+    let indent = leading_whitespace;
+    let prefix = &current_line[indent..];
+
+    let mut ancestors: Vec<(usize, SchemaPathSegment)> = Vec::new();
+    let mut item_counts = std::collections::BTreeMap::<usize, usize>::new();
+    for line in source[..current_line_start].lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let line_indent = line.len() - trimmed.len();
+        // Each leading `- ` opens an item at its own column, so `- - x: 1`
+        // is an item of an item (a sequence of sequences).
+        let mut mapping = trimmed;
+        let mut mapping_indent = line_indent;
+        item_counts.retain(|level, _| *level <= line_indent);
+        while let Some(after_dash) = dash_item(mapping) {
+            // A sequence may sit at its key's own indentation (`key:\n- a`):
+            // a dash replaces an item at its column, not the key.
+            while ancestors.last().is_some_and(|(level, segment)| {
+                *level > mapping_indent
+                    || *level == mapping_indent && matches!(segment, SchemaPathSegment::ArrayItem(_))
+            }) {
+                ancestors.pop();
+            }
+            item_counts.retain(|level, _| *level <= mapping_indent);
+            let index = item_counts.entry(mapping_indent).or_default();
+            ancestors.push((mapping_indent, SchemaPathSegment::ArrayItem(*index)));
+            *index += 1;
+            mapping_indent += mapping.len() - after_dash.len();
+            mapping = after_dash;
+        }
+        let Some(colon) = mapping_colon_anywhere(mapping) else {
+            continue;
+        };
+        let key = mapping[..colon].trim().trim_matches(['\'', '"']);
+        if key.is_empty() {
+            continue;
+        }
+        while ancestors
+            .last()
+            .is_some_and(|(level, _)| *level >= mapping_indent)
+        {
+            ancestors.pop();
+        }
+        if mapping[colon + 1..].trim().is_empty() {
+            ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
+        }
+    }
+    let current_is_array_item = dash_item(prefix).is_some();
+    while ancestors.last().is_some_and(|(level, segment)| {
+        *level > indent
+            || *level == indent
+                && (!current_is_array_item || matches!(segment, SchemaPathSegment::ArrayItem(_)))
+    }) {
+        ancestors.pop();
+    }
+    let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
+    let (line_content, content_offset) = {
+        // The caret line's dashes: the first continues the list at its
+        // column, any further one starts a new inner list.
+        let mut content = prefix;
+        let mut first = true;
+        while let Some(after_dash) = dash_item(content) {
+            let column = indent + (prefix.len() - content.len());
+            let index = if first {
+                item_counts.get(&column).copied().unwrap_or_default()
+            } else {
+                0
+            };
+            path.push(SchemaPathSegment::ArrayItem(index));
+            content = after_dash;
+            first = false;
+        }
+        (content, prefix.len() - content.len())
+    };
+    let candidate_colon = mapping_colon_anywhere(line_content);
+    let content_start = indent + content_offset;
+    let cursor_in_content = cursor
+        .saturating_sub(current_line_start)
+        .saturating_sub(content_start)
+        .min(line_content.len());
+    // A colon right of the caret belongs to the key being edited.
+    let colon = candidate_colon.filter(|colon| *colon < cursor_in_content);
+    // Only text before the caret decides the value start, so a trailing newline
+    // cannot push the insertion point past the value.
+    let value_start = colon.map(|colon| {
+        let after_colon = &line_content[colon + 1..];
+        let before_caret = &after_colon[..cursor_in_content
+            .saturating_sub(colon + 1)
+            .min(after_colon.len())];
+        before_caret.len() - before_caret.trim_start().len()
+    });
+    let value_key = colon
+        .map(|colon| {
+            line_content[..colon]
+                .trim()
+                .trim_matches(['\'', '"'])
+                .to_string()
+        })
+        .filter(|key| !key.is_empty());
+    let typed_start_byte = if let Some(colon) = colon {
+        current_line_start + content_start + colon + 1 + value_start.unwrap_or_default()
+    } else {
+        current_line_start + content_start
+    };
+    // Suggestions match the text before the caret. Accepting one replaces the
+    // whole scalar on this line, so editing in the middle of a value works too.
+    let line_end = source[cursor..]
+        .find('\n')
+        .map_or(source.len(), |i| cursor + i);
+    let (typed, replace_end_byte) = if let Some(colon) = colon {
+        let value_begin = colon + 1 + value_start.unwrap_or_default();
+        let value_begin_abs = current_line_start + content_start + value_begin;
+        let typed_end = cursor_in_content.clamp(value_begin, line_content.len());
+        let token_len = value_token_len(&source[value_begin_abs.min(line_end)..line_end]);
+        (
+            line_content[value_begin..typed_end].trim_end().to_string(),
+            value_begin_abs + token_len,
+        )
+    } else {
+        let key_end = candidate_colon.unwrap_or_else(|| value_token_len(line_content));
+        let typed_end = cursor_in_content.min(key_end);
+        let replace_end = candidate_colon.map_or(key_end, |colon| {
+            let after_colon = &line_content[colon + 1..];
+            colon + 1 + after_colon.len() - after_colon.trim_start().len()
+        });
+        (
+            line_content[..typed_end].trim_end().to_string(),
+            current_line_start + content_start + replace_end,
+        )
+    };
+    let base_indent = format!("{}{}", &current_line[..indent], " ".repeat(content_offset));
+    // Inside a flow mapping or sequence, opened on this line or an earlier one
+    // (`key: { a: 1, se|`, `key: [\n  { mode: |`).
+    let flow = match statement_start(&source[..cursor]) {
+        Some(statement) if statement < current_line_start => {
+            // The path above the statement comes from its own first line.
+            let first_line = &source[statement..];
+            let mut content = statement + (first_line.len() - first_line.trim_start_matches([' ', '\t']).len());
+            if source[content..].starts_with("- ") {
+                content += 2;
+            }
+            let base = completion_context(source, source[..content].encode_utf16().count()).path;
+            Some((base, content))
+        }
+        Some(_) => Some((path.clone(), current_line_start + content_start)),
+        None => None,
+    };
+    if let Some((base, content_byte)) = flow
+        && let Some(caret) = inline_caret(&source[content_byte..cursor], b':')
+    {
+        let mut path = base;
+        path.extend(caret.path);
+        let line_end = source[cursor..].find('\n').map_or(source.len(), |end| cursor + end);
+        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let typed_from = |start: usize| source[content_byte + start..cursor].trim_end().to_string();
+        let context = |path, typed, start: usize, end: usize| CompletionContext {
+            path,
+            typed,
+            replace_start: source[..content_byte + start].encode_utf16().count(),
+            replace_end: source[..end].encode_utf16().count(),
+            base_indent: base_indent.clone(),
+            position: EntryPosition::Inline,
+            ..Default::default()
+        };
+        return match caret.entry {
+            CaretEntry::Key { start } => {
+                let tail: usize = source[cursor..]
+                    .chars()
+                    .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+                    .map(char::len_utf8)
+                    .sum();
+                match caret.separator_at {
+                    // After a value with no comma yet, the comma goes right after it.
+                    Some(separator) => CompletionContext {
+                        entry_prefix: ", ".into(),
+                        explicit_entry_start: true,
+                        ..context(path, typed_from(start), separator, cursor + tail)
+                    },
+                    None => context(path, typed_from(start), start, cursor + tail),
+                }
+            }
+            CaretEntry::Value { key, start } => CompletionContext {
+                value_key: Some(key),
+                value_needs_space: content_byte + start == cursor
+                    && !source[..cursor].ends_with([' ', '\t']),
+                ..context(path, typed_from(start), start, value_end)
+            },
+            CaretEntry::Item { index, start } => {
+                path.push(SchemaPathSegment::ArrayItem(index));
+                CompletionContext {
+                    is_array_item: true,
+                    entry_wrap: Some(("{ ", " }")),
+                    ..context(path, typed_from(start), start, value_end)
+                }
+            }
+        };
+    }
+    let value_needs_space = colon.is_some_and(|colon| cursor_in_content == colon + 1);
+    // Typed in front of an existing entry (`lim|listen: 1`): the new entry goes
+    // before it, which moves to its own line (see `entry_after`).
+    let rest = &line_content[cursor_in_content..];
+    let splits = value_key.is_none() && entry_follows(rest, b':');
+    let word_after: String = rest
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    let replace_end_byte = if splits { cursor } else { replace_end_byte };
+    CompletionContext {
+        path,
+        typed,
+        replace_start: source[..typed_start_byte].encode_utf16().count(),
+        replace_end: source[..replace_end_byte.min(source.len())]
+            .encode_utf16()
+            .count(),
+        value_key,
+        value_needs_space,
+        is_array_item: current_is_array_item,
+        entry_suffix: if splits { format!("\n{base_indent}") } else { String::new() },
+        entry_after: splits.then_some(word_after),
+        base_indent,
+        ..Default::default()
+    }
+}
+
+pub(super) fn existing_mapping_keys(
+    source: &str,
+    cursor_byte: usize,
+    path: &[SchemaPathSegment],
+) -> Option<HashSet<String>> {
+    let parser_config =
+        ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+    // A half-typed key makes the document unparsable, so parse without the
+    // caret's line; the other keys in this mapping still get filtered.
+    let line_start = source[..cursor_byte]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    let line_end = source[line_start..]
+        .find('\n')
+        .map_or(source.len(), |newline| line_start + newline);
+    if let Some(statement) = statement_start(&source[..cursor_byte])
+        && let Some(keys) = inline_sibling_keys(&source[statement..], b':', cursor_byte - statement)
+    {
+        return Some(keys.into_iter().collect());
+    }
+    let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
+    let Ok(document) = noyalib::from_str_with_config::<Value>(&sanitized, &parser_config) else {
+        return Some(sibling_block_keys(source, line_start, line_end));
+    };
+    let mapping = path
+        .iter()
+        .try_fold(&document, |value, segment| match segment {
+            SchemaPathSegment::Key(key) => value.get(key),
+            SchemaPathSegment::ArrayItem(index) => value.get(index),
+        })?
+        .as_object()?;
+    let current_line = source[..cursor_byte]
+        .rsplit('\n')
+        .next()
+        .unwrap_or_default();
+    let current_line = current_line.trim_start().trim_start_matches("- ");
+    let current_key = mapping_colon_anywhere(current_line).map(|colon| {
+        current_line[..colon]
+            .trim()
+            .trim_matches(['\'', '"'])
+            .to_string()
+    });
+    Some(
+        mapping
+            .keys()
+            .filter(|key| current_key.as_deref() != Some(key.as_str()))
+            .cloned()
+            .collect(),
+    )
+}
+
+/// Keys of the block mapping holding the caret's line, by indentation: the
+/// run of lines at the caret's indent, bounded by shallower lines. Used when
+/// the rest of the document does not parse.
+pub(super) fn sibling_block_keys(source: &str, line_start: usize, line_end: usize) -> HashSet<String> {
+    let indent_of = |line: &str| line.len() - line.trim_start_matches(' ').len();
+    let caret_line = &source[line_start..line_end];
+    let indent = indent_of(caret_line);
+    let key_of = |line: &str| -> Option<String> {
+        let body = line.trim_start();
+        let body = body.strip_prefix("- ").unwrap_or(body);
+        let colon = mapping_colon_anywhere(body)?;
+        Some(body[..colon].trim().trim_matches(['\'', '"']).to_string())
+    };
+    let is_sibling = |line: &&str| line.trim().is_empty() || line.trim_start().starts_with('#') || indent_of(line) >= indent;
+    let before = source[..line_start.saturating_sub(1)].lines().rev().take_while(is_sibling);
+    let after = source[line_end..].lines().skip(1).take_while(is_sibling);
+    before
+        .chain(after)
+        .filter(|line| indent_of(line) == indent && !line.trim().is_empty())
+        .filter_map(key_of)
+        .collect()
+}
+
+/// The text after a leading `- ` (a block sequence item), or `None`.
+pub(super) fn dash_item(text: &str) -> Option<&str> {
+    if text == "-" {
+        return Some("");
+    }
+    text.strip_prefix("- ")
+        .or_else(|| text.strip_prefix("-\t"))
+        .map(|rest| rest.trim_start_matches([' ', '\t']))
+}
