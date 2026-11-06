@@ -1091,7 +1091,7 @@ fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
 /// Non-string scalars render as JSON, which TOML also accepts.
 fn toml_text(value: &Value) -> String {
     match value {
-        Value::String(text) if is_bare_scalar(text) => text.clone(),
+        // Always quoted: a bare string could read back as a date or number.
         Value::String(text) => serde_json::to_string(text).unwrap_or_else(|_| text.clone()),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(toml_text).collect();
@@ -1116,11 +1116,6 @@ fn toml_inline_table(value: &Value) -> String {
         })
         .collect();
     format!("{{ {} }}", pairs.join(", "))
-}
-
-fn is_bare_scalar(_text: &str) -> bool {
-    // Always quote: a bare string could read back as a date or number.
-    false
 }
 
 /// Bare when the key matches TOML's bare-key grammar, quoted otherwise.
