@@ -24,7 +24,10 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
+use super::super::language::{
+    CompletionContext, InlineBlock, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
+    inline_block, unclosed_brackets,
+};
 use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -70,11 +73,9 @@ impl LanguageBehavior for HclBehavior {
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        _attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, base_indent, unit)
+        property_insert(key, property, root, context.base_indent, context.unit)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -920,7 +921,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
 
@@ -960,6 +961,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     .min(source.len()),
             );
             return CompletionContext {
+                block: hcl_block(source, typed_start, replace_end),
                 typed,
                 replace_start: utf16(&source[..typed_start]),
                 replace_end: utf16(&source[..replace_end]),
@@ -971,7 +973,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 entry_prefix: "",
                 explicit_entry_start: true,
                 entry_suffix: "",
-                attribute: false,
+                ..Default::default()
             };
         }
         let typed_start = snapshot
@@ -995,11 +997,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
     if let Some((key, value_begin)) = line_assignment(before_caret) {
-        let _ = value_begin;
         let typed_start = line_start + value_begin;
         let value_len = value_token_len(&source[cursor..line_end]);
         return CompletionContext {
@@ -1015,7 +1016,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
 
@@ -1039,6 +1040,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             .min(source.len()),
     );
     CompletionContext {
+        block: hcl_block(source, typed_start, replace_end.min(source.len())),
         path,
         typed,
         replace_start: utf16(&source[..typed_start]),
@@ -1050,8 +1052,25 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
-        attribute: false,
+        ..Default::default()
     }
+}
+
+/// `web = { le| }`: braces opened earlier on the caret's line are still open,
+/// so a multi-line insert moves onto its own line inside them.
+fn hcl_block(source: &str, typed_start: usize, replace_end: usize) -> Option<InlineBlock> {
+    let line_start = source[..typed_start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    inline_block(
+        source,
+        typed_start,
+        replace_end,
+        unclosed_brackets(&source[line_start..typed_start]),
+        &indent_unit(source),
+        |rest| rest.starts_with(['}', ']']),
+        ",",
+    )
 }
 
 /// The assignment on a line fragment: the key before the first `=` outside
@@ -1722,11 +1741,20 @@ fn highlight_class(line: &str, token: &Token, key_end: Option<usize>) -> &'stati
 mod tests {
     //! HCL behavior tests: parsing, spans, completion, hover, and inserts.
 
-    use super::super::super::completion::{Completion, apply_completion, completions, key_hover};
+    use super::super::super::completion::{
+        Completion, accept_marked, apply_completion, completions, key_hover,
+    };
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::LanguageBehavior;
+    use super::super::super::language::{InsertContext, LanguageBehavior};
+
+    const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
+        base_indent: "",
+        unit: "  ",
+        position: super::super::super::language::EntryPosition::Block,
+        path: &[],
+    };
     use super::HclBehavior;
 
     fn schema() -> SchemaBundle {
@@ -1761,6 +1789,57 @@ mod tests {
             true,
             &HclBehavior,
         )
+    }
+
+    fn nested_schema() -> SchemaBundle {
+        build_schema(
+            r#"{"type":"object","properties":{"web":{"type":"object","properties":{
+                "http":{"type":"integer"},
+                "letsencrypt":{"type":"object","required":["email"],
+                    "properties":{"email":{"type":"string"}}}}}}}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_nested_object_accepted_inside_an_inline_map_is_formatted_as_a_block() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_marked("web = {le|}\n", "letsencrypt", &schema, &HclBehavior),
+            "web = {\n  letsencrypt = {\n    email = |\n  }\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_nested_block_before_a_following_map_entry_keeps_it_on_its_own_line() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_marked(
+                "web = { le|, http = 80 }\n",
+                "letsencrypt",
+                &schema,
+                &HclBehavior
+            ),
+            "web = {\n  letsencrypt = {\n    email = |\n  },\n  http = 80 }\n"
+        );
+    }
+
+    #[test]
+    fn a_scalar_accepted_inside_an_inline_map_stays_inline() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_marked("web = { ht| }\n", "http", &schema, &HclBehavior),
+            "web = { http = | }\n"
+        );
+    }
+
+    #[test]
+    fn a_nested_object_inside_a_block_body_is_indented_from_its_line() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_marked("web {\n  le|\n}\n", "letsencrypt", &schema, &HclBehavior),
+            "web {\n  letsencrypt = {\n    email = |\n  }\n}\n"
+        );
     }
 
     #[test]
@@ -2036,7 +2115,7 @@ mod tests {
         let schema = schema();
         let tags = &schema.schema["properties"]["tags"];
         let (insert, caret) = HclBehavior
-            .property_insert("tags", tags, &schema.schema, "", "  ", false)
+            .property_insert("tags", tags, &schema.schema, &INSERT_AT_ROOT)
             .unwrap();
         assert_eq!(insert, "tags = {\n  Name = \n}");
         assert_eq!(caret, "tags = {\n  Name = ".encode_utf16().count());

@@ -14,7 +14,10 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
+use super::super::language::{
+    CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
+    SchemaPathSegment,
+};
 use leptos::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -60,11 +63,9 @@ impl LanguageBehavior for TomlBehavior {
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        _attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, base_indent, unit)
+        property_insert(key, property, root, context)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -746,7 +747,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
 
@@ -787,7 +788,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                 entry_prefix: "",
                 explicit_entry_start: false,
                 entry_suffix: "",
-                attribute: false,
+                position: EntryPosition::Inline,
+                ..Default::default()
             };
         }
     }
@@ -831,7 +833,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
 
@@ -842,7 +844,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let typed_start = typed_start + (code_before[token_start_in_line..].len() - raw_typed.len());
     // A dotted key in progress (`database.po|`) completes the last segment
     // against the nested table; the earlier segments extend the path.
-    let (prefix_segments, typed) = match raw_typed.rfind('.') {
+    let (query_start, typed) = match raw_typed.rfind('.') {
         Some(dot) if !raw_typed[..dot].trim().is_empty() => {
             let parent = raw_typed[..dot].trim();
             let typed = raw_typed[dot + 1..].trim_start();
@@ -856,10 +858,9 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         }
         _ => (typed_start, raw_typed.to_string()),
     };
-    let _ = prefix_segments;
     CompletionContext {
         typed,
-        replace_start: utf16(&source[..typed_start]),
+        replace_start: utf16(&source[..query_start]),
         replace_end: utf16(&source[..cursor]),
         value_key: None,
         value_needs_space: false,
@@ -869,7 +870,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
-        attribute: false,
+        ..Default::default()
     }
 }
 
@@ -951,11 +952,50 @@ fn property_insert(
     key: &str,
     property: &Value,
     root: &Value,
-    base_indent: &str,
-    unit: &str,
+    context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
-    let _ = (base_indent, unit);
     let toml_key = toml_key_for_completion(key)?;
+    // Inside an inline table (`web = { le| }`) everything stays on one line:
+    // a nested object becomes a nested inline table, never a `[table]` header,
+    // which would be invalid there.
+    if context.position == EntryPosition::Inline
+        && let Some(branch) = object_branch(property, root)
+        && schema_const(property, root).is_none()
+        && array_branch(property, root).is_none()
+    {
+        if let Some(default) = schema_default(property, root)
+            .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
+        {
+            let insert = format!("{toml_key} = {}", toml_inline_table(default));
+            let cursor = insert.encode_utf16().count();
+            return Some((insert, cursor));
+        }
+        let mut insert = format!("{toml_key} = {{");
+        let mut cursor = None;
+        let mut first = true;
+        for (name, child) in required_properties(branch) {
+            let Some(child_key) = toml_key_for_completion(name) else {
+                continue;
+            };
+            insert.push_str(if first { " " } else { ", " });
+            first = false;
+            insert.push_str(&child_key);
+            insert.push_str(" = ");
+            if cursor.is_none() {
+                cursor = Some(insert.encode_utf16().count());
+            }
+            if let Some(default) = schema_default(child, root) {
+                insert.push_str(&toml_text(default));
+            }
+        }
+        // No required children: the caret lands between padded braces.
+        if first {
+            insert.push(' ');
+        }
+        let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
+        insert.push_str(" }");
+        return Some((insert, cursor));
+    }
     if let Some(value) = schema_const(property, root) {
         let insert = format!("{toml_key} = {}", toml_text(value));
         let cursor = insert.encode_utf16().count();
@@ -985,31 +1025,42 @@ fn property_insert(
             let cursor = insert.encode_utf16().count();
             return Some((insert, cursor));
         }
-        let mut insert = format!("[{toml_key}]\n");
-        let mut cursor = None;
-        if let Some(properties) = branch.get("properties").and_then(Value::as_object) {
-            let required: Vec<&str> = branch
-                .get("required")
-                .and_then(Value::as_array)
-                .map(|names| names.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default();
-            for name in required {
-                let Some(child) = properties.get(name) else {
-                    continue;
-                };
-                let Some(child_key) = toml_key_for_completion(name) else {
-                    continue;
-                };
-                insert.push_str(&child_key);
-                insert.push_str(" = ");
-                if cursor.is_none() {
-                    cursor = Some(insert.encode_utf16().count());
+        // A table header names the full path: inside `[web]`, `letsencrypt`
+        // opens `[web.letsencrypt]`, not a new top-level table. Headers cannot
+        // address array items, so beneath one the object is written inline.
+        let mut header = Vec::new();
+        for segment in context.path {
+            match segment {
+                SchemaPathSegment::Key(parent) => header.push(toml_key_for_completion(parent)?),
+                SchemaPathSegment::ArrayItem(_) => {
+                    return property_insert(
+                        key,
+                        property,
+                        root,
+                        &InsertContext {
+                            position: EntryPosition::Inline,
+                            ..*context
+                        },
+                    );
                 }
-                if let Some(default) = schema_default(child, root) {
-                    insert.push_str(&toml_text(default));
-                }
-                insert.push('\n');
             }
+        }
+        header.push(toml_key);
+        let mut insert = format!("[{}]\n", header.join("."));
+        let mut cursor = None;
+        for (name, child) in required_properties(branch) {
+            let Some(child_key) = toml_key_for_completion(name) else {
+                continue;
+            };
+            insert.push_str(&child_key);
+            insert.push_str(" = ");
+            if cursor.is_none() {
+                cursor = Some(insert.encode_utf16().count());
+            }
+            if let Some(default) = schema_default(child, root) {
+                insert.push_str(&toml_text(default));
+            }
+            insert.push('\n');
         }
         let cursor = cursor.unwrap_or_else(|| insert.encode_utf16().count());
         return Some((insert, cursor));
@@ -1022,6 +1073,22 @@ fn property_insert(
     let insert = format!("{toml_key} = ");
     let cursor = insert.encode_utf16().count();
     Some((insert, cursor))
+}
+
+/// The required properties of an object schema that have a schema of their
+/// own, in the order the schema lists them.
+fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
+    let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    branch
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|name| properties.get(name).map(|child| (name, child)))
+        .collect()
 }
 
 /// Renders a schema value as TOML text: strings quote (bare only when the
@@ -1349,9 +1416,9 @@ fn scalar_class(scalar: &str) -> &'static str {
 mod tests {
     //! TOML behavior tests: parsing, spans, completion, hover, and inserts.
 
-    #[allow(unused_imports)]
-    use super::super::super::completion::Completion;
-    use super::super::super::completion::{apply_completion, completions, key_hover};
+    use super::super::super::completion::{
+        Completion, accept_marked, apply_completion, completions, key_hover,
+    };
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
@@ -1382,6 +1449,50 @@ mod tests {
             true,
             &TomlBehavior,
         )
+    }
+
+    fn nested_schema() -> SchemaBundle {
+        build_schema(
+            r#"{"type":"object","properties":{"web":{"type":"object","properties":{
+                "http":{"type":"integer"},
+                "letsencrypt":{"type":"object","required":["email"],
+                    "properties":{"email":{"type":"string"}}},
+                "headers":{"type":"object"}}}}}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_object_accepted_inside_an_inline_table_stays_an_inline_table() {
+        let schema = nested_schema();
+        let accepted = accept_marked("web = { le| }\n", "letsencrypt", &schema, &TomlBehavior);
+        assert_eq!(accepted, "web = { letsencrypt = { email = | } }\n");
+    }
+
+    #[test]
+    fn an_object_without_required_children_inside_an_inline_table_opens_empty_braces() {
+        let schema = nested_schema();
+        let accepted = accept_marked("web = { he| }\n", "headers", &schema, &TomlBehavior);
+        assert_eq!(accepted, "web = { headers = { | } }\n");
+    }
+
+    #[test]
+    fn an_object_accepted_under_a_table_header_opens_the_nested_table_path() {
+        let schema = nested_schema();
+        let accepted = accept_marked("[web]\nle|", "letsencrypt", &schema, &TomlBehavior);
+        assert_eq!(accepted, "[web]\n[web.letsencrypt]\nemail = |\n");
+        let document = TomlBehavior
+            .parse(&accepted.replace('|', "\"a@b.c\""))
+            .ok()
+            .expect("the accepted document parses");
+        assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
+    }
+
+    #[test]
+    fn a_dotted_key_completes_only_its_last_segment() {
+        let schema = nested_schema();
+        let accepted = accept_marked("[web]\nletsencrypt.em|", "email", &schema, &TomlBehavior);
+        assert_eq!(accepted, "[web]\nletsencrypt.email = |");
     }
 
     #[test]

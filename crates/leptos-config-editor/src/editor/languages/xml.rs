@@ -11,15 +11,19 @@
 //! the document is invalid mid-typing, which is the normal state while the
 //! user is completing a tag name.
 //!
-//! Document model: the XML container is transparent. A lone top-level element
-//! is the document root and its children are the schema's top-level
-//! properties; several top-level elements act as children of an implicit root.
-//! An element's children form a JSON object, attributes are properties of the
-//! element, and element text is a typed scalar (`<listen>7835</listen>` is the
-//! number `7835`, not a string). For example `<root><item id="1"/></root>`
-//! parses to `{"item": {"id": "1"}}`, and repeated siblings fold into an
-//! array, which is how the schema's arrays are written in XML. `#text` survives
-//! only for mixed content (text beside child elements or attributes).
+//! Document model (schema-independent; the schema only validates):
+//! - `<any-name config-root="true">…</any-name>` at the top level is the
+//!   transparent config root: its children are the document's properties and
+//!   its attributes are editor metadata, never data and never validated. It
+//!   must be the only top-level element.
+//! - Without a marker, every top-level element is a document property (the
+//!   implicit root), so `<listen>1</listen><port>2</port>` is
+//!   `{"listen": 1, "port": 2}` and an unmarked lone `<burrow>…</burrow>` is
+//!   `{"burrow": …}`. The editor never injects a root.
+//! - An element's children and attributes are its object properties; element
+//!   text is a typed scalar (`<listen>7835</listen>` is the number `7835`);
+//!   repeated siblings fold into an array, which is how the schema's arrays are
+//!   written in XML; `#text` survives only for mixed content.
 //!
 //! NOTE: a host dependency on `quick-xml = "0.42.0"` is required (see the crate
 //! `Cargo.toml`): this file uses only its `Reader` event API.
@@ -29,7 +33,10 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
+use super::super::language::{
+    CompletionContext, EntryPosition, InlineBlock, InsertContext, LanguageBehavior, ParseError,
+    SchemaPathSegment, inline_block,
+};
 use leptos::prelude::*;
 use quick_xml::XmlVersion;
 use quick_xml::events::attributes::AttrError;
@@ -79,11 +86,9 @@ impl LanguageBehavior for XmlBehavior {
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, base_indent, unit, attribute)
+        property_insert(key, property, root, context)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -462,6 +467,9 @@ struct Snapshot {
     inner: Vec<Token>,
     /// The attribute awaiting a value (`name = |`), if any.
     pending_attr: Option<String>,
+    /// The open tag is the config root's start tag, whose attributes are
+    /// editor metadata rather than schema properties.
+    in_root_tag: bool,
 }
 
 #[derive(Default)]
@@ -477,10 +485,13 @@ struct Scan {
 }
 
 /// Document paths of every element, keyed by the byte offset of its start tag.
-/// The wrapper root's path is empty, so every recorded span is already relative
+/// The config root's path is empty, so every recorded span is already relative
 /// to the schema root.
 struct PathPlan {
     paths: Vec<(usize, Vec<Seg>)>,
+    /// Start of the config root's start tag (`<any config-root="true">`), if
+    /// the document has one. Its attributes are editor metadata.
+    root: Option<usize>,
 }
 
 impl PathPlan {
@@ -492,23 +503,18 @@ impl PathPlan {
     }
 }
 
-/// An element seen while planning: enough structure to decide whether it is
-/// the transparent root and to number repeated siblings.
+/// An element seen while planning: enough structure to find the config root
+/// and to number repeated siblings.
 struct PlannedNode {
     name: String,
     start: usize,
     parent: Option<usize>,
-    has_children: bool,
-    has_attrs: bool,
-    has_text: bool,
-    /// The start tag is complete (`>` seen), so the element is not a tag the
-    /// user is still typing.
-    closed: bool,
+    config_root: bool,
 }
 
 /// Computes document paths for every element before any span is recorded, so
 /// repeated siblings can be numbered consistently with the arrays `build_value`
-/// folds them into, and so the wrapper root can be skipped.
+/// folds them into, and so the config root can be skipped.
 fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
     let mut nodes: Vec<PlannedNode> = Vec::new();
     let mut stack: Vec<usize> = Vec::new();
@@ -521,17 +527,11 @@ fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
                 }
                 let self_closing = source[..token.end].ends_with("/>");
                 let id = nodes.len();
-                if let Some(parent) = stack.last().copied() {
-                    nodes[parent].has_children = true;
-                }
                 nodes.push(PlannedNode {
                     name,
                     start: token.start,
                     parent: stack.last().copied(),
-                    has_children: false,
-                    has_attrs: tag_has_attributes(source, token),
-                    has_text: false,
-                    closed: self_closing || source[..token.end].ends_with('>'),
+                    config_root: stack.is_empty() && marks_config_root(source, token),
                 });
                 if !self_closing {
                     stack.push(id);
@@ -546,29 +546,14 @@ fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
                     stack.truncate(position);
                 }
             }
-            Kind::Text { quoted: false } => {
-                if !source[token.start..token.end].trim().is_empty()
-                    && let Some(id) = stack.last()
-                {
-                    nodes[*id].has_text = true;
-                }
-            }
             _ => {}
         }
     }
 
-    // A lone top-level element is the transparent root unless it is itself a
-    // scalar property: only text (no children, no attributes) means the
-    // document is `{name: text}` rather than the element being a wrapper. A
-    // start tag the user is still typing is never the wrapper, so its
-    // attributes complete against the element being written.
-    let top: Vec<usize> = (0..nodes.len())
-        .filter(|id| nodes[*id].parent.is_none())
-        .collect();
-    let wrapper = (top.len() == 1).then_some(top[0]).filter(|id| {
-        let node = &nodes[*id];
-        node.has_children || (node.closed && !node.has_attrs && !node.has_text)
-    });
+    // Only an explicitly marked top-level element is transparent; any other
+    // element, even a lone one, is configuration data. (Several marked roots
+    // are a parse error; the tolerant scan keeps the first.)
+    let wrapper = nodes.iter().position(|node| node.config_root);
 
     // How often each name repeats among its siblings, and the running ordinal.
     let mut multiplicity: HashMap<(Option<usize>, String), usize> = HashMap::new();
@@ -603,17 +588,23 @@ fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
     }
     PathPlan {
         paths: nodes.iter().map(|node| node.start).zip(paths).collect(),
+        root: wrapper.map(|id| nodes[id].start),
     }
 }
 
-/// Whether an open tag carries at least one `name="value"` attribute.
-fn tag_has_attributes(source: &str, token: &Token) -> bool {
+/// The attribute that marks the transparent config root. It is editor
+/// metadata: never part of the parsed value and never validated.
+pub(super) const CONFIG_ROOT_ATTRIBUTE: &str = "config-root";
+
+/// Whether an open tag carries `config-root="true"`.
+fn marks_config_root(source: &str, token: &Token) -> bool {
     let inner = tokenize_tag_inside(source, token);
-    inner.iter().enumerate().any(|(position, token)| {
-        matches!(token.kind, Kind::Text { quoted: false })
-            && inner
-                .get(position + 1)
-                .is_some_and(|next| matches!(next.kind, Kind::Equals))
+    inner.windows(3).any(|window| {
+        matches!(window[0].kind, Kind::Text { quoted: false })
+            && &source[window[0].start..window[0].end] == CONFIG_ROOT_ATTRIBUTE
+            && matches!(window[1].kind, Kind::Equals)
+            && matches!(window[2].kind, Kind::Text { quoted: true })
+            && source[window[2].start..window[2].end].trim_matches(['"', '\'']) == "true"
     })
 }
 
@@ -682,10 +673,15 @@ fn analyze(source: &str, cursor: usize) -> Scan {
                 // still belong to no element.
                 if !name.is_empty() {
                     // Attribute names belong to the path this element will get.
+                    // The config root's attributes are metadata, not data.
                     let path = plan
                         .path_of(token.start)
                         .map_or_else(Vec::new, <[Seg]>::to_vec);
-                    for inner in tokenize_tag_inside(source, &token) {
+                    let metadata = plan.root == Some(token.start);
+                    for inner in tokenize_tag_inside(source, &token)
+                        .into_iter()
+                        .filter(|_| !metadata)
+                    {
                         if let Kind::Text { quoted: false } = inner.kind
                             && is_attr_name(source, &token, inner)
                             && !is_partial
@@ -822,6 +818,7 @@ fn capture_snapshot(
         open_tag_path,
         inner,
         pending_attr,
+        in_root_tag: open_tag.is_some_and(|tag| plan.root == Some(tag.start)),
     }
 }
 
@@ -850,7 +847,10 @@ fn record_attribute_values(source: &str, tokens: &[Token], plan: &PathPlan, scan
             index += 1;
             continue;
         }
-        let Some(element_path) = plan.path_of(token.start) else {
+        let Some(element_path) = plan
+            .path_of(token.start)
+            .filter(|_| plan.root != Some(token.start))
+        else {
             index += 1;
             continue;
         };
@@ -920,6 +920,16 @@ struct OpenElement {
     children: Map<String, Value>,
     text: String,
     start: usize,
+    /// A top-level element marked `config-root="true"`.
+    config_root: bool,
+}
+
+/// A finished top-level element.
+struct TopLevel {
+    name: String,
+    value: Value,
+    start: usize,
+    config_root: bool,
 }
 
 /// Builds the document model from `quick-xml` events, then unwraps the
@@ -933,9 +943,7 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
     let mut stack: Vec<OpenElement> = Vec::new();
-    // Top-level elements until an implicit or explicit container is known:
-    // `(name, value, is_container)`.
-    let mut roots: Vec<(String, Value, bool)> = Vec::new();
+    let mut roots: Vec<TopLevel> = Vec::new();
     let mut pending_text = String::new();
     loop {
         // `buffer_position` before a read is where the next event begins.
@@ -951,14 +959,14 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
             Event::Eof => break,
             Event::Start(element) => {
                 flush_text(&mut pending_text, &mut stack);
-                stack.push(open_element(source, &element, event_start)?);
+                let top_level = stack.is_empty();
+                stack.push(open_element(source, &element, event_start, top_level)?);
             }
             Event::Empty(element) => {
                 flush_text(&mut pending_text, &mut stack);
-                let open = open_element(source, &element, event_start)?;
-                let name = open.name.clone();
-                let (value, container) = finalize(open);
-                push_child(&mut stack, &mut roots, name, value, container);
+                let top_level = stack.is_empty();
+                let open = open_element(source, &element, event_start, top_level)?;
+                push_child(&mut stack, &mut roots, open);
             }
             Event::End(element) => {
                 flush_text(&mut pending_text, &mut stack);
@@ -981,8 +989,7 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
                         ),
                     ));
                 }
-                let (value, container) = finalize(open);
-                push_child(&mut stack, &mut roots, name, value, container);
+                push_child(&mut stack, &mut roots, open);
             }
             Event::Text(text) => {
                 let content = text.xml10_content();
@@ -1027,21 +1034,45 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
         ));
     }
 
-    // A lone container is the transparent root: its contents are the document.
-    // A lone scalar (`<listen>7835</listen>`) is itself a document property.
-    // Several top-level elements form the implicit root's properties.
-    if roots.len() == 1 {
-        let (name, value, container) = roots.pop().expect("one root");
-        if container {
-            return Ok(value);
+    document_value(source, roots)
+}
+
+/// The document a set of top-level elements describes. A config root
+/// (`config-root="true"`) is transparent and must stand alone; without one,
+/// every top-level element is a document property (the implicit root).
+fn document_value(source: &str, roots: Vec<TopLevel>) -> Result<Value, ParseError> {
+    let mut marked = roots.iter().filter(|root| root.config_root);
+    if let Some(root) = marked.next() {
+        if let Some(second) = marked.next() {
+            return Err(syntax_error(
+                source,
+                second.start,
+                format!("only one element may carry {CONFIG_ROOT_ATTRIBUTE}=\"true\""),
+            ));
         }
-        let mut map = Map::new();
-        map.insert(name, value);
-        return Ok(Value::Object(map));
+        if let Some(other) = roots.iter().find(|other| !other.config_root) {
+            return Err(syntax_error(
+                source,
+                other.start,
+                format!(
+                    "<{}> is outside the config root <{}>; a {CONFIG_ROOT_ATTRIBUTE} element must be the only top-level element",
+                    other.name, root.name
+                ),
+            ));
+        }
+        let root = roots.into_iter().next().expect("the marked root");
+        return match root.value {
+            Value::Object(map) => Ok(Value::Object(map)),
+            _ => Err(syntax_error(
+                source,
+                root.start,
+                format!("the config root <{}> holds elements, not text", root.name),
+            )),
+        };
     }
     let mut map = Map::new();
-    for (name, value, _) in roots {
-        insert_child(&mut map, name, value);
+    for root in roots {
+        insert_child(&mut map, root.name, root.value);
     }
     Ok(Value::Object(map))
 }
@@ -1051,6 +1082,7 @@ fn open_element(
     source: &str,
     element: &BytesStart<'_>,
     event_start: usize,
+    top_level: bool,
 ) -> Result<OpenElement, ParseError> {
     let start = markup_start(source, event_start);
     let name = element.local_name().into_inner().to_string();
@@ -1068,12 +1100,18 @@ fn open_element(
             .map_err(|error| syntax_error(source, start, error.to_string()))?;
         attrs.insert(key, typed_scalar(&value));
     }
+    // The config root's attributes are editor metadata, not configuration.
+    let config_root = top_level && attrs.get(CONFIG_ROOT_ATTRIBUTE) == Some(&Value::Bool(true));
+    if config_root {
+        attrs.clear();
+    }
     Ok(OpenElement {
         name,
         attrs,
         children: Map::new(),
         text: String::new(),
         start,
+        config_root,
     })
 }
 
@@ -1108,23 +1146,13 @@ fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
     }
 }
 
-/// Turns a finished element into its value and whether it is a container (so
-/// the caller can unwrap a lone root). A text-only element is a typed scalar;
-/// children and attributes make an object.
-fn finalize(open: OpenElement) -> (Value, bool) {
+/// Turns a finished element into its value. A text-only element is a typed
+/// scalar; children and attributes make an object, with `#text` only for mixed
+/// content. An empty element is an empty object.
+fn finalize(open: OpenElement) -> Value {
     let text = open.text.trim().to_string();
-    if open.children.is_empty() {
-        if open.attrs.is_empty() {
-            if text.is_empty() {
-                return (Value::Object(Map::new()), true);
-            }
-            return (typed_scalar(&text), false);
-        }
-        let mut map = open.attrs;
-        if !text.is_empty() {
-            map.insert("#text".to_string(), Value::String(text));
-        }
-        return (Value::Object(map), false);
+    if open.children.is_empty() && open.attrs.is_empty() && !text.is_empty() {
+        return typed_scalar(&text);
     }
     let mut map = open.attrs;
     for (name, value) in open.children {
@@ -1133,22 +1161,21 @@ fn finalize(open: OpenElement) -> (Value, bool) {
     if !text.is_empty() {
         map.insert("#text".to_string(), Value::String(text));
     }
-    (Value::Object(map), true)
+    Value::Object(map)
 }
 
 /// Stores a finished element under its parent, or as a top-level element.
-fn push_child(
-    stack: &mut [OpenElement],
-    roots: &mut Vec<(String, Value, bool)>,
-    name: String,
-    value: Value,
-    container: bool,
-) {
+fn push_child(stack: &mut [OpenElement], roots: &mut Vec<TopLevel>, open: OpenElement) {
+    let (name, start, config_root) = (open.name.clone(), open.start, open.config_root);
+    let value = finalize(open);
     match stack.last_mut() {
-        Some(parent) => {
-            insert_child(&mut parent.children, name, value);
-        }
-        None => roots.push((name, value, container)),
+        Some(parent) => insert_child(&mut parent.children, name, value),
+        None => roots.push(TopLevel {
+            name,
+            value,
+            start,
+            config_root,
+        }),
     }
 }
 
@@ -1220,7 +1247,7 @@ fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize)
 
 #[cfg(feature = "schema-validation")]
 fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = attribute_aware_segments(&pointer_segments(path))?;
+    let wanted = pointer_segments(path);
     analyze(source, 0)
         .key_spans
         .into_iter()
@@ -1230,19 +1257,12 @@ fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
 
 #[cfg(feature = "schema-validation")]
 fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = attribute_aware_segments(&pointer_segments(path))?;
+    let wanted = pointer_segments(path);
     let (_, start, end) = analyze(source, 0)
         .value_spans
         .into_iter()
         .find(|(segments, _, _)| *segments == wanted)?;
     Some(span_between(source, start, end))
-}
-
-/// Splits `name/index` pointer tails so repeated siblings address correctly:
-/// the pointer for the second `<item>` is `item/1`, matching the scan's path.
-#[cfg(feature = "schema-validation")]
-fn attribute_aware_segments(segments: &[String]) -> Option<Vec<String>> {
-    Some(segments.to_vec())
 }
 
 #[cfg(feature = "schema-validation")]
@@ -1289,16 +1309,16 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     // In text: the typed fragment runs from the last `>` (or line start) to
     // the caret, extended through a partial `<name` when the caret sits right
     // after it (`<roo|` completes the element `root`).
-    let (typed, replace_start, typed_from_tag) = text_typed(
+    let (typed, replace_start, kind) = text_typed(
         source,
         cursor,
         snapshot.partial.map(|token| (token.start, token.end)),
     );
-    let explicit_entry_start = typed_from_tag;
-    // Text with content (`<listen>7|`) completes the element's value from its
-    // parent path; empty text stays a key position inside the element.
+    let explicit_entry_start = kind == Typed::TagName;
+    // Text right after a tag (`<listen>7|`) completes the element's value from
+    // its parent path; a word on its own line names a new child element.
     if !typed.trim().is_empty()
-        && !typed_from_tag
+        && kind == Typed::ElementText
         && let Some(Seg::Key(key)) = snapshot.path.last()
     {
         let mut parent = snapshot.path.clone();
@@ -1322,10 +1342,12 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
+    let typed_byte = utf16_to_byte_index(source, replace_start);
     CompletionContext {
+        block: xml_block(source, typed_byte, cursor),
         path,
         typed,
         replace_start,
@@ -1337,7 +1359,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start,
         entry_suffix: "",
-        attribute: false,
+        ..Default::default()
     }
 }
 
@@ -1353,6 +1375,17 @@ fn tag_completion_context(
     base_indent: String,
 ) -> CompletionContext {
     let replace_end = cursor_bytes(source, cursor);
+    // The config root's start tag holds only editor metadata: no schema
+    // property or value belongs there.
+    if snapshot.in_root_tag {
+        return CompletionContext {
+            replace_start: replace_end,
+            replace_end,
+            base_indent,
+            no_properties: true,
+            ..Default::default()
+        };
+    }
     // The element whose attributes the caret is in: the open tag's own document
     // path (empty for the transparent root).
     let holder = snapshot.open_tag_path.clone();
@@ -1372,7 +1405,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
     // `name = |`: the value is empty; complete the attribute's values.
@@ -1390,7 +1423,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
     // Just after the name of a complete tag (`<host|>`) the context is the
@@ -1414,7 +1447,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: false,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
     // The element name (the caret is within `<name`) completes the element. The
@@ -1426,6 +1459,7 @@ fn tag_completion_context(
     {
         let name_start = (tag.start + 1).min(cursor);
         return CompletionContext {
+            block: xml_block(source, tag.start.min(cursor), cursor),
             path,
             typed: source[name_start..cursor].to_string(),
             replace_start: cursor_bytes(source, tag.start.min(cursor)),
@@ -1437,7 +1471,7 @@ fn tag_completion_context(
             entry_prefix: "",
             explicit_entry_start: true,
             entry_suffix: "",
-            attribute: false,
+            ..Default::default()
         };
     }
     // A bare word inside the tag completes an attribute name.
@@ -1462,8 +1496,40 @@ fn tag_completion_context(
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
-        attribute: true,
+        position: EntryPosition::Attribute,
+        ..Default::default()
     }
+}
+
+/// `<web><le|</web>`: elements opened earlier on the caret's line are still
+/// open, so a multi-line element insert moves onto its own line inside them
+/// and the closing tag that followed moves to its own line too.
+fn xml_block(source: &str, start: usize, end: usize) -> Option<InlineBlock> {
+    let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
+    let line = &source[line_start..start];
+    let mut depth = 0usize;
+    for token in tokenize(line) {
+        match token.kind {
+            Kind::OpenTag { .. }
+                if !token_name(line, &token).is_empty()
+                    && line[..token.end].ends_with('>')
+                    && !line[..token.end].ends_with("/>") =>
+            {
+                depth += 1;
+            }
+            Kind::EndTag => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    inline_block(
+        source,
+        start,
+        end,
+        depth,
+        &indent_unit(source),
+        |rest| rest.starts_with("</"),
+        "",
+    )
 }
 
 /// Holder path plus `value_key` for completing an attribute's value. The path
@@ -1535,17 +1601,32 @@ fn is_element_name_position(tag: &Token, cursor: usize) -> bool {
     }
 }
 
-/// Text around the caret outside tags. Returns the typed fragment, its UTF-16
-/// start, and whether the caret follows a partial `<name` (entry start).
+/// What the text typed outside tags is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    /// A partial `<name`: an element name (an explicit entry start).
+    TagName,
+    /// Text right after a `>` on the same line (`<listen>78|`): the element's
+    /// own value.
+    ElementText,
+    /// A bare word on a line of its own (`  vis|`): the name of a new element
+    /// typed without its `<`.
+    BareName,
+}
+
+/// Text around the caret outside tags: the typed fragment, its UTF-16 start,
+/// and what kind of entry it is.
 fn text_typed(
     source: &str,
     cursor: usize,
     partial: Option<(usize, usize)>,
-) -> (String, usize, bool) {
+) -> (String, usize, Typed) {
     let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
-    let segment_start = source[..cursor]
-        .rfind('>')
-        .map_or(line_start, |index| index + 1);
+    // Typed text never reaches back across a line break: a `>` on an earlier
+    // line (`</clients>\n  vis|`) must not pull the newline and indentation
+    // into the replaced range, or accepting would join the lines.
+    let after_tag = source[line_start..cursor].rfind('>');
+    let segment_start = after_tag.map_or(line_start, |index| line_start + index + 1);
     if let Some((start, end)) = partial
         && source[start..].starts_with('<')
         && start >= segment_start
@@ -1554,13 +1635,22 @@ fn text_typed(
         return (
             source[start + 1..cursor.min(end)].to_string(),
             cursor_bytes(source, start),
-            true,
+            Typed::TagName,
         );
     }
+    // Leading whitespace is indentation, not part of the query: the replaced
+    // range starts at the first typed character so indentation survives.
+    let segment = &source[segment_start..cursor];
+    let typed_start = segment_start + (segment.len() - segment.trim_start().len());
+    let kind = if after_tag.is_some() {
+        Typed::ElementText
+    } else {
+        Typed::BareName
+    };
     (
-        source[segment_start..cursor].trim_start().to_string(),
-        cursor_bytes(source, segment_start),
-        false,
+        source[typed_start..cursor].to_string(),
+        cursor_bytes(source, typed_start),
+        kind,
     )
 }
 
@@ -1614,13 +1704,12 @@ fn property_insert(
     key: &str,
     property: &Value,
     root: &Value,
-    base_indent: &str,
-    unit: &str,
-    attribute: bool,
+    context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
-    if attribute {
+    if context.position == EntryPosition::Attribute {
         return attribute_insert(key, property, root);
     }
+    let (base_indent, unit) = (context.base_indent, context.unit);
     let mut insert = format!("<{key}>");
     let mut caret = None;
     if let Some(value) = schema_const(property, root) {
@@ -1666,8 +1755,11 @@ fn property_insert(
     } else if let Some(default) = schema_default(property, root) {
         insert.push_str(&escape_text(&xml_text(default)));
     }
+    // Without a block to fill, the caret lands inside the element, after any
+    // filled-in value, ready to type its text.
+    let caret = caret.unwrap_or(insert.len());
     insert.push_str(&format!("</{key}>"));
-    let caret = utf16(&insert[..caret.unwrap_or(insert.len())]);
+    let caret = utf16(&insert[..caret]);
     Some((insert, caret))
 }
 
@@ -2124,7 +2216,9 @@ fn highlight_text_segment(text: &str) -> AnyView {
 mod tests {
     //! XML behavior tests: parsing, spans, completion, hover, and inserts.
 
-    use super::super::super::completion::{apply_completion, completions, key_hover};
+    use super::super::super::completion::{
+        accept_marked, apply_completion, completions, key_hover,
+    };
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
@@ -2186,21 +2280,220 @@ mod tests {
     #[test]
     fn repeated_sibling_elements_fold_into_an_array() {
         let document = XmlBehavior
-            .parse("<root><item>1</item><item>2</item></root>")
+            .parse("<root config-root=\"true\"><item>1</item><item>2</item></root>")
             .ok()
             .expect("document should parse");
         assert_eq!(document, serde_json::json!({"item": [1, 2]}));
     }
 
+    /// `ParseError` has no `Debug`; unwrap a parse through its message.
+    fn parse_ok(source: &str) -> serde_json::Value {
+        match XmlBehavior.parse(source) {
+            Ok(document) => document,
+            Err(error) => panic!("{}", error.message),
+        }
+    }
+
     #[test]
-    fn a_lone_container_root_is_unwrapped() {
-        let document = XmlBehavior
-            .parse("<burrow><listen>7835</listen><enabled>false</enabled></burrow>")
-            .ok()
-            .expect("document should parse");
+    fn a_marked_config_root_is_transparent_whatever_its_name() {
+        for name in ["root", "burrow", "config"] {
+            let document = parse_ok(&format!(
+                "<{name} config-root=\"true\"><listen>7835</listen><enabled>false</enabled></{name}>"
+            ));
+            assert_eq!(
+                document,
+                serde_json::json!({"listen": 7835, "enabled": false}),
+                "<{name}>"
+            );
+        }
+    }
+
+    #[test]
+    fn the_config_root_marker_and_its_other_attributes_are_not_data() {
+        let document =
+            parse_ok("<burrow config-root=\"true\" xmlns=\"urn:x\"><listen>1</listen></burrow>");
+        assert_eq!(document, serde_json::json!({"listen": 1}));
+    }
+
+    #[test]
+    fn an_empty_config_root_is_an_empty_document() {
+        assert_eq!(
+            parse_ok("<burrow config-root=\"true\"/>"),
+            serde_json::json!({})
+        );
+        assert_eq!(
+            parse_ok("<burrow config-root=\"true\">\n</burrow>"),
+            serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn an_unmarked_lone_container_is_configuration_data() {
+        let document = parse_ok("<burrow><listen>7835</listen><enabled>false</enabled></burrow>");
         assert_eq!(
             document,
-            serde_json::json!({"listen": 7835, "enabled": false})
+            serde_json::json!({"burrow": {"listen": 7835, "enabled": false}})
+        );
+    }
+
+    #[test]
+    fn config_root_false_is_an_ordinary_attribute() {
+        let document = parse_ok("<burrow config-root=\"false\"><listen>1</listen></burrow>");
+        assert_eq!(
+            document,
+            serde_json::json!({"burrow": {"config-root": false, "listen": 1}})
+        );
+    }
+
+    #[test]
+    fn a_nested_config_root_marker_is_ordinary_data() {
+        let document = parse_ok("<a><b config-root=\"true\"><c>1</c></b></a>");
+        assert_eq!(
+            document,
+            serde_json::json!({"a": {"b": {"config-root": true, "c": 1}}})
+        );
+    }
+
+    #[test]
+    fn an_empty_document_is_an_empty_object() {
+        assert_eq!(parse_ok(""), serde_json::json!({}));
+        assert_eq!(parse_ok("<!-- only a comment -->\n"), serde_json::json!({}));
+    }
+
+    #[test]
+    fn two_config_roots_are_a_parse_error_on_the_second() {
+        let error = parse_error(
+            "<a config-root=\"true\"><x>1</x></a>\n<b config-root=\"true\"><y>2</y></b>",
+        );
+        assert_eq!(error.line, Some(2));
+        assert!(error.message.contains("only one"), "{}", error.message);
+    }
+
+    #[test]
+    fn an_element_beside_the_config_root_is_a_parse_error_on_it() {
+        let error = parse_error("<a config-root=\"true\"><x>1</x></a>\n<listen>1</listen>");
+        assert_eq!(error.line, Some(2));
+        assert!(
+            error.message.contains("outside the config root"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_config_root_holding_only_text_is_a_parse_error() {
+        let error = parse_error("<a config-root=\"true\">text</a>");
+        assert_eq!(error.line, Some(1));
+        assert!(error.message.contains("not text"), "{}", error.message);
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn the_config_root_marker_is_never_validated() {
+        let strict = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"}},"additionalProperties":false}"#,
+        )
+        .unwrap();
+        let source = "<burrow config-root=\"true\">\n  <listen>1</listen>\n</burrow>";
+        assert!(validate(source, Some(&strict), None, true, &XmlBehavior).is_empty());
+        // Unmarked, the same wrapper is an unknown top-level property.
+        let unmarked = "<burrow>\n  <listen>1</listen>\n</burrow>";
+        let diagnostics = validate(unmarked, Some(&strict), None, true, &XmlBehavior);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(1));
+    }
+
+    #[cfg(feature = "schema-validation")]
+    #[test]
+    fn diagnostics_under_a_config_root_point_at_their_element() {
+        let strict = build_schema(
+            r#"{"type":"object","properties":{"listen":{"type":"integer"}},"additionalProperties":false}"#,
+        )
+        .unwrap();
+        let source =
+            "<burrow config-root=\"true\">\n  <listen>x</listen>\n  <bogus>1</bogus>\n</burrow>";
+        let mut lines: Vec<Option<usize>> =
+            validate(source, Some(&strict), None, true, &XmlBehavior)
+                .into_iter()
+                .map(|diagnostic| diagnostic.line)
+                .collect();
+        lines.sort();
+        assert_eq!(lines, vec![Some(2), Some(3)]);
+    }
+
+    #[test]
+    fn schema_less_parsing_handles_every_root_shape() {
+        for source in [
+            "<a config-root=\"true\"><x>1</x></a>",
+            "<a><x>1</x></a>",
+            "<x>1</x><y>2</y>",
+            "<x>1</x>",
+            "",
+        ] {
+            parse_ok(source);
+        }
+    }
+
+    #[test]
+    fn nothing_is_suggested_inside_the_config_root_start_tag() {
+        let source = "<burrow config-root=\"true\" se></burrow>";
+        let at = source.find(" se").unwrap() + 3;
+        let options = completions(source, at, true, Some(&schema()), true, &XmlBehavior);
+        assert!(
+            options.is_empty(),
+            "{:?}",
+            options.iter().map(|o| &o.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn hover_on_the_config_root_marker_has_no_documentation() {
+        let source = "<burrow config-root=\"true\">\n  <server/>\n</burrow>";
+        assert!(key_hover(source, 0, 10, Some(&schema()), &XmlBehavior).is_none());
+    }
+
+    #[test]
+    fn completion_under_a_config_root_addresses_the_document_root() {
+        assert_eq!(
+            accept_marked(
+                "<burrow config-root=\"true\">\n  <ver|\n</burrow>",
+                "version",
+                &schema(),
+                &XmlBehavior
+            ),
+            "<burrow config-root=\"true\">\n  <version>|</version>\n</burrow>"
+        );
+    }
+
+    #[test]
+    fn a_new_element_typed_on_its_own_line_after_a_closing_tag_stays_on_that_line() {
+        // Regression: the replaced range used to reach back to the `>` of the
+        // previous line, so accepting joined the lines (`</clients><visitors>`).
+        let marked = "<listen>7835</listen>\n<server>\n  <host>x</host>\n</server>\nver|";
+        assert_eq!(
+            accept_marked(marked, "version", &schema(), &XmlBehavior),
+            "<listen>7835</listen>\n<server>\n  <host>x</host>\n</server>\n<version>|</version>"
+        );
+        let indented = "<server>\n  <host>x</host>\n  po|\n</server>";
+        assert_eq!(
+            accept_marked(indented, "port", &schema(), &XmlBehavior),
+            "<server>\n  <host>x</host>\n  <port>|</port>\n</server>"
+        );
+    }
+
+    #[test]
+    fn a_block_element_accepted_after_an_open_tag_on_its_line_is_formatted() {
+        assert_eq!(
+            accept_marked("<server><tl|</server>", "tls", &schema(), &XmlBehavior),
+            "<server>\n  <tls>\n    <enabled>|false</enabled>\n  </tls>\n</server>"
+        );
+    }
+
+    #[test]
+    fn a_scalar_element_between_tags_stays_compact() {
+        assert_eq!(
+            accept_marked("<server><ho|</server>", "host", &schema(), &XmlBehavior),
+            "<server><host>|</host></server>"
         );
     }
 
@@ -2225,7 +2518,7 @@ mod tests {
     #[test]
     fn element_text_is_typed_against_the_schema() {
         let document = XmlBehavior
-            .parse("<root><port>80</port><tls><enabled>true</enabled></tls></root>")
+            .parse("<root config-root=\"true\"><port>80</port><tls><enabled>true</enabled></tls></root>")
             .ok()
             .expect("document should parse");
         assert_eq!(
@@ -2275,13 +2568,13 @@ mod tests {
 
     #[test]
     fn elements_are_suggested_and_a_partial_name_is_replaced() {
-        let source = "<root><server><ho";
+        let source = "<root config-root=\"true\"><server><ho";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "host")
             .expect("host should be suggested");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "<root><server><host></host>");
+        assert_eq!(updated, "<root config-root=\"true\"><server><host></host>");
     }
 
     #[test]
@@ -2302,13 +2595,16 @@ mod tests {
 
     #[test]
     fn values_inside_an_element_are_suggested_from_its_schema() {
-        let source = "<root><server><tls><enabled>tr";
+        let source = "<root config-root=\"true\"><server><tls><enabled>tr";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "true")
             .expect("true should be suggested for a boolean");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "<root><server><tls><enabled>true");
+        assert_eq!(
+            updated,
+            "<root config-root=\"true\"><server><tls><enabled>true"
+        );
     }
 
     #[test]
@@ -2339,7 +2635,7 @@ mod tests {
 
     #[test]
     fn a_repeated_element_does_not_filter_the_name() {
-        let source = "<root><server><host>x</host></server><ser";
+        let source = "<root config-root=\"true\"><server><host>x</host></server><ser";
         let labels: Vec<String> = complete(source, &schema())
             .into_iter()
             .map(|option| option.label)
@@ -2349,7 +2645,8 @@ mod tests {
 
     #[test]
     fn hover_over_an_element_returns_its_schema_documentation() {
-        let source = "<root>\n  <server>\n    <host>x</host>\n  </server>\n</root>";
+        let source =
+            "<root config-root=\"true\">\n  <server>\n    <host>x</host>\n  </server>\n</root>";
         let info =
             key_hover(source, 2, 5, Some(&schema()), &XmlBehavior).expect("host should have docs");
         assert_eq!(info.key, "host");
@@ -2382,7 +2679,8 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn a_wrong_value_is_reported_on_the_value() {
-        let source = "<root>\n  <server>\n    <port>x</port>\n  </server>\n</root>";
+        let source =
+            "<root config-root=\"true\">\n  <server>\n    <port>x</port>\n  </server>\n</root>";
         let diagnostics = validate(source, Some(&schema()), None, true, &XmlBehavior);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(3));
@@ -2392,12 +2690,12 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn an_attribute_value_error_is_reported_on_the_attribute() {
-        let source = "<root><server port=\"x\"/></root>";
+        let source = "<root config-root=\"true\"><server port=\"x\"/></root>";
         let diagnostics = validate(source, Some(&schema()), None, true, &XmlBehavior);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(1));
         // The span starts at the opening quote of `port="x"`.
-        assert_eq!(diagnostics[0].column, Some(20));
+        assert_eq!(diagnostics[0].column, Some(39));
     }
 
     #[cfg(feature = "schema-validation")]
@@ -2411,7 +2709,7 @@ mod tests {
             }}"#,
         )
         .unwrap();
-        let source = "<root>\n  <clients>\n    <acme>\n      <secret>1</secret>\n    </acme>\n  </clients>\n</root>";
+        let source = "<root config-root=\"true\">\n  <clients>\n    <acme>\n      <secret>1</secret>\n    </acme>\n  </clients>\n</root>";
         let diagnostics = validate(source, Some(&local_schema), None, true, &XmlBehavior);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, Some(4));
@@ -2420,12 +2718,15 @@ mod tests {
 
     #[test]
     fn comments_do_not_confuse_the_structure_scan() {
-        let source = "<root><server><!-- <host> --><po";
+        let source = "<root config-root=\"true\"><server><!-- <host> --><po";
         let option = complete(source, &schema())
             .into_iter()
             .find(|option| option.label == "port")
             .expect("port should be suggested despite the comment");
         let (updated, _) = apply_completion(source, &option);
-        assert_eq!(updated, "<root><server><!-- <host> --><port></port>");
+        assert_eq!(
+            updated,
+            "<root config-root=\"true\"><server><!-- <host> --><port></port>"
+        );
     }
 }

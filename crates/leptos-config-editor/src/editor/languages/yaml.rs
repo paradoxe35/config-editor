@@ -8,7 +8,10 @@
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
+use super::super::language::{
+    CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
+    SchemaPathSegment,
+};
 use leptos::prelude::*;
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use serde_json::Value;
@@ -56,11 +59,12 @@ impl LanguageBehavior for YamlBehavior {
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        _attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_completion_insert(key, property, root, base_indent, unit)
+        if context.position == EntryPosition::Inline {
+            return flow_property_insert(key, property, root);
+        }
+        property_completion_insert(key, property, root, context.base_indent, context.unit)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -404,6 +408,66 @@ fn append_required_properties(
     appended
 }
 
+/// Insert text for a property inside a flow mapping (`key: { a: 1, | }`):
+/// everything stays in flow style on one line, since a block mapping is
+/// invalid there. Nested objects open `{ child: | }`, arrays open `[|]`.
+fn flow_property_insert(key: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
+    let yaml_key = yaml_key_for_completion(key)?;
+    let flow = |value: &Value| match value {
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
+        _ => yaml_value(value),
+    };
+    let mut insert = format!("{yaml_key}: ");
+    let mut cursor = None;
+    if let Some(value) = schema_const(property, root) {
+        insert.push_str(&flow(value));
+    } else if let Some(default) = schema_default(property, root).filter(|value| {
+        !value.as_array().is_some_and(Vec::is_empty)
+            && !value.as_object().is_some_and(serde_json::Map::is_empty)
+    }) {
+        insert.push_str(&flow(default));
+    } else if array_branch(property, root).is_some() {
+        insert.push('[');
+        cursor = Some(insert.len());
+        insert.push(']');
+    } else if let Some(branch) = object_branch(property, root) {
+        insert.push('{');
+        let properties = branch.get("properties").and_then(Value::as_object);
+        let required = branch
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(|name| Some((name, properties?.get(name)?)));
+        let mut first = true;
+        for (name, child) in required {
+            let Some(child_key) = yaml_key_for_completion(name) else {
+                continue;
+            };
+            insert.push_str(if first { " " } else { ", " });
+            first = false;
+            insert.push_str(&child_key);
+            insert.push_str(": ");
+            if cursor.is_none() {
+                cursor = Some(insert.len());
+            }
+            if let Some(default) = schema_default(child, root) {
+                insert.push_str(&flow(default));
+            }
+        }
+        insert.push(' ');
+        if cursor.is_none() {
+            cursor = Some(insert.len());
+        }
+        insert.push_str(if first { " }" } else { "}" });
+    }
+    let cursor = insert[..cursor.unwrap_or(insert.len())]
+        .encode_utf16()
+        .count();
+    Some((insert, cursor))
+}
+
 fn property_completion_insert(
     key: &str,
     property: &Value,
@@ -718,7 +782,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     entry_prefix: "",
                     explicit_entry_start: false,
                     entry_suffix: "",
-                    attribute: false,
+                    position: EntryPosition::Inline,
+                    ..Default::default()
                 };
             }
         }
@@ -738,7 +803,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         entry_prefix: "",
         explicit_entry_start: false,
         entry_suffix: "",
-        attribute: false,
+        ..Default::default()
     }
 }
 
@@ -1151,8 +1216,8 @@ mod tests {
     //! read exactly like the old core call sites with zero drift.
 
     use super::super::super::completion::{
-        accept_reopens_suggestions, apply_completion, completions as shared_completions,
-        key_hover as shared_key_hover,
+        accept_marked, accept_reopens_suggestions, apply_completion,
+        completions as shared_completions, key_hover as shared_key_hover,
     };
     use super::super::super::diagnostics::{
         Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
@@ -1169,6 +1234,53 @@ mod tests {
         enabled: bool,
     ) -> Vec<Diagnostic> {
         shared_validate(source, schema, schema_error, enabled, &YamlBehavior)
+    }
+
+    fn flow_schema() -> SchemaBundle {
+        build_schema(
+            r#"{"type":"object","properties":{"web":{"type":"object","properties":{
+                "http":{"type":"integer"},
+                "hosts":{"type":"array","items":{"type":"string"}},
+                "letsencrypt":{"type":"object","required":["email"],
+                    "properties":{"email":{"type":"string"}}},
+                "headers":{"type":"object"}}}}}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_object_accepted_inside_a_flow_mapping_stays_in_flow_style() {
+        let schema = flow_schema();
+        let accepted = accept_marked("web: { le| }\n", "letsencrypt", &schema, &YamlBehavior);
+        assert_eq!(accepted, "web: { letsencrypt: { email: | } }\n");
+        let filled = accepted.replace('|', "a@b.c");
+        let document = YamlBehavior
+            .parse(&filled)
+            .ok()
+            .expect("flow mapping parses");
+        assert_eq!(document["web"]["letsencrypt"]["email"], "a@b.c");
+    }
+
+    #[test]
+    fn an_array_and_an_empty_object_inside_a_flow_mapping_open_inline() {
+        let schema = flow_schema();
+        assert_eq!(
+            accept_marked("web: { ho| }\n", "hosts", &schema, &YamlBehavior),
+            "web: { hosts: [|] }\n"
+        );
+        assert_eq!(
+            accept_marked("web: { he| }\n", "headers", &schema, &YamlBehavior),
+            "web: { headers: { | } }\n"
+        );
+    }
+
+    #[test]
+    fn an_object_accepted_in_a_block_mapping_still_expands_to_a_block() {
+        let schema = flow_schema();
+        assert_eq!(
+            accept_marked("web:\n  le|", "letsencrypt", &schema, &YamlBehavior),
+            "web:\n  letsencrypt:\n    email: |\n"
+        );
     }
 
     fn completions(

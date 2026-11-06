@@ -10,6 +10,8 @@
 
 use super::language::LanguageBehavior;
 
+#[cfg(all(test, feature = "schema-validation"))]
+mod demo_samples;
 mod hcl;
 mod json;
 mod toml;

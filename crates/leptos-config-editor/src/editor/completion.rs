@@ -1,7 +1,7 @@
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::language::{CompletionContext, LanguageBehavior, SchemaPathSegment};
+use super::language::{CompletionContext, InsertContext, LanguageBehavior, SchemaPathSegment};
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use regex::Regex;
@@ -441,9 +441,7 @@ fn property_completions(
     end: usize,
     root: &Value,
     existing: Option<&HashSet<String>>,
-    base_indent: &str,
-    unit: &str,
-    attribute: bool,
+    insert_context: &InsertContext<'_>,
     behavior: &dyn LanguageBehavior,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
@@ -473,7 +471,7 @@ fn property_completions(
                     0
                 };
             let Some((insert, cursor_offset)) =
-                behavior.property_insert(key, property, root, base_indent, unit, attribute)
+                behavior.property_insert(key, property, root, insert_context)
             else {
                 continue;
             };
@@ -520,15 +518,37 @@ pub(super) fn completions(
     let context = behavior.completion_context(source, cursor);
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
-    if !context.entry_prefix.is_empty() || !context.entry_suffix.is_empty() {
-        let prefix_units = context.entry_prefix.encode_utf16().count();
-        for option in &mut options {
-            option.insert.insert_str(0, context.entry_prefix);
-            option.insert.push_str(context.entry_suffix);
-            option.cursor_offset += prefix_units;
-        }
+    for option in &mut options {
+        frame_insert(option, &context);
     }
     options
+}
+
+/// Wraps one accepted insert with the language's entry separators and, for a
+/// multi-line property insert after a container opened on the same line, the
+/// block expansion: the entry moves onto its own indented line and whatever
+/// followed the caret (a closer or the next entry) moves after it.
+pub(super) fn frame_insert(option: &mut Completion, context: &CompletionContext) {
+    let expand = !option.is_value && option.insert.contains('\n');
+    match context.block.as_ref().filter(|_| expand) {
+        Some(block) => {
+            let prefix = format!(
+                "{}\n{}",
+                context.entry_prefix.trim_end_matches([' ', '\t']),
+                block.indent
+            );
+            option.insert.insert_str(0, &prefix);
+            option.insert.push_str(&block.after);
+            option.cursor_offset += prefix.encode_utf16().count();
+            option.start = block.start;
+            option.end = block.end;
+        }
+        None => {
+            option.insert.insert_str(0, context.entry_prefix);
+            option.insert.push_str(context.entry_suffix);
+            option.cursor_offset += context.entry_prefix.encode_utf16().count();
+        }
+    }
 }
 
 fn completions_for_context(
@@ -591,8 +611,16 @@ fn completions_for_context(
         return Vec::new();
     }
 
+    if context.no_properties {
+        return Vec::new();
+    }
     let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
     let unit = indent_unit(source);
+    // A block-expanded insert starts on its own, deeper line.
+    let base_indent = context
+        .block
+        .as_ref()
+        .map_or(context.base_indent.as_str(), |block| block.indent.as_str());
     property_completions(
         &schemas,
         query,
@@ -600,9 +628,12 @@ fn completions_for_context(
         context.replace_end,
         &bundle.schema,
         existing_keys.as_ref(),
-        &context.base_indent,
-        &unit,
-        context.attribute,
+        &InsertContext {
+            base_indent,
+            unit: &unit,
+            position: context.position,
+            path: &context.path,
+        },
         behavior,
     )
 }
@@ -883,6 +914,40 @@ pub(super) fn completion_popup_style(
         metrics.line_height,
         option_count,
     )
+}
+
+/// Test driver shared by every language's tests: accepts `label` at the `|`
+/// marker of `marked` (a forced request, as Ctrl+Space) and returns the
+/// document with `|` at the resulting caret.
+#[cfg(test)]
+pub(super) fn accept_marked(
+    marked: &str,
+    label: &str,
+    schema: &SchemaBundle,
+    behavior: &dyn LanguageBehavior,
+) -> String {
+    let at = marked.find('|').expect("a | caret marker");
+    let source = marked.replacen('|', "", 1);
+    let options = completions(
+        &source,
+        source[..at].encode_utf16().count(),
+        true,
+        Some(schema),
+        true,
+        behavior,
+    );
+    let Some(option) = options.iter().find(|option| option.label == label) else {
+        let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
+        panic!("{label} is not offered at the caret; offered {labels:?}");
+    };
+    let (updated, caret) = apply_completion(&source, option);
+    let byte = updated
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain([updated.len()])
+        .find(|index| updated[..*index].encode_utf16().count() == caret)
+        .expect("caret on a character boundary");
+    format!("{}|{}", &updated[..byte], &updated[byte..])
 }
 
 #[cfg(test)]

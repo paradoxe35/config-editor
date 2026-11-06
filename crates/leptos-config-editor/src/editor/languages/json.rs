@@ -13,7 +13,10 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::keyboard::utf16_to_byte_index;
 #[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, LanguageBehavior, ParseError, SchemaPathSegment};
+use super::super::language::{
+    CompletionContext, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
+    inline_block, unclosed_brackets,
+};
 use leptos::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -59,11 +62,9 @@ impl LanguageBehavior for JsonBehavior {
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        _attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, base_indent, unit)
+        property_insert(key, property, root, context.base_indent, context.unit)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -613,7 +614,21 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             (path, None, true)
         }
     };
+    // `"web": {"le|}`: the brace opened on this line is still open, so a
+    // multi-line insert moves onto its own line inside it.
+    let block = value_key.is_none().then(|| {
+        inline_block(
+            source,
+            typed_start,
+            replace_end,
+            unclosed_brackets(&source[line_start..typed_start]),
+            &indent_unit(source),
+            |rest| rest.starts_with(['}', ']']),
+            ",",
+        )
+    });
     CompletionContext {
+        block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
         replace_start: utf16(&source[..typed_start]),
@@ -629,7 +644,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         } else {
             ""
         },
-        attribute: false,
+        ..Default::default()
     }
 }
 
@@ -854,11 +869,20 @@ fn token_class(line: &str, token: &Token) -> &'static str {
 mod tests {
     //! JSON behavior tests: parsing, spans, completion, hover, and inserts.
 
-    use super::super::super::completion::{Completion, apply_completion, completions, key_hover};
+    use super::super::super::completion::{
+        Completion, accept_marked, apply_completion, completions, key_hover,
+    };
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::LanguageBehavior;
+    use super::super::super::language::{InsertContext, LanguageBehavior};
+
+    const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
+        base_indent: "",
+        unit: "  ",
+        position: super::super::super::language::EntryPosition::Block,
+        path: &[],
+    };
     use super::JsonBehavior;
 
     fn schema() -> SchemaBundle {
@@ -883,6 +907,60 @@ mod tests {
             true,
             &JsonBehavior,
         )
+    }
+
+    fn accept_at(marked: &str, label: &str, schema: &SchemaBundle) -> String {
+        accept_marked(marked, label, schema, &JsonBehavior)
+    }
+
+    fn nested_schema() -> SchemaBundle {
+        build_schema(
+            r#"{"type":"object","properties":{"web":{"type":"object","properties":{
+                "http":{"type":"integer"},
+                "letsencrypt":{"type":"object","required":["email"],
+                    "properties":{"email":{"type":"string"}}}}}}}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_nested_object_accepted_after_an_inline_brace_is_formatted_as_a_block() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_at("{\n  \"web\": {\"le|}\n}", "letsencrypt", &schema),
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    }\n  }\n}"
+        );
+    }
+
+    #[test]
+    fn a_nested_block_before_a_following_entry_keeps_it_on_its_own_line() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_at(
+                "{\n  \"web\": {\"le|\", \"http\": 80}\n}",
+                "letsencrypt",
+                &schema
+            ),
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    },\n    \"http\": 80}\n}"
+        );
+    }
+
+    #[test]
+    fn a_scalar_accepted_after_an_inline_brace_stays_inline() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_at("{\n  \"web\": {\"ht|}\n}", "http", &schema),
+            "{\n  \"web\": {\"http\": |}\n}"
+        );
+    }
+
+    #[test]
+    fn a_nested_object_on_its_own_line_is_unchanged() {
+        let schema = nested_schema();
+        assert_eq!(
+            accept_at("{\n  \"web\": {\n    \"le|\n  }\n}", "letsencrypt", &schema),
+            "{\n  \"web\": {\n    \"letsencrypt\": {\n      \"email\": |\n    }\n  }\n}"
+        );
     }
 
     #[test]
@@ -1135,7 +1213,7 @@ mod tests {
         let schema = schema();
         let auth = &schema.schema["properties"]["auth"];
         let (insert, caret) = JsonBehavior
-            .property_insert("auth", auth, &schema.schema, "", "  ", false)
+            .property_insert("auth", auth, &schema.schema, &INSERT_AT_ROOT)
             .unwrap();
         assert_eq!(insert, "\"auth\": {\n  \"enabled\": false\n}");
         assert_eq!(caret, "\"auth\": {\n  \"enabled\": ".encode_utf16().count());

@@ -31,10 +31,141 @@ pub(super) enum SchemaPathSegment {
     ArrayItem(usize),
 }
 
+/// How an entry inserted at the caret must be written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum EntryPosition {
+    /// A child entry in a multi-line body (the normal case).
+    #[default]
+    Block,
+    /// Inside a container that must stay on one line, such as a TOML inline
+    /// table: nested objects are written inline too.
+    Inline,
+    /// An XML-style attribute on the current tag (`name="value"`).
+    Attribute,
+}
+
+/// Everything a language needs to render one property insert.
+pub(super) struct InsertContext<'a> {
+    /// Indentation of the line the entry starts on.
+    pub(super) base_indent: &'a str,
+    /// One indentation level, as the document writes it.
+    pub(super) unit: &'a str,
+    pub(super) position: EntryPosition,
+    /// Schema path of the container receiving the entry.
+    pub(super) path: &'a [SchemaPathSegment],
+}
+
+/// The caret sits after containers opened earlier on the same line
+/// (`"web": {"le|}`). A multi-line insert there is moved onto its own line at
+/// `indent`, and whatever followed the caret is pushed to `after`, so a nested
+/// block comes out formatted instead of glued to the opening brace. Computed by
+/// [`inline_block`]; only multi-line inserts use it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct InlineBlock {
+    /// UTF-16 replace range used when expanding: it swallows the blanks around
+    /// the caret so no trailing whitespace is left behind.
+    pub(super) start: usize,
+    pub(super) end: usize,
+    /// Indentation of the entry's own line.
+    pub(super) indent: String,
+    /// Text placed after the insert: a line break plus the closing indent
+    /// before a closer, or a separator plus line break before a following
+    /// entry. Empty when nothing follows on the line.
+    pub(super) after: String,
+}
+
+/// How many `{` / `[` opened on `line_prefix` (the line's text before the
+/// caret) are still open, ignoring brackets inside double-quoted strings.
+/// Shared by the brace languages (JSON, HCL, TOML inline tables).
+pub(super) fn unclosed_brackets(line_prefix: &str) -> usize {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for character in line_prefix.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
+}
+
+/// Computes the [`InlineBlock`] for a replace range `start..end` (bytes) on a
+/// line where `depth` containers opened before the caret are still open.
+/// `closes` tells whether the text after the caret starts with the language's
+/// closer (`}` / `]` / `</`); `separator` is written between the insert and an
+/// entry that follows on the same line (`,` in JSON, nothing in XML).
+/// Shared by every language whose containers can open mid-line.
+pub(super) fn inline_block(
+    source: &str,
+    start: usize,
+    end: usize,
+    depth: usize,
+    unit: &str,
+    closes: impl Fn(&str) -> bool,
+    separator: &str,
+) -> Option<InlineBlock> {
+    if depth == 0 {
+        return None;
+    }
+    let start = start.min(source.len());
+    let end = end.clamp(start, source.len());
+    let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
+    let line_end = source[end..]
+        .find('\n')
+        .map_or(source.len(), |index| end + index);
+    let line_indent: String = source[line_start..]
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect();
+    let indent = format!("{line_indent}{}", unit.repeat(depth));
+    let before = source[line_start..start].trim_end_matches([' ', '\t']);
+    let block_start = line_start + before.len();
+    let rest = &source[end..line_end];
+    let following = rest.trim_start_matches([' ', '\t']);
+    let (after, block_end) = if following.is_empty() {
+        (String::new(), end)
+    } else if closes(following) {
+        (
+            format!("\n{line_indent}{}", unit.repeat(depth - 1)),
+            end + (rest.len() - following.len()),
+        )
+    } else {
+        // An entry follows: write one separator (swallowing the one already
+        // there) and move the entry onto its own line.
+        let following = match following.strip_prefix(separator) {
+            Some(after) if !separator.is_empty() => after.trim_start_matches([' ', '\t']),
+            _ => following,
+        };
+        (
+            format!("{separator}\n{indent}"),
+            end + (rest.len() - following.len()),
+        )
+    };
+    Some(InlineBlock {
+        start: source[..block_start].encode_utf16().count(),
+        end: source[..block_end].encode_utf16().count(),
+        indent,
+        after,
+    })
+}
+
 /// Where the caret is inside the document's structure: the schema path of the
 /// enclosing mapping, the partially typed query, the replace range, and —
 /// when editing a mapping value — which key's value is being edited.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub(super) struct CompletionContext {
     pub(super) path: Vec<SchemaPathSegment>,
     pub(super) typed: String,
@@ -54,10 +185,16 @@ pub(super) struct CompletionContext {
     /// separator before an existing entry that follows (JSON). Core appends it
     /// verbatim; the caret stays before it.
     pub(super) entry_suffix: &'static str,
-    /// Whether the property is written as an XML-style attribute on the
-    /// current tag (`name="value"`) rather than a child entry. Only XML sets
-    /// it; the other languages always insert child entries.
-    pub(super) attribute: bool,
+    /// How a property inserted here is written (child entry, inline entry, or
+    /// XML attribute).
+    pub(super) position: EntryPosition,
+    /// Set when containers opened earlier on the caret's line are still open:
+    /// multi-line property inserts then move onto their own line.
+    pub(super) block: Option<InlineBlock>,
+    /// The caret is somewhere no property may be inserted (for example the
+    /// start tag of the XML config root, whose attributes are editor
+    /// metadata): property completion stays empty.
+    pub(super) no_properties: bool,
 }
 
 /// Splits a JSON-pointer path into unescaped segments. Generic path utility
@@ -99,17 +236,14 @@ pub(super) trait LanguageBehavior: Send + Sync {
         cursor_byte: usize,
         path: &[SchemaPathSegment],
     ) -> Option<HashSet<String>>;
-    /// Insert text (plus caret offset) for a schema property completion.
-    /// `attribute` is set when the caret is inside an XML start tag, where
-    /// properties are written as attributes.
+    /// Insert text (plus caret offset, UTF-16) for a schema property
+    /// completion, written as `context.position` asks.
     fn property_insert(
         &self,
         key: &str,
         property: &Value,
         root: &Value,
-        base_indent: &str,
-        unit: &str,
-        attribute: bool,
+        context: &InsertContext<'_>,
     ) -> Option<(String, usize)>;
     /// Render a schema value (default, const, example) as document text.
     fn format_value(&self, value: &Value) -> String;
