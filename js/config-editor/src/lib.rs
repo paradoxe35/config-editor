@@ -628,6 +628,8 @@ impl ConfigEditor {
     /// The document, in `language`.
     #[wasm_bindgen(getter)]
     pub fn value(&self) -> String {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         match &self.final_value {
             Some(value) => value.clone(),
             None => self
@@ -645,6 +647,8 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
     ) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         if self.id.is_none() {
             return Ok(());
         }
@@ -663,6 +667,8 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] baseline: JsValue,
     ) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let _ = self
             .state
             .baseline
@@ -676,6 +682,8 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string | null | undefined")] language: JsValue,
     ) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let language = if language.is_null() || language.is_undefined() {
             None
         } else {
@@ -693,6 +701,8 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "ThemeName | null | undefined")] theme: JsValue,
     ) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let theme = match optional_text(&theme, "theme")? {
             Some(name) => theme_named(&name)?,
             None => EditorTheme::default(),
@@ -704,6 +714,8 @@ impl ConfigEditor {
     /// Replaces the color overrides; `{}` clears them.
     #[wasm_bindgen(js_name = setColors)]
     pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let _ = self.state.colors.try_set(colors_from(&colors.into())?);
         Ok(())
     }
@@ -714,6 +726,8 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "boolean")] readOnly: JsValue,
     ) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let read_only = readOnly
             .as_bool()
             .ok_or_else(|| JsError::new("readOnly must be a boolean"))?;
@@ -724,6 +738,8 @@ impl ConfigEditor {
     /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
     #[wasm_bindgen(js_name = setCallbacks)]
     pub fn set_callbacks(&self, callbacks: EditorUpdate) -> Result<(), JsError> {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let callbacks: JsValue = callbacks.into();
         if !callbacks.is_object() || Array::is_array(&callbacks) {
             return Err(JsError::new(
@@ -761,6 +777,8 @@ impl ConfigEditor {
     /// still waiting to be saved (while editing as another language) is sent
     /// to `onChange` first.
     pub fn destroy(&mut self) {
+        // Input the browser sent in this task first (see `flush_pending_input`).
+        config_editor_leptos::flush_pending_input();
         let Some((mounted, owner, _)) = self
             .id
             .take()

@@ -700,3 +700,217 @@ fn a_rename_does_not_reopen_the_list() {
     }
     report(failures);
 }
+
+/// Round 10: typing in front of a key inserts before it in every form,
+/// including text typed after a JSON key's opening quote and TOML table
+/// headers (`[ud|tcp]`).
+#[test]
+fn typing_in_front_of_a_key_inserts_before_it_in_every_form() {
+    let mut failures = Vec::new();
+    for (language, marked, label, keys) in [
+        (
+            Language::JSON,
+            "{\"listen\": 7835, \"ud|tcp\": {\"nodelay\": true}}\n",
+            "udp",
+            vec!["listen", "udp", "tcp"],
+        ),
+        (
+            Language::JSON,
+            "{\"listen\": 7835, \"|tcp\": {\"nodelay\": true}}\n",
+            "udp",
+            vec!["listen", "udp", "tcp"],
+        ),
+        (
+            Language::TOML,
+            "listen = 7835\n[ud|tcp]\nnodelay = true\n",
+            "udp",
+            vec!["listen", "udp", "tcp"],
+        ),
+        (
+            Language::TOML,
+            "listen = 7835\n[|tcp]\nnodelay = true\n",
+            "udp",
+            vec!["listen", "udp", "tcp"],
+        ),
+    ] {
+        match accepted(language, marked, label)
+            .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+        {
+            Ok((text, value)) => {
+                let mut found = keys_at(&value, &[]);
+                found.sort();
+                let mut wanted: Vec<String> = keys.iter().map(|key| key.to_string()).collect();
+                wanted.sort();
+                if found != wanted || keys_at(&value, &["tcp"]) != ["nodelay"] {
+                    failures.push(format!("{} {marked:?} → {text:?}", language.label()));
+                }
+            }
+            Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
+        }
+    }
+    report(failures);
+}
+
+/// Round 10: with the caret inside or before a line's indentation, a
+/// suggestion goes where the line's text starts, as at the end of the
+/// indentation.
+#[test]
+fn a_suggestion_accepted_in_the_indentation_goes_where_the_text_starts() {
+    let mut failures = Vec::new();
+    for (language, marked, label) in [
+        (Language::YAML, "tcp:\n|  nodelay: true\n", "keepalive_secs"),
+        (Language::YAML, "tcp:\n | nodelay: true\n", "keepalive_secs"),
+        (
+            Language::HCL,
+            "tcp {\n|  nodelay = true\n}\n",
+            "keepalive_secs",
+        ),
+        (
+            Language::HCL,
+            "tcp {\n | nodelay = true\n}\n",
+            "keepalive_secs",
+        ),
+        (Language::TOML, "[tcp]\n|nodelay = true\n", "keepalive_secs"),
+        (
+            Language::JSON,
+            "{\n  \"tcp\": {\n|    \"nodelay\": true\n  }\n}\n",
+            "keepalive_secs",
+        ),
+        (
+            Language::XML,
+            "<tcp>\n|  <nodelay>true</nodelay>\n</tcp>\n",
+            "keepalive_secs",
+        ),
+    ] {
+        // Not offering the key already on the line.
+        if offered(language, marked).contains(&"nodelay".to_string()) {
+            failures.push(format!("{} {marked:?} offers nodelay", language.label()));
+        }
+        match accepted(language, marked, label)
+            .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+        {
+            Ok((text, value)) => {
+                let mut keys = keys_at(&value, &["tcp"]);
+                keys.sort();
+                // The new line takes the indentation of the line it goes before.
+                let indented = text
+                    .lines()
+                    .filter(|line| line.contains("keepalive_secs") || line.contains("nodelay"))
+                    .map(|line| line.len() - line.trim_start().len())
+                    .collect::<Vec<_>>();
+                if keys != ["keepalive_secs", "nodelay"]
+                    || indented.windows(2).any(|pair| pair[0] != pair[1])
+                {
+                    failures.push(format!("{} {marked:?} → {text:?}", language.label()));
+                }
+            }
+            Err(error) => failures.push(format!("{} {marked:?} → {error}", language.label())),
+        }
+    }
+    report(failures);
+}
+
+/// Round 10: the head of a TOML dotted key completed in place keeps the rest
+/// of the key and its value (`ud|.nodelay = true` + udp → `udp.nodelay`).
+#[test]
+fn a_toml_dotted_key_head_completes_in_place() {
+    let text = accepted(
+        Language::TOML,
+        "ud|.nodelay = true\ntcp.keepalive_secs = 3\n",
+        "udp",
+    )
+    .unwrap();
+    assert_eq!(text, "udp.nodelay = true\ntcp.keepalive_secs = 3\n");
+}
+
+/// Round 10: a TOML table renamed by a completion takes its sub-tables and
+/// dotted keys along, so its data stays one table.
+#[test]
+fn a_toml_table_renamed_by_completion_renames_its_sub_tables_and_dotted_keys() {
+    let marked = "[t|cp]\nnodelay = true\n[tcp.x]\na = 1\n";
+    let text = accepted(Language::TOML, marked, "metrics").unwrap();
+    assert!(!text.contains("tcp"), "{marked:?} → {text:?}");
+    assert!(parsed(Language::TOML, &text).is_ok(), "{text:?}");
+    let text = accepted(
+        Language::TOML,
+        "[t|cp]\nnodelay = true\n[tcp.x]\na = 1\n",
+        "metrics",
+    )
+    .unwrap();
+    assert_eq!(text, "[metrics]\nnodelay = true\n[metrics.x]\na = 1\n");
+}
+
+/// Round 10: an XML attribute is not offered when the element already has
+/// that key as a child element, and the reverse.
+#[test]
+fn an_xml_key_is_one_key_whether_attribute_or_child() {
+    let attributes = offered(
+        Language::XML,
+        "<tcp |>\n  <nodelay>true</nodelay>\n</tcp>\n",
+    );
+    assert!(
+        !attributes.contains(&"nodelay".to_string()),
+        "{attributes:?}"
+    );
+    assert!(
+        attributes.contains(&"keepalive_secs".to_string()),
+        "{attributes:?}"
+    );
+    let children = offered(Language::XML, "<tcp nodelay=\"true\">\n  <|\n</tcp>\n");
+    assert!(!children.contains(&"nodelay".to_string()), "{children:?}");
+}
+
+/// Round 10: Ctrl+Space over a selected key offers every key, and accepting
+/// one renames the key, in every language.
+#[test]
+fn ctrl_space_over_a_selected_key_offers_every_key_and_renames_it() {
+    use super::super::completion::{apply_completion, completions_for};
+    let mut failures = Vec::new();
+    for (language, text, key) in [
+        (Language::YAML, "tcp:\n  nodelay: true\n", "tcp"),
+        (Language::JSON, "{\"tcp\": {\"nodelay\": true}}\n", "tcp"),
+        (Language::TOML, "[tcp]\nnodelay = true\n", "tcp"),
+        (Language::HCL, "tcp {\n  nodelay = true\n}\n", "tcp"),
+        (
+            Language::XML,
+            "<burrow config-root=\"true\">\n  <tcp/>\n</burrow>\n",
+            "tcp",
+        ),
+    ] {
+        let end = text.find(key).unwrap() + key.len();
+        let options = completions_for(
+            text,
+            end,
+            true,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+            true,
+        );
+        let Some(option) = options.iter().find(|option| option.label == "metrics") else {
+            failures.push(format!(
+                "{}: metrics not offered: {:?}",
+                language.label(),
+                options.iter().map(|o| &o.label).collect::<Vec<_>>()
+            ));
+            continue;
+        };
+        let renamed = apply_completion(text, option).0;
+        if renamed.contains("tcp") || parsed(language, &renamed).is_err() {
+            failures.push(format!("{}: {renamed:?}", language.label()));
+        }
+    }
+    report(failures);
+}
+
+/// Round 10: completing in an XML end tag's name renames the element, its
+/// start tag included.
+#[test]
+fn an_xml_end_tag_name_completes_and_renames_both_tags() {
+    let marked = "<burrow config-root=\"true\">\n  <publ>x</pu|bl>\n</burrow>\n";
+    let text = accepted(Language::XML, marked, "public_address").unwrap();
+    assert_eq!(
+        text,
+        "<burrow config-root=\"true\">\n  <public_address>x</public_address>\n</burrow>\n"
+    );
+}

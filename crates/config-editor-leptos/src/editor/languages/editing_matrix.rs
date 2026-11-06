@@ -187,3 +187,98 @@ fn toggling_comments_twice_from_mid_line_restores_the_text() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Round 10: Ctrl+/ never writes a comment marker into a multi-line
+/// string's text: a selection touching one covers the whole entry, so the
+/// document stays the same document, commented out or back.
+#[test]
+fn toggling_comments_never_writes_into_a_multi_line_string() {
+    let mut failures = Vec::new();
+    for (language, text, at) in [
+        (
+            Language::YAML,
+            "listen: 1\nservices:\n  web:\n    target: 1\n    note: |\n      line1\n      line2\n    bind: x\n",
+            "line1",
+        ),
+        (Language::YAML, "a: \"x\n  b\n  c\"\nd: 1\n", "  b"),
+        (Language::TOML, "a = \"\"\"\nline\n\"\"\"\nb = 1\n", "line"),
+        (Language::HCL, "a = <<EOT\nline\nEOT\nb = 1\n", "line"),
+    ] {
+        let behavior = language.behavior();
+        let caret = text[..text.find(at).unwrap()].encode_utf16().count();
+        let Some((once, start, end)) = behavior.toggle_comments(text, caret, caret) else {
+            continue;
+        };
+        // Commented out: whatever stays is still a document, and no line of
+        // the string's text has a marker inside it.
+        match language.parse(&once) {
+            Err(_) => failures.push(format!(
+                "{}: commented text does not parse:\n{once}",
+                language.label()
+            )),
+            // A string the comment went into holds the marker now.
+            Ok(value) if strings_of(&value).iter().any(|text| text.contains('#')) => {
+                failures.push(format!(
+                    "{}: a marker went into a string:\n{once}",
+                    language.label()
+                ));
+            }
+            Ok(_) => {}
+        }
+        match behavior.toggle_comments(&once, start, end) {
+            Some((twice, _, _)) if twice == text => {}
+            Some((twice, _, _)) => {
+                failures.push(format!("{}: twice gives\n{twice}", language.label()))
+            }
+            None => failures.push(format!(
+                "{}: the second toggle does nothing",
+                language.label()
+            )),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n---\n"));
+}
+
+fn strings_of(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(text) => vec![text.clone()],
+        serde_json::Value::Array(items) => items.iter().flat_map(strings_of).collect(),
+        serde_json::Value::Object(map) => map.values().flat_map(strings_of).collect(),
+        _ => Vec::new(),
+    }
+}
+#[test]
+fn probe_bodies() {
+    for (language, text) in [
+        (
+            Language::YAML,
+            "listen: 1\nservices:\n  web:\n    target: 1\n    note: |\n      line1\n      line2\n    bind: x\n",
+        ),
+        (Language::YAML, "a: \"x\n  b\n  c\"\nd: 1\n"),
+        (Language::TOML, "a = \"\"\"\nline\n\"\"\"\nb = 1\n"),
+        (Language::HCL, "a = <<EOT\nline\nEOT\nb = 1\n"),
+    ] {
+        println!(
+            "{} {:?}",
+            language.label(),
+            language.behavior().string_body_lines(text)
+        );
+    }
+}
+
+/// Round 10: Ctrl+/ inside an HCL block comment over several lines removes
+/// that comment, wherever the caret is in it.
+#[test]
+fn toggling_comments_inside_a_multi_line_block_comment_unwraps_it() {
+    let text = "tcp {\n  /* nodelay = true\n  keepalive_secs = 30 */\n}\n";
+    let caret = text.find(" = 30").unwrap();
+    let (unwrapped, start, _) = Language::HCL
+        .behavior()
+        .toggle_comments(text, caret, caret)
+        .unwrap();
+    assert_eq!(
+        unwrapped,
+        "tcp {\n  nodelay = true\n  keepalive_secs = 30\n}\n"
+    );
+    assert_eq!(start, unwrapped.find(" = 30").unwrap());
+}

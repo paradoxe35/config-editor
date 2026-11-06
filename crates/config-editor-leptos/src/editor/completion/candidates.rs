@@ -196,6 +196,7 @@ pub(super) fn property_completions(
     sorted_completions(candidates)
 }
 
+#[cfg(test)]
 pub(crate) fn completions(
     source: &str,
     cursor: usize,
@@ -203,6 +204,21 @@ pub(crate) fn completions(
     schema: Option<&SchemaBundle>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
+) -> Vec<Completion> {
+    completions_for(source, cursor, force, schema, enabled, behavior, false)
+}
+
+/// [`completions`] for the word before `cursor` as a whole to be replaced,
+/// as Ctrl+Space over a selected key does: every key is offered, not only
+/// those matching the word, and accepting one renames it.
+pub(crate) fn completions_for(
+    source: &str,
+    cursor: usize,
+    force: bool,
+    schema: Option<&SchemaBundle>,
+    enabled: bool,
+    behavior: &dyn ConfigLanguage,
+    replace_word: bool,
 ) -> Vec<Completion> {
     if !enabled {
         return Vec::new();
@@ -217,7 +233,32 @@ pub(crate) fn completions(
         return Vec::new();
     }
     let cursor_byte = utf16_to_byte_index(source, cursor);
-    let context = behavior.completion_context(source, cursor);
+    // In a line's indentation, before its text: as where the text starts,
+    // so a new entry lines up with it instead of splitting its indent.
+    let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = source[cursor_byte..]
+        .find('\n')
+        .map_or(source.len(), |at| cursor_byte + at);
+    let indent_end = line_start + source[line_start..line_end].len()
+        - source[line_start..line_end].trim_start().len();
+    if cursor_byte < indent_end && indent_end < line_end {
+        let text_start = source[..indent_end].encode_utf16().count();
+        return completions_for(
+            source,
+            text_start,
+            force,
+            schema,
+            enabled,
+            behavior,
+            replace_word,
+        );
+    }
+    let mut context = behavior.completion_context(source, cursor);
+    if replace_word {
+        // The word is replaced, not filtered by.
+        context.typed = String::new();
+        context.entry_after = None;
+    }
     // A space typed after a complete word ends it: nothing is offered unless
     // asked for, so Enter starts a new line.
     if !force && source[..cursor_byte].ends_with([' ', '\t']) && !context.typed.trim().is_empty() {
@@ -238,16 +279,53 @@ pub(crate) fn completions(
         options.retain(|option| option.is_value || option.label != word);
     }
     for option in &mut options {
-        if frame_insert(option, &context, replaces_word)
-            && let Some((name_start, name_end)) = context.paired_name
-            && name_start >= option.end
-        {
-            // The end tag gets the new name too: the insert runs through it.
-            let between_start = utf16_to_byte_index(source, option.end);
-            let between_end = utf16_to_byte_index(source, name_start);
-            option.insert.push_str(&source[between_start..between_end]);
-            option.insert.push_str(&option.label);
-            option.end = name_end;
+        if frame_insert(option, &context, replaces_word) {
+            // A rename keeps what the insert writes before the name (`<`)
+            // only where the document has it there too (not in `</name>`).
+            let start_byte = utf16_to_byte_index(source, option.start);
+            if let Some(at) = option.insert.find(option.label.as_str())
+                && at > 0
+                && !source[start_byte..].starts_with(&option.insert[..at])
+            {
+                let lead = option.insert[..at].encode_utf16().count();
+                option.insert.drain(..at);
+                option.cursor_offset = option.cursor_offset.saturating_sub(lead);
+            }
+            // The key's other places get the new name too: the insert runs
+            // through them.
+            // Places before it (an end tag's start tag) come first.
+            let mut before: Vec<(usize, usize)> = context
+                .paired_names
+                .iter()
+                .copied()
+                .filter(|(_, end)| *end <= option.start)
+                .collect();
+            before.sort_unstable();
+            for (name_start, name_end) in before.into_iter().rev() {
+                let between_start = utf16_to_byte_index(source, name_end);
+                let between_end = utf16_to_byte_index(source, option.start);
+                let prefix = format!("{}{}", option.label, &source[between_start..between_end]);
+                option.cursor_offset += prefix.encode_utf16().count();
+                option.insert.insert_str(0, &prefix);
+                option.start = name_start;
+            }
+            let mut places: Vec<(usize, usize)> = context
+                .paired_names
+                .iter()
+                .copied()
+                .filter(|(start, _)| *start >= option.end)
+                .collect();
+            places.sort_unstable();
+            for (name_start, name_end) in places {
+                if name_start < option.end {
+                    continue;
+                }
+                let between_start = utf16_to_byte_index(source, option.end);
+                let between_end = utf16_to_byte_index(source, name_start);
+                option.insert.push_str(&source[between_start..between_end]);
+                option.insert.push_str(&option.label);
+                option.end = name_end;
+            }
         }
         // Typing in front of a key (`"|tcp"`) inserts; it never renames it.
         let in_front = !replaces_word
@@ -325,11 +403,9 @@ fn replaces_word_after_caret(
     behavior: &dyn ConfigLanguage,
 ) -> bool {
     // At a key's start the user types in front of it.
-    let Some(word) = context
-        .entry_after
-        .as_deref()
-        .filter(|word| !word.is_empty() && !context.typed.is_empty())
-    else {
+    let Some(word) = context.entry_after.as_deref().filter(|word| {
+        !word.is_empty() && !context.typed.trim_start_matches(['"', '\'']).is_empty()
+    }) else {
         return false;
     };
     let schemas = schema_at_path(
@@ -345,7 +421,8 @@ fn replaces_word_after_caret(
                 .is_some_and(|properties| properties.contains_key(name))
         })
     };
-    let whole = format!("{}{word}", context.typed);
+    // A JSON key's typed part starts with its quote.
+    let whole = format!("{}{word}", context.typed.trim_start_matches(['"', '\'']));
     !(known(word) && !known(&whole))
 }
 

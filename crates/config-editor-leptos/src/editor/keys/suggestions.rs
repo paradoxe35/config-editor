@@ -17,13 +17,17 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     // With a selection, the list opens at its end, the selection let go
     // (otherwise a selection closes the list, and Enter would replace it).
-    if let Some(element) = state.textarea()
-        && let (Ok(Some(start)), Ok(Some(end))) =
-            (element.selection_start(), element.selection_end())
-        && start != end
-    {
+    let selected = state.textarea().and_then(|element| {
+        match (element.selection_start(), element.selection_end()) {
+            (Ok(Some(start)), Ok(Some(end))) if start != end => Some((element, end)),
+            _ => None,
+        }
+    });
+    if let Some((element, end)) = selected {
         let _ = element.set_selection_range(end, end);
         state.note_caret(end as usize);
+        // The selected word is to be replaced: every key is offered.
+        state.replace_word.set(true);
     }
     state.active_completion.set(0);
     state.explicit_request.set(true);

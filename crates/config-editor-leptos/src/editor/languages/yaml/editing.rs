@@ -357,3 +357,65 @@ fn block_scalar_opener(line: &str) -> Option<usize> {
     let key_column = indent + code.len() - code.trim_start_matches(['-', ' ']).len();
     Some(key_column)
 }
+
+/// Lines inside quoted scalars that run over several lines (`a: "x` …
+/// `c"`): from the line after the opening quote through the closing one.
+pub(super) fn quoted_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut bodies = Vec::new();
+    let mut open: Option<(char, usize)> = None;
+    for (index, line) in lines.iter().enumerate() {
+        let mut characters = line.char_indices().peekable();
+        // Outside a quote, only a value or item starting with one opens it.
+        if open.is_none() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            let value_at = line
+                .find(": ")
+                .map(|at| at + 2)
+                .or_else(|| trimmed.starts_with("- ").then(|| line.len() - trimmed.len() + 2));
+            let Some(value_at) = value_at else { continue };
+            let value = line[value_at..].trim_start();
+            let Some(quote) = value.chars().next().filter(|character| matches!(character, '"' | '\'')) else {
+                continue;
+            };
+            let start = line.len() - value.len() + 1;
+            characters = line[..].char_indices().peekable();
+            while characters.peek().is_some_and(|(at, _)| *at < start) {
+                characters.next();
+            }
+            open = Some((quote, index + 1));
+        }
+        let Some((quote, body_start)) = open else { continue };
+        let mut escaped = false;
+        let mut closed = false;
+        while let Some((_, character)) = characters.next() {
+            if quote == '"' {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == '"' {
+                    closed = true;
+                    break;
+                }
+            } else if character == '\'' {
+                if characters.peek().is_some_and(|(_, next)| *next == '\'') {
+                    characters.next();
+                } else {
+                    closed = true;
+                    break;
+                }
+            }
+        }
+        if closed {
+            if index >= body_start {
+                bodies.push(body_start..index + 1);
+            }
+            open = None;
+        }
+    }
+    bodies
+}

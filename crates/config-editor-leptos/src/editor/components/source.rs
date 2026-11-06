@@ -43,6 +43,11 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             on:keyup=move |event| input::key_up(state, &event)
             on:scroll=move |event| input::scroll(state, &event)
             on:keydown=move |event| keys::on_keydown(state, &event)
-        ></textarea>
+        >
+            // The text is there as soon as the element is: `prop:value`
+            // applies a moment later, and input or a host reading the
+            // textarea in between must not see it empty.
+            {state.source.get_untracked()}
+        </textarea>
     }
 }

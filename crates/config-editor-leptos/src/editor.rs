@@ -20,6 +20,7 @@ mod highlight;
 mod history;
 mod inline;
 mod input;
+pub use input::flush_pending_input;
 mod keyboard;
 mod keys;
 pub mod language;

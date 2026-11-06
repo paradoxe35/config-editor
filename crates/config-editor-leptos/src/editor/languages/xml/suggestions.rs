@@ -22,6 +22,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         })
         .collect();
 
+    if let Some(context) = end_tag_name_context(source, cursor) {
+        return context;
+    }
     if snapshot.in_tag {
         return tag_completion_context(source, cursor, &snapshot, path, base_indent);
     }
@@ -195,7 +198,7 @@ pub(super) fn tag_completion_context(
             entry_suffix,
             names_only: complete && name_after.is_none(),
             entry_after: name_after,
-            paired_name,
+            paired_names: paired_name.into_iter().collect(),
 ..Default::default()
         };
     }
@@ -388,10 +391,29 @@ pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<Hash
         .open_tag
         .is_some_and(|tag| is_element_name_position(&tag, cursor_byte));
     if snapshot.in_tag && !naming_element {
-        return snapshot
-            .pending_attr
-            .is_none()
-            .then(|| existing_attributes(source, &snapshot, cursor_byte));
+        if snapshot.pending_attr.is_some() {
+            return None;
+        }
+        // The tag's attributes, and the element's children: one key either
+        // way.
+        let mut names = existing_attributes(source, &snapshot, cursor_byte);
+        let element = snapshot.open_tag.map(|tag| {
+            let mut path = strings(&snapshot.path);
+            let name = token_name(source, &tag);
+            if path.last() != Some(&name) {
+                path.push(name);
+            }
+            path
+        });
+        if let Some(element) = element {
+            names.extend(
+                scan.key_spans
+                    .iter()
+                    .filter(|(segments, ..)| segments.len() == element.len() + 1 && segments.starts_with(&element))
+                    .map(|(segments, ..)| segments[element.len()].clone()),
+            );
+        }
+        return Some(names);
     }
     // Children and attributes already on the element holding the caret; the
     // tag being typed does not count. Arrays may still repeat (see
@@ -555,4 +577,59 @@ pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usi
         }
     }
     None
+}
+
+/// The caret in an end tag's name (`</pu|bl>`): its element is renamed,
+/// the start tag with it, from the same names its start tag would offer.
+fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext> {
+    let tokens = tokenize(source);
+    let index = tokens.iter().position(|token| {
+        matches!(token.kind, Kind::EndTag) && token.start + 2 <= cursor && cursor <= token.start + 2 + token_name(source, token).len()
+    })?;
+    let end = &tokens[index];
+    let name_start = end.start + 2;
+    let name_end = name_start + token_name(source, end).len();
+    // Its start tag: the last one before it left open.
+    let mut depth = 0usize;
+    let open = tokens[..index].iter().rev().find(|token| match token.kind {
+        Kind::EndTag => {
+            depth += 1;
+            false
+        }
+        Kind::OpenTag { .. } if source[..token.end].ends_with("/>") => false,
+        Kind::OpenTag { .. } if depth > 0 => {
+            depth -= 1;
+            false
+        }
+        Kind::OpenTag { .. } => true,
+        _ => false,
+    })?;
+    let plan = plan_paths(source, &tokens);
+    let mut path: Vec<SchemaPathSegment> = plan
+        .path_of(open.start)?
+        .iter()
+        .map(|segment| match segment {
+            Seg::Key(key) => SchemaPathSegment::Key(key.clone()),
+            Seg::Index(index) => SchemaPathSegment::ArrayItem(*index),
+        })
+        .collect();
+    // The element's own name is completed under its parent.
+    while matches!(path.last(), Some(SchemaPathSegment::ArrayItem(_))) {
+        path.pop();
+    }
+    path.pop();
+    let open_name_start = open.start + 1;
+    let open_name_end = open_name_start + token_name(source, open).len();
+    let rest = source[cursor..name_end].to_string();
+    Some(CompletionContext {
+        path,
+        typed: source[name_start..cursor].to_string(),
+        replace_start: cursor_bytes(source, name_start),
+        replace_end: cursor_bytes(source, cursor),
+        explicit_entry_start: true,
+        names_only: rest.is_empty(),
+        entry_after: (!rest.is_empty()).then_some(rest),
+        paired_names: vec![(cursor_bytes(source, open_name_start), cursor_bytes(source, open_name_end))],
+        ..Default::default()
+    })
 }

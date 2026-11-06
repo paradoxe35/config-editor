@@ -220,3 +220,32 @@ fn heredoc_marker(line: &str) -> Option<&str> {
     (!rest.is_empty() && rest.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'))
         .then_some(rest)
 }
+
+/// Enter at the end of a one-line block's body (`tcp { nodelay = true| }`):
+/// the block opens over lines (an HCL block's body cannot share the header's
+/// line once it spans several), with the caret on a new line in it.
+pub(super) fn open_one_line_block(source: &str, cursor: usize) -> Option<Newline> {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = source[byte..].find('\n').map_or(source.len(), |at| byte + at);
+    let before = &source[line_start..byte];
+    let after = &source[byte..line_end];
+    if after.trim() != "}" {
+        return None;
+    }
+    let open = before.find('{')?;
+    let body = before[open + 1..].trim();
+    if body.is_empty() || before[open + 1..].contains(['{', '}']) || before[..open].contains('=') {
+        return None;
+    }
+    let indent: String = before.chars().take_while(|character| matches!(character, ' ' | '\t')).collect();
+    let unit = indent_unit(source);
+    let opening = format!("\n{indent}{unit}{body}\n{indent}{unit}");
+    let text = format!("{opening}\n{indent}}}");
+    Some(Newline {
+        caret: opening.len(),
+        text,
+        replaces: after.len(),
+        replaces_before: before.len() - open - 1,
+    })
+}

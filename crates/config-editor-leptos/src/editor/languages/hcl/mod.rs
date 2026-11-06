@@ -186,6 +186,9 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn newline(&self, source: &str, cursor: usize) -> Newline {
+        if let Some(opened) = open_one_line_block(source, cursor) {
+            return opened;
+        }
         bracket_newline(
             source,
             cursor,

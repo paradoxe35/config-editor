@@ -515,6 +515,18 @@ test.describe('react: late parents and failed mounts', () => {
     await expect(saved(browserPage)).toHaveText(typed, { timeout: 5000 });
   });
 
+  test('ref.setValue after the parent has caught up brings the parent along', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html'));
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('ab');
+    await expect(saved(browserPage)).toContainText('ab');
+    await browserPage.evaluate(() => window.editorHandle.current.setValue('listen: 1\n'));
+    await expect(input(browserPage)).toHaveValue('listen: 1\n');
+    await expect(saved(browserPage)).toHaveText('listen: 1\n');
+  });
+
   test('ref.setValue against a slow parent sticks, and the parent ends on it too', async ({ page: browserPage }) => {
     await browserPage.goto(page('react.html') + '?slow');
     await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -706,6 +718,51 @@ test.describe('vanilla API: multi-line text inserted without a paste event', () 
     expect(result.took).toBeLessThan(1000);
     await browserPage.keyboard.press('Control+z');
     expect(await browserPage.evaluate(() => window.burstEditor.value)).toBe('a: 1\n');
+  });
+});
+
+test.describe('vanilla API: input in the same task as an API call', () => {
+  test('setValue, value and destroy see input the browser sent just before', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const mount = (options) => {
+        const element = document.body.appendChild(document.createElement('div'));
+        const changes = [];
+        const editor = new module.ConfigEditor(element, { ...options, onChange: (text) => changes.push(text) });
+        return { editor, textarea: element.querySelector('textarea'), changes };
+      };
+      // The textarea holds the document straight after the constructor.
+      const first = mount({ value: 'a: 1\n' });
+      const shownAtOnce = first.textarea.value;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Input then setValue in one task: the reset wins.
+      first.textarea.focus();
+      first.textarea.setSelectionRange(3, 4);
+      document.execCommand('insertText', false, '5');
+      first.editor.setValue('reset: 0\n');
+      const afterReset = first.editor.value;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const afterResetLater = first.editor.value;
+      // Input then value in one task: the value includes it.
+      first.textarea.setSelectionRange(first.textarea.value.length, first.textarea.value.length);
+      document.execCommand('insertText', false, 'x');
+      const valueRightAway = first.editor.value;
+      // Input then destroy in one task: the edit still reaches onChange.
+      const second = mount({ value: 'b: 1\n' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      second.textarea.focus();
+      second.textarea.setSelectionRange(3, 4);
+      document.execCommand('insertText', false, '7');
+      second.editor.destroy();
+      return { shownAtOnce, afterReset, afterResetLater, valueRightAway, destroyed: second.changes.at(-1), destroyedValue: second.editor.value };
+    });
+    expect(result.shownAtOnce).toBe('a: 1\n');
+    expect(result.afterReset).toBe('reset: 0\n');
+    expect(result.afterResetLater).toBe('reset: 0\n');
+    expect(result.valueRightAway).toBe('reset: 0\nx');
+    expect(result.destroyed).toBe('b: 7\n');
+    expect(result.destroyedValue).toBe('b: 7\n');
   });
 });
 

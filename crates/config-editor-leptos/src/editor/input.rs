@@ -70,7 +70,28 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         events: 1,
         time: event.time_stamp(),
     }));
-    queue_microtask(move || flush_input(state));
+    PENDING.with(|pending| {
+        pending
+            .borrow_mut()
+            .push(Box::new(move || flush_input(state)))
+    });
+    queue_microtask(flush_pending_input);
+}
+
+thread_local! {
+    /// Editors holding input not applied yet (see [`flush_pending_input`]).
+    static PENDING: std::cell::RefCell<Vec<Box<dyn FnOnce()>>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// Applies input the browser sent in the current task that the editors have
+/// not applied yet (they apply a burst of input events once, at the end of
+/// the task). Call it before reading or replacing a document from code that
+/// runs in the same task as such input, outside the editor's own handlers.
+pub fn flush_pending_input() {
+    let pending = PENDING.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
+    for flush in pending {
+        flush();
+    }
 }
 
 /// Applies the pending input burst, if any: one document change, one
@@ -129,6 +150,10 @@ pub(super) fn flush_input(state: EditorState) {
         on_change.run(state.source.get_untracked());
     }
     state.active_completion.set(0);
+    // Typed text filters the list again.
+    if state.replace_word.get_untracked() {
+        state.replace_word.set(false);
+    }
     if !refilter {
         state.explicit_request.set(false);
     }

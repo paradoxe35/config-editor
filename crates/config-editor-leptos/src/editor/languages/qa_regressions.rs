@@ -1476,3 +1476,17 @@ fn an_hcl_map_accepted_in_a_body_is_a_block_as_documents_write_it() {
     let inline = accept(Language::HCL, "web = { le| }\n", "letsencrypt");
     assert!(inline.contains("letsencrypt = {"), "{inline}");
 }
+
+#[test]
+fn enter_in_a_one_line_hcl_block_opens_it_over_lines() {
+    let source = "tcp { nodelay = true }\n";
+    let caret = source.find(" }").unwrap();
+    let newline = Language::HCL.behavior().newline(source, caret);
+    let byte = caret;
+    let mut updated = source.to_string();
+    updated.replace_range(
+        byte - newline.replaces_before..byte + newline.replaces,
+        &newline.text,
+    );
+    assert_eq!(updated, "tcp {\n  nodelay = true\n  \n}\n");
+}

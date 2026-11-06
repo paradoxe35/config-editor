@@ -364,20 +364,43 @@ pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, us
     (line, column, column + source[start..end].chars().count())
 }
 
+/// Name and value spans of a whole document, as `analyze` records them.
+type DocumentSpans = (Vec<(Vec<String>, usize, usize)>, Vec<(Vec<String>, usize, usize)>);
+
+thread_local! {
+    /// The last document's spans: diagnostics, hover and saves look up many
+    /// positions in one text, and each scan reads all of it.
+    static LAST_SPANS: std::cell::RefCell<Option<(u64, std::rc::Rc<DocumentSpans>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(spans) = LAST_SPANS.with(|last| last.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, spans)| spans.clone())) {
+        return spans;
+    }
+    let scan = analyze(source, 0);
+    let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
+    LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
+    spans
+}
+
 pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let (start, end) = span_at(analyze(source, 0).key_spans, &pointer_segments(path))?;
+    let (start, end) = span_at(&document_spans(source).0, &pointer_segments(path))?;
     Some(span_between(source, start, end))
 }
 
 pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let (start, end) = span_at(analyze(source, 0).value_spans, &pointer_segments(path))?;
+    let (start, end) = span_at(&document_spans(source).1, &pointer_segments(path))?;
     Some(span_between(source, start, end))
 }
 
 /// The span recorded for `wanted`. A lone element read as a one-item array
 /// is addressed as `/dns/0` but recorded as `/dns`, so a `0` the recorded
 /// path lacks also matches.
-pub(super) fn span_at(spans: Vec<(Vec<String>, usize, usize)>, wanted: &[String]) -> Option<(usize, usize)> {
+pub(super) fn span_at(spans: &[(Vec<String>, usize, usize)], wanted: &[String]) -> Option<(usize, usize)> {
     let lone_items = |segments: &[String]| {
         let mut recorded = segments.iter().peekable();
         for segment in wanted {

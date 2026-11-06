@@ -191,7 +191,9 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        block_scalar_bodies(source)
+        let mut bodies = block_scalar_bodies(source);
+        bodies.extend(quoted_scalar_bodies(source));
+        bodies
     }
 }
 

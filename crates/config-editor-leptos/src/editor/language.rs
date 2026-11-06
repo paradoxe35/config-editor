@@ -331,6 +331,29 @@ pub fn unwrap_block_comments(
 ) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
+    // Inside one block comment over several lines: its markers go.
+    if let Some(at) = source[..start].rfind(open)
+        && !source[at..start].contains(close)
+        && let Some(close_at) = source[end..].find(close).map(|offset| end + offset)
+        && source[at..close_at].contains('\n')
+        && !source[at + open.len()..close_at].contains(open)
+    {
+        let open_end = at + open.len() + usize::from(source[at + open.len()..].starts_with(' '));
+        let close_start =
+            close_at - usize::from(source[..close_at].ends_with(' ') && close_at > open_end);
+        let updated = format!(
+            "{}{}{}",
+            &source[..at],
+            &source[open_end..close_start],
+            &source[close_at + close.len()..]
+        );
+        let removed = open_end - at;
+        let map = |byte: usize| {
+            let byte = byte.clamp(open_end, close_start) - removed;
+            updated[..byte].encode_utf16().count()
+        };
+        return Some((updated.clone(), map(start), map(end)));
+    }
     let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
     let last_end = source[end..].find('\n').map_or(source.len(), |at| end + at);
     let block = &source[first_start..last_end];
@@ -620,12 +643,12 @@ pub struct CompletionContext {
     /// other is inserted before the entry, `entry_suffix` moving the entry to
     /// its own line.
     pub entry_after: Option<String>,
-    /// Where the key being renamed is written a second time (UTF-16 range of
-    /// an XML end tag's name): a suggestion that renames the key writes it
-    /// there too.
-    pub paired_name: Option<(usize, usize)>,
+    /// The other places the key being renamed is written (UTF-16 ranges,
+    /// after the caret: an XML end tag's name, a TOML table's sub-tables and
+    /// dotted keys): a suggestion that renames the key writes it there too.
+    pub paired_names: Vec<(usize, usize)>,
     /// The caret ends a name in a complete tag (`<hea|>`, `<hea|/>`): a
-    /// suggestion writes just the name (and its `paired_name`).
+    /// suggestion writes just the name (and its `paired_names`).
     pub names_only: bool,
 }
 
@@ -947,6 +970,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
         let config = self.config();
+        let (selection_start, selection_end) =
+            over_whole_strings(self, source, selection_start, selection_end);
         config
             .block_comment
             .and_then(|block| unwrap_block_comments(source, selection_start, selection_end, block))
@@ -1148,6 +1173,75 @@ pub fn empty_slots_at_line_ends(text: &str, endings: &[&str]) -> Vec<usize> {
         offset += line.len();
     }
     slots
+}
+
+/// The selection `start..end` (UTF-16) widened so it never ends inside a
+/// multi-line string: a string it touches is taken whole, from the line
+/// that opens it to the one that closes it. Comment markers then go on the
+/// entry's lines, never into the string's text.
+pub fn over_whole_strings(
+    behavior: &(impl ConfigLanguage + ?Sized),
+    source: &str,
+    start: usize,
+    end: usize,
+) -> (usize, usize) {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut line_starts = Vec::with_capacity(lines.len());
+    let mut offset = 0;
+    for line in &lines {
+        line_starts.push(offset);
+        offset += line.len() + 1;
+    }
+    // Lines inside a string: the language's string bodies, and lines that
+    // start inside an open quote (a quoted string over several lines).
+    let mut inside = vec![false; lines.len()];
+    for range in behavior.string_body_lines(source) {
+        let end = range.end.min(lines.len());
+        if range.start < end {
+            inside[range.start..end].fill(true);
+        }
+    }
+    for (line, &at) in line_starts.iter().enumerate().skip(1) {
+        let utf16 = source[..at].encode_utf16().count();
+        if behavior.lexical_state(source, utf16).quote.is_some() {
+            inside[line] = true;
+        }
+    }
+    // A closing delimiter alone after a body (`"""`, `'''`, `EOT`).
+    let closes = |line: usize| {
+        lines.get(line).is_some_and(|text| {
+            let trimmed = text.trim();
+            trimmed.contains("\"\"\"")
+                || trimmed.contains("'''")
+                || (!trimmed.is_empty()
+                    && trimmed
+                        .chars()
+                        .all(|character| character.is_alphanumeric() || character == '_'))
+        })
+    };
+    let line_of = |utf16: usize| {
+        let byte = utf16_to_byte_index(source, utf16);
+        source[..byte].matches('\n').count()
+    };
+    let (first_line, last_line) = (line_of(start), line_of(end));
+    let (mut first, mut last) = (first_line, last_line);
+    while first > 0 && inside[first] {
+        first -= 1;
+    }
+    while last + 1 < lines.len() && inside[last + 1] {
+        last += 1;
+    }
+    if inside[last] && last + 1 < lines.len() && closes(last + 1) {
+        last += 1;
+    }
+    if (first, last) == (first_line, last_line) {
+        return (start, end);
+    }
+    let to_utf16 = |byte: usize| source[..byte].encode_utf16().count();
+    (
+        to_utf16(line_starts[first]),
+        to_utf16(line_starts[last] + lines[last].len()),
+    )
 }
 
 /// Whether UTF-16 `cursor` is on a line inside a multi-line string's body

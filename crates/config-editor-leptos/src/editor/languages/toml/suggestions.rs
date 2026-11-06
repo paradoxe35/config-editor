@@ -37,11 +37,33 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let word_end = source[cursor..]
             .find(|character: char| matches!(character, '.' | ']' | '\n') || character.is_whitespace())
             .map_or(source.len(), |offset| cursor + offset);
+        // In front of an existing name (`[ud|tcp]`): the completion layer
+        // decides between renaming it and a new table before it, the header
+        // closed and the existing one reopened after the new one.
+        let name_after = source[cursor..word_end].to_string();
+        let double = header_text.starts_with("[[");
+        let header_start = source[..cursor].rfind('[').map_or(0, |at| at + 1);
+        let segments_before = &source[header_start..cursor - typed.len()];
+        let (close, open) = if double { ("]]", "[[") } else { ("]", "[") };
         return CompletionContext {
             path: header_path,
             typed: typed.to_string(),
             replace_start: utf16(&source[..cursor - typed.len()]),
-            replace_end: utf16(&source[..word_end]),
+            replace_end: utf16(&source[..if name_after.is_empty() { word_end } else { cursor }]),
+            entry_suffix: if name_after.is_empty() { String::new() } else { format!("{close}\n\n{open}{segments_before}") },
+            // Renamed, the table's sub-tables and dotted keys follow it.
+            paired_names: {
+                let old = format!("{typed}{name_after}");
+                let mut wanted: Vec<String> = parents.iter().map(|part| unquote_key(part)).collect();
+                wanted.push(unquote_key(&old));
+                let name_start = cursor - typed.len();
+                toml_key_occurrences(source, &wanted)
+                    .into_iter()
+                    .filter(|(start, _)| *start > word_end || *start < name_start)
+                    .map(|(start, end)| (utf16(&source[..start]), utf16(&source[..end])))
+                    .collect()
+            },
+            entry_after: (!name_after.is_empty()).then_some(name_after),
             position: EntryPosition::Name,
             // `[[…]]` names an array of tables; `[…]` a table.
             is_array_item: header_text.starts_with("[["),
@@ -229,6 +251,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
         entry_after: splits.then_some(word_after),
         position: if keys_follow && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
+        // The head of a dotted key (`ud|.nodelay = true`): its rest and value
+        // follow, so only the name is written.
+        names_only: source[cursor..].starts_with('.'),
         ..Default::default()
     }
 }

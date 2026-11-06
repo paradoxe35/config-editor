@@ -115,14 +115,18 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     };
     // The caret right after an existing key's opening quote (`"|tcp"`) types
     // in front of it: a new entry goes before the key, which is not offered.
+    // Inside a key's quotes with more of it after the caret (`"ud|tcp"`):
+    // the completion layer decides between renaming the key and a new entry
+    // in front of it. The replaced range is up to the caret, so a new entry
+    // goes before the key, which gets its opening quote back.
     let key_after = snapshot.partial.filter(|token| {
         completing_key
             && matches!(token.kind, Kind::Str { closed: true })
-            && cursor == token.start + 1
+            && cursor > token.start
             && token.end > cursor + 1
     });
     let (typed_start, replace_start, replace_end) = match key_after {
-        Some(token) => (cursor, token.start, token.start),
+        Some(token) => (token.start, token.start, cursor),
         None => (typed_start, replace_start, replace_end),
     };
     let entry_after = key_after.map(|token| source[cursor..token.end - 1].to_string());
@@ -131,7 +135,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     // next one, as the other languages do.
     let entry_line = source[..replace_start].rfind('\n').map_or(0, |at| at + 1);
     let starts_line = source[entry_line..replace_start].trim().is_empty();
-    let entry_suffix = match following.trim_start().starts_with('"') {
+    let entry_suffix = match key_after.is_some() || following.trim_start().starts_with('"') {
         // A following key on its own line keeps it; no trailing space.
         true if following[..following.len() - following.trim_start().len()].contains('\n') => {
             ",".to_string()
@@ -140,6 +144,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         true => ", ".to_string(),
         false => String::new(),
     };
+    // The key typed in front of gets back the quote the insert replaced.
+    let entry_suffix = if key_after.is_some() { format!("{entry_suffix}\"") } else { entry_suffix };
     // An empty document has no root object yet: the first key opens it.
     let empty_document = source.trim().is_empty();
     CompletionContext {

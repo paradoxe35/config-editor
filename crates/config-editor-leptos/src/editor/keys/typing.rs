@@ -74,6 +74,7 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
     if start == end
         && let Some(typed) = typed
         && (type_over_closer(state, event, start, typed)
+            || closer_already_there(state, event, start, typed)
             || reindent(state, event, start, typed)
             || auto_close(state, event, start, typed))
     {
@@ -135,6 +136,110 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     state.close_suggestions();
     state.explicit_request.set(false);
     true
+}
+
+/// A closer typed where the same one already follows: the `}` the editor
+/// put on the next line when the block was opened (at the indent the typed
+/// one would take), or the `</tcp>` written when `<tcp>` was. The caret
+/// moves onto it instead of closing twice.
+fn closer_already_there(
+    state: EditorState,
+    event: &KeyboardEvent,
+    start: usize,
+    typed: char,
+) -> bool {
+    let source = state.source.get_untracked();
+    let byte = utf16_to_byte_index(&source, start);
+    let line_start = source[..byte].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = source[byte..]
+        .find('\n')
+        .map_or(source.len(), |at| byte + at);
+    let before = &source[line_start..byte];
+    let after = &source[byte..line_end];
+    let next_start = (line_end + 1).min(source.len());
+    let next_line = source[next_start..].split('\n').next().unwrap_or("");
+    let indent_of = |text: &str| text.len() - text.trim_start().len();
+    // What the typed character finishes on this line: a bracket alone, or
+    // markup the language closes elements with (`</tcp` + `>`).
+    let (closer, typed_from) = if matches!(typed, '}' | ']' | ')') && before.trim().is_empty() {
+        (typed.to_string(), byte)
+    } else {
+        // Markup from its last `</` (`<tcp></tcp` + `>`).
+        let Some(tag_start) = before.rfind("</") else {
+            return false;
+        };
+        let candidate = format!("{}{typed}", &before[tag_start..]);
+        match state.behavior().closing_markup_len(&candidate) {
+            Some(len) if len == candidate.len() => (candidate, line_start + tag_start),
+            _ => return false,
+        }
+    };
+    // `</tcp` + `>` right before the `</tcp>` written for it.
+    if closer.len() > 1 && after.starts_with(&closer) {
+        event.prevent_default();
+        let mut updated = source.clone();
+        updated.replace_range(typed_from..byte, "");
+        let caret = updated[..typed_from + closer.len()].encode_utf16().count();
+        state.commit(Edit::new(source, (start, start), updated, caret));
+        state.close_suggestions();
+        return true;
+    }
+    // Alone on its line, the same closer alone on the next one, at the
+    // indent of the line that opened the block: that block's closer.
+    let target = state
+        .behavior()
+        .reindent_on_type(&source, start, typed)
+        .map(|indent| indent.len())
+        .or_else(|| opener_indent(&source[..line_start], typed));
+    let same_place = next_line.trim() == closer && Some(indent_of(next_line)) == target;
+    if !(after.trim().is_empty()
+        && before[..typed_from - line_start].trim().is_empty()
+        && same_place
+        && line_end < source.len())
+    {
+        return false;
+    }
+    event.prevent_default();
+    let mut updated = source.clone();
+    updated.replace_range(line_start..next_start, "");
+    let caret = updated[..line_start + indent_of(next_line) + closer.len()]
+        .encode_utf16()
+        .count();
+    state.commit(Edit::new(source, (start, start), updated, caret));
+    state.close_suggestions();
+    true
+}
+
+/// The indent of the line holding the opener `closer` would close, the
+/// last one in `before` left unclosed (quotes skipped).
+fn opener_indent(before: &str, closer: char) -> Option<usize> {
+    let opener = match closer {
+        '}' => '{',
+        ']' => '[',
+        ')' => '(',
+        _ => return None,
+    };
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let characters: Vec<(usize, char)> = before.char_indices().collect();
+    for &(at, character) in characters.iter().rev() {
+        match quote {
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if character == closer => depth += 1,
+            None if character == opener => {
+                if depth == 0 {
+                    let line_start = before[..at].rfind('\n').map_or(0, |index| index + 1);
+                    let line = &before[line_start..];
+                    return Some(line.len() - line.trim_start().len());
+                }
+                depth -= 1;
+            }
+            None => {}
+        }
+    }
+    None
 }
 
 /// Backspace between a pair the editor inserted deletes both.

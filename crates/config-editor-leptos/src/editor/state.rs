@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use super::bridge::Bridge;
 use super::commands::{line_at_cursor, offset_at};
 use super::completion::{
-    Completion, accept_reopens_suggestions, apply_completion, completions, inserted_closers,
+    Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
     next_slot,
 };
 use super::components::HoverCard;
@@ -169,6 +169,9 @@ pub(super) struct EditorState {
     // Suggestions.
     pub(super) suggestions_requested: RwSignal<bool>,
     pub(super) explicit_request: RwSignal<bool>,
+    /// The list was asked for over a selected word (Ctrl+Space): it offers
+    /// every key, and accepting one replaces the word.
+    pub(super) replace_word: RwSignal<bool>,
     pub(super) active_completion: RwSignal<usize>,
     pub(super) suggestions: Memo<Vec<Completion>>,
 
@@ -249,6 +252,7 @@ impl EditorState {
         let cursor = RwSignal::new(0usize);
         let suggestions_requested = RwSignal::new(false);
         let explicit_request = RwSignal::new(false);
+        let replace_word = RwSignal::new(false);
         let scroll_y = RwSignal::new(0.0);
         let layout_revision = RwSignal::new(0usize);
         let editor_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
@@ -297,13 +301,14 @@ impl EditorState {
             if !suggestions_requested.get() {
                 return Vec::new();
             }
-            completions(
+            completions_for(
                 &source.get(),
                 cursor.get(),
                 explicit_request.get(),
                 schema.as_deref(),
                 features.completions,
                 edit_language.get_untracked().behavior(),
+                replace_word.get(),
             )
         });
         // The baseline as shown, in the language on screen.
@@ -422,6 +427,7 @@ impl EditorState {
             layout_revision,
             suggestions_requested,
             explicit_request,
+            replace_word,
             active_completion: RwSignal::new(0),
             suggestions,
             auto_closers: StoredValue::new(Vec::new()),
@@ -602,6 +608,9 @@ impl EditorState {
 
     pub(super) fn close_suggestions(&self) {
         self.suggestions_requested.set(false);
+        if self.replace_word.get_untracked() {
+            self.replace_word.set(false);
+        }
     }
 
     /// Forgets the typing aids tied to the caret's place (inserted closers,
