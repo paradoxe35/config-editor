@@ -915,6 +915,7 @@ mod tests {
         unit: "  ",
         position: super::super::super::language::EntryPosition::Block,
         path: &[],
+        array_item: false,
     };
     use super::super::super::highlight::{TokenKind, runs};
     use super::{JsonBehavior, highlight};

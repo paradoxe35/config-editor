@@ -720,7 +720,9 @@ fn property_completions(
                     end,
                     cursor_offset,
                     selected,
-                    is_value: false,
+                    // A name alone (a table header segment) completes the
+                    // entry, so the list does not reopen on it.
+                    is_value: insert_context.position == EntryPosition::Name,
                     matched: match_ranges(key, typed),
                 },
             ));
@@ -749,11 +751,34 @@ pub(super) fn completions(
     }
     let cursor_byte = utf16_to_byte_index(source, cursor);
     let context = behavior.completion_context(source, cursor);
+    // A space typed after a complete word ends it: nothing is offered unless
+    // asked for, so Enter starts a new line.
+    if !force && source[..cursor_byte].ends_with([' ', '\t']) && !context.typed.trim().is_empty() {
+        return Vec::new();
+    }
+    if !force
+        && context.value_key.is_some()
+        && source[..cursor_byte].ends_with([' ', '\t'])
+        && line_value_before(source, cursor_byte)
+    {
+        return Vec::new();
+    }
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
     for option in &mut options {
         frame_insert(option, &context);
         rename_key_with_value(option, source, cursor);
+        // A key typed after an auto-paired quote (`"pub|"`) whose insert is
+        // written without quotes takes the closing quote along.
+        let typed_start = utf16_to_byte_index(source, option.start);
+        if !option.is_value
+            && option.end == cursor
+            && source[typed_start.min(cursor_byte)..cursor_byte].starts_with('"')
+            && !option.insert.starts_with('"')
+            && source[cursor_byte..].starts_with('"')
+        {
+            option.end += 1;
+        }
         // An insert ending in a line break before an existing one would leave
         // a blank line, unless the caret goes on that line (`[pool]\n|`).
         let end = utf16_to_byte_index(source, option.end);
@@ -926,6 +951,7 @@ fn completions_for_context(
             unit: &unit,
             position: context.position,
             path: &context.path,
+            array_item: context.is_array_item,
         },
         behavior,
     );
@@ -1086,6 +1112,20 @@ pub(super) fn should_auto_trigger(input_type: &str, previous: &str, current: &st
     )
 }
 
+/// Whether the caret's line already holds a value before the trailing
+/// whitespace at the caret (`key = false |`).
+fn line_value_before(source: &str, cursor_byte: usize) -> bool {
+    let line_start = source[..cursor_byte]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let before = source[line_start..cursor_byte].trim_end();
+    let value = before
+        .rsplit_once(['=', ':'])
+        .map_or("", |(_, value)| value)
+        .trim();
+    !value.is_empty() && !value.ends_with(['[', '{', ',', '='])
+}
+
 /// Completing a key that already has its separator and value after the caret
 /// (`keep|: 99`, `"publ|": "x"`) renames just the key and keeps the value.
 fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
@@ -1094,9 +1134,27 @@ fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
     }
     let caret = utf16_to_byte_index(source, cursor);
     let line_rest = source[caret..].split('\n').next().unwrap_or("");
+    let typed = source[utf16_to_byte_index(source, option.start)..caret].to_string();
+    // Inside a quoted key (`"pub|lic": 1`) the rest of the key goes too.
+    let word = if typed.starts_with('"') {
+        line_rest
+            .find(|character: char| {
+                !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
+            })
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let line_rest = &line_rest[word..];
     let after_quote = line_rest.strip_prefix('"').unwrap_or(line_rest);
     let separator = after_quote.trim_start();
-    if !(separator.starts_with(':') || separator.starts_with('=') && !separator.starts_with("==")) {
+    // An HCL block (`pol| {`, `servi| "ssh" {`) has its body after the name.
+    let block_body = (separator.starts_with('{') || separator.starts_with('"'))
+        && line_rest.trim_end().ends_with('{');
+    if !(separator.starts_with(':')
+        || separator.starts_with('=') && !separator.starts_with("==")
+        || block_body)
+    {
         return;
     }
     let quoted = option.insert.trim_start().starts_with('"');
@@ -1105,8 +1163,10 @@ fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
     } else {
         option.label.clone()
     };
-    // Up to the caret, plus the key's own closing quote.
+    // Up to the caret, plus the rest of a quoted key and its closing quote.
+    let rest_of_key = source[caret..caret + word].encode_utf16().count();
     option.end = cursor
+        + rest_of_key
         + if quoted {
             line_rest.len() - after_quote.len()
         } else {
@@ -1153,10 +1213,16 @@ pub(super) fn inserted_closers(completion: &Completion, updated: &str, caret: us
     let insert_start = caret.saturating_sub(completion.cursor_offset);
     let mut offset = insert_start;
     let mut closers = Vec::new();
+    let mut previous = '\0';
     for character in completion.insert.chars() {
         if offset >= caret && matches!(character, ')' | ']' | '}' | '"' | '\'') {
             closers.push(length - offset);
         }
+        // An end tag (`</k>`) written after the caret, by its `<`.
+        if offset > caret && previous == '<' && character == '/' {
+            closers.push(length - (offset - 1));
+        }
+        previous = character;
         offset += character.len_utf16();
     }
     closers

@@ -126,32 +126,6 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn newline(&self, source: &str, cursor: usize) -> Newline {
-        // After a value typed inside a one-line element (`<mode>balance|</mode>`),
-        // Enter steps past the end tag rather than breaking the value.
-        let byte = utf16_to_byte_index(source, cursor);
-        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-        let before = &source[line_start..byte];
-        if let Some(open) = before.rfind('<')
-            && !before[open..].starts_with("</")
-            && let Some(close) = before[open..].find('>')
-        {
-            let name: String = before[open + 1..]
-                .chars()
-                .take_while(|character| !character.is_whitespace() && !matches!(character, '>' | '/'))
-                .collect();
-            let value = &before[open + close + 1..];
-            let end_tag = format!("</{name}>");
-            if !name.is_empty() && !value.trim().is_empty() && source[byte..].starts_with(&end_tag) {
-                let indent = &before[..before.len() - before.trim_start().len()];
-                let text = format!("{end_tag}\n{indent}");
-                return Newline {
-                    caret: text.len(),
-                    text,
-                    replaces: end_tag.len(),
-                    replaces_before: 0,
-                };
-            }
-        }
         let (text, caret) = newline_insertion(source, cursor);
         Newline::with_caret(text, caret)
     }
@@ -1975,13 +1949,33 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
 fn end_tag_for(source: &str, cursor: usize) -> Option<String> {
     let byte = utf16_to_byte_index(source, cursor);
     let before = &source[..byte];
-    let tag_start = before.rfind('<')?;
-    let tag = &before[tag_start + 1..];
-    if tag.contains('>') || tag.starts_with(['/', '?', '!']) || tag.trim_end().ends_with('/') {
+    // Not inside a comment, CDATA section, or processing instruction.
+    let unclosed = |open: &str, close: &str| {
+        before.rfind(open).is_some_and(|at| !before[at..].contains(close))
+    };
+    if unclosed("<!--", "-->") || unclosed("<![CDATA[", "]]>") || unclosed("<?", "?>") {
         return None;
     }
-    // A `>` inside an attribute value is text.
-    if tag.matches('"').count() % 2 == 1 || tag.matches('\'').count() % 2 == 1 {
+    // The start tag: the last `<` outside quoted attribute values.
+    let mut tag_start = None;
+    let mut quote: Option<char> = None;
+    for (index, character) in before.char_indices() {
+        match quote {
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '<' => tag_start = Some(index),
+            None if character == '>' => tag_start = None,
+            None if (character == '"' || character == '\'') && tag_start.is_some() => quote = Some(character),
+            None => {}
+        }
+    }
+    // A `>` typed inside an attribute value is text.
+    if quote.is_some() {
+        return None;
+    }
+    let tag_start = tag_start?;
+    let tag = &before[tag_start + 1..];
+    if tag.starts_with(['/', '?', '!']) || tag.trim_end().ends_with('/') {
         return None;
     }
     let name: String = tag
@@ -1993,6 +1987,20 @@ fn end_tag_for(source: &str, cursor: usize) -> Option<String> {
     }
     let end_tag = format!("</{name}>");
     (!source[byte..].trim_start().starts_with(&end_tag)).then_some(end_tag)
+}
+
+/// Whether the element the end tag at the start of `after` closes was opened
+/// on `line` (`<mode>balance|</mode>`): then the end tag keeps the line's
+/// indentation.
+fn opens_on_line(line: &str, after: &str) -> bool {
+    let name: String = after[2..]
+        .chars()
+        .take_while(|character| !matches!(character, '>' | ' ' | '\t' | '\n'))
+        .collect();
+    !name.is_empty()
+        && line.match_indices(&format!("<{name}")).any(|(at, _)| {
+            line[at + 1 + name.len()..].starts_with(['>', ' ', '\t', '/'])
+        })
 }
 
 /// Whether the `>` before the caret closes an opening tag (not a closing,
@@ -2030,7 +2038,10 @@ fn newline_insertion(source: &str, cursor: usize) -> (String, usize) {
         // The caret sits after the newline and one unit, on the middle line.
         let caret = 1 + indent.len() + unit.len();
         (format!("\n{indent}{unit}\n{indent}"), caret)
-    } else if after.starts_with("</") && !before.trim_end().is_empty() {
+    } else if after.starts_with("</")
+        && !before.trim_end().is_empty()
+        && !opens_on_line(&source[line_start..byte], after)
+    {
         // An end tag moved to its own line closes the enclosing element, one
         // level out from this line's content.
         let unit = indent_unit(source);

@@ -133,6 +133,9 @@ pub struct InsertContext<'a> {
     pub position: EntryPosition,
     /// Schema path of the container receiving the entry.
     pub path: &'a [SchemaPathSegment],
+    /// The entry is an array item: with [`EntryPosition::Name`], a TOML
+    /// `[[array]]` header rather than a `[table]` one.
+    pub array_item: bool,
 }
 
 /// How a multi-line insert is laid out when the caret follows containers
@@ -230,8 +233,34 @@ pub fn bracket_newline(
                 .map_or(indent, |start| line_indent(&source[start..]));
             Newline::new(format!("\n{aligned}"))
         }
+        // Inside a bracket opened earlier on this line (`[1,| 2]`): one
+        // level deeper, as after the opener itself.
+        (None, None) if !in_string && opened_on_line(before, pairs) => {
+            Newline::new(format!("\n{indent}{unit}"))
+        }
         (None, None) => Newline::new(format!("\n{indent}")),
     }
+}
+
+/// Whether a bracket of `pairs` opened in `line` is still open at its end,
+/// skipping quoted text.
+fn opened_on_line(line: &str, pairs: &[(char, char)]) -> bool {
+    let mut depth = 0isize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for character in line.chars() {
+        match quote {
+            Some('"') if escaped => escaped = false,
+            Some('"') if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '"' => quote = Some('"'),
+            None if pairs.iter().any(|(open, _)| *open == character) => depth += 1,
+            None if pairs.iter().any(|(_, close)| *close == character) => depth -= 1,
+            None => {}
+        }
+    }
+    depth > 0
 }
 
 /// Whether the end of `line` (text before the caret) is inside a string: a

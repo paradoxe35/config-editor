@@ -518,7 +518,7 @@ fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e Validation
         branch
             .iter()
             .flat_map(specific_errors)
-            .map(|nested| depth(nested))
+            .map(&depth)
             .max()
             .unwrap_or(0)
     };

@@ -997,6 +997,9 @@ pub fn ConfigEditor(
                                                         suggestions_requested.set(false);
                                                         hide_hover();
                                                         set_caret_visible(&editor, &text, offset, scroll_y);
+                                                        // A line number selects its whole line, as in VS Code.
+                                                        let (_, line_end) = line_range(&text, offset);
+                                                        let _ = editor.set_selection_range(offset as u32, line_end as u32);
                                                     }
                                                 }
                                             >
@@ -1392,6 +1395,11 @@ pub fn ConfigEditor(
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
                                     {
                                         let position = element.selection_start().ok().flatten().unwrap_or(0) as usize;
+                                        // A selection (Ctrl+A, Shift+arrows) ends any suggestion list.
+                                        let (selection_start, selection_end) = textarea_selection(&element);
+                                        if selection_start != selection_end && suggestions_requested.get_untracked() {
+                                            suggestions_requested.set(false);
+                                        }
                                         if position != cursor.get_untracked() {
                                             cursor.set(position);
                                             current_line.set(line_at_cursor(&source.get_untracked(), position));
@@ -1741,6 +1749,11 @@ pub fn ConfigEditor(
                                                 let before = source.get_untracked();
                                                 let (updated, _) = replace_selection(&before, start, end, &format!("{typed}{end_tag}"));
                                                 let caret = start + typed.len_utf16();
+                                                // The end tag is the editor's: Enter after a value steps past it.
+                                                if end_tag.starts_with("</") {
+                                                    let distance = updated.encode_utf16().count() - caret;
+                                                    auto_closers.update_value(|closers| closers.push(distance));
+                                                }
                                                 commit_edit(
                                                     updated,
                                                     caret,
@@ -1909,6 +1922,17 @@ pub fn ConfigEditor(
                                             event.prevent_default();
                                             suggestions_requested.set(false);
                                         }
+                                        // Escape with nothing to close collapses a selection.
+                                        "Escape" => {
+                                            if let Some(element) = editor_ref.get() {
+                                                let (start, end) = textarea_selection(&element);
+                                                if start != end {
+                                                    let backward = element.selection_direction().ok().flatten().as_deref() == Some("backward");
+                                                    let caret = if backward { start } else { end };
+                                                    let _ = element.set_selection_range(caret as u32, caret as u32);
+                                                }
+                                            }
+                                        }
                                         "Tab" => {
                                             event.prevent_default();
                                             if let Some(element) = event
@@ -1938,7 +1962,19 @@ pub fn ConfigEditor(
                                                     }
                                                 }
                                                 // A selection within one line is replaced, as typing would.
-                                                let multi_line = start != end
+                                                // A selection of one whole line indents it, as in VS Code;
+                                                // part of a line is replaced.
+                                                let whole_line = start != end && {
+                                                    let (line_start, line_end) = line_range(&text, start);
+                                                    let content_end = line_end
+                                                        - usize::from(text.encode_utf16().nth(line_end.wrapping_sub(1)) == Some(u16::from(b'\n')));
+                                                    let indent_end = line_start + text[utf16_to_byte_index(&text, line_start)..]
+                                                        .chars()
+                                                        .take_while(|character| matches!(character, ' ' | '\t'))
+                                                        .count();
+                                                    start <= indent_end && end >= content_end
+                                                };
+                                                let multi_line = whole_line || start != end
                                                     && text
                                                         .encode_utf16()
                                                         .skip(start)
@@ -2068,6 +2104,23 @@ pub fn ConfigEditor(
                                                         start += 1;
                                                     }
                                                     end = start;
+                                                }
+                                                // After a value typed before an end tag the editor wrote
+                                                // (`<mode>balance|</mode>`), Enter steps past the tag.
+                                                if start == end {
+                                                    let length = text.encode_utf16().count();
+                                                    let at_byte = utf16_to_byte_index(&text, start);
+                                                    let rest = &text[at_byte..];
+                                                    let line_start = text[..at_byte].rfind('\n').map_or(0, |index| index + 1);
+                                                    let typed_value = !text[line_start..at_byte].trim_end().ends_with('>');
+                                                    if rest.starts_with("</")
+                                                        && typed_value
+                                                        && auto_closers.with_value(|closers| closers.contains(&(length - start)))
+                                                        && let Some(close) = rest.find('>')
+                                                    {
+                                                        start += rest[..=close].encode_utf16().count();
+                                                        end = start;
+                                                    }
                                                 }
                                                 let newline = behavior().newline(&text, start);
                                                 // A line of only indentation is left empty, not with trailing spaces.

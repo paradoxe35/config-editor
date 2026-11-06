@@ -719,6 +719,8 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             replace_start: utf16(&source[..cursor - typed.len()]),
             replace_end: utf16(&source[..word_end]),
             position: EntryPosition::Name,
+            // `[[…]]` names an array of tables; `[…]` a table.
+            is_array_item: header_text.starts_with("[["),
             explicit_entry_start: true,
             ..Default::default()
         };
@@ -1007,11 +1009,16 @@ fn property_insert(
 ) -> Option<(String, usize)> {
     let toml_key = toml_key_for_completion(key)?;
     if context.position == EntryPosition::Name {
-        // A header segment names a table (or an array of tables).
-        let table = object_branch(property, root).is_some()
-            || array_branch(property, root)
-                .and_then(|array| array.get("items"))
-                .is_some_and(|items| object_branch(items, root).is_some());
+        // `[[…]]` names an array of tables; `[…]` a table, or a parent on the
+        // way to a deeper header.
+        let array_of_tables = array_branch(property, root)
+            .and_then(|array| array.get("items"))
+            .is_some_and(|items| object_branch(items, root).is_some());
+        let table = if context.array_item {
+            array_of_tables
+        } else {
+            object_branch(property, root).is_some() && array_branch(property, root).is_none()
+        };
         return table.then(|| {
             let length = toml_key.encode_utf16().count();
             (toml_key, length)

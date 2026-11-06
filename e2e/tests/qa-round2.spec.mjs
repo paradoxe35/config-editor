@@ -149,8 +149,11 @@ test.describe('xml: values and end tags', () => {
   });
 
   test('Enter after a typed value steps past the end tag', async ({ page }) => {
-    const e = await at(page, '<services>\n  <web>\n    <target>80</target>\n    <mode>|</mode>\n  </web>\n</services>');
-    await page.keyboard.type('balance');
+    // The end tag must be the editor's (auto-closed); a pasted one splits.
+    const e = await at(page, '<services>\n  <web>\n    <target>80</target>\n    |\n  </web>\n</services>');
+    await page.keyboard.type('<mode');
+    await page.keyboard.press('Escape');
+    await page.keyboard.type('>balance');
     await page.keyboard.press('Enter');
     expect(await e.value()).toContain('<mode>balance</mode>\n    \n');
   });

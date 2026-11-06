@@ -971,13 +971,14 @@ fn completing_a_key_that_has_a_value_renames_only_the_key() {
 }
 
 #[test]
-fn xml_enter_after_a_value_steps_past_the_end_tag() {
+fn xml_enter_before_an_end_tag_in_text_splits_the_line() {
+    // Stepping past an end tag is the editor's, only for tags it wrote.
     assert_eq!(
         enter(
             Language::XML,
             "<services>\n  <mode>balance|</mode>\n</services>"
         ),
-        "<services>\n  <mode>balance</mode>\n  |\n</services>"
+        "<services>\n  <mode>balance\n  |</mode>\n</services>"
     );
     // An empty element still opens a block.
     assert_eq!(enter(Language::XML, "<web>|</web>"), "<web>\n  |\n</web>");
@@ -1067,5 +1068,118 @@ fn an_xml_end_tag_typed_on_its_own_line_moves_out_one_level() {
             .behavior()
             .reindent_on_type(inline, inline.encode_utf16().count(), '>'),
         None
+    );
+}
+
+#[test]
+fn a_space_after_a_complete_word_offers_nothing() {
+    let auto = |language: Language, marked: &str| {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        completions(
+            &source,
+            source[..at].encode_utf16().count(),
+            false,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+        )
+        .len()
+    };
+    assert_eq!(auto(Language::HCL, "insecure_plaintext = false |"), 0);
+    assert_eq!(auto(Language::HCL, "listen = 7835 |"), 0);
+    assert_eq!(auto(Language::TOML, "insecure_plaintext = f |"), 0);
+    assert_eq!(auto(Language::YAML, "insecure_plaintext: false |"), 0);
+    assert_eq!(auto(Language::YAML, "pu |"), 0);
+    // Right after the separator, values are still offered.
+    assert!(
+        auto(Language::YAML, "insecure_plaintext: |") > 0
+            || auto(Language::HCL, "insecure_plaintext = |") > 0
+    );
+}
+
+#[test]
+fn enter_inside_a_one_line_bracket_indents_one_level() {
+    assert_eq!(
+        enter(Language::JSON, "{\n  \"listen\": [1,| 2]\n}"),
+        "{\n  \"listen\": [1,\n    | 2]\n}"
+    );
+    assert_eq!(enter(Language::TOML, "a = [1,| 2]\n"), "a = [1,\n  | 2]\n");
+    assert_eq!(
+        enter(Language::HCL, "a = {x = 1,| y = 2}\n"),
+        "a = {x = 1,\n  | y = 2}\n"
+    );
+}
+
+#[test]
+fn xml_auto_close_skips_comments_and_reads_quoted_attributes() {
+    let close = |marked: &str| {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        Language::XML
+            .behavior()
+            .auto_close(&source, source[..at].encode_utf16().count(), '>')
+    };
+    assert_eq!(close("<!-- <b| -->"), None);
+    assert_eq!(close("<![CDATA[ <b| ]]>"), None);
+    assert_eq!(close("<a b=\"x>\"|"), Some("</a>".into()));
+}
+
+#[test]
+fn renaming_hcl_blocks_and_quoted_keys_keeps_the_rest() {
+    assert_eq!(
+        accept(Language::HCL, "pol| {\n  max_idle = 1\n}\n", "pool"),
+        "pool| {\n  max_idle = 1\n}\n"
+    );
+    assert_eq!(
+        accept(
+            Language::HCL,
+            "servi| \"ssh\" {\n  target = 1\n}\n",
+            "services"
+        ),
+        "services| \"ssh\" {\n  target = 1\n}\n"
+    );
+    assert_eq!(
+        accept(Language::JSON, "{\"pub|lic\": 1}", "public_address"),
+        "{\"public_address\"|: 1}"
+    );
+}
+
+#[test]
+fn a_toml_key_typed_after_a_quote_takes_the_closing_quote() {
+    let toml = accept(Language::TOML, "listen = 1\n\"pub|\"", "public_address");
+    assert!(!toml.contains("\"\"\""), "{toml}");
+    assert!(toml.starts_with("listen = 1\npublic_address = "), "{toml}");
+}
+
+#[test]
+fn toml_headers_offer_tables_or_arrays_of_tables_by_bracket_kind() {
+    let tables = labels(Language::TOML, "[web.|]\n");
+    assert!(
+        tables.contains(&"letsencrypt".to_string())
+            && !tables.contains(&"certificates".to_string()),
+        "{tables:?}"
+    );
+    let arrays = labels(Language::TOML, "[[web.|]]\n");
+    assert_eq!(arrays, ["certificates"]);
+}
+#[test]
+fn yaml_indentless_sequences_complete_their_items() {
+    assert_eq!(
+        labels(Language::YAML, "web:\n  certificates:\n  - |"),
+        ["hosts", "cert", "key", "upload"]
+    );
+    let inside = labels(
+        Language::YAML,
+        "web:\n  certificates:\n  - hosts: [a]\n    |",
+    );
+    assert!(
+        inside.contains(&"cert".to_string()) && !inside.contains(&"hosts".to_string()),
+        "{inside:?}"
+    );
+    // A key at the list's indentation ends it.
+    assert!(
+        labels(Language::YAML, "web:\n  certificates:\n  - hosts: [a]\n  |")
+            .contains(&"hsts".to_string())
     );
 }

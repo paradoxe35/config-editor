@@ -68,3 +68,91 @@ test.describe('yaml: every problem in an optional object', () => {
     expect(all).toContain('minimum');
   });
 });
+
+test.describe('hcl: a space after a value', () => {
+  setupEditor(test, '?language=hcl');
+
+  test('ends the value, so Enter starts a new line', async ({ page }) => {
+    const e = await at(page, '|');
+    await page.keyboard.type('insecure_plaintext = false ');
+    await page.keyboard.press('Enter');
+    expect(await e.value()).not.toContain('false true');
+    expect((await e.caret()).line).toBe(2);
+  });
+
+  test('completing a block name keeps its body', async ({ page }) => {
+    const e = await at(page, 'pol| {\n  max_idle = 1\n}\n');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => e.keys()).toContain('pool');
+    await page.keyboard.press('Enter');
+    expect(await e.value()).toBe('pool {\n  max_idle = 1\n}\n');
+  });
+});
+
+test.describe('yaml: whole lines and selections', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('Tab with a whole line selected indents it', async ({ page }) => {
+    const e = await at(page, 'a:\n|b: 1\nc: 2');
+    await page.keyboard.press('Shift+End');
+    await page.keyboard.press('Tab');
+    expect(await e.value()).toBe('a:\n  b: 1\nc: 2');
+  });
+
+  test('Escape collapses a selection', async ({ page }) => {
+    const e = await at(page, 'listen: 7835|');
+    await page.keyboard.press('Shift+Home');
+    await page.keyboard.press('Escape');
+    expect((await e.caret()).collapsed).toBe(true);
+  });
+
+  test('Ctrl+A closes an open list', async ({ page }) => {
+    const e = await at(page, 'listen: 1\npu|');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    await page.keyboard.press('Control+a');
+    await expect.poll(() => e.isOpen()).toBe(false);
+  });
+
+  test('a line number selects its line', async ({ page }) => {
+    const e = await at(page, 'a: 1\nb: 2\n');
+    await page.locator('.config-editor__gutter-content > div[data-line="2"]').click();
+    const selected = await e.input.evaluate((element) => element.value.slice(element.selectionStart, element.selectionEnd));
+    expect(selected).toBe('b: 2\n');
+  });
+
+  test('an indentless list completes its items', async ({ page }) => {
+    const e = await at(page, 'web:\n  certificates:\n  - |');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => e.keys()).toContain('cert');
+  });
+});
+
+test.describe('xml: typed values and end tags', () => {
+  setupEditor(test, '?language=xml');
+
+  test('Enter before a pasted end tag splits the line', async ({ page }) => {
+    const e = await at(page, '<r>\n  <a>text|</a>\n</r>');
+    await page.keyboard.press('Enter');
+    expect(await e.value()).toBe('<r>\n  <a>text\n  </a>\n</r>');
+  });
+
+  test('a tag in a comment is not closed', async ({ page }) => {
+    const e = await at(page, '<!-- <b| -->');
+    await page.keyboard.type('>');
+    expect(await e.value()).toBe('<!-- <b> -->');
+  });
+});
+
+test.describe('toml: headers by bracket kind', () => {
+  setupEditor(test, '?language=toml');
+
+  test('[[ ]] offers arrays of tables and the list closes after accepting', async ({ page }) => {
+    const e = await at(page, '|');
+    await page.keyboard.type('[[web.');
+    await expect.poll(() => e.keys()).toEqual(['certificates']);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => e.isOpen()).toBe(false);
+    expect(await e.value()).toBe('[[web.certificates]]');
+  });
+});

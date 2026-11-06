@@ -144,6 +144,18 @@ pub(super) fn set_caret_visible(
     );
     editor.set_scroll_top(next_top as i32);
     scroll_y.set(next_top);
+    // Horizontally too: a caret back at the start of a line after a long one
+    // must not stay scrolled off to the left.
+    let line_start = text[..byte_offset].rfind('\n').map_or(0, |index| index + 1);
+    let caret_x =
+        super::completion::visual_column(&text[line_start..byte_offset]) * metrics.char_width;
+    let current_left = editor.scroll_left() as f64;
+    let client_width = editor.client_width() as f64 - metrics.padding_left;
+    if caret_x < current_left {
+        editor.set_scroll_left((caret_x - 4.0 * metrics.char_width).max(0.0) as i32);
+    } else if caret_x > current_left + client_width - 2.0 * metrics.char_width {
+        editor.set_scroll_left((caret_x - client_width + 4.0 * metrics.char_width) as i32);
+    }
 }
 
 pub(super) fn schedule_hover(callback: impl FnOnce() + 'static) {

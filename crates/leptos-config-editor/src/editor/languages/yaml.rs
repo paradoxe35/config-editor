@@ -751,10 +751,12 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         let mut mapping_indent = line_indent;
         item_counts.retain(|level, _| *level <= line_indent);
         while let Some(after_dash) = dash_item(mapping) {
-            while ancestors
-                .last()
-                .is_some_and(|(level, _)| *level >= mapping_indent)
-            {
+            // A sequence may sit at its key's own indentation (`key:\n- a`):
+            // a dash replaces an item at its column, not the key.
+            while ancestors.last().is_some_and(|(level, segment)| {
+                *level > mapping_indent
+                    || *level == mapping_indent && matches!(segment, SchemaPathSegment::ArrayItem(_))
+            }) {
                 ancestors.pop();
             }
             item_counts.retain(|level, _| *level <= mapping_indent);
@@ -781,11 +783,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
         }
     }
-    while ancestors.last().is_some_and(|(level, _)| *level >= indent) {
+    let current_is_array_item = dash_item(prefix).is_some();
+    while ancestors.last().is_some_and(|(level, segment)| {
+        *level > indent
+            || *level == indent
+                && (!current_is_array_item || matches!(segment, SchemaPathSegment::ArrayItem(_)))
+    }) {
         ancestors.pop();
     }
     let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
-    let current_is_array_item = dash_item(prefix).is_some();
     let (line_content, content_offset) = {
         // The caret line's dashes: the first continues the list at its
         // column, any further one starts a new inner list.
