@@ -888,6 +888,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         value.to_string()
     }
 
+    /// `value` written in place of `written` (a one-line container being
+    /// edited), in its style: compact JSON stays compact.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        let _ = written;
+        self.format_value(value)
+    }
+
     /// The key under character `column` of `line`, and the column it starts at.
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         let _ = (line, column);

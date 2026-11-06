@@ -339,9 +339,10 @@ fn replace_inline(
     };
     let end = start + matching_close(text, close)? + 1;
     let mut patched = previous.to_string();
+    let written = &line[start..end];
     patched.replace_range(
         line_start + start..line_start + end,
-        &language.format_value(value),
+        &language.format_value_like(value, written),
     );
     Some(patched)
 }
@@ -600,6 +601,10 @@ fn drop_doubled_blank_lines(host: &[&str], removed: &mut [bool], inserted: &[Vec
         if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
             removed[start - 1] = true;
         }
+        // Removed from the top of the file: no blank line left to start it.
+        if untouched && start == 0 && index < host.len() && blank(index) {
+            removed[index] = true;
+        }
     }
 }
 
@@ -683,9 +688,14 @@ fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
 /// A line as the structural patch compares it: trimmed, without quotes and
 /// without its trailing comment (as the language finds it).
 fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
-    line[..comment_start(language, line)]
-        .trim()
-        .replace(['"', '\''], "")
+    let code = line[..comment_start(language, line)].trim();
+    let unquoted = code.replace(['"', '\''], "");
+    // A line of quotes alone (a multi-line string's `"""`) still is a line.
+    if unquoted.is_empty() {
+        code.to_string()
+    } else {
+        unquoted
+    }
 }
 
 /// The trailing comment of `line`, or `""`.

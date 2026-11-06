@@ -163,7 +163,7 @@ impl ConfigLanguage for TomlBehavior {
         let rendered = toml::to_string(value).map_err(|error| error.to_string())?;
         // Tables the host wrote as dotted keys are written that way again.
         Ok(match previous {
-            Some(previous) => fold_dotted_tables(&rendered, &dotted_tables(previous)),
+            Some(previous) => fold_dotted_tables(&rendered, &dotted_tables(previous), previous),
             None => rendered,
         })
     }

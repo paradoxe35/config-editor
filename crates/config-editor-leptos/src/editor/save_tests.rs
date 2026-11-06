@@ -414,3 +414,113 @@ fn round_8_saves_change_only_the_edit() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// QA round 9 Edit-as findings, as reported.
+#[test]
+fn round_9_saves_change_only_the_edit() {
+    let mut failures = Vec::new();
+    let mut check = |name: &str,
+                     host: Language,
+                     edit: Language,
+                     text: &str,
+                     change: &dyn Fn(&str) -> String,
+                     expected: &str| {
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let changed = change(&shown);
+        if changed == shown {
+            failures.push(format!("{name}: the change does not apply to\n{shown}"));
+            return;
+        }
+        let saved = bridge.to_host(&changed, text).unwrap().text;
+        if saved != expected {
+            failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- saved\n{saved}"
+            ));
+        }
+    };
+    // H1: an own-line comment inside a multi-line list.
+    let toml = "# c\nlisten = 1\n\n[self]\nallow = [\n  \"127.0.0.1/32\",\n  # private\n  \"10.0.0.0/8\"\n]\n# tail\n";
+    check(
+        "H1 add",
+        Language::TOML,
+        Language::YAML,
+        toml,
+        &|s| {
+            s.replace(
+                "    - 10.0.0.0/8\n",
+                "    - 10.0.0.0/8\n    - 192.168.0.0/16\n",
+            )
+        },
+        "# c\nlisten = 1\n\n[self]\nallow = [\n  \"127.0.0.1/32\",\n  # private\n  \"10.0.0.0/8\",\n  \"192.168.0.0/16\"\n]\n# tail\n",
+    );
+    check(
+        "H1 delete",
+        Language::TOML,
+        Language::YAML,
+        toml,
+        &|s| s.replace("    - 127.0.0.1/32\n", ""),
+        "# c\nlisten = 1\n\n[self]\nallow = [\n  # private\n  \"10.0.0.0/8\"\n]\n# tail\n",
+    );
+    // H2: a dotted key deleted with another key after its group.
+    let dotted = "# top\nweb.http = \"a\"\nweb.https = \"b\"\nlisten = 1 # l\n";
+    check(
+        "H2 one",
+        Language::TOML,
+        Language::YAML,
+        dotted,
+        &|s| s.replace("  http: a\n", ""),
+        "# top\nweb.https = \"b\"\nlisten = 1 # l\n",
+    );
+    check(
+        "H2 group",
+        Language::TOML,
+        Language::YAML,
+        dotted,
+        &|s| s.replace("web:\n  http: a\n  https: b\n", ""),
+        "# top\nlisten = 1 # l\n",
+    );
+    let deep = "# top\nservices.api.target.address = \"x\"\nservices.api.target.port = 1\nservices.api.mode = \"tcp\" # m\n";
+    check(
+        "H2 deep",
+        Language::TOML,
+        Language::YAML,
+        deep,
+        &|s| s.replace("      port: 1\n", ""),
+        "# top\nservices.api.target.address = \"x\"\nservices.api.mode = \"tcp\" # m\n",
+    );
+    // H3: a dotted multi-line string deleted.
+    let string = "# top\nweb.hsts = true # s\nweb.error_pages = \"\"\"\n<h1>x</h1>\n\"\"\"\n";
+    check(
+        "H3",
+        Language::TOML,
+        Language::YAML,
+        string,
+        &|s| {
+            let start = s.find("  error_pages:").unwrap();
+            s[..start].to_string()
+        },
+        "# top\nweb.hsts = true # s\n",
+    );
+    // M4: a compact JSON host keeps its spacing.
+    let compact = "{\"listen\":1,\"tcp\":{\"nodelay\":true}}\n";
+    check(
+        "M4",
+        Language::JSON,
+        Language::YAML,
+        compact,
+        &|s| s.replace("listen: 1\n", "listen: 1\ninsecure_plaintext: true\n"),
+        "{\"listen\":1,\"insecure_plaintext\":true,\"tcp\":{\"nodelay\":true}}\n",
+    );
+    // LOW: deleting the first table with its own comment leaves no blank line.
+    let first = "# tcp settings\n[tcp]\nnodelay = true\n\n[udp]\nmax_peers = 1\n";
+    check(
+        "first table",
+        Language::TOML,
+        Language::YAML,
+        first,
+        &|s| s.replace("tcp:\n  nodelay: true\n", ""),
+        "[udp]\nmax_peers = 1\n",
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

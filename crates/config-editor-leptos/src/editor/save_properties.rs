@@ -70,6 +70,29 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "x {\n  s {\n    secret = \"a\"\n  }\n  n {\n    v = [\"p\"]\n  }\n  m {\n    c = [\"e\"]\n  }\n  w {\n    c = [\"e\"]\n    # note\n    v = [\"p\"]\n  }\n}\n",
         ),
+        // Round 9 shapes: own-line comments inside multi-line lists, dotted
+        // groups followed by other keys, dotted multi-line strings, compact
+        // JSON.
+        (
+            Language::TOML,
+            "# c\nlisten = 1\n\n[self]\nallow = [\n  \"127.0.0.1/32\",\n  # private\n  \"10.0.0.0/8\"\n]\n# tail\n",
+        ),
+        (
+            Language::HCL,
+            "# head\nlisten = 1 # port\nself {\n  allow = [\n    \"a\", # lo\n    # private\n    \"b\",\n  ]\n}\n# tail\n",
+        ),
+        (
+            Language::TOML,
+            "# top\nweb.http = \"a\"\nweb.https = \"b\"\nlisten = 1 # l\nservices.api.target.address = \"x\"\nservices.api.target.port = 1\nservices.api.mode = \"tcp\" # m\n",
+        ),
+        (
+            Language::TOML,
+            "# top\nweb.hsts = true # s\nweb.error_pages = \"\"\"\n<h1>x</h1>\n\"\"\"\nlisten = 1 # l\n",
+        ),
+        (
+            Language::JSON,
+            "{\"listen\":1,\"tcp\":{\"nodelay\":true},\"udp\":{\"nodelay\":true}}\n",
+        ),
         (
             Language::XML,
             "<!-- c -->\n<tcp><nodelay>true</nodelay></tcp>\n<udp>\n  <nodelay>true</nodelay> <!-- u -->\n</udp>\n<listen>1</listen>\n",

@@ -41,7 +41,7 @@ pub(super) fn dotted_tables(previous: &str) -> HashSet<Dotted> {
 
 /// `rendered` (as `toml` writes it) with each `[table]` the host wrote as
 /// dotted keys folded back into its parent table as `prefix.key = value`.
-pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>) -> String {
+pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previous: &str) -> String {
     if dotted.is_empty() {
         return rendered.to_string();
     }
@@ -137,7 +137,23 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>) -> St
         while target_body.last().is_some_and(|line| line.trim().is_empty()) {
             target_body.pop();
         }
-        target_body.extend(lines);
+        // Where the host wrote the group among its table's keys (the writer
+        // puts plain keys first): before the first key the host wrote later.
+        let at_line = host_order(previous, &table, &prefix).and_then(|group| {
+            target_body.iter().position(|line| {
+                let (code, _) = split_toml_comment(line);
+                key_assignment(code)
+                    .and_then(|(key, _, _)| split_key_path(&key))
+                    .and_then(|segments| host_order(previous, &table, &segments))
+                    .is_some_and(|position| position > group)
+            })
+        });
+        match at_line {
+            Some(index) => {
+                target_body.splice(index..index, lines);
+            }
+            None => target_body.extend(lines),
+        }
         if separate {
             target_body.push(String::new());
         }
@@ -204,4 +220,24 @@ pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Opt
         renamed.replace_range(start..end, &if quoted { format!("\"{new_key}\"") } else { new_key.to_string() });
     }
     Some(renamed)
+}
+
+/// The line where `previous` first writes a key whose path (in `table`, a
+/// header's segments, empty for the top level) starts with `path`.
+fn host_order(previous: &str, table: &[String], path: &[String]) -> Option<usize> {
+    let mut current: Option<Vec<String>> = Some(Vec::new());
+    for (index, line) in previous.lines().enumerate() {
+        let (code, _) = split_toml_comment(line);
+        if let Some((segments, is_array)) = parse_header(code) {
+            current = (!is_array).then_some(segments);
+            continue;
+        }
+        if current.as_deref() == Some(table)
+            && let Some((key, _, _)) = key_assignment(code)
+            && split_key_path(&key).is_some_and(|segments| segments.starts_with(path))
+        {
+            return Some(index);
+        }
+    }
+    None
 }

@@ -139,6 +139,15 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
+    // Right after an edit the problems are those of the text before the
+    // typing pause: check the text as it is now first.
+    let text = state.source.get_untracked();
+    if state
+        .diagnosed_text
+        .with_untracked(|diagnosed| *diagnosed != text)
+    {
+        state.diagnosed_text.set(text);
+    }
     let here = state.cursor.get_untracked();
     let mut positioned: Vec<(usize, usize)> = state.source.with_untracked(|text| {
         state.diagnostics.with_untracked(|problems| {

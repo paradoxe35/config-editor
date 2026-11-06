@@ -101,3 +101,17 @@ test.describe('json', () => {
     expect(value).toContain(',\n  "tcp": {}');
   });
 });
+
+test.describe('F8 right after an edit', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('jumps to the problem just typed, without waiting for the pause', async ({ page }) => {
+    const e = await at(page, 'listen: 1\n¦');
+    await page.keyboard.type('bogus: 2');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('F8');
+    // Straight away: no wait for the typing pause.
+    expect((await e.caret()).line).toBe(2);
+  });
+});

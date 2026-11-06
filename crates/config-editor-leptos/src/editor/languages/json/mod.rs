@@ -96,6 +96,12 @@ impl ConfigLanguage for JsonBehavior {
         json_text(value)
     }
 
+    /// Without a space after any `:` or `,`, the host writes compact JSON.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        let compact = !written.contains(": ") && !written.contains(", ") && (written.contains(':') || written.contains(','));
+        if compact { serde_json::to_string(value).unwrap_or_else(|_| json_text(value)) } else { json_text(value) }
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         key_at_column(line, column).map(|(_, key, start_column)| (key, start_column))
     }
