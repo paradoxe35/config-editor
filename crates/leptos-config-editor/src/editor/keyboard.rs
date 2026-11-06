@@ -1,6 +1,8 @@
-use super::language::LanguageBehavior;
+use super::language::ConfigLanguage;
 
-pub(super) fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
+/// The byte index of UTF-16 offset `offset` (as the browser reports carets),
+/// clamped to the end of `source`.
+pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     let mut utf16_offset = 0;
     for (byte_index, character) in source.char_indices() {
         if utf16_offset >= offset {
@@ -38,7 +40,7 @@ pub(super) fn paired_edit(
     start: usize,
     end: usize,
     opening: char,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Option<(String, usize, usize)> {
     let closing = match opening {
         '"' => '"',
@@ -51,8 +53,8 @@ pub(super) fn paired_edit(
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
     let selected = &source[start_byte..end_byte];
-    let (active_quote, in_comment) = behavior.lexical_state(source, start);
-    if in_comment || active_quote.is_some() {
+    let lexical = behavior.lexical_state(source, start);
+    if lexical.in_comment || lexical.quote.is_some() {
         return None;
     }
     if matches!(opening, '"' | '\'')

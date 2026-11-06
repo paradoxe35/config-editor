@@ -11,45 +11,39 @@ use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
-#[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{
-    CompletionContext, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
+use super::super::language::{CompletionContext, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
-use leptos::prelude::AnyView;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
 pub(super) struct JsonBehavior;
 
-/// This language's registry entry (see `languages/mod.rs`).
-pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
-    label: "JSON",
-    icon: "J",
-    extensions: &["json"],
-    behavior: &JsonBehavior,
-    codec: &JsonBehavior,
-};
 
-impl LanguageBehavior for JsonBehavior {
+impl ConfigLanguage for JsonBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "JSON",
+            icon: "J",
+            extensions: &["json"],
+        }
+    }
+
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         json_parse(source)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        json_key_span(source, path)
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        json_key_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        json_value_span(source, path)
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        json_value_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
-        first_line_span(source)
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -91,15 +85,11 @@ impl LanguageBehavior for JsonBehavior {
         })
     }
 
-    fn highlight_line(&self, line: &str) -> AnyView {
-        highlight::render(line, &highlight(line))
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
     }
 
-    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
-        newline_with_indent(source, cursor)
-    }
-
-    fn newline_insertion(&self, source: &str, cursor: usize) -> (String, usize) {
+    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
         newline_insertion(source, cursor)
     }
 
@@ -112,12 +102,28 @@ impl LanguageBehavior for JsonBehavior {
         None
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
-        (open_string_quote(source, cursor), false)
+    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = (open_string_quote(source, cursor), false);
+        Lexical { quote, in_comment }
     }
 
     fn entry_started(&self, source: &str, cursor: usize) -> bool {
         completion_context(source, cursor).explicit_entry_start
+    }
+
+    /// Pretty JSON, indented like `previous` when it is given.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        use serde::Serialize;
+        let unit = previous.map_or_else(|| "  ".to_string(), indent_unit);
+        let mut out = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(unit.as_bytes());
+        let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
+        value
+            .serialize(&mut serializer)
+            .map_err(|error| error.to_string())?;
+        let mut text = String::from_utf8(out).map_err(|error| error.to_string())?;
+        text.push('\n');
+        Ok(text)
     }
 }
 
@@ -281,10 +287,8 @@ struct Scan {
     /// being typed at the caret is excluded.
     keys: Vec<(usize, String, usize)>,
     /// Byte spans of every key, keyed by its document path.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     key_spans: Vec<(Vec<String>, usize, usize)>,
     /// Byte spans of every value, keyed by its document path.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     value_spans: Vec<(Vec<String>, usize, usize)>,
 }
 
@@ -498,13 +502,11 @@ fn json_parse(source: &str) -> Result<Value, ParseError> {
     Ok(document)
 }
 
-#[cfg(feature = "schema-validation")]
 fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
     let (line, column) = line_column(source, start);
     (line, column, column + source[start..end].chars().count())
 }
 
-#[cfg(feature = "schema-validation")]
 fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     analyze(source, 0)
@@ -514,7 +516,6 @@ fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
         .map(|(_, start, end)| span_between(source, start, end))
 }
 
-#[cfg(feature = "schema-validation")]
 fn json_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let (_, start, end) = analyze(source, 0)
@@ -529,7 +530,6 @@ fn json_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     Some(span_between(source, start, end))
 }
 
-#[cfg(feature = "schema-validation")]
 fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -861,22 +861,6 @@ fn highlight(line: &str) -> Vec<highlight::Token> {
 // Conversion
 // ---------------------------------------------------------------------------
 
-impl super::super::codec::Codec for JsonBehavior {
-    /// Pretty JSON, indented like `previous` when it is given.
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        use serde::Serialize;
-        let unit = previous.map_or_else(|| "  ".to_string(), indent_unit);
-        let mut out = Vec::new();
-        let formatter = serde_json::ser::PrettyFormatter::with_indent(unit.as_bytes());
-        let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
-        value
-            .serialize(&mut serializer)
-            .map_err(|error| error.to_string())?;
-        let mut text = String::from_utf8(out).map_err(|error| error.to_string())?;
-        text.push('\n');
-        Ok(text)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -886,7 +870,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::{InsertContext, LanguageBehavior};
+    use super::super::super::language::{InsertContext, ConfigLanguage};
 
     const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
         base_indent: "",
@@ -1103,7 +1087,7 @@ mod tests {
 
     #[test]
     fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-        let (text, caret) = JsonBehavior.newline_insertion("{}", 1);
+        let (text, caret) = JsonBehavior.newline("{}", 1);
         assert_eq!(text, "\n  \n");
         assert_eq!(caret, 3);
     }
@@ -1177,7 +1161,7 @@ mod tests {
             for byte in caret_bytes {
                 let cursor = source[..byte].encode_utf16().count();
                 let _ = JsonBehavior.completion_context(source, cursor);
-                let _ = JsonBehavior.newline_insertion(source, cursor);
+                let _ = JsonBehavior.newline(source, cursor);
                 let _ = JsonBehavior.lexical_state(source, cursor);
                 for force in [false, true] {
                     for option in
@@ -1200,9 +1184,10 @@ mod tests {
 
     #[test]
     fn enter_inside_braces_indents_one_level() {
-        assert_eq!(JsonBehavior.newline_with_indent("{}", 1), "\n  ");
+        // Between `{}` the closer moves down and the caret sits on the middle line.
+        assert_eq!(JsonBehavior.newline("{}", 1), ("\n  \n".to_string(), 3));
         assert_eq!(
-            JsonBehavior.newline_with_indent("{\n  \"a\": 1,", 12),
+            JsonBehavior.newline("{\n  \"a\": 1,", 12).0,
             "\n  "
         );
     }
@@ -1214,8 +1199,8 @@ mod tests {
 
     #[test]
     fn an_open_string_is_reported_to_the_pairing_guard() {
-        assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x", 8).0, Some('"'));
-        assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x\"", 9).0, None);
+        assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x", 8).quote, Some('"'));
+        assert_eq!(JsonBehavior.lexical_state("{\"a\": \"x\"", 9).quote, None);
     }
 
     #[test]

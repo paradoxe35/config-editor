@@ -13,45 +13,40 @@
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-#[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{
-    CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
+use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use super::super::highlight::{Token, TokenKind, Tokens};
-use leptos::prelude::AnyView;
 use serde_json::Value;
 use std::collections::HashSet;
 
 pub(super) struct TomlBehavior;
 
-pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
-    label: "TOML",
-    icon: "T",
-    extensions: &["toml"],
-    behavior: &TomlBehavior,
-    codec: &TomlBehavior,
-};
 
-impl LanguageBehavior for TomlBehavior {
+impl ConfigLanguage for TomlBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "TOML",
+            icon: "T",
+            extensions: &["toml"],
+        }
+    }
+
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         toml_parse(source)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        toml_key_span(source, path)
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        toml_key_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        toml_value_span(source, path)
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        toml_value_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
-        first_line_span(source)
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -89,12 +84,14 @@ impl LanguageBehavior for TomlBehavior {
         hover_context_offset(line, column)
     }
 
-    fn highlight_line(&self, line: &str) -> AnyView {
-        super::super::highlight::render(line, &highlight(line))
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
     }
 
-    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
-        newline_with_indent(source, cursor)
+    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
+        let text = newline_with_indent(source, cursor);
+        let caret = text.len();
+        (text, caret)
     }
 
     fn toggle_comments(
@@ -106,12 +103,21 @@ impl LanguageBehavior for TomlBehavior {
         toggle_toml_line_comments(source, selection_start, selection_end)
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
-        toml_lexical_state(source, cursor)
+    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = toml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
     }
 
-    fn confidence(&self, source: &str) -> u8 {
-        toml_confidence(source)
+
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        use super::super::codec::first_pointer;
+        if !value.is_object() {
+            return Err("a TOML document is a table: the top level must be an object".to_string());
+        }
+        if let Some(pointer) = first_pointer(value, &Value::is_null) {
+            return Err(format!("TOML has no null value (at {pointer})"));
+        }
+        toml::to_string(value).map_err(|error| error.to_string())
     }
 }
 
@@ -153,7 +159,6 @@ fn toml_parse(source: &str) -> Result<Value, ParseError> {
     })
 }
 
-#[cfg(feature = "schema-validation")]
 fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
     let (line, column) = line_column(source, start);
     (
@@ -306,7 +311,6 @@ fn assignment_equals(line: &str) -> Option<usize> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 /// Byte span of the value after `=` on a value line: the scalar, or the whole
 /// rest of the line for inline tables/arrays that may span lines.
 fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
@@ -355,7 +359,6 @@ fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPathSegment> {
     path
 }
 
-#[cfg(feature = "schema-validation")]
 /// Array indices render as numbers, matching the validator's JSON-pointer segments.
 fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
     path.iter()
@@ -366,7 +369,6 @@ fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(feature = "schema-validation")]
 /// One entry inside an inline table, with byte offsets relative to the line
 /// and its full schema path (outer table + inline key chain).
 struct InlineEntry {
@@ -375,7 +377,6 @@ struct InlineEntry {
     path: Vec<String>,
 }
 
-#[cfg(feature = "schema-validation")]
 /// Collects the entries of a single-line inline table starting just after its
 /// `{`. Nested inline tables recurse, so `a = { b = { c = 1 } }` yields `a`,
 /// `a.b`, and `a.b.c`. `offset` is where `text` starts inside the line.
@@ -430,7 +431,6 @@ fn inline_entries(text: &str, offset: usize, base: &[String], out: &mut Vec<Inli
     }
 }
 
-#[cfg(feature = "schema-validation")]
 /// Byte index of the `=` after `from`, outside strings, stopping at the entry
 /// boundary (`,` or `}`).
 fn inline_equals(text: &str, from: usize) -> Option<usize> {
@@ -453,7 +453,6 @@ fn inline_equals(text: &str, from: usize) -> Option<usize> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 /// Byte index of the closing brace matching the `{` at `open`, honoring
 /// strings, arrays, and nested braces.
 fn matching_brace(text: &str, open: usize) -> Option<usize> {
@@ -486,7 +485,6 @@ fn matching_brace(text: &str, open: usize) -> Option<usize> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 /// Byte index just past the value starting at `from`: the next `,` or `}` at
 /// the top level, with trailing whitespace trimmed.
 fn inline_item_end(text: &str, from: usize) -> usize {
@@ -525,7 +523,6 @@ fn inline_item_end(text: &str, from: usize) -> usize {
     from + end.trim_end_matches([' ', '\t']).len()
 }
 
-#[cfg(feature = "schema-validation")]
 /// Span of a key nested in an inline-table value on `code`: `base` is the
 /// outer assignment's path. Returns the entry's key and value spans.
 fn inline_entry_at(
@@ -557,7 +554,6 @@ fn inline_entry_at(
         .map(|entry| (entry.key.0, entry.key.1, entry.value.0, entry.value.1))
 }
 
-#[cfg(feature = "schema-validation")]
 fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let lines: Vec<&str> = source.lines().collect();
@@ -596,7 +592,6 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let lines: Vec<&str> = source.lines().collect();
@@ -634,7 +629,6 @@ fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -1262,26 +1256,6 @@ fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (quote, false)
 }
 
-/// Table headers and `key = value` lines score; JSON braces and YAML colons do not.
-fn toml_confidence(source: &str) -> u8 {
-    let mut score = 0u8;
-    for line in source.lines().take(50) {
-        let (code, _) = split_toml_comment(line);
-        let trimmed = code.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if parse_header(code).is_some() {
-            score = score.saturating_add(30);
-        } else if assignment_equals(code).is_some() {
-            score = score.saturating_add(5);
-        }
-        if score >= 200 {
-            break;
-        }
-    }
-    score.min(200)
-}
 
 fn highlight(line: &str) -> Vec<Token> {
     let mut tokens = Tokens::new();
@@ -1339,18 +1313,6 @@ fn scalar_kind(scalar: &str) -> TokenKind {
 // Conversion
 // ---------------------------------------------------------------------------
 
-impl super::super::codec::Codec for TomlBehavior {
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
-        use super::super::codec::first_pointer;
-        if !value.is_object() {
-            return Err("a TOML document is a table: the top level must be an object".to_string());
-        }
-        if let Some(pointer) = first_pointer(value, &Value::is_null) {
-            return Err(format!("TOML has no null value (at {pointer})"));
-        }
-        toml::to_string(value).map_err(|error| error.to_string())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1360,7 +1322,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::LanguageBehavior;
+    use super::super::super::language::ConfigLanguage;
     use super::super::super::highlight::{TokenKind, runs};
     use super::{TomlBehavior, highlight};
 

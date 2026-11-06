@@ -54,7 +54,7 @@ pub(super) const MAX_INDENT_WIDTH: usize = 8;
 pub(super) const DEFAULT_INDENT_WIDTH: usize = 2;
 
 /// The document's indentation unit (a tab, or its narrowest space indent).
-pub(super) fn indent_unit(source: &str) -> String {
+pub fn indent_unit(source: &str) -> String {
     let mut widths = Vec::new();
     for line in source.lines().take(INDENT_SCAN_LINE_LIMIT) {
         let trimmed = line.trim_start_matches([' ', '\t']);

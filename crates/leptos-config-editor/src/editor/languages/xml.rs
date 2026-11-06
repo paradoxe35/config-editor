@@ -18,13 +18,10 @@ use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
-#[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{
-    CompletionContext, EntryPosition, InlineBlock, InsertContext, LanguageBehavior, ParseError,
+use super::super::language::{CompletionContext, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
-use leptos::prelude::AnyView;
 use quick_xml::XmlVersion;
 use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
@@ -34,32 +31,30 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct XmlBehavior;
 
-pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
-    label: "XML",
-    icon: "X",
-    extensions: &["xml"],
-    behavior: &XmlBehavior,
-    codec: &XmlBehavior,
-};
 
-impl LanguageBehavior for XmlBehavior {
+impl ConfigLanguage for XmlBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "XML",
+            icon: "X",
+            extensions: &["xml"],
+        }
+    }
+
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         xml_parse(source)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        xml_name_span(source, path)
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        xml_name_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        xml_value_span(source, path)
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        xml_value_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
-        first_content_span(source)
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_content_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -98,15 +93,11 @@ impl LanguageBehavior for XmlBehavior {
         hover_context_end(line, column)
     }
 
-    fn highlight_line(&self, line: &str) -> AnyView {
-        super::super::highlight::render(line, &highlight(line))
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
     }
 
-    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
-        newline_with_indent(source, cursor)
-    }
-
-    fn newline_insertion(&self, source: &str, cursor: usize) -> (String, usize) {
+    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
         newline_insertion(source, cursor)
     }
 
@@ -119,16 +110,44 @@ impl LanguageBehavior for XmlBehavior {
         toggle_xml_comments(source, selection_start, selection_end)
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
-        xml_lexical_state(source, cursor)
+    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = xml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
     }
 
     fn entry_started(&self, source: &str, cursor: usize) -> bool {
         completion_context(source, cursor).explicit_entry_start
     }
 
-    fn confidence(&self, source: &str) -> u8 {
-        xml_confidence(source)
+
+    /// Object keys become elements and arrays repeated siblings. The output is
+    /// rootless unless `previous` had a config root, which is kept along with
+    /// its declaration.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        let Value::Object(map) = value else {
+            return Err("the XML document model is an object of elements".to_string());
+        };
+        let framing = previous.map(xml_framing).unwrap_or_default();
+        let mut out = String::new();
+        if let Some(declaration) = &framing.declaration {
+            out.push_str(declaration);
+            out.push('\n');
+        }
+        match &framing.root {
+            Some(root) => {
+                // The marker is an attribute (`@` prefix for quick-xml).
+                let mut wrapped = serde_json::Map::new();
+                wrapped.insert(format!("@{CONFIG_ROOT_ATTRIBUTE}"), Value::Bool(true));
+                wrapped.extend(map.clone());
+                write_element(&mut out, root, &Value::Object(wrapped))?;
+            }
+            None => {
+                for (key, child) in map {
+                    write_element(&mut out, key, child)?;
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -461,10 +480,8 @@ struct Scan {
     snapshot: Option<Snapshot>,
     /// Byte spans of element and attribute names, keyed by document path.
     /// Repeated siblings address their array index.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     key_spans: Vec<(Vec<String>, usize, usize)>,
     /// Byte spans of element text and attribute values, keyed the same way.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     value_spans: Vec<(Vec<String>, usize, usize)>,
 }
 
@@ -1202,13 +1219,11 @@ fn markup_start(source: &str, from: usize) -> usize {
         .map_or(from, |offset| from + offset)
 }
 
-#[cfg(feature = "schema-validation")]
 fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
     let (line, column) = line_column(source, start);
     (line, column, column + source[start..end].chars().count())
 }
 
-#[cfg(feature = "schema-validation")]
 fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     analyze(source, 0)
@@ -1218,7 +1233,6 @@ fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
         .map(|(_, start, end)| span_between(source, start, end))
 }
 
-#[cfg(feature = "schema-validation")]
 fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let (_, start, end) = analyze(source, 0)
@@ -1228,7 +1242,6 @@ fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     Some(span_between(source, start, end))
 }
 
-#[cfg(feature = "schema-validation")]
 fn first_content_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -2036,24 +2049,6 @@ fn xml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (None, false)
 }
 
-/// A leading `<tag ...>` (after any declaration) scores high; plain text near zero.
-fn xml_confidence(source: &str) -> u8 {
-    let trimmed = source.trim_start();
-    let body = trimmed
-        .strip_prefix("<?xml")
-        .and_then(|rest| rest.find("?>").map(|end| &rest[end + 2..]))
-        .unwrap_or(trimmed)
-        .trim_start();
-    if body.starts_with('<')
-        && body[1..].chars().next().is_some_and(|character| {
-            character.is_alphabetic() || character == '/' || character == '!' || character == '?'
-        })
-    {
-        200
-    } else {
-        0
-    }
-}
 
 /// Colors a line: tags and their parts, comments, declarations, and element
 /// text. Whitespace between tokens and inside tags stays plain.
@@ -2080,9 +2075,21 @@ fn highlight_open_tag(line: &str, token: Token, name_end: usize, out: &mut Token
     out.push(token.start, token.start + 1, TokenKind::Punctuation);
     let name_end = name_end.min(line.len());
     out.push(token.start + 1, name_end, TokenKind::Key);
-    let mut position = name_end;
+    // The closing `>` or `/>` is punctuation; attribute runs stop before it.
+    let tag = &line[..token.end.min(line.len())];
+    let close = if tag.ends_with("/>") {
+        token.end - 2
+    } else if tag.ends_with('>') {
+        token.end - 1
+    } else {
+        token.end
+    }
+    .max(name_end);
     let inner = tokenize_tag_inside(line, &token);
     for (index, part) in inner.iter().enumerate() {
+        if part.start >= close {
+            break;
+        }
         let kind = match part.kind {
             Kind::Text { quoted: true } => TokenKind::String,
             Kind::Equals => TokenKind::Punctuation,
@@ -2094,10 +2101,9 @@ fn highlight_open_tag(line: &str, token: Token, name_end: usize, out: &mut Token
             }
             _ => TokenKind::Value,
         };
-        out.push(part.start, part.end, kind);
-        position = part.end;
+        out.push(part.start, part.end.min(close), kind);
     }
-    out.push(position, token.end, TokenKind::Punctuation);
+    out.push(close, token.end, TokenKind::Punctuation);
 }
 
 /// `</name>`: the `</`, the raw name (prefix included), then the `>`.
@@ -2115,37 +2121,6 @@ fn highlight_end_tag(line: &str, token: Token, out: &mut Tokens) {
 // Conversion
 // ---------------------------------------------------------------------------
 
-impl super::super::codec::Codec for XmlBehavior {
-    /// Object keys become elements and arrays repeated siblings. The output is
-    /// rootless unless `previous` had a config root, which is kept along with
-    /// its declaration.
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        let Value::Object(map) = value else {
-            return Err("the XML document model is an object of elements".to_string());
-        };
-        let framing = previous.map(xml_framing).unwrap_or_default();
-        let mut out = String::new();
-        if let Some(declaration) = &framing.declaration {
-            out.push_str(declaration);
-            out.push('\n');
-        }
-        match &framing.root {
-            Some(root) => {
-                // The marker is an attribute (`@` prefix for quick-xml).
-                let mut wrapped = serde_json::Map::new();
-                wrapped.insert(format!("@{CONFIG_ROOT_ATTRIBUTE}"), Value::Bool(true));
-                wrapped.extend(map.clone());
-                write_element(&mut out, root, &Value::Object(wrapped))?;
-            }
-            None => {
-                for (key, child) in map {
-                    write_element(&mut out, key, child)?;
-                }
-            }
-        }
-        Ok(out)
-    }
-}
 
 /// Document-level framing an XML text carries outside its data.
 #[derive(Default)]
@@ -2196,7 +2171,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::LanguageBehavior;
+    use super::super::super::language::ConfigLanguage;
     use super::super::super::highlight::{TokenKind, runs};
     use super::XmlBehavior;
 
@@ -2637,7 +2612,7 @@ mod tests {
 
     #[test]
     fn enter_between_tags_puts_the_caret_on_an_indented_middle_line() {
-        let (text, caret) = XmlBehavior.newline_insertion("<a></a>", 3);
+        let (text, caret) = XmlBehavior.newline("<a></a>", 3);
         assert_eq!(text, "\n  \n");
         assert_eq!(caret, 3);
     }
@@ -2725,7 +2700,8 @@ mod tests {
                 run(Punctuation, "="),
                 run(String, "'2'"),
                 plain(" "),
-                run(Value, "flag>"),
+                run(Value, "flag"),
+                run(Punctuation, ">"),
             ]
         );
     }
@@ -2735,16 +2711,11 @@ mod tests {
         use TokenKind::*;
         assert_eq!(
             highlighted("<a>"),
-            vec![run(Punctuation, "<"), run(Key, "a"), run(Value, ">")]
+            vec![run(Punctuation, "<"), run(Key, "a"), run(Punctuation, ">")]
         );
         assert_eq!(
             highlighted("<a/>"),
-            vec![
-                run(Punctuation, "<"),
-                run(Key, "a"),
-                plain("/"),
-                run(Value, ">")
-            ]
+            vec![run(Punctuation, "<"), run(Key, "a"), run(Punctuation, "/>")]
         );
         assert_eq!(
             highlighted("<a x=\"1\">"),
@@ -2755,7 +2726,7 @@ mod tests {
                 run(Key, "x"),
                 run(Punctuation, "="),
                 run(String, "\"1\""),
-                run(Value, ">"),
+                run(Punctuation, ">"),
             ]
         );
     }
@@ -2777,7 +2748,7 @@ mod tests {
             vec![
                 run(Punctuation, "<"),
                 run(Key, "n"),
-                run(Value, ">"),
+                run(Punctuation, ">"),
                 run(Value, "12"),
                 plain(" "),
                 run(Value, "true"),

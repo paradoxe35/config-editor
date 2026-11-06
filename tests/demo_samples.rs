@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 
 const SCHEMA: &str = include_str!("../schema.json");
 const SAMPLES: [(Language, &str); 5] = [
-    (Language::Json, include_str!("../samples/burrow.large.json")),
-    (Language::Yaml, include_str!("../samples/burrow.large.yaml")),
-    (Language::Toml, include_str!("../samples/burrow.large.toml")),
-    (Language::Hcl, include_str!("../samples/burrow.large.hcl")),
-    (Language::Xml, include_str!("../samples/burrow.large.xml")),
+    (Language::JSON, include_str!("../samples/burrow.large.json")),
+    (Language::YAML, include_str!("../samples/burrow.large.yaml")),
+    (Language::TOML, include_str!("../samples/burrow.large.toml")),
+    (Language::HCL, include_str!("../samples/burrow.large.hcl")),
+    (Language::XML, include_str!("../samples/burrow.large.xml")),
 ];
 
 fn schema() -> Schema {
@@ -22,7 +22,7 @@ fn schema() -> Schema {
 
 #[test]
 fn every_language_sample_parses_to_the_same_document() {
-    let expected = Language::Json.parse(SAMPLES[0].1).expect("JSON sample");
+    let expected = Language::JSON.parse(SAMPLES[0].1).expect("JSON sample");
     for (language, source) in SAMPLES {
         assert!(source.lines().count() > 1500, "{language:?} sample is long");
         let document = language
@@ -51,7 +51,7 @@ fn every_language_sample_validates_against_the_demo_schema() {
 #[test]
 fn every_sample_converts_losslessly_into_every_language() {
     let schema = schema();
-    let expected = Language::Json.parse(SAMPLES[0].1).expect("JSON sample");
+    let expected = Language::JSON.parse(SAMPLES[0].1).expect("JSON sample");
     for (from, source) in SAMPLES {
         for (to, _) in SAMPLES {
             let converted = from
@@ -84,7 +84,7 @@ fn validation_and_conversion_stay_fast_on_a_large_document() {
         assert!(schema.validate(language, source).is_empty());
         let validate = started.elapsed();
         let started = Instant::now();
-        let converted = language.convert(source, Language::Hcl).expect("converts");
+        let converted = language.convert(source, Language::HCL).expect("converts");
         let convert = started.elapsed();
         assert!(!converted.text.is_empty());
         println!("{language:?}: validate {validate:?}, convert to HCL {convert:?}");

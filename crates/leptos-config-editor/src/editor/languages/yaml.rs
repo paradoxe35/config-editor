@@ -10,44 +10,39 @@ use super::super::highlight::{Token, TokenKind, Tokens};
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{
-    CompletionContext, EntryPosition, InsertContext, LanguageBehavior, ParseError,
+use super::super::language::{CompletionContext, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
-use leptos::prelude::AnyView;
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
 use serde_json::Value;
 use std::collections::HashSet;
 
 pub(super) struct YamlBehavior;
 
-/// This language's registry entry (see `languages/mod.rs`).
-pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
-    label: "YAML",
-    icon: "Y",
-    extensions: &["yaml", "yml"],
-    behavior: &YamlBehavior,
-    codec: &YamlBehavior,
-};
 
-impl LanguageBehavior for YamlBehavior {
+impl ConfigLanguage for YamlBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "YAML",
+            icon: "Y",
+            extensions: &["yaml", "yml"],
+        }
+    }
+
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         yaml_parse(source)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        yaml_span_for_path(source, path)
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        yaml_span_for_path(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        yaml_value_span_for_path(source, path)
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        yaml_value_span_for_path(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
-        first_yaml_span(source)
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_yaml_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -88,12 +83,14 @@ impl LanguageBehavior for YamlBehavior {
         hover_context_offset(line, column)
     }
 
-    fn highlight_line(&self, line: &str) -> AnyView {
-        super::super::highlight::render(line, &highlight(line))
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
     }
 
-    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
-        newline_with_indent(source, cursor)
+    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
+        let text = newline_with_indent(source, cursor);
+        let caret = text.len();
+        (text, caret)
     }
 
     fn toggle_comments(
@@ -105,8 +102,13 @@ impl LanguageBehavior for YamlBehavior {
         toggle_yaml_line_comments(source, selection_start, selection_end)
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
-        yaml_lexical_state(source, cursor)
+    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = yaml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
+    }
+
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        noyalib::to_string(value).map_err(|error| error.to_string())
     }
 }
 
@@ -140,7 +142,6 @@ fn yaml_parse(source: &str) -> Result<Value, ParseError> {
 /// Maps every mapping key and sequence item in the document to its source line.
 /// Paths are the same JSON-pointer segments the schema validator reports, so a
 /// nested `listen` is never confused with a root `listen`.
-#[cfg(feature = "schema-validation")]
 fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
     let mut entries = Vec::new();
     let mut stack: Vec<(usize, Vec<String>)> = Vec::new();
@@ -221,7 +222,6 @@ fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, usize)> {
 
 /// Span of a key written inside an inline `{ ... }` mapping. The key is found
 /// on its parent mapping's line as a whole word after the parent's colon.
-#[cfg(feature = "schema-validation")]
 fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
     let (key, parent) = wanted.split_last()?;
     if parent.is_empty() || key.is_empty() {
@@ -248,7 +248,6 @@ fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize
     None
 }
 
-#[cfg(feature = "schema-validation")]
 fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = super::super::language::pointer_segments(path);
     let key = wanted.last()?.clone();
@@ -282,7 +281,6 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
     })
 }
 
-#[cfg(feature = "schema-validation")]
 fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = super::super::language::pointer_segments(path);
     // Only block-structured entries have a value slot on their line. Inline
@@ -303,7 +301,6 @@ fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, u
     Some((line_number, column, column + value.chars().count()))
 }
 
-#[cfg(feature = "schema-validation")]
 fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -1232,11 +1229,6 @@ fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
 // Conversion
 // ---------------------------------------------------------------------------
 
-impl super::super::codec::Codec for YamlBehavior {
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
-        noyalib::to_string(value).map_err(|error| error.to_string())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1248,7 +1240,7 @@ mod tests {
         Diagnostic, SchemaBundle, build_schema, validate as shared_validate,
     };
     use super::super::super::keyboard::paired_edit as shared_paired_edit;
-    use super::super::super::language::LanguageBehavior;
+    use super::super::super::language::ConfigLanguage;
     use super::YamlBehavior;
     use super::super::super::highlight::{TokenKind, runs};
     use super::{highlight, scalar_kind, split_yaml_comment};
@@ -1335,7 +1327,7 @@ mod tests {
     }
 
     fn newline_with_indent(source: &str, cursor: usize) -> String {
-        YamlBehavior.newline_with_indent(source, cursor)
+        YamlBehavior.newline(source, cursor).0
     }
 
     fn toggle_yaml_line_comments(

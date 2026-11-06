@@ -14,20 +14,27 @@ include = ["src/**/*", "tests/**/*", "README.md", "Cargo.toml"]
 all-features = true
 
 [features]
-default = ["schema-validation"]
+default = ["schema-validation", "yaml", "json", "toml", "hcl", "xml"]
 # JSON Schema diagnostics, completions, and hover docs (the `jsonschema`
 # dependency). Without it the editor still checks syntax.
 schema-validation = ["dep:jsonschema"]
+# Built-in languages; each enables `Language::<NAME>` and its parser. Disable
+# the ones a host does not use to shrink the build.
+yaml = ["dep:noyalib"]
+json = []
+toml = ["dep:toml"]
+hcl = ["dep:hcl-rs"]
+xml = ["dep:quick-xml"]
 
 [dependencies]
 jsonschema = { version = "0.60.2", default-features = false, optional = true }
 regex = "1"
 leptos = { version = "0.8.23", default-features = false, features = ["csr"] }
-noyalib = { version = "0.0.58", default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
-hcl-rs = "0.20.0"
+noyalib = { version = "0.0.58", optional = true, default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
+hcl-rs = { version = "0.20.0", optional = true }
 serde = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
-toml = { version = "1", features = ["preserve_order"] }
-quick-xml = { version = "0.42.0", features = ["serialize"] }
+toml = { version = "1", optional = true, features = ["preserve_order"] }
+quick-xml = { version = "0.42.0", optional = true, features = ["serialize"] }
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "CssStyleDeclaration", "DomRect", "Element", "Event", "EventTarget", "HtmlCanvasElement", "HtmlCollection", "HtmlDivElement", "HtmlElement", "HtmlTextAreaElement", "InputEvent", "KeyboardEvent", "MouseEvent", "TextMetrics", "Window"] }

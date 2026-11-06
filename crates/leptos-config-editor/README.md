@@ -24,7 +24,7 @@ fn Settings() -> impl IntoView {
     let saved = RwSignal::new("listen: 7835\n".to_string());
     view! {
         <ConfigEditor
-            language=Language::Yaml
+            language=Language::YAML
             value=saved
             on_change=move |text| saved.set(text)
             schema=include_str!("schema.json")
@@ -51,8 +51,8 @@ fn Settings() -> impl IntoView {
 
 ```rust
 <ConfigEditor
-    language=Language::Xml   // what the host stores and receives
-    edit_as=Language::Hcl    // what the user edits
+    language=Language::XML   // what the host stores and receives
+    edit_as=Language::HCL    // what the user edits
     value=xml
     on_change=move |text| xml.set(text)
 />
@@ -68,14 +68,14 @@ on the value, and comments do not survive a conversion.
 use leptos_config_editor::{Language, Schema};
 
 let schema = Schema::compile(include_str!("schema.json"))?;
-let problems = schema.validate(Language::Toml, &text); // Vec<Diagnostic>
+let problems = schema.validate(Language::TOML, &text); // Vec<Diagnostic>
 
-let value = Language::Yaml.parse(&text)?;              // serde_json::Value
-let hcl = Language::Yaml.convert(&text, Language::Hcl)?;
+let value = Language::YAML.parse(&text)?;              // serde_json::Value
+let hcl = Language::YAML.convert(&text, Language::HCL)?;
 assert!(hcl.losses.is_empty());
 
 let language: Language = "yml".parse()?;               // names and extensions
-let language = Language::from_path("infra/main.tf");   // Some(Language::Hcl)
+let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ```
 
 ## XML mapping
@@ -85,9 +85,54 @@ scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
 an array. A top-level element marked `config-root="true"` is a transparent
 wrapper; without it, every top-level element is a document property.
 
+## Your own language
+
+Every built-in language implements the public `ConfigLanguage` trait; yours
+can too. Only `info` and `parse` are required — each further method adds a
+capability (diagnostic positions, completion, hover, highlighting, editing,
+conversion):
+
+```rust
+use leptos_config_editor::Language;
+use leptos_config_editor::language::{ConfigLanguage, LanguageInfo, ParseError};
+
+struct DotEnv;
+
+impl ConfigLanguage for DotEnv {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo { label: "ENV", icon: "E", extensions: &["env"] }
+    }
+    fn parse(&self, source: &str) -> Result<serde_json::Value, ParseError> {
+        todo!("KEY=value lines into a JSON object")
+    }
+}
+
+static DOTENV: DotEnv = DotEnv;
+const ENV: Language = Language::new(&DOTENV);
+// <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
+```
+
+`leptos_config_editor::language` also exports the helpers the built-in
+languages use (tokens, schema lookups, inline-container scanning, indent
+detection). `tests/custom_language.rs` is a complete example.
+
 ## Features
 
-- `schema-validation` (default): JSON Schema support through `jsonschema`.
-  Without it the editor still checks syntax and converts.
+All on by default; turn off what a host does not use to shrink the build.
+
+| Feature             | Enables                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `schema-validation` | JSON Schema diagnostics, completions, and hover (`jsonschema`). Without it the editor still checks syntax and converts. |
+| `yaml`              | `Language::YAML` (`noyalib`)                                                                                            |
+| `json`              | `Language::JSON`                                                                                                        |
+| `toml`              | `Language::TOML` (`toml`)                                                                                               |
+| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                              |
+| `xml`               | `Language::XML` (`quick-xml`)                                                                                           |
+
+```toml
+leptos-config-editor = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
+```
+
+With no language feature, use your own languages through `Language::new`.
 
 [Leptos]: https://leptos.dev

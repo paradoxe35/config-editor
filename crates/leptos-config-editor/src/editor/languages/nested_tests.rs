@@ -76,37 +76,37 @@ fn assert_offers(language: Language, marked: &str, label: &str) {
 fn hover_documents_keys_nested_on_one_line() {
     let cases: &[(Language, &str, usize)] = &[
         (
-            Language::Toml,
+            Language::TOML,
             "[clients]\nparadoxe = { secret = [], max_connections = 123 }\n",
             1,
         ),
         (
-            Language::Toml,
+            Language::TOML,
             "clients = { acme = { secret = \"x\", max_connections = 3 } }\n",
             0,
         ),
         (
-            Language::Yaml,
+            Language::YAML,
             "clients:\n  acme: { secret: x, max_connections: 3 }\n",
             1,
         ),
         (
-            Language::Yaml,
+            Language::YAML,
             "clients: { acme: { secret: x, max_connections: 3 } }\n",
             0,
         ),
         (
-            Language::Json,
+            Language::JSON,
             "{\"clients\": {\"acme\": {\"secret\": \"x\", \"max_connections\": 3}}}\n",
             0,
         ),
         (
-            Language::Hcl,
+            Language::HCL,
             "clients = { acme = { secret = \"x\", max_connections = 3 } }\n",
             0,
         ),
         (
-            Language::Xml,
+            Language::XML,
             "<clients><acme max_connections=\"3\"><secret>x</secret></acme></clients>\n",
             0,
         ),
@@ -120,20 +120,20 @@ fn hover_documents_keys_nested_on_one_line() {
 #[test]
 fn hover_documents_keys_in_nested_blocks() {
     let cases: &[(Language, &str, usize)] = &[
-        (Language::Toml, "[clients.acme]\nsecret = \"x\"\n", 1),
-        (Language::Yaml, "clients:\n  acme:\n    secret: x\n", 2),
+        (Language::TOML, "[clients.acme]\nsecret = \"x\"\n", 1),
+        (Language::YAML, "clients:\n  acme:\n    secret: x\n", 2),
         (
-            Language::Json,
+            Language::JSON,
             "{\n  \"clients\": {\n    \"acme\": {\n      \"secret\": \"x\"\n    }\n  }\n}\n",
             3,
         ),
         (
-            Language::Hcl,
+            Language::HCL,
             "clients {\n  acme {\n    secret = \"x\"\n  }\n}\n",
             2,
         ),
         (
-            Language::Xml,
+            Language::XML,
             "<clients>\n  <acme>\n    <secret>x</secret>\n  </acme>\n</clients>\n",
             2,
         ),
@@ -146,20 +146,20 @@ fn hover_documents_keys_in_nested_blocks() {
 #[test]
 fn keys_complete_inside_inline_containers() {
     let cases: &[(Language, &str)] = &[
-        (Language::Toml, "[clients]\nacme = { se| }\n"),
+        (Language::TOML, "[clients]\nacme = { se| }\n"),
         (
-            Language::Toml,
+            Language::TOML,
             "clients = { acme = { max_connections = 1, se| } }\n",
         ),
-        (Language::Yaml, "clients:\n  acme: { se| }\n"),
+        (Language::YAML, "clients:\n  acme: { se| }\n"),
         (
-            Language::Yaml,
+            Language::YAML,
             "clients:\n  acme: { max_connections: 1, se| }\n",
         ),
-        (Language::Json, "{\"clients\": {\"acme\": {\"se|\"}}}\n"),
-        (Language::Hcl, "clients = { acme = { se| } }\n"),
-        (Language::Xml, "<clients><acme><se|</acme></clients>\n"),
-        (Language::Xml, "<clients><acme se|/></clients>\n"),
+        (Language::JSON, "{\"clients\": {\"acme\": {\"se|\"}}}\n"),
+        (Language::HCL, "clients = { acme = { se| } }\n"),
+        (Language::XML, "<clients><acme><se|</acme></clients>\n"),
+        (Language::XML, "<clients><acme se|/></clients>\n"),
     ];
     for &(language, marked) in cases {
         assert_offers(language, marked, "secret");
@@ -169,18 +169,18 @@ fn keys_complete_inside_inline_containers() {
 #[test]
 fn values_complete_inside_inline_containers() {
     let cases: &[(Language, &str)] = &[
-        (Language::Toml, "[clients]\nacme = { mode = | }\n"),
+        (Language::TOML, "[clients]\nacme = { mode = | }\n"),
         (
-            Language::Toml,
+            Language::TOML,
             "[clients]\nacme = { secret = \"x\", mode = | }\n",
         ),
-        (Language::Yaml, "clients:\n  acme: { mode: | }\n"),
-        (Language::Yaml, "clients:\n  acme: { secret: x, mode: | }\n"),
-        (Language::Json, "{\"clients\": {\"acme\": {\"mode\": |}}}\n"),
-        (Language::Hcl, "clients = { acme = { mode = | } }\n"),
-        (Language::Xml, "<clients><acme mode=\"|\"/></clients>\n"),
+        (Language::YAML, "clients:\n  acme: { mode: | }\n"),
+        (Language::YAML, "clients:\n  acme: { secret: x, mode: | }\n"),
+        (Language::JSON, "{\"clients\": {\"acme\": {\"mode\": |}}}\n"),
+        (Language::HCL, "clients = { acme = { mode = | } }\n"),
+        (Language::XML, "<clients><acme mode=\"|\"/></clients>\n"),
         (
-            Language::Xml,
+            Language::XML,
             "<clients><acme><mode>|</mode></acme></clients>\n",
         ),
     ];
@@ -192,13 +192,13 @@ fn values_complete_inside_inline_containers() {
 #[test]
 fn values_complete_in_nested_blocks() {
     let cases: &[(Language, &str)] = &[
-        (Language::Toml, "[clients.acme]\nmode = |\n"),
-        (Language::Yaml, "clients:\n  acme:\n    mode: |\n"),
+        (Language::TOML, "[clients.acme]\nmode = |\n"),
+        (Language::YAML, "clients:\n  acme:\n    mode: |\n"),
         (
-            Language::Json,
+            Language::JSON,
             "{\n  \"clients\": {\n    \"acme\": {\n      \"mode\": |\n    }\n  }\n}\n",
         ),
-        (Language::Hcl, "clients {\n  acme {\n    mode = |\n  }\n}\n"),
+        (Language::HCL, "clients {\n  acme {\n    mode = |\n  }\n}\n"),
     ];
     for &(language, marked) in cases {
         assert_offers(language, marked, "fast");
@@ -209,19 +209,19 @@ fn values_complete_in_nested_blocks() {
 fn keys_and_hover_resolve_inside_inline_arrays_of_objects() {
     let cases: &[(Language, &str)] = &[
         (
-            Language::Toml,
+            Language::TOML,
             "services = { web = { backends = [{ name = \"a\" }, { we| }] } }\n",
         ),
         (
-            Language::Yaml,
+            Language::YAML,
             "services:\n  web: { backends: [{ name: a }, { we| }] }\n",
         ),
         (
-            Language::Hcl,
+            Language::HCL,
             "services = { web = { backends = [{ name = \"a\" }, { we| }] } }\n",
         ),
         (
-            Language::Json,
+            Language::JSON,
             "{\"services\": {\"web\": {\"backends\": [{\"name\": \"a\"}, {\"we|\"}]}}}\n",
         ),
     ];
@@ -230,22 +230,22 @@ fn keys_and_hover_resolve_inside_inline_arrays_of_objects() {
     }
     let hovers: &[(Language, &str, usize)] = &[
         (
-            Language::Toml,
+            Language::TOML,
             "services = { web = { backends = [{ name = \"a\" }, { weight = 2 }] } }\n",
             0,
         ),
         (
-            Language::Yaml,
+            Language::YAML,
             "services:\n  web: { backends: [{ name: a }, { weight: 2 }] }\n",
             1,
         ),
         (
-            Language::Hcl,
+            Language::HCL,
             "services = { web = { backends = [{ name = \"a\" }, { weight = 2 }] } }\n",
             0,
         ),
         (
-            Language::Json,
+            Language::JSON,
             "{\"services\": {\"web\": {\"backends\": [{\"name\": \"a\"}, {\"weight\": 2}]}}}\n",
             0,
         ),
@@ -259,19 +259,19 @@ fn keys_and_hover_resolve_inside_inline_arrays_of_objects() {
 fn inline_array_items_complete_from_the_item_schema() {
     let cases: &[(Language, &str)] = &[
         (
-            Language::Toml,
+            Language::TOML,
             "services = { web = { visitors = [\"alice\", |] } }\n",
         ),
         (
-            Language::Yaml,
+            Language::YAML,
             "services:\n  web: { visitors: [alice, |] }\n",
         ),
         (
-            Language::Hcl,
+            Language::HCL,
             "services = { web = { visitors = [\"alice\", |] } }\n",
         ),
         (
-            Language::Json,
+            Language::JSON,
             "{\"services\": {\"web\": {\"visitors\": [\"alice\", |]}}}\n",
         ),
     ];
@@ -284,12 +284,12 @@ fn inline_array_items_complete_from_the_item_schema() {
 fn an_empty_xml_element_offers_values_or_children_by_schema() {
     // A scalar offers its values, an object its child elements.
     assert_offers(
-        Language::Xml,
+        Language::XML,
         "<services><web><protocol>|</protocol></web></services>\n",
         "udp",
     );
     assert_offers(
-        Language::Xml,
+        Language::XML,
         "<clients><acme>|</acme></clients>\n",
         "secret",
     );

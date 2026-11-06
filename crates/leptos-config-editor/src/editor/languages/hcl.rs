@@ -15,44 +15,39 @@ use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_value_len};
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-#[cfg(feature = "schema-validation")]
 use super::super::language::pointer_segments;
-use super::super::language::{
-    CompletionContext, InlineBlock, InsertContext, LanguageBehavior, ParseError, SchemaPathSegment,
+use super::super::language::{CompletionContext, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
-use leptos::prelude::AnyView;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct HclBehavior;
 
-pub(super) const SPEC: super::LanguageSpec = super::LanguageSpec {
-    label: "HCL",
-    icon: "H",
-    extensions: &["hcl", "tf", "tfvars"],
-    behavior: &HclBehavior,
-    codec: &HclBehavior,
-};
 
-impl LanguageBehavior for HclBehavior {
+impl ConfigLanguage for HclBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "HCL",
+            icon: "H",
+            extensions: &["hcl", "tf", "tfvars"],
+        }
+    }
+
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         hcl_parse(source)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        hcl_key_span(source, path)
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        hcl_key_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn value_span_for_path(&self, source: &str, path: &str) -> Option<(usize, usize, usize)> {
-        hcl_value_span(source, path)
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        hcl_value_span(source, pointer).map(Span::from)
     }
 
-    #[cfg(feature = "schema-validation")]
-    fn first_span(&self, source: &str) -> Option<(usize, usize, usize)> {
-        first_line_span(source)
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_line_span(source).map(Span::from)
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
@@ -94,15 +89,11 @@ impl LanguageBehavior for HclBehavior {
             .map_or(line.len(), |key| key.after_separator)
     }
 
-    fn highlight_line(&self, line: &str) -> AnyView {
-        super::super::highlight::render(line, &highlight(line))
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
     }
 
-    fn newline_with_indent(&self, source: &str, cursor: usize) -> String {
-        newline_with_indent(source, cursor)
-    }
-
-    fn newline_insertion(&self, source: &str, cursor: usize) -> (String, usize) {
+    fn newline(&self, source: &str, cursor: usize) -> (String, usize) {
         newline_insertion(source, cursor)
     }
 
@@ -115,12 +106,19 @@ impl LanguageBehavior for HclBehavior {
         toggle_hcl_line_comments(source, selection_start, selection_end)
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> (Option<char>, bool) {
-        hcl_lexical_state(source, cursor)
+    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = hcl_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
     }
 
-    fn confidence(&self, source: &str) -> u8 {
-        hcl_confidence(source)
+
+    /// An object whose keys are all identifiers becomes a block (`web { … }`),
+    /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        let Value::Object(map) = value else {
+            return Err("an HCL document is a body: the top level must be an object".to_string());
+        };
+        hcl::format::to_string(&hcl_body(map)?).map_err(|error| error.to_string())
     }
 }
 
@@ -129,7 +127,6 @@ fn utf16(text: &str) -> usize {
 }
 
 /// One-based line and character column of a byte offset.
-#[cfg(feature = "schema-validation")]
 fn line_column(source: &str, byte: usize) -> (usize, usize) {
     let before = &source[..byte.min(source.len())];
     let line = before.matches('\n').count() + 1;
@@ -374,9 +371,7 @@ struct HeaderInfo {
     /// segment (`/variable/name/1/...`).
     ordinal: usize,
     /// Read only by schema-path span lookups.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     type_span: (usize, usize),
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     label_spans: Vec<(usize, usize)>,
 }
 
@@ -390,7 +385,6 @@ struct AttributeInfo {
     /// error spans descend into nested value maps.
     prefix: Vec<String>,
     /// Read only by schema-path span lookups.
-    #[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
     key_span: (usize, usize),
     value_span: (usize, usize),
 }
@@ -474,7 +468,6 @@ fn body_path(scan: &Scan, body: usize) -> Vec<String> {
 
 /// Schema path of an attribute: its body's path, its map prefix (empty at the
 /// top level), plus its key.
-#[cfg(feature = "schema-validation")]
 fn attribute_path(scan: &Scan, attribute: &AttributeInfo) -> Vec<String> {
     let mut path = body_path(scan, attribute.body);
     path.extend(attribute.prefix.iter().cloned());
@@ -792,7 +785,6 @@ fn hcl_parse(source: &str) -> Result<Value, ParseError> {
     })
 }
 
-#[cfg(feature = "schema-validation")]
 fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
     let (line, column) = line_column(source, start);
     (
@@ -802,7 +794,6 @@ fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize)
     )
 }
 
-#[cfg(feature = "schema-validation")]
 fn hcl_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     if wanted.is_empty() {
@@ -825,7 +816,6 @@ fn hcl_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     header_span(&scan, &wanted).map(|(start, end)| span_between(source, start, end))
 }
 
-#[cfg(feature = "schema-validation")]
 fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let scan = analyze(source, 0);
@@ -847,7 +837,6 @@ fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
 
 /// Span of a block header word: the type identifier when the path names the
 /// block type, or the label token when it names a label.
-#[cfg(feature = "schema-validation")]
 fn header_span(scan: &Scan, wanted: &[String]) -> Option<(usize, usize)> {
     for header in &scan.headers {
         let mut base = body_path(scan, header.parent);
@@ -866,7 +855,6 @@ fn header_span(scan: &Scan, wanted: &[String]) -> Option<(usize, usize)> {
     None
 }
 
-#[cfg(feature = "schema-validation")]
 fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
         let start = line.find(|character: char| !character.is_whitespace())?;
@@ -1699,27 +1687,6 @@ fn hcl_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     (quote, in_block_comment)
 }
 
-/// Block headers and `key = value` lines score; JSON braces and YAML colons do not.
-fn hcl_confidence(source: &str) -> u8 {
-    let mut score = 0u8;
-    for line in source.lines().take(50) {
-        let code = code_before_comment(line).unwrap_or("");
-        let trimmed = code.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let tokens: Vec<Token> = tokenize(code);
-        if classify_header(&tokens, 0).is_some() {
-            score = score.saturating_add(30);
-        } else if assignment_equals(code).is_some() {
-            score = score.saturating_add(5);
-        }
-        if score >= 200 {
-            break;
-        }
-    }
-    score.min(200)
-}
 
 fn highlight(line: &str) -> Vec<HighlightToken> {
     let indent = line.len() - line.trim_start().len();
@@ -1795,16 +1762,6 @@ fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> TokenKind {
 // Conversion
 // ---------------------------------------------------------------------------
 
-impl super::super::codec::Codec for HclBehavior {
-    /// An object whose keys are all identifiers becomes a block (`web { … }`),
-    /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
-        let Value::Object(map) = value else {
-            return Err("an HCL document is a body: the top level must be an object".to_string());
-        };
-        hcl::format::to_string(&hcl_body(map)?).map_err(|error| error.to_string())
-    }
-}
 
 fn hcl_body(map: &serde_json::Map<String, Value>) -> Result<hcl::Body, String> {
     let mut body = hcl::Body::builder();
@@ -1859,7 +1816,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     use super::super::super::diagnostics::validate;
     use super::super::super::diagnostics::{SchemaBundle, build_schema};
-    use super::super::super::language::{InsertContext, LanguageBehavior};
+    use super::super::super::language::{InsertContext, ConfigLanguage};
 
     const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
         base_indent: "",
@@ -2160,7 +2117,7 @@ mod tests {
             for byte in caret_bytes {
                 let cursor = source[..byte].encode_utf16().count();
                 let _ = HclBehavior.completion_context(source, cursor);
-                let _ = HclBehavior.newline_insertion(source, cursor);
+                let _ = HclBehavior.newline(source, cursor);
                 let _ = HclBehavior.lexical_state(source, cursor);
                 for force in [false, true] {
                     for option in
@@ -2184,15 +2141,15 @@ mod tests {
     #[test]
     fn enter_inside_a_block_indents_one_level() {
         assert_eq!(
-            HclBehavior.newline_with_indent("variable \"a\" {", 15),
+            HclBehavior.newline("variable \"a\" {", 15).0,
             "\n  "
         );
-        assert_eq!(HclBehavior.newline_with_indent("region = 1", 10), "\n");
+        assert_eq!(HclBehavior.newline("region = 1", 10).0, "\n");
     }
 
     #[test]
     fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-        let (text, caret) = HclBehavior.newline_insertion("{}", 1);
+        let (text, caret) = HclBehavior.newline("{}", 1);
         assert_eq!(text, "\n  \n");
         assert_eq!(caret, 3);
     }
@@ -2209,17 +2166,12 @@ mod tests {
 
     #[test]
     fn an_open_string_is_reported_to_the_pairing_guard() {
-        assert_eq!(HclBehavior.lexical_state("region = \"x", 11).0, Some('"'));
-        assert_eq!(HclBehavior.lexical_state("region = \"x\"", 12).0, None);
-        assert_eq!(HclBehavior.lexical_state("# region", 4), (None, true));
-        assert_eq!(HclBehavior.lexical_state("/* region", 9), (None, true));
+        assert_eq!(HclBehavior.lexical_state("region = \"x", 11).quote, Some('"'));
+        assert_eq!(HclBehavior.lexical_state("region = \"x\"", 12).quote, None);
+        assert!(HclBehavior.lexical_state("# region", 4).in_comment);
+        assert!(HclBehavior.lexical_state("/* region", 9).in_comment);
     }
 
-    #[test]
-    fn confidence_scores_hcl_constructs() {
-        assert!(HclBehavior.confidence("variable \"name\" {\n  default = \"x\"\n}") > 0);
-        assert_eq!(HclBehavior.confidence(""), 0);
-    }
 
     #[test]
     fn an_object_property_expands_to_a_block_with_the_caret_on_the_first_value() {

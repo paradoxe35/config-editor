@@ -1,4 +1,4 @@
-use super::language::LanguageBehavior;
+use super::language::ConfigLanguage;
 #[cfg(feature = "schema-validation")]
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
@@ -78,11 +78,11 @@ impl std::error::Error for SchemaError {}
 /// parses into the same data model.
 ///
 /// ```
-/// # #[cfg(feature = "schema-validation")] {
+/// # #[cfg(all(feature = "schema-validation", feature = "yaml", feature = "toml"))] {
 /// use leptos_config_editor::{Language, Schema};
 /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
-/// assert!(schema.validate(Language::Yaml, "listen: 7835\n").is_empty());
-/// let problems = schema.validate(Language::Toml, "listen = \"x\"\n");
+/// assert!(schema.validate(Language::YAML, "listen: 7835\n").is_empty());
+/// let problems = schema.validate(Language::TOML, "listen = \"x\"\n");
 /// assert_eq!(problems[0].line, Some(1));
 /// # }
 /// ```
@@ -167,9 +167,11 @@ impl Schema {
 /// Syntax diagnostics for `source`, for documents without a schema.
 ///
 /// ```
+/// # #[cfg(feature = "json")] {
 /// use leptos_config_editor::{Language, check_syntax};
-/// assert!(check_syntax(Language::Json, "{\"a\": 1}").is_empty());
-/// assert_eq!(check_syntax(Language::Json, "{\"a\": }").len(), 1);
+/// assert!(check_syntax(Language::JSON, "{\"a\": 1}").is_empty());
+/// assert_eq!(check_syntax(Language::JSON, "{\"a\": }").len(), 1);
+/// # }
 /// ```
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
     validate(source, None, None, true, language.behavior())
@@ -180,7 +182,7 @@ pub(super) fn validate(
     schema: Option<&SchemaBundle>,
     schema_error: Option<&str>,
     enabled: bool,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Vec<Diagnostic> {
     if !enabled {
         return Vec::new();
@@ -226,18 +228,18 @@ pub(super) fn validate(
                 {
                     let parent = error.instance_path().as_str();
                     unexpected.iter().find_map(|key| {
-                        behavior.span_for_path(source, &format!("{parent}/{}", escape_pointer(key)))
+                        behavior.key_span(source, &format!("{parent}/{}", escape_pointer(key)))
                     })
                 } else {
                     behavior
-                        .value_span_for_path(source, &path)
-                        .or_else(|| behavior.span_for_path(source, &path))
+                        .value_span(source, &path)
+                        .or_else(|| behavior.key_span(source, &path))
                 }
                 .or_else(|| behavior.first_span(source));
                 Diagnostic {
-                    line: location.map(|location| location.0),
-                    column: location.map(|location| location.1),
-                    end_column: location.map(|location| location.2),
+                    line: location.map(|location| location.line),
+                    column: location.map(|location| location.start_column),
+                    end_column: location.map(|location| location.end_column),
                     message: if path.is_empty() {
                         message
                     } else {

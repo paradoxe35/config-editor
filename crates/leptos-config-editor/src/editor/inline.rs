@@ -8,34 +8,51 @@ use super::language::SchemaPathSegment;
 /// A `key <separator>` on one line: the key's byte range and the byte just past
 /// the separator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct InlineKey {
-    pub(super) start: usize,
-    pub(super) end: usize,
-    pub(super) after_separator: usize,
+pub struct InlineKey {
+    /// Byte offset where the key starts.
+    pub start: usize,
+    /// Byte offset just past the key.
+    pub end: usize,
+    /// Byte offset just past the key's separator.
+    pub after_separator: usize,
 }
 
 /// What the caret is on inside an inline container.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum InlineEntry {
+pub enum InlineEntry {
     /// Typing a key that starts at byte `start`.
-    Key { start: usize },
+    Key {
+        /// Byte offset where the key starts.
+        start: usize,
+    },
     /// Typing the value of `key`, which starts at byte `start`.
-    Value { key: String, start: usize },
+    Value {
+        /// The key whose value is typed.
+        key: String,
+        /// Byte offset where the value starts.
+        start: usize,
+    },
     /// Typing item `index` of an array; it starts at byte `start`.
-    Item { index: usize, start: usize },
+    Item {
+        /// The item's index in its array.
+        index: usize,
+        /// Byte offset where the item starts.
+        start: usize,
+    },
 }
 
 /// The caret inside one or more inline containers opened on its line.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct InlineCaret {
+pub struct InlineCaret {
     /// Path from the line's own key down to the container holding the caret.
-    pub(super) path: Vec<SchemaPathSegment>,
-    pub(super) entry: InlineEntry,
+    pub path: Vec<SchemaPathSegment>,
+    /// What the caret is on.
+    pub entry: InlineEntry,
 }
 
 /// Every key on a line of code: the line's own key and each key inside its
 /// inline containers.
-pub(super) fn inline_keys(code: &str, separator: u8) -> Vec<InlineKey> {
+pub fn inline_keys(code: &str, separator: u8) -> Vec<InlineKey> {
     let mut keys = Vec::new();
     walk(code, separator, |event| {
         if let Event::Key(key) = event {
@@ -46,7 +63,7 @@ pub(super) fn inline_keys(code: &str, separator: u8) -> Vec<InlineKey> {
 }
 
 /// The key under byte `at`, if any.
-pub(super) fn inline_key_at(code: &str, separator: u8, at: usize) -> Option<InlineKey> {
+pub fn inline_key_at(code: &str, separator: u8, at: usize) -> Option<InlineKey> {
     inline_keys(code, separator)
         .into_iter()
         .find(|key| (key.start..key.end).contains(&at))
@@ -54,7 +71,7 @@ pub(super) fn inline_key_at(code: &str, separator: u8, at: usize) -> Option<Inli
 
 /// Where the caret at the end of `code_before` sits, when it is inside an
 /// inline container opened on the line; `None` at the line's top level.
-pub(super) fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
+pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
     let mut frames: Vec<Frame> = Vec::new();
     let mut entry_key: Option<String> = None;
     let mut entry_start = 0;
@@ -110,7 +127,7 @@ pub(super) fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCar
 }
 
 /// The byte just past the quoted string starting at `start`, or the end.
-pub(super) fn skip_quoted(code: &str, start: usize) -> usize {
+pub fn skip_quoted(code: &str, start: usize) -> usize {
     let quote = code.as_bytes()[start];
     let mut index = start + 1;
     while index < code.len() {
@@ -125,7 +142,7 @@ pub(super) fn skip_quoted(code: &str, start: usize) -> usize {
 
 /// Length of an inline value starting at the caret: through its closing quote
 /// when quoted, else up to the next `,` or closer, without trailing blanks.
-pub(super) fn inline_value_len(text: &str) -> usize {
+pub fn inline_value_len(text: &str) -> usize {
     if text.starts_with(['"', '\'']) {
         return skip_quoted(text, 0);
     }

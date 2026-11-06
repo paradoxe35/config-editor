@@ -1,21 +1,10 @@
 //! Conversion between languages through the shared data model: XML to HCL is
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
-//! ([`LanguageBehavior::parse`] and [`Codec::serialize`]).
-//!
-//! `Codec` is separate from `LanguageBehavior` so an editor that never
-//! converts does not pull in any serializer.
+//! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
-use super::language::{LanguageBehavior, ParseError};
+use super::language::{ConfigLanguage, ParseError};
 use serde_json::Value;
 use std::fmt;
-
-/// Renders the shared document model as text in one language.
-pub(super) trait Codec: Send + Sync {
-    /// `value` as a complete document, or why the language cannot express it.
-    /// `previous` is this document's last text in this language; a language
-    /// may keep its own framing from it (XML's declaration and config root).
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String>;
-}
 
 /// A converted document, and the values the target language could not carry
 /// exactly. Empty `losses` means the conversion round-trips.
@@ -50,20 +39,14 @@ impl fmt::Display for ConvertError {
 
 impl std::error::Error for ConvertError {}
 
-/// How to read and write one language.
-pub(super) struct Side<'a> {
-    pub(super) behavior: &'a dyn LanguageBehavior,
-    pub(super) codec: &'a dyn Codec,
-}
-
 /// Renders `value` in `target`, reading the result back to find the losses.
 pub(super) fn render(
     value: &Value,
-    target: &Side<'_>,
+    target: &dyn ConfigLanguage,
     previous: Option<&str>,
 ) -> Result<Conversion, ConvertError> {
-    let text = serialize(target.codec, value, previous)?;
-    let reread = target.behavior.parse(&text).map_err(|error| {
+    let text = serialize(target, value, previous)?;
+    let reread = target.parse(&text).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",
             error.message
@@ -74,13 +57,13 @@ pub(super) fn render(
     Ok(Conversion { text, losses })
 }
 
-/// Serializes through `codec`, ending with exactly one newline.
+/// Serializes through `language`, ending with exactly one newline.
 pub(super) fn serialize(
-    codec: &dyn Codec,
+    language: &dyn ConfigLanguage,
     value: &Value,
     previous: Option<&str>,
 ) -> Result<String, ConvertError> {
-    let mut text = codec
+    let mut text = language
         .serialize(value, previous)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
@@ -90,8 +73,8 @@ pub(super) fn serialize(
 
 pub(super) fn convert(
     source: &str,
-    from: &dyn LanguageBehavior,
-    to: &Side<'_>,
+    from: &dyn ConfigLanguage,
+    to: &dyn ConfigLanguage,
     previous: Option<&str>,
 ) -> Result<Conversion, ConvertError> {
     let value = from.parse(source).map_err(ConvertError::Parse)?;
@@ -130,7 +113,7 @@ fn differences(expected: &Value, actual: &Value, pointer: String, out: &mut Vec<
 
 /// The JSON pointer of the first value, depth-first, matching `predicate`;
 /// lets a codec name exactly what it cannot express.
-pub(super) fn first_pointer(value: &Value, predicate: &dyn Fn(&Value) -> bool) -> Option<String> {
+pub fn first_pointer(value: &Value, predicate: &dyn Fn(&Value) -> bool) -> Option<String> {
     if predicate(value) {
         return Some(String::new());
     }
@@ -149,7 +132,15 @@ fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-#[cfg(test)]
+// Conversion tests pair languages, so they need every built-in one.
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod tests {
     use super::super::Language;
     use super::{ConvertError, convert, differences};
@@ -192,8 +183,8 @@ mod tests {
 
     #[test]
     fn conversion_keeps_the_key_order_of_the_source() {
-        let converted = Language::Json
-            .convert(r#"{"zeta": 1, "alpha": 2, "mid": 3}"#, Language::Yaml)
+        let converted = Language::JSON
+            .convert(r#"{"zeta": 1, "alpha": 2, "mid": 3}"#, Language::YAML)
             .expect("converts");
         assert_eq!(converted.text, "zeta: 1\nalpha: 2\nmid: 3\n");
     }
@@ -201,7 +192,7 @@ mod tests {
     #[test]
     fn a_source_syntax_error_is_reported_with_its_position() {
         let Err(ConvertError::Parse(error)) =
-            Language::Json.convert("{\n  \"a\": ,\n}", Language::Yaml)
+            Language::JSON.convert("{\n  \"a\": ,\n}", Language::YAML)
         else {
             panic!("a parse error");
         };
@@ -211,7 +202,7 @@ mod tests {
     #[test]
     fn toml_names_the_null_it_cannot_express() {
         let Err(ConvertError::Unsupported(message)) =
-            Language::Json.convert(r#"{"web": {"https": null}}"#, Language::Toml)
+            Language::JSON.convert(r#"{"web": {"https": null}}"#, Language::TOML)
         else {
             panic!("TOML rejects null");
         };
@@ -220,8 +211,8 @@ mod tests {
 
     #[test]
     fn xml_reports_a_one_item_array_it_reads_back_as_a_scalar() {
-        let converted = Language::Json
-            .convert(r#"{"hosts": ["only.example"], "port": 80}"#, Language::Xml)
+        let converted = Language::JSON
+            .convert(r#"{"hosts": ["only.example"], "port": 80}"#, Language::XML)
             .expect("converts");
         assert_eq!(
             converted.text,
@@ -235,7 +226,7 @@ mod tests {
         let previous = "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>1</listen>\n</burrow>\n";
         let value = json!({"listen": 2, "pool": {"min_idle": 4}});
         let converted =
-            super::render(&value, &Language::Xml.side(), Some(previous)).expect("renders");
+            super::render(&value, Language::XML.behavior(), Some(previous)).expect("renders");
         assert_eq!(
             converted.text,
             "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>2</listen>\n  <pool>\n    <min_idle>4</min_idle>\n  </pool>\n</burrow>\n"
@@ -248,8 +239,8 @@ mod tests {
         let previous = "{\n    \"a\": 1\n}\n";
         let converted = convert(
             "b: 2\n",
-            Language::Yaml.behavior(),
-            &Language::Json.side(),
+            Language::YAML.behavior(),
+            Language::JSON.behavior(),
             Some(previous),
         )
         .expect("converts");
@@ -258,7 +249,7 @@ mod tests {
 
     #[test]
     fn hcl_writes_blocks_for_identifier_objects_and_quotes_other_keys() {
-        let text = Language::Hcl
+        let text = Language::HCL
             .serialize(&json!({"web": {"http": 80}, "names": {"old.example": "new.example"}}))
             .expect("serializes");
         assert_eq!(
@@ -270,8 +261,8 @@ mod tests {
     #[test]
     fn hcl_escapes_template_markers_in_strings() {
         let value = json!({"token": "${CLOUDFLARE_API_TOKEN}"});
-        let text = Language::Hcl.serialize(&value).expect("serializes");
-        assert_eq!(Language::Hcl.parse(&text).expect("reads back"), value);
+        let text = Language::HCL.serialize(&value).expect("serializes");
+        assert_eq!(Language::HCL.parse(&text).expect("reads back"), value);
     }
 
     #[test]

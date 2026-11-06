@@ -1,101 +1,129 @@
-//! The language registry. Core code never names a language; it reads a
-//! [`LanguageSpec`] and calls its traits.
+//! Language registry: the built-in languages, each behind its Cargo feature.
 //!
-//! To add a language:
+//! Core code never names a language: it holds a [`Language`] and calls the
+//! [`ConfigLanguage`] trait behind it. Adding a built-in language:
 //!
-//! 1. write `languages/<name>.rs`: a struct implementing
-//!    [`LanguageBehavior`](super::language::LanguageBehavior) and
-//!    [`Codec`](super::codec::Codec), and a `pub(super) const SPEC`;
-//! 2. add one line to `registry!` below: `Name => module,`.
+//! 1. write `languages/<name>.rs` with one struct implementing
+//!    [`ConfigLanguage`];
+//! 2. add its feature to `Cargo.toml` and one line to the `registry!` call
+//!    below.
 //!
-//! Labels, extensions, name parsing, conversion, completion and highlighting
-//! all follow from the spec.
+//! External crates implement [`ConfigLanguage`] the same way and wrap it with
+//! [`Language::new`].
 
-use super::codec::{self, Codec, Conversion, ConvertError, Side};
-use super::language::{LanguageBehavior, ParseError};
+use super::codec::{self, Conversion, ConvertError};
+use super::language::{ConfigLanguage, LanguageInfo, ParseError};
 use serde_json::Value;
 
-/// Everything the editor knows about one language: its file's `SPEC`.
-pub(super) struct LanguageSpec {
-    /// Short UI label, such as `"YAML"`; also accepted as a name.
-    pub(super) label: &'static str,
-    /// Single-letter file icon.
-    pub(super) icon: &'static str,
-    /// Lowercase, without the dot; the first is preferred.
-    pub(super) extensions: &'static [&'static str],
-    pub(super) behavior: &'static dyn LanguageBehavior,
-    pub(super) codec: &'static dyn Codec,
-}
-
-/// Expands each `Variant => module` line into the module, the [`Language`]
-/// variant, its entry in [`Language::ALL`], and its `spec` arm.
-#[cfg(all(test, feature = "schema-validation"))]
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nested_tests;
 
-macro_rules! registry {
-    ($($(#[$attribute:meta])* $variant:ident => $module:ident,)+) => {
-        $(mod $module;)+
+/// A document language: a built-in one ([`Language::YAML`], …) or any
+/// [`ConfigLanguage`] implementation wrapped with [`Language::new`].
+///
+/// A small `Copy` handle; two handles are equal when their labels are.
+/// Built-in languages parse from a name or file extension:
+///
+/// ```
+/// # #[cfg(all(feature = "hcl", feature = "toml", feature = "yaml"))] {
+/// use leptos_config_editor::Language;
+/// assert_eq!("yml".parse::<Language>(), Ok(Language::YAML));
+/// assert_eq!(Language::from_path("infra/main.tf"), Some(Language::HCL));
+/// assert_eq!(Language::TOML.to_string(), "TOML");
+/// # }
+/// ```
+#[derive(Clone, Copy)]
+pub struct Language(&'static dyn ConfigLanguage);
 
-        /// A document language.
-        ///
-        /// Parses from a name or file extension, case-insensitively:
-        ///
-        /// ```
-        /// use leptos_config_editor::Language;
-        /// assert_eq!("yml".parse::<Language>(), Ok(Language::Yaml));
-        /// assert_eq!(Language::from_path("infra/main.tf"), Some(Language::Hcl));
-        /// assert_eq!(Language::Toml.to_string(), "TOML");
-        /// ```
-        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
-        #[non_exhaustive]
-        pub enum Language {
-            $($(#[$attribute])* $variant,)+
-        }
+/// Declares the built-in languages: per line, the feature that enables it,
+/// its constant, and its implementation.
+macro_rules! registry {
+    ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {
+        $(#[cfg(feature = $feature)] mod $module;)+
 
         impl Language {
-            /// Every supported language, in registration order (for pickers).
-            pub const ALL: &'static [Language] = &[$(Language::$variant),+];
+            $(
+                $(#[doc = $doc])*
+                #[cfg(feature = $feature)]
+                pub const $constant: Language = Language(&$module::$implementation);
+            )+
 
-            fn spec(self) -> &'static LanguageSpec {
-                match self {
-                    $(Language::$variant => &$module::SPEC,)+
-                }
-            }
+            /// The built-in languages this build enables, in a stable order
+            /// (for pickers).
+            pub const ALL: &'static [Language] = &[$(#[cfg(feature = $feature)] Language::$constant,)+];
         }
     };
 }
 
 registry! {
-    /// YAML (the default).
-    #[default]
-    Yaml => yaml,
-    /// JSON.
-    Json => json,
-    /// TOML.
-    Toml => toml,
-    /// HCL (HashiCorp Configuration Language, as used by Terraform).
-    Hcl => hcl,
-    /// XML.
-    Xml => xml,
+    /// YAML (feature `yaml`).
+    "yaml" => YAML => yaml::YamlBehavior,
+    /// JSON (feature `json`).
+    "json" => JSON => json::JsonBehavior,
+    /// TOML (feature `toml`).
+    "toml" => TOML => toml::TomlBehavior,
+    /// HCL, the HashiCorp Configuration Language used by Terraform (feature
+    /// `hcl`).
+    "hcl" => HCL => hcl::HclBehavior,
+    /// XML (feature `xml`).
+    "xml" => XML => xml::XmlBehavior,
 }
 
 impl Language {
-    /// Short UI label: `"YAML"`, `"JSON"`, `"TOML"`, `"HCL"`, or `"XML"`.
-    pub fn label(self) -> &'static str {
-        self.spec().label
+    /// Wraps a language implementation, built-in or external.
+    ///
+    /// ```
+    /// use leptos_config_editor::Language;
+    /// use leptos_config_editor::language::{ConfigLanguage, LanguageInfo, ParseError};
+    ///
+    /// struct Lines;
+    /// impl ConfigLanguage for Lines {
+    ///     fn info(&self) -> LanguageInfo {
+    ///         LanguageInfo { label: "Lines", icon: "L", extensions: &["lines"] }
+    ///     }
+    ///     fn parse(&self, source: &str) -> Result<serde_json::Value, ParseError> {
+    ///         Ok(source.lines().collect::<Vec<_>>().into())
+    ///     }
+    /// }
+    ///
+    /// static LINES: Lines = Lines;
+    /// let language = Language::new(&LINES);
+    /// assert_eq!(language.label(), "Lines");
+    /// assert_eq!(language.parse("a\nb").unwrap()[1], "b");
+    /// ```
+    pub const fn new(language: &'static dyn ConfigLanguage) -> Self {
+        Language(language)
     }
 
-    /// Single-letter file icon for toolbars.
+    /// The language's label, icon, and extensions.
+    pub fn info(self) -> LanguageInfo {
+        self.0.info()
+    }
+
+    /// Short UI label, such as `"YAML"`.
+    pub fn label(self) -> &'static str {
+        self.info().label
+    }
+
+    /// Single-character toolbar icon.
     pub fn file_icon(self) -> &'static str {
-        self.spec().icon
+        self.info().icon
     }
 
     /// File extensions, lowercase and without the dot; the first is preferred.
     pub fn extensions(self) -> &'static [&'static str] {
-        self.spec().extensions
+        self.info().extensions
     }
 
-    /// The language of a file, from its extension (case-insensitive).
+    /// The built-in language of a file, from its extension.
     pub fn from_path(path: &str) -> Option<Language> {
         let (_, extension) = path.rsplit_once('.')?;
         Language::ALL.iter().copied().find(|language| {
@@ -106,9 +134,12 @@ impl Language {
         })
     }
 
-    /// `untitled.<preferred extension>`, shown when the host gives no file name.
+    /// File name the built-in toolbar shows when the host gives none.
     pub fn default_file_name(self) -> String {
-        format!("untitled.{}", self.extensions()[0])
+        match self.extensions().first() {
+            Some(extension) => format!("untitled.{extension}"),
+            None => "untitled".to_string(),
+        }
     }
 
     /// Parses a document into the shared data model (a JSON value), the same
@@ -116,66 +147,98 @@ impl Language {
     ///
     /// # Errors
     ///
-    /// Returns the first syntax error in `source`.
+    /// The first syntax error, with its position when the language reports
+    /// one.
     ///
     /// ```
+    /// # #[cfg(feature = "toml")] {
     /// use leptos_config_editor::Language;
-    /// let value = Language::Toml.parse("listen = 7835\n").unwrap();
+    /// let value = Language::TOML.parse("listen = 7835\n").unwrap();
     /// assert_eq!(value["listen"], 7835);
+    /// # }
     /// ```
     pub fn parse(self, source: &str) -> Result<Value, ParseError> {
-        self.behavior().parse(source)
+        self.0.parse(source)
     }
 
     /// Renders a data model value as a document in this language.
     ///
     /// # Errors
     ///
-    /// [`ConvertError::Unsupported`] when the language cannot express `value`
-    /// (for example a `null` in TOML).
+    /// [`ConvertError::Unsupported`] when the language cannot express the
+    /// value (TOML has no `null`).
     ///
     /// ```
+    /// # #[cfg(feature = "hcl")] {
     /// use leptos_config_editor::Language;
     /// let value = serde_json::json!({"web": {"http": 80}});
-    /// assert_eq!(Language::Hcl.serialize(&value).unwrap(), "web {\n  http = 80\n}\n");
+    /// assert_eq!(Language::HCL.serialize(&value).unwrap(), "web {\n  http = 80\n}\n");
+    /// # }
     /// ```
     pub fn serialize(self, value: &Value) -> Result<String, ConvertError> {
-        codec::serialize(self.codec(), value, None)
+        codec::serialize(self.0, value, None)
     }
 
-    /// Converts a document from this language to `target`.
-    ///
-    /// The result lists the JSON pointers `target` could not carry exactly
-    /// (`losses`). Comments are not carried over.
+    /// Converts a document from this language to `target`. The result lists
+    /// the JSON pointers `target` could not carry exactly (`losses`);
+    /// comments do not survive a conversion.
     ///
     /// # Errors
     ///
     /// [`ConvertError::Parse`] when `source` does not parse, and
-    /// [`ConvertError::Unsupported`] when `target` cannot express the document.
+    /// [`ConvertError::Unsupported`] when `target` cannot express it.
     ///
     /// ```
+    /// # #[cfg(all(feature = "hcl", feature = "yaml"))] {
     /// use leptos_config_editor::Language;
-    /// let hcl = Language::Yaml.convert("web:\n  http: 80\n", Language::Hcl).unwrap();
+    /// let hcl = Language::YAML.convert("web:\n  http: 80\n", Language::HCL).unwrap();
     /// assert_eq!(hcl.text, "web {\n  http = 80\n}\n");
     /// assert!(hcl.losses.is_empty());
+    /// # }
     /// ```
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
-        codec::convert(source, self.behavior(), &target.side(), None)
+        codec::convert(source, self.0, target.0, None)
     }
 
-    pub(super) fn behavior(self) -> &'static dyn LanguageBehavior {
-        self.spec().behavior
+    pub(super) fn behavior(self) -> &'static dyn ConfigLanguage {
+        self.0
     }
+}
 
-    pub(super) fn codec(self) -> &'static dyn Codec {
-        self.spec().codec
+/// The first enabled built-in language (YAML with default features).
+///
+/// # Panics
+///
+/// When no built-in language feature is enabled; pass an explicit
+/// [`Language::new`] language instead.
+impl Default for Language {
+    fn default() -> Self {
+        *Language::ALL
+            .first()
+            .expect("no built-in language is enabled; use Language::new")
     }
+}
 
-    pub(super) fn side(self) -> Side<'static> {
-        Side {
-            behavior: self.behavior(),
-            codec: self.codec(),
-        }
+impl PartialEq for Language {
+    fn eq(&self, other: &Self) -> bool {
+        self.label() == other.label()
+    }
+}
+
+impl Eq for Language {}
+
+impl std::hash::Hash for Language {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.label().hash(state);
+    }
+}
+
+impl std::fmt::Debug for Language {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("Language")
+            .field(&self.label())
+            .finish()
     }
 }
 
@@ -185,7 +248,7 @@ impl std::fmt::Display for Language {
     }
 }
 
-/// A name that is not a supported [`Language`].
+/// A name that is not a built-in [`Language`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnknownLanguage(pub String);
 
@@ -200,7 +263,8 @@ impl std::error::Error for UnknownLanguage {}
 impl std::str::FromStr for Language {
     type Err = UnknownLanguage;
 
-    /// A language label or file extension, ignoring case and a leading dot.
+    /// A built-in language's label or file extension, ignoring case and a
+    /// leading dot.
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         let wanted = name.trim().trim_start_matches('.');
         Language::ALL
@@ -298,6 +362,13 @@ mod tests {
         );
     }
 
+    #[cfg(any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    ))]
     #[test]
     fn the_default_language_is_registered() {
         assert!(Language::ALL.contains(&Language::default()));

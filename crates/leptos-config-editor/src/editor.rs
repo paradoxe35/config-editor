@@ -6,7 +6,7 @@ mod chrome;
 mod codec;
 mod highlight;
 mod inline;
-mod language;
+pub mod language;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 mod languages;
 pub use codec::{Conversion, ConvertError};
@@ -697,7 +697,7 @@ pub fn ConfigEditor(
                                                     {move || {
                                                         let text = row_text();
                                                         if enable_highlighting {
-                                                            behavior.highlight_line(&text)
+                                                            highlight::render(&text, &behavior.highlight(&text))
                                                         } else {
                                                             view! { <span>{text}</span> }.into_any()
                                                         }
@@ -1345,7 +1345,7 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                let (insertion, caret) = behavior.newline_insertion(&text, start);
+                                                let (insertion, caret) = behavior.newline(&text, start);
                                                 let (updated, _) = replace_selection(&text, start, end, &insertion);
                                                 // `caret` is a byte index; the cursor is in UTF-16 units.
                                                 let new_cursor = start + insertion[..caret].encode_utf16().count();

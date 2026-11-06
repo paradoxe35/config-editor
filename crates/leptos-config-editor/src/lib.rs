@@ -15,7 +15,7 @@
 //! let saved = RwSignal::new("name: app\n".to_string());
 //! view! {
 //!     <ConfigEditor
-//!         language=Language::Yaml
+//!         language=Language::YAML
 //!         value=saved
 //!         on_change=move |text| saved.set(text)
 //!         schema=include_str!("schema.json")
@@ -26,7 +26,7 @@
 //! - `value`/`on_change` keep the host as the source of truth; `baseline`
 //!   adds a diff gutter; `read_only` gives a view mode.
 //! - `edit_as` edits a document in another language than the host stores it
-//!   in: `language=Language::Xml edit_as=Language::Hcl` shows HCL and sends
+//!   in: `language=Language::XML edit_as=Language::HCL` shows HCL and sends
 //!   XML back through `on_change`.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
@@ -36,27 +36,39 @@
 //! # Headless use
 //!
 //! ```
-//! # #[cfg(feature = "schema-validation")] {
+//! # #[cfg(all(feature = "schema-validation", feature = "toml", feature = "yaml", feature = "hcl"))] {
 //! use leptos_config_editor::{Language, Schema};
 //!
 //! let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
-//! assert!(schema.validate(Language::Toml, "listen = 7835\n").is_empty());
+//! assert!(schema.validate(Language::TOML, "listen = 7835\n").is_empty());
 //!
-//! let hcl = Language::Yaml.convert("listen: 7835\n", Language::Hcl).unwrap();
+//! let hcl = Language::YAML.convert("listen: 7835\n", Language::HCL).unwrap();
 //! assert_eq!(hcl.text, "listen = 7835\n");
 //! # }
 //! ```
 //!
+//! # Your own language
+//!
+//! Implement [`language::ConfigLanguage`] and wrap it with [`Language::new`];
+//! see the [`language`] module.
+//!
 //! # Features
 //!
-//! - `schema-validation` (default): JSON Schema diagnostics, completions, and
-//!   hover docs, through the `jsonschema` crate. Without it the editor still
-//!   checks syntax and converts.
+//! All on by default:
+//!
+//! - `schema-validation`: JSON Schema diagnostics, completions, and hover
+//!   docs, through the `jsonschema` crate. Without it the editor still checks
+//!   syntax and converts.
+//! - `yaml`, `json`, `toml`, `hcl`, `xml`: the built-in languages
+//!   ([`Language::YAML`], …). Without any, use your own through
+//!   [`Language::new`].
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod editor;
+
+pub use editor::language;
 
 pub use editor::{
     ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,

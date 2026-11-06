@@ -1,7 +1,7 @@
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::language::{CompletionContext, InsertContext, LanguageBehavior, SchemaPathSegment};
+use super::language::{CompletionContext, ConfigLanguage, InsertContext, SchemaPathSegment};
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use regex::Regex;
@@ -61,19 +61,22 @@ fn type_includes(schema: &Value, expected: &str) -> bool {
     }
 }
 
-pub(super) fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+/// The `default` of a property schema, through `$ref` and `anyOf`/`oneOf`/`allOf`.
+pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find_map(|branch| branch.get("default"))
 }
 
-pub(super) fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+/// The `const` of a property schema, through `$ref` and the combinators.
+pub fn schema_const<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find_map(|branch| branch.get("const"))
 }
 
-pub(super) fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+/// The branch of a property schema that describes an object, if any.
+pub fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find(|branch| {
@@ -84,7 +87,8 @@ pub(super) fn object_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'
         })
 }
 
-pub(super) fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+/// The branch of a property schema that describes an array, if any.
+pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
     resolve_branches(schema, root, 0)
         .into_iter()
         .find(|branch| {
@@ -378,7 +382,7 @@ fn value_completions(
     end: usize,
     root: &Value,
     leading: &str,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
     let query = unquoted(typed);
     let mut candidates = Vec::new();
@@ -428,7 +432,7 @@ fn property_completions(
     root: &Value,
     existing: Option<&HashSet<String>>,
     insert_context: &InsertContext<'_>,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
     for branch in schemas
@@ -490,7 +494,7 @@ pub(super) fn completions(
     force: bool,
     schema: Option<&SchemaBundle>,
     enabled: bool,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
     if !enabled {
         return Vec::new();
@@ -539,7 +543,7 @@ fn completions_for_context(
     context: &CompletionContext,
     force: bool,
     bundle: &SchemaBundle,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
     let schemas = schema_at_path(&bundle.schema, &context.path);
 
@@ -662,7 +666,7 @@ pub(super) fn key_hover(
     line_index: usize,
     column: usize,
     schema: Option<&SchemaBundle>,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> Option<KeyHover> {
     let bundle = schema?;
     let line_start: usize = source
@@ -903,7 +907,7 @@ pub(super) fn accept_marked(
     marked: &str,
     label: &str,
     schema: &SchemaBundle,
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
 ) -> String {
     let at = marked.find('|').expect("a | caret marker");
     let source = marked.replacen('|', "", 1);

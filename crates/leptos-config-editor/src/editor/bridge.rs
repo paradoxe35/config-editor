@@ -1,5 +1,5 @@
 //! Editing a document in one language while the host keeps it in another
-//! (`<ConfigEditor language=Language::Xml edit_as=Language::Hcl>`).
+//! (`<ConfigEditor language=Language::XML edit_as=Language::HCL>`).
 //!
 //! The host's text (`value`, `baseline`, `initial_value`) is shown converted;
 //! edits convert back before `on_change`, keeping the host's framing. Both
@@ -8,7 +8,7 @@
 use super::Language;
 use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, Severity};
-use super::language::LanguageBehavior;
+use super::language::ConfigLanguage;
 
 #[derive(Clone, Copy)]
 pub(super) struct Bridge {
@@ -47,7 +47,7 @@ impl Bridge {
         codec::convert(
             edit_text,
             self.edit.behavior(),
-            &self.host.side(),
+            self.host.behavior(),
             Some(previous_host),
         )
     }
@@ -104,32 +104,34 @@ impl Bridge {
 /// A diagnostic on the value at `pointer` in `source`, or on the document's
 /// first content when the value has no span.
 fn located(
-    behavior: &dyn LanguageBehavior,
+    behavior: &dyn ConfigLanguage,
     source: &str,
     pointer: &str,
     message: String,
     severity: Severity,
 ) -> Diagnostic {
-    #[cfg(feature = "schema-validation")]
     let span = behavior
-        .value_span_for_path(source, pointer)
-        .or_else(|| behavior.span_for_path(source, pointer))
+        .value_span(source, pointer)
+        .or_else(|| behavior.key_span(source, pointer))
         .or_else(|| behavior.first_span(source));
-    #[cfg(not(feature = "schema-validation"))]
-    let span: Option<(usize, usize, usize)> = {
-        let _ = (behavior, source, pointer);
-        Some((1, 1, 2))
-    };
     Diagnostic {
-        line: span.map(|span| span.0),
-        column: span.map(|span| span.1),
-        end_column: span.map(|span| span.2),
+        line: span.map(|span| span.line),
+        column: span.map(|span| span.start_column),
+        end_column: span.map(|span| span.end_column),
         message,
         severity,
     }
 }
 
-#[cfg(test)]
+// Conversion tests pair languages, so they need every built-in one.
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod tests {
     use super::super::Language;
     use super::super::diagnostics::Severity;
@@ -137,12 +139,12 @@ mod tests {
 
     #[test]
     fn the_same_language_needs_no_bridge() {
-        assert!(Bridge::new(Language::Yaml, Language::Yaml).is_none());
+        assert!(Bridge::new(Language::YAML, Language::YAML).is_none());
     }
 
     #[test]
     fn host_text_is_shown_converted_and_edits_convert_back_keeping_framing() {
-        let bridge = Bridge::new(Language::Xml, Language::Hcl).unwrap();
+        let bridge = Bridge::new(Language::XML, Language::HCL).unwrap();
         let host = "<?xml version=\"1.0\"?>\n<burrow config-root=\"true\">\n  <listen>7835</listen>\n</burrow>\n";
         let shown = bridge.to_edit(host).unwrap();
         assert_eq!(shown.text, "listen = 7835\n");
@@ -155,7 +157,7 @@ mod tests {
 
     #[test]
     fn a_value_the_host_cannot_carry_is_a_warning_on_that_value() {
-        let bridge = Bridge::new(Language::Xml, Language::Yaml).unwrap();
+        let bridge = Bridge::new(Language::XML, Language::YAML).unwrap();
         let edit = "hosts:\n  - only.example\nport: 80\n";
         let result = bridge.to_host(edit, "");
         let problems = bridge.problems(edit, &result);
@@ -171,7 +173,7 @@ mod tests {
 
     #[test]
     fn a_document_the_host_cannot_express_is_an_error_and_not_saved() {
-        let bridge = Bridge::new(Language::Toml, Language::Json).unwrap();
+        let bridge = Bridge::new(Language::TOML, Language::JSON).unwrap();
         let edit = "{\n  \"https\": null\n}\n";
         let result = bridge.to_host(edit, "");
         assert!(result.is_err());
@@ -186,7 +188,7 @@ mod tests {
 
     #[test]
     fn syntax_errors_are_left_to_validation() {
-        let bridge = Bridge::new(Language::Json, Language::Yaml).unwrap();
+        let bridge = Bridge::new(Language::JSON, Language::YAML).unwrap();
         let edit = "a: [\n";
         let result = bridge.to_host(edit, "");
         assert!(bridge.problems(edit, &result).is_empty());
