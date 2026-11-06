@@ -484,10 +484,30 @@ fn json_text(value: &Value) -> String {
 fn json_parse(source: &str) -> Result<Value, ParseError> {
     let document: Value = serde_json::from_str(source).map_err(|error| {
         let line_count = source.split('\n').count().max(1);
+        let (mut line, mut column) = (error.line().clamp(1, line_count), error.column().max(1));
+        // The marker shows the position, so the message drops serde's
+        // " at line N column M".
+        let full = error.to_string();
+        let message = full
+            .rsplit_once(" at line ")
+            .map_or(full.as_str(), |(text, _)| text)
+            .to_string();
+        // A trailing comma is reported at the closer; point at the comma.
+        if message.starts_with("trailing comma") {
+            let line_start: usize = source.split_inclusive('\n').take(line - 1).map(str::len).sum();
+            let at = line_start
+                + source[line_start..]
+                    .char_indices()
+                    .nth(column - 1)
+                    .map_or(source.len() - line_start, |(index, _)| index);
+            if let Some(comma) = source[..at.min(source.len())].rfind(',') {
+                (line, column) = line_column(source, comma);
+            }
+        }
         ParseError {
-            message: error.to_string(),
-            line: Some(error.line().clamp(1, line_count)),
-            column: Some(error.column().max(1)),
+            message,
+            line: Some(line),
+            column: Some(column),
         }
     })?;
     let mut seen = HashSet::new();

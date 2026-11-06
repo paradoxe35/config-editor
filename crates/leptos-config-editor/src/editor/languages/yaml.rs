@@ -1709,7 +1709,8 @@ mod tests {
         );
         let option = options.iter().find(|option| option.label == "tls").unwrap();
         assert!(option.is_value);
-        assert_eq!(option.type_label, "enum");
+        // The values' type; the closed set shows in the suggestions themselves.
+        assert_eq!(option.type_label, "string");
     }
 
     #[cfg(feature = "schema-validation")]

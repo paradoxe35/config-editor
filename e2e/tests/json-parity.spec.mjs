@@ -768,13 +768,14 @@ test.describe('diagnostics lines', () => {
     await expect(page.locator('.config-editor__line-number-error')).toHaveText(['4']);
   });
 
-  test('a trailing comma is reported on the closing line', async ({ page }) => {
+  test('a trailing comma is reported on the comma', async ({ page }) => {
     const e = editor(page);
     await e.paste('{\n  "listen": 7835,\n}');
     const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
-    await expect(marker).toHaveAttribute('aria-label', /line 3/);
-    await expect(page.locator('.config-editor__line-number-error')).toHaveText(['3']);
+    await expect(marker).toHaveAttribute('aria-label', /line 2/);
+    await expect(marker).toHaveText(',');
+    await expect(page.locator('.config-editor__line-number-error')).toHaveText(['2']);
   });
 });
 

@@ -858,6 +858,12 @@ pub fn ConfigEditor(
                     <div class="config-editor__surface">
                         <div
                             class="config-editor__gutter"
+                            // Wide enough for the longest line number beside the
+                            // diagnostic dot (52px fits four digits).
+                            style:width=move || {
+                                let digits = source.with(|text| text.bytes().filter(|byte| *byte == b'\n').count() + 1).to_string().len();
+                                (digits > 4).then(|| format!("calc(52px + {}ch)", digits - 4))
+                            }
                         >
                             <div
                                 class="config-editor__gutter-content"

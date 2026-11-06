@@ -903,3 +903,21 @@ mod trailing_blank_lines {
         assert!(end.modified_before.iter().all(Option::is_none));
     }
 }
+
+#[cfg(test)]
+mod bench_probe {
+    #[test]
+    #[ignore]
+    fn diff_cost_on_10k_lines() {
+        let baseline: String = (0..10000)
+            .map(|i| format!("  key_{i}: value number {i}\n"))
+            .collect();
+        let mut edited = baseline.clone();
+        edited.insert_str(baseline.len() / 2, "x");
+        let started = std::time::Instant::now();
+        for _ in 0..20 {
+            let _ = super::diff_lines(&baseline, &edited);
+        }
+        eprintln!("diff_lines: {:?} per call", started.elapsed() / 20);
+    }
+}

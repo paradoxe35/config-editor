@@ -327,35 +327,44 @@ pub(super) fn validate(
                 } else {
                     format!("{path}: {message}")
                 };
-                // Each unknown key gets its own marker, so every one is
-                // underlined and reachable with F8.
-                let locations: Vec<Option<Span>> =
+                // Each unknown key gets its own marker and message, so every
+                // one is underlined and reachable with F8.
+                let locations: Vec<(Option<Span>, String)> =
                     if let ValidationErrorKind::AdditionalProperties { unexpected } = error.kind() {
                         let parent = error.instance_path().as_str();
                         unexpected
                             .iter()
                             .map(|key| {
                                 let pointer = format!("{parent}/{}", escape_pointer(key));
-                                inline_location(behavior, source, &pointer, true)
-                                    .or_else(|| behavior.key_span(source, &pointer))
+                                let span = inline_location(behavior, source, &pointer, true)
+                                    .or_else(|| behavior.key_span(source, &pointer));
+                                let place = if parent.is_empty() { "/" } else { parent };
+                                let message = if key == "#text" {
+                                    // XML mixed content: text beside child elements.
+                                    format!("{place}: text is not allowed here, only elements")
+                                } else {
+                                    format!("{place}: '{key}' is not allowed here")
+                                };
+                                (span, message)
                             })
                             .collect()
                     } else {
-                        vec![
+                        vec![(
                             inline_location(behavior, source, &path, false)
                                 .or_else(|| behavior.value_span(source, &path))
                                 .or_else(|| behavior.key_span(source, &path)),
-                        ]
+                            message,
+                        )]
                     };
                 locations
                     .into_iter()
-                    .map(|location| {
+                    .map(|(location, message)| {
                         let location = location.or_else(|| behavior.first_span(source));
                         Diagnostic {
                             line: location.map(|location| location.line),
                             column: location.map(|location| location.start_column),
                             end_column: location.map(|location| location.end_column),
-                            message: message.clone(),
+                            message,
                             severity: Severity::Error,
                         }
                     })
@@ -525,7 +534,7 @@ mod message_tests {
     fn a_typo_in_an_optional_object_names_the_typo() {
         assert_eq!(
             messages("web: {listen: 443}\n"),
-            ["/web: Additional properties are not allowed ('listen' was unexpected)"]
+            ["/web: 'listen' is not allowed here"]
         );
     }
 

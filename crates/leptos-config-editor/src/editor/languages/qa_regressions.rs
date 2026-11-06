@@ -852,3 +852,34 @@ fn span_lookups_on_large_documents_are_fast() {
         }
     }
 }
+
+#[test]
+fn json_errors_point_at_the_problem_without_repeating_the_position() {
+    let error = Language::JSON
+        .parse("{\n  \"listen\": 7835,\n}")
+        .unwrap_err();
+    assert_eq!(
+        (error.line, error.column),
+        (Some(2), Some(17)),
+        "{}",
+        error.message
+    );
+    assert!(!error.message.contains(" at line "), "{}", error.message);
+}
+
+#[test]
+fn an_empty_xml_element_is_empty_text_where_text_is_expected() {
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    assert_eq!(
+        schema.validate(Language::XML, "<public_address></public_address>"),
+        []
+    );
+    let mixed = schema.validate(Language::XML, "<web>stray<hsts>true</hsts></web>");
+    assert!(
+        mixed
+            .iter()
+            .any(|problem| problem.message.contains("text is not allowed")),
+        "{mixed:?}"
+    );
+}

@@ -32,8 +32,14 @@ fn schema_type_label(schema: &Value, root: &Value, fallback: &str) -> String {
     let mut labels: Vec<String> = resolve_branches(schema, root, 0)
         .into_iter()
         .filter_map(|branch| {
-            if branch.get("enum").is_some() {
-                return Some("enum".to_string());
+            // An enum is a constraint, not a type: show its values' type.
+            if branch.get("type").is_none()
+                && let Some(values) = branch.get("enum").and_then(Value::as_array)
+            {
+                let mut kinds: Vec<&str> = values.iter().map(json_type_name).collect();
+                kinds.sort_unstable();
+                kinds.dedup();
+                return Some(kinds.join(" | "));
             }
             match branch.get("type") {
                 Some(Value::String(value)) => Some(value.clone()),
@@ -55,6 +61,18 @@ fn schema_type_label(schema: &Value, root: &Value, fallback: &str) -> String {
         fallback.to_string()
     } else {
         labels.join(" | ")
+    }
+}
+
+fn json_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "integer",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 
@@ -263,6 +281,17 @@ fn conform(value: &mut Value, schema: &Value, root: &Value, repetition: Repetiti
             || branch.get("prefixItems").is_some()
             || type_includes(branch, "array")
     });
+    // An empty XML element reads as `{}`; where the schema wants text it is
+    // the empty string.
+    if repetition == Repetition::Elements
+        && value.as_object().is_some_and(serde_json::Map::is_empty)
+        && !branches.iter().any(|branch| accepts(branch, value))
+        && branches
+            .iter()
+            .any(|branch| type_includes(branch, "string"))
+    {
+        *value = Value::String(String::new());
+    }
     let repeatable = match repetition {
         Repetition::Elements => !value.is_array(),
         Repetition::Blocks => value.is_object(),
