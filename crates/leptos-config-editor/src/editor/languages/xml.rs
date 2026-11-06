@@ -940,6 +940,18 @@ fn build_value(source: &str) -> Result<Value, ParseError> {
             Ok(event) => event,
             Err(error) => {
                 let position = reader.error_position() as usize;
+                // Noticed only at the end of the document (a start tag missing
+                // its `>` swallows what follows): the mistake is in the
+                // innermost element still open.
+                if position >= source.trim_end().len().saturating_sub(1)
+                    && let Some(open) = stack.last()
+                {
+                    return Err(syntax_error(
+                        source,
+                        open.start,
+                        format!("<{}> is never closed: {error}", open.name),
+                    ));
+                }
                 return Err(syntax_error(source, position, error.to_string()));
             }
         };
@@ -1863,6 +1875,9 @@ fn hover_context_end(line: &str, column: usize) -> usize {
     let after_equals = rest.trim_start().strip_prefix('=').map(str::trim_start);
     match after_equals {
         Some(value) if value.starts_with(['"', '\'']) => line.len() - value.len() + 1,
+        // An element whose start tag carries attributes: read just past its
+        // name, where the context is the element itself.
+        _ if rest.starts_with([' ', '\t']) && !rest.trim_start().starts_with(['>', '/']) => name_end + 1,
         _ => name_end,
     }
 }

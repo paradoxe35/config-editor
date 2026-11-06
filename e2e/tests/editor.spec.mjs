@@ -274,3 +274,23 @@ test.describe('hover documentation', () => {
     await expect(page.locator('.config-editor__hover')).toHaveCount(0);
   });
 });
+
+test.describe('diagnostics navigation', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('every unknown key is marked and F8 scrolls to the next problem', async ({ page }) => {
+    const e = editor(page);
+    const filler = Array.from({ length: 120 }, (_, i) => `# line ${i}`).join('\n');
+    await e.paste(`bogus_one: 1\n${filler}\nbogus_two: 2\n`);
+    await expect.poll(() => e.diagnosticCount()).toBe(2);
+    const scroller = page.locator('.config-editor__input');
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(0, 0);
+      element.scrollTop = 0;
+    });
+    await page.keyboard.press('F8');
+    await page.keyboard.press('F8');
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+  });
+});

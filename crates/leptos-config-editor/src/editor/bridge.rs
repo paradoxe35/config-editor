@@ -52,7 +52,8 @@ impl Bridge {
         // A value edit rewrites just those values in the host's own text, so
         // its comments and formatting survive; structural edits re-serialize.
         if let Ok(old) = self.host.behavior().parse(previous_host)
-            && let Some(text) = codec::patch_scalars(self.host.behavior(), previous_host, &old, &value)
+            && let Some(text) =
+                codec::patch_scalars(self.host.behavior(), previous_host, &old, &value)
         {
             return Ok(Conversion {
                 text,
@@ -85,12 +86,11 @@ impl Bridge {
                 })
                 .collect(),
             Err(ConvertError::Parse(_)) => Vec::new(),
-            Err(ConvertError::Unsupported(message)) => vec![located(
+            Err(error @ ConvertError::Unsupported(message)) => vec![locate_error(
                 self.edit.behavior(),
                 edit_text,
-                "",
+                error,
                 format!("Not saved as {host}: {message}"),
-                Severity::Error,
             )],
         }
     }
@@ -109,6 +109,22 @@ impl Bridge {
             severity: Severity::Error,
         }
     }
+}
+
+/// A diagnostic for a conversion error, on the value it names
+/// (`… (at /pointer)`) when the message carries one.
+pub(super) fn locate_error(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    error: &ConvertError,
+    message: String,
+) -> Diagnostic {
+    let text = error.to_string();
+    let pointer = text
+        .rsplit_once("(at ")
+        .and_then(|(_, rest)| rest.strip_suffix(')'))
+        .unwrap_or("");
+    located(behavior, source, pointer, message, Severity::Error)
 }
 
 /// A diagnostic on the value at `pointer` in `source`, or on the document's
@@ -255,7 +271,10 @@ mod tests {
     fn a_structural_edit_falls_back_to_serializing_the_host_document() {
         let bridge = Bridge::new(Language::YAML, Language::JSON).unwrap();
         let saved = bridge
-            .to_host("{\"listen\": 1, \"public_address\": \"b\"}", "listen: 1 # c\n")
+            .to_host(
+                "{\"listen\": 1, \"public_address\": \"b\"}",
+                "listen: 1 # c\n",
+            )
             .unwrap();
         assert_eq!(saved.text, "listen: 1\npublic_address: b\n");
     }

@@ -222,3 +222,20 @@ for (const [stored, editAs] of [
     });
   });
 }
+
+test.describe('a switch that cannot convert yet', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('is reported on the blocking value and completes once it is fixed', async ({ page }) => {
+    const e = editor(page);
+    await e.paste('listen: 7835\npublic_address: null\n');
+    await page.locator('.demo__edit-select').selectOption('toml');
+    const marker = page.locator('.config-editor__diagnostic-marker', { hasText: 'null' });
+    await expect(marker).toHaveAttribute('data-message', /Cannot switch to TOML yet/);
+    expect(await e.value()).toContain('public_address: null');
+    // Fixing the value lets the pending switch finish on its own.
+    await replaceText(page, e, 'null', 'a.example');
+    await expect.poll(() => e.value()).toContain('public_address = "a.example"');
+    await expect.poll(() => e.diagnosticCount()).toBe(0);
+  });
+});

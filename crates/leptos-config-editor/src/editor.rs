@@ -37,6 +37,7 @@ use commands::{
 };
 mod line_rows;
 use line_rows::{LineRows, RenderedLine};
+use metrics::read_editor_metrics;
 mod metrics;
 mod positioning;
 use positioning::{hover_card_style, pointer_text_position, schedule_hover, set_caret_visible};
@@ -351,12 +352,11 @@ pub fn ConfigEditor(
     // edits the text is rebuilt from the host's own text, so returning to
     // `language` restores it exactly (comments included); unsaved edits are
     // converted directly. Undo history is per language, so it starts over.
-    Effect::new(move |previous: Option<Language>| {
-        let next = edit_as.get().unwrap_or(host_language);
+    // A switch that cannot convert yet (TOML has no `null`) stays pending and
+    // is retried after every edit, so fixing the document completes it.
+    let pending_switch = RwSignal::new(None::<Language>);
+    let try_switch = move |next: Language| {
         let current = edit_language.get_untracked();
-        if previous.is_none() || next == current {
-            return next;
-        }
         let text = source.get_untracked();
         let unsaved = text != synced_edit.get_value();
         let converted = if !unsaved {
@@ -381,6 +381,7 @@ pub fn ConfigEditor(
                 if !unsaved {
                     synced_edit.set_value(text.clone());
                 }
+                pending_switch.set(None);
                 load_problems.set(Vec::new());
                 history.set(EditHistory::default());
                 hide_hover();
@@ -389,15 +390,38 @@ pub fn ConfigEditor(
                 diagnosed_text.set(text.clone());
                 source.set(text);
             }
-            Err(error) => load_problems.set(vec![Diagnostic {
-                line: Some(1),
-                column: Some(1),
-                end_column: Some(2),
-                message: format!("Cannot switch to {next}: {error}"),
-                severity: Severity::Error,
-            }]),
+            Err(error) => {
+                pending_switch.set(Some(next));
+                let message = format!("Cannot switch to {next} yet: {error}");
+                load_problems.set(vec![bridge::locate_error(
+                    current.behavior(),
+                    &text,
+                    &error,
+                    message,
+                )]);
+            }
+        }
+    };
+    Effect::new(move |previous: Option<Language>| {
+        let next = edit_as.get().unwrap_or(host_language);
+        if previous.is_some() {
+            if next == edit_language.get_untracked() {
+                // Back to the current language: nothing to convert.
+                if pending_switch.get_untracked().is_some() {
+                    pending_switch.set(None);
+                    load_problems.set(Vec::new());
+                }
+            } else {
+                try_switch(next);
+            }
         }
         next
+    });
+    Effect::new(move |_| {
+        diagnosed_text.track();
+        if let Some(next) = pending_switch.get_untracked() {
+            try_switch(next);
+        }
     });
     let diagnostics = Memo::new(move |_| {
         let mut found = validate(
@@ -471,6 +495,8 @@ pub fn ConfigEditor(
         if let Some(editor) = editor_ref.get() {
             let _ = editor.focus();
             let _ = editor.set_selection_range(offset as u32, offset as u32);
+            // Bring the diagnostic into view, as F8 does in VS Code.
+            set_caret_visible(&editor, &text, offset, scroll_y);
         }
         cursor.set(offset);
         current_line.set(line);
@@ -796,7 +822,14 @@ pub fn ConfigEditor(
                                                 class="config-editor__diagnostic-marker"
                                                 class:config-editor__diagnostic-marker-warning=diagnostic.severity == Severity::Warning
                                                 class:config-editor__diagnostic-marker-eof=is_eof
-                                                class:config-editor__diagnostic-marker-near-top=line <= 3
+                                                // Near the top of the viewport (not of the document),
+                                                // the message opens below its line.
+                                                class:config-editor__diagnostic-marker-near-top=move || {
+                                                    let line_height = editor_ref
+                                                        .get_untracked()
+                                                        .map_or(22.0, |editor| read_editor_metrics(&editor).line_height);
+                                                    (line as f64 - 1.0) * line_height - scroll_y.get() < 3.0 * line_height
+                                                }
                                                 tabindex="-1"
                                                 aria-label=format!(
                                                     "{} {} on line {line}: {}",

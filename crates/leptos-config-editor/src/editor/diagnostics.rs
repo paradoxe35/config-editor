@@ -1,4 +1,4 @@
-use super::language::ConfigLanguage;
+use super::language::{ConfigLanguage, Span};
 #[cfg(feature = "schema-validation")]
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
@@ -220,34 +220,47 @@ pub(super) fn validate(
         return schema
             .validator
             .iter_errors(&document)
-            .take(MAX_DIAGNOSTICS)
-            .map(|error| {
+            .flat_map(|error| {
                 let (path, message) = most_specific_validation_error(&error);
-                let location = if let ValidationErrorKind::AdditionalProperties { unexpected } =
-                    error.kind()
-                {
-                    let parent = error.instance_path().as_str();
-                    unexpected.iter().find_map(|key| {
-                        behavior.key_span(source, &format!("{parent}/{}", escape_pointer(key)))
-                    })
+                let message = if path.is_empty() {
+                    message
                 } else {
-                    behavior
-                        .value_span(source, &path)
-                        .or_else(|| behavior.key_span(source, &path))
-                }
-                .or_else(|| behavior.first_span(source));
-                Diagnostic {
-                    line: location.map(|location| location.line),
-                    column: location.map(|location| location.start_column),
-                    end_column: location.map(|location| location.end_column),
-                    message: if path.is_empty() {
-                        message
+                    format!("{path}: {message}")
+                };
+                // Each unknown key gets its own marker, so every one is
+                // underlined and reachable with F8.
+                let locations: Vec<Option<Span>> =
+                    if let ValidationErrorKind::AdditionalProperties { unexpected } = error.kind() {
+                        let parent = error.instance_path().as_str();
+                        unexpected
+                            .iter()
+                            .map(|key| {
+                                behavior
+                                    .key_span(source, &format!("{parent}/{}", escape_pointer(key)))
+                            })
+                            .collect()
                     } else {
-                        format!("{path}: {message}")
-                    },
-                    severity: Severity::Error,
-                }
+                        vec![
+                            behavior
+                                .value_span(source, &path)
+                                .or_else(|| behavior.key_span(source, &path)),
+                        ]
+                    };
+                locations
+                    .into_iter()
+                    .map(|location| {
+                        let location = location.or_else(|| behavior.first_span(source));
+                        Diagnostic {
+                            line: location.map(|location| location.line),
+                            column: location.map(|location| location.start_column),
+                            end_column: location.map(|location| location.end_column),
+                            message: message.clone(),
+                            severity: Severity::Error,
+                        }
+                    })
+                    .collect::<Vec<_>>()
             })
+            .take(MAX_DIAGNOSTICS)
             .collect();
     }
     let _ = schema;

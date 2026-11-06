@@ -657,8 +657,13 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let mut path: Vec<SchemaPathSegment> = table_path_at(&lines, line_index);
     let (code_line, _) = split_toml_comment(line);
 
-    // The caret is on a table header: suggest child tables, not keys.
+    // The caret is on a table header: suggest child tables, not keys. Past a
+    // complete header, the context is that table (hover documents it).
     if code_before.trim_start().starts_with('[') {
+        let path = match parse_header(code_before.trim()) {
+            Some((segments, _)) => segments.into_iter().map(SchemaPathSegment::Key).collect(),
+            None => path,
+        };
         return CompletionContext {
             path,
             typed: String::new(),

@@ -767,11 +767,25 @@ pub(super) fn key_hover(
         .encode_utf16()
         .count();
     let context = behavior.completion_context(source, cursor);
-    if context.value_key.as_deref() != Some(key.as_str()) {
-        return None;
-    }
+    // The hovered key is either the key whose value the context is in, or the
+    // container the context is inside (a TOML `[table]` header, an HCL block
+    // name, an XML element with attributes).
+    let path = if context.value_key.as_deref() == Some(key.as_str()) {
+        path_with_key(&context.path, &key)
+    } else {
+        let mut container = context.path.clone();
+        while matches!(container.last(), Some(SchemaPathSegment::ArrayItem(_))) {
+            container.pop();
+        }
+        if context.value_key.is_some()
+            || container.last() != Some(&SchemaPathSegment::Key(key.clone()))
+        {
+            return None;
+        }
+        container
+    };
+    let parent = &path[..path.len() - 1];
     let root = &bundle.schema;
-    let path = path_with_key(&context.path, &key);
     let schemas = schema_at_path(root, &path);
     if schemas.is_empty() {
         return None;
@@ -805,7 +819,7 @@ pub(super) fn key_hover(
         }
     }
     examples.truncate(5);
-    let required = schema_at_path(root, &context.path)
+    let required = schema_at_path(root, parent)
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .any(|branch| {

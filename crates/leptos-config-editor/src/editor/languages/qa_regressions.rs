@@ -76,7 +76,11 @@ fn completing_the_key_the_caret_is_inside_renames_it_and_keeps_the_value() {
     );
     // A typo inside the key: the suggestion ends with the word after the caret.
     assert_eq!(
-        accept(Language::YAML, "inse|ecure_plaintext: false", "insecure_plaintext"),
+        accept(
+            Language::YAML,
+            "inse|ecure_plaintext: false",
+            "insecure_plaintext"
+        ),
         "insecure_plaintext|: false"
     );
 }
@@ -162,4 +166,78 @@ fn enum_values_are_offered_in_schema_order() {
         offered[..4],
         ["failover", "balance", "least_connections", "ip_hash"]
     );
+}
+
+#[test]
+fn containers_show_hover_docs_from_their_header_or_tag() {
+    use super::super::completion::key_hover;
+    let bundle = burrow();
+    let cases: &[(Language, &str, usize, &str)] = &[
+        (
+            Language::TOML,
+            "[web.letsencrypt]\nemail = \"a@b.c\"\n",
+            0,
+            "letsencrypt",
+        ),
+        (Language::TOML, "[websocket]\nlisten = 1\n", 0, "websocket"),
+        (
+            Language::HCL,
+            "web {\n  letsencrypt {\n    email = \"a@b.c\"\n  }\n}\n",
+            1,
+            "letsencrypt",
+        ),
+        (
+            Language::XML,
+            "<web><letsencrypt email=\"a@b.c\"/></web>\n",
+            0,
+            "letsencrypt",
+        ),
+    ];
+    for &(language, source, line, key) in cases {
+        let text = source.split('\n').nth(line).unwrap();
+        let column = text.find(key).unwrap() + 1;
+        let hover = key_hover(source, line, column, Some(&bundle), language.behavior());
+        assert!(
+            hover
+                .as_ref()
+                .is_some_and(|hover| hover.key == key && hover.description.is_some()),
+            "{language}: no docs for `{key}` in {source:?}"
+        );
+    }
+}
+
+#[test]
+fn every_unknown_key_gets_its_own_marker() {
+    use super::super::diagnostics::validate;
+    let bundle = burrow();
+    let source = "{\"listen\": 1, \"foo\": 1, \"bar\": 2, \"baz\": 3}";
+    let columns: Vec<Option<usize>> =
+        validate(source, Some(&bundle), None, true, Language::JSON.behavior())
+            .into_iter()
+            .map(|diagnostic| diagnostic.column)
+            .collect();
+    assert_eq!(columns.len(), 3, "{columns:?}");
+    let mut unique = columns.clone();
+    unique.dedup();
+    assert_eq!(unique.len(), 3, "markers on different keys: {columns:?}");
+}
+
+#[test]
+fn an_xml_start_tag_missing_its_bracket_is_reported_on_its_own_line() {
+    let source = "<listen>1</listen>\n<insecure_plaintextfalse</insecure_plaintext>\n<pool>\n  <min_idle>4</min_idle>\n</pool>\n";
+    let error = Language::XML.parse(source).unwrap_err();
+    assert_eq!(error.line, Some(2), "{error}");
+}
+
+#[test]
+fn hcl_syntax_errors_read_as_a_sentence() {
+    let error = Language::HCL
+        .parse("listen = 1\nhealth_check : true\n")
+        .unwrap_err();
+    assert!(
+        !error.message.contains("-->") && !error.message.contains('|'),
+        "{}",
+        error.message
+    );
+    assert_eq!(error.line, Some(2));
 }

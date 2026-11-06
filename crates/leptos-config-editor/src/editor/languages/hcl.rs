@@ -780,11 +780,25 @@ fn hcl_parse(source: &str) -> Result<Value, ParseError> {
         };
         let line_count = source.split('\n').count().max(1);
         ParseError {
-            message: error.to_string(),
+            message: readable_error(&error.to_string()),
             line: Some(line.clamp(1, line_count)),
             column: Some(column.max(1)),
         }
     })
+}
+
+/// The parser's sentence without its ASCII-art source frame (`--> …`, `|`,
+/// `^---`): the position is reported separately.
+fn readable_error(message: &str) -> String {
+    let notes: Vec<&str> = message
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("= "))
+        .collect();
+    if notes.is_empty() {
+        message.lines().next().unwrap_or(message).trim().to_string()
+    } else {
+        notes.join("; ")
+    }
 }
 
 fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
@@ -1506,9 +1520,25 @@ fn hcl_text(value: &Value) -> String {
 /// reads values, and headers open no value. Comment-only lines yield `None`.
 fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
     let code = code_before_comment(line)?;
-    let key = inline_key_at(code, b'=', byte_at_column(line, column))?;
-    let raw = line[key.start..key.end].trim_matches('"');
-    (!raw.is_empty()).then(|| (raw.to_string(), line[..key.start].chars().count()))
+    let byte = byte_at_column(line, column);
+    if let Some(key) = inline_key_at(code, b'=', byte) {
+        let raw = line[key.start..key.end].trim_matches('"');
+        return (!raw.is_empty()).then(|| (raw.to_string(), line[..key.start].chars().count()));
+    }
+    // A block header (`letsencrypt {`, `services "web" {`): its type word or
+    // a label.
+    let header = code.trim_end().strip_suffix('{')?;
+    let mut start = 0;
+    for word in header.split_whitespace() {
+        let at = start + header[start..].find(word)?;
+        start = at + word.len();
+        if (at..start).contains(&byte) {
+            let name = word.trim_matches('"');
+            return (!name.is_empty() && !name.contains('='))
+                .then(|| (name.to_string(), line[..at + usize::from(word.starts_with('"'))].chars().count()));
+        }
+    }
+    None
 }
 
 /// The byte offset of character `column` (0-based) in `line`.

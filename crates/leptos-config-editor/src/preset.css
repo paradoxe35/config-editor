@@ -29,7 +29,7 @@
   --config-editor-error-line: rgb(241 76 76 / 5%);
   --config-editor-added-line: rgb(129 184 139 / 10%);
   --config-editor-modified-line: rgb(117 190 255 / 10%);
-  --config-editor-selection: rgb(38 79 120 / 75%);
+  --config-editor-selection: rgb(38 79 120 / 40%);
   --config-editor-caret: #aeafad;
   --config-editor-warning: #cca700;
   --config-editor-line-number: #858585;
@@ -749,7 +749,7 @@
   --config-editor-error-line: rgb(211 47 47 / 6%);
   --config-editor-added-line: rgb(22 128 60 / 9%);
   --config-editor-modified-line: rgb(0 106 177 / 9%);
-  --config-editor-selection: rgb(173 214 255 / 75%);
+  --config-editor-selection: rgb(173 214 255 / 40%);
   --config-editor-caret: #333333;
 }
 
@@ -783,7 +783,7 @@
   --config-editor-error-line: rgb(255 104 104 / 7%);
   --config-editor-added-line: rgb(172 217 157 / 8%);
   --config-editor-modified-line: rgb(129 200 255 / 8%);
-  --config-editor-selection: rgb(78 124 157 / 55%);
+  --config-editor-selection: rgb(78 124 157 / 40%);
   --config-editor-caret: #e6edf2;
 }
 
@@ -817,7 +817,7 @@
   --config-editor-error-line: rgb(196 61 61 / 6%);
   --config-editor-added-line: rgb(52 123 66 / 8%);
   --config-editor-modified-line: rgb(38 126 180 / 8%);
-  --config-editor-selection: rgb(130 181 215 / 48%);
+  --config-editor-selection: rgb(130 181 215 / 40%);
   --config-editor-caret: #35413a;
 }
 
