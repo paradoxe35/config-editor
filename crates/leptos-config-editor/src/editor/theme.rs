@@ -100,6 +100,297 @@ impl EditorTheme {
     }
 }
 
+/// One color token of the editor's palette, for [`ThemeColors`]. Each maps to
+/// a `--config-editor-*` CSS variable that the bundled themes set.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[non_exhaustive]
+pub enum ThemeColor {
+    /// Editor background.
+    Background,
+    /// Toolbar, footer, and frame background.
+    Panel,
+    /// Borders and dividers.
+    Border,
+    /// Plain document text.
+    Text,
+    /// Secondary text.
+    Muted,
+    /// Accent (active file underline, focus).
+    Accent,
+    /// Error underlines.
+    Error,
+    /// Warning underlines.
+    Warning,
+    /// Toolbar text.
+    ToolbarText,
+    /// Line numbers.
+    LineNumber,
+    /// The caret line's number.
+    LineNumberActive,
+    /// Added-line gutter marker.
+    Added,
+    /// Modified-line gutter marker.
+    Modified,
+    /// Caret line background.
+    ActiveLine,
+    /// Background of lines with errors.
+    ErrorLine,
+    /// Background of added lines.
+    AddedLine,
+    /// Background of modified lines.
+    ModifiedLine,
+    /// Selected text background.
+    Selection,
+    /// Caret.
+    Caret,
+    /// Comments.
+    Comment,
+    /// Keys.
+    Key,
+    /// Punctuation.
+    Punctuation,
+    /// Strings.
+    String,
+    /// Numbers, booleans, and null.
+    Literal,
+    /// Other values.
+    Value,
+    /// Popup background (suggestions, hover, peek).
+    Raised,
+    /// Popup border.
+    RaisedBorder,
+    /// Popup text.
+    RaisedText,
+    /// Popup secondary text.
+    RaisedMuted,
+    /// Popup row hover.
+    RaisedHover,
+    /// Highlighted suggestion.
+    CompletionActive,
+    /// Suggestion label.
+    CompletionKey,
+    /// Suggestion type.
+    CompletionType,
+    /// Suggestion description.
+    CompletionDetail,
+    /// Suggestion icon border.
+    CompletionIconBorder,
+    /// Suggestion icon.
+    CompletionIconText,
+    /// Problem tooltip text.
+    TooltipText,
+    /// Buttons and keys.
+    ControlBackground,
+    /// Button text.
+    ControlText,
+    /// Disabled button text.
+    ControlDisabledText,
+    /// Focus outline.
+    FocusRing,
+    /// File icon background.
+    FileIconBackground,
+    /// File icon letter.
+    FileIconText,
+    /// Footer error count.
+    StatusError,
+    /// Focused diff marker outline.
+    DiffFocusRing,
+    /// Divider in the change preview.
+    DiffPeekDivider,
+    /// Removed lines in the change preview.
+    DiffRemovedBackground,
+    /// Removed text in the change preview.
+    DiffRemovedText,
+    /// Current lines in the change preview.
+    DiffCurrentBackground,
+    /// Current text in the change preview.
+    DiffCurrentText,
+    /// Scrollbar thumb.
+    ScrollbarThumb,
+    /// Suggestion popup shadow.
+    PopupShadow,
+    /// Change preview shadow.
+    PeekShadow,
+    /// Hover card shadow.
+    HoverShadow,
+}
+
+impl ThemeColor {
+    /// Every token, in a stable order.
+    pub const ALL: &'static [Self] = &[
+        Self::Background,
+        Self::Panel,
+        Self::Border,
+        Self::Text,
+        Self::Muted,
+        Self::Accent,
+        Self::Error,
+        Self::Warning,
+        Self::ToolbarText,
+        Self::LineNumber,
+        Self::LineNumberActive,
+        Self::Added,
+        Self::Modified,
+        Self::ActiveLine,
+        Self::ErrorLine,
+        Self::AddedLine,
+        Self::ModifiedLine,
+        Self::Selection,
+        Self::Caret,
+        Self::Comment,
+        Self::Key,
+        Self::Punctuation,
+        Self::String,
+        Self::Literal,
+        Self::Value,
+        Self::Raised,
+        Self::RaisedBorder,
+        Self::RaisedText,
+        Self::RaisedMuted,
+        Self::RaisedHover,
+        Self::CompletionActive,
+        Self::CompletionKey,
+        Self::CompletionType,
+        Self::CompletionDetail,
+        Self::CompletionIconBorder,
+        Self::CompletionIconText,
+        Self::TooltipText,
+        Self::ControlBackground,
+        Self::ControlText,
+        Self::ControlDisabledText,
+        Self::FocusRing,
+        Self::FileIconBackground,
+        Self::FileIconText,
+        Self::StatusError,
+        Self::DiffFocusRing,
+        Self::DiffPeekDivider,
+        Self::DiffRemovedBackground,
+        Self::DiffRemovedText,
+        Self::DiffCurrentBackground,
+        Self::DiffCurrentText,
+        Self::ScrollbarThumb,
+        Self::PopupShadow,
+        Self::PeekShadow,
+        Self::HoverShadow,
+    ];
+
+    /// The CSS variable this token sets, such as `"--config-editor-key"`.
+    pub fn css_var(self) -> &'static str {
+        match self {
+            Self::Background => "--config-editor-bg",
+            Self::Panel => "--config-editor-panel",
+            Self::Border => "--config-editor-border",
+            Self::Text => "--config-editor-text",
+            Self::Muted => "--config-editor-muted",
+            Self::Accent => "--config-editor-accent",
+            Self::Error => "--config-editor-error",
+            Self::Warning => "--config-editor-warning",
+            Self::ToolbarText => "--config-editor-toolbar-text",
+            Self::LineNumber => "--config-editor-line-number",
+            Self::LineNumberActive => "--config-editor-line-active",
+            Self::Added => "--config-editor-added",
+            Self::Modified => "--config-editor-modified",
+            Self::ActiveLine => "--config-editor-active-line",
+            Self::ErrorLine => "--config-editor-error-line",
+            Self::AddedLine => "--config-editor-added-line",
+            Self::ModifiedLine => "--config-editor-modified-line",
+            Self::Selection => "--config-editor-selection",
+            Self::Caret => "--config-editor-caret",
+            Self::Comment => "--config-editor-comment",
+            Self::Key => "--config-editor-key",
+            Self::Punctuation => "--config-editor-punctuation",
+            Self::String => "--config-editor-string",
+            Self::Literal => "--config-editor-literal",
+            Self::Value => "--config-editor-value",
+            Self::Raised => "--config-editor-raised",
+            Self::RaisedBorder => "--config-editor-raised-border",
+            Self::RaisedText => "--config-editor-raised-text",
+            Self::RaisedMuted => "--config-editor-raised-muted",
+            Self::RaisedHover => "--config-editor-raised-hover",
+            Self::CompletionActive => "--config-editor-completion-active",
+            Self::CompletionKey => "--config-editor-completion-key",
+            Self::CompletionType => "--config-editor-completion-type",
+            Self::CompletionDetail => "--config-editor-completion-detail",
+            Self::CompletionIconBorder => "--config-editor-completion-icon-border",
+            Self::CompletionIconText => "--config-editor-completion-icon-text",
+            Self::TooltipText => "--config-editor-tooltip-text",
+            Self::ControlBackground => "--config-editor-control-bg",
+            Self::ControlText => "--config-editor-control-text",
+            Self::ControlDisabledText => "--config-editor-control-disabled-text",
+            Self::FocusRing => "--config-editor-focus-ring",
+            Self::FileIconBackground => "--config-editor-file-icon-bg",
+            Self::FileIconText => "--config-editor-file-icon-text",
+            Self::StatusError => "--config-editor-status-error",
+            Self::DiffFocusRing => "--config-editor-diff-focus-ring",
+            Self::DiffPeekDivider => "--config-editor-diff-peek-divider",
+            Self::DiffRemovedBackground => "--config-editor-diff-removed-bg",
+            Self::DiffRemovedText => "--config-editor-diff-removed-text",
+            Self::DiffCurrentBackground => "--config-editor-diff-current-bg",
+            Self::DiffCurrentText => "--config-editor-diff-current-text",
+            Self::ScrollbarThumb => "--config-editor-scrollbar-thumb",
+            Self::PopupShadow => "--config-editor-popup-shadow",
+            Self::PeekShadow => "--config-editor-peek-shadow",
+            Self::HoverShadow => "--config-editor-hover-shadow",
+        }
+    }
+}
+
+/// Color overrides on top of a bundled [`EditorTheme`], for a custom palette.
+///
+/// ```
+/// use leptos_config_editor::{ThemeColor, ThemeColors};
+/// let brand = ThemeColors::new()
+///     .set(ThemeColor::Background, "#101418")
+///     .set(ThemeColor::Key, "#ffcc66");
+/// assert_eq!(
+///     brand.to_style(),
+///     "--config-editor-bg: #101418; --config-editor-key: #ffcc66;"
+/// );
+/// ```
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub struct ThemeColors {
+    colors: Vec<(ThemeColor, String)>,
+}
+
+impl ThemeColors {
+    /// No overrides: the base theme as it is.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets `color` to a CSS color (`"#ffcc66"`, `"rgb(0 0 0 / 40%)"`),
+    /// replacing an earlier value for it.
+    #[must_use]
+    pub fn set(mut self, color: ThemeColor, value: impl Into<String>) -> Self {
+        let value = value.into();
+        match self
+            .colors
+            .iter_mut()
+            .find(|(existing, _)| *existing == color)
+        {
+            Some((_, current)) => *current = value,
+            None => self.colors.push((color, value)),
+        }
+        self
+    }
+
+    /// The overrides as inline CSS declarations. Values that could end the
+    /// declaration (`;`, braces) are dropped.
+    pub fn to_style(&self) -> String {
+        self.colors
+            .iter()
+            .filter(|(_, value)| !value.contains([';', '{', '}']))
+            .map(|(color, value)| format!("{}: {};", color.css_var(), value.trim()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Whether no color is overridden.
+    pub fn is_empty(&self) -> bool {
+        self.colors.is_empty()
+    }
+}
+
 /// A slug that is not a bundled [`EditorTheme`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnknownTheme(pub String);
@@ -141,5 +432,22 @@ mod tests {
             assert_eq!(theme.as_str().parse::<EditorTheme>(), Ok(*theme));
         }
         assert!("no-such-theme".parse::<EditorTheme>().is_err());
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::ThemeColor;
+
+    /// Every token is a variable the preset stylesheet defines.
+    #[test]
+    fn every_theme_color_is_a_preset_token() {
+        let preset = include_str!("../preset.css");
+        for color in ThemeColor::ALL {
+            assert!(
+                preset.contains(&format!("{}:", color.css_var())),
+                "{color:?}"
+            );
+        }
     }
 }

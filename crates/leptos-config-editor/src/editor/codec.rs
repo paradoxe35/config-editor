@@ -3,7 +3,7 @@
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
 use super::completion::conform_arrays;
-use super::language::{ConfigLanguage, ParseError, Span};
+use super::language::{ConfigLanguage, ParseError, Repetition, Span};
 use serde_json::Value;
 use std::fmt;
 
@@ -48,8 +48,8 @@ pub(super) fn read(
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
     let mut value = language.parse(source)?;
-    if let Some(schema) = schema.filter(|_| language.repeats_arrays()) {
-        conform_arrays(&mut value, schema);
+    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
+        conform_arrays(&mut value, schema, language.repetition());
     }
     Ok(value)
 }
@@ -128,6 +128,81 @@ pub(super) fn patch_scalars(
         patched.replace_range(range, &text);
     }
     // Trust the patch only if it reads back as exactly the new document.
+    (read(language, &patched, schema).ok()? == *new).then_some(patched)
+}
+
+/// `previous` with a structural edit (keys or items added or removed) applied
+/// line by line, keeping its comments and formatting elsewhere: the host
+/// serializer renders the old and the new value, their line diff is mapped
+/// onto `previous`, and the result is kept only if it reads back as `new`.
+pub(super) fn patch_structure(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    old: &Value,
+    new: &Value,
+    schema: Option<&Value>,
+) -> Option<String> {
+    use super::diff::{DiffEdit, myers_edits};
+    let before = serialize(language, old, Some(previous)).ok()?;
+    let after = serialize(language, new, Some(previous)).ok()?;
+    let rendered_old: Vec<&str> = before.lines().collect();
+    let rendered_new: Vec<&str> = after.lines().collect();
+    let host: Vec<&str> = previous.lines().collect();
+    // Where each line of the old rendering sits in the host's text.
+    let normalize = |line: &str| line.trim().replace(['"', '\''], "");
+    let normalized_old: Vec<String> = rendered_old.iter().map(|line| normalize(line)).collect();
+    let normalized_host: Vec<String> = host.iter().map(|line| normalize(line)).collect();
+    let old_refs: Vec<&str> = normalized_old.iter().map(String::as_str).collect();
+    let host_refs: Vec<&str> = normalized_host.iter().map(String::as_str).collect();
+    let mut place = vec![None; rendered_old.len()];
+    let (mut old_index, mut host_index) = (0, 0);
+    for edit in myers_edits(&old_refs, &host_refs)? {
+        match edit {
+            DiffEdit::Equal => {
+                place[old_index] = Some(host_index);
+                old_index += 1;
+                host_index += 1;
+            }
+            DiffEdit::Delete => old_index += 1,
+            DiffEdit::Insert => host_index += 1,
+        }
+    }
+    // The old → new edits, applied to the host's lines.
+    let mut removed = vec![false; host.len()];
+    let mut inserted: Vec<Vec<&str>> = vec![Vec::new(); host.len() + 1];
+    let (mut old_index, mut new_index) = (0, 0);
+    for edit in myers_edits(&rendered_old, &rendered_new)? {
+        match edit {
+            DiffEdit::Equal => {
+                old_index += 1;
+                new_index += 1;
+            }
+            DiffEdit::Delete => {
+                removed[place[old_index]?] = true;
+                old_index += 1;
+            }
+            DiffEdit::Insert => {
+                // After the host line of the previous rendered line.
+                let slot = match old_index {
+                    0 => 0,
+                    index => place[index - 1]? + 1,
+                };
+                inserted[slot].push(rendered_new[new_index]);
+                new_index += 1;
+            }
+        }
+    }
+    let mut lines: Vec<&str> = Vec::with_capacity(host.len() + rendered_new.len());
+    for index in 0..=host.len() {
+        lines.extend(inserted[index].iter().copied());
+        if index < host.len() && !removed[index] {
+            lines.push(host[index]);
+        }
+    }
+    let mut patched = lines.join("\n");
+    if previous.ends_with('\n') {
+        patched.push('\n');
+    }
     (read(language, &patched, schema).ok()? == *new).then_some(patched)
 }
 

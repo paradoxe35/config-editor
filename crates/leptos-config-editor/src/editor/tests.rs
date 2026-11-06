@@ -1,4 +1,5 @@
 use super::*;
+use commands::indent_unit;
 
 #[test]
 fn theme_names_and_layout_families_are_stable() {

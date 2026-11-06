@@ -86,6 +86,7 @@ fn key(language: Language) -> &'static str {
 }
 
 fn main() {
+    console_error_panic_hook::set_once();
     leptos::mount::mount_to_body(|| {
         let flags = query_flags();
         let language = query_value(&flags, "language")
@@ -112,12 +113,14 @@ fn main() {
         let baseline = RwSignal::new(sample.to_string());
         let saved = RwSignal::new(sample.to_string());
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
-        let shown = move || edit_as.get().unwrap_or(language);
+        // What the editor shows, which lags `edit_as` while a switch waits.
+        let editing = RwSignal::new(edit_as.get_untracked().unwrap_or(language));
+        let shown = move || editing.get();
         let toolbar_file = {
             let file_name = file_name.clone();
-            move || match edit_as.get() {
-                Some(edit) => format!("{file_name} (editing as {edit})"),
-                None => file_name.clone(),
+            move || match editing.get() {
+                edit if edit != language => format!("{file_name} (editing as {edit})"),
+                _ => file_name.clone(),
             }
         };
 
@@ -218,6 +221,7 @@ fn main() {
                     baseline=baseline
                     value=saved
                     on_change=move |text| saved.set(text)
+                    on_edit_as_change=move |edit| editing.set(edit)
                     schema=SCHEMA
                     file_name=file_name
                     theme=theme

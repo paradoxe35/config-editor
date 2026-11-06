@@ -23,6 +23,11 @@ struct Step {
 enum Group {
     Typing,
     Deleting,
+    /// An IME composition: each update replaces the previous one, so the
+    /// whole composition is one step.
+    Composing,
+    /// Dragging selected text: the removal and the drop are one move.
+    Dragging,
 }
 
 /// Steps kept for undo; the oldest are dropped beyond this.
@@ -50,24 +55,44 @@ impl EditHistory {
         timestamp: f64,
     ) {
         let group = match input_type {
-            "insertText" | "insertCompositionText" => Some(Group::Typing),
+            "insertText" => Some(Group::Typing),
+            "insertCompositionText" | "deleteCompositionText" | "insertFromComposition" => {
+                Some(Group::Composing)
+            }
             "deleteContentBackward" | "deleteContentForward" => Some(Group::Deleting),
+            "deleteByDrag" => Some(Group::Dragging),
             _ => None,
         };
-        let continues = group.is_some()
-            && self.open.is_some_and(|(open, at)| {
-                Some(open) == group && timestamp - at <= UNDO_GROUPING_WINDOW_MS
-            })
-            && self
-                .undo
-                .last()
-                .is_some_and(|step| step.after == before.selection);
+        let composing = group == Some(Group::Composing)
+            && self.open.is_some_and(|(open, _)| open == Group::Composing);
+        let dropping = input_type == "insertFromDrop"
+            && self.open.is_some_and(|(open, _)| open == Group::Dragging);
+        if dropping && let Some(step) = self.undo.last_mut() {
+            step.after = after;
+            self.open = None;
+            return;
+        }
+        let continues = composing
+            || group.is_some()
+                && self.open.is_some_and(|(open, at)| {
+                    Some(open) == group && timestamp - at <= UNDO_GROUPING_WINDOW_MS
+                })
+                && self
+                    .undo
+                    .last()
+                    .is_some_and(|step| step.after == before.selection);
         if continues && let Some(step) = self.undo.last_mut() {
             step.after = after;
         } else {
             self.push(Step { before, after });
         }
         self.open = group.map(|group| (group, timestamp));
+    }
+
+    /// Ends the open step: the next edit starts a new one (the caret moved, or
+    /// a composition ended).
+    pub(super) fn seal(&mut self) {
+        self.open = None;
     }
 
     /// An edit the editor made (a command, an accepted suggestion): always
@@ -146,6 +171,56 @@ mod tests {
         history.record_input(at("axb", 3), (4, 4), "insertText", 100.0);
         assert_eq!(history.undo("axby".into()), Some(at("axb", 3)));
         assert_eq!(history.undo("axb".into()), Some(at("ab", 1)));
+    }
+
+    #[test]
+    fn an_ime_composition_is_one_step() {
+        let mut history = EditHistory::default();
+        history.record_input(at("name: ", 6), (7, 7), "insertCompositionText", 0.0);
+        // Each update replaces the composed text (selected by the browser).
+        let composing = |value: &str, from: usize, to: usize| Snapshot {
+            value: value.into(),
+            selection: (from, to),
+        };
+        history.record_input(
+            composing("name: に", 6, 7),
+            (8, 8),
+            "insertCompositionText",
+            2000.0,
+        );
+        history.record_input(
+            composing("name: にほ", 6, 8),
+            (9, 9),
+            "insertCompositionText",
+            4000.0,
+        );
+        history.record_input(
+            composing("name: にほん", 6, 9),
+            (8, 8),
+            "insertCompositionText",
+            6000.0,
+        );
+        assert_eq!(history.undo("name: 日本".into()), Some(at("name: ", 6)));
+    }
+
+    #[test]
+    fn a_drag_move_is_one_step() {
+        let mut history = EditHistory::default();
+        history.record_input(at("alpha: one\nb: 2", 7), (7, 7), "deleteByDrag", 0.0);
+        history.record_input(at("alpha: \nb: 2", 13), (16, 16), "insertFromDrop", 5.0);
+        assert_eq!(
+            history.undo("alpha: \nb: 2one".into()),
+            Some(at("alpha: one\nb: 2", 7))
+        );
+    }
+
+    #[test]
+    fn sealing_splits_consecutive_compositions() {
+        let mut history = EditHistory::default();
+        history.record_input(at("", 0), (1, 1), "insertCompositionText", 0.0);
+        history.seal();
+        history.record_input(at("日", 1), (2, 2), "insertCompositionText", 10.0);
+        assert_eq!(history.undo("日本".into()), Some(at("日", 1)));
     }
 
     #[test]

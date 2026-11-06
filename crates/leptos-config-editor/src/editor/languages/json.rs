@@ -637,6 +637,29 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             ",",
         )
     });
+    // The missing comma goes right after the previous value, not before the
+    // new key: `"a": 1|` + Enter + key gives `"a": 1,\n  "b": …`.
+    let previous_end = source[..typed_start].trim_end().len();
+    let (replace_start, entry_prefix) = if needs_separator {
+        let gap = &source[previous_end..typed_start];
+        let prefix = if gap.contains('\n') {
+            format!(",{gap}")
+        } else {
+            ", ".to_string()
+        };
+        (previous_end, prefix)
+    } else {
+        (typed_start, String::new())
+    };
+    let following = &source[replace_end..];
+    let entry_suffix = match following.trim_start().starts_with('"') {
+        // A following key on its own line keeps it; no trailing space.
+        true if following[..following.len() - following.trim_start().len()].contains('\n') => {
+            ",".to_string()
+        }
+        true => ", ".to_string(),
+        false => String::new(),
+    };
     // An empty document has no root object yet: the first key opens it.
     let empty_document = source.trim().is_empty();
     CompletionContext {
@@ -648,19 +671,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         block: block.flatten(),
         path,
         typed: source[typed_start..cursor].to_string(),
-        replace_start: utf16(&source[..typed_start]),
+        replace_start: utf16(&source[..replace_start]),
         replace_end: utf16(&source[..replace_end]),
         value_key,
         value_needs_space: snapshot.partial.is_none() && source[..cursor].ends_with(':'),
         is_array_item,
         base_indent,
-        entry_prefix: if needs_separator { ", " } else { "" }.to_string(),
+        entry_prefix,
         explicit_entry_start,
-        entry_suffix: if source[replace_end..].trim_start().starts_with('"') {
-            ", ".to_string()
-        } else {
-            String::new()
-        },
+        entry_suffix,
         ..Default::default()
     }
 }
@@ -710,11 +729,20 @@ fn property_insert(
     let mut caret = None;
     if let Some(value) = schema_const(property, root) {
         insert.push_str(&json_text(value));
-    } else if array_branch(property, root).is_some() {
+    } else if let Some(array) = array_branch(property, root) {
         match schema_default(property, root)
             .filter(|value| !value.as_array().is_some_and(Vec::is_empty))
         {
             Some(default) => insert.push_str(&json_text(default)),
+            // A list of strings starts with a quoted item, so typing a value
+            // keeps the document valid.
+            None if array
+                .get("items")
+                .is_some_and(|items| placeholder(items, root).is_string()) =>
+            {
+                insert.push_str("[\"\"]");
+                caret = Some(insert.len() - 2);
+            }
             None => {
                 insert.push_str("[]");
                 caret = Some(insert.len() - 1);

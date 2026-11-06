@@ -407,7 +407,9 @@ test.describe('scale', () => {
     const entries = Array.from({ length: 300 }, (_, i) => `    "client-${i}": {\n      "secret": "secret-${i}",\n      "max_connections": ${(i % 50) + 1}\n    }`);
     const doc = `{\n  "clients": {\n${entries.join(',\n')}\n  }\n}\n`;
     await e.paste(doc);
-    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(doc.split('\n').length);
+    // Only the rows in view are rendered, however long the document.
+    await expect(e.input).toHaveValue(doc);
+    expect(await page.locator('.config-editor__gutter-content > div').count()).toBeLessThan(200);
     // New clients belong inside "clients": caret at the end of the last
     // entry, before the clients closing brace (EOF is outside the root object).
     await e.input.evaluate((element) => {
@@ -698,17 +700,12 @@ test.describe('typing triggers', () => {
     await page.keyboard.type('"al');
     await expect.poll(() => e.keys()).toContain('allow');
     await e.clickKey('allow');
-    expect(await e.value()).toContain('"allow": []');
+    // A list of strings starts with a quoted item, caret inside.
+    expect(await e.value()).toContain('"allow": [""]');
     expect(await e.isOpen()).toBe(false);
-
-    await e.input.evaluate((element) => {
-      const at = element.value.indexOf('[]') + 1;
-      element.focus();
-      element.setSelectionRange(at, at);
-    });
     await page.keyboard.type('192.0.2.1');
     expect(await e.isOpen()).toBe(false);
-    expect(await e.value()).toContain('192.0.2.1');
+    expect(await e.value()).toContain('"allow": ["192.0.2.1"]');
   });
 });
 
@@ -808,7 +805,7 @@ test.describe('gutter and caret', () => {
   test('clicking a line number moves the caret to that line', async ({ page }) => {
     const e = editor(page);
     await e.paste('{\n  "a": 1,\n  "b": 2,\n  "c": 3\n}\n');
-    await page.locator('.config-editor__gutter-content > div').nth(2).click();
+    await page.locator('.config-editor__gutter-content > div[data-line="3"]').click();
     const state = await e.input.evaluate((element) => {
       const position = element.selectionStart;
       const before = element.value.slice(0, position);
@@ -1057,7 +1054,7 @@ test.describe('editor viewport and scrolling', () => {
       await page.keyboard.press('Enter');
     }
     const lineCount = await e.input.evaluate((element) => element.value.split('\n').length);
-    const lastLine = page.locator('.config-editor__gutter-content > div').nth(lineCount - 1);
+    const lastLine = page.locator(`.config-editor__gutter-content > div[data-line="${lineCount}"]`);
     await lastLine.click();
     const caretLine = await e.input.evaluate((element) =>
       element.value.slice(0, element.selectionStart).split('\n').length,

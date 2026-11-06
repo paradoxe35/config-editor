@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["crates/leptos-config-editor"]
+members = ["crates/leptos-config-editor", "js/config-editor"]
 resolver = "3"
 
 [dependencies]
+console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.23", features = ["csr"] }
 leptos-config-editor = { path = "crates/leptos-config-editor" }
 web-sys = { version = "0.3", features = ["History", "Location", "Window"] }

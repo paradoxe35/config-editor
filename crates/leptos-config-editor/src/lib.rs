@@ -30,7 +30,8 @@
 //!   XML back through `on_change`.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
-//!   [`EditorTheme`], or set `styled=false` and style the semantic
+//!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or set
+//!   `styled=false` and style the semantic
 //!   `config-editor__*` markup yourself ([`PRESET_CSS`] is the preset).
 //!
 //! # Headless use
@@ -73,5 +74,5 @@ pub use editor::language;
 pub use editor::{
     ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
     EditorTheme, Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource, Severity,
-    UnknownLanguage, UnknownTheme, check_syntax,
+    ThemeColor, ThemeColors, UnknownLanguage, UnknownTheme, check_syntax,
 };

@@ -102,10 +102,6 @@ pub(super) const PEEK_MAX_HEIGHT: f64 = 360.0;
 /// Change-preview height cap as a fraction of the viewport height.
 pub(super) const PEEK_MAX_HEIGHT_VIEWPORT_FRACTION: f64 = 0.55;
 
-/// Space below the anchor, in pixels, enough to place the preview there
-/// (about the header plus five lines); with less, it may flip above.
-pub(super) const PEEK_MIN_BELOW_HEIGHT: f64 = 180.0;
-
 /// Change-preview minimum width, in pixels; mirrors `preset.css`.
 pub(super) const PEEK_MIN_WIDTH: f64 = 180.0;
 
@@ -133,14 +129,18 @@ pub(super) fn peek_geometry(
     // The visible part of the text area bounds the peek.
     let area_top = viewport.editor_top.max(0.0) + margin;
     let area_bottom = viewport.editor_bottom.min(viewport.viewport_height) - margin;
+    // Its line scrolled out of view: hide it rather than pin it to an edge.
+    if anchor_y + metrics.line_height < area_top - margin || anchor_y > area_bottom + margin {
+        return "visibility:hidden".to_string();
+    }
     let space_above = (anchor_y - area_top).max(0.0);
     let space_below = (area_bottom - anchor_y - metrics.line_height).max(0.0);
     let desired_height = (PEEK_HEADER_HEIGHT
         + (old_line_count + new_line_count) as f64 * PEEK_LINE_HEIGHT)
         .min(PEEK_MAX_HEIGHT)
         .min(viewport.viewport_height * PEEK_MAX_HEIGHT_VIEWPORT_FRACTION);
-    let place_below =
-        space_below >= desired_height.min(PEEK_MIN_BELOW_HEIGHT) || space_below >= space_above;
+    // Below when it fits there, else on the roomier side.
+    let place_below = space_below >= desired_height || space_below >= space_above;
     let available_height = if place_below {
         space_below
     } else {
@@ -212,7 +212,7 @@ pub(super) fn peek_popup_style(
 }
 
 #[derive(Clone, Copy)]
-enum DiffEdit {
+pub(super) enum DiffEdit {
     Equal,
     Insert,
     Delete,
@@ -222,7 +222,7 @@ enum DiffEdit {
 /// this the changed region is diffed as one delete-then-insert block.
 pub(super) const MYERS_MAX_DEPTH: usize = 1024;
 
-fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
+pub(super) fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
     let max_depth = old.len().saturating_add(new.len()).min(MYERS_MAX_DEPTH);
     let offset = max_depth as isize + 1;
     let mut frontier = vec![0isize; max_depth * 2 + 3];

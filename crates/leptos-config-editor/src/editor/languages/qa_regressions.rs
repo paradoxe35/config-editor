@@ -564,3 +564,291 @@ fn yaml_tab_indentation_is_a_syntax_error_outside_block_scalars() {
     // A tab after the indentation is fine.
     assert!(Language::YAML.parse("a:\t1\n").is_ok());
 }
+
+#[test]
+fn toml_table_accepted_before_another_table_starts_its_own_lines() {
+    let toml = accept(
+        Language::TOML,
+        "listen = 1\n|\n[tcp]\nnodelay = true\n",
+        "pool",
+    );
+    assert_eq!(toml, "listen = 1\n[pool]\n|\n[tcp]\nnodelay = true\n");
+    // The next accept lands on its own line under the header.
+    let next = accept(Language::TOML, &toml, "max_idle");
+    assert!(next.contains("[pool]\nmax_idle = "), "{next}");
+    assert_parses(Language::TOML, &next);
+}
+
+#[test]
+fn a_json_list_of_strings_starts_with_a_quoted_item() {
+    let json = accept(
+        Language::JSON,
+        "{\n  \"clients\": {\n    \"bob\": {\n      \"sec|\n    }\n  }\n}\n",
+        "secret",
+    );
+    assert!(
+        json.contains("\"secret\": [\"|\"]") || json.contains("\"secret\": \"|\""),
+        "{json}"
+    );
+    assert_parses(Language::JSON, &json.replace('|', "s"));
+}
+
+#[test]
+fn a_yaml_file_of_only_comments_is_an_empty_document() {
+    for source in ["# just a note\n", "---\n# note\n", "---\n...\n"] {
+        assert_eq!(
+            Language::YAML.parse(source).unwrap(),
+            serde_json::json!({}),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn every_yaml_syntax_error_has_a_place() {
+    let problems = crate::check_syntax(Language::YAML, "listen: 1\n---\nlisten: 2\n");
+    assert_eq!(problems.len(), 1);
+    assert_eq!(problems[0].line, Some(2), "{}", problems[0].message);
+}
+
+#[test]
+fn xml_enter_before_an_outer_end_tag_outdents_it() {
+    assert_eq!(
+        enter(Language::XML, "<clients>\n  <acme>\n  </acme>|</clients>"),
+        "<clients>\n  <acme>\n  </acme>\n|</clients>"
+    );
+    assert_eq!(
+        enter(Language::XML, "<a>\n  <b>1</b>|</a>"),
+        "<a>\n  <b>1</b>\n|</a>"
+    );
+}
+
+#[test]
+fn json_enter_at_the_start_of_a_line_keeps_its_indentation() {
+    assert_eq!(
+        enter(Language::JSON, "{\n|  \"listen\": 1\n}"),
+        "{\n\n|  \"listen\": 1\n}"
+    );
+}
+
+#[test]
+fn comments_go_at_the_blocks_smallest_indent_and_round_trip() {
+    let commented = toggle(Language::YAML, "[clients:\n  acme:\n    secret: x\n]");
+    assert_eq!(commented, "[# clients:\n#   acme:\n#     secret: x\n]");
+    assert_eq!(
+        toggle(Language::YAML, &commented),
+        "[clients:\n  acme:\n    secret: x\n]"
+    );
+    assert_eq!(
+        toggle(Language::TOML, "x = 0\n[  a = 1\n    b = 2\n]"),
+        "x = 0\n[  # a = 1\n  #   b = 2\n]"
+    );
+}
+
+#[test]
+fn hcl_slash_comments_uncomment() {
+    assert_eq!(toggle(Language::HCL, "// x|"), "x|");
+    assert_eq!(toggle(Language::HCL, "x = 1|"), "# x = 1|");
+}
+#[test]
+fn a_word_typed_in_an_empty_xml_object_element_completes_a_child() {
+    let marked = "<web>certif|</web>";
+    assert!(labels(Language::XML, marked).contains(&"certificates".to_string()));
+    let xml = accept(Language::XML, marked, "certificates");
+    assert!(xml.contains("<certificates>"), "{xml}");
+    assert!(
+        !xml.contains("certif<"),
+        "the typed word is replaced: {xml}"
+    );
+    assert_parses(Language::XML, &xml);
+    // A scalar element keeps its value completions.
+    assert!(
+        !labels(
+            Language::XML,
+            "<services><web><mode>bal|</mode></web></services>"
+        )
+        .is_empty()
+    );
+}
+#[test]
+fn keys_already_set_in_list_items_are_not_offered_again() {
+    let hcl_multi = labels(
+        Language::HCL,
+        "web {\n  certificates = [\n    {\n      hosts = [\"a\"]\n      |\n    }\n  ]\n}\n",
+    );
+    assert!(hcl_multi.contains(&"cert".to_string()), "{hcl_multi:?}");
+    assert!(!hcl_multi.contains(&"hosts".to_string()), "{hcl_multi:?}");
+    let hcl_inline = labels(
+        Language::HCL,
+        "web {\n  certificates = [{ hosts = [\"a\"], | }]\n}\n",
+    );
+    assert!(!hcl_inline.contains(&"hosts".to_string()), "{hcl_inline:?}");
+    let hcl_dns = labels(
+        Language::HCL,
+        "web {\n  letsencrypt {\n    email = \"a\"\n    dns = [\n      {\n        domains = [\"a.com\"]\n        wait_secs = 5\n        |\n      },\n    ]\n  }\n}\n",
+    );
+    assert!(
+        !hcl_dns.contains(&"domains".to_string()) && !hcl_dns.contains(&"wait_secs".to_string()),
+        "{hcl_dns:?}"
+    );
+    let toml = labels(
+        Language::TOML,
+        "[[web.letsencrypt.dns]]\ndomains = [\"x\"]\n|\n\n[web.letsencrypt.dns.cloudflare]\ntoken = \"t\"\n",
+    );
+    assert!(!toml.contains(&"cloudflare".to_string()), "{toml:?}");
+    assert!(toml.contains(&"rfc2136".to_string()), "{toml:?}");
+}
+
+#[test]
+fn a_single_hcl_block_for_a_list_is_a_one_item_list() {
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    let one =
+        "web {\n  certificates {\n    hosts = [\"a\"]\n    cert = \"c\"\n    key = \"k\"\n  }\n}\n";
+    assert_eq!(schema.validate(Language::HCL, one), []);
+    // Inside the block, the item's keys are offered.
+    let inside = "web {\n  certificates {\n    hosts = [\"a\"]\n    |\n  }\n}\n";
+    assert!(labels(Language::HCL, inside).contains(&"cert".to_string()));
+    // A scalar where a list belongs is still an error.
+    assert_eq!(
+        schema
+            .validate(Language::HCL, "self {\n  allow = \"a\"\n}\n")
+            .len(),
+        1
+    );
+}
+#[test]
+fn errors_inside_inline_containers_point_at_the_value() {
+    let schema =
+        crate::Schema::compile(include_str!("../../../tests/fixtures/burrow.schema.json")).unwrap();
+    let place = |language: Language, source: &str| -> (usize, String) {
+        let problems = schema.validate(language, source);
+        assert_eq!(problems.len(), 1, "{language}: {problems:?}");
+        let problem = &problems[0];
+        let line = source.lines().nth(problem.line.unwrap() - 1).unwrap();
+        let marked: String = line
+            .chars()
+            .skip(problem.column.unwrap() - 1)
+            .take(problem.end_column.unwrap() - problem.column.unwrap())
+            .collect();
+        (problem.line.unwrap(), marked)
+    };
+    assert_eq!(
+        place(Language::YAML, "self: {allow: [a, 5]}\n"),
+        (1, "5".into())
+    );
+    assert_eq!(
+        place(
+            Language::YAML,
+            "web:\n  certificates:\n    - {hosts: [a], cert: c, key: k, bogus: 1}\n"
+        ),
+        (3, "bogus".into())
+    );
+    assert_eq!(
+        place(Language::YAML, "websocket: {listen: 1, challenge: ftp}\n"),
+        (1, "ftp".into())
+    );
+    assert_eq!(
+        place(Language::YAML, "self:\n  allow:\n    - a\n    - 5\n"),
+        (4, "5".into())
+    );
+    assert_eq!(
+        place(
+            Language::TOML,
+            "[web]\ncertificates = [\n  { hosts = [\"a\"], cert = \"c\", key = \"k\", bogus = 1 },\n]\n"
+        ),
+        (3, "bogus".into())
+    );
+    assert_eq!(
+        place(Language::TOML, "[self]\nallow = [\"a\", 1]\n"),
+        (2, "1".into())
+    );
+    assert_eq!(
+        place(Language::TOML, "self = { allow = [\"a\", 5] }\n"),
+        (1, "5".into())
+    );
+    assert_eq!(
+        place(Language::HCL, "self {\n  allow = [\"a\", 5]\n}\n"),
+        (2, "5".into())
+    );
+}
+
+fn hover_key_at(language: Language, source: &str, line: usize, column: usize) -> Option<String> {
+    super::super::completion::key_hover(source, line, column, Some(&burrow()), language.behavior())
+        .map(|hover| hover.key)
+}
+
+#[test]
+fn hovering_a_segment_of_a_dotted_key_or_header_shows_that_segment() {
+    let toml = "[[web.certificates]]\nhosts = [\"a\"]\n";
+    assert_eq!(
+        hover_key_at(Language::TOML, toml, 0, 3).as_deref(),
+        Some("web")
+    );
+    assert_eq!(
+        hover_key_at(Language::TOML, toml, 0, 8).as_deref(),
+        Some("certificates")
+    );
+    let services = "[services.web.health_check]\ninterval_secs = 5\n";
+    assert_eq!(
+        hover_key_at(Language::TOML, services, 0, 2).as_deref(),
+        Some("services")
+    );
+    assert_eq!(
+        hover_key_at(Language::TOML, services, 0, 15).as_deref(),
+        Some("health_check")
+    );
+    let dotted = "websocket.listen = 1\n";
+    assert_eq!(
+        hover_key_at(Language::TOML, dotted, 0, 2).as_deref(),
+        Some("websocket")
+    );
+    assert_eq!(
+        hover_key_at(Language::TOML, dotted, 0, 12).as_deref(),
+        Some("listen")
+    );
+    let hcl = "services \"web\" {\n  target = 80\n}\n";
+    assert_eq!(
+        hover_key_at(Language::HCL, hcl, 0, 2).as_deref(),
+        Some("services")
+    );
+}
+
+/// Span lookups run per diagnostic and per ancestor of it; on a 2000-line
+/// document each must stay far below a frame budget, in every language.
+#[test]
+fn span_lookups_on_large_documents_are_fast() {
+    let mut clients = serde_json::Map::new();
+    for index in 0..1500 {
+        clients.insert(
+            format!("client-{index}"),
+            serde_json::json!({"secret": format!("s{index}"), "max_connections": index % 50}),
+        );
+    }
+    let document = serde_json::json!({
+        "clients": clients,
+        "web": {"letsencrypt": {"email": "a@b.c", "dns": [
+            {"domains": ["a.example"], "wait_secs": 60},
+            {"domains": ["b.example"], "wait_secs": 120}
+        ]}}
+    });
+    for language in Language::ALL {
+        let text = language.serialize(&document).unwrap();
+        assert!(text.lines().count() > 2000, "{language}");
+        for pointer in [
+            "/web/letsencrypt/dns/1/wait_secs",
+            "/web/letsencrypt/dns/1",
+            "/web",
+            "/missing/key",
+        ] {
+            let started = std::time::Instant::now();
+            let _ = language.behavior().value_span(&text, pointer);
+            let _ = language.behavior().key_span(&text, pointer);
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_millis(150),
+                "{language} {pointer}: {elapsed:?}"
+            );
+        }
+    }
+}

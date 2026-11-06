@@ -67,6 +67,7 @@
 }
 
 .config-editor[data-color-theme="github-light"] {
+  --config-editor-status-error: #cf222e;
   --config-editor-bg: #ffffff;
   --config-editor-panel: #f6f8fa;
   --config-editor-border: #d0d7de;
@@ -101,11 +102,12 @@
 }
 
 .config-editor[data-color-theme="solarized-light"] {
+  --config-editor-status-error: #b8281f;
   --config-editor-bg: #fdf6e3;
   --config-editor-panel: #eee8d5;
   --config-editor-border: #d6ceb9;
   --config-editor-text: #586e75;
-  --config-editor-muted: #93a1a1;
+  --config-editor-muted: #657b83;
   --config-editor-accent: #268bd2;
   --config-editor-error: #dc322f;
   --config-editor-toolbar-text: #586e75;

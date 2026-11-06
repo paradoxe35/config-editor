@@ -12,13 +12,13 @@
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_value_len, statement_start, statements, entry_follows};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, statement_start, statements, entry_follows};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{bracket_newline, CompletionContext, Newline, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::language::{bracket_newline, toggle_line_comments, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -28,6 +28,10 @@ pub(super) struct HclBehavior;
 
 
 impl ConfigLanguage for HclBehavior {
+    fn repetition(&self) -> Repetition {
+        Repetition::Blocks
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "HCL",
@@ -83,6 +87,35 @@ impl ConfigLanguage for HclBehavior {
         key_at_column(line, column)
     }
 
+    fn hover_path(
+        &self,
+        source: &str,
+        line_index: usize,
+        column: usize,
+    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        // A block type (`services` in `services "web" {`) names a key of the
+        // enclosing body.
+        let line = source.split('\n').nth(line_index)?;
+        let code = code_before_comment(line).unwrap_or(line);
+        let trimmed = code.trim_start();
+        let indent = code.len() - trimmed.len();
+        let name_end = trimmed
+            .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-')))
+            .unwrap_or(trimmed.len());
+        let rest = trimmed[name_end..].trim_start();
+        let is_block = name_end > 0 && (rest.starts_with('"') || rest.starts_with('{')) && code.trim_end().ends_with('{');
+        if !is_block || column < indent || column >= indent + name_end {
+            return None;
+        }
+        let name = trimmed[..name_end].to_string();
+        let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
+        let mut path = self
+            .completion_context(source, source[..line_start].encode_utf16().count())
+            .path;
+        path.push(SchemaPathSegment::Key(name.clone()));
+        Some((path, name, indent))
+    }
+
     fn hover_cursor(&self, line: &str, column: usize) -> usize {
         // Just past the hovered key's `=`, so a key inside a value map
         // resolves under that map.
@@ -110,7 +143,7 @@ impl ConfigLanguage for HclBehavior {
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
-        toggle_hcl_line_comments(source, selection_start, selection_end)
+        toggle_line_comments(source, selection_start, selection_end, &["#", "//"])
     }
 
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
@@ -1318,6 +1351,17 @@ fn existing_body_keys(
     cursor_byte: usize,
     path: &[SchemaPathSegment],
 ) -> Option<HashSet<String>> {
+    // Inside an inline container (an object in a list, a value map) its own
+    // entries are the siblings, however many lines it spans.
+    let cursor_byte = cursor_byte.min(source.len());
+    if let Some(start) = statement_start(&source[..cursor_byte])
+        && let Some((_, end)) = statements(source)
+            .into_iter()
+            .find(|(from, to)| *from <= start && cursor_byte <= *to)
+        && let Some(keys) = inline_sibling_keys(&source[start..end], b'=', cursor_byte - start)
+    {
+        return Some(keys.into_iter().collect());
+    }
     let scan = analyze(source, cursor_byte);
     let wanted: Vec<String> = path
         .iter()
@@ -1556,94 +1600,6 @@ fn byte_at_column(line: &str, column: usize) -> usize {
 // ---------------------------------------------------------------------------
 // Editing and highlighting
 // ---------------------------------------------------------------------------
-
-/// Comment toggling over whole lines with `#`, mirroring the TOML toggler's
-/// selection mapping: blank lines are skipped, commented selections uncomment.
-fn toggle_hcl_line_comments(
-    source: &str,
-    selection_start: usize,
-    selection_end: usize,
-) -> Option<(String, usize, usize)> {
-    let start = utf16_to_byte_index(source, selection_start);
-    let end = utf16_to_byte_index(source, selection_end);
-    let first_line = source[..start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count();
-    let newline_count = source[..end].bytes().filter(|byte| *byte == b'\n').count();
-    let last_line =
-        newline_count.saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
-
-    let lines: Vec<_> = source.split_inclusive('\n').collect();
-    if first_line >= lines.len() {
-        return None;
-    }
-
-    let selected_lines = &lines[first_line..=last_line.min(lines.len() - 1)];
-    let uncomment = selected_lines
-        .iter()
-        .filter_map(|line| {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            (!content.is_empty()).then_some(content.starts_with('#'))
-        })
-        .all(|commented| commented);
-    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut offset = 0;
-    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
-
-    for (line_index, line) in lines.iter().enumerate() {
-        if (first_line..=last_line).contains(&line_index) {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            if !content.is_empty() {
-                if uncomment && content.starts_with('#') {
-                    let removed = 1 + usize::from(content.starts_with("# "));
-                    edits.push((offset + indent, removed, 0));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str(&content[removed..]);
-                    updated.push_str(&line[body.len()..]);
-                } else if !uncomment {
-                    edits.push((offset + indent, 0, 2));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str("# ");
-                    updated.push_str(&line[indent..]);
-                } else {
-                    updated.push_str(line);
-                }
-            } else {
-                updated.push_str(line);
-            }
-        } else {
-            updated.push_str(line);
-        }
-        offset += line.len();
-    }
-
-    let map_offset = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (edit_position, removed, inserted) in &edits {
-            if position < *edit_position {
-                break;
-            }
-            if position == *edit_position && *removed == 0 && !right_biased {
-                return (*edit_position as isize + delta) as usize;
-            }
-            if position <= *edit_position + *removed {
-                return (*edit_position as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
-    };
-    let updated_start = map_offset(start, start == end).min(updated.len());
-    let updated_end = map_offset(end, true).min(updated.len());
-    let updated_selection_start = updated[..updated_start].encode_utf16().count();
-    let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    Some((updated, updated_selection_start, updated_selection_end))
-}
 
 /// Start of a `#` or `//` comment in a line fragment, ignoring markers inside
 /// quoted strings. A marker starts a comment at the fragment start or after

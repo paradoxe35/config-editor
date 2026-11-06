@@ -1,7 +1,9 @@
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
 use super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::language::{CompletionContext, ConfigLanguage, InsertContext, SchemaPathSegment};
+use super::language::{
+    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
+};
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use regex::Regex;
@@ -244,13 +246,14 @@ fn child_schemas<'a>(
 }
 
 /// Reads `value` the way the schema expects for a language that writes arrays
-/// by repeating their key: each lone value where only an array is allowed
-/// becomes a one-item array (a single XML `<dns>` element is `dns: [...]`).
-pub(super) fn conform_arrays(value: &mut Value, schema: &Value) {
-    conform(value, schema, schema, 0);
+/// by repeating their key: each lone value (or, for blocks, lone object)
+/// where only an array is allowed becomes a one-item array (a single XML
+/// `<dns>` element is `dns: [...]`).
+pub(super) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
+    conform(value, schema, schema, repetition, 0);
 }
 
-fn conform(value: &mut Value, schema: &Value, root: &Value, depth: usize) {
+fn conform(value: &mut Value, schema: &Value, root: &Value, repetition: Repetition, depth: usize) {
     if depth > 64 {
         return;
     }
@@ -260,7 +263,12 @@ fn conform(value: &mut Value, schema: &Value, root: &Value, depth: usize) {
             || branch.get("prefixItems").is_some()
             || type_includes(branch, "array")
     });
-    if wants_array && !value.is_array() && !branches.iter().any(|branch| accepts(branch, value)) {
+    let repeatable = match repetition {
+        Repetition::Elements => !value.is_array(),
+        Repetition::Blocks => value.is_object(),
+        _ => false,
+    };
+    if wants_array && repeatable && !branches.iter().any(|branch| accepts(branch, value)) {
         *value = Value::Array(vec![value.take()]);
     }
     match value {
@@ -268,7 +276,7 @@ fn conform(value: &mut Value, schema: &Value, root: &Value, depth: usize) {
             for (index, item) in items.iter_mut().enumerate() {
                 for item_schema in child_schemas(schema, root, &SchemaPathSegment::ArrayItem(index))
                 {
-                    conform(item, item_schema, root, depth + 1);
+                    conform(item, item_schema, root, repetition, depth + 1);
                 }
             }
         }
@@ -276,7 +284,7 @@ fn conform(value: &mut Value, schema: &Value, root: &Value, depth: usize) {
             for (key, child) in map.iter_mut() {
                 let segment = SchemaPathSegment::Key(key.clone());
                 for child_schema in child_schemas(schema, root, &segment) {
-                    conform(child, child_schema, root, depth + 1);
+                    conform(child, child_schema, root, repetition, depth + 1);
                 }
             }
         }
@@ -304,7 +312,10 @@ fn accepts(branch: &Value, value: &Value) -> bool {
     }
 }
 
-fn schema_value_candidates(branch: &Value) -> Vec<Value> {
+/// The values a branch suggests. `open` adds free-form ones (examples and the
+/// default), which are only hints: while the user types their own value they
+/// would replace it on Enter, so they are left out then.
+fn schema_value_candidates(branch: &Value, open: bool) -> Vec<Value> {
     let mut values = branch
         .get("enum")
         .and_then(Value::as_array)
@@ -313,16 +324,18 @@ fn schema_value_candidates(branch: &Value) -> Vec<Value> {
     if let Some(value) = branch.get("const") {
         values.push(value.clone());
     }
-    match branch.get("examples") {
-        Some(Value::Array(examples)) => values.extend(examples.iter().cloned()),
-        Some(example) => values.push(example.clone()),
-        None => {}
-    }
-    if let Some(example) = branch.get("example") {
-        values.push(example.clone());
-    }
-    if let Some(default) = branch.get("default") {
-        values.push(default.clone());
+    if open {
+        match branch.get("examples") {
+            Some(Value::Array(examples)) => values.extend(examples.iter().cloned()),
+            Some(example) => values.push(example.clone()),
+            None => {}
+        }
+        if let Some(example) = branch.get("example") {
+            values.push(example.clone());
+        }
+        if let Some(default) = branch.get("default") {
+            values.push(default.clone());
+        }
     }
     if type_includes(branch, "boolean") {
         values.extend([Value::Bool(true), Value::Bool(false)]);
@@ -510,6 +523,7 @@ fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> Value {
     value
 }
 
+#[allow(clippy::too_many_arguments)]
 fn value_completions(
     schemas: &[&Value],
     typed: &str,
@@ -517,10 +531,12 @@ fn value_completions(
     end: usize,
     root: &Value,
     leading: &str,
+    open: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
     let query = unquoted(typed);
     let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
     let numeric_allowed = schemas
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
@@ -532,9 +548,12 @@ fn value_completions(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let type_label = schema_type_label(branch, root, "value");
-            for value in schema_value_candidates(branch) {
+            for value in schema_value_candidates(branch, open) {
                 let value = numeric_example_as_number(value, numeric_allowed);
                 let label = value_label(&value);
+                if !seen.insert(label.clone()) {
+                    continue;
+                }
                 if let Some(score) = match_score(&label, query) {
                     let insert = format!("{leading}{}", behavior.format_value(&value));
                     candidates.push((
@@ -604,7 +623,7 @@ fn property_completions(
     end: usize,
     root: &Value,
     existing: Option<&HashSet<String>>,
-    repeats_arrays: bool,
+    repetition: Repetition,
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
@@ -622,7 +641,18 @@ fn property_completions(
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         for (key, property) in properties {
-            let repeatable = repeats_arrays && array_branch(property, root).is_some();
+            // A list key written by repetition can appear again: any list in
+            // XML, a list of objects as HCL blocks (never inside `{ … }`).
+            let repeatable = match repetition {
+                Repetition::Elements => array_branch(property, root).is_some(),
+                Repetition::Blocks => {
+                    insert_context.position == EntryPosition::Block
+                        && array_branch(property, root)
+                            .and_then(|array| array.get("items"))
+                            .is_some_and(|items| object_branch(items, root).is_some())
+                }
+                _ => false,
+            };
             if !repeatable && existing.is_some_and(|existing| existing.contains(key)) {
                 continue;
             }
@@ -687,9 +717,10 @@ pub(super) fn completions(
     for option in &mut options {
         frame_insert(option, &context);
         // An insert ending in a line break before an existing one would leave
-        // a blank line.
+        // a blank line, unless the caret goes on that line (`[pool]\n|`).
         let end = utf16_to_byte_index(source, option.end);
-        if option.insert.ends_with('\n') && source[end..].starts_with('\n') {
+        let caret_on_new_line = option.cursor_offset == option.insert.encode_utf16().count();
+        if option.insert.ends_with('\n') && source[end..].starts_with('\n') && !caret_on_new_line {
             option.insert.pop();
             let units = option.insert.encode_utf16().count();
             option.cursor_offset = option.cursor_offset.min(units);
@@ -749,7 +780,11 @@ fn completions_for_context(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
-    let schemas = schema_at_path(&bundle.schema, &context.path, behavior.repeats_arrays());
+    let schemas = schema_at_path(
+        &bundle.schema,
+        &context.path,
+        behavior.repetition() != Repetition::None,
+    );
 
     if let Some(key) = context.value_key.as_deref() {
         // A number being typed is the user's own value: suggesting a longer
@@ -761,7 +796,7 @@ fn completions_for_context(
         let value_schemas = schema_at_path(
             &bundle.schema,
             &path_with_key(&context.path, key),
-            behavior.repeats_arrays(),
+            behavior.repetition() != Repetition::None,
         );
         let leading = if context.value_needs_space { " " } else { "" };
         let mut options = value_completions(
@@ -771,6 +806,7 @@ fn completions_for_context(
             context.replace_end,
             &bundle.schema,
             leading,
+            force || typed_value.is_empty(),
             behavior,
         );
         if !force && unquoted(&context.typed).is_empty() {
@@ -816,6 +852,7 @@ fn completions_for_context(
                 context.replace_end,
                 &bundle.schema,
                 "",
+                force || unquoted(&context.typed).is_empty(),
                 behavior,
             );
         }
@@ -845,7 +882,7 @@ fn completions_for_context(
         context.replace_end,
         &bundle.schema,
         existing_keys.as_ref(),
-        behavior.repeats_arrays(),
+        behavior.repetition(),
         &InsertContext {
             base_indent,
             unit: &unit,
@@ -867,8 +904,10 @@ fn completions_for_context(
 
 /// Accepting a key keeps the list open so its child keys can be suggested. Accepting
 /// a value ends the entry, so the list closes instead of offering the same value again.
+/// A key whose default is left selected is a placeholder: typing replaces it,
+/// so there is nothing to suggest.
 pub(super) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: bool) -> bool {
-    auto_trigger && !completion.is_value
+    auto_trigger && !completion.is_value && completion.selected == 0
 }
 
 /// Rows PageUp/PageDown move: one popup page
@@ -902,7 +941,11 @@ pub(super) fn key_hover(
         .map(|line| line.len() + 1)
         .sum();
     let line = source.get(line_start..)?.split('\n').next()?;
-    let (key, start_column) = behavior.hover_key(line, column)?;
+    let resolved = behavior.hover_path(source, line_index, column);
+    let (key, start_column) = match &resolved {
+        Some((_, key, start)) => (key.clone(), *start),
+        None => behavior.hover_key(line, column)?,
+    };
     let cursor = source[..line_start + behavior.hover_cursor(line, column)]
         .encode_utf16()
         .count();
@@ -910,7 +953,9 @@ pub(super) fn key_hover(
     // The hovered key is either the key whose value the context is in, or the
     // container the context is inside (a TOML `[table]` header, an HCL block
     // name, an XML element with attributes).
-    let path = if context.value_key.as_deref() == Some(key.as_str()) {
+    let path = if let Some((path, _, _)) = resolved {
+        path
+    } else if context.value_key.as_deref() == Some(key.as_str()) {
         path_with_key(&context.path, &key)
     } else {
         let mut container = context.path.clone();
@@ -926,7 +971,7 @@ pub(super) fn key_hover(
     };
     let parent = &path[..path.len() - 1];
     let root = &bundle.schema;
-    let schemas = schema_at_path(root, &path, behavior.repeats_arrays());
+    let schemas = schema_at_path(root, &path, behavior.repetition() != Repetition::None);
     if schemas.is_empty() {
         return None;
     }
@@ -959,7 +1004,7 @@ pub(super) fn key_hover(
         }
     }
     examples.truncate(5);
-    let required = schema_at_path(root, parent, behavior.repeats_arrays())
+    let required = schema_at_path(root, parent, behavior.repetition() != Repetition::None)
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .any(|branch| {
@@ -1055,7 +1100,8 @@ pub(super) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index:
 /// measuring text; close enough for the short keys suggested.
 pub(super) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
 
-fn visual_column(text: &str) -> f64 {
+/// The rendered column after `text`, with tabs at their tab stops.
+pub(super) fn visual_column(text: &str) -> f64 {
     let mut column = 0.0;
     for character in text.chars() {
         if character == '\t' {

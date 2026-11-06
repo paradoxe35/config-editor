@@ -1,0 +1,659 @@
+//! Browser bindings for `leptos-config-editor`, published to npm as
+//! `config-editor`. The editor itself is the crate's Leptos component, mounted
+//! into any element; JavaScript sees a plain class and functions. Framework
+//! wrappers (`config-editor-react`, …) build on this package.
+#![cfg(target_arch = "wasm32")]
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use js_sys::{Array, Function, Object, Reflect};
+use leptos::prelude::*;
+use leptos_config_editor::language::{
+    ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
+};
+use leptos_config_editor::{
+    ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
+};
+use serde::Serialize;
+use serde_json::Value;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(typescript_custom_section)]
+const TYPES: &str = r#"
+/** A built-in language name (`"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`) or one from `registerLanguage`. */
+export type LanguageName = string;
+
+/** A bundled theme slug, such as `"vscode-dark"`, `"vscode-light"`, `"nord"`. See `themes()`. */
+export type ThemeName = string;
+
+/** Color overrides keyed by token (`bg`, `key`, `string`, `selection`, …; see `colorTokens()`). */
+export type ThemeColorMap = Record<string, string>;
+
+export interface EditorOptions {
+  /** The document, in `language`. */
+  value?: string;
+  /** Language of the document. Default `"yaml"`. */
+  language?: LanguageName;
+  /** Edit in another language; `value` and `onChange` stay in `language`. */
+  editAs?: LanguageName;
+  /** JSON Schema (as JSON text) for completion, hover docs and validation. */
+  schema?: string;
+  /** Text the diff gutter compares against. Default: the initial `value`. */
+  baseline?: string;
+  /** File name shown in the toolbar and footer. */
+  fileName?: string;
+  theme?: ThemeName;
+  colors?: ThemeColorMap;
+  readOnly?: boolean;
+  showToolbar?: boolean;
+  showFooter?: boolean;
+  /** Extra class on the editor root. */
+  className?: string;
+  /** Called with the document, in `language`, after every edit. */
+  onChange?: (value: string) => void;
+  /** Called when an `editAs` switch completes (it waits while the document cannot convert yet). */
+  onEditAsChange?: (language: LanguageName) => void;
+}
+
+export interface Diagnostic {
+  line?: number;
+  column?: number;
+  endColumn?: number;
+  message: string;
+  severity: "error" | "warning";
+}
+
+export interface Conversion {
+  text: string;
+  /** JSON pointers of values the target reads back differently. */
+  losses: string[];
+}
+
+export interface CustomLanguage {
+  label: string;
+  /** One or two letters for the toolbar icon. */
+  icon?: string;
+  extensions?: string[];
+  /** Parse to a JSON value, or throw `{ message, line?, column? }`. */
+  parse(text: string): unknown;
+  serialize?(value: unknown): string;
+  /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer. */
+  keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined;
+  valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined;
+  /** Byte ranges of one line: kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
+  highlight?(line: string): { start: number; end: number; kind: string }[];
+}
+"#;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "EditorOptions")]
+    pub type EditorOptions;
+    #[wasm_bindgen(typescript_type = "Partial<EditorOptions>")]
+    pub type EditorUpdate;
+    #[wasm_bindgen(typescript_type = "CustomLanguage")]
+    pub type CustomLanguage;
+    #[wasm_bindgen(typescript_type = "ThemeColorMap")]
+    pub type ColorMap;
+    #[wasm_bindgen(typescript_type = "Diagnostic[]")]
+    pub type Diagnostics;
+    #[wasm_bindgen(typescript_type = "Conversion")]
+    pub type ConversionResult;
+    #[wasm_bindgen(typescript_type = "string[]")]
+    pub type Names;
+}
+
+#[wasm_bindgen(start)]
+fn start() {
+    console_error_panic_hook::set_once();
+}
+
+thread_local! {
+    /// Languages registered from JavaScript, by lowercase label.
+    static REGISTERED: RefCell<HashMap<String, Language>> = RefCell::new(HashMap::new());
+}
+
+fn language_named(name: &str) -> Result<Language, JsError> {
+    let key = name.trim().to_ascii_lowercase();
+    if let Some(language) = REGISTERED.with(|languages| languages.borrow().get(&key).copied()) {
+        return Ok(language);
+    }
+    name.parse::<Language>()
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
+fn theme_named(name: &str) -> Result<EditorTheme, JsError> {
+    name.parse::<EditorTheme>()
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
+fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
+    let mut colors = ThemeColors::new();
+    if value.is_undefined() || value.is_null() {
+        return Ok(colors);
+    }
+    let entries = Object::entries(value.unchecked_ref());
+    for entry in entries.iter() {
+        let pair: Array = entry.unchecked_into();
+        let token = pair.get(0).as_string().unwrap_or_default();
+        let css = pair.get(1).as_string().unwrap_or_default();
+        let color = ThemeColor::ALL
+            .iter()
+            .copied()
+            .find(|color| color.css_var().strip_prefix("--config-editor-") == Some(token.as_str()))
+            .ok_or_else(|| JsError::new(&format!("unknown color token \"{token}\"")))?;
+        colors = colors.set(color, css);
+    }
+    Ok(colors)
+}
+
+fn field(object: &JsValue, name: &str) -> JsValue {
+    Reflect::get(object, &JsValue::from_str(name)).unwrap_or(JsValue::UNDEFINED)
+}
+
+fn string_field(object: &JsValue, name: &str) -> Option<String> {
+    field(object, name).as_string()
+}
+
+fn bool_field(object: &JsValue, name: &str) -> Option<bool> {
+    field(object, name).as_bool()
+}
+
+/// The live state a mounted editor reads; setters write it.
+#[derive(Clone, Copy)]
+struct State {
+    value: RwSignal<String>,
+    baseline: RwSignal<String>,
+    edit_as: RwSignal<Option<Language>>,
+    theme: RwSignal<EditorTheme>,
+    colors: RwSignal<ThemeColors>,
+    read_only: RwSignal<bool>,
+    on_change: StoredValue<Option<Function>, LocalStorage>,
+    on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
+}
+
+/// A config editor mounted into an element.
+///
+/// ```js
+/// import init, { ConfigEditor } from "config-editor";
+/// await init();
+/// const editor = new ConfigEditor(document.getElementById("config"), {
+///   language: "yaml",
+///   value: "listen: 7835\n",
+///   schema: schemaJson,
+///   onChange: (text) => save(text),
+/// });
+/// ```
+#[wasm_bindgen]
+pub struct ConfigEditor {
+    state: State,
+    /// Unmounts when dropped.
+    mounted: Option<Box<dyn std::any::Any>>,
+    owner: Owner,
+}
+
+#[wasm_bindgen]
+impl ConfigEditor {
+    /// Mounts an editor into `element` (its content is replaced).
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        element: web_sys::HtmlElement,
+        options: EditorOptions,
+    ) -> Result<ConfigEditor, JsError> {
+        let options: JsValue = options.into();
+        let language = match string_field(&options, "language") {
+            Some(name) => language_named(&name)?,
+            None => Language::default(),
+        };
+        let edit_as = string_field(&options, "editAs")
+            .map(|name| language_named(&name))
+            .transpose()?
+            .filter(|edit| *edit != language);
+        let theme = match string_field(&options, "theme") {
+            Some(name) => theme_named(&name)?,
+            None => EditorTheme::default(),
+        };
+        let colors = colors_from(&field(&options, "colors"))?;
+        let schema = match string_field(&options, "schema") {
+            Some(json) => {
+                Some(Schema::compile(&json).map_err(|error| JsError::new(&error.to_string()))?)
+            }
+            None => None,
+        };
+        let value = string_field(&options, "value").unwrap_or_default();
+        let baseline = string_field(&options, "baseline").unwrap_or_else(|| value.clone());
+        let file_name = string_field(&options, "fileName");
+        let class = string_field(&options, "className");
+        let show_toolbar = bool_field(&options, "showToolbar").unwrap_or(false);
+        let show_footer = bool_field(&options, "showFooter").unwrap_or(false);
+        let read_only = bool_field(&options, "readOnly").unwrap_or(false);
+        let on_change = field(&options, "onChange").dyn_into::<Function>().ok();
+        let on_edit_as_change = field(&options, "onEditAsChange")
+            .dyn_into::<Function>()
+            .ok();
+
+        let owner = Owner::new();
+        let state = owner.with(|| State {
+            value: RwSignal::new(value.clone()),
+            baseline: RwSignal::new(baseline),
+            edit_as: RwSignal::new(edit_as),
+            theme: RwSignal::new(theme),
+            colors: RwSignal::new(colors),
+            read_only: RwSignal::new(read_only),
+            on_change: StoredValue::new_local(on_change),
+            on_edit_as_change: StoredValue::new_local(on_edit_as_change),
+        });
+        let mounted = owner.with(|| {
+            leptos::mount::mount_to(element, move || {
+                let changed = move |text: String| {
+                    state.value.set(text.clone());
+                    state.on_change.with_value(|callback| {
+                        if let Some(callback) = callback {
+                            let _ = callback.call1(&JsValue::NULL, &JsValue::from_str(&text));
+                        }
+                    });
+                };
+                let switched = move |language: Language| {
+                    state.on_edit_as_change.with_value(|callback| {
+                        if let Some(callback) = callback {
+                            let name = JsValue::from_str(&language.label().to_ascii_lowercase());
+                            let _ = callback.call1(&JsValue::NULL, &name);
+                        }
+                    });
+                };
+                let edit_as = Signal::derive(move || state.edit_as.get());
+                let value_signal = Signal::derive(move || state.value.get());
+                let baseline = Signal::derive(move || state.baseline.get());
+                let theme = Signal::derive(move || state.theme.get());
+                let colors = Signal::derive(move || Some(state.colors.get()));
+                let read_only = Signal::derive(move || state.read_only.get());
+                let file_name = file_name.clone().unwrap_or_default();
+                let class = class.clone().unwrap_or_default();
+                // An optional prop takes its value, not an `Option`.
+                match schema.clone() {
+                    Some(schema) => view! {
+                        <Editor
+                            language=language
+                            edit_as=edit_as
+                            initial_value=value.clone()
+                            value=value_signal
+                            baseline=baseline
+                            schema=SchemaSource::from(schema)
+                            file_name=file_name
+                            class=class
+                            theme=theme
+                            colors=colors
+                            read_only=read_only
+                            show_toolbar=show_toolbar
+                            show_footer=show_footer
+                            on_change=changed
+                            on_edit_as_change=switched
+                        />
+                    }
+                    .into_any(),
+                    None => view! {
+                        <Editor
+                            language=language
+                            edit_as=edit_as
+                            initial_value=value.clone()
+                            value=value_signal
+                            baseline=baseline
+                            file_name=file_name
+                            class=class
+                            theme=theme
+                            colors=colors
+                            read_only=read_only
+                            show_toolbar=show_toolbar
+                            show_footer=show_footer
+                            on_change=changed
+                            on_edit_as_change=switched
+                        />
+                    }
+                    .into_any(),
+                }
+            })
+        });
+        Ok(ConfigEditor {
+            state,
+            mounted: Some(Box::new(mounted)),
+            owner,
+        })
+    }
+
+    /// The document, in `language`.
+    #[wasm_bindgen(getter)]
+    pub fn value(&self) -> String {
+        self.state.value.get_untracked()
+    }
+
+    /// Replaces the document (as a host update; the caret is kept when the
+    /// text is unchanged).
+    #[wasm_bindgen(js_name = setValue)]
+    pub fn set_value(&self, value: String) {
+        self.state.value.set(value);
+    }
+
+    /// Sets the text the diff gutter compares against.
+    #[wasm_bindgen(js_name = setBaseline)]
+    pub fn set_baseline(&self, baseline: String) {
+        self.state.baseline.set(baseline);
+    }
+
+    /// Edits in another language, or in `language` again with `null`.
+    #[wasm_bindgen(js_name = setEditAs)]
+    pub fn set_edit_as(&self, language: Option<String>) -> Result<(), JsError> {
+        let language = language.map(|name| language_named(&name)).transpose()?;
+        self.state.edit_as.set(language);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = setTheme)]
+    pub fn set_theme(&self, theme: String) -> Result<(), JsError> {
+        self.state.theme.set(theme_named(&theme)?);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = setColors)]
+    pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
+        self.state.colors.set(colors_from(&colors.into())?);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = setReadOnly)]
+    pub fn set_read_only(&self, read_only: bool) {
+        self.state.read_only.set(read_only);
+    }
+
+    /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
+    #[wasm_bindgen(js_name = setCallbacks)]
+    pub fn set_callbacks(&self, callbacks: EditorUpdate) {
+        let callbacks: JsValue = callbacks.into();
+        if let Ok(callback) = field(&callbacks, "onChange").dyn_into::<Function>() {
+            self.state.on_change.set_value(Some(callback));
+        }
+        if let Ok(callback) = field(&callbacks, "onEditAsChange").dyn_into::<Function>() {
+            self.state.on_edit_as_change.set_value(Some(callback));
+        }
+    }
+
+    /// Unmounts the editor. The instance cannot be used afterwards.
+    pub fn destroy(&mut self) {
+        self.mounted.take();
+        self.owner.cleanup();
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticOut {
+    line: Option<usize>,
+    column: Option<usize>,
+    end_column: Option<usize>,
+    message: String,
+    severity: &'static str,
+}
+
+fn to_js<T: Serialize>(value: &T) -> JsValue {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .unwrap_or(JsValue::NULL)
+}
+
+/// Syntax and schema problems in `text`, as the editor shows them. Without a
+/// schema only syntax is checked.
+#[wasm_bindgen]
+pub fn validate(
+    language: &str,
+    text: &str,
+    schema: Option<String>,
+) -> Result<Diagnostics, JsError> {
+    let language = language_named(language)?;
+    let problems = match schema {
+        Some(json) => Schema::compile(&json)
+            .map_err(|error| JsError::new(&error.to_string()))?
+            .validate(language, text),
+        None => leptos_config_editor::check_syntax(language, text),
+    };
+    let out: Vec<DiagnosticOut> = problems
+        .into_iter()
+        .map(|problem| DiagnosticOut {
+            line: problem.line,
+            column: problem.column,
+            end_column: problem.end_column,
+            message: problem.message,
+            severity: match problem.severity {
+                leptos_config_editor::Severity::Warning => "warning",
+                _ => "error",
+            },
+        })
+        .collect();
+    Ok(to_js(&out).unchecked_into())
+}
+
+/// Converts `text` from one language to another. With a schema, lone XML
+/// elements where it expects a list convert as one-item lists.
+#[wasm_bindgen]
+pub fn convert(
+    from: &str,
+    text: &str,
+    to: &str,
+    schema: Option<String>,
+) -> Result<ConversionResult, JsError> {
+    let (from, to) = (language_named(from)?, language_named(to)?);
+    let converted = match schema {
+        Some(json) => Schema::compile(&json)
+            .map_err(|error| JsError::new(&error.to_string()))?
+            .convert(from, text, to),
+        None => from.convert(text, to),
+    }
+    .map_err(|error| JsError::new(&error.to_string()))?;
+    #[derive(Serialize)]
+    struct Out {
+        text: String,
+        losses: Vec<String>,
+    }
+    Ok(to_js(&Out {
+        text: converted.text,
+        losses: converted.losses,
+    })
+    .unchecked_into())
+}
+
+/// Names of the built-in and registered languages.
+#[wasm_bindgen]
+pub fn languages() -> Names {
+    let mut names: Vec<String> = Language::ALL
+        .iter()
+        .map(|language| language.label().to_ascii_lowercase())
+        .collect();
+    REGISTERED.with(|languages| names.extend(languages.borrow().keys().cloned()));
+    to_js(&names).unchecked_into()
+}
+
+/// Slugs of the bundled themes.
+#[wasm_bindgen]
+pub fn themes() -> Names {
+    let names: Vec<&str> = EditorTheme::ALL
+        .iter()
+        .map(|theme| theme.as_str())
+        .collect();
+    to_js(&names).unchecked_into()
+}
+
+/// Token names accepted in `colors`.
+#[wasm_bindgen(js_name = colorTokens)]
+pub fn color_tokens() -> Names {
+    let names: Vec<&str> = ThemeColor::ALL
+        .iter()
+        .filter_map(|color| color.css_var().strip_prefix("--config-editor-"))
+        .collect();
+    to_js(&names).unchecked_into()
+}
+
+/// A language implemented in JavaScript. The editor gives it everything the
+/// built-in ones get from the shared core: schema validation, completion
+/// from keys it locates, conversion to and from every other language.
+struct JsLanguage {
+    definition: JsValue,
+    info: LanguageInfo,
+}
+
+// SAFETY: wasm32 without the `atomics` target feature runs on one thread, so
+// the JS object is never touched from another thread. The trait requires
+// Send + Sync for hosts with threads.
+#[cfg(not(target_feature = "atomics"))]
+unsafe impl Send for JsLanguage {}
+#[cfg(not(target_feature = "atomics"))]
+unsafe impl Sync for JsLanguage {}
+
+impl JsLanguage {
+    fn method(&self, name: &str) -> Option<Function> {
+        field(&self.definition, name).dyn_into::<Function>().ok()
+    }
+
+    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Span> {
+        let span = self
+            .method(name)?
+            .call2(
+                &self.definition,
+                &JsValue::from_str(source),
+                &JsValue::from_str(pointer),
+            )
+            .ok()?;
+        let number = |key: &str| field(&span, key).as_f64().map(|value| value as usize);
+        Some(Span {
+            line: number("line")?,
+            start_column: number("startColumn")?,
+            end_column: number("endColumn")?,
+        })
+    }
+}
+
+fn leak(text: String) -> &'static str {
+    Box::leak(text.into_boxed_str())
+}
+
+#[cfg(not(target_feature = "atomics"))]
+impl ConfigLanguage for JsLanguage {
+    fn info(&self) -> LanguageInfo {
+        self.info
+    }
+
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        let parse = self.method("parse").ok_or_else(|| ParseError {
+            message: "the language has no parse()".to_string(),
+            line: None,
+            column: None,
+        })?;
+        match parse.call1(&self.definition, &JsValue::from_str(source)) {
+            Ok(value) => serde_wasm_bindgen::from_value(value).map_err(|error| ParseError {
+                message: format!("parse() returned a value that is not JSON: {error}"),
+                line: None,
+                column: None,
+            }),
+            Err(thrown) => {
+                let number = |key: &str| field(&thrown, key).as_f64().map(|value| value as usize);
+                Err(ParseError {
+                    message: string_field(&thrown, "message")
+                        .or_else(|| thrown.as_string())
+                        .unwrap_or_else(|| "parse error".to_string()),
+                    line: number("line"),
+                    column: number("column"),
+                })
+            }
+        }
+    }
+
+    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+        let serialize = self
+            .method("serialize")
+            .ok_or_else(|| format!("{} cannot write documents", self.info.label))?;
+        serialize
+            .call1(&self.definition, &to_js(value))
+            .map_err(|error| {
+                string_field(&error, "message").unwrap_or_else(|| format!("{error:?}"))
+            })?
+            .as_string()
+            .ok_or_else(|| "serialize() must return a string".to_string())
+    }
+
+    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        self.span("keySpan", source, pointer)
+    }
+
+    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        self.span("valueSpan", source, pointer)
+    }
+
+    fn highlight(&self, line: &str) -> Vec<Token> {
+        let Some(highlight) = self.method("highlight") else {
+            return Vec::new();
+        };
+        let Ok(tokens) = highlight.call1(&self.definition, &JsValue::from_str(line)) else {
+            return Vec::new();
+        };
+        let mut out = Tokens::new();
+        for token in Array::from(&tokens).iter() {
+            let number = |key: &str| field(&token, key).as_f64().map(|value| value as usize);
+            let kind = match string_field(&token, "kind").as_deref() {
+                Some("key") => TokenKind::Key,
+                Some("string") => TokenKind::String,
+                Some("literal") => TokenKind::Literal,
+                Some("comment") => TokenKind::Comment,
+                Some("punctuation") => TokenKind::Punctuation,
+                _ => TokenKind::Value,
+            };
+            if let (Some(start), Some(end)) = (number("start"), number("end"))
+                && start < end
+                && end <= line.len()
+                && line.is_char_boundary(start)
+                && line.is_char_boundary(end)
+            {
+                out.push(start, end, kind);
+            }
+        }
+        out.finish()
+    }
+
+    fn lexical_state(&self, _source: &str, _cursor: usize) -> Lexical {
+        Lexical::default()
+    }
+}
+
+/// Registers a language implemented in JavaScript and returns its name for
+/// `language` / `editAs` (its label, lowercased). Registering the same label
+/// again replaces it for new editors.
+#[cfg(not(target_feature = "atomics"))]
+#[wasm_bindgen(js_name = registerLanguage)]
+pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> {
+    let definition: JsValue = definition.into();
+    let label = string_field(&definition, "label")
+        .filter(|label| !label.trim().is_empty())
+        .ok_or_else(|| JsError::new("a language needs a label"))?;
+    if field(&definition, "parse").dyn_into::<Function>().is_err() {
+        return Err(JsError::new("a language needs parse(text)"));
+    }
+    let icon = string_field(&definition, "icon")
+        .unwrap_or_else(|| label.chars().next().map(String::from).unwrap_or_default());
+    let extensions: Vec<&'static str> = Array::from(&field(&definition, "extensions"))
+        .iter()
+        .filter_map(|extension| extension.as_string())
+        .map(leak)
+        .collect();
+    let name = label.to_ascii_lowercase();
+    let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
+        definition,
+        info: LanguageInfo {
+            label: leak(label),
+            icon: leak(icon),
+            extensions: Box::leak(extensions.into_boxed_slice()),
+        },
+    }));
+    REGISTERED.with(|languages| {
+        languages
+            .borrow_mut()
+            .insert(name.clone(), Language::new(language));
+    });
+    Ok(name)
+}

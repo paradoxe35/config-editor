@@ -468,7 +468,7 @@ fn an_object_key_typed_directly_in_an_inline_array_starts_a_new_item() {
         (
             Language::JSON,
             "{\"web\": {\"certificates\": [\"|\"]}}",
-            "{\"web\": {\"certificates\": [{\"hosts\": [|]}]}}",
+            "{\"web\": {\"certificates\": [{\"hosts\": [\"|\"]}]}}",
         ),
         (
             Language::YAML,

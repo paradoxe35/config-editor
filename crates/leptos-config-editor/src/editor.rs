@@ -14,7 +14,7 @@ pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, c
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 mod theme;
-pub use theme::{EditorTheme, UnknownTheme};
+pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 mod history;
 use history::{EditHistory, Selection, Snapshot};
 mod diff;
@@ -30,12 +30,12 @@ mod completion;
 use completion::{
     COMPLETION_PAGE_ROWS, KeyHover, accept_reopens_suggestions, apply_completion,
     completion_popup_style, completions, inserted_closers, key_hover, scroll_completion_into_view,
-    should_auto_trigger,
+    should_auto_trigger, visual_column,
 };
 mod commands;
 use commands::{
-    backspace_indent, cycle_offset, indent_lines, indent_unit, line_at_cursor, line_range,
-    offset_at, smart_home, typed_closer,
+    backspace_indent, cycle_offset, indent_lines, line_at_cursor, line_range, offset_at,
+    smart_home, tab_insert, typed_closer,
 };
 mod line_rows;
 use line_rows::{LineRows, RenderedLine};
@@ -124,6 +124,13 @@ fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Selection {
     (start, end)
 }
 
+/// Rows rendered above and below the visible ones, so fast scrolling does
+/// not show blank lines before the next frame.
+const OVERSCAN_ROWS: usize = 40;
+
+/// Rows rendered before the editor element exists to measure.
+const INITIAL_ROWS: usize = 120;
+
 /// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
 const DIAGNOSTIC_TOOLTIP_MAX_WIDTH: f64 = 360.0;
 
@@ -171,9 +178,17 @@ pub fn ConfigEditor(
     /// Color theme; may be a signal to switch themes live.
     #[prop(default = EditorTheme::VsCodeDark.into(), into)]
     theme: Signal<EditorTheme>,
+    /// Colors overriding the theme's, for a custom palette; may be a signal.
+    #[prop(optional, into)]
+    colors: MaybeProp<ThemeColors>,
     /// Called with the document, in `language`, after every edit.
     #[prop(optional, into)]
     on_change: Option<Callback<String>>,
+    /// Called with the language being edited each time an `edit_as` switch
+    /// completes. A switch waits while the document cannot be converted yet
+    /// (TOML has no `null`), so this, not `edit_as`, is what is on screen.
+    #[prop(optional, into)]
+    on_edit_as_change: Option<Callback<Language>>,
     /// Inject [`PRESET_CSS`]. Set `false` to style the `config-editor__*`
     /// markup yourself.
     #[prop(default = true)]
@@ -310,6 +325,11 @@ pub fn ConfigEditor(
     // Closers the editor inserted, as UTF-16 distances from the document end
     // (typing inside the pair keeps them). Only these are typed over.
     let auto_closers = StoredValue::new(Vec::<usize>::new());
+    // An inserted default left selected after an accept: typing replaces it,
+    // Tab keeps it and moves past it, Enter keeps it and starts a new line.
+    let placeholder = StoredValue::new(None::<(usize, usize)>);
+    // The line last copied or cut with nothing selected, to paste it whole.
+    let copied_line = StoredValue::new(None::<String>);
     // The selection just before the browser applies an edit, for undo.
     let pre_edit_selection = StoredValue::new((0usize, 0usize));
     let hover_card = RwSignal::new(None::<HoverCard>);
@@ -440,6 +460,9 @@ pub fn ConfigEditor(
                 hide_hover();
                 suggestions_requested.set(false);
                 edit_language.set(next);
+                if let Some(callback) = on_edit_as_change {
+                    callback.run(next);
+                }
                 diagnosed_text.set(text.clone());
                 source.set(text);
             }
@@ -525,14 +548,25 @@ pub fn ConfigEditor(
         };
         let text = source.get_untracked();
         let (line_start, line_end) = line_range(&text, start);
-        let line: String = String::from_utf16_lossy(
-            &text.encode_utf16().collect::<Vec<_>>()[line_start..line_end],
-        );
+        let units: Vec<u16> = text.encode_utf16().collect();
+        let mut line = String::from_utf16_lossy(&units[line_start..line_end]);
+        if !line.ends_with('\n') {
+            line.push('\n');
+        }
         if clipboard.set_data("text/plain", &line).is_err() {
             return;
         }
         event.prevent_default();
+        copied_line.set_value(Some(line));
         if cut && !read_only.get_untracked() {
+            // The last line takes the newline before it, leaving no empty line.
+            let line_start = if line_end == units.len()
+                && units.get(line_end.wrapping_sub(1)) != Some(&u16::from(b'\n'))
+            {
+                line_start.saturating_sub(1)
+            } else {
+                line_start
+            };
             let (updated, _) = replace_selection(&text, line_start, line_end, "");
             commit_edit(
                 updated,
@@ -551,12 +585,49 @@ pub fn ConfigEditor(
             );
         }
     };
+    // Pasting a line copied with nothing selected puts it above the caret's
+    // line and keeps the caret on its text, as in VS Code.
+    let paste_line = move |event: web_sys::ClipboardEvent| {
+        let (Some(element), Some(clipboard)) = (editor_ref.get(), event.clipboard_data()) else {
+            return;
+        };
+        let (start, end) = textarea_selection(&element);
+        let Ok(pasted) = clipboard.get_data("text/plain") else {
+            return;
+        };
+        if start != end
+            || read_only.get_untracked()
+            || copied_line.with_value(|line| line.as_deref() != Some(pasted.as_str()))
+        {
+            return;
+        }
+        event.prevent_default();
+        let text = source.get_untracked();
+        let (line_start, _) = line_range(&text, start);
+        let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
+        commit_edit(
+            updated,
+            start + pasted.encode_utf16().count(),
+            None,
+            text,
+            (start, end),
+            source,
+            cursor,
+            current_line,
+            history,
+            on_change,
+            Some(element),
+            scroll_y,
+            true,
+        );
+    };
     let apply_selected = move || {
         let options = suggestions.get();
         if let Some(completion) = options.get(active_completion.get()) {
             let (updated, anchor, new_cursor) =
                 apply_completion(&source.get_untracked(), completion);
             auto_closers.set_value(inserted_closers(completion, &updated, new_cursor));
+            placeholder.set_value((anchor != new_cursor).then_some((anchor, new_cursor)));
             let before = source.get_untracked();
             let request_completions =
                 accept_reopens_suggestions(completion, auto_trigger_completions);
@@ -649,9 +720,33 @@ pub fn ConfigEditor(
     let rows_for_sync = rows.clone();
     let rows_for_gutter = rows.clone();
     let rows_for_highlight = rows.clone();
+    // Only the rows in view (plus overscan) exist in the DOM; a spacer above
+    // them keeps their positions, so large documents stay fast to edit.
+    let visible_rows = Memo::new(move |_| {
+        popup_layout_revision.track();
+        let top = scroll_y.get();
+        // From the text, not `lines`: a second reader of `lines` here kept the
+        // row sync from seeing diagnostic-only changes to it.
+        let count = source.with(|text| text.bytes().filter(|byte| *byte == b'\n').count() + 1);
+        let Some(editor) = editor_ref.get() else {
+            return 0..count.min(INITIAL_ROWS);
+        };
+        let metrics = read_editor_metrics(&editor);
+        let window_height = web_sys::window()
+            .and_then(|window| window.inner_height().ok())
+            .and_then(|height| height.as_f64())
+            .unwrap_or(0.0);
+        let height = f64::from(editor.client_height()).max(window_height);
+        let line_height = metrics.line_height.max(1.0);
+        let first = ((top - metrics.padding_top) / line_height).floor().max(0.0) as usize;
+        let first = first.saturating_sub(OVERSCAN_ROWS).min(count);
+        let last = (first + (height / line_height).ceil() as usize + 2 * OVERSCAN_ROWS).min(count);
+        first..last
+    });
     Effect::new(move |_| {
         let line = current_line.get();
-        lines.with(|lines| diff.with(|diff| rows_for_sync.sync(lines, diff, line)));
+        let range = visible_rows.get();
+        lines.with(|lines| diff.with(|diff| rows_for_sync.sync(lines, diff, line, range)));
     });
     // Close the change preview when an edit touches its anchor.
     Effect::new(move |_| {
@@ -670,6 +765,49 @@ pub fn ConfigEditor(
         }
     });
 
+    // Clipboard and composition listeners are added here rather than in the
+    // view: a tachys element holds at most 26 attributes.
+    Effect::new(move |_| {
+        use wasm_bindgen::closure::Closure;
+        let Some(element) = editor_ref.get() else {
+            return;
+        };
+        let clipboard = |handler: Box<dyn Fn(web_sys::ClipboardEvent)>| {
+            Closure::<dyn Fn(web_sys::ClipboardEvent)>::wrap(handler)
+        };
+        let listeners = [
+            (
+                "copy",
+                clipboard(Box::new(move |event| copy_line(event, false))),
+            ),
+            (
+                "cut",
+                clipboard(Box::new(move |event| copy_line(event, true))),
+            ),
+            ("paste", clipboard(Box::new(paste_line))),
+            (
+                "compositionend",
+                clipboard(Box::new(move |_| history.update(EditHistory::seal))),
+            ),
+        ];
+        for (name, listener) in &listeners {
+            let _ =
+                element.add_event_listener_with_callback(name, listener.as_ref().unchecked_ref());
+        }
+        // Browser objects stay on the one wasm thread.
+        let registered = StoredValue::new_local((element, listeners));
+        on_cleanup(move || {
+            registered.with_value(|(element, listeners)| {
+                for (name, listener) in listeners {
+                    let _ = element.remove_event_listener_with_callback(
+                        name,
+                        listener.as_ref().unchecked_ref(),
+                    );
+                }
+            });
+        });
+    });
+
     view! {
         <div
             class=move || {
@@ -685,6 +823,7 @@ pub fn ConfigEditor(
             }
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
+            style=move || colors.get().map(|colors| colors.to_style())
             node_ref=root_ref
             on:keydown=move |event: web_sys::KeyboardEvent| {
                 if event.key() == "Escape" {
@@ -724,8 +863,12 @@ pub fn ConfigEditor(
                                 class="config-editor__gutter-content"
                                 style:transform=move || format!("translateY(-{}px)", scroll_y.get())
                             >
+                            <span
+                                class="config-editor__row-spacer"
+                                style:height=move || format!("calc({} * var(--config-editor-line-height))", visible_rows.with(|rows| rows.start))
+                            ></span>
                             <For
-                                each={move || 0..lines.with(Vec::len)}
+                                each=move || visible_rows.get()
                                 key=|index| *index
                                 children=move |index| {
                                     let line = index + 1;
@@ -745,6 +888,7 @@ pub fn ConfigEditor(
                                     let is_active = move || state.with(|row| row.is_active);
                                     view! {
                                             <div
+                                                data-line=line
                                                 class:config-editor__line-number-active=is_active
                                                 class:config-editor__line-number-error=has_error
                                                 class:config-editor__line-number-added=is_added
@@ -857,8 +1001,12 @@ pub fn ConfigEditor(
                                 style:transform=move || format!("translate({}px, {}px)", -scroll_x.get(), -scroll_y.get())
                             >
                                 <code>
+                                    <span
+                                        class="config-editor__row-spacer"
+                                        style:height=move || format!("calc({} * var(--config-editor-line-height))", visible_rows.with(|rows| rows.start))
+                                    ></span>
                                     <For
-                                        each={move || 0..lines.with(Vec::len)}
+                                        each=move || visible_rows.get()
                                         key=|index| *index
                                         children=move |index| {
                                             // Subscribe only to the row's own signal (see `line_rows`).
@@ -876,6 +1024,7 @@ pub fn ConfigEditor(
                                             view! {
                                                 <span
                                                     class="config-editor__code-line"
+                                                    data-line=index + 1
                                                     class:config-editor__code-line-active=is_active
                                                     class:config-editor__code-line-error=has_error
                                                     class:config-editor__code-line-added=is_added
@@ -916,6 +1065,9 @@ pub fn ConfigEditor(
                                             .take(width)
                                             .collect();
                                         let is_eof = marked_text.is_empty();
+                                        let before: String = line_text.chars().take(column.saturating_sub(1)).collect();
+                                        let visual_left = visual_column(&before);
+                                        let visual_width = visual_column(&format!("{before}{marked_text}")) - visual_left;
                                         Some(view! {
                                             <button
                                                 type="button"
@@ -938,11 +1090,13 @@ pub fn ConfigEditor(
                                                     diagnostic.message
                                                 )
                                                 data-message=diagnostic.message
+                                                // Rendered columns, so tabs (two columns wide) do not
+                                                // shift the underline.
                                                 style=format!(
                                                     "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
-                                                    column.saturating_sub(1),
+                                                    visual_left,
                                                     line.saturating_sub(1),
-                                                    width,
+                                                    visual_width.max(1.0),
                                                 )
                                                 // Shifted left so the message stays inside the visible text area.
                                                 style:--config-editor-diagnostic-tooltip-shift=move || {
@@ -953,9 +1107,14 @@ pub fn ConfigEditor(
                                                     let metrics = read_editor_metrics(&editor);
                                                     let visible = f64::from(editor.client_width());
                                                     let left = metrics.padding_left
-                                                        + column.saturating_sub(1) as f64 * metrics.char_width
+                                                        + visual_left * metrics.char_width
                                                         - scroll;
-                                                    let tooltip = DIAGNOSTIC_TOOLTIP_MAX_WIDTH.min(visible - 16.0);
+                                                    // As wide as `max-width` in preset.css allows.
+                                                    let window_width = web_sys::window()
+                                                        .and_then(|window| window.inner_width().ok())
+                                                        .and_then(|width| width.as_f64())
+                                                        .unwrap_or(visible);
+                                                    let tooltip = DIAGNOSTIC_TOOLTIP_MAX_WIDTH.min(window_width - 32.0);
                                                     let shift = (visible - 8.0 - left - tooltip).min(0.0).max(8.0 - left);
                                                     format!("{shift}px")
                                                 }
@@ -1013,8 +1172,6 @@ pub fn ConfigEditor(
                                         pre_edit_selection.set_value(textarea_selection(&element));
                                     }
                                 }
-                                on:copy=move |event: web_sys::ClipboardEvent| copy_line(event, false)
-                                on:cut=move |event: web_sys::ClipboardEvent| copy_line(event, true)
                                 on:input=move |event| {
                                     if read_only.get_untracked() {
                                         if let Some(element) = event
@@ -1043,6 +1200,7 @@ pub fn ConfigEditor(
                                     let refilter = input_type == "deleteContentBackward"
                                         && suggestions_requested.get_untracked()
                                         && !suggestions.with_untracked(Vec::is_empty);
+                                    placeholder.set_value(None);
                                     let after = event
                                         .target()
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
@@ -1131,6 +1289,7 @@ pub fn ConfigEditor(
                                 }
                                 on:click=move |event| {
                                     auto_closers.update_value(Vec::clear);
+                                    history.update(EditHistory::seal);
                                     if let Some(element) = event
                                         .target()
                                         .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
@@ -1164,6 +1323,7 @@ pub fn ConfigEditor(
                                         };
                                         if navigation {
                                             auto_closers.update_value(Vec::clear);
+                                            history.update(EditHistory::seal);
                                         }
                                         if navigation && suggestions_requested.get_untracked() {
                                             suggestions_requested.set(false);
@@ -1209,6 +1369,35 @@ pub fn ConfigEditor(
                                         cursor.set(target);
                                         current_line.set(source.with_untracked(|text| line_at_cursor(text, target)));
                                         return;
+                                    }
+                                    if let Some((start, end)) = placeholder.get_value()
+                                        && matches!(event.key().as_str(), "Enter" | "Tab")
+                                        && !event.shift_key()
+                                        && let Some(element) = editor_ref.get()
+                                    {
+                                        placeholder.set_value(None);
+                                        if textarea_selection(&element) == (start, end) {
+                                            // Keep the default. Tab steps past it (and its closing
+                                            // quote); Enter goes on from the end of its line, so a
+                                            // string or element is never split.
+                                            let end = source.with_untracked(|text| {
+                                                let byte = utf16_to_byte_index(text, end);
+                                                let rest = &text[byte..];
+                                                let skip = if event.key() == "Enter" {
+                                                    rest.find('\n').unwrap_or(rest.len())
+                                                } else {
+                                                    usize::from(rest.starts_with(['"', '\'']))
+                                                };
+                                                end + rest[..skip].encode_utf16().count()
+                                            });
+                                            let _ = element.set_selection_range(end as u32, end as u32);
+                                            cursor.set(end);
+                                            suggestions_requested.set(false);
+                                            if event.key() == "Tab" {
+                                                event.prevent_default();
+                                                return;
+                                            }
+                                        }
                                     }
                                     if read_only.get_untracked() {
                                         // The root listener handles Escape; swallow
@@ -1517,14 +1706,28 @@ pub fn ConfigEditor(
                                     }
                                     // Accepting what is already typed would change nothing,
                                     // so Enter and Tab close the list and edit as usual.
-                                    let options = if matches!(event.key().as_str(), "Enter" | "Tab")
-                                        && options.get(active_completion.get_untracked()).is_some_and(|option| {
-                                            source.with_untracked(|text| apply_completion(text, option).0 == *text)
-                                        }) {
-                                        suggestions_requested.set(false);
-                                        Vec::new()
-                                    } else {
-                                        options
+                                    let unchanged_caret = options.get(active_completion.get_untracked()).and_then(|option| {
+                                        source.with_untracked(|text| {
+                                            let (updated, _, caret) = apply_completion(text, option);
+                                            (updated == *text).then_some(caret)
+                                        })
+                                    });
+                                    let options = match unchanged_caret {
+                                        Some(caret) if matches!(event.key().as_str(), "Enter" | "Tab") => {
+                                            // Step past the value (`"balance|"` → `"balance"|`) so
+                                            // Enter starts a new line instead of splitting it.
+                                            if let Some(element) = editor_ref.get() {
+                                                let _ = element.set_selection_range(caret as u32, caret as u32);
+                                                cursor.set(caret);
+                                            }
+                                            suggestions_requested.set(false);
+                                            if event.key() == "Tab" {
+                                                event.prevent_default();
+                                                return;
+                                            }
+                                            Vec::new()
+                                        }
+                                        _ => options,
                                     };
                                     match event.key().as_str() {
                                         "PageDown" | "PageUp" if !options.is_empty() => {
@@ -1581,7 +1784,14 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
-                                                if event.shift_key() || start != end {
+                                                // A selection within one line is replaced, as typing would.
+                                                let multi_line = start != end
+                                                    && text
+                                                        .encode_utf16()
+                                                        .skip(start)
+                                                        .take(end - start)
+                                                        .any(|unit| unit == u16::from(b'\n'));
+                                                if event.shift_key() || multi_line {
                                                     if let Some((updated, selection_start, selection_end)) =
                                                         indent_lines(&text, start, end, event.shift_key())
                                                     {
@@ -1621,7 +1831,7 @@ pub fn ConfigEditor(
                                                     return;
                                                 }
                                                 let (updated, new_cursor) =
-                                                    replace_selection(&text, start, end, &indent_unit(&text));
+                                                    replace_selection(&text, start, end, &tab_insert(&text, start));
                                                 commit_edit(
                                                     updated,
                                                     new_cursor,
@@ -1646,10 +1856,34 @@ pub fn ConfigEditor(
                                                 .target()
                                                 .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
                                             {
-                                                let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
-                                                let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
+                                                let (mut start, mut end) = textarea_selection(&element);
                                                 let text = source.get_untracked();
+                                                let line_start_of = |offset: usize| {
+                                                    let byte = utf16_to_byte_index(&text, offset);
+                                                    text[..text[..byte].rfind('\n').map_or(0, |index| index + 1)].encode_utf16().count()
+                                                };
+                                                let line_end_of = |offset: usize| {
+                                                    let byte = utf16_to_byte_index(&text, offset);
+                                                    text[..text[byte..].find('\n').map_or(text.len(), |index| byte + index)].encode_utf16().count()
+                                                };
+                                                // Ctrl+Enter opens a line below without splitting this one.
+                                                if event.ctrl_key() || event.meta_key() {
+                                                    start = line_end_of(end);
+                                                    end = start;
+                                                }
                                                 let newline = behavior().newline(&text, start);
+                                                // A line of only indentation is left empty, not with trailing spaces.
+                                                let line_start = line_start_of(start);
+                                                let blank_before = text
+                                                    .encode_utf16()
+                                                    .skip(line_start)
+                                                    .take(start - line_start)
+                                                    .all(|unit| unit == u16::from(b' ') || unit == u16::from(b'\t'));
+                                                let start = if start == end && start > line_start && blank_before && line_end_of(end) == end {
+                                                    line_start
+                                                } else {
+                                                    start
+                                                };
                                                 // `replaces` and `caret` are bytes; the cursor is in UTF-16 units.
                                                 let end_byte = utf16_to_byte_index(&text, end);
                                                 let replaced_end = end + text[end_byte..(end_byte + newline.replaces).min(text.len())]
@@ -1756,6 +1990,7 @@ pub fn ConfigEditor(
                                             on:click=move |_| {
                                                 let (updated, anchor, new_cursor) = apply_completion(&source.get_untracked(), &apply);
                                                 auto_closers.set_value(inserted_closers(&apply, &updated, new_cursor));
+                                                placeholder.set_value((anchor != new_cursor).then_some((anchor, new_cursor)));
                                                 let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
                                                 hide_hover();
                                                 commit_edit(

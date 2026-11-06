@@ -160,9 +160,11 @@
   z-index: 2;
   width: 52px;
   flex: 0 0 auto;
-  height: var(--config-editor-height, auto);
+  /* Its rows never size it: it stretches to the textarea, so resizing the
+     textarea (or a short document) sets the editor's height. */
+  contain: size;
+  align-self: stretch;
   min-height: 0;
-  max-height: var(--config-editor-max-height, 80vh);
   overflow: hidden;
   padding: var(--config-editor-padding-top) 13px var(--config-editor-padding-bottom) 0;
   color: var(--config-editor-line-number);
@@ -374,8 +376,12 @@
   line-height: var(--config-editor-line-height);
 }
 
+/* Above the textarea: its selection and caret paint under the highlighted
+   text, so selected text keeps its colors and contrast. The overlay takes
+   no pointer events, so the textarea still gets every click. */
 .config-editor__highlight {
   position: absolute;
+  z-index: 2;
   inset: 0 auto auto 0;
   width: max-content;
   min-width: 100%;
@@ -390,6 +396,8 @@
 .config-editor__highlight span {
   font: inherit;
 }
+
+.config-editor__row-spacer { display: block; }
 
 .config-editor__code-line {
   width: max-content;
@@ -425,7 +433,7 @@
 
 .config-editor__diagnostic-overlay {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 0 auto auto 0;
   width: max-content;
   min-width: 100%;
@@ -689,7 +697,16 @@
 }
 
 .config-editor__line-count { font-family: var(--config-editor-mono); }
+/* The message shrinks with an ellipsis; the line count always stays. */
+.config-editor__status-meta { min-width: 0; flex: 0 1 auto; }
+.config-editor__line-count { flex: none; }
+@media (max-width: 540px) {
+  .config-editor__hint { display: none; }
+  .config-editor__status { justify-content: flex-end; }
+}
+
 .config-editor__diagnostic-status {
+  min-width: 0;
   max-width: min(60vw, 680px);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -719,6 +736,7 @@
 
 .config-editor[data-theme="vscode-light"] {
   --config-editor-bg: #ffffff;
+  --config-editor-status-error: #c72e0f;
   --config-editor-panel: #f3f3f3;
   --config-editor-border: #dedede;
   --config-editor-text: #333333;
@@ -787,6 +805,7 @@
 
 .config-editor[data-theme="obsidian-light"] {
   --config-editor-bg: #f8faf8;
+  --config-editor-status-error: #b42318;
   --config-editor-panel: #f0f3f1;
   --config-editor-border: #d7dfda;
   --config-editor-text: #35413a;

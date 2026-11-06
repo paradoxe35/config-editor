@@ -195,7 +195,9 @@ pub fn bracket_newline(
 ) -> Newline {
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let indent = line_indent(&source[line_start..]);
+    // Only indentation before the caret counts: Enter at column 0 of an
+    // indented line leaves an empty line, the line keeping its indent.
+    let indent = line_indent(&source[line_start..byte]);
     let before = code(&source[line_start..byte]).trim_end_matches([' ', '\t']);
     let after = source[byte..].trim_start_matches([' ', '\t']);
     let opens = before
@@ -255,6 +257,106 @@ fn opener_line(source: &str, byte: usize, opener: char, closer: char) -> Option<
     }
     let index = *open.last()?;
     Some(source[..index].rfind('\n').map_or(0, |newline| newline + 1))
+}
+
+/// Ctrl+/ for line-comment languages: the selected lines (UTF-16 offsets)
+/// commented at the block's smallest indent with `markers[0]`, or, when every
+/// non-blank line already starts with one of `markers`, uncommented. Returns
+/// the text and the selection mapped onto it.
+///
+/// ```
+/// use leptos_config_editor::language::toggle_line_comments;
+/// let (text, ..) = toggle_line_comments("a:\n  b: 1\n", 0, 9, &["#"]).unwrap();
+/// assert_eq!(text, "# a:\n#   b: 1\n");
+/// ```
+pub fn toggle_line_comments(
+    source: &str,
+    selection_start: usize,
+    selection_end: usize,
+    markers: &[&str],
+) -> Option<(String, usize, usize)> {
+    let insert = *markers.first()?;
+    let start = utf16_to_byte_index(source, selection_start);
+    let end = utf16_to_byte_index(source, selection_end);
+    let first_line = source[..start].matches('\n').count();
+    let last_line = source[..end]
+        .matches('\n')
+        .count()
+        .saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
+    let lines: Vec<&str> = source.split_inclusive('\n').collect();
+    if first_line >= lines.len() {
+        return None;
+    }
+    let last_line = last_line.min(lines.len() - 1);
+    let body = |line: &str| {
+        line.trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .to_string()
+    };
+    let indent_of = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    let selected: Vec<String> = lines[first_line..=last_line]
+        .iter()
+        .map(|line| body(line))
+        .collect();
+    let content_lines = selected.iter().filter(|line| !line.trim().is_empty());
+    let marker_of = |content: &str| {
+        markers
+            .iter()
+            .copied()
+            .find(|marker| content.starts_with(marker))
+    };
+    let uncomment = selected
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .all(|line| marker_of(&line[indent_of(line)..]).is_some());
+    let column = content_lines.map(|line| indent_of(line)).min().unwrap_or(0);
+
+    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
+    let mut updated = String::with_capacity(source.len() + lines.len() * (insert.len() + 1));
+    let mut offset = 0;
+    for (index, line) in lines.iter().enumerate() {
+        let text = body(line);
+        if (first_line..=last_line).contains(&index) && !text.trim().is_empty() {
+            if uncomment {
+                let indent = indent_of(&text);
+                let marker = marker_of(&text[indent..]).unwrap_or_default();
+                let removed =
+                    marker.len() + usize::from(text[indent + marker.len()..].starts_with(' '));
+                edits.push((offset + indent, removed, 0));
+                updated.push_str(&line[..indent]);
+                updated.push_str(&line[indent + removed..]);
+            } else {
+                let added = format!("{insert} ");
+                edits.push((offset + column, 0, added.len()));
+                updated.push_str(&line[..column]);
+                updated.push_str(&added);
+                updated.push_str(&line[column..]);
+            }
+        } else {
+            updated.push_str(line);
+        }
+        offset += line.len();
+    }
+    let map = |position: usize, right_biased: bool| {
+        let mut delta = 0isize;
+        for (at, removed, inserted) in &edits {
+            if position < *at {
+                break;
+            }
+            if position == *at && *removed == 0 && !right_biased {
+                return (*at as isize + delta) as usize;
+            }
+            if position <= *at + *removed {
+                return (*at as isize + delta + *inserted as isize) as usize;
+            }
+            delta += *inserted as isize - *removed as isize;
+        }
+        (position as isize + delta) as usize
+    };
+    let new_start = map(start, start == end).min(updated.len());
+    let new_end = map(end, true).min(updated.len());
+    let utf16 = |byte: usize| updated[..byte].encode_utf16().count();
+    Some((updated.clone(), utf16(new_start), utf16(new_end)))
 }
 
 /// The [`InlineBlock`] for the byte range `start..end` on a line where `depth`
@@ -373,6 +475,21 @@ pub fn pointer_segments(path: &str) -> Vec<String> {
         .skip(1)
         .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
         .collect()
+}
+
+/// How a language writes arrays besides literal lists; see
+/// [`ConfigLanguage::repetition`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Repetition {
+    /// Arrays are always written as lists.
+    #[default]
+    None,
+    /// Any value can be repeated (XML sibling elements).
+    Elements,
+    /// Objects can be repeated as blocks (HCL `certificates { … }`); other
+    /// values are always lists.
+    Blocks,
 }
 
 /// What Enter writes: `text` replaces the caret's selection plus the next
@@ -553,6 +670,20 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The schema path of the key under character `column` of line
+    /// `line_index`, with the key and the column it starts at, for keys the
+    /// completion context cannot place (a segment of a dotted key or table
+    /// header, a block type). `None` uses [`hover_key`](Self::hover_key).
+    fn hover_path(
+        &self,
+        source: &str,
+        line_index: usize,
+        column: usize,
+    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        let _ = (source, line_index, column);
+        None
+    }
+
     /// The byte offset in `line` where the hover context for the key at
     /// `column` is read: past the key's separator when one line holds
     /// several keys.
@@ -600,13 +731,12 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// Whether an array is written by repeating its key (XML sibling
-    /// elements). A single entry then reads back as a bare value, so where
-    /// the schema expects an array it is read as a one-item array before
-    /// validating or converting, and an array key already present is offered
-    /// again.
-    fn repeats_arrays(&self) -> bool {
-        false
+    /// Whether arrays can be written by repeating their key. A single entry
+    /// then reads back as a bare value, so where the schema expects an array
+    /// it is read as a one-item array before validating or converting, and an
+    /// array key already present is offered again.
+    fn repetition(&self) -> Repetition {
+        Repetition::None
     }
 
     /// Whether the caret has just begun an entry (a JSON key's opening

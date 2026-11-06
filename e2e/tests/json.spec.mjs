@@ -95,7 +95,7 @@ test.describe('JSON documents', () => {
     await page.keyboard.type('ins');
     await expect.poll(() => e.keys()).toContain('insecure_plaintext');
     await e.clickKey('insecure_plaintext');
-    await expect(e.input).toHaveValue('{\n  "listen": 1\n  , "insecure_plaintext": \n}');
+    await expect(e.input).toHaveValue('{\n  "listen": 1,\n  "insecure_plaintext": \n}');
   });
 
   test('a key typed after a complete client entry gets its comma and is accepted', async ({ page }) => {

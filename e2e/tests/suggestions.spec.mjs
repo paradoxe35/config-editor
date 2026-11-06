@@ -153,7 +153,7 @@ test.describe('TOML arrays of tables', () => {
 });
 
 for (const [language, document, typed, expected] of [
-  ['json', '{\n  "web": {\n    "certificates": []\n  }\n}', '"hos', '"certificates": [{"hosts": []}]'],
+  ['json', '{\n  "web": {\n    "certificates": []\n  }\n}', '"hos', '"certificates": [{"hosts": [""]}]'],
   ['yaml', 'web: { certificates: [] }\n', 'hos', 'web: { certificates: [{ hosts: [] }] }'],
   ['hcl', 'web = { certificates = [] }\n', 'hos', 'web = { certificates = [{ hosts = [] }] }'],
 ]) {

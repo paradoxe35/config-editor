@@ -22,6 +22,20 @@ pub(super) fn line_range(source: &str, cursor: usize) -> (usize, usize) {
     )
 }
 
+/// What Tab inserts at `cursor` (UTF-16) with no multi-line selection:
+/// spaces up to the next tab stop (`abc|` → `abc |` with 2-space indents),
+/// or a tab in tab-indented documents.
+pub(super) fn tab_insert(source: &str, cursor: usize) -> String {
+    let unit = indent_unit(source);
+    if unit == "\t" {
+        return unit;
+    }
+    let byte = utf16_to_byte_index(source, cursor);
+    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+    let column = source[line_start..byte].chars().count();
+    " ".repeat(unit.len() - column % unit.len())
+}
+
 /// Where Home moves the caret at `cursor` (UTF-16): the line's first
 /// non-blank character, or the line start when already there.
 pub(super) fn smart_home(source: &str, cursor: usize) -> usize {
@@ -133,11 +147,15 @@ pub(super) fn indent_lines(
                 let remove = if line[..indent].starts_with('\t') {
                     1
                 } else {
-                    line[..indent]
+                    // Back to the previous tab stop: 5 spaces become 4.
+                    let spaces = line[..indent]
                         .bytes()
                         .take_while(|byte| *byte == b' ')
-                        .take(unit.len())
-                        .count()
+                        .count();
+                    match spaces % unit.len() {
+                        0 => spaces.min(unit.len()),
+                        partial => partial,
+                    }
                 };
                 edits.push((offset, remove, 0));
                 updated.push_str(&line[remove..]);
@@ -247,6 +265,25 @@ pub(super) fn typed_closer(source: &str, cursor: usize, closer: char) -> Option<
     updated.push_str(&source[byte..]);
     let caret = source[..line_start].encode_utf16().count() + indent.encode_utf16().count() + 1;
     Some((updated, caret))
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::{indent_lines, tab_insert};
+
+    #[test]
+    fn tab_goes_to_the_next_tab_stop() {
+        assert_eq!(tab_insert("a:\n  b: 1\nabc", 13), " ");
+        assert_eq!(tab_insert("a:\n  b: 1\n ", 11), " ");
+        assert_eq!(tab_insert("a:\n  b: 1\n", 10), "  ");
+    }
+
+    #[test]
+    fn shift_tab_goes_back_to_the_previous_tab_stop() {
+        let source = "a:\n  b: 1\n     c: 2\n";
+        let (updated, _, _) = indent_lines(source, 12, 12, true).unwrap();
+        assert_eq!(updated, "a:\n  b: 1\n    c: 2\n");
+    }
 }
 
 #[cfg(test)]

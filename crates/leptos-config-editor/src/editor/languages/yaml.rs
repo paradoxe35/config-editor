@@ -13,7 +13,7 @@ use super::super::inline::{
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{bracket_newline, toggle_line_comments, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
@@ -36,7 +36,31 @@ impl ConfigLanguage for YamlBehavior {
         if let Some(error) = tab_indentation(source) {
             return Err(error);
         }
-        yaml_parse(source)
+        // Only comments and document markers: an empty document, as an empty
+        // file is.
+        let has_content = source.lines().any(|line| {
+            let code = code_before_comment(line).trim();
+            !code.is_empty() && code != "---" && code != "..."
+        });
+        if !has_content {
+            return Ok(Value::Object(serde_json::Map::new()));
+        }
+        yaml_parse(source).map_err(|mut error| {
+            // A second document has no line from the parser: mark its `---`.
+            if error.line.is_none()
+                && let Some(index) = source
+                    .lines()
+                    .enumerate()
+                    .skip_while(|(_, line)| code_before_comment(line).trim().is_empty())
+                    .skip(1)
+                    .find(|(_, line)| line.trim_end() == "---")
+                    .map(|(index, _)| index)
+            {
+                error.line = Some(index + 1);
+                error.column = Some(1);
+            }
+            error
+        })
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
@@ -110,7 +134,7 @@ impl ConfigLanguage for YamlBehavior {
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
-        toggle_yaml_line_comments(source, selection_start, selection_end)
+        toggle_line_comments(source, selection_start, selection_end, &["#"])
     }
 
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
@@ -294,6 +318,9 @@ fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)>
 
 fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = super::super::language::pointer_segments(path);
+    if let Some(span) = sequence_item_span(source, &wanted) {
+        return Some(span);
+    }
     // Only block-structured entries have a value slot on their line. Inline
     // mapping keys resolve through `yaml_span_for_path`, which points at the key.
     let line_number = yaml_path_lines(source)
@@ -312,6 +339,54 @@ fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usize, usize, u
     }
 
     Some((line_number, column, column + value.chars().count()))
+}
+
+/// The value of block sequence item `wanted` (`.../certificates/0`): the text
+/// after its `- `, found under the parent key's line.
+fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
+    let (last, parent) = wanted.split_last()?;
+    let index: usize = last.parse().ok()?;
+    let parent_line = if parent.is_empty() {
+        0
+    } else {
+        yaml_path_lines(source)
+            .into_iter()
+            .find(|(candidate, _, _, _)| candidate.as_slice() == parent)
+            .map(|(_, line, _, _)| line)?
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    let parent_indent = lines
+        .get(parent_line.wrapping_sub(1))
+        .map_or(0, |line| line.len() - line.trim_start().len());
+    let mut dash_indent = None;
+    let mut seen = 0;
+    for (number, line) in lines.iter().enumerate().skip(parent_line) {
+        let content = line.trim_start();
+        if content.is_empty() || content.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - content.len();
+        if parent_line > 0 && indent <= parent_indent && !content.starts_with('-') {
+            break;
+        }
+        if !(content == "-" || content.starts_with("- ")) {
+            continue;
+        }
+        match dash_indent {
+            None => dash_indent = Some(indent),
+            Some(level) if indent < level => break,
+            Some(level) if indent > level => continue,
+            Some(_) => {}
+        }
+        if seen == index {
+            let value = content[1..].trim_start();
+            let value = line_comment_start(value).map_or(value, |start| value[..start].trim_end());
+            let column = line[..line.len() - content[1..].trim_start().len()].chars().count() + 1;
+            return Some((number + 1, column, column + value.chars().count().max(1)));
+        }
+        seen += 1;
+    }
+    None
 }
 
 fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
@@ -1114,92 +1189,6 @@ fn newline_with_indent(source: &str, cursor: usize) -> String {
     format!("\n{indent}")
 }
 
-fn toggle_yaml_line_comments(
-    source: &str,
-    selection_start: usize,
-    selection_end: usize,
-) -> Option<(String, usize, usize)> {
-    let start = utf16_to_byte_index(source, selection_start);
-    let end = utf16_to_byte_index(source, selection_end);
-    let first_line = source[..start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count();
-    let newline_count = source[..end].bytes().filter(|byte| *byte == b'\n').count();
-    let last_line =
-        newline_count.saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
-
-    let lines: Vec<_> = source.split_inclusive('\n').collect();
-    if first_line >= lines.len() {
-        return None;
-    }
-
-    let selected_lines = &lines[first_line..=last_line.min(lines.len() - 1)];
-    let uncomment = selected_lines
-        .iter()
-        .filter_map(|line| {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            (!content.is_empty()).then_some(content.starts_with('#'))
-        })
-        .all(|commented| commented);
-    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut offset = 0;
-    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
-
-    for (line_index, line) in lines.iter().enumerate() {
-        if (first_line..=last_line).contains(&line_index) {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            if !content.is_empty() {
-                if uncomment && content.starts_with('#') {
-                    let removed = 1 + usize::from(content.starts_with("# "));
-                    edits.push((offset + indent, removed, 0));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str(&content[removed..]);
-                    updated.push_str(&line[body.len()..]);
-                } else if !uncomment {
-                    edits.push((offset + indent, 0, 2));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str("# ");
-                    updated.push_str(&line[indent..]);
-                } else {
-                    updated.push_str(line);
-                }
-            } else {
-                updated.push_str(line);
-            }
-        } else {
-            updated.push_str(line);
-        }
-        offset += line.len();
-    }
-
-    let map_offset = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (edit_position, removed, inserted) in &edits {
-            if position < *edit_position {
-                break;
-            }
-            if position == *edit_position && *removed == 0 && !right_biased {
-                return (*edit_position as isize + delta) as usize;
-            }
-            if position <= *edit_position + *removed {
-                return (*edit_position as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
-    };
-    let updated_start = map_offset(start, start == end).min(updated.len());
-    let updated_end = map_offset(end, true).min(updated.len());
-    let updated_selection_start = updated[..updated_start].encode_utf16().count();
-    let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    Some((updated, updated_selection_start, updated_selection_end))
-}
-
 fn highlight(line: &str) -> Vec<Token> {
     let mut tokens = Tokens::new();
     let indent_len = line.len() - line.trim_start().len();
@@ -1977,7 +1966,7 @@ mod tests {
 
     #[cfg(feature = "schema-validation")]
     #[test]
-    fn examples_and_example_schema_values_are_suggested_in_value_positions() {
+    fn examples_are_suggested_when_asked_or_empty_but_not_while_typing() {
         let schema = build_schema(
             r#"{
                 "type":"object",
@@ -1988,35 +1977,17 @@ mod tests {
             }"#,
         )
         .unwrap();
-
-        let region_input = "region: eu";
-        let region_options = completions(
-            region_input,
-            region_input.encode_utf16().count(),
-            false,
-            Some(&schema),
-            true,
-        );
-        let region = region_options
-            .iter()
-            .find(|option| option.label == "eu-west-1")
-            .unwrap();
-        assert!(region.is_value);
-        assert_eq!(region.insert, "eu-west-1");
-
-        let legacy_input = "legacy: ol";
-        let legacy_options = completions(
-            legacy_input,
-            legacy_input.encode_utf16().count(),
-            false,
-            Some(&schema),
-            true,
-        );
-        assert!(
-            legacy_options
-                .iter()
-                .any(|option| option.label == "old.example")
-        );
+        let labels = |input: &str, force: bool| -> Vec<String> {
+            completions(input, input.encode_utf16().count(), force, Some(&schema), true)
+                .into_iter()
+                .map(|option| option.label)
+                .collect()
+        };
+        // Asked for (Ctrl+Space) or with nothing typed yet, they are listed.
+        assert!(labels("region: eu", true).contains(&"eu-west-1".to_string()));
+        assert!(labels("legacy: ", true).contains(&"old.example".to_string()));
+        // While the user types their own value they are not, so Enter keeps it.
+        assert!(labels("region: eu", false).is_empty());
     }
 
     #[cfg(feature = "schema-validation")]

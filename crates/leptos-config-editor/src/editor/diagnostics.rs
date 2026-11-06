@@ -264,10 +264,20 @@ pub(super) fn validate(
         match super::codec::read(behavior, source, schema.map(|schema| &schema.schema)) {
             Ok(document) => document,
             Err(error) => {
+                // Every error gets a marker (and F8 stop): one the parser could
+                // not place goes on the first line with content.
+                let fallback = error
+                    .line
+                    .is_none()
+                    .then(|| behavior.first_span(source))
+                    .flatten();
                 return vec![Diagnostic {
-                    line: error.line,
-                    column: error.column,
-                    end_column: error.column.map(|column| column + 1),
+                    line: error.line.or(fallback.map(|span| span.line)),
+                    column: error.column.or(fallback.map(|span| span.start_column)),
+                    end_column: error
+                        .column
+                        .map(|column| column + 1)
+                        .or(fallback.map(|span| span.end_column)),
                     message: error.message,
                     severity: Severity::Error,
                 }];
@@ -293,6 +303,10 @@ pub(super) fn validate(
                 let error = most_specific(&top);
                 let path = error.instance_path().as_str().to_string();
                 let message = match error.kind() {
+                    ValidationErrorKind::AnyOf { context }
+                    | ValidationErrorKind::OneOfNotValid { context } => {
+                        expected_types(error, context).unwrap_or_else(|| error.to_string())
+                    }
                     // Every allowed value, not "or 2 other candidates".
                     ValidationErrorKind::Enum { options } => match options.as_array() {
                         Some(options) => format!(
@@ -321,14 +335,15 @@ pub(super) fn validate(
                         unexpected
                             .iter()
                             .map(|key| {
-                                behavior
-                                    .key_span(source, &format!("{parent}/{}", escape_pointer(key)))
+                                let pointer = format!("{parent}/{}", escape_pointer(key));
+                                inline_location(behavior, source, &pointer, true)
+                                    .or_else(|| behavior.key_span(source, &pointer))
                             })
                             .collect()
                     } else {
                         vec![
-                            behavior
-                                .value_span(source, &path)
+                            inline_location(behavior, source, &path, false)
+                                .or_else(|| behavior.value_span(source, &path))
                                 .or_else(|| behavior.key_span(source, &path)),
                         ]
                     };
@@ -351,6 +366,34 @@ pub(super) fn validate(
     }
     let _ = schema;
     Vec::new()
+}
+
+/// For an `anyOf` whose every branch wants another type: `true is not of
+/// type "integer", "string", "null"`, instead of "not valid under any of the
+/// schemas".
+#[cfg(feature = "schema-validation")]
+fn expected_types(
+    error: &ValidationError<'_>,
+    branches: &[Vec<ValidationError<'_>>],
+) -> Option<String> {
+    let mut types: Vec<String> = Vec::new();
+    for nested in branches.iter().flatten() {
+        if !matches!(nested.kind(), ValidationErrorKind::Type { .. }) {
+            return None;
+        }
+        let message = nested.to_string();
+        let listed = message
+            .split_once(" is not of type")
+            .map(|(_, rest)| rest)?;
+        let listed = listed.strip_prefix('s').unwrap_or(listed);
+        for name in listed.split(',') {
+            let name = name.trim().to_string();
+            if !name.is_empty() && !types.contains(&name) {
+                types.push(name);
+            }
+        }
+    }
+    (!types.is_empty()).then(|| format!("{} is not of type {}", error.instance(), types.join(", ")))
 }
 
 /// The error to show for `error`: inside `anyOf`/`oneOf`, the deepest error
@@ -398,6 +441,67 @@ fn most_specific<'e, 'a>(error: &'e ValidationError<'a>) -> &'e ValidationError<
     }
 }
 
+/// The span of what `pointer` names when it lies inside an inline container
+/// (a flow collection, inline table, or one-line object): the deepest
+/// ancestor whose value is `{…}` or `[…]` is located by the language, the
+/// rest by the shared scanner. `key` asks for the key rather than the value.
+#[cfg(feature = "schema-validation")]
+fn inline_location(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    key: bool,
+) -> Option<Span> {
+    use super::language::{SchemaPathSegment, pointer_segments};
+    let segments = pointer_segments(pointer);
+    for depth in (1..segments.len()).rev() {
+        let ancestor: String = segments[..depth]
+            .iter()
+            .map(|segment| format!("/{}", escape_pointer(segment)))
+            .collect();
+        let Some(span) = behavior.value_span(source, &ancestor) else {
+            continue;
+        };
+        let line_start: usize = source
+            .split_inclusive('\n')
+            .take(span.line.saturating_sub(1))
+            .map(str::len)
+            .sum();
+        let start = line_start
+            + source[line_start..]
+                .char_indices()
+                .nth(span.start_column.saturating_sub(1))
+                .map_or(0, |(index, _)| index);
+        let text = &source[start..];
+        if !text.starts_with(['{', '[']) {
+            return None;
+        }
+        let rest: Vec<SchemaPathSegment> = segments[depth..]
+            .iter()
+            .map(|segment| match segment.parse::<usize>() {
+                Ok(index) => SchemaPathSegment::ArrayItem(index),
+                Err(_) => SchemaPathSegment::Key(segment.clone()),
+            })
+            .collect();
+        let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
+        let (from, to) = (start + from, start + to);
+        let line = source[..from].matches('\n').count() + 1;
+        let from_line = source[..from].rfind('\n').map_or(0, |index| index + 1);
+        let column = source[from_line..from].chars().count() + 1;
+        let to_column = if source[from..to].contains('\n') {
+            column + 1
+        } else {
+            column + source[from..to].chars().count()
+        };
+        return Some(Span {
+            line,
+            start_column: column,
+            end_column: to_column.max(column + 1),
+        });
+    }
+    None
+}
+
 #[cfg(feature = "schema-validation")]
 fn escape_pointer(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
@@ -422,6 +526,14 @@ mod message_tests {
         assert_eq!(
             messages("web: {listen: 443}\n"),
             ["/web: Additional properties are not allowed ('listen' was unexpected)"]
+        );
+    }
+
+    #[test]
+    fn a_wrong_type_lists_every_accepted_type() {
+        assert_eq!(
+            messages("listen: true\n"),
+            [r#"/listen: true is not of type "integer", "string""#]
         );
     }
 

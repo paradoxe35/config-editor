@@ -19,7 +19,7 @@ use super::super::completion::{array_branch, object_branch, schema_const, schema
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{CompletionContext, Newline, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -33,8 +33,8 @@ pub(super) struct XmlBehavior;
 
 
 impl ConfigLanguage for XmlBehavior {
-    fn repeats_arrays(&self) -> bool {
-        true
+    fn repetition(&self) -> Repetition {
+        Repetition::Elements
     }
 
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
@@ -1329,8 +1329,10 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     // its parent path; a word on its own line names a new child element.
     // Between an element's own tags (`<mode>|</mode>`) the caret may type
     // its value or, for an object, its first child.
-    let between_own_tags = typed.is_empty()
-        && matches!(snapshot.path.last(), Some(Seg::Key(key)) if source[cursor..].starts_with(&format!("</{key}>")));
+    let before_own_end = matches!(snapshot.path.last(), Some(Seg::Key(key)) if source[cursor..].starts_with(&format!("</{key}>")));
+    let between_own_tags = typed.is_empty() && before_own_end;
+    // A word typed there (`<web>certif|</web>`) may still name a child.
+    let may_be_child = before_own_end && !typed.trim().contains(char::is_whitespace);
     if (!typed.trim().is_empty() || between_own_tags)
         && kind == Typed::ElementText
         && let Some(Seg::Key(key)) = snapshot.path.last()
@@ -1350,7 +1352,7 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
             replace_start,
             replace_end: cursor_bytes(source, cursor),
             value_key: Some(key.clone()),
-            value_or_children: between_own_tags,
+            value_or_children: may_be_child,
             value_needs_space: false,
             is_array_item: false,
             base_indent,
@@ -1672,7 +1674,7 @@ fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>
     }
     // Children and attributes already on the element holding the caret; the
     // tag being typed does not count. Arrays may still repeat (see
-    // `repeats_arrays`).
+    // `repetition`).
     let holder = strings(&snapshot.path);
     Some(
         scan.key_spans
@@ -1971,6 +1973,14 @@ fn newline_insertion(source: &str, cursor: usize) -> (String, usize) {
         // The caret sits after the newline and one unit, on the middle line.
         let caret = 1 + indent.len() + unit.len();
         (format!("\n{indent}{unit}\n{indent}"), caret)
+    } else if after.starts_with("</") && !before.trim_end().is_empty() {
+        // An end tag moved to its own line closes the enclosing element, one
+        // level out from this line's content.
+        let unit = indent_unit(source);
+        let outer = indent.strip_suffix(unit.as_str()).unwrap_or("");
+        let text = format!("\n{outer}");
+        let caret = text.len();
+        (text, caret)
     } else {
         let text = newline_with_indent(source, cursor);
         let caret = text.len();

@@ -127,16 +127,24 @@ impl LineRows {
         seeded.expect("sync just pushed a signal for `index`")
     }
 
-    /// Writes only the row signals whose state changed.
+    /// Writes the row signals in `visible` whose state changed. Rows outside
+    /// it are not rendered; they are brought up to date when they scroll in.
     ///
     /// Compare before `set`: `set` always notifies, which would re-render
     /// every row.
-    pub(super) fn sync(&self, rows: &[RenderedLine], line_diff: &LineDiff, active_line: usize) {
+    pub(super) fn sync(
+        &self,
+        rows: &[RenderedLine],
+        line_diff: &LineDiff,
+        active_line: usize,
+        visible: std::ops::Range<usize>,
+    ) {
+        let visible = visible.start.min(rows.len())..visible.end.min(rows.len());
         // Extend in a separate step: calling `set` while an `update` guard is
         // held traps in the reactive runtime.
         self.owner.with(|| {
             self.states.update(|states| {
-                while states.len() < rows.len() {
+                while states.len() < visible.end {
                     let index = states.len();
                     states.push(RwSignal::new(row_state(
                         index,
@@ -150,8 +158,8 @@ impl LineRows {
         });
         let signals: Vec<RwSignal<RowUiState>> = self
             .states
-            .with_untracked(|states| states[..rows.len()].to_vec());
-        for (index, signal) in signals.iter().enumerate() {
+            .with_untracked(|states| states[visible.clone()].to_vec());
+        for (signal, index) in signals.iter().zip(visible) {
             let next = row_state(index, rows, rows.len(), line_diff, active_line);
             if signal.with_untracked(|current| current != &next) {
                 signal.set(next);

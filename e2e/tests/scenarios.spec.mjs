@@ -89,7 +89,9 @@ test.describe('scale', () => {
     const entries = Array.from({ length: 300 }, (_, i) => `  client-${i}:\n    secret: secret-${i}\n    max_connections: ${i % 50}`);
     const doc = `clients:\n${entries.join('\n')}\n`;
     await e.paste(doc);
-    await expect(page.locator('.config-editor__gutter-content > div')).toHaveCount(doc.split('\n').length);
+    // Only the rows in view are rendered, however long the document.
+    await expect(e.input).toHaveValue(doc);
+    expect(await page.locator('.config-editor__gutter-content > div').count()).toBeLessThan(200);
     await e.input.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.press('Enter');
@@ -423,7 +425,7 @@ test.describe('gutter and caret', () => {
   test('clicking a line number moves the caret to that line', async ({ page }) => {
     const e = editor(page);
     await e.paste('alpha: 1\n\nbeta: 2\ngamma: 3\n');
-    await page.locator('.config-editor__gutter-content > div').nth(2).click();
+    await page.locator('.config-editor__gutter-content > div[data-line="3"]').click();
     const state = await e.input.evaluate((element) => {
       const position = element.selectionStart;
       const before = element.value.slice(0, position);
@@ -685,7 +687,7 @@ test.describe('editor viewport and scrolling', () => {
       await page.keyboard.press('Enter');
     }
     const lineCount = await e.input.evaluate((element) => element.value.split('\n').length);
-    const lastLine = page.locator('.config-editor__gutter-content > div').nth(lineCount - 1);
+    const lastLine = page.locator(`.config-editor__gutter-content > div[data-line="${lineCount}"]`);
     await lastLine.click();
     const caretLine = await e.input.evaluate((element) =>
       element.value.slice(0, element.selectionStart).split('\n').length,

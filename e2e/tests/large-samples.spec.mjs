@@ -86,19 +86,49 @@ for (const language of LANGUAGES) {
       const geometry = await page.evaluate(() => {
         const input = document.querySelector('.config-editor__input');
         const lineHeight = parseFloat(getComputedStyle(input).lineHeight);
+        // Only rows near the view exist; each carries its line number.
         const rows = [...document.querySelectorAll('.config-editor__code-line')];
-        const first = rows[0].getBoundingClientRect().top;
-        const drift = Math.max(...rows.map((row, i) => Math.abs(row.getBoundingClientRect().top - first - i * lineHeight)));
-        const row = rows[window.__errorLine - 1].getBoundingClientRect();
+        const top = (row) => row.getBoundingClientRect().top;
+        const lineOf = (row) => Number(row.dataset.line);
+        const first = rows[0];
+        const drift = Math.max(...rows.map((row) => Math.abs(top(row) - top(first) - (lineOf(row) - lineOf(first)) * lineHeight)));
+        // The textarea's own line box for the error line, to compare against.
+        const input_ = document.querySelector('.config-editor__input');
+        const expectedTop = input_.getBoundingClientRect().top + parseFloat(getComputedStyle(input_).paddingTop)
+          + (window.__errorLine - 1) * lineHeight - input_.scrollTop;
+        const errorRow = document.querySelector(`.config-editor__code-line[data-line="${window.__errorLine}"]`);
+        const row = errorRow.getBoundingClientRect();
+        const offset = Math.abs(row.top - expectedTop);
         const marks = [...document.querySelectorAll('.config-editor__diagnostic-marker')].map((m) => m.getBoundingClientRect().top);
         const nearest = Math.min(...marks.map((top) => Math.abs(top - row.top)));
-        return { lineHeight, drift, nearest };
+        return { lineHeight, drift, nearest, offset };
       });
       // Fractional line heights accumulate rounding differences between the
       // textarea and the overlay over thousands of lines.
       expect(Number.isInteger(geometry.lineHeight), `line height ${geometry.lineHeight}`).toBe(true);
       expect(geometry.drift).toBeLessThan(0.5);
       expect(geometry.nearest).toBeLessThan(0.5);
+      // The overlay row sits exactly on the textarea's line.
+      expect(geometry.offset).toBeLessThan(0.5);
+    });
+
+    test('only the rows near the view are rendered, and they match the text', async ({ page }) => {
+      const e = editor(page);
+      const state = await e.input.evaluate(async (element) => {
+        element.scrollTop = element.scrollHeight / 2;
+        element.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const lineHeight = parseFloat(getComputedStyle(element).lineHeight);
+        const middle = Math.floor(element.scrollTop / lineHeight) + 5;
+        const row = document.querySelector(`.config-editor__code-line[data-line="${middle}"]`);
+        return {
+          rows: document.querySelectorAll('.config-editor__code-line').length,
+          rendered: row?.textContent,
+          expected: element.value.split('\n')[middle - 1],
+        };
+      });
+      expect(state.rows).toBeLessThan(200);
+      expect(state.rendered).toBe(state.expected);
     });
 
     test('scrolling to the end renders the last line in the overlay', async ({ page }) => {

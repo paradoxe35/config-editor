@@ -16,12 +16,12 @@ use super::super::completion::{
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{bracket_newline, toggle_line_comments, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use super::super::highlight::{Token, TokenKind, Tokens};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub(super) struct TomlBehavior;
 
@@ -86,6 +86,15 @@ impl ConfigLanguage for TomlBehavior {
         hover_context_offset(line, column)
     }
 
+    fn hover_path(
+        &self,
+        source: &str,
+        line_index: usize,
+        column: usize,
+    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        dotted_hover_path(self, source, line_index, column)
+    }
+
     fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
         highlight(line)
     }
@@ -102,7 +111,7 @@ impl ConfigLanguage for TomlBehavior {
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
-        toggle_toml_line_comments(source, selection_start, selection_end)
+        toggle_line_comments(source, selection_start, selection_end, &["#"])
     }
 
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
@@ -347,32 +356,39 @@ fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
 /// appends the occurrence index of that header so repeated tables address
 /// distinct array items. A blank path is the document root.
 fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPathSegment> {
-    let end = line_index.min(lines.len());
+    table_paths(&lines[..line_index.min(lines.len())])
+        .pop()
+        .unwrap_or_default()
+}
+
+/// The table path in effect after each line, in one pass: `[[a.b]]` adds the
+/// entry's index, and a later `[a.b.c]` belongs to the latest `a.b` entry.
+/// Entry `i` is the path for line `i + 1`; a leading empty path is for line 0.
+fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
+    let mut paths = Vec::with_capacity(lines.len() + 1);
     let mut path: Vec<SchemaPathSegment> = Vec::new();
-    for (position, line) in lines[..end].iter().enumerate() {
+    let mut arrays: HashMap<String, usize> = HashMap::new();
+    paths.push(path.clone());
+    for line in lines {
         let (code, _) = split_toml_comment(line);
-        let Some((segments, is_array)) = parse_header(code) else {
-            continue;
-        };
-        if is_array {
-            let parent = &segments[..segments.len().saturating_sub(1)];
-            path = parent
-                .iter()
-                .map(|segment| SchemaPathSegment::Key(segment.clone()))
-                .collect();
-            let last = segments.last().cloned().unwrap_or_default();
-            let header = code.trim().to_string();
-            let seen = lines[..position]
-                .iter()
-                .filter(|candidate| split_toml_comment(candidate).0.trim() == header)
-                .count();
-            path.push(SchemaPathSegment::Key(last));
-            path.push(SchemaPathSegment::ArrayItem(seen));
-        } else {
-            path = segments.into_iter().map(SchemaPathSegment::Key).collect();
+        if let Some((segments, is_array)) = parse_header(code) {
+            path = Vec::with_capacity(segments.len() + 2);
+            for (depth, segment) in segments.iter().enumerate() {
+                path.push(SchemaPathSegment::Key(segment.clone()));
+                let own = depth + 1 == segments.len() && is_array;
+                if !own && let Some(count) = arrays.get(&segments[..=depth].join(".")) {
+                    path.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
+                }
+            }
+            if is_array {
+                let count = arrays.entry(segments.join(".")).or_insert(0);
+                path.push(SchemaPathSegment::ArrayItem(*count));
+                *count += 1;
+            }
         }
+        paths.push(path.clone());
     }
-    path
+    paths
 }
 
 /// Array indices render as numbers, matching the validator's JSON-pointer segments.
@@ -573,8 +589,9 @@ fn inline_entry_at(
 fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let lines: Vec<&str> = source.lines().collect();
+    let tables = table_paths(&lines);
     for (index, line) in lines.iter().enumerate() {
-        let table = path_strings(&table_path_at(&lines, index));
+        let table = path_strings(&tables[index]);
         let (code, _) = split_toml_comment(line);
         if let Some((key, start, end)) = key_assignment(code) {
             let mut full = table.clone();
@@ -593,7 +610,7 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
         }
         // A `[table]` header's last segment names the table itself.
         if let Some((segments, _)) = parse_header(code)
-            && path_strings(&table_path_at(&lines, index + 1)) == wanted
+            && path_strings(&tables[index + 1]) == wanted
             && !segments.is_empty()
         {
             let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
@@ -611,8 +628,9 @@ fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
 fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
     let lines: Vec<&str> = source.lines().collect();
+    let tables = table_paths(&lines);
     for (index, line) in lines.iter().enumerate() {
-        let table = path_strings(&table_path_at(&lines, index));
+        let table = path_strings(&tables[index]);
         let (code, _) = split_toml_comment(line);
         let Some((key, _, _)) = key_assignment(code) else {
             continue;
@@ -904,12 +922,21 @@ fn existing_table_keys(
     for (index, line) in lines.iter().enumerate() {
         let (code, _) = split_toml_comment(line);
         if let Some((segments, is_array)) = parse_header(code) {
-            let header: Vec<SchemaPathSegment> =
-                segments.iter().cloned().map(SchemaPathSegment::Key).collect();
+            // Every prefix that is an array of tables addresses its latest
+            // entry: `[a.b.c]` after `[[a.b]]` is `a.b[last].c`.
+            let mut header: Vec<SchemaPathSegment> = Vec::new();
+            for (depth, segment) in segments.iter().enumerate() {
+                header.push(SchemaPathSegment::Key(segment.clone()));
+                let prefix = segments[..=depth].join(".");
+                let own = depth + 1 == segments.len() && is_array;
+                if !own && let Some(count) = array_tables.get(&prefix) {
+                    header.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
+                }
+            }
             keys.extend(child_of(&header));
             section = header;
             if is_array {
-                let seen = array_tables.entry(code.trim().to_string()).or_insert(0);
+                let seen = array_tables.entry(segments.join(".")).or_insert(0);
                 section.push(SchemaPathSegment::ArrayItem(*seen));
                 *seen += 1;
             }
@@ -1229,6 +1256,63 @@ fn key_at_column(line: &str, column: usize) -> Option<(String, usize)> {
     (column >= start_column && column < end_column).then_some((key, start_column))
 }
 
+/// The path of one segment of a table header or dotted key: hovering `web`
+/// in `[[web.certificates]]` or `websocket` in `websocket.listen = 1` shows
+/// that segment's card.
+fn dotted_hover_path(
+    language: &TomlBehavior,
+    source: &str,
+    line_index: usize,
+    column: usize,
+) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+    let line = source.split('\n').nth(line_index)?;
+    let (code, _) = split_toml_comment(line);
+    let segment_at = |text_start: usize, segments: &[String]| {
+        let mut offset = text_start;
+        for (index, segment) in segments.iter().enumerate() {
+            let width = segment.chars().count();
+            if column >= offset && column < offset + width {
+                return Some((index, offset));
+            }
+            offset += width + 1;
+        }
+        None
+    };
+    if let Some((segments, is_array)) = parse_header(code) {
+        let indent = line.len() - line.trim_start().len();
+        let text_start = indent + if is_array { 2 } else { 1 };
+        let (index, start) = segment_at(text_start, &segments)?;
+        // Arrays of tables declared before this line address their entries.
+        let before = &source[..source.split('\n').take(line_index).map(|line| line.len() + 1).sum::<usize>()];
+        let arrays: HashSet<String> = before
+            .lines()
+            .filter_map(|line| parse_header(split_toml_comment(line).0))
+            .filter(|(_, array)| *array)
+            .map(|(segments, _)| segments.join("."))
+            .collect();
+        let mut path = Vec::new();
+        for depth in 0..=index {
+            path.push(SchemaPathSegment::Key(segments[depth].clone()));
+            if depth < index && arrays.contains(&segments[..=depth].join(".")) {
+                path.push(SchemaPathSegment::ArrayItem(0));
+            }
+        }
+        return Some((path, segments[index].clone(), start));
+    }
+    let (key, start, _) = key_assignment(code)?;
+    let segments = split_key_path(&key)?;
+    if segments.len() < 2 {
+        return None;
+    }
+    let (index, start_column) = segment_at(line[..start].chars().count(), &segments)?;
+    let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
+    let mut path = language
+        .completion_context(source, source[..line_start].encode_utf16().count())
+        .path;
+    path.extend(segments[..=index].iter().cloned().map(SchemaPathSegment::Key));
+    Some((path, segments[index].clone(), start_column))
+}
+
 /// The byte offset of character `column` (0-based) in `line`.
 fn byte_at_column(line: &str, column: usize) -> usize {
     line.char_indices()
@@ -1273,94 +1357,6 @@ fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> {
         caret: closers.len() + 1 + indent.len(),
         replaces: closers.len(),
     })
-}
-
-/// Comment toggling over whole lines with `#`, mirroring the YAML toggler's
-/// selection mapping: blank lines are skipped, commented selections uncomment.
-fn toggle_toml_line_comments(
-    source: &str,
-    selection_start: usize,
-    selection_end: usize,
-) -> Option<(String, usize, usize)> {
-    let start = utf16_to_byte_index(source, selection_start);
-    let end = utf16_to_byte_index(source, selection_end);
-    let first_line = source[..start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count();
-    let newline_count = source[..end].bytes().filter(|byte| *byte == b'\n').count();
-    let last_line =
-        newline_count.saturating_sub(usize::from(start < end && source[..end].ends_with('\n')));
-
-    let lines: Vec<_> = source.split_inclusive('\n').collect();
-    if first_line >= lines.len() {
-        return None;
-    }
-
-    let selected_lines = &lines[first_line..=last_line.min(lines.len() - 1)];
-    let uncomment = selected_lines
-        .iter()
-        .filter_map(|line| {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            (!content.is_empty()).then_some(content.starts_with('#'))
-        })
-        .all(|commented| commented);
-    let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut offset = 0;
-    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
-
-    for (line_index, line) in lines.iter().enumerate() {
-        if (first_line..=last_line).contains(&line_index) {
-            let body = line.trim_end_matches('\n').trim_end_matches('\r');
-            let indent = body.len() - body.trim_start_matches([' ', '\t']).len();
-            let content = &body[indent..];
-            if !content.is_empty() {
-                if uncomment && content.starts_with('#') {
-                    let removed = 1 + usize::from(content.starts_with("# "));
-                    edits.push((offset + indent, removed, 0));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str(&content[removed..]);
-                    updated.push_str(&line[body.len()..]);
-                } else if !uncomment {
-                    edits.push((offset + indent, 0, 2));
-                    updated.push_str(&line[..indent]);
-                    updated.push_str("# ");
-                    updated.push_str(&line[indent..]);
-                } else {
-                    updated.push_str(line);
-                }
-            } else {
-                updated.push_str(line);
-            }
-        } else {
-            updated.push_str(line);
-        }
-        offset += line.len();
-    }
-
-    let map_offset = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (edit_position, removed, inserted) in &edits {
-            if position < *edit_position {
-                break;
-            }
-            if position == *edit_position && *removed == 0 && !right_biased {
-                return (*edit_position as isize + delta) as usize;
-            }
-            if position <= *edit_position + *removed {
-                return (*edit_position as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
-    };
-    let updated_start = map_offset(start, start == end).min(updated.len());
-    let updated_end = map_offset(end, true).min(updated.len());
-    let updated_selection_start = updated[..updated_start].encode_utf16().count();
-    let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    Some((updated, updated_selection_start, updated_selection_end))
 }
 
 /// The unclosed string quote at the caret, or comment state: the pairing guard.

@@ -63,21 +63,24 @@ impl Bridge {
         }
         let value = codec::read(self.edit.behavior(), edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
-        // A value edit rewrites just those values in the host's own text, so
-        // its comments and formatting survive; structural edits re-serialize.
-        if let Ok(old) = codec::read(self.host.behavior(), previous_host, self.shape())
-            && let Some(text) = codec::patch_scalars(
-                self.host.behavior(),
-                previous_host,
-                &old,
-                &value,
-                self.shape(),
-            )
-        {
-            return Ok(Conversion {
-                text,
-                losses: Vec::new(),
-            });
+        // Edits are applied to the host's own text so its comments and
+        // formatting survive: a value edit rewrites just those values, a
+        // structural one (keys added or removed) just those lines. Only what
+        // neither can express re-serializes the document.
+        if let Ok(old) = codec::read(self.host.behavior(), previous_host, self.shape()) {
+            let host = self.host.behavior();
+            let patched = codec::patch_scalars(host, previous_host, &old, &value, self.shape())
+                .or_else(|| {
+                    // The serializer must accept the new value (TOML has no null).
+                    codec::serialize(host, &value, Some(previous_host)).ok()?;
+                    codec::patch_structure(host, previous_host, &old, &value, self.shape())
+                });
+            if let Some(text) = patched {
+                return Ok(Conversion {
+                    text,
+                    losses: Vec::new(),
+                });
+            }
         }
         codec::render(
             &value,
@@ -322,5 +325,55 @@ mod tests {
         let edited = shown.text.replace(">x<", ">y<");
         let saved = bridge.to_host(&edited, host).unwrap();
         assert_eq!(saved.text, host.replace("token: x", "token: \"y\""));
+    }
+
+    #[test]
+    fn adding_or_removing_a_key_keeps_the_hosts_comments() {
+        let hosts = [
+            (
+                Language::YAML,
+                "# Burrow server\nlisten: 7835 # port\npublic_address: a.example\n",
+            ),
+            (
+                Language::TOML,
+                "# Burrow server\nlisten = 7835 # port\npublic_address = \"a.example\"\n",
+            ),
+            (
+                Language::HCL,
+                "# Burrow server\nlisten = 7835 # port\npublic_address = \"a.example\"\n",
+            ),
+        ];
+        for (host, text) in hosts {
+            for edit in [Language::JSON, Language::YAML, Language::TOML] {
+                let Some(bridge) = Bridge::new(host, edit, None) else {
+                    continue;
+                };
+                let shown = bridge.to_edit(text).unwrap().text;
+                // Add a key.
+                let added_value = {
+                    let mut value = edit.parse(&shown).unwrap();
+                    value["insecure_plaintext"] = serde_json::Value::Bool(true);
+                    edit.serialize(&value).unwrap()
+                };
+                let saved = bridge.to_host(&added_value, text).unwrap().text;
+                assert!(
+                    saved.contains("# Burrow server") && saved.contains("# port"),
+                    "{host} as {edit} add:\n{saved}"
+                );
+                assert!(saved.contains("insecure_plaintext"), "{saved}");
+                // Remove a key.
+                let removed_value = {
+                    let mut value = edit.parse(&shown).unwrap();
+                    value.as_object_mut().unwrap().remove("public_address");
+                    edit.serialize(&value).unwrap()
+                };
+                let saved = bridge.to_host(&removed_value, text).unwrap().text;
+                assert!(
+                    saved.contains("# Burrow server") && saved.contains("# port"),
+                    "{host} as {edit} remove:\n{saved}"
+                );
+                assert!(!saved.contains("public_address"), "{saved}");
+            }
+        }
     }
 }

@@ -42,6 +42,7 @@ fn Settings() -> impl IntoView {
 | `baseline`                                                                                                                                           | Text to diff against (gutter markers and inline peeks).                                |
 | `schema`                                                                                                                                             | JSON Schema as a string, or a shared precompiled `Schema`.                             |
 | `theme`                                                                                                                                              | An `EditorTheme`, optionally reactive.                                                 |
+| `colors`                                                                                                                                             | `ThemeColors` overriding the theme's colors, optionally reactive.                      |
 | `read_only`                                                                                                                                          | View mode: highlighting, diagnostics, diffs, and hover stay on.                        |
 | `styled`, `class`                                                                                                                                    | Turn off the preset CSS and add your own class.                                        |
 | `show_toolbar`, `show_footer`                                                                                                                        | Built-in chrome (or compose `ConfigEditorToolbar` / `ConfigEditorFooter`).             |
@@ -117,6 +118,25 @@ const ENV: Language = Language::new(&DOTENV);
 `leptos_config_editor::language` also exports the helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
 detection). `tests/custom_language.rs` is a complete example.
+
+## Themes and colors
+
+Eleven palettes ship as `EditorTheme` (VS Code, Obsidian, Dracula, Nord, …).
+Any color of one can be overridden for a brand palette; every token is a
+`ThemeColor`:
+
+```rust,ignore
+use leptos_config_editor::{EditorTheme, ThemeColor, ThemeColors};
+
+let brand = ThemeColors::new()
+    .set(ThemeColor::Background, "#101418")
+    .set(ThemeColor::Key, "#ffcc66")
+    .set(ThemeColor::Selection, "rgb(255 204 102 / 25%)");
+// <ConfigEditor theme=EditorTheme::Nord colors=brand .../>
+```
+
+The same tokens are plain CSS variables (`--config-editor-key`, …), so a
+stylesheet can set them too.
 
 ## Features
 
