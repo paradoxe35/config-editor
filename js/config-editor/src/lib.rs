@@ -7,14 +7,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use js_sys::{Array, Function, Object, Reflect};
-use leptos::prelude::*;
 use config_editor_leptos::language::{
     ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
 };
 use config_editor_leptos::{
     ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
 };
+use js_sys::{Array, Function, Object, Reflect};
+use leptos::prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;

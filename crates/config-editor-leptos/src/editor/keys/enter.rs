@@ -85,37 +85,25 @@ fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) 
     state.close_suggestions();
 }
 
-/// After a value typed inside closers the editor inserted (`["box|"]`), or
-/// before an end tag it wrote (`<mode>balance|</mode>`), Enter steps past
-/// them instead of splitting the value. An empty pair (`{|}`) still opens.
+/// After a value typed before a closer the editor wrote that ends it (the
+/// quote in `["box|"]`, the end tag in `<mode>balance|</mode>`), Enter steps
+/// past it, and past brackets it wrote right after, instead of splitting the
+/// value. An empty value (`"|"`) or bracket pair (`{|}`) still opens.
 fn step_past_inserted_closers(state: EditorState, text: &str, mut start: usize) -> usize {
-    let length = text.encode_utf16().count();
-    let ours = |at: usize| {
-        state
-            .auto_closers
-            .with_value(|closers| closers.contains(&(length - at)))
+    let Some(first) = state.closer_at(start) else {
+        return start;
     };
-    let at_byte = utf16_to_byte_index(text, start);
-    let after_typed_quote =
-        text[at_byte..].starts_with(['"', '\'']) && !text[..at_byte].ends_with(['"', '\'']);
-    if after_typed_quote {
-        while start < length
-            && ours(start)
-            && text[utf16_to_byte_index(text, start)..].starts_with(['"', '\'', ']', '}', ')'])
-        {
-            start += 1;
-        }
+    let Some(opener) = first.opener else {
+        return start;
+    };
+    if text[..utf16_to_byte_index(text, start)].ends_with(opener) {
+        return start;
     }
-    let at_byte = utf16_to_byte_index(text, start);
-    let rest = &text[at_byte..];
-    let line_start = text[..at_byte].rfind('\n').map_or(0, |index| index + 1);
-    let typed_value = !text[line_start..at_byte].trim_end().ends_with('>');
-    if rest.starts_with("</")
-        && typed_value
-        && ours(start)
-        && let Some(close) = rest.find('>')
+    start += first.len;
+    while let Some(next) = state.closer_at(start)
+        && next.opener.is_none()
     {
-        start += rest[..=close].encode_utf16().count();
+        start += next.len;
     }
     start
 }

@@ -155,11 +155,11 @@ pub(super) fn patch_structure(
     // Where each line of the old rendering sits in the host's text: a
     // forward match that skips the host's comments and blank lines, and
     // compares lines without quotes or trailing comments.
-    let normalized_host: Vec<String> = host.iter().map(|line| comparable(line)).collect();
+    let normalized_host: Vec<String> = host.iter().map(|line| comparable(language, line)).collect();
     let mut place = vec![None; rendered_old.len()];
     let mut next = 0;
     for (index, line) in rendered_old.iter().enumerate() {
-        let wanted = comparable(line);
+        let wanted = comparable(language, line);
         if wanted.is_empty() {
             continue;
         }
@@ -207,12 +207,12 @@ pub(super) fn patch_structure(
         if !removed[index] {
             continue;
         }
-        let comment = trailing_comment(host[index]);
+        let comment = trailing_comment(language, host[index]);
         let indent = |line: &str| line.len() - line.trim_start().len();
         if let Some(first) = inserted[index + 1].first_mut()
             && !comment.is_empty()
             && indent(first) == indent(host[index])
-            && trailing_comment(first).is_empty()
+            && trailing_comment(language, first).is_empty()
         {
             first.push(' ');
             first.push_str(comment);
@@ -233,39 +233,24 @@ pub(super) fn patch_structure(
 }
 
 /// A line as the structural patch compares it: trimmed, without quotes and
-/// without a trailing `#`, `//`, or `<!-- -->` comment.
-fn comparable(line: &str) -> String {
-    line[..comment_start(line)].trim().replace(['"', '\''], "")
+/// without its trailing comment (as the language finds it).
+fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
+    line[..comment_start(language, line)]
+        .trim()
+        .replace(['"', '\''], "")
 }
 
-/// The trailing `#`, `//`, or `<!-- -->` comment of `line`, or `""`.
-fn trailing_comment(line: &str) -> &str {
-    line[comment_start(line)..].trim_end()
+/// The trailing comment of `line`, or `""`.
+fn trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
+    line[comment_start(language, line)..].trim_end()
 }
 
 /// Where the trailing comment of `line` starts, or its length.
-fn comment_start(line: &str) -> usize {
-    let mut code = line.len();
-    let mut quote: Option<char> = None;
-    let mut previous = ' ';
-    for (index, character) in line.char_indices() {
-        match quote {
-            Some(open) if character == open && previous != '\\' => quote = None,
-            Some(_) => {}
-            None if character == '"' || character == '\'' => quote = Some(character),
-            None if (character == '#'
-                || line[index..].starts_with("//")
-                || line[index..].starts_with("<!--"))
-                && (index == 0 || previous.is_whitespace() || previous == '>') =>
-            {
-                code = index;
-                break;
-            }
-            None => {}
-        }
-        previous = character;
-    }
-    code
+fn comment_start(language: &dyn ConfigLanguage, line: &str) -> usize {
+    language
+        .comment_start(line)
+        .filter(|start| *start <= line.len() && line.is_char_boundary(*start))
+        .unwrap_or(line.len())
 }
 
 /// The span of what `pointer` names when it lies inside an inline container

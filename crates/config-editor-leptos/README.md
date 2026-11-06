@@ -55,30 +55,30 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 
 ## `<ConfigEditor>` props
 
-| Prop | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `language` | `Language` | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it. |
-| `edit_as` | `Language`, `Option<Language>` or a signal | unset | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included. |
-| `initial_value` | `String` | `""` | Starting text, also the diff baseline (uncontrolled). |
-| `value` | `Signal<String>` | — | Controlled text. Updates flow in; the caret stays on the same text. |
-| `on_change` | `Fn(String)` | — | Called with the document after every edit (after each typing pause while editing as another language). |
-| `on_edit_as_change` | `Fn(Language)` | — | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`). |
-| `baseline` | `Signal<String>` | `initial_value` | Text the diff gutter compares against; set it to the saved text to clear the diff. |
-| `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
-| `theme` | `EditorTheme` or a signal | `VsCodeDark` | Color theme. |
-| `colors` | `ThemeColors` or a signal | — | Colors overriding the theme's. |
-| `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. |
-| `file_name` | `String` | `untitled.<ext>` | Name shown in the toolbar. |
-| `class` | `String` | — | Extra class on the editor root. |
-| `styled` | `bool` | `true` | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself. |
-| `show_toolbar` / `show_footer` | `bool` | `false` | Built-in file toolbar and status bar (problem counts, line count). |
-| `show_diagnostics` | `bool` | `true` | Syntax and schema problems, underlined with a message on hover. |
-| `enable_completions` | `bool` | `true` | Schema suggestions (`Ctrl+Space`). |
-| `auto_trigger_completions` | `bool` | `true` | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them. |
-| `enable_hover_docs` | `bool` | `true` | Schema description, type, default and examples when hovering a key. |
-| `enable_highlighting` | `bool` | `true` | Syntax colors. |
-| `enable_auto_closing` | `bool` | `true` | Close brackets, quotes and XML tags; wrap selections; delete empty pairs. |
-| `show_diff` | `bool` | `true` | Added, modified and deleted line markers with a before/after preview. |
+| Prop                           | Type                                       | Default          | Purpose                                                                                                                              |
+| ------------------------------ | ------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `language`                     | `Language`                                 | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                     |
+| `edit_as`                      | `Language`, `Option<Language>` or a signal | unset            | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.             |
+| `initial_value`                | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                                |
+| `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text.                                                                  |
+| `on_change`                    | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                               |
+| `on_edit_as_change`            | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                |
+| `baseline`                     | `Signal<String>`                           | `initial_value`  | Text the diff gutter compares against; set it to the saved text to clear the diff.                                                   |
+| `schema`                       | `&str`, `String` or `Schema`               | —                | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
+| `theme`                        | `EditorTheme` or a signal                  | `VsCodeDark`     | Color theme.                                                                                                                         |
+| `colors`                       | `ThemeColors` or a signal                  | —                | Colors overriding the theme's.                                                                                                       |
+| `read_only`                    | `bool` or a signal                         | `false`          | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working.                                           |
+| `file_name`                    | `String`                                   | `untitled.<ext>` | Name shown in the toolbar.                                                                                                           |
+| `class`                        | `String`                                   | —                | Extra class on the editor root.                                                                                                      |
+| `styled`                       | `bool`                                     | `true`           | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself.                                                            |
+| `show_toolbar` / `show_footer` | `bool`                                     | `false`          | Built-in file toolbar and status bar (problem counts, line count).                                                                   |
+| `show_diagnostics`             | `bool`                                     | `true`           | Syntax and schema problems, underlined with a message on hover.                                                                      |
+| `enable_completions`           | `bool`                                     | `true`           | Schema suggestions (`Ctrl+Space`).                                                                                                   |
+| `auto_trigger_completions`     | `bool`                                     | `true`           | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them.                                                           |
+| `enable_hover_docs`            | `bool`                                     | `true`           | Schema description, type, default and examples when hovering a key.                                                                  |
+| `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
+| `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
+| `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -105,20 +105,20 @@ and `colors` so they match the editor.
 
 ## Keyboard
 
-| Keys | Action |
-| --- | --- |
-| `Ctrl+Space` | Open suggestions (with schema examples) |
-| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept |
-| `Tab` after accepting a block | Jump to the next empty value |
-| `Tab` / `Shift+Tab` | Indent / outdent the line or selected lines |
-| `Enter` | New line with the right indentation; steps out of a just-typed string or element |
-| `Ctrl+Enter` / `Ctrl+Shift+Enter` | Open a line below / above |
-| `Ctrl+/` | Toggle comments |
-| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y` | Undo, redo |
-| `F8` / `Shift+F8` | Next / previous problem |
-| `Home` | First non-blank character, then the line start |
-| `Ctrl+C` / `Ctrl+X` with nothing selected | Copy / cut the whole line (pasting it inserts above) |
-| `Escape` | Close popups, then collapse the selection |
+| Keys                                         | Action                                                                           |
+| -------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Ctrl+Space`                                 | Open suggestions (with schema examples)                                          |
+| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                 |
+| `Tab` after accepting a block                | Jump to the next empty value                                                     |
+| `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                      |
+| `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                        |
+| `Ctrl+/`                                     | Toggle comments                                                                  |
+| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
+| `F8` / `Shift+F8`                            | Next / previous problem                                                          |
+| `Home`                                       | First non-blank character, then the line start                                   |
+| `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
+| `Escape`                                     | Close popups, then collapse the selection                                        |
 
 `Cmd` works in place of `Ctrl` on macOS.
 
@@ -143,18 +143,18 @@ let language: Language = "yml".parse()?;               // names and extensions
 let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ```
 
-| Item | Description |
-| --- | --- |
-| `Language` | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
-| `Schema` | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share. |
-| `SchemaSource` | What the `schema` prop takes: JSON text or a `Schema`. |
-| `check_syntax(language, text)` | Syntax problems only. |
-| `Diagnostic` | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`). |
-| `Conversion` | `text`, and `losses`: JSON pointers of values the target reads back differently. |
-| `ConvertError` | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document. |
-| `ParseError` | `message`, `line`, `column`. |
-| `EditorTheme`, `ThemeColor`, `ThemeColors` | Themes and color overrides (below). |
-| `PRESET_CSS` | The stylesheet the editor injects. |
+| Item                                       | Description                                                                                                                                                                                                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
+| `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share.                                                                                                                                         |
+| `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
+| `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
+| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`).                                                                                                                                    |
+| `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
+| `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
+| `ParseError`                               | `message`, `line`, `column`.                                                                                                                                                                                                                                |
+| `EditorTheme`, `ThemeColor`, `ThemeColors` | Themes and color overrides (below).                                                                                                                                                                                                                         |
+| `PRESET_CSS`                               | The stylesheet the editor injects.                                                                                                                                                                                                                          |
 
 ## XML mapping
 
@@ -190,19 +190,21 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method | Adds |
-| --- | --- |
-| `info`, `parse` (required) | Name, icon, extensions; syntax errors and the data model |
-| `serialize` | Conversion into the language (Edit-as target) |
-| `key_span`, `value_span` | Positions for schema diagnostics |
-| `completion_context`, `property_insert`, … | Schema completion |
-| `hover_key` | Hover docs |
-| `highlight` | Syntax colors |
-| `newline`, `toggle_comments`, `auto_close`, `lexical_state`, … | Editing behavior |
+| Method                                                                           | Adds                                                                                                  |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `info`, `parse` (required)                                                       | Name, icon, extensions; syntax errors and the data model                                              |
+| `serialize`                                                                      | Conversion into the language (Edit-as target)                                                         |
+| `key_span`, `value_span`                                                         | Positions for schema diagnostics                                                                      |
+| `completion_context`, `property_insert`, …                                       | Schema completion                                                                                     |
+| `hover_key`                                                                      | Hover docs                                                                                            |
+| `highlight`                                                                      | Syntax colors                                                                                         |
+| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state`  | Editing behavior                                                                                      |
+| `value_follows_key`, `line_has_value`, `empty_value_slots`, `closing_markup_len` | Smarter completion: renaming keys in place, `Tab` through empty values, stepping out of a typed value |
+| `comment_start`                                                                  | Edit-as keeps comments when lines are added or renamed                                                |
 
 `config_editor_leptos::language` also exports the helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
-detection). `tests/custom_language.rs` is a complete example.
+detection, comment and separator scanning). `tests/custom_language.rs` is a complete example.
 
 ## Themes and colors
 
@@ -230,14 +232,14 @@ can set them too.
 
 All are on by default; turn off what you don't use to shrink the build.
 
-| Feature | Enables |
-| --- | --- |
+| Feature             | Enables                                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `schema-validation` | JSON Schema diagnostics, completions and hover (`jsonschema`). Without it the editor still checks syntax and converts. |
-| `yaml` | `Language::YAML` (`noyalib`) |
-| `json` | `Language::JSON` |
-| `toml` | `Language::TOML` (`toml`) |
-| `hcl` | `Language::HCL` (`hcl-rs`) |
-| `xml` | `Language::XML` (`quick-xml`) |
+| `yaml`              | `Language::YAML` (`noyalib`)                                                                                           |
+| `json`              | `Language::JSON`                                                                                                       |
+| `toml`              | `Language::TOML` (`toml`)                                                                                              |
+| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                             |
+| `xml`               | `Language::XML` (`quick-xml`)                                                                                          |
 
 ```toml
 config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }

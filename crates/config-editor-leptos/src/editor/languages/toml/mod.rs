@@ -152,6 +152,23 @@ impl ConfigLanguage for TomlBehavior {
         }
         toml::to_string(value).map_err(|error| error.to_string())
     }
+
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        super::super::language::comment_start_outside_quotes(line, &["#"])
+    }
+
+    fn value_follows_key(&self, rest: &str) -> bool {
+        let rest = rest.trim_start();
+        rest.starts_with('=') && !rest.starts_with("==")
+    }
+
+    fn line_has_value(&self, line_before: &str) -> bool {
+        super::super::language::value_after_separator(line_before, &['='])
+    }
+
+    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
+        super::super::language::empty_slots_at_line_ends(text, &[" = "])
+    }
 }
 
 fn utf16(text: &str) -> usize {

@@ -40,6 +40,22 @@ pub(super) struct Features {
     pub(super) diff: bool,
 }
 
+/// Closing text the editor wrote after the caret: a bracket, a quote, or
+/// markup such as an XML end tag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Closer {
+    /// UTF-16 distance from the document end to where it starts; typing
+    /// before it does not change it.
+    pub(super) distance: usize,
+    /// UTF-16 length.
+    pub(super) len: usize,
+    /// For a closer that ends a value (a string, an element's text): the
+    /// character just before the value (`"`, the `>` of `<k>`). Once the text
+    /// before the caret no longer ends with it, a value was typed, and Enter
+    /// steps past the closer. `None` for brackets, which Enter opens instead.
+    pub(super) opener: Option<char>,
+}
+
 /// What the component hands over to build the state.
 pub(super) struct Init {
     pub(super) host_language: Language,
@@ -144,9 +160,9 @@ pub(super) struct EditorState {
     pub(super) suggestions: Memo<Vec<Completion>>,
 
     // Typing aids.
-    /// Closers the editor inserted, as UTF-16 distances from the document
-    /// end (typing inside the pair keeps them). Only these are typed over.
-    pub(super) auto_closers: StoredValue<Vec<usize>>,
+    /// Closers the editor inserted. Only these are typed over, deleted with
+    /// their opener, or stepped past by Enter.
+    pub(super) auto_closers: StoredValue<Vec<Closer>>,
     /// An inserted default left selected after an accept: typing replaces
     /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
     /// line.
@@ -466,6 +482,49 @@ impl EditorState {
         }
     }
 
+    /// The inserted closer starting at UTF-16 `offset`, if any.
+    pub(super) fn closer_at(&self, offset: usize) -> Option<Closer> {
+        let distance = self
+            .source
+            .with_untracked(|text| text.encode_utf16().count())
+            .checked_sub(offset)?;
+        self.auto_closers.with_value(|closers| {
+            closers
+                .iter()
+                .find(|closer| closer.distance == distance)
+                .copied()
+        })
+    }
+
+    /// Forgets the inserted closer starting at UTF-16 `offset`.
+    pub(super) fn forget_closer_at(&self, offset: usize) {
+        let distance = self
+            .source
+            .with_untracked(|text| text.encode_utf16().count())
+            .saturating_sub(offset);
+        self.auto_closers
+            .update_value(|closers| closers.retain(|closer| closer.distance != distance));
+    }
+
+    /// Remembers a closer written at UTF-16 `offset` of `text` (the document
+    /// after the edit that wrote it).
+    pub(super) fn remember_closer(
+        &self,
+        text: &str,
+        offset: usize,
+        len: usize,
+        opener: Option<char>,
+    ) {
+        let distance = text.encode_utf16().count() - offset;
+        self.auto_closers.update_value(|closers| {
+            closers.push(Closer {
+                distance,
+                len,
+                opener,
+            });
+        });
+    }
+
     /// Records where the caret is, without touching the textarea.
     pub(super) fn note_caret(&self, offset: usize) {
         self.cursor.set(offset);
@@ -538,8 +597,12 @@ impl EditorState {
     pub(super) fn accept(&self, option: &Completion, reveal: bool) {
         let before = self.source.get_untracked();
         let (updated, anchor, caret) = apply_completion(&before, option);
-        self.auto_closers
-            .set_value(inserted_closers(option, &updated, caret));
+        self.auto_closers.set_value(inserted_closers(
+            option,
+            &updated,
+            (anchor, caret),
+            self.behavior(),
+        ));
         self.placeholder
             .set_value((anchor != caret).then_some((anchor, caret)));
         self.slot_region

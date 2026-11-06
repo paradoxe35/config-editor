@@ -25,6 +25,7 @@ use super::language::{
 };
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
+use super::state::Closer;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -119,24 +120,32 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "xml"))]
 mod slot_tests {
+    use super::super::Language;
     use super::next_slot;
 
     #[test]
     fn slots_are_empty_values_after_the_caret() {
+        let yaml_behavior = Language::YAML.behavior();
         let yaml = "rfc2136:\n  server: \n  key_name: \n  secret: \n";
         let first = yaml.find("server: ").unwrap() + "server: ".len();
-        let second = next_slot(yaml, first, yaml.len()).unwrap();
+        let second = next_slot(yaml, first, yaml.len(), yaml_behavior).unwrap();
         assert_eq!(&yaml[..second], "rfc2136:\n  server: \n  key_name: ");
         let json = "{\"a\": \"\", \"b\": \"\"}";
-        assert_eq!(next_slot(json, 7, json.len()), Some(16));
+        assert_eq!(
+            next_slot(json, 7, json.len(), Language::JSON.behavior()),
+            Some(16)
+        );
         let xml = "<x>\n  <a></a>\n  <b></b>\n</x>";
         let after_a = xml.find("<a>").unwrap() + 3;
         assert_eq!(
-            next_slot(xml, after_a, xml.len()),
+            next_slot(xml, after_a, xml.len(), Language::XML.behavior()),
             Some(xml.find("<b>").unwrap() + 3)
         );
-        assert_eq!(next_slot(yaml, yaml.len() - 1, yaml.len()), None);
+        assert_eq!(
+            next_slot(yaml, yaml.len() - 1, yaml.len(), yaml_behavior),
+            None
+        );
     }
 }

@@ -839,6 +839,99 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         let _ = (source, cursor);
         Lexical::default()
     }
+
+    /// The byte offset where the trailing comment of `line` starts, outside
+    /// strings. Edit-as uses it to match lines that differ only in comments.
+    /// See [`comment_start_outside_quotes`].
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        let _ = line;
+        None
+    }
+
+    /// Whether `rest`, the text after a key being completed, shows the key
+    /// already has its value (`: 99`, ` = "x"`, an HCL block's `{`), so
+    /// accepting a suggestion renames only the key.
+    fn value_follows_key(&self, rest: &str) -> bool {
+        let _ = rest;
+        false
+    }
+
+    /// Whether `line_before` (the caret's line up to the caret, without
+    /// trailing whitespace) already holds a complete value (`key = false`),
+    /// so a space typed after it ends the entry instead of opening values.
+    /// See [`value_after_separator`].
+    fn line_has_value(&self, line_before: &str) -> bool {
+        let _ = line_before;
+        false
+    }
+
+    /// Byte offsets in `text`, a block a suggestion just wrote, where a value
+    /// is still empty besides empty quotes (`key: ` at a line end, `<k></k>`):
+    /// `Tab` walks them like snippet placeholders. See [`empty_slots_at_line_ends`].
+    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
+        let _ = text;
+        Vec::new()
+    }
+
+    /// The length in bytes of markup at the start of `text` that closes an
+    /// element, such as an XML end tag. The editor remembers the ones it
+    /// writes, and Enter after a value typed before one steps past it.
+    fn closing_markup_len(&self, text: &str) -> Option<usize> {
+        let _ = text;
+        None
+    }
+}
+
+/// The byte offset of the first of `markers` on `line` that starts a comment:
+/// outside `"…"` and `'…'` strings, at the line start or after whitespace.
+/// A building block for [`ConfigLanguage::comment_start`].
+pub fn comment_start_outside_quotes(line: &str, markers: &[&str]) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut previous = ' ';
+    for (index, character) in line.char_indices() {
+        match quote {
+            Some(open) if character == open && previous != '\\' => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if previous.is_whitespace()
+                && markers
+                    .iter()
+                    .any(|marker| line[index..].starts_with(marker)) =>
+            {
+                return Some(index);
+            }
+            None => {}
+        }
+        previous = character;
+    }
+    None
+}
+
+/// Whether `line_before` ends with a value after its last `separators`
+/// character (`key = false`, not `key = ` or `key = [`). A building block for
+/// [`ConfigLanguage::line_has_value`].
+pub fn value_after_separator(line_before: &str, separators: &[char]) -> bool {
+    let value = line_before
+        .rsplit_once(separators)
+        .map_or("", |(_, value)| value)
+        .trim();
+    !value.is_empty() && !value.ends_with(['[', '{', ',']) && !value.ends_with(separators)
+}
+
+/// Byte offsets at the ends of lines of `text` that end with one of
+/// `endings` (`"key: "`, `" = "`). A building block for
+/// [`ConfigLanguage::empty_value_slots`].
+pub fn empty_slots_at_line_ends(text: &str, endings: &[&str]) -> Vec<usize> {
+    let mut slots = Vec::new();
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_end_matches('\n');
+        if endings.iter().any(|ending| body.ends_with(ending)) {
+            slots.push(offset + body.len());
+        }
+        offset += line.len();
+    }
+    slots
 }
 
 #[cfg(test)]
@@ -851,5 +944,33 @@ mod tests {
             vec!["a/b".to_string(), "~c".to_string()]
         );
         assert_eq!(pointer_segments(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn comments_start_outside_strings_after_whitespace() {
+        use super::comment_start_outside_quotes as start;
+        assert_eq!(start("listen = 7835 # port", &["#"]), Some(14));
+        assert_eq!(start("# whole line", &["#"]), Some(0));
+        assert_eq!(start("color = \"#fff\" # hex", &["#"]), Some(15));
+        assert_eq!(start("url = http://x", &["#", "//"]), None);
+        assert_eq!(start("a = 1 // note", &["#", "//"]), Some(6));
+    }
+
+    #[test]
+    fn a_value_after_a_separator_is_complete_unless_it_opens_one() {
+        use super::value_after_separator as has_value;
+        assert!(has_value("insecure = false", &['=']));
+        assert!(!has_value("insecure =", &['=']));
+        assert!(!has_value("hosts = [", &['=']));
+        assert!(!has_value("pool: {a: 1,", &[':']));
+        assert!(!has_value("listen", &[':']));
+    }
+
+    #[test]
+    fn empty_slots_are_the_ends_of_lines_with_a_separator() {
+        use super::empty_slots_at_line_ends as slots;
+        let text = "a: \nb: 1\nc:\n";
+        assert_eq!(slots(text, &[": ", ":"]), vec![3, 11]);
+        assert_eq!(slots("x = \ny = 2", &[" = "]), vec![4]);
     }
 }

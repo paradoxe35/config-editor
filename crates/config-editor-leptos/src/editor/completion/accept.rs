@@ -28,22 +28,26 @@ pub(crate) fn should_auto_trigger(input_type: &str, previous: &str, current: &st
 }
 
 /// Whether the caret's line already holds a value before the trailing
-/// whitespace at the caret (`key = false |`).
-pub(super) fn line_value_before(source: &str, cursor_byte: usize) -> bool {
+/// whitespace at the caret (`key = false |`), as the language reads it.
+pub(super) fn line_value_before(
+    source: &str,
+    cursor_byte: usize,
+    behavior: &dyn ConfigLanguage,
+) -> bool {
     let line_start = source[..cursor_byte]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let before = source[line_start..cursor_byte].trim_end();
-    let value = before
-        .rsplit_once(['=', ':'])
-        .map_or("", |(_, value)| value)
-        .trim();
-    !value.is_empty() && !value.ends_with(['[', '{', ',', '='])
+    behavior.line_has_value(source[line_start..cursor_byte].trim_end())
 }
 
 /// Completing a key that already has its separator and value after the caret
 /// (`keep|: 99`, `"publ|": "x"`) renames just the key and keeps the value.
-pub(super) fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
+pub(super) fn rename_key_with_value(
+    option: &mut Completion,
+    source: &str,
+    cursor: usize,
+    behavior: &dyn ConfigLanguage,
+) {
     if option.is_value || option.start > cursor {
         return;
     }
@@ -62,14 +66,7 @@ pub(super) fn rename_key_with_value(option: &mut Completion, source: &str, curso
     };
     let line_rest = &line_rest[word..];
     let after_quote = line_rest.strip_prefix('"').unwrap_or(line_rest);
-    let separator = after_quote.trim_start();
-    // An HCL block (`pol| {`, `servi| "ssh" {`) has its body after the name.
-    let block_body = (separator.starts_with('{') || separator.starts_with('"'))
-        && line_rest.trim_end().ends_with('{');
-    if !(separator.starts_with(':')
-        || separator.starts_with('=') && !separator.starts_with("==")
-        || block_body)
-    {
+    if !behavior.value_follows_key(after_quote) {
         return;
     }
     let quoted = option.insert.trim_start().starts_with('"');
@@ -92,28 +89,19 @@ pub(super) fn rename_key_with_value(option: &mut Completion, source: &str, curso
 }
 
 /// The next empty value slot after UTF-16 `caret` and before `end` in
-/// `source`: inside `""`, between `<k></k>`, or at the end of a line that
-/// ends with a separator (`key: `, `key = `). Tab walks the slots of an
-/// accepted block.
-pub(crate) fn next_slot(source: &str, caret: usize, end: usize) -> Option<usize> {
+/// `source`: inside `""`, or where the language sees an empty value
+/// (`key: `, `<k></k>`). Tab walks the slots of an accepted block.
+pub(crate) fn next_slot(
+    source: &str,
+    caret: usize,
+    end: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<usize> {
     let from = utf16_to_byte_index(source, caret);
     let until = utf16_to_byte_index(source, end).min(source.len());
     let region = source.get(from..until)?;
-    let mut candidates = Vec::new();
-    for (at, _) in region.match_indices("\"\"") {
-        candidates.push(at + 1);
-    }
-    for (at, _) in region.match_indices("></") {
-        candidates.push(at + 1);
-    }
-    let mut offset = 0;
-    for line in region.split_inclusive('\n') {
-        let body = line.trim_end_matches('\n');
-        if body.ends_with(": ") || body.ends_with(" = ") || body.ends_with(':') {
-            candidates.push(offset + body.len());
-        }
-        offset += line.len();
-    }
+    let mut candidates: Vec<usize> = region.match_indices("\"\"").map(|(at, _)| at + 1).collect();
+    candidates.extend(behavior.empty_value_slots(region));
     candidates
         .into_iter()
         .filter(|at| *at > 0)
@@ -121,23 +109,51 @@ pub(crate) fn next_slot(source: &str, caret: usize, end: usize) -> Option<usize>
         .map(|at| source[..from + at].encode_utf16().count())
 }
 
-/// The closers `completion` wrote after the caret (`[|]`, `"|"`), as UTF-16
-/// distances from the end of `updated`, so typing them steps over them.
-pub(crate) fn inserted_closers(completion: &Completion, updated: &str, caret: usize) -> Vec<usize> {
+/// The closers `completion` wrote after the caret: brackets and quotes
+/// (`[|]`, `"|"`), and markup the language says closes an element (an XML
+/// end tag). `selection` is the (anchor, caret) left after accepting; a
+/// value typed from the anchor ends at the closer at the caret.
+pub(crate) fn inserted_closers(
+    completion: &Completion,
+    updated: &str,
+    (anchor, caret): (usize, usize),
+    behavior: &dyn ConfigLanguage,
+) -> Vec<Closer> {
     let length = updated.encode_utf16().count();
-    let insert_start = caret.saturating_sub(completion.cursor_offset);
-    let mut offset = insert_start;
+    let insert = completion.insert.as_str();
+    let mut offset = caret.saturating_sub(completion.cursor_offset);
     let mut closers = Vec::new();
-    let mut previous = '\0';
-    for character in completion.insert.chars() {
-        if offset >= caret && matches!(character, ')' | ']' | '}' | '"' | '\'') {
-            closers.push(length - offset);
+    // The character before the value a closer ends: before the anchor for
+    // the closer at the caret (a default may sit in between), right before
+    // the closer for empty ones further on (`""`, `<k></k>`).
+    let units: Vec<u16> = updated.encode_utf16().collect();
+    let opener = |at: usize| {
+        let value_start = if at == caret { anchor } else { at };
+        let before = value_start.checked_sub(1)?;
+        char::decode_utf16([*units.get(before)?]).next()?.ok()
+    };
+    for (byte, character) in insert.char_indices() {
+        if offset >= caret {
+            if matches!(character, ')' | ']' | '}') {
+                closers.push(Closer {
+                    distance: length - offset,
+                    len: 1,
+                    opener: None,
+                });
+            } else if matches!(character, '"' | '\'') {
+                closers.push(Closer {
+                    distance: length - offset,
+                    len: 1,
+                    opener: opener(offset),
+                });
+            } else if let Some(len) = behavior.closing_markup_len(&insert[byte..]) {
+                closers.push(Closer {
+                    distance: length - offset,
+                    len: insert[byte..byte + len].encode_utf16().count(),
+                    opener: opener(offset),
+                });
+            }
         }
-        // An end tag (`</k>`) written after the caret, by its `<`.
-        if offset > caret && previous == '<' && character == '/' {
-            closers.push(length - (offset - 1));
-        }
-        previous = character;
         offset += character.len_utf16();
     }
     closers

@@ -36,7 +36,7 @@ fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
     };
     let region_end = text.encode_utf16().count().saturating_sub(from_end);
     let slot = (caret >= region_start && caret <= region_end)
-        .then(|| next_slot(text, caret, region_end))
+        .then(|| next_slot(text, caret, region_end, state.behavior()))
         .flatten();
     match slot {
         Some(slot) => {

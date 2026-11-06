@@ -170,6 +170,22 @@ impl ConfigLanguage for YamlBehavior {
     fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
         noyalib::to_string(value).map_err(|error| error.to_string())
     }
+
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        line_comment_start(line)
+    }
+
+    fn value_follows_key(&self, rest: &str) -> bool {
+        rest.trim_start().starts_with(':')
+    }
+
+    fn line_has_value(&self, line_before: &str) -> bool {
+        super::super::language::value_after_separator(line_before, &[':'])
+    }
+
+    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
+        super::super::language::empty_slots_at_line_ends(text, &[": ", ":"])
+    }
 }
 
 

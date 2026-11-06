@@ -197,6 +197,28 @@ impl ConfigLanguage for XmlBehavior {
         }
         Ok(out)
     }
+
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        line.find("<!--")
+    }
+
+    /// An attribute name followed by its `="…"`.
+    fn value_follows_key(&self, rest: &str) -> bool {
+        rest.trim_start().starts_with('=')
+    }
+
+    /// Inside empty elements (`<k>|</k>`).
+    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
+        text.match_indices("></").map(|(at, _)| at + 1).collect()
+    }
+
+    /// An end tag, `</name>`.
+    fn closing_markup_len(&self, text: &str) -> Option<usize> {
+        if !text.starts_with("</") {
+            return None;
+        }
+        text.find('>').map(|end| end + 1)
+    }
 }
 
 /// The pointer of the first object holding an empty key, if any.

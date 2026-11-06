@@ -222,7 +222,7 @@ pub(crate) fn completions(
     if !force
         && context.value_key.is_some()
         && source[..cursor_byte].ends_with([' ', '\t'])
-        && line_value_before(source, cursor_byte)
+        && line_value_before(source, cursor_byte, behavior)
     {
         return Vec::new();
     }
@@ -230,7 +230,7 @@ pub(crate) fn completions(
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
     for option in &mut options {
         frame_insert(option, &context);
-        rename_key_with_value(option, source, cursor);
+        rename_key_with_value(option, source, cursor, behavior);
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
         let typed_start = utf16_to_byte_index(source, option.start);
