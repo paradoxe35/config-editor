@@ -29,8 +29,8 @@ use diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, shift_diagnostics, validate};
 mod completion;
 use completion::{
     COMPLETION_PAGE_ROWS, KeyHover, accept_reopens_suggestions, apply_completion,
-    completion_popup_style, completions, inserted_closers, key_hover, scroll_completion_into_view,
-    should_auto_trigger, visual_column,
+    completion_popup_style, completions, inserted_closers, key_hover, next_slot,
+    scroll_completion_into_view, should_auto_trigger, visual_column,
 };
 mod commands;
 use commands::{
@@ -395,6 +395,9 @@ pub fn ConfigEditor(
     // An inserted default left selected after an accept: typing replaces it,
     // Tab keeps it and moves past it, Enter keeps it and starts a new line.
     let placeholder = StoredValue::new(None::<(usize, usize)>);
+    // The block an accepted suggestion wrote, as (start, distance from the
+    // end): Tab walks its empty value slots.
+    let slot_region = StoredValue::new(None::<(usize, usize)>);
     // The line last copied or cut with nothing selected, to paste it whole.
     let copied_line = StoredValue::new(None::<String>);
     // The selection just before the browser applies an edit, for undo.
@@ -708,6 +711,11 @@ pub fn ConfigEditor(
                 apply_completion(&source.get_untracked(), completion);
             auto_closers.set_value(inserted_closers(completion, &updated, new_cursor));
             placeholder.set_value((anchor != new_cursor).then_some((anchor, new_cursor)));
+            slot_region.set_value(completion.insert.contains('\n').then(|| {
+                let start = new_cursor.saturating_sub(completion.cursor_offset);
+                let end = start + completion.insert.encode_utf16().count();
+                (start, updated.encode_utf16().count().saturating_sub(end))
+            }));
             let before = source.get_untracked();
             let request_completions =
                 accept_reopens_suggestions(completion, auto_trigger_completions);
@@ -1364,6 +1372,7 @@ pub fn ConfigEditor(
                                 }
                                 on:click=move |event| {
                                     auto_closers.update_value(Vec::clear);
+                                    slot_region.set_value(None);
                                     history.update(EditHistory::seal);
                                     if let Some(element) = event
                                         .target()
@@ -1398,6 +1407,7 @@ pub fn ConfigEditor(
                                         };
                                         if navigation {
                                             auto_closers.update_value(Vec::clear);
+                                            slot_region.set_value(None);
                                             history.update(EditHistory::seal);
                                         }
                                         if navigation && suggestions_requested.get_untracked() {
@@ -1504,6 +1514,7 @@ pub fn ConfigEditor(
                                     if is_undo || is_redo {
                                         event.prevent_default();
                                         auto_closers.update_value(Vec::clear);
+                                        slot_region.set_value(None);
                                         let current = source.get_untracked();
                                         let mut restored = None;
                                         history.update(|history| {
@@ -1685,6 +1696,42 @@ pub fn ConfigEditor(
                                                 }
                                             }
 
+                                            // A line that only now shows it closes a block re-indents.
+                                            if start == end
+                                                && key.chars().count() == 1
+                                                && let Some(typed) = key.chars().next()
+                                                && let Some(indent) = behavior().reindent_on_type(&source.get_untracked(), start, typed)
+                                            {
+                                                event.prevent_default();
+                                                let before = source.get_untracked();
+                                                let byte = utf16_to_byte_index(&before, start);
+                                                let line_start = before[..byte].rfind('\n').map_or(0, |index| index + 1);
+                                                let content = before[line_start..byte].trim_start();
+                                                let line_start_utf16 = before[..line_start].encode_utf16().count();
+                                                let (updated, caret) = replace_selection(
+                                                    &before,
+                                                    line_start_utf16,
+                                                    start,
+                                                    &format!("{indent}{content}{typed}"),
+                                                );
+                                                commit_edit(
+                                                    updated,
+                                                    caret,
+                                                    None,
+                                                    before,
+                                                    (start, end),
+                                                    source,
+                                                    cursor,
+                                                    current_line,
+                                                    history,
+                                                    on_change,
+                                                    Some(element.clone()),
+                                                    scroll_y,
+                                                    false,
+                                                );
+                                                suggestions_requested.set(false);
+                                                return;
+                                            }
                                             if start == end
                                                 && key.chars().count() == 1
                                                 && let Some(typed) = key.chars().next()
@@ -1871,6 +1918,25 @@ pub fn ConfigEditor(
                                                 let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
                                                 let end = element.selection_end().ok().flatten().unwrap_or(start as u32) as usize;
                                                 let text = source.get_untracked();
+                                                // In a block a suggestion just wrote, Tab goes to its next
+                                                // empty value, as through a snippet's placeholders.
+                                                if !event.shift_key() && start == end
+                                                    && let Some((region_start, from_end)) = slot_region.get_value()
+                                                {
+                                                    let region_end = text.encode_utf16().count().saturating_sub(from_end);
+                                                    match (start >= region_start && start <= region_end)
+                                                        .then(|| next_slot(&text, start, region_end))
+                                                        .flatten()
+                                                    {
+                                                        Some(slot) => {
+                                                            let _ = element.set_selection_range(slot as u32, slot as u32);
+                                                            cursor.set(slot);
+                                                            current_line.set(line_at_cursor(&text, slot));
+                                                            return;
+                                                        }
+                                                        None => slot_region.set_value(None),
+                                                    }
+                                                }
                                                 // A selection within one line is replaced, as typing would.
                                                 let multi_line = start != end
                                                     && text
@@ -2128,6 +2194,11 @@ pub fn ConfigEditor(
                                                 let (updated, anchor, new_cursor) = apply_completion(&source.get_untracked(), &apply);
                                                 auto_closers.set_value(inserted_closers(&apply, &updated, new_cursor));
                                                 placeholder.set_value((anchor != new_cursor).then_some((anchor, new_cursor)));
+                                                slot_region.set_value(apply.insert.contains('\n').then(|| {
+                                                    let start = new_cursor.saturating_sub(apply.cursor_offset);
+                                                    let end = start + apply.insert.encode_utf16().count();
+                                                    (start, updated.encode_utf16().count().saturating_sub(end))
+                                                }));
                                                 let request_completions = accept_reopens_suggestions(&apply, auto_trigger_completions);
                                                 hide_hover();
                                                 commit_edit(

@@ -359,91 +359,103 @@ pub(super) fn validate(
             .validator
             .iter_errors(&document)
             .flat_map(|top| {
-                let error = most_specific(&top);
-                let path = error.instance_path().as_str().to_string();
-                let message = match error.kind() {
-                    ValidationErrorKind::AnyOf { context }
-                    | ValidationErrorKind::OneOfNotValid { context } => {
-                        expected_types(error, context).unwrap_or_else(|| error.to_string())
-                    }
-                    // Every allowed value, not "or 2 other candidates".
-                    ValidationErrorKind::Enum { options } => match options.as_array() {
-                        Some(options) => format!(
-                            "{} is not one of {}",
-                            error.instance(),
-                            options
-                                .iter()
-                                .map(Value::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                        None => error.to_string(),
-                    },
-                    _ => error
-                        .to_string()
-                        .replacen(" is not of types ", " is not of type ", 1),
-                };
-                // A large value is abbreviated rather than quoted whole.
-                let instance = error.instance().to_string();
-                let message = if instance.chars().count() > MAX_QUOTED_VALUE {
-                    let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
-                    message.replacen(&instance, &format!("{short}…"), 1)
-                } else {
-                    message
-                };
-                let message = if path.is_empty() {
-                    message
-                } else {
-                    format!("{path}: {message}")
-                };
-                // Each unknown key gets its own marker and message, so every
-                // one is underlined and reachable with F8.
-                let locations: Vec<(Option<Span>, String)> =
-                    if let ValidationErrorKind::AdditionalProperties { unexpected } = error.kind() {
-                        let parent = error.instance_path().as_str();
-                        // Only as many as can be shown are located: each is a scan.
-                        unexpected
-                            .iter()
-                            .take(MAX_DIAGNOSTICS)
-                            .map(|key| {
-                                let pointer = format!("{parent}/{}", escape_pointer(key));
-                                let span = inline_location(behavior, source, &pointer, true)
-                                    .or_else(|| behavior.key_span(source, &pointer));
-                                let place = if parent.is_empty() { "/" } else { parent };
-                                let message = if key == "#text" {
-                                    // XML mixed content: text beside child elements.
-                                    format!("{place}: text is not allowed here, only elements")
-                                } else {
-                                    format!("{place}: '{key}' is not allowed here")
-                                };
-                                (span, message)
-                            })
-                            .collect()
-                    } else {
-                        // A missing property is reported on the object's key.
-                        let location =
-                            if matches!(error.kind(), ValidationErrorKind::Required { .. }) {
-                                inline_location(behavior, source, &path, true)
-                                    .or_else(|| behavior.key_span(source, &path))
-                                    .or_else(|| behavior.value_span(source, &path))
-                            } else {
-                                inline_location(behavior, source, &path, false)
-                                    .or_else(|| behavior.value_span(source, &path))
-                                    .or_else(|| behavior.key_span(source, &path))
-                            };
-                        vec![(location, message)]
-                    };
-                locations
+                specific_errors(&top)
                     .into_iter()
-                    .map(|(location, message)| {
-                        let location = location.or_else(|| behavior.first_span(source));
-                        Diagnostic {
-                            line: location.map(|location| location.line),
-                            column: location.map(|location| location.start_column),
-                            end_column: location.map(|location| location.end_column),
-                            message,
-                            severity: Severity::Error,
-                        }
+                    .flat_map(|error| {
+                        let path = error.instance_path().as_str().to_string();
+                        let message = match error.kind() {
+                            ValidationErrorKind::AnyOf { context }
+                            | ValidationErrorKind::OneOfNotValid { context } => {
+                                expected_types(error, context).unwrap_or_else(|| error.to_string())
+                            }
+                            // Every allowed value, not "or 2 other candidates".
+                            ValidationErrorKind::Enum { options } => match options.as_array() {
+                                Some(options) => format!(
+                                    "{} is not one of {}",
+                                    error.instance(),
+                                    options
+                                        .iter()
+                                        .map(Value::to_string)
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ),
+                                None => error.to_string(),
+                            },
+                            _ => error.to_string().replacen(
+                                " is not of types ",
+                                " is not of type ",
+                                1,
+                            ),
+                        };
+                        // A large value is abbreviated rather than quoted whole.
+                        let instance = error.instance().to_string();
+                        let message = if instance.chars().count() > MAX_QUOTED_VALUE {
+                            let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
+                            message.replacen(&instance, &format!("{short}…"), 1)
+                        } else {
+                            message
+                        };
+                        let message = if path.is_empty() {
+                            message
+                        } else {
+                            format!("{path}: {message}")
+                        };
+                        // Each unknown key gets its own marker and message, so every
+                        // one is underlined and reachable with F8.
+                        let locations: Vec<(Option<Span>, String)> =
+                            if let ValidationErrorKind::AdditionalProperties { unexpected } =
+                                error.kind()
+                            {
+                                let parent = error.instance_path().as_str();
+                                // Only as many as can be shown are located: each is a scan.
+                                unexpected
+                                    .iter()
+                                    .take(MAX_DIAGNOSTICS)
+                                    .map(|key| {
+                                        let pointer = format!("{parent}/{}", escape_pointer(key));
+                                        let span =
+                                            inline_location(behavior, source, &pointer, true)
+                                                .or_else(|| behavior.key_span(source, &pointer));
+                                        let place = if parent.is_empty() { "/" } else { parent };
+                                        let message = if key == "#text" {
+                                            // XML mixed content: text beside child elements.
+                                            format!(
+                                                "{place}: text is not allowed here, only elements"
+                                            )
+                                        } else {
+                                            format!("{place}: '{key}' is not allowed here")
+                                        };
+                                        (span, message)
+                                    })
+                                    .collect()
+                            } else {
+                                // A missing property is reported on the object's key.
+                                let location =
+                                    if matches!(error.kind(), ValidationErrorKind::Required { .. })
+                                    {
+                                        inline_location(behavior, source, &path, true)
+                                            .or_else(|| behavior.key_span(source, &path))
+                                            .or_else(|| behavior.value_span(source, &path))
+                                    } else {
+                                        inline_location(behavior, source, &path, false)
+                                            .or_else(|| behavior.value_span(source, &path))
+                                            .or_else(|| behavior.key_span(source, &path))
+                                    };
+                                vec![(location, message)]
+                            };
+                        locations
+                            .into_iter()
+                            .map(|(location, message)| {
+                                let location = location.or_else(|| behavior.first_span(source));
+                                Diagnostic {
+                                    line: location.map(|location| location.line),
+                                    column: location.map(|location| location.start_column),
+                                    end_column: location.map(|location| location.end_column),
+                                    message,
+                                    severity: Severity::Error,
+                                }
+                            })
+                            .collect::<Vec<_>>()
                     })
                     .collect::<Vec<_>>()
             })
@@ -482,17 +494,17 @@ fn expected_types(
     (!types.is_empty()).then(|| format!("{} is not of type {}", error.instance(), types.join(", ")))
 }
 
-/// The error to show for `error`: inside `anyOf`/`oneOf`, the deepest error
-/// of the branches the value was meant for. A branch that fails only because
+/// The errors to show for `error`: inside `anyOf`/`oneOf`, every error of the
+/// branch the value was meant for. A branch that fails only because
 /// the value has another type (`null` for an object) is skipped, so a typo in
 /// an object reports the typo rather than "not valid under any of the schemas".
 #[cfg(feature = "schema-validation")]
-fn most_specific<'e, 'a>(error: &'e ValidationError<'a>) -> &'e ValidationError<'a> {
+fn specific_errors<'e, 'a>(error: &'e ValidationError<'a>) -> Vec<&'e ValidationError<'a>> {
     let branches = match error.kind() {
         ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
             context
         }
-        _ => return error,
+        _ => return vec![error],
     };
     let path = error.instance_path().as_str();
     let wrong_type = |branch: &Vec<ValidationError<'a>>| {
@@ -501,29 +513,33 @@ fn most_specific<'e, 'a>(error: &'e ValidationError<'a>) -> &'e ValidationError<
                 && nested.instance_path().as_str() == path
         })
     };
-    let meant: Vec<&Vec<ValidationError<'a>>> = branches
+    let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
+    let deepest_in = |branch: &'e Vec<ValidationError<'a>>| {
+        branch
+            .iter()
+            .flat_map(specific_errors)
+            .map(|nested| depth(nested))
+            .max()
+            .unwrap_or(0)
+    };
+    let meant: Vec<&'e Vec<ValidationError<'a>>> = branches
         .iter()
         .filter(|branch| !wrong_type(branch))
         .collect();
-    let depth = |error: &ValidationError<'_>| error.instance_path().as_str().matches('/').count();
-    let candidates = if meant.is_empty() {
-        branches.iter().collect()
-    } else {
-        meant.clone()
-    };
-    let Some(deepest) = candidates
-        .into_iter()
+    // The branch the value was meant for: every one of its errors is shown,
+    // so a second problem is not hidden behind the first.
+    if let Some(branch) = meant.into_iter().max_by_key(|branch| deepest_in(branch)) {
+        return branch.iter().flat_map(specific_errors).collect();
+    }
+    // Without one, only a deeper error says more than "wrong type".
+    match branches
+        .iter()
         .flatten()
-        .map(most_specific)
+        .flat_map(specific_errors)
         .max_by_key(|nested| depth(nested))
-    else {
-        return error;
-    };
-    // Without a branch the value was meant for, only a deeper error says more.
-    if !meant.is_empty() || depth(deepest) > depth(error) {
-        deepest
-    } else {
-        error
+    {
+        Some(deepest) if depth(deepest) > depth(error) => vec![deepest],
+        _ => vec![error],
     }
 }
 
@@ -620,6 +636,23 @@ mod message_tests {
         assert_eq!(
             messages("listen: true\n"),
             [r#"/listen: true is not of type "integer", "string""#]
+        );
+    }
+
+    #[test]
+    fn every_problem_in_an_optional_object_is_reported() {
+        let found = messages(
+            "services:\n  web:\n    target: 80\n    health_check: {interval_secs: 0, bogus: 1}\n",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|message| message.contains("'bogus' is not allowed")),
+            "{found:?}"
+        );
+        assert!(
+            found.iter().any(|message| message.contains("minimum")),
+            "{found:?}"
         );
     }
 

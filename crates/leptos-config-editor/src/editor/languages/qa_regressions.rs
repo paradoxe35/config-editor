@@ -1028,3 +1028,44 @@ fn toml_table_headers_complete_their_segment_with_tables_only() {
         "[[web.certificates|]]\n"
     );
 }
+
+#[test]
+fn a_key_after_a_value_without_a_comma_in_a_one_line_object_gets_one() {
+    assert!(
+        labels(Language::TOML, "pool = { min_idle = 4 | }\n").contains(&"max_idle".to_string())
+    );
+    let toml = accept(Language::TOML, "pool = { min_idle = 4 | }\n", "max_idle");
+    assert!(
+        toml.starts_with("pool = { min_idle = 4, max_idle = "),
+        "{toml}"
+    );
+    assert_parses(Language::TOML, &toml);
+    let hcl = accept(Language::HCL, "pool = { min_idle = 4 | }\n", "max_idle");
+    assert!(
+        hcl.starts_with("pool = { min_idle = 4, max_idle = "),
+        "{hcl}"
+    );
+    assert_parses(Language::HCL, &hcl);
+    let yaml = accept(Language::YAML, "pool: {min_idle: 4 |}\n", "max_idle");
+    assert!(yaml.starts_with("pool: {min_idle: 4, max_idle: "), "{yaml}");
+    assert_parses(Language::YAML, &yaml);
+}
+
+#[test]
+fn an_xml_end_tag_typed_on_its_own_line_moves_out_one_level() {
+    let source = "<r>\n  <a>\n    x\n    </a";
+    assert_eq!(
+        Language::XML
+            .behavior()
+            .reindent_on_type(source, source.encode_utf16().count(), '>')
+            .as_deref(),
+        Some("  ")
+    );
+    let inline = "<r>\n  <a>x</a";
+    assert_eq!(
+        Language::XML
+            .behavior()
+            .reindent_on_type(inline, inline.encode_utf16().count(), '>'),
+        None
+    );
+}

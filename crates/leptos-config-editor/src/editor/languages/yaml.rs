@@ -901,7 +901,15 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
                     .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
                     .map(char::len_utf8)
                     .sum();
-                context(path, typed_from(start), start, cursor + tail)
+                match caret.separator_at {
+                    // After a value with no comma yet, the comma goes right after it.
+                    Some(separator) => CompletionContext {
+                        entry_prefix: ", ".into(),
+                        explicit_entry_start: true,
+                        ..context(path, typed_from(start), separator, cursor + tail)
+                    },
+                    None => context(path, typed_from(start), start, cursor + tail),
+                }
             }
             CaretEntry::Value { key, start } => CompletionContext {
                 value_key: Some(key),

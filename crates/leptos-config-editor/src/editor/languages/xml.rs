@@ -37,6 +37,26 @@ impl ConfigLanguage for XmlBehavior {
         Repetition::Elements
     }
 
+    fn reindent_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        // `</name` alone on its line, finished by `>`: it closes the element
+        // one level out.
+        if typed != '>' {
+            return None;
+        }
+        let byte = utf16_to_byte_index(source, cursor);
+        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
+        let line = &source[line_start..byte];
+        let content = line.trim_start();
+        let indent = &line[..line.len() - content.len()];
+        let closes = content.starts_with("</")
+            && content[2..].chars().all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'));
+        if !closes || indent.is_empty() {
+            return None;
+        }
+        let unit = indent_unit(source);
+        Some(indent.strip_suffix(unit.as_str()).unwrap_or("").to_string())
+    }
+
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         (typed == '>').then(|| end_tag_for(source, cursor)).flatten()
     }

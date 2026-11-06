@@ -1042,9 +1042,11 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         let value_end = cursor + inline_value_len(&source[cursor..line_end]);
         let typed = |start: usize| before_caret[start..].trim_end().trim_start_matches('"').to_string();
         return match caret.entry {
+            // After a value with no comma yet, the comma goes right after it.
             CaretEntry::Key { start } => CompletionContext {
                 typed: typed(start),
-                replace_start: utf16(&source[..statement + start]),
+                replace_start: utf16(&source[..statement + caret.separator_at.unwrap_or(start)]),
+                entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
                 replace_end: utf16(&source[..swallow_existing_assignment(source, cursor)]),
                 explicit_entry_start: true,
                 block: hcl_block(source, statement + start, cursor),

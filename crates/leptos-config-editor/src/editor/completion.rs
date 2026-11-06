@@ -1116,6 +1116,36 @@ fn rename_key_with_value(option: &mut Completion, source: &str, cursor: usize) {
     option.selected = 0;
 }
 
+/// The next empty value slot after UTF-16 `caret` and before `end` in
+/// `source`: inside `""`, between `<k></k>`, or at the end of a line that
+/// ends with a separator (`key: `, `key = `). Tab walks the slots of an
+/// accepted block.
+pub(super) fn next_slot(source: &str, caret: usize, end: usize) -> Option<usize> {
+    let from = utf16_to_byte_index(source, caret);
+    let until = utf16_to_byte_index(source, end).min(source.len());
+    let region = source.get(from..until)?;
+    let mut candidates = Vec::new();
+    for (at, _) in region.match_indices("\"\"") {
+        candidates.push(at + 1);
+    }
+    for (at, _) in region.match_indices("></") {
+        candidates.push(at + 1);
+    }
+    let mut offset = 0;
+    for line in region.split_inclusive('\n') {
+        let body = line.trim_end_matches('\n');
+        if body.ends_with(": ") || body.ends_with(" = ") || body.ends_with(':') {
+            candidates.push(offset + body.len());
+        }
+        offset += line.len();
+    }
+    candidates
+        .into_iter()
+        .filter(|at| *at > 0)
+        .min()
+        .map(|at| source[..from + at].encode_utf16().count())
+}
+
 /// The closers `completion` wrote after the caret (`[|]`, `"|"`), as UTF-16
 /// distances from the end of `updated`, so typing them steps over them.
 pub(super) fn inserted_closers(completion: &Completion, updated: &str, caret: usize) -> Vec<usize> {
@@ -1374,5 +1404,27 @@ mod tests {
             style.contains("width:420.0px"),
             "popup keeps full width when clamped, got: {style}"
         );
+    }
+}
+
+#[cfg(test)]
+mod slot_tests {
+    use super::next_slot;
+
+    #[test]
+    fn slots_are_empty_values_after_the_caret() {
+        let yaml = "rfc2136:\n  server: \n  key_name: \n  secret: \n";
+        let first = yaml.find("server: ").unwrap() + "server: ".len();
+        let second = next_slot(yaml, first, yaml.len()).unwrap();
+        assert_eq!(&yaml[..second], "rfc2136:\n  server: \n  key_name: ");
+        let json = "{\"a\": \"\", \"b\": \"\"}";
+        assert_eq!(next_slot(json, 7, json.len()), Some(16));
+        let xml = "<x>\n  <a></a>\n  <b></b>\n</x>";
+        let after_a = xml.find("<a>").unwrap() + 3;
+        assert_eq!(
+            next_slot(xml, after_a, xml.len()),
+            Some(xml.find("<b>").unwrap() + 3)
+        );
+        assert_eq!(next_slot(yaml, yaml.len() - 1, yaml.len()), None);
     }
 }

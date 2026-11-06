@@ -49,6 +49,10 @@ pub struct InlineCaret {
     pub path: Vec<SchemaPathSegment>,
     /// What the caret is on.
     pub entry: InlineEntry,
+    /// After a complete value and a space with no comma yet
+    /// (`{ a = 1 | }`), the caret starts a new key that needs a separator at
+    /// this byte offset (just after the value).
+    pub separator_at: Option<usize>,
 }
 
 /// Every key on a line of code: the line's own key and each key inside its
@@ -125,6 +129,28 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
         return None;
     }
     let path = frames.iter().filter_map(Frame::segment).cloned().collect();
+    // A complete value followed by whitespace in an object: a new entry.
+    if let (Some(Frame::Table { .. }), Some(_), Some(start)) =
+        (frames.last(), &entry_key, value_start)
+    {
+        let value = code_before[start.min(code_before.len())..].trim_end();
+        let complete = !value.is_empty()
+            && code_before.ends_with([' ', '\t'])
+            && !value.ends_with(['=', ':', ','])
+            && match value.chars().next() {
+                Some(quote @ ('"' | '\'')) => value.len() > 1 && value.ends_with(quote),
+                _ => !value.contains(char::is_whitespace),
+            };
+        if complete {
+            return Some(InlineCaret {
+                path,
+                entry: InlineEntry::Key {
+                    start: code_before.len(),
+                },
+                separator_at: Some(start + value.len()),
+            });
+        }
+    }
     let entry = match (frames.last(), entry_key, value_start) {
         (_, Some(key), Some(start)) => InlineEntry::Value { key, start },
         (Some(Frame::Array { index, .. }), _, _) => InlineEntry::Item {
@@ -135,7 +161,11 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
             start: skip_blanks(code_before, entry_start),
         },
     };
-    Some(InlineCaret { path, entry })
+    Some(InlineCaret {
+        path,
+        entry,
+        separator_at: None,
+    })
 }
 
 /// The keys of the inline container holding byte `at` of a line of code,
@@ -634,7 +664,8 @@ mod tests {
             inline_caret("acme = { se", b'='),
             Some(InlineCaret {
                 path: vec![key("acme")],
-                entry: InlineEntry::Key { start: 9 }
+                entry: InlineEntry::Key { start: 9 },
+                separator_at: None,
             })
         );
         assert_eq!(
@@ -644,14 +675,16 @@ mod tests {
                 entry: InlineEntry::Value {
                     key: "mode".to_string(),
                     start: 37
-                }
+                },
+                separator_at: None,
             })
         );
         assert_eq!(
             inline_caret("a: { b: { c: 1 }, d", b':'),
             Some(InlineCaret {
                 path: vec![key("a")],
-                entry: InlineEntry::Key { start: 18 }
+                entry: InlineEntry::Key { start: 18 },
+                separator_at: None,
             })
         );
         assert_eq!(
@@ -661,14 +694,16 @@ mod tests {
                 entry: InlineEntry::Item {
                     index: 1,
                     start: 14
-                }
+                },
+                separator_at: None,
             })
         );
         assert_eq!(
             inline_caret("clients = [{ name = \"a\" }, { na", b'='),
             Some(InlineCaret {
                 path: vec![key("clients"), ArrayItem(1)],
-                entry: InlineEntry::Key { start: 29 }
+                entry: InlineEntry::Key { start: 29 },
+                separator_at: None,
             })
         );
     }

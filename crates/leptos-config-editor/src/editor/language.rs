@@ -782,6 +782,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The indentation the caret's line should take when `typed` is typed at
+    /// `cursor` (UTF-16), for a line that only now shows it closes a block:
+    /// an XML end tag typed on its own line moves out one level.
+    fn reindent_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        let _ = (source, cursor, typed);
+        None
+    }
+
     /// Whether arrays can be written by repeating their key. A single entry
     /// then reads back as a bare value, so where the schema expects an array
     /// it is read as a one-item array before validating or converting, and an

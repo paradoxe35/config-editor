@@ -769,10 +769,13 @@ fn completion_context(source: &str, cursor: usize) -> CompletionContext {
         let value_end = cursor + inline_value_len(&source[cursor..line_end]);
         let at = |offset: usize| statement + offset;
         return match caret.entry {
+            // After a value with no comma yet, the comma goes right after it.
             CaretEntry::Key { start } => CompletionContext {
                 typed: code_before[start..].trim_end().to_string(),
-                replace_start: utf16(&source[..at(start)]),
+                replace_start: utf16(&source[..at(caret.separator_at.unwrap_or(start))]),
                 replace_end: utf16(&source[..cursor]),
+                entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
+                explicit_entry_start: caret.separator_at.is_some(),
                 path: full,
                 position: EntryPosition::Inline,
                 ..Default::default()
