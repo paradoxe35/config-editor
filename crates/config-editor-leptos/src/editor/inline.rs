@@ -234,6 +234,56 @@ pub fn skip_quoted(code: &str, start: usize) -> usize {
     code.len()
 }
 
+/// The byte end of the value the caret at `cursor` is in, up to `line_end`:
+/// inside an open string (`tls = "|", hsts = true`) the value ends at its
+/// closing quote; otherwise as [`inline_value_len`] reads the rest.
+pub fn caret_value_end(source: &str, cursor: usize, line_end: usize) -> usize {
+    string_end_at_caret(source, cursor, line_end)
+        .unwrap_or_else(|| cursor + inline_value_len(&source[cursor..line_end.max(cursor)]))
+}
+
+/// When the caret at `cursor` is inside a string opened earlier on its line,
+/// the byte end of that string (after its closing quote, or the caret when it
+/// has none before `line_end`).
+pub fn string_end_at_caret(source: &str, cursor: usize, line_end: usize) -> Option<usize> {
+    let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
+    let quote = open_quote(&source[line_start..cursor])?;
+    let rest = &source[cursor..line_end.max(cursor)];
+    Some(closing_quote(rest, quote).map_or(cursor, |index| cursor + index + 1))
+}
+
+/// The quote left open at the end of `text`, if any.
+fn open_quote(text: &str) -> Option<char> {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for character in text.chars() {
+        match quote {
+            Some('"') if escaped => escaped = false,
+            Some('"') if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None => {}
+        }
+    }
+    quote
+}
+
+/// The byte offset of the first unescaped `quote` in `text`.
+fn closing_quote(text: &str, quote: char) -> Option<usize> {
+    let mut escaped = false;
+    for (index, character) in text.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if character == '\\' && quote == '"' {
+            escaped = true;
+        } else if character == quote {
+            return Some(index);
+        }
+    }
+    None
+}
+
 /// Length of an inline value starting at the caret: through its closing quote
 /// when quoted, else up to the next `,` or closer, without trailing blanks.
 pub fn inline_value_len(text: &str) -> usize {

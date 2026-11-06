@@ -113,3 +113,73 @@ pub(super) fn scalar_kind(scalar: &str) -> TokenKind {
         TokenKind::Value
     }
 }
+
+/// Lines inside multi-line strings' bodies: between a line that leaves a
+/// triple-quoted string open and the line that closes it.
+pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut bodies = Vec::new();
+    let mut open: Option<(&'static str, usize)> = None;
+    for (index, line) in lines.iter().enumerate() {
+        match open {
+            Some((delimiter, first)) => {
+                if let Some(at) = closing_delimiter(line, delimiter) {
+                    if first < index {
+                        bodies.push(first..index);
+                    }
+                    open = opens_unclosed_string(&line[at + 3..]).map(|next| (next, index + 1));
+                }
+            }
+            None => open = opens_unclosed_string(line).map(|delimiter| (delimiter, index + 1)),
+        }
+    }
+    if let Some((_, first)) = open
+        && first < lines.len()
+    {
+        bodies.push(first..lines.len());
+    }
+    bodies
+}
+
+/// The delimiter of a triple-quoted string `code` opens and leaves open.
+fn opens_unclosed_string(code: &str) -> Option<&'static str> {
+    let mut quote: Option<char> = None;
+    let mut skip_until = 0;
+    for (index, character) in code.char_indices() {
+        if index < skip_until {
+            continue;
+        }
+        match quote {
+            Some('"') if character == '\\' => skip_until = index + 2,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '#' => return None,
+            None if matches!(character, '"' | '\'') => {
+                let delimiter = if character == '"' { "\"\"\"" } else { "'''" };
+                if code[index..].starts_with(delimiter) {
+                    match closing_delimiter(&code[index + 3..], delimiter) {
+                        Some(at) => skip_until = index + 3 + at + 3,
+                        None => return Some(delimiter),
+                    }
+                } else {
+                    quote = Some(character);
+                }
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+/// Where `delimiter` closes a string in `text` (not escaped, for `"""`).
+fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(at) = text[from..].find(delimiter).map(|at| from + at) {
+        let backslashes = text[..at].chars().rev().take_while(|character| *character == '\\').count();
+        if delimiter.starts_with('\'') || backslashes % 2 == 0 {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
+}

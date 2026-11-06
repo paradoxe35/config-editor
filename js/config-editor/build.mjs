@@ -47,7 +47,10 @@ execFileSync(
   const cleaned = readFileSync(types, 'utf8')
     .replace(/(?:\/\*\*(?:[^*]|\*(?!\/))*\*\/\n)?export class IntoUnderlying\w+ \{[\s\S]*?\n\}\n\n?/g, '')
     .replace(/(?:\/\*\*(?:[^*]|\*(?!\/))*\*\/\n)?export function start\(\): void;\n\n?/g, '')
-    .replace(/^ *\[Symbol\.dispose\]\(\): void;\n/gm, '');
+    .replace(/^ *\[Symbol\.dispose\]\(\): void;\n/gm, '')
+    .replace(/(?:\/\*\*(?:[^*]|\*(?!\/))*\*\/\n\n?)?export type ReadableStreamType = "bytes";\n\n?/g, '')
+    // The module's exports are internals; only its memory is public.
+    .replace(/export interface InitOutput \{[\s\S]*?\n\}/, 'export interface InitOutput {\n    readonly memory: WebAssembly.Memory;\n}');
   writeFileSync(types, cleaned);
 }
 // Optional: shrink further with binaryen's wasm-opt when it is installed.

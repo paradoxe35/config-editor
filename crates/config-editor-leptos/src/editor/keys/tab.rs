@@ -15,7 +15,10 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     };
     let (start, end) = textarea_selection(&element);
     let text = state.source.get_untracked();
-    if !event.shift_key() && start == end && next_placeholder_slot(state, &text, start) {
+    if !event.shift_key()
+        && start == end
+        && (next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start))
+    {
         return;
     }
     if event.shift_key() || spans_lines(&text, start, end) {
@@ -56,6 +59,24 @@ fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
     }
 }
 
+/// After a value typed before a closer the editor wrote (`"k.pem|"`,
+/// `<listen>7836|</listen>`), Tab with no slot left steps past the closer,
+/// as at the end of a snippet, instead of indenting inside the value.
+fn step_out_of_value(state: EditorState, text: &str, caret: usize) -> bool {
+    let Some(closer) = state.closer_at(caret) else {
+        return false;
+    };
+    let Some(opener) = closer.opener else {
+        return false;
+    };
+    if text[..utf16_to_byte_index(text, caret)].ends_with(opener) {
+        return false;
+    }
+    state.forget_closer_at(caret);
+    state.place_caret(caret + closer.len);
+    true
+}
+
 /// Whether Tab indents the selected lines rather than replacing the
 /// selection: it spans lines, or covers one whole line (as in VS Code).
 fn spans_lines(text: &str, start: usize, end: usize) -> bool {
@@ -92,12 +113,16 @@ fn indent_block(
     else {
         return;
     };
-    if updated != text {
-        state.commit(
-            Edit::new(text, (start, end), updated, selection_end).selecting_from(selection_start),
-        );
+    // The caret is the end that moves: the start of a backward selection.
+    let (anchor, caret) = if backward {
+        (selection_end, selection_start)
     } else {
-        state.note_caret(selection_end);
+        (selection_start, selection_end)
+    };
+    if updated != text {
+        state.commit(Edit::new(text, (start, end), updated, caret).selecting_from(anchor));
+    } else {
+        state.note_caret(caret);
     }
     // Keep the block selected, in the same direction.
     if let Some(element) = state.textarea() {

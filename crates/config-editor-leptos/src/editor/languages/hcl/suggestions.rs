@@ -64,7 +64,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             full.extend(outer.snapshot.value_prefix.iter().cloned().map(SchemaPathSegment::Key));
         }
         full.extend(caret.path);
-        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let value_end = caret_value_end(source, cursor, line_end);
         let typed = |start: usize| before_caret[start..].trim_end().trim_start_matches('"').to_string();
         return match caret.entry {
             // After a value with no comma yet, the comma goes right after it.
@@ -122,7 +122,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             // `mode = |` on its own line inside a multi-line map.
             if let Some((key, start)) = line_assignment(before_caret) {
                 let typed_start = line_start + start;
-                let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+                let value_end = caret_value_end(source, cursor, line_end);
                 return CompletionContext {
                     typed: source[typed_start..cursor].trim_end().to_string(),
                     replace_start: utf16(&source[..typed_start]),
@@ -445,7 +445,11 @@ pub(super) fn existing_body_keys(
     let line_end = source[line_start..]
         .find('\n')
         .map_or(source.len(), |index| line_start + index);
-    if let Some(current) = current_line_key(&source[line_start..line_end]) {
+    // Only a line that already defines it (`htt|p2 = true`, `pol| {`): a bare
+    // word still being typed is a new key and must not repeat an existing one.
+    let line = &source[line_start..line_end];
+    let defines = line.contains('=') || line.trim_end().ends_with('{');
+    if defines && let Some(current) = current_line_key(line) {
         keys.remove(&current);
     }
     Some(keys)

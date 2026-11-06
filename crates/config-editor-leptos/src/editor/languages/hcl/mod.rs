@@ -28,7 +28,7 @@ use convert::*;
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, statement_start, statements, entry_follows};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start, statements, entry_follows};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -170,11 +170,13 @@ impl ConfigLanguage for HclBehavior {
 
     /// An object whose keys are all identifiers becomes a block (`web { … }`),
     /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         let Value::Object(map) = value else {
             return Err("an HCL document is a body: the top level must be an object".to_string());
         };
-        hcl::format::to_string(&hcl_body(map)?).map_err(|error| error.to_string())
+        // Maps the host wrote as labelled blocks are written that way again.
+        let labelled = previous.map(labelled_blocks).unwrap_or_default();
+        hcl::format::to_string(&hcl_body(map, &labelled, &[])?).map_err(|error| error.to_string())
     }
 
     /// An attribute's `=` (or `:` in an object), or a block's body after its
@@ -185,6 +187,10 @@ impl ConfigLanguage for HclBehavior {
         rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
     }
 
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        heredoc_bodies(source)
+    }
 }
 
 fn utf16(text: &str) -> usize {

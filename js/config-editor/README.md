@@ -55,7 +55,8 @@ Call `init()` once, before creating editors or calling any other function.
 ## `new ConfigEditor(element, options)`
 
 Mounts an editor into `element` (an `HTMLElement`; its previous content is
-replaced). Options are type-checked: a value of the wrong type throws.
+replaced, editors included). Options are type-checked: a value of the wrong type
+throws, and an unknown option name is reported in the console.
 
 | Option           | Type                         | Default          | Purpose                                                                                                                                             |
 | ---------------- | ---------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,7 +85,7 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `value` (getter)                               | The current document, in `language`. Still readable after `destroy()`.                                                             |
 | `setValue(text)`                               | Replace the document (for example after loading a file). The caret stays on the same text when possible.                           |
 | `setBaseline(text)`                            | Set the diff baseline; pass the saved text to clear the diff.                                                                      |
-| `setEditAs(language \| null)`                  | Switch the editing language live; `null` edits in `language` again.                                                                |
+| `setEditAs(language \| null)` | Switch the editing language live; `null` edits in `language` again. The language must be able to write documents (a registered one needs `serialize`). |
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                       |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                    |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                  |
@@ -169,7 +170,8 @@ const env = registerLanguage({
     /* optional, like keySpan for the value */
   },
   highlight(line) {
-    // Optional: [{ start, end, kind }] byte ranges of one line; kind is
+    // Optional: [{ start, end, kind }] ranges of one line, as JavaScript
+    // string indices (what `indexOf` gives); kind is
     // "key" | "string" | "value" | "literal" | "comment" | "punctuation".
   },
   // Optional syntax, as in VS Code's language configuration:
@@ -185,10 +187,13 @@ new ConfigEditor(element, { language: env, schema });
 convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 ```
 
-A registered language gets schema validation, conversion to and from every
-other language, and Edit-as; `comments`, `brackets` and `separators` add
-comment toggling, bracket-aware Enter, and key/value editing. Built-in names cannot be replaced; registering
-the same label again replaces it for new editors.
+A registered language gets schema validation (placed with `keySpan` and
+`valueSpan`), conversion to and from every other language, and Edit-as;
+`comments`, `brackets` and `separators` add comment toggling,
+bracket-aware Enter, and key/value editing. Schema completion is available
+for the built-in languages only. Built-in names cannot be replaced;
+registering the same label again replaces it for new editors. Its name is
+the label lowercased (`"Énv"` → `"énv"`).
 
 ## Styling
 

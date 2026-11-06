@@ -75,6 +75,21 @@ pub(super) fn is_block_scalar(value: &str) -> bool {
     characters.all(|character| character.is_ascii_digit() || matches!(character, '+' | '-'))
 }
 
+/// Whether a node's `value` (after `key:` or a list dash) continues on the
+/// lines below: nothing yet, a block scalar (`|`, `>-`), node properties
+/// alone or before a block scalar (`&anchor`, `!!map`, `&run |`), or an
+/// unclosed flow collection.
+fn opens_children(value: &str) -> bool {
+    let tokens: Vec<&str> = value.split_whitespace().collect();
+    let Some((last, properties)) = tokens.split_last() else {
+        return true;
+    };
+    let is_property = |token: &&str| token.starts_with(['&', '!']);
+    properties.iter().all(is_property)
+        && (is_property(last) || is_block_scalar(last))
+        || value.ends_with(['[', '{'])
+}
+
 pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     let byte_index = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte_index]
@@ -114,9 +129,13 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
         if content == "-" || content.starts_with("- ") {
             return format!("\n{indent}{item_indent}- ");
         }
+        // The item's content is below it (`- |`, `- &anchor`).
+        if opens_children(content) && !content.ends_with(['[', '{']) {
+            return format!("\n{indent}{item_indent}");
+        }
         if let Some(colon) = mapping_colon(content) {
             let value = content[colon + 1..].trim();
-            if value.is_empty() || is_block_scalar(value) {
+            if opens_children(value) {
                 return format!("\n{indent}{item_indent}{unit}");
             }
             // Mapping inside a sequence item: the next key stays in the same item.
@@ -126,15 +145,7 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     }
     if let Some(colon) = mapping_colon(code) {
         let value = code[colon + 1..].trim();
-        // Children follow an empty value, a block scalar, a node property
-        // alone (`&anchor`, `!!map`), or an unclosed flow collection.
-        let node_property = !value.is_empty()
-            && value.split_whitespace().all(|token| token.starts_with(['&', '!']));
-        if value.is_empty()
-            || is_block_scalar(value)
-            || node_property
-            || value.ends_with(['[', '{'])
-        {
+        if opens_children(value) {
             return format!("\n{indent}{unit}");
         }
     }
@@ -287,3 +298,62 @@ pub(super) fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
 
 
 // Conversion
+
+/// Lines inside block scalars' bodies (`key: |` then its indented text).
+pub(super) fn block_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut bodies = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let Some(base) = block_scalar_opener(lines[index]) else {
+            index += 1;
+            continue;
+        };
+        let mut last_body = None;
+        let mut next = index + 1;
+        while next < lines.len() {
+            let line = lines[next];
+            let indent = line.len() - line.trim_start().len();
+            if !line.trim().is_empty() {
+                if indent <= base {
+                    break;
+                }
+                last_body = Some(next);
+            } else if indent > base {
+                // Indentation alone, past the opener's: the body goes on.
+                last_body = Some(next);
+            }
+            next += 1;
+        }
+        if let Some(last) = last_body {
+            bodies.push(index + 1..last + 1);
+            index = last + 1;
+        } else {
+            index += 1;
+        }
+    }
+    bodies
+}
+
+/// The indentation a block scalar opened on `line` must exceed: its key's
+/// column (`  key: |`, `- key: &a |`) or its dash's (`  - |`).
+fn block_scalar_opener(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let code = code_before_comment(line.trim_start()).trim_end();
+    let tokens: Vec<&str> = code.split_whitespace().collect();
+    let (last, before) = tokens.split_last()?;
+    if !is_block_scalar(last) {
+        return None;
+    }
+    let properties = before.iter().rev().take_while(|token| token.starts_with(['&', '!'])).count();
+    let owner = *before.get(before.len().checked_sub(properties + 1)?)?;
+    if owner == "-" {
+        return Some(indent);
+    }
+    if !owner.ends_with(':') {
+        return None;
+    }
+    // The key's column: after any leading dashes (`- key: |`).
+    let key_column = indent + code.len() - code.trim_start_matches(['-', ' ']).len();
+    Some(key_column)
+}

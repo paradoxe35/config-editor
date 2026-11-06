@@ -88,7 +88,7 @@ export interface CustomLanguage {
   /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer. */
   keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
-  /** Byte ranges of one line: kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
+  /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
   highlight?(line: string): { start: number; end: number; kind: string }[];
   /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment. */
   comments?: { lineComment?: string | string[] };
@@ -128,12 +128,20 @@ thread_local! {
 }
 
 fn language_named(name: &str) -> Result<Language, JsError> {
-    let key = name.trim().to_ascii_lowercase();
+    let key = name.trim().to_lowercase();
     if let Some(language) = REGISTERED.with(|languages| languages.borrow().get(&key).copied()) {
         return Ok(language);
     }
     name.parse::<Language>()
         .map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// `language` if documents can be written in it: an `editAs` target must.
+fn writable_edit_as(language: Language) -> Result<Language, JsError> {
+    language
+        .serialize(&Value::Object(serde_json::Map::new()))
+        .map(|_| language)
+        .map_err(|error| JsError::new(&format!("editAs: {error}")))
 }
 
 fn theme_named(name: &str) -> Result<EditorTheme, JsError> {
@@ -209,6 +217,46 @@ fn field(object: &JsValue, name: &str) -> JsValue {
 
 fn string_field(object: &JsValue, name: &str) -> Option<String> {
     field(object, name).as_string()
+}
+
+/// The constructor's options, for the unknown-option warning.
+const OPTIONS: [&str; 14] = [
+    "value",
+    "language",
+    "editAs",
+    "schema",
+    "baseline",
+    "fileName",
+    "theme",
+    "colors",
+    "readOnly",
+    "showToolbar",
+    "showFooter",
+    "className",
+    "onChange",
+    "onEditAsChange",
+];
+
+/// Logs a warning for each option the editor does not know (`readonly` for
+/// `readOnly`), which would otherwise be ignored without a word.
+fn warn_unknown_options(options: &JsValue) {
+    if !options.is_object() {
+        return;
+    }
+    for key in Object::keys(options.unchecked_ref::<Object>()).iter() {
+        let Some(key) = key.as_string() else { continue };
+        if OPTIONS.contains(&key.as_str()) {
+            continue;
+        }
+        let hint = OPTIONS
+            .iter()
+            .find(|known| known.eq_ignore_ascii_case(&key))
+            .map(|known| format!(" (did you mean \"{known}\"?)"))
+            .unwrap_or_default();
+        web_sys::console::warn_1(&JsValue::from_str(&format!(
+            "config-editor: unknown option \"{key}\" is ignored{hint}"
+        )));
+    }
 }
 
 /// An optional string option: absent, or a string (anything else is an error).
@@ -331,8 +379,29 @@ pub struct ConfigEditor {
     id: Option<u32>,
 }
 
-/// The unmount handle and reactive owner of an editor.
-type Mounted = (Box<dyn std::any::Any>, Owner);
+/// The unmount handle, reactive owner, and element of an editor.
+type Mounted = (Box<dyn std::any::Any>, Owner, web_sys::HtmlElement);
+
+/// Unmounts the editors mounted in `element` or inside it: mounting a new one
+/// there replaces them (as the element's content), and they would otherwise
+/// stay alive, unseen, until the page closes.
+fn replace_editors_in(element: &web_sys::HtmlElement) {
+    let replaced: Vec<Mounted> = MOUNTED.with(|editors| {
+        let mut editors = editors.borrow_mut();
+        let ids: Vec<u32> = editors
+            .iter()
+            .filter(|(_, (_, _, mounted_in))| element.contains(Some(mounted_in)))
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| editors.remove(&id))
+            .collect()
+    });
+    for (mounted, owner, _) in replaced {
+        drop(mounted);
+        owner.cleanup();
+    }
+}
 
 thread_local! {
     /// Mounted editors, kept here rather than in the JavaScript object: an
@@ -361,7 +430,7 @@ impl ConfigEditor {
             None => Language::default(),
         };
         let edit_as = string_option(&options, "editAs")?
-            .map(|name| language_named(&name))
+            .map(|name| language_named(&name).and_then(writable_edit_as))
             .transpose()?
             .filter(|edit| *edit != language);
         let theme = match string_option(&options, "theme")? {
@@ -384,7 +453,9 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
-        // The editor replaces whatever the element held.
+        warn_unknown_options(&options);
+        // The editor replaces whatever the element held, editors included.
+        replace_editors_in(&element);
         element.set_text_content(None);
 
         let latest: Latest = std::sync::Arc::new(std::sync::Mutex::new(value.clone()));
@@ -400,6 +471,7 @@ impl ConfigEditor {
             on_change: StoredValue::new_local(on_change),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
         });
+        let mount_element = element.clone();
         let mounted = owner.with(|| {
             leptos::mount::mount_to(element, move || {
                 let latest = latest_for_view.clone();
@@ -480,7 +552,9 @@ impl ConfigEditor {
             id
         });
         MOUNTED.with(|editors| {
-            editors.borrow_mut().insert(id, (Box::new(mounted), owner));
+            editors
+                .borrow_mut()
+                .insert(id, (Box::new(mounted), owner, mount_element));
         });
         Ok(ConfigEditor {
             state,
@@ -544,7 +618,9 @@ impl ConfigEditor {
         let language = if language.is_null() || language.is_undefined() {
             None
         } else {
-            Some(language_named(&text_arg(&language, "editAs")?)?)
+            Some(writable_edit_as(language_named(&text_arg(
+                &language, "editAs",
+            )?)?)?)
         };
         let _ = self.state.edit_as.try_set(language);
         Ok(())
@@ -572,11 +648,12 @@ impl ConfigEditor {
     }
 
     #[wasm_bindgen(js_name = setReadOnly)]
+    #[allow(non_snake_case, reason = "the parameter name shows in TypeScript")]
     pub fn set_read_only(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "boolean")] read_only: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "boolean")] readOnly: JsValue,
     ) -> Result<(), JsError> {
-        let read_only = read_only
+        let read_only = readOnly
             .as_bool()
             .ok_or_else(|| JsError::new("readOnly must be a boolean"))?;
         let _ = self.state.read_only.try_set(read_only);
@@ -622,7 +699,7 @@ impl ConfigEditor {
     /// still waiting to be saved (while editing as another language) is sent
     /// to `onChange` first.
     pub fn destroy(&mut self) {
-        let Some((mounted, owner)) = self
+        let Some((mounted, owner, _)) = self
             .id
             .take()
             .and_then(|id| MOUNTED.with(|editors| editors.borrow_mut().remove(&id)))
@@ -772,9 +849,12 @@ pub fn color_tokens() -> Names {
     to_js(&names).unchecked_into()
 }
 
-/// A language implemented in JavaScript. The editor gives it everything the
-/// built-in ones get from the shared core: schema validation, completion
-/// from keys it locates, conversion to and from every other language.
+/// A language implemented in JavaScript. The editor gives it what the shared
+/// core provides from `parse` and the spans it locates: schema validation
+/// with positions, conversion to and from every other language, Edit-as,
+/// and the editing behavior its configuration describes. Schema completion
+/// needs a language's own completion context, which only the built-in
+/// languages have.
 struct JsLanguage {
     definition: JsValue,
     info: LanguageInfo,
@@ -920,11 +1000,20 @@ impl ConfigLanguage for JsLanguage {
                 Some("punctuation") => TokenKind::Punctuation,
                 _ => TokenKind::Value,
             };
+            // JavaScript string indices (UTF-16 units, as `indexOf` gives).
+            let byte = |unit: usize| {
+                let mut units = 0;
+                for (index, character) in line.char_indices() {
+                    if units >= unit {
+                        return (units == unit).then_some(index);
+                    }
+                    units += character.len_utf16();
+                }
+                (units == unit).then_some(line.len())
+            };
             if let (Some(start), Some(end)) = (number("start"), number("end"))
                 && start < end
-                && end <= line.len()
-                && line.is_char_boundary(start)
-                && line.is_char_boundary(end)
+                && let (Some(start), Some(end)) = (byte(start), byte(end))
             {
                 out.push(start, end, kind);
             }
@@ -1039,7 +1128,7 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
         .filter_map(|extension| extension.as_string())
         .map(leak)
         .collect();
-    let name = label.to_ascii_lowercase();
+    let name = label.to_lowercase();
     let config = language_config(&definition)?;
     let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
         config,

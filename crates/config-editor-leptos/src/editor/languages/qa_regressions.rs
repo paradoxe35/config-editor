@@ -1308,3 +1308,88 @@ fn a_wrong_type_value_written_as_a_block_underlines_its_key() {
         assert_eq!(&line[start..end], key, "{source:?}: {}", problem.message);
     }
 }
+
+#[test]
+fn accepting_a_value_inside_existing_quotes_keeps_the_rest_of_the_line() {
+    // TOML inline table.
+    let toml = accept(
+        Language::TOML,
+        "[services.s]\ntarget = 1\nweb = { hosts = [\"a\"], tls = \"|\", hsts = true }\n",
+        "auto",
+    );
+    assert!(toml.contains("tls = \"auto\"|, hsts = true }"), "{toml}");
+    // TOML with a trailing comment.
+    let toml = accept(
+        Language::TOML,
+        "[services.s]\ntarget = 1\nmode = \"|\" # pick one\n",
+        "failover",
+    );
+    assert!(toml.contains("mode = \"failover\"| # pick one"), "{toml}");
+    // HCL inline object.
+    let hcl = accept(
+        Language::HCL,
+        "services {\n  s {\n    target = 1\n    web = { hosts = [\"a\"], tls = \"|\", hsts = true }\n  }\n}\n",
+        "auto",
+    );
+    assert!(hcl.contains("tls = \"auto\"|, hsts = true }"), "{hcl}");
+    // YAML flow map.
+    let yaml = accept(
+        Language::YAML,
+        "services: {s: {target: 1, mode: \"|\", bandwidth: 1m}}\n",
+        "failover",
+    );
+    assert!(yaml.contains(", bandwidth: 1m}}"), "{yaml}");
+    assert_parses(Language::YAML, &yaml);
+    // The value after an accepted key, in nested inline tables.
+    let toml = accept(
+        Language::TOML,
+        "services = { s = { target = 1, mode = \"|\" } }\n",
+        "failover",
+    );
+    assert!(toml.contains("mode = \"failover\"| } }"), "{toml}");
+}
+
+#[test]
+fn an_xml_attribute_value_accepted_inside_its_quotes_leaves_the_caret_after_them() {
+    let xml = accept(
+        Language::XML,
+        "<burrow config-root=\"true\">\n  <services>\n    <s target=\"1\" mode=\"|\"/>\n  </services>\n</burrow>\n",
+        "balance",
+    );
+    assert!(xml.contains("mode=\"balance\"|/>"), "{xml}");
+}
+
+#[test]
+fn hcl_leaves_out_an_existing_key_even_when_its_whole_name_is_typed() {
+    let nested = labels(Language::HCL, "web {\n  http2 = true\n  http2|\n}\n");
+    assert!(!nested.contains(&"http2".to_string()), "{nested:?}");
+    let root = labels(Language::HCL, "listen = 1\nlisten|\n");
+    assert!(!root.contains(&"listen".to_string()), "{root:?}");
+    let block = labels(Language::HCL, "tcp {\n}\ntcp|\n");
+    assert!(!block.contains(&"tcp".to_string()), "{block:?}");
+}
+
+#[test]
+fn yaml_enter_after_block_scalars_anchors_and_tags_indents_their_content() {
+    // (line typed, text Enter writes): the caret is at the end of `source`.
+    let cases = [
+        ("args:\n  - |", "\n    "),
+        ("args:\n  - >", "\n    "),
+        ("args:\n  - |-", "\n    "),
+        ("args:\n  - &x", "\n    "),
+        ("args:\n  - !!map", "\n    "),
+        ("script: &run |", "\n  "),
+        ("a: !!str |", "\n  "),
+        ("a: &x >-", "\n  "),
+        ("list:\n  - a: &x |", "\n      "),
+        // Unchanged: a plain block scalar.
+        ("a: |", "\n  "),
+        ("list:\n  - a: |", "\n      "),
+    ];
+    for (source, expected) in cases {
+        let newline = Language::YAML
+            .behavior()
+            .newline(source, source.encode_utf16().count());
+        assert_eq!(newline.text, expected, "Enter after {source:?}");
+    }
+}

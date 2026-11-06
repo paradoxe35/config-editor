@@ -674,3 +674,4 @@ fn an_element_with_text_beside_its_children_writes_back() {
     let written = XmlBehavior.serialize(&value, None).unwrap();
     assert_eq!(XmlBehavior.parse(&written).unwrap(), value, "{written}");
 }
+

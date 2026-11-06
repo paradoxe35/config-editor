@@ -29,6 +29,8 @@ function App({ schema }: { schema: string }) {
   const [editing, setEditing] = useState("yaml");
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
+  // For tests: the ref, as an app would read it.
+  (window as unknown as { editorHandle: typeof handle }).editorHandle = handle;
   useEffect(() => {
     void ready.then(() => setThemeNames(themes() as unknown as string[]));
   }, []);
@@ -80,7 +82,7 @@ function App({ schema }: { schema: string }) {
         ref={handle}
         language="yaml"
         schema={schema}
-        {...(uncontrolled ? { defaultValue: value } : { value })}
+        {...(uncontrolled ? { defaultValue: initialText } : { value })}
         onChange={(next) => {
           const apply = () =>
             setValue((current) => {

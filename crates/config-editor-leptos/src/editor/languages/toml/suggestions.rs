@@ -92,7 +92,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             }
         }
         let line_end = (line_start + line.len()).min(source.len());
-        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let value_end = caret_value_end(source, cursor, line_end);
         let at = |offset: usize| statement + offset;
         return match caret.entry {
             // After a value with no comma yet, the comma goes right after it.
@@ -155,11 +155,14 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let typed_start = line_start + equals + 1 + value_start;
         let line_end = line_start + line.len();
         // Replace the scalar under the caret, but not a trailing comment.
-        let value_len = value_token_len(&source[cursor..line_end.min(source.len())]);
+        // Inside a string (`mode = "|" # note`) it ends at its closing quote.
+        let line_end = line_end.min(source.len());
+        let value_end = string_end_at_caret(source, cursor, line_end)
+            .unwrap_or_else(|| cursor + value_token_len(&source[cursor..line_end]));
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
             replace_start: utf16(&source[..typed_start]),
-            replace_end: utf16(&source[..cursor + value_len]),
+            replace_end: utf16(&source[..value_end]),
             value_key,
             value_needs_space: source[typed_start..cursor].is_empty()
                 && !after_equals.trim_start().is_empty(),

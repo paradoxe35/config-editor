@@ -515,3 +515,4 @@ fn a_dotted_keys_span_is_its_last_segment() {
     let span = TomlBehavior.key_span(source, "/a.b/c").unwrap();
     assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
 }
+

@@ -141,6 +141,19 @@ pub(super) fn patch_scalars(
             range.end -= 1;
         }
         let mut text = language.format_value(value);
+        // A value the host wrote in quotes keeps them when the new one is
+        // formatted bare (an XML attribute's `"…"`).
+        let written = &previous[range.clone()];
+        if let Some(quote) = written
+            .chars()
+            .next()
+            .filter(|quote| matches!(quote, '"' | '\''))
+            && written.len() >= 2
+            && written.ends_with(quote)
+            && !text.starts_with(quote)
+        {
+            text = format!("{quote}{text}{quote}");
+        }
         // A value written across lines (`key: >- # note` then its text) may
         // hold its first line's comment; the one-line value keeps it.
         let line_start = previous[..range.start]
@@ -314,6 +327,10 @@ pub(super) fn patch_structure(
     schema: Option<&Value>,
 ) -> Option<String> {
     use super::diff::{DiffEdit, myers_edits};
+    // An empty host is written whole: there is nothing to keep.
+    if previous.trim().is_empty() {
+        return None;
+    }
     let before = serialize(language, old, Some(previous)).ok()?;
     let after = serialize(language, new, Some(previous)).ok()?;
     let rendered_old: Vec<&str> = before.lines().collect();
@@ -331,8 +348,19 @@ pub(super) fn patch_structure(
             continue;
         }
         // Look ahead a bounded distance so a missing line cannot make the
-        // rest of the document unmatched.
-        let window = (next + 400).min(host.len());
+        // rest of the document unmatched. A line of only punctuation (`}`,
+        // `],`) says nothing about where it is, so it matches only the next
+        // line with code, never one further on.
+        let punctuation = wanted
+            .chars()
+            .all(|character| matches!(character, '{' | '}' | '[' | ']' | '(' | ')' | ','));
+        let window = if punctuation {
+            (next..host.len())
+                .find(|candidate| !normalized_host[*candidate].is_empty())
+                .map_or(next, |candidate| candidate + 1)
+        } else {
+            (next + 400).min(host.len())
+        };
         if let Some(found) = (next..window).find(|candidate| normalized_host[*candidate] == wanted)
         {
             place[index] = Some(found);
@@ -343,11 +371,17 @@ pub(super) fn patch_structure(
     let mut removed = vec![false; host.len()];
     let mut inserted: Vec<Vec<&str>> = vec![Vec::new(); host.len() + 1];
     let (mut old_index, mut new_index) = (0, 0);
-    for edit in myers_edits(&rendered_old, &rendered_new)? {
+    // The host line a run of deletions started at: lines inserted right
+    // after them replace them (a renamed table) and go in their place.
+    let mut replacing: Option<usize> = None;
+    let mut edits = myers_edits(&rendered_old, &rendered_new)?;
+    slide_deletions_up(&mut edits, &rendered_old);
+    for edit in edits {
         match edit {
             DiffEdit::Equal => {
                 old_index += 1;
                 new_index += 1;
+                replacing = None;
             }
             DiffEdit::Delete => {
                 // A rendered line with no host line (a blank line the
@@ -355,27 +389,48 @@ pub(super) fn patch_structure(
                 // a real mismatch is caught by the read-back below.
                 if let Some(at) = place[old_index] {
                     removed[at] = true;
+                    replacing.get_or_insert(at);
                 }
                 old_index += 1;
             }
             DiffEdit::Insert => {
-                // After the host line of the nearest placed rendered line
-                // above; at the top, before the first placed line (after a
-                // header comment); with nothing placed, at the end.
-                let slot = match place[..old_index].iter().rev().find_map(|at| *at) {
-                    Some(at) => at + 1,
-                    None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
+                // Where the lines it replaces were; else after the host line
+                // of the nearest placed rendered line above; at the top,
+                // before the first placed line (after a header comment);
+                // with nothing placed, at the end.
+                let slot = match replacing {
+                    Some(at) => at,
+                    None => match place[..old_index].iter().rposition(Option::is_some) {
+                        // Past the host's blank lines that match rendered
+                        // ones in between, so the insert sits after them.
+                        Some(placed) => {
+                            let mut slot = place[placed].unwrap_or_default() + 1;
+                            let blanks = rendered_old[placed + 1..old_index]
+                                .iter()
+                                .filter(|line| line.trim().is_empty())
+                                .count();
+                            for _ in 0..blanks {
+                                if slot < host.len() && host[slot].trim().is_empty() {
+                                    slot += 1;
+                                }
+                            }
+                            slot
+                        }
+                        None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
+                    },
                 };
                 inserted[slot].push(rendered_new[new_index]);
                 new_index += 1;
             }
         }
     }
-    // A removed entry takes the comment lines directly above it when a blank
-    // line separates them from what comes before (`# beta client` above a
-    // deleted `[clients.beta]`); a file's header comment is never taken.
+    // A removed entry takes the comment lines directly above it (`# beta`
+    // above a deleted `beta { … }`); a file's header comment is never taken.
+    // Blank lines are tidied so no gap is left: the one above the comments
+    // goes, or, under an opener (`clients {`), the one after the entry.
     for index in 0..host.len() {
-        if !removed[index] || index == 0 || removed[index - 1] {
+        // A replaced line keeps the comment above it.
+        if !removed[index] || index == 0 || removed[index - 1] || !inserted[index].is_empty() {
             continue;
         }
         let is_comment =
@@ -384,9 +439,24 @@ pub(super) fn patch_structure(
         while top > 0 && is_comment(host[top - 1]) {
             top -= 1;
         }
-        if top < index && top > 0 && host[top - 1].trim().is_empty() {
-            for line in removed.iter_mut().take(index).skip(top - 1) {
-                *line = true;
+        // Comments at the very top, with nothing above, are the file's header.
+        if top == 0 {
+            continue;
+        }
+        for line in removed.iter_mut().take(index).skip(top) {
+            *line = true;
+        }
+        if host[top - 1].trim().is_empty() {
+            if top < index {
+                removed[top - 1] = true;
+            }
+        } else {
+            let mut end = index;
+            while end + 1 < host.len() && removed[end + 1] {
+                end += 1;
+            }
+            if top < index && end + 1 < host.len() && host[end + 1].trim().is_empty() {
+                removed[end + 1] = true;
             }
         }
     }
@@ -402,7 +472,7 @@ pub(super) fn patch_structure(
         }
         let comment = trailing_comment(language, host[index]);
         let indent = |line: &str| line.len() - line.trim_start().len();
-        if let Some(first) = inserted[index + 1].first_mut()
+        if let Some(first) = inserted[index].first_mut()
             && !comment.is_empty()
             && indent(first) == indent(host[index])
             && trailing_comment(language, first).is_empty()
@@ -423,6 +493,36 @@ pub(super) fn patch_structure(
         patched.push('\n');
     }
     (read(language, &patched, schema).ok()? == *new).then_some(patched)
+}
+
+/// Shifts each run of deleted lines up while the line before it equals its
+/// last line, so a repeated block (`[[web.certificates]]` items) is deleted
+/// whole from its first line rather than straddling two items.
+fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
+    use super::diff::DiffEdit;
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut old_index = 0;
+        let mut index = 0;
+        while index < edits.len() {
+            if edits[index] == DiffEdit::Equal {
+                let run = edits[index + 1..]
+                    .iter()
+                    .take_while(|edit| **edit == DiffEdit::Delete)
+                    .count();
+                if run > 0 && old[old_index] == old[old_index + run] {
+                    edits[index] = DiffEdit::Delete;
+                    edits[index + run] = DiffEdit::Equal;
+                    changed = true;
+                }
+            }
+            if edits[index] != DiffEdit::Insert {
+                old_index += 1;
+            }
+            index += 1;
+        }
+    }
 }
 
 /// A line as the structural patch compares it: trimmed, without quotes and

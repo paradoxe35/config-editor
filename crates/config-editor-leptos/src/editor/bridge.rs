@@ -250,10 +250,21 @@ fn located(
     message: String,
     severity: Severity,
 ) -> Diagnostic {
-    let span = behavior
-        .value_span(source, pointer)
-        .or_else(|| behavior.key_span(source, pointer))
-        .or_else(|| behavior.first_span(source));
+    // A value missing from the text (the view dropped it) is placed on its
+    // nearest ancestor that is there.
+    let mut at = pointer;
+    let span = loop {
+        if let Some(span) = behavior
+            .value_span(source, at)
+            .or_else(|| behavior.key_span(source, at))
+        {
+            break Some(span);
+        }
+        match at.rfind('/') {
+            Some(parent) if parent > 0 => at = &at[..parent],
+            _ => break behavior.first_span(source),
+        }
+    };
     Diagnostic {
         line: span.map(|span| span.line),
         column: span.map(|span| span.start_column),
@@ -688,6 +699,172 @@ mod structural_saves {
                 .iter()
                 .all(|warning| warning.severity == Severity::Warning)
         );
+    }
+
+    #[test]
+    fn xml_attributes_stay_attributes() {
+        let xml = "<!-- head -->\n<services>\n  <web mode=\"balance\" target=\"80\">\n    <!-- c -->\n    <client>acme</client>\n  </web>\n</services>\n<listen>1</listen>\n";
+        let saved = save(Language::XML, Language::YAML, xml, |shown| {
+            shown.replace("mode: balance", "mode: failover")
+        });
+        assert_eq!(saved, xml.replace("mode=\"balance\"", "mode=\"failover\""));
+        let saved = save(Language::XML, Language::YAML, xml, |shown| {
+            shown.replace(
+                "    client: acme\n",
+                "    client: acme\n    bandwidth: 1m\n",
+            )
+        });
+        assert!(
+            saved.contains("<!-- head -->") && saved.contains("<!-- c -->"),
+            "{saved}"
+        );
+        assert!(
+            saved.contains("<web mode=\"balance\" target=\"80\">"),
+            "{saved}"
+        );
+        assert!(saved.contains("<bandwidth>1m</bandwidth>"), "{saved}");
+    }
+
+    #[test]
+    fn toml_dotted_keys_stay_dotted() {
+        let toml = "# head\nlisten = 7835 # port\nclients.acme.secret = \"a\" # sa\n\n# limits\n[limits]\nmax_pending = 5\n";
+        let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+            shown.replace("    secret: a\n", "    secret: a\n    max_connections: 2\n")
+        });
+        assert!(
+            saved.contains("# head") && saved.contains("# sa") && saved.contains("# limits"),
+            "{saved}"
+        );
+        assert!(
+            saved.contains("clients.acme.secret = \"a\" # sa\n"),
+            "{saved}"
+        );
+        assert!(
+            saved.contains("clients.acme.max_connections = 2\n"),
+            "{saved}"
+        );
+        assert!(!saved.contains("[clients"), "{saved}");
+    }
+
+    #[test]
+    fn hcl_labelled_blocks_stay_labelled() {
+        let hcl = "# header\nlisten = 7835 // port\n\n# acme\nclients \"acme\" {\n  secret = \"abc\" # s\n}\n\nservices \"web\" {\n  client = \"acme\"\n  target = 8080\n}\n";
+        let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+            shown.replace(
+                "    target: 8080\n",
+                "    target: 8080\n    mode: balance\n",
+            )
+        });
+        assert_eq!(
+            saved,
+            hcl.replace(
+                "  target = 8080\n",
+                "  target = 8080\n  mode   = \"balance\"\n"
+            )
+            .replace("mode   =", "mode ="),
+            "{saved}"
+        );
+    }
+
+    #[test]
+    fn a_json_edit_at_the_end_of_an_object_changes_only_its_lines() {
+        let json = "{\n    \"listen\": 7835,\n    \"clients\": {\"acme\": {\"secret\": \"abc\"}},\n    \"pool\": {\n        \"min_idle\": 4,\n        \"max_idle\": 8\n    }\n}\n";
+        let saved = save(Language::JSON, Language::YAML, json, |shown| {
+            shown.replace("  max_idle: 8\n", "")
+        });
+        assert_eq!(
+            saved,
+            "{\n    \"listen\": 7835,\n    \"clients\": {\"acme\": {\"secret\": \"abc\"}},\n    \"pool\": {\n        \"min_idle\": 4\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn renaming_a_table_keeps_the_comment_above_it() {
+        let toml = "listen = 7835\n\n# heartbeat section\n[heartbeat]\ninterval_secs = 15\n\n# acme client\n[clients.acme]\nsecret = \"a\"\n";
+        let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+            shown.replace("  acme:", "  acme2:")
+        });
+        assert_eq!(saved, toml.replace("[clients.acme]", "[clients.acme2]"));
+        let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+            shown.replace("heartbeat:", "limits:")
+        });
+        assert_eq!(saved, toml.replace("[heartbeat]", "[limits]"));
+    }
+
+    #[test]
+    fn a_deleted_nested_entry_takes_its_own_comment() {
+        let hcl = "clients {\n  # acme\n  acme {\n    secret = \"a\"\n  }\n\n  # beta\n  beta {\n    secret = \"b\"\n  }\n}\n";
+        let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
+            shown.replace("  acme:\n    secret: a\n", "")
+        });
+        assert_eq!(
+            saved,
+            "clients {\n  # beta\n  beta {\n    secret = \"b\"\n  }\n}\n"
+        );
+        let yaml =
+            "# head\nlisten: 1\n# public comment\npublic_address: x\ninsecure_plaintext: false\n";
+        let saved = save(Language::YAML, Language::JSON, yaml, |shown| {
+            shown.replace("  \"public_address\": \"x\",\n", "")
+        });
+        assert_eq!(saved, "# head\nlisten: 1\ninsecure_plaintext: false\n");
+    }
+
+    #[test]
+    fn deleting_the_first_of_repeated_tables_removes_that_one() {
+        let toml = "listen = 1\n\n# first\n[[web.certificates]]\nhosts = [\"a\"] # n\ncert = \"a.pem\"\n\n# second\n[[web.certificates]]\nhosts = [\"b\"]\n";
+        let saved = save(Language::TOML, Language::JSON, toml, |shown| {
+            let value: serde_json::Value = serde_json::from_str(shown).unwrap();
+            let mut value = value;
+            value["web"]["certificates"]
+                .as_array_mut()
+                .unwrap()
+                .remove(0);
+            serde_json::to_string_pretty(&value).unwrap()
+        });
+        assert_eq!(
+            saved,
+            "listen = 1\n\n# second\n[[web.certificates]]\nhosts = [\"b\"]\n"
+        );
+    }
+
+    #[test]
+    fn a_table_inserted_between_two_gets_one_blank_line_each_side() {
+        let toml = "[clients.acme]\nsecret = \"abc\"\n\n# beta\n[clients.beta]\nsecret = \"b\"\n";
+        let saved = save(Language::TOML, Language::JSON, toml, |shown| {
+            let mut value: serde_json::Value = serde_json::from_str(shown).unwrap();
+            let clients = value["clients"].as_object_mut().unwrap();
+            let beta = clients.remove("beta").unwrap();
+            clients.insert("gamma".into(), serde_json::json!({"secret": "g"}));
+            clients.insert("beta".into(), beta);
+            serde_json::to_string_pretty(&value).unwrap()
+        });
+        assert_eq!(
+            saved,
+            "[clients.acme]\nsecret = \"abc\"\n\n[clients.gamma]\nsecret = \"g\"\n\n# beta\n[clients.beta]\nsecret = \"b\"\n"
+        );
+    }
+
+    #[test]
+    fn an_empty_host_filled_through_edit_as_is_written_whole() {
+        let saved = save(Language::TOML, Language::YAML, "", |_| {
+            "listen: 1\nheartbeat:\n  interval_secs: 3\n".to_string()
+        });
+        assert_eq!(saved, "listen = 1\n\n[heartbeat]\ninterval_secs = 3\n");
+    }
+
+    #[test]
+    fn a_warning_for_a_value_the_view_drops_sits_on_its_nearest_shown_ancestor() {
+        let bridge = Bridge::new(Language::JSON, Language::XML, None).unwrap();
+        let shown = bridge
+            .to_edit("{\"listen\": 99999, \"self\": {\"allow\": []}}")
+            .unwrap();
+        let warnings = bridge.view_problems(&shown);
+        let allow = warnings
+            .iter()
+            .find(|warning| warning.message.starts_with("/self/allow"))
+            .expect("a warning for /self/allow");
+        let line = shown.text.lines().nth(allow.line.unwrap() - 1).unwrap();
+        assert!(line.contains("self"), "{line:?} in\n{}", shown.text);
     }
 
     #[test]

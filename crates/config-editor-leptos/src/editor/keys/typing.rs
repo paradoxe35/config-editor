@@ -8,8 +8,21 @@ use super::super::commands::{backspace_indent, typed_closer};
 use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
 };
+use super::super::language::in_string_body;
 use super::super::state::{Edit, EditorState, is_backward, select, textarea_selection};
 use super::{typed_character, unmodified};
+
+/// Whether the caret is in a multi-line string's body, where typing is text.
+fn caret_in_string_body(state: EditorState) -> bool {
+    state
+        .textarea()
+        .map(|element| textarea_selection(&element).0)
+        .is_some_and(|caret| {
+            state
+                .source
+                .with_untracked(|text| in_string_body(state.behavior(), text, caret))
+        })
+}
 
 /// Ctrl+/ comments or uncomments the selected lines.
 pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -31,12 +44,16 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     else {
         return true;
     };
-    if updated != before {
-        state.commit(
-            Edit::new(before, (start, end), updated, selection_end).selecting_from(selection_start),
-        );
+    // The caret is the end that moves: the start of a backward selection.
+    let (anchor, caret) = if backward {
+        (selection_end, selection_start)
     } else {
-        state.note_caret(selection_end);
+        (selection_start, selection_end)
+    };
+    if updated != before {
+        state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor));
+    } else {
+        state.note_caret(caret);
     }
     select(&element, selection_start, selection_end, backward);
     state.close_suggestions();
@@ -46,7 +63,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
 /// With auto-closing on: typing over closers, deleting an inserted pair,
 /// re-indenting a closing line, what the language closes as it is typed, and opening pairs.
 pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !unmodified(event) {
+    if !unmodified(event) || caret_in_string_body(state) {
         return false;
     }
     let Some(element) = state.textarea() else {
@@ -88,17 +105,41 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         return false;
     };
     event.prevent_default();
+    let closer = state.closer_at(start);
     state.forget_closer_at(start);
+    // A longer closer (`"""`) is typed over one quote at a time.
+    if let Some(closer) = closer
+        && closer.len > 1
+    {
+        state.remember_closer(&source, next, closer.len - 1, closer.opener);
+    }
     state.place_caret(next);
     true
 }
 
 /// Backspace between a pair the editor inserted deletes both.
 fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool {
-    if state.closer_at(start).is_none() {
+    let Some(closer) = state.closer_at(start) else {
         return false;
-    }
+    };
     let before = state.source.get_untracked();
+    // A quote run the editor wrote (`"""|"""`): one quote goes on each side.
+    if closer.len > 1 && start > 0 {
+        let byte = utf16_to_byte_index(&before, start);
+        let after = before[byte..].chars().next();
+        if after.is_some_and(|quote| matches!(quote, '"' | '\''))
+            && before[..byte].ends_with(after.unwrap_or_default())
+        {
+            event.prevent_default();
+            let quote_len = after.map_or(1, char::len_utf8);
+            let mut updated = before.clone();
+            updated.replace_range(byte - quote_len..byte + quote_len, "");
+            state.forget_closer_at(start);
+            state.remember_closer(&updated, start - 1, closer.len - 1, closer.opener);
+            state.commit(Edit::new(before, (start, start), updated, start - 1));
+            return true;
+        }
+    }
     let Some((updated, caret)) = delete_empty_pair(&before, start) else {
         return false;
     };
@@ -148,6 +189,10 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
             closing[..len].encode_utf16().count(),
             Some(typed),
         );
+    } else if !closing.is_empty() && closing.chars().all(|quote| matches!(quote, '"' | '\'')) {
+        // A closing quote run (TOML's `"""`) is typed over and deleted with
+        // its opener; Enter inside it is a line break of the string.
+        state.remember_closer(&updated, caret, closing.encode_utf16().count(), None);
     }
     state.commit(Edit::new(before, (start, start), updated, caret));
     state.close_suggestions();
@@ -179,9 +224,13 @@ fn open_pair(
     // stepping out of it.
     let opener = matches!(opening, '"' | '\'').then_some(opening);
     state.remember_closer(&updated, selection_end, 1, opener);
-    state.commit(
-        Edit::new(before, (start, end), updated, selection_end).selecting_from(selection_start),
-    );
+    let wrapped_backward = backward && selection_start != selection_end;
+    let (anchor, caret) = if wrapped_backward {
+        (selection_end, selection_start)
+    } else {
+        (selection_start, selection_end)
+    };
+    state.commit(Edit::new(before, (start, end), updated, caret).selecting_from(anchor));
     // A wrapped selection keeps its direction.
     if backward
         && selection_start != selection_end
@@ -196,7 +245,7 @@ fn open_pair(
 /// Backspace in indentation removes one unit; a closer on a blank line
 /// aligns with its opener.
 pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !unmodified(event) {
+    if !unmodified(event) || (event.key() != "Backspace" && caret_in_string_body(state)) {
         return false;
     }
     let Some(element) = state.textarea() else {

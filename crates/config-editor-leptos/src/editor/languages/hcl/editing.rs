@@ -184,3 +184,39 @@ pub(super) fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> T
         }
     }
 }
+
+/// Lines inside heredocs' bodies: between `<<MARKER` / `<<-MARKER` and the
+/// line holding only the marker.
+pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut bodies = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        if let Some(marker) = heredoc_marker(lines[index]) {
+            let first = index + 1;
+            let mut end = first;
+            while end < lines.len() && lines[end].trim() != marker {
+                end += 1;
+            }
+            if end > first {
+                bodies.push(first..end);
+            }
+            index = end + 1;
+        } else {
+            index += 1;
+        }
+    }
+    bodies
+}
+
+/// The marker of a heredoc opened at the end of `line`, outside strings.
+fn heredoc_marker(line: &str) -> Option<&str> {
+    let code = &line[..crate::editor::language::comment_start_outside_quotes(line, &["#", "//"]).unwrap_or(line.len())];
+    let at = code.rfind("<<")?;
+    if code[..at].matches('"').count() % 2 == 1 {
+        return None;
+    }
+    let rest = code[at + 2..].strip_prefix('-').unwrap_or(&code[at + 2..]).trim();
+    (!rest.is_empty() && rest.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'))
+        .then_some(rest)
+}

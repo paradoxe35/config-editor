@@ -518,3 +518,147 @@ test.describe('vanilla API: positions from a JavaScript language', () => {
     }
   });
 });
+
+test.describe('react: round 5', () => {
+  test('a re-mount while the parent is late keeps the newest document', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?late');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('debug: true');
+    // Re-mount before the late parent catches up, then keep typing.
+    await browserPage.locator('#rename').click();
+    await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-');
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('\nfoo: 1');
+    await browserPage.waitForTimeout(1500);
+    await expect(input(browserPage)).toHaveValue(/debug: true\nfoo: 1$/);
+    await expect(saved(browserPage)).toContainText('debug: true\nfoo: 1');
+  });
+});
+
+test.describe('react: the ref while a re-mount has failed', () => {
+  test('ref.value is the document, not the initial value', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?uncontrolled');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('debug: true');
+    await browserPage.locator('#bad-theme').click();
+    await browserPage.locator('#rename').click();
+    await expect(input(browserPage)).toHaveCount(0);
+    const value = await browserPage.evaluate(() => window.editorHandle.current.value);
+    expect(value).toContain('debug: true');
+  });
+});
+
+test.describe('vanilla API: mounting into an element that holds an editor', () => {
+  test('replaces the old editor instead of leaking it', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const megabytes = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const wasm = await module.default();
+      window.editor.destroy();
+      const host = document.getElementById('editor');
+      const value = Array.from({ length: 1500 }, (_, index) => `key${index}: ${index}`).join('\n');
+      for (let round = 0; round < 40; round += 1) {
+        // As in the README quick start: no reference kept, no destroy().
+        new module.ConfigEditor(host, { value });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return wasm.memory.buffer.byteLength / 1024 / 1024;
+    });
+    expect(megabytes).toBeLessThan(40);
+    await expect(input(browserPage)).toHaveCount(1);
+    await expect(input(browserPage)).toHaveValue(/key1499: 1499$/);
+  });
+});
+
+test.describe('round 5: package polish', () => {
+  test('the toolbar shows the default file name', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.target = new module.ConfigEditor(document.getElementById('editor'), { language: 'toml', showToolbar: true });
+    });
+    await expect(browserPage.locator('.config-editor__toolbar')).toContainText('untitled.toml');
+  });
+
+  test('editAs into a language that cannot write documents is refused', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const messages = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      module.registerLanguage({ label: 'ReadOnlyLang', parse: () => ({}) });
+      const attempt = (run) => {
+        try {
+          run();
+          return 'no error';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return {
+        setter: attempt(() => window.editor.setEditAs('readonlylang')),
+        option: attempt(() => new module.ConfigEditor(document.createElement('div'), { editAs: 'readonlylang' })),
+      };
+    });
+    expect(messages.setter).toContain('cannot write documents');
+    expect(messages.option).toContain('cannot write documents');
+  });
+
+  test('the TypeScript declarations hold only the public API', async () => {
+    const { readFileSync } = await import('node:fs');
+    const types = readFileSync(join(js, 'config-editor', 'pkg', 'config_editor.d.ts'), 'utf8');
+    expect(types).not.toContain('ReadableStreamType');
+    expect(types).not.toMatch(/__wbg_(?!init)/);
+    expect(types).not.toContain('IntoUnderlying');
+    expect(types).toContain('setReadOnly(readOnly');
+  });
+
+  test('a failed load can be retried', async ({ page: browserPage }) => {
+    await browserPage.goto(page('load-retry.html'));
+    await expect(browserPage.locator('body')).toHaveAttribute('data-result', 'failed,loaded', { timeout: 20000 });
+  });
+
+  test('a label is a name in any script, lowercased', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const name = module.registerLanguage({ label: 'Énv', parse: () => ({}) });
+      window.target = new module.ConfigEditor(document.createElement('div'), { language: 'ÉNV' });
+      return name;
+    });
+    expect(result).toBe('énv');
+  });
+
+  test('highlight ranges are JavaScript string indices', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.editor.destroy();
+      module.registerLanguage({
+        label: 'Idx',
+        parse: () => ({}),
+        highlight: (line) => {
+          const equals = line.indexOf('=');
+          return equals < 0 ? [] : [{ start: 0, end: equals, kind: 'key' }];
+        },
+      });
+      window.target = new module.ConfigEditor(document.getElementById('editor'), { language: 'idx', value: 'café=1\n🙂x=2\n' });
+    });
+    const keys = await browserPage.locator('.config-editor__key').allTextContents();
+    expect(keys).toEqual(['café', '🙂x']);
+  });
+
+  test('an unknown option is reported, with the likely meant one', async ({ page: browserPage }) => {
+    const warnings = [];
+    browserPage.on('console', (message) => message.type() === 'warning' && warnings.push(message.text()));
+    await open(browserPage, 'vanilla.html');
+    await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      window.target = new module.ConfigEditor(document.createElement('div'), { readonly: true });
+    });
+    expect(warnings.join('\n')).toContain('unknown option "readonly" is ignored (did you mean "readOnly"?)');
+  });
+});

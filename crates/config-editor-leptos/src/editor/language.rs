@@ -62,9 +62,9 @@ pub use super::completion::{
 };
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
-    InlineCaret, InlineEntry, InlineKey, entry_follows, inline_caret, inline_key_at,
-    inline_key_paths, inline_keys, inline_sibling_keys, inline_value_len, skip_quoted,
-    statement_start, statements,
+    InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, inline_caret,
+    inline_key_at, inline_key_paths, inline_keys, inline_sibling_keys, inline_value_len,
+    skip_quoted, statement_start, statements, string_end_at_caret,
 };
 pub use super::keyboard::utf16_to_byte_index;
 use serde_json::Value;
@@ -887,6 +887,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Lexical::default()
     }
 
+    /// Lines (0-based, end exclusive) that lie wholly inside the body of a
+    /// multi-line string (TOML `"""`, an HCL heredoc, a YAML block scalar).
+    /// They are text: Enter keeps their indentation, nothing is paired,
+    /// aligned or suggested there, and they are colored as a string.
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        let _ = source;
+        Vec::new()
+    }
+
     /// The byte offset where the trailing comment of `line` starts, outside
     /// strings. Edit-as uses it to match lines that differ only in comments.
     /// See [`comment_start_outside_quotes`].
@@ -1034,4 +1043,15 @@ mod tests {
         assert_eq!(slots(text, &[": ", ":"]), vec![3, 11]);
         assert_eq!(slots("x = \ny = 2", &[" = "]), vec![4]);
     }
+}
+
+/// Whether UTF-16 `cursor` is on a line inside a multi-line string's body
+/// (see [`ConfigLanguage::string_body_lines`]).
+pub(crate) fn in_string_body(behavior: &dyn ConfigLanguage, source: &str, cursor: usize) -> bool {
+    let byte = utf16_to_byte_index(source, cursor);
+    let line = source[..byte].bytes().filter(|byte| *byte == b'\n').count();
+    behavior
+        .string_body_lines(source)
+        .iter()
+        .any(|lines| lines.contains(&line))
 }

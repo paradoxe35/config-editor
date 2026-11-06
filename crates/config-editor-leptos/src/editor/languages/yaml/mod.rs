@@ -19,8 +19,8 @@ use editing::*;
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{Token, TokenKind, Tokens};
-use super::super::inline::{
-    InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys, inline_value_len,
+use super::super::inline::{caret_value_end, 
+    InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
     statement_start, entry_follows,
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
@@ -187,6 +187,10 @@ impl ConfigLanguage for YamlBehavior {
             }
         }
         slots
+    }
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        block_scalar_bodies(source)
     }
 }
 

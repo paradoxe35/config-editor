@@ -10,15 +10,17 @@
 //!   headers cannot address, where they are written inline.
 //! - `Ctrl+/` toggles `#` line comments.
 
+mod style;
 mod parse;
 mod suggestions;
 mod editing;
 
+use style::*;
 use parse::*;
 use suggestions::*;
 use editing::*;
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, inline_value_len, statement_start, entry_follows};
+use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start, entry_follows};
 use super::super::completion::{
     array_branch, object_branch, placeholder, schema_const, schema_default,
 };
@@ -141,7 +143,7 @@ impl ConfigLanguage for TomlBehavior {
     }
 
 
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::first_pointer;
         if !value.is_object() {
             return Err("a TOML document is a table: the top level must be an object".to_string());
@@ -149,9 +151,18 @@ impl ConfigLanguage for TomlBehavior {
         if let Some(pointer) = first_pointer(value, &Value::is_null) {
             return Err(format!("TOML has no null value (at {pointer})"));
         }
-        toml::to_string(value).map_err(|error| error.to_string())
+        let rendered = toml::to_string(value).map_err(|error| error.to_string())?;
+        // Tables the host wrote as dotted keys are written that way again.
+        Ok(match previous {
+            Some(previous) => fold_dotted_tables(&rendered, &dotted_tables(previous)),
+            None => rendered,
+        })
     }
 
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        multi_line_string_bodies(source)
+    }
 }
 
 fn utf16(text: &str) -> usize {

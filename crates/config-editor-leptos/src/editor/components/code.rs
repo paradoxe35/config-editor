@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 use super::super::diff::DiffKind;
-use super::super::highlight;
+use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::line_rows::LineRows;
 use super::super::state::EditorState;
 use super::RowSpacer;
@@ -40,6 +40,12 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
             .with_untracked(|diff| rows.state_for(index, lines, diff, active))
     });
     let highlighting = state.features.highlighting;
+    // A line inside a multi-line string's body is all string.
+    let in_string_body = move || {
+        state
+            .string_bodies
+            .with(|bodies| bodies.iter().any(|lines| lines.contains(&index)))
+    };
     view! {
         <span
             class="config-editor__code-line"
@@ -51,7 +57,11 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
         >
             {move || {
                 let text = row.with(|row| row.text.clone());
-                if highlighting {
+                if highlighting && in_string_body() {
+                    let mut tokens = Tokens::new();
+                    tokens.push(0, text.len(), TokenKind::String);
+                    highlight::render(&text, &tokens.finish())
+                } else if highlighting {
                     highlight::render(&text, &state.edit_language.get().behavior().highlight(&text))
                 } else {
                     view! { <span>{text}</span> }.into_any()

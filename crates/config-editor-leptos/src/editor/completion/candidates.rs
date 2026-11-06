@@ -210,8 +210,10 @@ pub(crate) fn completions(
     let Some(bundle) = schema else {
         return Vec::new();
     };
-    // Nothing is suggested inside a comment.
-    if behavior.lexical_state(source, cursor).in_comment {
+    // Nothing is suggested inside a comment or a multi-line string.
+    if behavior.lexical_state(source, cursor).in_comment
+        || crate::editor::language::in_string_body(behavior, source, cursor)
+    {
         return Vec::new();
     }
     let cursor_byte = utf16_to_byte_index(source, cursor);
@@ -243,6 +245,22 @@ pub(crate) fn completions(
             && source[cursor_byte..].starts_with('"')
         {
             option.end += 1;
+        }
+        // A value accepted between quotes it is written without (an XML
+        // attribute's `mode="|"`) takes the closing quote along, so the caret
+        // ends after it, as values written with their quotes do.
+        if option.is_value {
+            let start_byte = utf16_to_byte_index(source, option.start);
+            let end_byte = utf16_to_byte_index(source, option.end);
+            if let Some(quote) = source[..start_byte].chars().next_back()
+                && matches!(quote, '"' | '\'')
+                && source[end_byte..].starts_with(quote)
+                && !option.insert.contains(quote)
+            {
+                option.insert.push(quote);
+                option.end += 1;
+                option.cursor_offset = option.insert.encode_utf16().count();
+            }
         }
         // An insert ending in a line break before an existing one would leave
         // a blank line, unless the caret goes on that line (`[pool]\n|`).

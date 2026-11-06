@@ -497,7 +497,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let mut path = base;
         path.extend(caret.path);
         let line_end = source[cursor..].find('\n').map_or(source.len(), |end| cursor + end);
-        let value_end = cursor + inline_value_len(&source[cursor..line_end]);
+        let value_end = caret_value_end(source, cursor, line_end);
         let typed_from = |start: usize| source[content_byte + start..cursor].trim_end().to_string();
         let context = |path, typed, start: usize, end: usize| CompletionContext {
             path,

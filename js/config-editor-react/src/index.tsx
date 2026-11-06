@@ -40,7 +40,11 @@ let loading: Promise<unknown> | undefined;
  * bundler does not resolve it next to the package's JavaScript.
  */
 export function loadConfigEditor(input?: InitInput): Promise<unknown> {
-  loading ??= init(input);
+  // A failed load is not kept: calling again (with the right URL) retries.
+  loading ??= init(input).catch((error: unknown) => {
+    loading = undefined;
+    throw error;
+  });
   return loading;
 }
 
@@ -111,6 +115,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // back: an echo with newer values still pending is stale. Any other
     // `value` (a revert, a reset) is the parent's own and is applied.
     const pending = useRef<string[]>([]);
+    // The `value` prop as last handled: a re-mount re-runs the value effect,
+    // and an unchanged prop is not a new value from the parent.
+    const handledValue = useRef<string | undefined>(undefined);
     // What a re-mount (language, schema, … changed) starts from, so an
     // uncontrolled document and its diff baseline survive it.
     const carried = useRef<{ value: string; baseline: string } | null>(null);
@@ -134,10 +141,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       void loadConfigEditor().then(() => {
         if (cancelled || !host.current) return;
         const current = latest.current;
-        const value = current.value ?? carried.current?.value ?? current.defaultValue ?? "";
+        // A re-mount starts from the newest document: the editor's own, since
+        // a late parent's `value` may not have caught up. Values still
+        // pending stay pending, so their late echoes are recognized.
+        const value = carried.current?.value ?? current.value ?? current.defaultValue ?? "";
         const baseline = current.baseline ?? carried.current?.baseline ?? value;
         carried.current = { value, baseline };
-        pending.current = [];
         const options: EditorOptions = {
           value,
           language: current.language,
@@ -195,6 +204,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       guard((instance) => {
         const value = props.value;
         if (value === undefined) return;
+        if (value === handledValue.current) return;
+        handledValue.current = value;
         // The latest copy: a value typed twice may be pending twice.
         const sent = pending.current.lastIndexOf(value);
         if (sent >= 0) {
@@ -235,7 +246,14 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       ref,
       () => ({
         get value() {
-          return editor.current?.value ?? latest.current.value ?? latest.current.defaultValue ?? "";
+          // While a re-mount has failed, the document kept for it.
+          return (
+            editor.current?.value ??
+            carried.current?.value ??
+            latest.current.value ??
+            latest.current.defaultValue ??
+            ""
+          );
         },
         get editor() {
           return editor.current;

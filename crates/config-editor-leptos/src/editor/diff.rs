@@ -211,7 +211,7 @@ pub(super) fn peek_popup_style(
     )
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DiffEdit {
     Equal,
     Insert,

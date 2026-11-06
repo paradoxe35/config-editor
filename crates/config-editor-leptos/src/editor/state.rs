@@ -194,6 +194,8 @@ pub(super) struct EditorState {
     /// Only the rows in view (plus overscan) exist in the DOM.
     pub(super) visible_rows: Memo<Range<usize>>,
     pub(super) selected_diff_peek: RwSignal<Option<DiffPeek>>,
+    /// Lines inside multi-line strings' bodies, shown as string text.
+    pub(super) string_bodies: Memo<Vec<Range<usize>>>,
 }
 
 impl EditorState {
@@ -374,7 +376,11 @@ impl EditorState {
             first..last
         });
 
+        let string_bodies = Memo::new(move |_| {
+            source.with(|text| edit_language.get().behavior().string_body_lines(text))
+        });
         let state = Self {
+            string_bodies,
             host_language,
             edit_language,
             schema: schema_store,

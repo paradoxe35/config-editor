@@ -188,7 +188,9 @@ pub fn ConfigEditor(
     input::attach_listeners(state);
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
-    let file_name = file_name.unwrap_or_else(|| language.default_file_name().to_string());
+    let file_name = file_name
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| language.default_file_name().to_string());
     let root_class = class.unwrap_or_default();
 
     view! {
