@@ -7,8 +7,8 @@
 //! - `?sample=large` — the ~2000-line config instead of the short one;
 //! - `?readonly` — view mode.
 
-use leptos::prelude::*;
 use config_editor_leptos::{ConfigEditor, ConfigEditorToolbar, EditorTheme, Language};
+use leptos::prelude::*;
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
