@@ -289,3 +289,16 @@ fn tab_moves_a_selection_start_inside_the_indentation_with_its_text() {
     assert_eq!(new_start, 2);
     assert!(indented.starts_with("{\n      \"a\""));
 }
+
+#[test]
+fn a_selection_starting_inside_the_indentation_keeps_its_column_through_tab_and_back() {
+    let source = "tcp:\n  nodelay: true\n  keepalive_secs: 30\n";
+    let start = 5 + 1;
+    let end = source.find("30").unwrap() + 1;
+    let (indented, new_start, new_end) = indent_lines(source, start, end, false, "  ").unwrap();
+    assert_eq!(new_start, 5 + 3, "{indented:?}");
+    let (outdented, back_start, _) =
+        indent_lines(&indented, new_start, new_end, true, "  ").unwrap();
+    assert_eq!(outdented, source);
+    assert_eq!(back_start, start);
+}

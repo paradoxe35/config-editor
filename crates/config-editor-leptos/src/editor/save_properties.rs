@@ -43,6 +43,37 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::XML,
             "<!-- head -->\n<listen>1</listen> <!-- port -->\n<tcp><nodelay>true</nodelay></tcp>\n<self>\n  <allow>a</allow>\n  <allow>b</allow>\n  <allow>c</allow>\n</self>\n<clients>\n  <!-- acme -->\n  <acme secret=\"s1\" max_connections=\"2\"/>\n  <beta>\n    <secret>s2</secret>\n  </beta>\n</clients>\n<limits>\n  <max_pending>5</max_pending> <!-- mp -->\n</limits>\n",
         ),
+        // Round 8 shapes: siblings sharing a one-line container's value,
+        // multi-line arrays, dotted keys sharing prefixes and holding
+        // multi-line strings.
+        (
+            Language::YAML,
+            "# c\nlisten: 1\ntcp: {nodelay: true}\nudp:\n  nodelay: true # u\nweb:\n  allow:\n    - a # w\n    - b\nself:\n  allow: [a, b]\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"tcp\": {\"nodelay\": true},\n  \"udp\": {\n    \"nodelay\": true\n  },\n  \"listen\": 1\n}\n",
+        ),
+        (
+            Language::TOML,
+            "# c\nlisten = 1 # l\ntcp = { nodelay = true }\nallow = [\n  \"x\", # x\n  \"y\",\n]\nweb.http = 80 # h\nweb.https = 443 # s\nservices.web.health_check.interval_secs = 2 # hc\n\n[udp]\nnodelay = true # u\n",
+        ),
+        (
+            Language::TOML,
+            "# c\nweb.error_pages = \"\"\"\nmulti\nline\"\"\"\nlisten = 1 # l\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nlisten = 1\n\n# tcp opts\ntcp { nodelay = true } # inline\n\n# udp\nudp {\n  nodelay = true # u\n}\n\nallow = [\n  \"x\", # x\n  \"y\",\n]\n",
+        ),
+        (
+            Language::HCL,
+            "x {\n  s {\n    secret = \"a\"\n  }\n  n {\n    v = [\"p\"]\n  }\n  m {\n    c = [\"e\"]\n  }\n  w {\n    c = [\"e\"]\n    # note\n    v = [\"p\"]\n  }\n}\n",
+        ),
+        (
+            Language::XML,
+            "<!-- c -->\n<tcp><nodelay>true</nodelay></tcp>\n<udp>\n  <nodelay>true</nodelay> <!-- u -->\n</udp>\n<listen>1</listen>\n",
+        ),
     ]
 }
 

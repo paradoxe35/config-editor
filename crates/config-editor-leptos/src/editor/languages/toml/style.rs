@@ -96,11 +96,27 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>) -> St
             })
             .collect::<Vec<_>>()
             .join(".");
-        let mut lines: Vec<String> = body
-            .into_iter()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| format!("{quoted}.{}", line.trim_start()))
-            .collect();
+        // Only lines starting a key get the prefix: the rest of a multi-line
+        // string (`"""` … `"""`) is the string's own text.
+        let mut lines: Vec<String> = Vec::new();
+        let mut open: Option<&str> = None;
+        for line in body {
+            match open {
+                Some(delimiter) => {
+                    if line.contains(delimiter) {
+                        open = None;
+                    }
+                    lines.push(line);
+                }
+                None if line.trim().is_empty() => {}
+                None => {
+                    open = ["\"\"\"", "'''"]
+                        .into_iter()
+                        .find(|delimiter| line.matches(delimiter).count() % 2 == 1);
+                    lines.push(format!("{quoted}.{}", line.trim_start()));
+                }
+            }
+        }
         // An emptied table has no keys to carry it: it is written empty.
         if lines.is_empty() {
             lines.push(format!("{quoted} = {{}}"));
@@ -143,4 +159,49 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>) -> St
         out.pop();
     }
     out
+}
+
+/// `source` with the key at `pointer` renamed `new_key` wherever TOML writes
+/// it: in `[table]` headers and in every dotted key through it
+/// (`web.http`, `web.https`). `None` when it is written nowhere like that
+/// (an inline table's key), or under an array of tables.
+pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Option<String> {
+    let wanted = pointer_segments(pointer);
+    let (old, prefix) = wanted.split_last()?;
+    if prefix.iter().any(|segment| segment.parse::<usize>().is_ok()) {
+        return None;
+    }
+    let depth = prefix.len();
+    let mut edits: Vec<(usize, usize)> = Vec::new();
+    let mut table: Vec<String> = Vec::new();
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let (code, _) = split_toml_comment(line.trim_end_matches('\n'));
+        if let Some((segments, _)) = parse_header(code) {
+            if segments.len() > depth && segments[..depth] == *prefix && segments[depth] == *old {
+                let open = code.find(|character: char| character != '[' && !character.is_whitespace())?;
+                let close = code.rfind(|character: char| character != ']' && !character.is_whitespace())? + 1;
+                let (start, end) = segment_range(&code[open..close], depth)?;
+                edits.push((offset + open + start, offset + open + end));
+            }
+            table = segments;
+        } else if let Some((key, start, end)) = key_assignment(code) {
+            let mut full = table.clone();
+            full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
+            if full.len() > depth && depth >= table.len() && full[..depth] == *prefix && full[depth] == *old {
+                let (from, to) = segment_range(&code[start..end], depth - table.len())?;
+                edits.push((offset + start + from, offset + start + to));
+            }
+        }
+        offset += line.len();
+    }
+    if edits.is_empty() {
+        return None;
+    }
+    let mut renamed = source.to_string();
+    for (start, end) in edits.into_iter().rev() {
+        let quoted = renamed[start..end].starts_with(['"', '\'']);
+        renamed.replace_range(start..end, &if quoted { format!("\"{new_key}\"") } else { new_key.to_string() });
+    }
+    Some(renamed)
 }

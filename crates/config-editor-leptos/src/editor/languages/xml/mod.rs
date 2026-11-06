@@ -137,6 +137,10 @@ impl ConfigLanguage for XmlBehavior {
         hover_name(line, column)
     }
 
+    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        element_hover_path(source, line_index, column)
+    }
+
     fn hover_cursor(&self, line: &str, column: usize) -> usize {
         // A line can hold a whole subtree; resolve just past the hovered name.
         hover_context_end(line, column)

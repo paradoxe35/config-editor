@@ -242,14 +242,13 @@ fn toml_saves_keep_dotted_keys_inline_tables_and_comments() {
         saved,
         toml.replace("min_idle = 1\n", "min_idle = 1\nmax_idle = 2\n")
     );
-    // The last dotted key deleted leaves its table, empty; the rest stays.
+    // The last dotted key deleted leaves its table, empty, in its place.
     let saved = save(Language::TOML, Language::YAML, toml, |shown| {
         shown.replace("tcp:\n  nodelay: true\n", "tcp: {}\n")
     });
-    assert!(saved.contains("tcp = {}"), "{saved}");
     assert_eq!(
-        saved.replace("tcp = {}\n", ""),
-        toml.replace("tcp.nodelay = true # t\n", "")
+        saved,
+        toml.replace("tcp.nodelay = true # t", "tcp = {} # t")
     );
 }
 
@@ -265,4 +264,153 @@ fn renaming_an_xml_element_keeps_its_attributes_and_comments() {
         shown.replace("clients:", "visitors:")
     });
     assert_eq!(saved, xml.replace("clients>", "visitors>"));
+}
+
+#[test]
+fn hcl_saves_follow_the_hosts_blank_lines() {
+    let packed =
+        "clients {\n  acme {\n    secret = \"a\"\n  }\n  beta {\n    secret = \"b\"\n  }\n}\n";
+    let saved = save(Language::HCL, Language::YAML, packed, |shown| {
+        format!("{shown}  gamma:\n    secret: c\n")
+    });
+    assert_eq!(
+        saved,
+        packed.replace("  }\n}\n", "  }\n  gamma {\n    secret = \"c\"\n  }\n}\n")
+    );
+    let spaced =
+        "clients {\n  acme {\n    secret = \"a\"\n  }\n\n  beta {\n    secret = \"b\"\n  }\n}\n";
+    let saved = save(Language::HCL, Language::YAML, spaced, |shown| {
+        shown.replace("  beta:\n    secret: b\n", "")
+    });
+    assert_eq!(saved, "clients {\n  acme {\n    secret = \"a\"\n  }\n}\n");
+}
+
+#[test]
+fn a_multi_line_string_under_a_dotted_key_keeps_its_form_and_the_comments() {
+    let toml = "# c\nweb.error_pages = \"\"\"\nmulti\nline\"\"\"\nlisten = 1 # l\n";
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("multi", "MULTI")
+    });
+    assert_eq!(saved, toml.replace("multi", "MULTI"));
+    let saved = save(Language::TOML, Language::YAML, toml, |shown| {
+        shown.replace("listen: 1", "listen: 2")
+    });
+    assert_eq!(saved, toml.replace("listen = 1", "listen = 2"));
+}
+
+/// QA round 8 Edit-as findings, as reported.
+#[test]
+fn round_8_saves_change_only_the_edit() {
+    let mut failures = Vec::new();
+    let mut check = |name: &str,
+                     host: Language,
+                     edit: Language,
+                     text: &str,
+                     change: &dyn Fn(&str) -> String,
+                     expected: &str| {
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let changed = change(&shown);
+        if changed == shown {
+            failures.push(format!("{name}: the change does not apply to\n{shown}"));
+            return;
+        }
+        let saved = bridge.to_host(&changed, text).unwrap().text;
+        if saved != expected {
+            failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- saved\n{saved}"
+            ));
+        }
+    };
+    // H1: a one-line block deleted, its next sibling holding the same value.
+    let hcl = "# top\nlisten = 1\n\n# tcp opts\ntcp { nodelay = true } # inline\n\n# udp\nudp {\n  nodelay = true\n}\n";
+    check(
+        "H1",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|s| s.replace("tcp:\n  nodelay: true\n", ""),
+        "# top\nlisten = 1\n\n# udp\nudp {\n  nodelay = true\n}\n",
+    );
+    // H2: a block-style sibling equal to a one-line container stays block style.
+    let yaml = "# c\nlisten: 1\ntcp: {nodelay: true}\nudp:\n  nodelay: true # u\n";
+    check(
+        "H2",
+        Language::YAML,
+        Language::TOML,
+        yaml,
+        &|s| format!("insecure_plaintext = true\n{s}"),
+        "# c\ninsecure_plaintext: true\nlisten: 1\ntcp: {nodelay: true}\nudp:\n  nodelay: true # u\n",
+    );
+    // H3: a comment in an untouched block whose lists equal other blocks'.
+    let nested = "x {\n  s {\n    secret = \"a\"\n  }\n  n {\n    v = [\"p\"]\n  }\n  m {\n    c = [\"e\"]\n  }\n  w {\n    c = [\"e\"]\n    # note\n    v = [\"p\"]\n  }\n}\n";
+    check(
+        "H3",
+        Language::HCL,
+        Language::YAML,
+        nested,
+        &|s| s.replace("    secret: a\n", "    secret: a\n    max_connections: 7\n"),
+        &nested.replace(
+            "    secret = \"a\"\n",
+            "    secret = \"a\"\n    max_connections = 7\n",
+        ),
+    );
+    // H4: an item added to a multi-line list.
+    let toml = "# c\nallow = [\n  \"x\", # x\n  \"y\",\n]\nlisten = 1 # l\n";
+    check(
+        "H4 add",
+        Language::TOML,
+        Language::YAML,
+        toml,
+        &|s| s.replace("  - y\n", "  - y\n  - z\n"),
+        "# c\nallow = [\n  \"x\", # x\n  \"y\",\n  \"z\",\n]\nlisten = 1 # l\n",
+    );
+    check(
+        "H4 delete",
+        Language::TOML,
+        Language::YAML,
+        toml,
+        &|s| s.replace("  - x\n", ""),
+        "# c\nallow = [\n  \"y\",\n]\nlisten = 1 # l\n",
+    );
+    // H6: dotted prefixes renamed everywhere, three segments deep too.
+    let dotted = "web.http = 80 # h\nweb.https = 443 # s\nlisten = 1 # l\n";
+    check(
+        "H6 shared",
+        Language::TOML,
+        Language::YAML,
+        dotted,
+        &|s| s.replace("web:", "www:"),
+        &dotted.replace("web.", "www."),
+    );
+    let deep = "# top\nservices.web.health_check.interval_secs = 2 # h\nservices.web.target = 80 # t\n\n[pool]\nmin_idle = 1 # m\n";
+    check(
+        "H6 deep",
+        Language::TOML,
+        Language::YAML,
+        deep,
+        &|s| s.replace("  web:", "  www:"),
+        &deep.replace("services.web.", "services.www."),
+    );
+    // H7: a table renamed in the TOML view keeps its place.
+    let blocks = "# c\ntcp {\n  nodelay = true # n\n}\nlisten = 1 # l\n";
+    check(
+        "H7",
+        Language::HCL,
+        Language::TOML,
+        blocks,
+        &|s| s.replace("[tcp]", "[pool]"),
+        &blocks.replace("tcp {", "pool {"),
+    );
+    // MEDIUM: a deleted one-line block takes its own comment with it.
+    let comment = "# tcp\ntcp { nodelay = true }\n# pool\npool {\n  min_idle = 1\n}\n";
+    check(
+        "M comment",
+        Language::HCL,
+        Language::YAML,
+        comment,
+        &|s| s.replace("tcp:\n  nodelay: true\n", ""),
+        "# pool\npool {\n  min_idle = 1\n}\n",
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

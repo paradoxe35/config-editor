@@ -48,6 +48,7 @@ impl ConfigLanguage for TomlBehavior {
     fn config(&self) -> LanguageConfig {
         LanguageConfig {
             line_comments: &["#"],
+            block_comment: None,
             brackets: &[('[', ']'), ('{', '}')],
             separators: &["="],
         }
@@ -63,6 +64,10 @@ impl ConfigLanguage for TomlBehavior {
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         toml_value_span(source, pointer).map(Span::from)
+    }
+
+    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
+        rename_toml_key(source, pointer, new_key)
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {

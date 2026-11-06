@@ -92,3 +92,25 @@ test.describe('toml', () => {
     expect(await e.isOpen()).toBe(false);
   });
 });
+
+test.describe('round 7 lows: yaml', () => {
+  setupEditor(test, '?language=yaml');
+
+  test('Ctrl+Space with a selection opens the list at its end', async ({ page }) => {
+    const e = await at(page, 'tcp:\n  ¦node¦lay: true\n');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => e.isOpen()).toBe(true);
+    await page.keyboard.press('Escape');
+    expect(await e.value()).toBe('tcp:\n  nodelay: true\n');
+  });
+});
+
+test.describe('round 7 lows: hcl', () => {
+  setupEditor(test, '?language=hcl');
+
+  test('Ctrl+/ on a block-commented line removes the block comment', async ({ page }) => {
+    const e = await at(page, '¦/* listen = 1 */');
+    await page.keyboard.press('Control+/');
+    expect(await e.value()).toBe('listen = 1');
+  });
+});

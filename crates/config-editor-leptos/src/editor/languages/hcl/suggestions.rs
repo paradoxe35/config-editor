@@ -90,6 +90,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                     block: hcl_block(source, statement + start, cursor),
                     base_indent,
                     path: full,
+                    // An object expression holds attributes, never blocks.
+                    position: EntryPosition::Inline,
                     ..Default::default()
                 },
                 &source[cursor..line_end],
@@ -115,6 +117,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                     entry_wrap: Some(("{ ", " }")),
                     base_indent,
                     path: full,
+                    position: EntryPosition::Inline,
                     ..Default::default()
                 }
             }
@@ -189,6 +192,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 entry_prefix: String::new(),
                 explicit_entry_start: true,
                 entry_suffix: String::new(),
+                // Inside `key = { … }`: an object expression.
+                position: EntryPosition::Inline,
                 ..Default::default()
             };
         }
@@ -251,11 +256,18 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     // Typed in front of an existing entry (`lim|listen = 1`): the new entry
     // goes before it, which moves to its own line (see `entry_after`).
     let rest = &source[cursor..line_end];
-    let splits = entry_follows(rest, b'=');
     let word_after: String = rest
         .chars()
         .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
         .collect();
+    // An attribute (`listen = 1`) or a block header (`tcp {`, `services "web" {`).
+    let header_follows = {
+        let after = rest[word_after.len()..].trim_start();
+        !word_after.is_empty()
+            && (after.starts_with(['{', '"'])
+                || (after.starts_with(|character: char| character.is_alphabetic()) && after.contains('{') && !after.contains('=')))
+    };
+    let splits = entry_follows(rest, b'=') || header_follows;
     let replace_end = if splits {
         cursor
     } else {
@@ -499,6 +511,7 @@ pub(super) fn property_insert(
     root: &Value,
     base_indent: &str,
     unit: &str,
+    in_body: bool,
 ) -> Option<(String, usize)> {
     if key.is_empty() || !is_ident(key) {
         return None;
@@ -532,6 +545,14 @@ pub(super) fn property_insert(
             return Some((insert, caret));
         }
         let child_indent = format!("{base_indent}{unit}");
+        // In a body an object with properties is a block (`heartbeat {`), as
+        // documents and the converter write it; in an object expression, an
+        // attribute.
+        // A map (`tags`: any keys) stays an attribute, as in Terraform.
+        let structured = object_branch(property, root).is_some_and(|branch| branch.get("properties").is_some());
+        if in_body && structured {
+            insert = format!("{key} ");
+        }
         insert.push_str("{\n");
         let mut caret = None;
         if let Some(branch) = object_branch(property, root)

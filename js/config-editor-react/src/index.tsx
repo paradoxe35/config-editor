@@ -233,9 +233,19 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         handledValue.current = value;
         const now = Date.now();
         pending.current = pending.current.filter((echo) => now - echo.sent < ECHO_WINDOW_MS);
-        // The latest copy: a value typed twice may be pending twice.
         const print = fingerprint(value);
-        const sent = pending.current.map((echo) => echo.print).lastIndexOf(print);
+        const prints = pending.current.map((echo) => echo.print);
+        // Which sent value this is. A parent applying every value sends them
+        // back in order: the oldest pending one (a typo fixed sends the same
+        // text twice: `a`, `ab`, `a`). A parent skipping to the latest sends a
+        // later one: its last copy. Equal to the newest value sent and to the
+        // document, the parent has caught up with everything.
+        const caughtUp = prints[prints.length - 1] === print && instance.value === value;
+        const sent = caughtUp
+          ? prints.length - 1
+          : prints[0] === print
+            ? 0
+            : prints.lastIndexOf(print);
         if (sent >= 0) {
           // The parent caught up to this emission; newer ones may follow.
           pending.current.splice(0, sent + 1);

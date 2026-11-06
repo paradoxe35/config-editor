@@ -587,7 +587,7 @@ pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
 /// Where the last segment of a dotted key starts (after its last `.` outside
 /// quotes, and any spaces), in bytes; 0 for a plain key.
 /// The byte range of segment `wanted` (from 0) of a dotted key, trimmed.
-fn segment_range(key: &str, wanted: usize) -> Option<(usize, usize)> {
+pub(super) fn segment_range(key: &str, wanted: usize) -> Option<(usize, usize)> {
     let mut quote: Option<char> = None;
     let mut segment = 0;
     let mut segment_start = 0;

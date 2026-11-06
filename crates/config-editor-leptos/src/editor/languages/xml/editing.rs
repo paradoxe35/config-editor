@@ -221,10 +221,14 @@ pub(super) fn toggle_xml_comments(
                 let open = 4 + usize::from(after_open.starts_with(' '));
                 let before_close = &trimmed[..trimmed.len() - 3];
                 let close = 3 + usize::from(before_close.len() > open && before_close.ends_with(' '));
-                let inner = unescape_comment_text(&trimmed[open..trimmed.len() - close]);
+                let raw = &trimmed[open..trimmed.len() - close];
+                let inner = unescape_comment_text(raw);
                 let inner = inner.as_str();
                 // The markers are separate edits, so a caret inside the line stays put.
                 edits.push((offset + indent_len, open, 0));
+                for (at, _) in raw.match_indices(ESCAPED_DASHES) {
+                    edits.push((offset + indent_len + open + at, ESCAPED_DASHES.len(), 2));
+                }
                 edits.push((offset + indent_len + trimmed.len() - close, close, 0));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str(inner);
@@ -233,6 +237,12 @@ pub(super) fn toggle_xml_comments(
                 let indent_len = body.len() - body.trim_start().len();
                 let trimmed = body.trim();
                 edits.push((offset + indent_len, 0, 5));
+                // Each escaped `--` grows the line (see `escape_comment_text`).
+                let mut from = 0;
+                while let Some(at) = trimmed[from..].find("--") {
+                    edits.push((offset + indent_len + from + at, 2, ESCAPED_DASHES.len()));
+                    from += at + 2;
+                }
                 edits.push((offset + indent_len + trimmed.len(), 0, 4));
                 updated.push_str(&line[..indent_len]);
                 updated.push_str("<!-- ");

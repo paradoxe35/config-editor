@@ -194,9 +194,32 @@ pub(super) fn indent_lines(
         (position as isize + delta) as usize
     };
     // As in VS Code, a selection starting at a line's start keeps covering
-    // the new indent; one starting in the line moves with its text.
-    let at_line_start = start == 0 || source.as_bytes()[start - 1] == b'\n';
-    let updated_start = map_offset(start, start == end || !at_line_start).min(updated.len());
+    // the new indent; one starting in the line moves with its text, and one
+    // inside the indentation keeps its place in it (Tab then Shift+Tab gives
+    // it back).
+    let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+    let at_line_start = start == line_start;
+    let in_indent = !at_line_start
+        && source[line_start..start]
+            .bytes()
+            .all(|byte| matches!(byte, b' ' | b'\t'));
+    let line_end = source[start..]
+        .find('\n')
+        .map_or(source.len(), |at| start + at);
+    // Edits come in line order: the start line's, if it has one, is first.
+    let start_line_edit = edits
+        .first()
+        .copied()
+        .filter(|(at, _, _)| (line_start..=line_end).contains(at));
+    let updated_start = match start_line_edit {
+        Some((_, removed, inserted)) if in_indent && start != end => {
+            let column = start - line_start;
+            let moved = (column + inserted).saturating_sub(removed);
+            map_offset(line_start, false) + moved.min(column + inserted)
+        }
+        _ => map_offset(start, start == end || !at_line_start),
+    }
+    .min(updated.len());
     let updated_end = map_offset(end, true).min(updated.len());
     let updated_selection_start = updated[..updated_start].encode_utf16().count();
     let updated_selection_end = updated[..updated_end].encode_utf16().count();
@@ -327,6 +350,7 @@ mod tests {
         fn config(&self) -> LanguageConfig {
             LanguageConfig {
                 line_comments: &["#"],
+                block_comment: None,
                 ..LanguageConfig::default()
             }
         }

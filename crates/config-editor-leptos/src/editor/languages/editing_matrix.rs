@@ -77,3 +77,61 @@ fn toggling_comments_twice_restores_the_selection() {
         failures.join("\n---\n")
     );
 }
+
+/// Ctrl+/ on lines each wrapped in the language's block comment unwraps
+/// them instead of adding a line comment.
+#[test]
+fn toggling_comments_on_block_commented_lines_unwraps_them() {
+    let text = "/* a = 1 */\n  /* b = 2 */\n";
+    let (unwrapped, _, _) = Language::HCL
+        .behavior()
+        .toggle_comments(text, 0, text.encode_utf16().count())
+        .unwrap();
+    assert_eq!(unwrapped, "a = 1\n  b = 2\n");
+    // A mixed selection is line-commented as before.
+    let mixed = "/* a = 1 */\nb = 2\n";
+    let (commented, _, _) = Language::HCL
+        .behavior()
+        .toggle_comments(mixed, 0, mixed.encode_utf16().count())
+        .unwrap();
+    assert_eq!(commented, "# /* a = 1 */\n# b = 2\n");
+}
+
+/// The caret keeps its place in the text through Ctrl+/ and back, also on an
+/// XML line whose `--` the comment escapes.
+#[test]
+fn the_caret_keeps_its_place_through_toggling_comments() {
+    let mut failures = Vec::new();
+    for (language, text, at) in [
+        (Language::YAML, "listen: 1\n", "1"),
+        (Language::TOML, "listen = 1\n", "1"),
+        (Language::HCL, "listen = 1\n", "1"),
+        (Language::XML, "<listen>a--b</listen>\n", "</listen>"),
+    ] {
+        let behavior = language.behavior();
+        let caret = text[..text.find(at).unwrap()].encode_utf16().count();
+        let Some((once, start, _)) = behavior.toggle_comments(text, caret, caret) else {
+            continue;
+        };
+        let expected_once = once
+            .find(at)
+            .map(|byte| once[..byte].encode_utf16().count());
+        if Some(start) != expected_once {
+            failures.push(format!(
+                "{}: caret at {start} in {once:?}, expected before {at:?}",
+                language.label()
+            ));
+        }
+        let Some((twice, back, _)) = behavior.toggle_comments(&once, start, start) else {
+            failures.push(format!("{}: second toggle does nothing", language.label()));
+            continue;
+        };
+        if twice != text || back != caret {
+            failures.push(format!(
+                "{}: back to {back} in {twice:?}, expected {caret}",
+                language.label()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

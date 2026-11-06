@@ -80,3 +80,30 @@ pub(super) fn hover_context_end(line: &str, column: usize) -> usize {
         _ => name_end,
     }
 }
+
+/// The document path of the element whose start-tag name is at `column`
+/// (characters, from 0) of line `line_index`, its name and start column.
+pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+    let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
+    let line = source.get(line_start..)?.split('\n').next()?;
+    let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
+    let tokens = tokenize(source);
+    let plan = plan_paths(source, &tokens);
+    let token = tokens.iter().find(|token| {
+        matches!(token.kind, Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end)
+    })?;
+    let path = plan.path_of(token.start)?;
+    if path.is_empty() {
+        return None;
+    }
+    let segments = path
+        .iter()
+        .map(|segment| match segment {
+            Seg::Key(key) => SchemaPathSegment::Key(key.clone()),
+            Seg::Index(index) => SchemaPathSegment::ArrayItem(*index),
+        })
+        .collect();
+    let name = decode_entities(&token_name(source, token));
+    let start_column = source[line_start..token.start + 1].chars().count();
+    Some((segments, name, start_column))
+}

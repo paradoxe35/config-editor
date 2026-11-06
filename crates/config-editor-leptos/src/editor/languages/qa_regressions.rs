@@ -104,7 +104,7 @@ fn a_toml_table_in_the_middle_of_a_table_is_written_inline() {
 fn an_hcl_object_without_required_keys_puts_the_caret_inside() {
     assert_eq!(
         accept(Language::HCL, "lim|\n", "limits"),
-        "limits = {\n  |\n}\n"
+        "limits {\n  |\n}\n"
     );
 }
 

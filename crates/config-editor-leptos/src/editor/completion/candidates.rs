@@ -232,8 +232,23 @@ pub(crate) fn completions(
     }
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
+    let replaces_word = replaces_word_after_caret(&context, bundle, behavior);
+    // Typed in front of a key, that key is a sibling already there.
+    if !replaces_word && let Some(word) = context.entry_after.as_deref() {
+        options.retain(|option| option.is_value || option.label != word);
+    }
     for option in &mut options {
-        frame_insert(option, &context);
+        if frame_insert(option, &context, replaces_word)
+            && let Some((name_start, name_end)) = context.paired_name
+            && name_start >= option.end
+        {
+            // The end tag gets the new name too: the insert runs through it.
+            let between_start = utf16_to_byte_index(source, option.end);
+            let between_end = utf16_to_byte_index(source, name_start);
+            option.insert.push_str(&source[between_start..between_end]);
+            option.insert.push_str(&option.label);
+            option.end = name_end;
+        }
         rename_key_with_value(option, source, cursor, behavior);
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
@@ -277,8 +292,53 @@ pub(crate) fn completions(
 
 /// Adds the context's entry prefix and suffix to an accepted insert, and lays
 /// out a multi-line insert per `context.block`.
-pub(crate) fn frame_insert(option: &mut Completion, context: &CompletionContext) {
+/// Whether the word after the caret (`cp` of `t|cp`) is the rest of the key
+/// being edited, so a suggestion replaces the whole key, rather than an
+/// existing key the user is typing in front of (`k|nodelay`). Only a word
+/// that is a known key on its own, where the whole one is not, is the
+/// latter.
+fn replaces_word_after_caret(
+    context: &CompletionContext,
+    bundle: &SchemaBundle,
+    behavior: &dyn ConfigLanguage,
+) -> bool {
+    // At a key's start the user types in front of it.
+    let Some(word) = context
+        .entry_after
+        .as_deref()
+        .filter(|word| !word.is_empty() && !context.typed.is_empty())
+    else {
+        return false;
+    };
+    let schemas = schema_at_path(
+        &bundle.schema,
+        &context.path,
+        behavior.repetition() != Repetition::None,
+    );
+    let known = |name: &str| {
+        schemas.iter().any(|schema| {
+            object_branch(schema, &bundle.schema)
+                .and_then(|branch| branch.get("properties"))
+                .and_then(Value::as_object)
+                .is_some_and(|properties| properties.contains_key(name))
+        })
+    };
+    let whole = format!("{}{word}", context.typed);
+    !(known(word) && !known(&whole))
+}
+
+/// `option` written into its context: prefixes and suffixes, a block, or a
+/// rename of the key the caret is in (`replaces_word`, see
+/// [`replaces_word_after_caret`]).
+///
+/// Returns whether the option renames that key.
+pub(crate) fn frame_insert(
+    option: &mut Completion,
+    context: &CompletionContext,
+    replaces_word: bool,
+) -> bool {
     let expand = !option.is_value && option.insert.contains('\n');
+    let mut renamed = false;
     match context.block.as_ref().filter(|_| expand) {
         Some(block) => {
             let prefix = format!(
@@ -292,10 +352,10 @@ pub(crate) fn frame_insert(option: &mut Completion, context: &CompletionContext)
             option.start = block.start;
             option.end = block.end;
         }
-        None if context
-            .entry_after
-            .as_deref()
-            .is_some_and(|word| !word.is_empty() && option.label.ends_with(word)) =>
+        None if context.names_only
+            || context.entry_after.as_deref().is_some_and(|word| {
+                !word.is_empty() && (replaces_word || option.label.ends_with(word))
+            }) =>
         {
             // The suggestion completes the key the caret is inside: rename it,
             // keeping the entry's existing separator and value.
@@ -310,6 +370,7 @@ pub(crate) fn frame_insert(option: &mut Completion, context: &CompletionContext)
                 .map_or("", |at| &option.insert[..at]);
             option.insert = format!("{lead}{}", option.label);
             option.cursor_offset = option.insert.encode_utf16().count();
+            renamed = true;
         }
         None => {
             option.insert.insert_str(0, &context.entry_prefix);
@@ -321,6 +382,7 @@ pub(crate) fn frame_insert(option: &mut Completion, context: &CompletionContext)
             option.cursor_offset += context.entry_prefix.encode_utf16().count();
         }
     }
+    renamed
 }
 
 pub(super) fn completions_for_context(

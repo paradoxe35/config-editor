@@ -15,6 +15,16 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
+    // With a selection, the list opens at its end, the selection let go
+    // (otherwise a selection closes the list, and Enter would replace it).
+    if let Some(element) = state.textarea()
+        && let (Ok(Some(start)), Ok(Some(end))) =
+            (element.selection_start(), element.selection_end())
+        && start != end
+    {
+        let _ = element.set_selection_range(end, end);
+        state.note_caret(end as usize);
+    }
     state.active_completion.set(0);
     state.explicit_request.set(true);
     state.suggestions_requested.set(true);

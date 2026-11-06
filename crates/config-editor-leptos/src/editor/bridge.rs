@@ -189,11 +189,34 @@ fn merge_changes(
         (Value::Object(host), Value::Object(seen), Value::Object(edited)) => {
             // In the host's key order (the edit language may order keys its
             // own way: TOML puts plain keys before tables).
+            // A renamed key: gone from the edit, and a new key holding what
+            // the edit showed for it. It keeps its place and the host's own
+            // value (which the edit language may not show exactly).
+            let mut renamed_to: Vec<(&String, &String)> = Vec::new();
+            for (key, value) in edited {
+                if host.contains_key(key) {
+                    continue;
+                }
+                let from = host.keys().find(|old| {
+                    !edited.contains_key(*old)
+                        && seen.get(*old) == Some(value)
+                        && !renamed_to.iter().any(|(taken, _)| taken == old)
+                });
+                if let Some(from) = from {
+                    renamed_to.push((from, key));
+                }
+            }
             let mut entries: Vec<(String, Value)> = Vec::new();
             for (key, host_value) in host {
                 match (seen.get(key), edited.get(key)) {
                     (Some(seen_value), Some(value)) => {
                         entries.push((key.clone(), merge_changes(host_value, seen_value, value)));
+                    }
+                    // Renamed by the user.
+                    (Some(_), None)
+                        if let Some((_, to)) = renamed_to.iter().find(|(from, _)| *from == key) =>
+                    {
+                        entries.push(((*to).clone(), host_value.clone()));
                     }
                     // Removed by the user.
                     (Some(_), None) => {}
@@ -207,7 +230,8 @@ fn merge_changes(
             // key keeps its place.
             let mut previous: Option<&String> = None;
             for (key, value) in edited {
-                if !host.contains_key(key) {
+                let renamed = renamed_to.iter().any(|(_, to)| *to == key);
+                if !host.contains_key(key) && !renamed {
                     let at = previous
                         .and_then(|before| entries.iter().position(|(name, _)| name == before))
                         .map_or(0, |index| index + 1);

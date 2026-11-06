@@ -34,7 +34,7 @@ use super::super::completion::{
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -59,6 +59,7 @@ impl ConfigLanguage for HclBehavior {
     fn config(&self) -> LanguageConfig {
         LanguageConfig {
             line_comments: &["#", "//"],
+            block_comment: Some(("/*", "*/")),
             brackets: &[('{', '}'), ('[', ']')],
             separators: &["=", ":"],
         }
@@ -132,7 +133,7 @@ impl ConfigLanguage for HclBehavior {
         root: &Value,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        property_insert(key, property, root, context.base_indent, context.unit)
+        property_insert(key, property, root, context.base_indent, context.unit, context.position == EntryPosition::Block)
     }
 
     fn format_value(&self, value: &Value) -> String {

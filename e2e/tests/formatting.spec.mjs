@@ -75,7 +75,7 @@ test.describe('HCL', () => {
     const e = editor(page);
     await typeAt(page, e, 'web {\n  |\n}\n', 'letsenc');
     await acceptWithEnter(page, e, 'letsencrypt');
-    await expect(e.input).toHaveValue('web {\n  letsencrypt = {\n    email = ""\n  }\n}\n');
+    await expect(e.input).toHaveValue('web {\n  letsencrypt {\n    email = ""\n  }\n}\n');
   });
 });
 

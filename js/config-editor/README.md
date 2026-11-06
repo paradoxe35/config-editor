@@ -42,6 +42,8 @@ which works with bundlers that copy it (Vite, webpack 5, Parcel). When yours
 does not, pass its URL:
 
 ```js
+import init from "@pngwasi/config-editor";
+
 // Vite
 import wasmUrl from "@pngwasi/config-editor/config_editor_bg.wasm?url";
 await init({ module_or_path: wasmUrl });
@@ -58,40 +60,40 @@ Mounts an editor into `element` (an `HTMLElement`; its previous content is
 replaced, editors included). Options are type-checked: a value of the wrong type
 throws, and an unknown option name is reported in the console.
 
-| Option           | Type                         | Default          | Purpose                                                                                                                                             |
-| ---------------- | ---------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `language`       | `string`                     | `"yaml"`         | Language of the document: `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. `value`, `baseline` and `onChange` are always in it. |
-| `value`          | `string`                     | `""`             | The document.                                                                                                                                       |
-| `editAs`         | `string`                     | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                               |
-| `schema`         | `string`                     | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                    |
-| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against.                                                                                                              |
-| `theme`          | `string`                     | `"vscode-dark"`  | A theme slug; see `themes()`.                                                                                                                       |
-| `colors`         | `Record<string, string>`     | —                | CSS colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …); see `colorTokens()`.                                           |
-| `readOnly`       | `boolean`                    | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                               |
-| `fileName`       | `string`                     | `untitled.<ext>` | Shown in the toolbar.                                                                                                                               |
-| `showToolbar`    | `boolean`                    | `false`          | File name, schema state and language.                                                                                                               |
-| `showFooter`     | `boolean`                    | `false`          | Problem counts and line count.                                                                                                                      |
-| `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                     |
-| `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                              |
-| `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                |
+| Option           | Type                         | Default          | Purpose                                                                                                                                                                                                       |
+| ---------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `language`       | `string`                     | `"yaml"`         | Language of the document: `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"` (any case, or a file extension such as `"yml"` or `"tf"`), or a registered one. `value`, `baseline` and `onChange` are always in it. |
+| `value`          | `string`                     | `""`             | The document.                                                                                                                                                                                                 |
+| `editAs`         | `string`                     | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                         |
+| `schema`         | `string`                     | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                                                                              |
+| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against.                                                                                                                                                                        |
+| `theme`          | `string`                     | `"vscode-dark"`  | A theme slug; see `themes()`.                                                                                                                                                                                 |
+| `colors`         | `Record<string, string>`     | —                | CSS colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …); see `colorTokens()`.                                                                                                     |
+| `readOnly`       | `boolean`                    | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                         |
+| `fileName`       | `string`                     | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                         |
+| `showToolbar`    | `boolean`                    | `false`          | File name, schema state and language.                                                                                                                                                                         |
+| `showFooter`     | `boolean`                    | `false`          | Problem counts and line count.                                                                                                                                                                                |
+| `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
+| `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
+| `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
 
 ### Instance members
 
-| Member                                         | Description                                                                                                                        |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `value` (getter)                               | The current document, in `language`. Still readable after `destroy()`.                                                             |
-| `setValue(text)`                               | Replace the document (for example after loading a file). The caret stays on the same text when possible.                           |
-| `setBaseline(text)`                            | Set the diff baseline; pass the saved text to clear the diff.                                                                      |
-| `setEditAs(language \| null)` | Switch the editing language live; `null` edits in `language` again. The language must be able to write documents (a registered one needs `serialize`). |
-| `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                       |
-| `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                    |
-| `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                  |
-| `setCallbacks({ onChange?, onEditAsChange? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                     |
-| `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`. |
-| `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. |
+| Member                                         | Description                                                                                                                                                                              |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value` (getter)                               | The current document, in `language`. Still readable after `destroy()`.                                                                                                                   |
+| `setValue(text)`                               | Replace the document (for example after loading a file). The caret stays on the same text when possible.                                                                                 |
+| `setBaseline(text)`                            | Set the diff baseline; pass the saved text to clear the diff.                                                                                                                            |
+| `setEditAs(language \| null)`                  | Switch the editing language live; `null` edits in `language` again. The language must be able to write documents (a registered one needs `serialize`).                                   |
+| `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
+| `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
+| `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
+| `setCallbacks({ onChange?, onEditAsChange? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                                           |
+| `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
+| `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -139,12 +141,16 @@ convert("yaml", "listen: 7835\n", "toml");
 ## Languages written in JavaScript
 
 ```js
-import { registerLanguage, ConfigEditor, convert } from "@pngwasi/config-editor";
+import {
+  registerLanguage,
+  ConfigEditor,
+  convert,
+} from "@pngwasi/config-editor";
 
 const env = registerLanguage({
   label: "ENV", // its name is the label lowercased: "env"
-  icon: "E", // optional, toolbar icon
-  extensions: ["env"], // optional
+  icon: "E", // optional, toolbar icon: one or two letters
+  extensions: ["env"], // optional, an array
   parse(text) {
     // Return a JSON value, or throw { message, line?, column? }.
     return Object.fromEntries(
@@ -175,7 +181,7 @@ const env = registerLanguage({
     // "key" | "string" | "value" | "literal" | "comment" | "punctuation".
   },
   // Optional syntax, as in VS Code's language configuration:
-  comments: { lineComment: "#" }, // Ctrl+/ (a list: the first is written)
+  comments: { lineComment: "#" }, // Ctrl+/ (a list: the first is written); blockComment: ["/*", "*/"] is unwrapped
   brackets: [
     ["{", "}"],
     ["[", "]"],

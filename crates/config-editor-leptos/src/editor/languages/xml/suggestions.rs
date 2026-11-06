@@ -158,30 +158,6 @@ pub(super) fn tag_completion_context(
 ..Default::default()
         };
     }
-    // Just after the name of a complete tag (`<host|>`) the context is the
-    // element's own value, addressed from its parent: hover reads schema
-    // documentation there.
-    if let Some(tag) = snapshot.open_tag
-        && matches!(tag.kind, Kind::OpenTag { name_end, .. } if name_end == cursor)
-        && source[cursor..]
-            .trim_start_matches([' ', '\t'])
-            .starts_with(['>', '/'])
-    {
-        return CompletionContext {
-            path,
-            typed: String::new(),
-            replace_start: replace_end,
-            replace_end,
-            value_key: Some(token_name(source, &tag)),
-            value_needs_space: false,
-            is_array_item: false,
-            base_indent,
-            entry_prefix: String::new(),
-            explicit_entry_start: false,
-            entry_suffix: String::new(),
-..Default::default()
-        };
-    }
     // The insert carries its own `<`, so the replaced range starts at it.
     if let Some(tag) = snapshot
         .open_tag
@@ -196,6 +172,13 @@ pub(super) fn tag_completion_context(
             _ => cursor,
         };
         let name_after = (name_end > cursor).then(|| source[cursor..name_end].to_string());
+        // A complete tag (`<hea|>`, `<tc|p/>`) is renamed, not rebuilt.
+        let complete = source[..tag.end].ends_with('>');
+        // The end tag's name, renamed with the start tag's.
+        let paired_name = (name_after.is_some() || complete)
+            .then(|| end_tag_name(source, tag.start))
+            .flatten()
+            .map(|(start, end)| (cursor_bytes(source, start), cursor_bytes(source, end)));
         let entry_suffix = if name_after.is_some() { format!("\n{base_indent}<") } else { String::new() };
         return CompletionContext {
             block: xml_block(source, tag.start.min(cursor), cursor).filter(|_| name_after.is_none()),
@@ -210,7 +193,9 @@ pub(super) fn tag_completion_context(
             entry_prefix: String::new(),
             explicit_entry_start: true,
             entry_suffix,
+            names_only: complete && name_after.is_none(),
             entry_after: name_after,
+            paired_name,
 ..Default::default()
         };
     }
@@ -546,4 +531,28 @@ pub(super) fn escape_text(text: &str) -> String {
 
 pub(super) fn escape_attribute(text: &str) -> String {
     escape_text(text).replace('"', "&quot;")
+}
+
+/// The byte range of the name in the end tag matching the start tag at
+/// `tag_start`, if it has one.
+pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usize)> {
+    let tokens = tokenize(source);
+    let index = tokens.iter().position(|token| token.start == tag_start)?;
+    if source[..tokens[index].end].ends_with("/>") || !source[..tokens[index].end].ends_with('>') {
+        return None;
+    }
+    let mut depth = 0usize;
+    for token in &tokens[index + 1..] {
+        match token.kind {
+            Kind::OpenTag { .. } if !source[..token.end].ends_with("/>") => depth += 1,
+            Kind::EndTag if depth == 0 => {
+                let start = token.start + 2;
+                let name = token_name(source, token);
+                return Some((start, start + name.len()));
+            }
+            Kind::EndTag => depth -= 1,
+            _ => {}
+        }
+    }
+    None
 }

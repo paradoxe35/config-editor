@@ -67,11 +67,24 @@ pub(super) fn hide(
                 || line.matches('<').count() >= 4
         })
         .collect();
-    if lines.is_empty() {
+    // A list opened at a line's end (`allow = [`) spans lines; the
+    // serializer writes it on one.
+    let multi_line_lists = previous.lines().any(|line| {
+        line[..super::comment_start(language, line)]
+            .trim_end()
+            .ends_with('[')
+    });
+    if lines.is_empty() && !multi_line_lists {
         return None;
     }
     let mut candidates = Vec::new();
-    collect(old, &lines, String::new(), &mut candidates);
+    collect(
+        old,
+        &lines,
+        multi_line_lists,
+        String::new(),
+        &mut candidates,
+    );
     let spans = language.value_spans(previous, &candidates);
     let mut found: Vec<(String, OneLine)> = Vec::new();
     // Outermost first (`collect` lists parents before their children).
@@ -83,7 +96,17 @@ pub(super) fn hide(
             continue;
         }
         let one_line = span
-            .and_then(|span| braced_one_line(previous, span))
+            .and_then(|span| {
+                braced_one_line(previous, span).or_else(|| {
+                    // A list over lines that stays a list but changes is
+                    // edited in place (see `lists`); kept, deleted or
+                    // replaced by a value, it is hidden like the others.
+                    let now = new.pointer(&pointer);
+                    (now == old.pointer(&pointer) || !now.is_some_and(Value::is_array))
+                        .then(|| multi_line_list(language, previous, span))
+                        .flatten()
+                })
+            })
             .map(|range| OneLine {
                 range: range.clone(),
                 written: String::new(),
@@ -114,47 +137,105 @@ pub(super) fn hide(
         let written = format!("{}{}", one_line.written, language.format_value(&marker));
         kept.host.replace_range(one_line.range, &written);
         let slot = kept.old.pointer_mut(&pointer)?;
-        values.push((std::mem::replace(slot, marker.clone()), marker));
+        values.push((
+            pointer.clone(),
+            std::mem::replace(slot, marker.clone()),
+            marker,
+        ));
         kept.texts.push((name, one_line.written, text, value));
     }
-    // The new value holds a kept container wherever it holds an equal one:
-    // items may have moved (the first of a list deleted).
+    // The new value holds a kept container where it was, or where list
+    // items moved it (the first of a list deleted); an equal container under
+    // another key is its own and stays.
     values.reverse();
-    hide_equal(&mut kept.new, &values);
+    let mut used = Vec::new();
+    for (pointer, container, marker) in values {
+        let mut places = Vec::new();
+        same_place(
+            &kept.new,
+            &pointer_segments_of(&pointer),
+            String::new(),
+            &mut places,
+        );
+        // Its own pointer first, then shifted items in order.
+        places.sort_by_key(|place| *place != pointer);
+        if let Some(place) = places
+            .into_iter()
+            .find(|place| !used.contains(place) && kept.new.pointer(place) == Some(&container))
+        {
+            if let Some(slot) = kept.new.pointer_mut(&place) {
+                *slot = marker;
+            }
+            used.push(place);
+        }
+    }
     Some(kept)
 }
 
-/// Replaces each container in `value` equal to a kept one with its marker.
-fn hide_equal(value: &mut Value, kept: &[(Value, Value)]) {
-    if let Some((_, marker)) = kept.iter().find(|(container, _)| container == value) {
-        *value = marker.clone();
+/// The segments of a JSON pointer, still escaped.
+fn pointer_segments_of(pointer: &str) -> Vec<String> {
+    pointer.split('/').skip(1).map(str::to_string).collect()
+}
+
+/// Pointers in `value` along `segments`, where a list index may be any index
+/// of that list.
+fn same_place(value: &Value, segments: &[String], pointer: String, out: &mut Vec<String>) {
+    let Some((first, rest)) = segments.split_first() else {
+        out.push(pointer);
         return;
-    }
+    };
     match value {
-        Value::Object(map) => map.values_mut().for_each(|child| hide_equal(child, kept)),
-        Value::Array(items) => items.iter_mut().for_each(|child| hide_equal(child, kept)),
+        Value::Array(items) if first.parse::<usize>().is_ok() => {
+            for (index, item) in items.iter().enumerate() {
+                same_place(item, rest, format!("{pointer}/{index}"), out);
+            }
+        }
+        Value::Object(map) => {
+            let key = first.replace("~1", "/").replace("~0", "~");
+            if let Some(child) = map.get(&key) {
+                same_place(child, rest, format!("{pointer}/{first}"), out);
+            }
+        }
         _ => {}
     }
 }
 
 /// Pointers of the containers in `old` that may be written on one of
 /// `lines`, parents before children.
-fn collect(old: &Value, lines: &[&str], pointer: String, out: &mut Vec<String>) {
+fn collect(
+    old: &Value,
+    lines: &[&str],
+    multi_line_lists: bool,
+    pointer: String,
+    out: &mut Vec<String>,
+) {
     if !pointer.is_empty()
         && (old.is_object() || old.is_array())
-        && on_one_line(&pointer, old, lines)
+        && ((multi_line_lists && old.is_array()) || on_one_line(&pointer, old, lines))
     {
         out.push(pointer.clone());
     }
     match old {
         Value::Object(map) => {
             for (key, value) in map {
-                collect(value, lines, format!("{pointer}/{}", escape(key)), out);
+                collect(
+                    value,
+                    lines,
+                    multi_line_lists,
+                    format!("{pointer}/{}", escape(key)),
+                    out,
+                );
             }
         }
         Value::Array(items) => {
             for (index, value) in items.iter().enumerate() {
-                collect(value, lines, format!("{pointer}/{index}"), out);
+                collect(
+                    value,
+                    lines,
+                    multi_line_lists,
+                    format!("{pointer}/{index}"),
+                    out,
+                );
             }
         }
         _ => {}
@@ -219,4 +300,54 @@ fn braced_one_line(previous: &str, span: Span) -> Option<Range<usize>> {
     };
     let end = start + matching_close(text, close)? + 1;
     Some(line_start + start..line_start + end)
+}
+
+/// The byte range of the list marked by `span` when it opens at its line's
+/// end and closes on a later line (`allow = [` … `]`), comments skipped.
+pub(super) fn multi_line_list(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    span: Span,
+) -> Option<Range<usize>> {
+    let line_start: usize = previous
+        .split_inclusive('\n')
+        .take(span.line.checked_sub(1)?)
+        .map(str::len)
+        .sum();
+    let line = previous[line_start..].split('\n').next()?;
+    let start = line_start
+        + line
+            .char_indices()
+            .nth(span.start_column.saturating_sub(1))
+            .map_or(line.len(), |(index, _)| index);
+    if !previous[start..].starts_with('[') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut offset = line_start;
+    for line in previous[line_start..].split_inclusive('\n') {
+        let code_end = offset + super::comment_start(language, line.trim_end_matches('\n'));
+        let from = start.max(offset);
+        let mut quote: Option<char> = None;
+        let mut previous_char = ' ';
+        for (index, character) in previous[from..code_end.max(from)].char_indices() {
+            match quote {
+                Some(open) if character == open && previous_char != '\\' => quote = None,
+                Some(_) => {}
+                None if matches!(character, '"' | '\'') => quote = Some(character),
+                None if matches!(character, '[' | '{') => depth += 1,
+                None if matches!(character, ']' | '}') => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        let end = from + index + 1;
+                        return previous[start..end].contains('\n').then_some(start..end);
+                    }
+                }
+                None => {}
+            }
+            previous_char = character;
+        }
+        offset += line.len();
+    }
+    None
 }

@@ -293,3 +293,209 @@ fn an_xml_element_name_typed_at_an_existing_tag_keeps_it_an_element() {
     }
     report(failures);
 }
+
+/// `tcp` holding a nested object entry written `entry` (caret inside), whose
+/// XML end tag is `end`.
+fn nested_forms(language: Language, entry: &str, end: &str) -> Vec<(&'static str, String)> {
+    match language.label() {
+        "YAML" => vec![
+            ("block", format!("tcp:\n  {entry}: true\n")),
+            ("flow", format!("tcp: {{{entry}: true}}\n")),
+        ],
+        "JSON" => vec![(
+            "object",
+            format!("{{\n  \"tcp\": {{\n    \"{entry}\": true\n  }}\n}}\n"),
+        )],
+        "TOML" => vec![
+            ("table", format!("[tcp]\n{entry} = true\n")),
+            ("inline", format!("tcp = {{{entry} = true}}\n")),
+        ],
+        "HCL" => vec![
+            ("block", format!("tcp {{\n  {entry} = true\n}}\n")),
+            ("inline", format!("tcp = {{{entry} = true}}\n")),
+        ],
+        _ => vec![
+            ("attribute", format!("<tcp {entry}=\"true\"/>\n")),
+            (
+                "element",
+                format!("<tcp>\n  <{entry}>true</{end}>\n</tcp>\n"),
+            ),
+        ],
+    }
+}
+
+/// With the caret inside a key that is not a known one (`k|delay`), a
+/// suggestion replaces the whole key and keeps its value, as in VS Code.
+#[test]
+fn a_suggestion_accepted_inside_an_unknown_key_replaces_the_whole_key() {
+    let mut failures = Vec::new();
+    for language in ALL {
+        for (form, marked) in nested_forms(language, "k|delay", "kdelay") {
+            let case = format!("{} {form}: {marked:?}", language.label());
+            match accepted(language, &marked, "keepalive_secs").and_then(|text| {
+                let value =
+                    parsed(language, &text).map_err(|error| format!("{error}: {text:?}"))?;
+                Ok((text, value))
+            }) {
+                Ok((text, value)) => {
+                    let keys = keys_at(&value, &["tcp"]);
+                    if keys != ["keepalive_secs"] {
+                        failures.push(format!("{case} → {text:?} has keys {keys:?}"));
+                    }
+                }
+                Err(error) => failures.push(format!("{case} → {error}")),
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A container's own name: the caret inside it (`t|cp`) and a suggestion
+/// accepted renames it, children kept; typed in front of it (`hea|tcp`), a
+/// new entry goes before it. Either way the document still parses.
+#[test]
+fn a_suggestion_accepted_at_a_container_name_renames_it_or_goes_before_it() {
+    let containers = |language: Language, name: &str, end: &str| -> Vec<(&'static str, String)> {
+        match language.label() {
+            "YAML" => vec![("block", format!("{name}:\n  nodelay: true\n"))],
+            "JSON" => vec![(
+                "object",
+                format!("{{\n  \"{name}\": {{\n    \"nodelay\": true\n  }}\n}}\n"),
+            )],
+            "TOML" => vec![("inline", format!("{name} = {{ nodelay = true }}\n"))],
+            "HCL" => vec![
+                ("block", format!("{name} {{\n  nodelay = true\n}}\n")),
+                (
+                    "labelled",
+                    format!("{name} \"web\" {{\n  mode = \"balance\"\n}}\n"),
+                ),
+            ],
+            _ => vec![(
+                "element",
+                format!(
+                    "<burrow config-root=\"true\">\n  <{name}>\n    <nodelay>true</nodelay>\n  </{end}>\n</burrow>\n"
+                ),
+            )],
+        }
+    };
+    let mut failures = Vec::new();
+    for language in ALL {
+        // Inside the name: renamed. (JSON keys sit inside quotes, as above.)
+        for (form, marked) in containers(language, "t|cp", "tcp") {
+            let case = format!("{} {form} rename: {marked:?}", language.label());
+            match accepted(language, &marked, "metrics")
+                .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+            {
+                Ok((text, value)) => {
+                    let keys = keys_at(&value, &[]);
+                    if !(keys.contains(&"metrics".to_string())
+                        && !keys.contains(&"tcp".to_string())
+                        && !keys.iter().any(|key| key.contains("cp")))
+                    {
+                        failures.push(format!("{case} → {text:?} keys {keys:?}"));
+                    }
+                }
+                Err(error) => failures.push(format!("{case} → {error}")),
+            }
+        }
+        if language.label() == "JSON" || language.label() == "TOML" {
+            continue;
+        }
+        // In front of the name: a new entry, the container kept.
+        for (form, marked) in containers(language, "hea|tcp", "tcp") {
+            let case = format!("{} {form} in front: {marked:?}", language.label());
+            match accepted(language, &marked, "heartbeat")
+                .and_then(|text| parsed(language, &text).map(|value| (text, value)))
+            {
+                Ok((text, value)) => {
+                    let keys = keys_at(&value, &[]);
+                    let kept = keys.contains(&"tcp".to_string())
+                        || keys.contains(&"services".to_string())
+                        || form == "labelled";
+                    if !(keys.contains(&"heartbeat".to_string()) && kept && text.contains("tcp")) {
+                        failures.push(format!("{case} → {text:?} keys {keys:?}"));
+                    }
+                }
+                Err(error) => failures.push(format!("{case} → {error}")),
+            }
+        }
+    }
+    report(failures);
+}
+
+/// The key the caret stands at the start of is already in the document: it
+/// is not offered again.
+#[test]
+fn the_key_at_the_caret_is_not_offered_again() {
+    let cases: Vec<(Language, &str)> = vec![
+        (Language::YAML, "|tcp:\n  nodelay: true\n"),
+        (Language::HCL, "|tcp {\n  nodelay = true\n}\n"),
+        (Language::TOML, "|tcp = { nodelay = true }\n"),
+        (
+            Language::XML,
+            "<burrow config-root=\"true\">\n  <|tcp/>\n</burrow>\n",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (language, marked) in cases {
+        let labels = offered(language, marked);
+        if labels.contains(&"tcp".to_string()) {
+            failures.push(format!("{} {marked:?} offers tcp", language.label()));
+        }
+    }
+    report(failures);
+}
+
+/// A key typed in front of a TOML `[table]` header goes on its own line,
+/// before the table, and the document still parses.
+#[test]
+fn a_toml_key_typed_in_front_of_a_header_goes_before_it() {
+    let text = accepted(Language::TOML, "hea|[tcp]\nnodelay = true\n", "heartbeat").unwrap();
+    let value = parsed(Language::TOML, &text).unwrap_or_else(|error| panic!("{error}: {text:?}"));
+    assert_eq!(keys_at(&value, &[]), ["heartbeat", "tcp"], "{text:?}");
+    assert_eq!(keys_at(&value, &["tcp"]), ["nodelay"], "{text:?}");
+    // A scalar waits for its value on its own line.
+    let text = accepted(Language::TOML, "lis|[tcp]\nnodelay = true\n", "listen").unwrap();
+    assert!(
+        text.starts_with("listen = ") && text.contains("\n[tcp]\nnodelay = true"),
+        "{text:?}"
+    );
+}
+
+/// An XML element name typed right before the tag's end (`<hea|>`,
+/// `<hea|/>`) gets name suggestions like anywhere else in the name.
+#[test]
+fn an_xml_name_before_the_tag_end_gets_suggestions() {
+    let root = |body: &str| format!("<burrow config-root=\"true\">\n  {body}\n</burrow>\n");
+    let mut failures = Vec::new();
+    for marked in [root("<hea|/>"), root("<hea|></hea>"), root("<hea|>")] {
+        let labels = offered(Language::XML, &marked);
+        if !labels.contains(&"heartbeat".to_string()) {
+            failures.push(format!("{marked:?} offers {labels:?}"));
+        }
+    }
+    report(failures);
+}
+
+/// Accepting a name at the end of a complete tag's name renames the
+/// element, end tag included.
+#[test]
+fn an_xml_name_accepted_at_the_end_of_a_complete_tag_renames_it() {
+    let root = |body: &str| format!("<burrow config-root=\"true\">\n  {body}\n</burrow>\n");
+    let mut failures = Vec::new();
+    for (marked, expected) in [
+        (root("<hea|></hea>"), root("<heartbeat></heartbeat>")),
+        (root("<hea|/>"), root("<heartbeat/>")),
+        (
+            root("<hea|>\n    <interval_secs>5</interval_secs>\n  </hea>"),
+            root("<heartbeat>\n    <interval_secs>5</interval_secs>\n  </heartbeat>"),
+        ),
+    ] {
+        match accepted(Language::XML, &marked, "heartbeat") {
+            Ok(text) if text == expected => {}
+            Ok(text) => failures.push(format!("{marked:?} → {text:?}")),
+            Err(error) => failures.push(format!("{marked:?} → {error}")),
+        }
+    }
+    report(failures);
+}

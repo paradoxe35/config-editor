@@ -319,6 +319,59 @@ fn opener_line(source: &str, byte: usize, opener: char, closer: char) -> Option<
     Some(source[..index].rfind('\n').map_or(0, |newline| newline + 1))
 }
 
+/// Ctrl+/ on lines that are each wrapped in a block comment (`/* a = 1 */`):
+/// the markers removed. `None` when any selected line is not wrapped, so
+/// line comments take over. Offsets are UTF-16; returns the text and the
+/// selection over the unwrapped lines.
+pub fn unwrap_block_comments(
+    source: &str,
+    selection_start: usize,
+    selection_end: usize,
+    (open, close): (&str, &str),
+) -> Option<(String, usize, usize)> {
+    let start = utf16_to_byte_index(source, selection_start);
+    let end = utf16_to_byte_index(source, selection_end);
+    let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+    let last_end = source[end..].find('\n').map_or(source.len(), |at| end + at);
+    let block = &source[first_start..last_end];
+    let wrapped = |line: &str| {
+        let trimmed = line.trim();
+        trimmed.len() >= open.len() + close.len()
+            && trimmed.starts_with(open)
+            && trimmed.ends_with(close)
+    };
+    let mut content = block
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .peekable();
+    if content.peek().is_none() || !content.all(wrapped) {
+        return None;
+    }
+    let unwrapped: Vec<String> = block
+        .split('\n')
+        .map(|line| {
+            if line.trim().is_empty() {
+                return line.to_string();
+            }
+            let indent = &line[..line.len() - line.trim_start().len()];
+            let inner = &line.trim()[open.len()..line.trim().len() - close.len()];
+            format!("{indent}{}", inner.trim())
+        })
+        .collect();
+    let replaced = unwrapped.join("\n");
+    let updated = format!(
+        "{}{replaced}{}",
+        &source[..first_start],
+        &source[last_end..]
+    );
+    let utf16 = |byte: usize| updated[..byte].encode_utf16().count();
+    Some((
+        updated.clone(),
+        utf16(first_start),
+        utf16(first_start + replaced.len()),
+    ))
+}
+
 /// Ctrl+/ for line-comment languages: the selected lines (UTF-16 offsets)
 /// commented at the block's smallest indent with `markers[0]`, or, when every
 /// non-blank line already starts with one of `markers`, uncommented. Returns
@@ -542,6 +595,13 @@ pub struct CompletionContext {
     /// other is inserted before the entry, `entry_suffix` moving the entry to
     /// its own line.
     pub entry_after: Option<String>,
+    /// Where the key being renamed is written a second time (UTF-16 range of
+    /// an XML end tag's name): a suggestion that renames the key writes it
+    /// there too.
+    pub paired_name: Option<(usize, usize)>,
+    /// The caret ends a name in a complete tag (`<hea|>`, `<hea|/>`): a
+    /// suggestion writes just the name (and its `paired_name`).
+    pub names_only: bool,
 }
 
 /// Splits a JSON pointer into unescaped segments.
@@ -663,6 +723,7 @@ pub struct Lexical {
 ///
 /// const INI: LanguageConfig = LanguageConfig {
 ///     line_comments: &[";", "#"],
+///     block_comment: None,
 ///     brackets: &[],
 ///     separators: &["="],
 /// };
@@ -672,6 +733,9 @@ pub struct LanguageConfig {
     /// Markers that start a comment running to the end of the line. `Ctrl+/`
     /// writes the first; all of them are recognized.
     pub line_comments: &'static [&'static str],
+    /// The markers around a block comment (`("/*", "*/")`), if the language
+    /// has them: `Ctrl+/` on lines each wrapped in one unwraps them.
+    pub block_comment: Option<(&'static str, &'static str)>,
     /// Bracket pairs: Enter between them opens an indented line, and a closer
     /// typed on its own line aligns with its opener.
     pub brackets: &'static [(char, char)],
@@ -850,12 +914,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         selection_start: usize,
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
-        toggle_line_comments(
-            source,
-            selection_start,
-            selection_end,
-            self.config().line_comments,
-        )
+        let config = self.config();
+        config
+            .block_comment
+            .and_then(|block| unwrap_block_comments(source, selection_start, selection_end, block))
+            .or_else(|| {
+                toggle_line_comments(source, selection_start, selection_end, config.line_comments)
+            })
     }
 
     /// Text to insert after the caret when `typed` is typed at `cursor`

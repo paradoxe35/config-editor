@@ -47,6 +47,7 @@ impl ConfigLanguage for JsonBehavior {
     fn config(&self) -> LanguageConfig {
         LanguageConfig {
             line_comments: &[],
+            block_comment: None,
             brackets: &[('{', '}'), ('[', ']')],
             separators: &[":"],
         }

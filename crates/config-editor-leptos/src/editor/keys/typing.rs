@@ -91,10 +91,27 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
 /// Typed over: closers the editor wrote, and the quote that ends the
 /// string the caret is in.
 fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
+    let source = state.source.get_untracked();
+    // A `>` typed before a tag's own `>` (`<tcp|></tcp>`) in a markup
+    // language moves over it rather than closing the tag a second time.
+    if typed == '>' && state.behavior().closing_markup_len("</a>").is_some() {
+        let byte = utf16_to_byte_index(&source, start);
+        if source[byte..].starts_with('>')
+            && state
+                .behavior()
+                .lexical_state(&source, start)
+                .quote
+                .is_none()
+        {
+            event.prevent_default();
+            state.place_caret(start + 1);
+            return true;
+        }
+        return false;
+    }
     if !matches!(typed, ')' | ']' | '}' | '"' | '\'') {
         return false;
     }
-    let source = state.source.get_untracked();
     let ours = state.closer_at(start).is_some();
     let ends_string = matches!(typed, '"' | '\'')
         && state.behavior().lexical_state(&source, start).quote == Some(typed);

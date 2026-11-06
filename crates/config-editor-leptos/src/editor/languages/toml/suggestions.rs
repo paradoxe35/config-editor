@@ -212,6 +212,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let indent: String = line.chars().take_while(|character| matches!(character, ' ' | '\t')).collect();
     // A `[table]` header here would capture every key below it in this table,
     // so tables are written inline when more keys follow.
+    let before_header = parse_header(rest.trim()).is_some();
     let keys_follow = splits
         || lines
             .iter()
@@ -224,9 +225,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         replace_start: utf16(&source[..query_start]),
         replace_end: utf16(&source[..cursor]),
         path,
-        entry_suffix: if splits { format!("\n{indent}") } else { String::new() },
+        // In front of a `[table]` header the entry gets a line of its own.
+        entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
         entry_after: splits.then_some(word_after),
-        position: if keys_follow { EntryPosition::Inline } else { EntryPosition::Block },
+        position: if keys_follow && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
         ..Default::default()
     }
 }

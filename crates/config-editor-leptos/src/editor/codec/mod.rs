@@ -3,6 +3,7 @@
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
 mod kept_inline;
+mod lists;
 mod renames;
 
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
@@ -147,6 +148,23 @@ pub(super) fn patch_scalars(
             range.end -= 1;
         }
         let mut text = language.format_value(value);
+        // A triple-quoted string (`"""` … `"""`) runs to its closing
+        // delimiter, and text with line breaks is written back that way.
+        if let Some(delimiter) = triple_quote_at(previous, range.start) {
+            range.end = through_triple_quote(previous, range.clone());
+            if let Value::String(body) = value
+                && body.contains('\n')
+            {
+                text = if delimiter == "'''" && !body.contains("'''") {
+                    format!("'''\n{body}'''")
+                } else {
+                    format!(
+                        "\"\"\"\n{}\"\"\"",
+                        body.replace('\\', "\\\\").replace("\"\"\"", "\"\"\\\"")
+                    )
+                };
+            }
+        }
         // A value the host wrote in quotes keeps them when the new one is
         // formatted bare (an XML attribute's `"…"`).
         let written = &previous[range.clone()];
@@ -213,6 +231,20 @@ pub(super) fn patch_inline(
             && read(language, &patched, schema).ok().as_ref() == Some(new)
         {
             return Some(patched);
+        }
+        // A list written one item per line (`allow = [` … `]`).
+        if let Some(span) = span
+            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(Value::Array(items)) = new.pointer(&pointer)
+            && let Some(Value::Array(before)) = old.pointer(&pointer)
+            && let Some(text) =
+                lists::rewrite_list_lines(language, &previous[range.clone()], before, items)
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(range, &text);
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
         }
         // A one-line block or element (`tcp { nodelay = true }`).
         if let Some(one_line) = language.one_line_container(previous, &pointer)
@@ -461,8 +493,32 @@ fn patch_lines(
         while top > 0 && is_comment(host[top - 1]) {
             top -= 1;
         }
-        // Comments at the very top, with nothing above, are the file's header.
+        // Comments at the very top are the file's header, unless they name
+        // the entry right below them (`# tcp` over `tcp { … }`).
         if top == 0 {
+            let key: String = host[index]
+                .trim_start()
+                .trim_start_matches(['<', '[', '"'])
+                .chars()
+                .take_while(|character| {
+                    character.is_alphanumeric() || matches!(character, '_' | '-')
+                })
+                .collect::<String>()
+                .to_lowercase();
+            let names_it = !key.is_empty()
+                && host[..index].iter().any(|line| {
+                    line.to_lowercase()
+                        .split(|character: char| {
+                            !(character.is_alphanumeric() || matches!(character, '_' | '-'))
+                        })
+                        .any(|word| word == key)
+                });
+            if !names_it {
+                continue;
+            }
+            for line in removed.iter_mut().take(index) {
+                *line = true;
+            }
             continue;
         }
         for line in removed.iter_mut().take(index).skip(top) {
@@ -483,6 +539,7 @@ fn patch_lines(
         }
     }
     drop_doubled_blank_lines(&host, &mut removed, &inserted);
+    follow_sibling_spacing(&host, &mut inserted);
     let mut inserted: Vec<Vec<String>> = inserted
         .into_iter()
         .map(|slot| slot.into_iter().map(str::to_string).collect())
@@ -533,9 +590,55 @@ fn drop_doubled_blank_lines(host: &[&str], removed: &mut [bool], inserted: &[Vec
             index += 1;
         }
         let untouched = (start..=index).all(|slot| inserted[slot].is_empty());
-        let after_blank = index == host.len() || blank(index);
+        // A closer (`}`, `]`, `</a>`) after the run ends the body: no blank
+        // line belongs before it either.
+        let closes = |line: &str| {
+            let trimmed = line.trim();
+            trimmed.starts_with(['}', ']', ')']) || trimmed.starts_with("</")
+        };
+        let after_blank = index == host.len() || blank(index) || closes(host[index]);
         if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
             removed[start - 1] = true;
+        }
+    }
+}
+
+/// An inserted entry starting with a blank line (as the serializer separates
+/// blocks) keeps it only where the host separates siblings that way: the
+/// earlier sibling at the slot's indent ending its block is followed by a
+/// blank line there.
+fn follow_sibling_spacing(host: &[&str], inserted: &mut [Vec<&str>]) {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    for slot in 1..inserted.len() {
+        let starts_blank = inserted[slot]
+            .first()
+            .is_some_and(|line| line.trim().is_empty());
+        let before = host[slot - 1];
+        if !starts_blank || before.trim().is_empty() {
+            continue;
+        }
+        let level = indent(before);
+        // The closer of the sibling before `before`'s block, if any.
+        let mut earlier = None;
+        for index in (0..slot - 1).rev() {
+            let line = host[index];
+            if line.trim().is_empty() {
+                continue;
+            }
+            if indent(line) < level {
+                break;
+            }
+            if indent(line) == level && line.trim().starts_with(['}', ']']) {
+                earlier = Some(index);
+                break;
+            }
+        }
+        if let Some(index) = earlier
+            && host
+                .get(index + 1)
+                .is_some_and(|line| !line.trim().is_empty())
+        {
+            inserted[slot].remove(0);
         }
     }
 }
@@ -694,6 +797,21 @@ fn scalar_changes<'a>(
             Some(())
         }
     }
+}
+
+/// The triple quote (`"""`, `'''`) a value starts with at `start`.
+fn triple_quote_at(source: &str, start: usize) -> Option<&'static str> {
+    ["\"\"\"", "'''"]
+        .into_iter()
+        .find(|delimiter| source[start..].starts_with(delimiter))
+}
+
+/// The end of `range`, run through the closing delimiter when the value is
+/// a triple-quoted string spanning lines.
+fn through_triple_quote(source: &str, range: std::ops::Range<usize>) -> usize {
+    triple_quote_at(source, range.start)
+        .and_then(|delimiter| source[range.start + 3..].find(delimiter))
+        .map_or(range.end, |close| range.start + 3 + close + 3)
 }
 
 /// The byte range of a one-based line/character-column span.

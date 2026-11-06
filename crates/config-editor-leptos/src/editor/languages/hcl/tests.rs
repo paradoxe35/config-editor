@@ -96,7 +96,7 @@ fn a_nested_object_inside_a_block_body_is_indented_from_its_line() {
     let schema = nested_schema();
     assert_eq!(
         accept_marked("web {\n  le|\n}\n", "letsencrypt", &schema, &HclBehavior),
-        "web {\n  letsencrypt = {\n    email = \"|\"\n  }\n}\n"
+        "web {\n  letsencrypt {\n    email = \"|\"\n  }\n}\n"
     );
 }
 
@@ -369,9 +369,9 @@ fn an_object_property_expands_to_a_block_with_the_caret_on_the_first_value() {
     let (insert, caret) = HclBehavior
         .property_insert("tags", tags, &schema.schema, &INSERT_AT_ROOT)
         .unwrap();
-    assert_eq!(insert, "tags = {\n  Name = \"\"\n}");
+    assert_eq!(insert, "tags {\n  Name = \"\"\n}");
     // Inside the string's quotes.
-    assert_eq!(caret, "tags = {\n  Name = \"".encode_utf16().count());
+    assert_eq!(caret, "tags {\n  Name = \"".encode_utf16().count());
 }
 
 fn highlighted(line: &str) -> Vec<(Option<TokenKind>, String)> {

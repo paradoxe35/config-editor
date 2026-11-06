@@ -6,7 +6,7 @@
 //! Each is kept only if it reads back as the new document.
 
 use super::super::language::{ConfigLanguage, Span};
-use super::{byte_range, escape, read};
+use super::{byte_range, escape, read, through_triple_quote};
 use serde_json::Value;
 
 /// `previous` with renamed keys renamed where they are written, when `new`
@@ -131,7 +131,8 @@ pub(in super::super) fn patch_scalar_to_container(
         return None;
     }
     let span: Span = language.value_span(previous, &pointer)?;
-    let range = byte_range(previous, span)?;
+    let mut range = byte_range(previous, span)?;
+    range.end = through_triple_quote(previous, range.clone());
     let mut patched = previous.to_string();
     patched.replace_range(range, &text);
     (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)

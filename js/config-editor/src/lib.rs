@@ -92,8 +92,8 @@ export interface CustomLanguage {
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
   highlight?(line: string): { start: number; end: number; kind: string }[] | null | undefined | void;
-  /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment. */
-  comments?: { lineComment?: string | string[] };
+  /** Comment markers, as in VS Code's language configuration: `Ctrl+/` writes the first line comment, and unwraps lines each wrapped in `blockComment`. */
+  comments?: { lineComment?: string | string[]; blockComment?: [string, string] };
   /** Bracket pairs Enter opens across lines, e.g. `[["{", "}"], ["[", "]"]]`. */
   brackets?: [string, string][];
   /** What separates a key from its value, e.g. `["="]` or `[":"]`: key renames, `Tab` through empty values. */
@@ -242,23 +242,70 @@ const OPTIONS: [&str; 14] = [
 /// Logs a warning for each option the editor does not know (`readonly` for
 /// `readOnly`), which would otherwise be ignored without a word.
 fn warn_unknown_options(options: &JsValue) {
-    if !options.is_object() {
+    warn_unknown_keys(options, &OPTIONS, "option");
+}
+
+/// Keys a `registerLanguage` definition can hold.
+const DEFINITION_KEYS: &[&str] = &[
+    "label",
+    "icon",
+    "extensions",
+    "parse",
+    "serialize",
+    "keySpan",
+    "valueSpan",
+    "highlight",
+    "comments",
+    "brackets",
+    "separators",
+];
+
+/// Keys `setCallbacks` takes.
+const CALLBACK_KEYS: &[&str] = &["onChange", "onEditAsChange"];
+
+/// A console warning for each key of `object` not in `known`, with the
+/// closest known one as a hint (`valu` → `value`).
+fn warn_unknown_keys(object: &JsValue, known: &[&str], what: &str) {
+    if !object.is_object() {
         return;
     }
-    for key in Object::keys(options.unchecked_ref::<Object>()).iter() {
+    for key in Object::keys(object.unchecked_ref::<Object>()).iter() {
         let Some(key) = key.as_string() else { continue };
-        if OPTIONS.contains(&key.as_str()) {
+        if known.contains(&key.as_str()) {
             continue;
         }
-        let hint = OPTIONS
+        let hint = known
             .iter()
-            .find(|known| known.eq_ignore_ascii_case(&key))
-            .map(|known| format!(" (did you mean \"{known}\"?)"))
+            .map(|name| {
+                (
+                    edit_distance(&key.to_lowercase(), &name.to_lowercase()),
+                    name,
+                )
+            })
+            .filter(|(distance, _)| *distance <= 2)
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, name)| format!(" (did you mean \"{name}\"?)"))
             .unwrap_or_default();
         web_sys::console::warn_1(&JsValue::from_str(&format!(
-            "config-editor: unknown option \"{key}\" is ignored{hint}"
+            "config-editor: unknown {what} \"{key}\" is ignored{hint}"
         )));
     }
+}
+
+/// Levenshtein distance, for "did you mean" hints.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right: Vec<char> = right.chars().collect();
+    let mut row: Vec<usize> = (0..=right.len()).collect();
+    for (index, left_char) in left.chars().enumerate() {
+        let mut previous = row[0];
+        row[0] = index + 1;
+        for (column, right_char) in right.iter().enumerate() {
+            let substitute = previous + usize::from(left_char != *right_char);
+            previous = row[column + 1];
+            row[column + 1] = substitute.min(row[column] + 1).min(previous + 1);
+        }
+    }
+    row[right.len()]
 }
 
 /// An optional string option: absent, or a string (anything else is an error).
@@ -671,6 +718,7 @@ impl ConfigEditor {
                 "setCallbacks takes an object: { onChange?, onEditAsChange? }",
             ));
         }
+        warn_unknown_keys(&callbacks, CALLBACK_KEYS, "callback");
         // Check both before changing either.
         let read = |name: &str| -> Result<Option<Option<Function>>, JsError> {
             let value = field(&callbacks, name);
@@ -1058,10 +1106,19 @@ fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
 /// The declarative part of a JavaScript language definition.
 fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
     let comments = field(definition, "comments");
-    let line_comments = if comments.is_undefined() || comments.is_null() {
-        Vec::new()
+    let (line_comments, block_comment) = if comments.is_undefined() || comments.is_null() {
+        (Vec::new(), None)
     } else {
-        string_list(&field(&comments, "lineComment"), "comments.lineComment")?
+        let block = string_list(&field(&comments, "blockComment"), "comments.blockComment")?;
+        let block = match block.as_slice() {
+            [] => None,
+            [open, close] => Some((leak(open.clone()), leak(close.clone()))),
+            _ => return Err(JsError::new("comments.blockComment must be [open, close]")),
+        };
+        (
+            string_list(&field(&comments, "lineComment"), "comments.lineComment")?,
+            block,
+        )
     };
     let separators = string_list(&field(definition, "separators"), "separators")?;
     let brackets_value = field(definition, "brackets");
@@ -1095,6 +1152,7 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
     };
     Ok(LanguageConfig {
         line_comments: leak_all(line_comments),
+        block_comment,
         brackets: Box::leak(brackets.into_boxed_slice()),
         separators: leak_all(separators),
     })
@@ -1114,22 +1172,39 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
     if label.parse::<Language>().is_ok() {
         return Err(JsError::new(&format!("\"{label}\" is a built-in language")));
     }
+    warn_unknown_keys(&definition, DEFINITION_KEYS, "language field");
     if field(&definition, "parse").dyn_into::<Function>().is_err() {
         return Err(JsError::new("a language needs parse(text)"));
     }
-    let icon = string_field(&definition, "icon")
-        .unwrap_or_else(|| label.chars().next().map(String::from).unwrap_or_default());
-    let extensions_value = field(&definition, "extensions");
-    let extensions_list = if Array::is_array(&extensions_value) {
-        Array::from(&extensions_value)
+    let icon_value = field(&definition, "icon");
+    let icon = if icon_value.is_undefined() || icon_value.is_null() {
+        label.chars().next().map(String::from).unwrap_or_default()
     } else {
-        Array::new()
+        match icon_value.as_string() {
+            Some(icon) if (1..=2).contains(&icon.chars().count()) => icon,
+            _ => return Err(JsError::new("icon must be one or two letters")),
+        }
     };
-    let extensions: Vec<&'static str> = extensions_list
-        .iter()
-        .filter_map(|extension| extension.as_string())
-        .map(leak)
-        .collect();
+    let extensions_value = field(&definition, "extensions");
+    let extensions: Vec<&'static str> =
+        if extensions_value.is_undefined() || extensions_value.is_null() {
+            Vec::new()
+        } else if Array::is_array(&extensions_value) {
+            Array::from(&extensions_value)
+                .iter()
+                .map(|extension| {
+                    extension
+                        .as_string()
+                        .filter(|text| !text.is_empty())
+                        .map(leak)
+                        .ok_or_else(|| JsError::new("extensions must hold non-empty strings"))
+                })
+                .collect::<Result<_, _>>()?
+        } else {
+            return Err(JsError::new(
+                "extensions must be an array of strings, e.g. [\"env\"]",
+            ));
+        };
     let name = label.to_lowercase();
     let config = language_config(&definition)?;
     let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {

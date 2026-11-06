@@ -512,6 +512,27 @@ test.describe('react: late parents and failed mounts', () => {
     expect(await input(browserPage).inputValue()).toBe(typed);
   });
 
+  test('fixing a typo against a slow parent never rolls the document back', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?slow');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const before = await input(browserPage).inputValue();
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.press('Enter');
+    await browserPage.keyboard.type('# ab', { delay: 80 });
+    await browserPage.keyboard.press('Backspace');
+    await browserPage.keyboard.type('bc', { delay: 80 });
+    // Keep typing while the echoes come back.
+    for (let index = 0; index < 20; index += 1) {
+      await browserPage.keyboard.type('d');
+      await browserPage.waitForTimeout(100);
+    }
+    const typed = before + '\n# abc' + 'd'.repeat(20);
+    expect(await input(browserPage).inputValue()).toBe(typed);
+    await expect(saved(browserPage)).toHaveText(typed, { timeout: 5000 });
+    expect(await input(browserPage).inputValue()).toBe(typed);
+  });
+
   test('a value the user only passed through is applied once the parent sets it', async ({ page: browserPage }) => {
     await browserPage.goto(page('react.html') + '?late');
     await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -564,6 +585,50 @@ test.describe('vanilla API: setters right after construction', () => {
     expect(result.shown).toContain('"listen": 7835');
     expect(result.reported).toEqual(['json']);
     expect(result.backShown).toBe('listen: 7835\n');
+  });
+});
+
+test.describe('vanilla API: registerLanguage checks its fields', () => {
+  test('an icon longer than two letters or extensions given as a string are refused', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const errors = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const attempt = (definition) => {
+        try {
+          module.registerLanguage({ parse: () => ({}), ...definition });
+          return null;
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return [
+        attempt({ label: 'IconLong', icon: 'ABCDEFG' }),
+        attempt({ label: 'ExtString', extensions: 'env' }),
+        attempt({ label: 'Fine', icon: 'Fi', extensions: ['fine'] }),
+      ];
+    });
+    expect(errors[0]).toContain('icon');
+    expect(errors[1]).toContain('extensions');
+    expect(errors[2]).toBeNull();
+  });
+});
+
+test.describe('vanilla API: misspelled keys are warned about', () => {
+  test('setCallbacks and registerLanguage name the key they ignore, with a hint', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const warnings = [];
+    browserPage.on('console', (message) => {
+      if (message.type() === 'warning') warnings.push(message.text());
+    });
+    await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      const editor = new module.ConfigEditor(element, { value: 'a: 1\n' });
+      editor.setCallbacks({ onChnge: () => {} });
+      module.registerLanguage({ label: 'Typo', parse: () => ({}), seperators: ['='] });
+    });
+    await expect.poll(() => warnings.join('\n')).toContain('"onChnge" is ignored (did you mean "onChange"?)');
+    expect(warnings.join('\n')).toContain('"seperators" is ignored (did you mean "separators"?)');
   });
 });
 
