@@ -469,3 +469,86 @@ pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> 
         ))
     })
 }
+
+/// The JSON pointer of the first element holding text beside child
+/// elements (mixed content), which the value model reads as a `#text`
+/// entry no other language could tell from a key: such a document does
+/// not convert. `None` when there is none, or when `source` does not parse.
+pub(super) fn mixed_content(source: &str) -> Option<String> {
+    struct Open {
+        /// Its name and how many same-named siblings came before it.
+        step: Option<(String, usize)>,
+        siblings: HashMap<String, usize>,
+        text: bool,
+        children: bool,
+    }
+    let value = build_value(source).ok()?;
+    let mut reader = Reader::from_str(source);
+    reader.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    let mut top_level: HashMap<String, usize> = HashMap::new();
+    let mut stack: Vec<Open> = Vec::new();
+    let mut step = |stack: &mut Vec<Open>, element: &BytesStart<'_>| {
+        let name = element.local_name().into_inner().to_string();
+        let config_root = stack.is_empty()
+            && element
+                .try_get_attribute(CONFIG_ROOT_ATTRIBUTE)
+                .ok()
+                .flatten()
+                .is_some_and(|attribute| attribute.value.as_ref() == "true");
+        let siblings = match stack.last_mut() {
+            Some(parent) => {
+                parent.children = true;
+                &mut parent.siblings
+            }
+            None => &mut top_level,
+        };
+        let seen = siblings.entry(name.clone()).or_insert(0);
+        *seen += 1;
+        (!config_root).then(|| (name, *seen - 1))
+    };
+    loop {
+        match reader.read_event_into(&mut buf).ok()? {
+            Event::Eof => return None,
+            Event::Start(element) => {
+                let step = step(&mut stack, &element);
+                stack.push(Open { step, siblings: HashMap::new(), text: false, children: false });
+            }
+            Event::Empty(element) => {
+                step(&mut stack, &element);
+            }
+            Event::Text(text) => {
+                if let Some(open) = stack.last_mut()
+                    && !text.xml10_content().trim().is_empty()
+                {
+                    open.text = true;
+                }
+            }
+            Event::CData(_) | Event::GeneralRef(_) => {
+                if let Some(open) = stack.last_mut() {
+                    open.text = true;
+                }
+            }
+            Event::End(_) => {
+                if stack.last().is_some_and(|open| open.text && open.children) {
+                    // Its path, an index where the name repeats (an array).
+                    let mut pointer = String::new();
+                    let mut at = &value;
+                    for (name, index) in stack.iter().filter_map(|open| open.step.as_ref()) {
+                        pointer.push('/');
+                        pointer.push_str(&name.replace('~', "~0").replace('/', "~1"));
+                        at = at.get(name)?;
+                        if let Value::Array(items) = at {
+                            pointer.push_str(&format!("/{index}"));
+                            at = items.get(*index)?;
+                        }
+                    }
+                    return Some(pointer);
+                }
+                stack.pop();
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+}

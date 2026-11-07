@@ -64,6 +64,7 @@ impl Bridge {
         }
         let edited = codec::read(self.edit.behavior(), edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
+        codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
         let Ok(old) = codec::read(host, previous_host, self.shape()) else {
             return Ok(codec::render(

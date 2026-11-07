@@ -3,11 +3,13 @@
 
 use super::*;
 
-/// `value` written where `written` was. Anything the style cannot hold is
-/// written as [`yaml_value`] does.
 use super::super::super::codec::non_finite;
 
-pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &str) -> String {
+/// `value` written where `written` was, after `prefix` on its line (its key
+/// or dash, which a block scalar's indentation indicator counts from; empty
+/// when unknown). Anything the style cannot hold is written as
+/// [`yaml_value`] does.
+pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &str, prefix: &str) -> String {
     // A value made empty again is written as YAML writes an empty value
     // (`key:`), unless the host spells its nulls out.
     if value.is_null() && !matches!(written.trim(), "null" | "Null" | "NULL" | "~") {
@@ -25,14 +27,17 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
         language.parse(&format!("k: {candidate}\n")).ok() == Some(serde_json::json!({ "k": text }))
             && language.parse(&format!("k: [{candidate}]\n")).ok() == Some(serde_json::json!({ "k": [text] }))
     };
+    // Line separators are written escaped, in double quotes.
+    let breaks = text.contains(['\u{85}', '\u{2028}', '\u{2029}']);
     match written.chars().next() {
+        _ if breaks && !written.starts_with('"') => yaml_value(value),
         Some('\'') if !text.contains('\n') => format!("'{}'", text.replace('\'', "''")),
         Some('"') => super::super::escapes::like_written(
-            serde_json::to_string(text).unwrap_or_else(|_| yaml_value(value)),
+            super::suggestions::escaped_breaks(serde_json::to_string(text).unwrap_or_else(|_| yaml_value(value))),
             written,
             super::super::escapes::Astral::Long,
         ),
-        Some('|' | '>') => super::block_scalar::block_scalar(language, written, text).unwrap_or_else(|| yaml_value(value)),
+        Some('|' | '>') => super::block_scalar::block_scalar(language, prefix, written, text).unwrap_or_else(|| yaml_value(value)),
         Some(_) if !text.is_empty() && reads_back(text) => text.clone(),
         _ => yaml_value(value),
     }

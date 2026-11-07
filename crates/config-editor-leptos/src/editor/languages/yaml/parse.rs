@@ -206,28 +206,38 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     if value.is_empty() || value.starts_with('#') {
         return Some((line_number, column, column + 1));
     }
-    // A block scalar (`|`, `>-`) runs through its indented lines below; the
-    // span's end column counts on past this line, as a heredoc's does.
-    if value.starts_with(['|', '>']) {
-        let full_line = source.lines().nth(line_number - 1)?;
-        let key_indent = full_line.len() - full_line.trim_start().len();
-        let mut end_chars = full_line.chars().count() + 1;
-        let mut text_end = full_line.chars().count();
-        for next in source.lines().skip(line_number) {
-            let indent = next.len() - next.trim_start().len();
-            if !next.trim().is_empty() && indent <= key_indent {
-                break;
-            }
-            end_chars += next.chars().count();
-            if !next.trim().is_empty() {
-                text_end = end_chars;
-            }
-            end_chars += 1;
-        }
-        return Some((line_number, column, text_end + 1));
+    if let Some(end) = block_scalar_end(source, line_number, value) {
+        return Some((line_number, column, end));
     }
-
     Some((line_number, column, column + value.chars().count()))
+}
+
+/// The end column of a block scalar (`|`, `>-`, `&a |2`) opened by `value`
+/// on line `line_number`: it runs through its indented lines below, the
+/// column counting on past this line, as a heredoc's does. `None` when
+/// `value` opens none.
+fn block_scalar_end(source: &str, line_number: usize, value: &str) -> Option<usize> {
+    if !is_block_scalar(&value[node_properties_len(value)..]) {
+        return None;
+    }
+    let full_line = source.lines().nth(line_number - 1)?;
+    // The body is indented past the line's own indentation (its key's, or
+    // its dash's).
+    let owner_indent = full_line.len() - full_line.trim_start().len();
+    let mut end_chars = full_line.chars().count() + 1;
+    let mut text_end = full_line.chars().count();
+    for next in source.lines().skip(line_number) {
+        let indent = next.len() - next.trim_start().len();
+        if !next.trim().is_empty() && indent <= owner_indent {
+            break;
+        }
+        end_chars += next.chars().count();
+        if !next.trim().is_empty() {
+            text_end = end_chars;
+        }
+        end_chars += 1;
+    }
+    Some(text_end + 1)
 }
 
 /// The value of block sequence item `wanted` (`.../certificates/0`): the text
@@ -271,6 +281,9 @@ pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usi
             let value = content[1..].trim_start();
             let value = line_comment_start(value).map_or(value, |start| value[..start].trim_end());
             let column = line[..line.len() - content[1..].trim_start().len()].chars().count() + 1;
+            if let Some(end) = block_scalar_end(source, number + 1, value) {
+                return Some((number + 1, column, end));
+            }
             return Some((number + 1, column, column + value.chars().count().max(1)));
         }
         seen += 1;

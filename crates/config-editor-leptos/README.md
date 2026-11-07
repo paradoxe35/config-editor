@@ -192,10 +192,12 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 
 - Only what the user changed is written back: untouched values keep their
   exact host spelling, and the host's comments and formatting survive. An
-  edited value keeps its form: a YAML block scalar stays a block (folded text
-  keeps its line breaks where the words around them did, and holding a line
-  folding cannot, it is written literally), TOML long strings and HCL
-  heredocs stay so, XML CDATA stays CDATA, YAML anchors stay on their items
+  edited value keeps its form: a YAML block scalar stays a block with its
+  header (literal or folded, its indentation indicator such as `|2-` and its
+  chomping; folded text keeps its line breaks where the words around them
+  did, and text folding cannot hold is written literally), TOML long strings
+  and HCL heredocs stay so, XML text keeps its CDATA sections and entity or
+  character references (`&#233;`) around the change, YAML anchors stay on their items
   (an alias or merge is written out only where the edit parts it from its
   anchor, numbers as the host wrote them), and a JSON string keeps its
   `\uXXXX` escapes.
@@ -203,6 +205,12 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   whitespace and line breaks around it included (a number, boolean or `null`
   reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
   and a YAML `|` block keeps its final line break through the XML view.
+- XML mixed content (text beside child elements, `<p>a <b>b</b> c</p>`) has
+  no form in other languages: such a document is not shown in another
+  language, and the switch waits with the reason on the element
+  (`mixedContent` of the `strings` setting); text typed beside child elements
+  in an XML view is not saved. `Language::convert` refuses it too
+  (`ConvertError::MixedContent`).
 - Switching the language is an undo step: `Ctrl+Z` goes back to the view and
   text before the switch (`on_edit_as_change` hears it), `Ctrl+Y` returns,
   and the caret stays on the field it was on.

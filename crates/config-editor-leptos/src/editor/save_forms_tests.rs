@@ -6,67 +6,8 @@
 
 use super::Language;
 use super::bridge::Bridge;
+use super::save_matrix::{ALL, from_every_view, report, save_value};
 use serde_json::Value;
-
-const ALL: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
-
-/// The host saved after the edit language's view of `host_text` is made to
-/// hold `edit` (applied to the value the view shows), or why it failed.
-fn save_value(
-    host: Language,
-    edit: Language,
-    host_text: &str,
-    change: &dyn Fn(&mut Value),
-) -> Result<String, String> {
-    let bridge = Bridge::new(host, edit, None).ok_or("same language")?;
-    let shown = bridge
-        .to_edit(host_text)
-        .map_err(|error| error.to_string())?
-        .text;
-    let mut value = edit.parse(&shown).map_err(|error| error.message)?;
-    change(&mut value);
-    let edited = super::codec::serialize(edit.behavior(), &value, Some(&shown))
-        .map_err(|error| error.to_string())?;
-    bridge
-        .to_host(&edited, host_text)
-        .map(|saved| saved.text)
-        .map_err(|error| format!("{error:?}"))
-}
-
-/// Saves `change` from every other view and compares with `expected`.
-fn from_every_view(
-    failures: &mut Vec<String>,
-    label: &str,
-    host: Language,
-    host_text: &str,
-    change: &dyn Fn(&mut Value),
-    expected: &str,
-) {
-    for edit in ALL.into_iter().filter(|edit| *edit != host) {
-        match save_value(host, edit, host_text, change) {
-            Ok(saved) if saved == expected => {}
-            Ok(saved) => failures.push(format!(
-                "{label}: {host} host via {edit}:\n--- expected\n{expected}--- saved\n{saved}"
-            )),
-            Err(error) => failures.push(format!("{label}: {host} host via {edit}: {error}")),
-        }
-    }
-}
-
-fn report(failures: Vec<String>) {
-    assert!(
-        failures.is_empty(),
-        "{} failing:\n\n{}",
-        failures.len(),
-        failures.join("\n\n")
-    );
-}
 
 #[test]
 fn a_block_scalar_edited_in_any_view_stays_a_block() {
@@ -120,7 +61,7 @@ fn a_block_scalar_edited_in_any_view_stays_a_block() {
             "  folded text\n\n  continues here\n",
         ),
     );
-    // An indented line folding cannot hold: written literally.
+    // A more-indented line keeps its line breaks in folded text.
     from_every_view(
         &mut failures,
         "folded holding an indented line",
@@ -129,7 +70,19 @@ fn a_block_scalar_edited_in_any_view_stays_a_block() {
         &|v| v["folded"] = "folded\n  indented".into(),
         &yaml.replace(
             "folded: >-\n  folded text\n  continues here\n",
-            "folded: |-\n  folded\n    indented\n",
+            "folded: >-\n  folded\n    indented\n",
+        ),
+    );
+    // Text folding cannot hold (leading line breaks): written literally.
+    from_every_view(
+        &mut failures,
+        "folded starting with a line break",
+        Language::YAML,
+        yaml,
+        &|v| v["folded"] = "\nfolded".into(),
+        &yaml.replace(
+            "folded: >-\n  folded text\n  continues here\n",
+            "folded: |-\n\n  folded\n",
         ),
     );
     report(failures);

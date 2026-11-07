@@ -46,6 +46,13 @@ pub enum ConvertError {
     /// The target language cannot express the document (for example TOML has
     /// no `null`, and XML element names cannot hold `/docs`).
     Unsupported(String),
+    /// The source holds text beside child elements (XML mixed content, at
+    /// `pointer`), which no other language can show: converting it would
+    /// change the document.
+    MixedContent {
+        /// The JSON pointer of the first element holding mixed content.
+        pointer: String,
+    },
 }
 
 impl fmt::Display for ConvertError {
@@ -53,6 +60,10 @@ impl fmt::Display for ConvertError {
         match self {
             ConvertError::Parse(error) => write!(formatter, "{error}"),
             ConvertError::Unsupported(message) => write!(formatter, "{message}"),
+            ConvertError::MixedContent { pointer } => write!(
+                formatter,
+                "{pointer}: text beside child elements cannot be shown in another language"
+            ),
         }
     }
 }
@@ -143,7 +154,17 @@ pub(super) fn convert(
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     let value = read(from, source, schema).map_err(ConvertError::Parse)?;
+    convertible(from, source)?;
     render(&value, to, previous, schema)
+}
+
+/// Refuses a document holding what no other language can show (XML mixed
+/// content): converting it would change it.
+pub(super) fn convertible(language: &dyn ConfigLanguage, source: &str) -> Result<(), ConvertError> {
+    match language.mixed_content(source) {
+        Some(pointer) => Err(ConvertError::MixedContent { pointer }),
+        None => Ok(()),
+    }
 }
 
 /// `previous` with only its changed scalar values rewritten in place, when
@@ -208,7 +229,7 @@ pub(super) fn patch_scalars(
         }
         // In the host's style for what was there (plain, quoted, a block, a
         // long string).
-        let mut text = language.format_value_like(value, &previous[range.clone()]);
+        let mut text = language.format_value_at(value, previous, range.clone());
         // A value the host wrote in quotes keeps them when the new one is
         // formatted bare (an XML attribute's `"…"`).
         let written = &previous[range.clone()];
@@ -218,7 +239,7 @@ pub(super) fn patch_scalars(
             .filter(|quote| matches!(quote, '"' | '\''))
             && written.len() >= 2
             && written.ends_with(quote)
-            && !text.starts_with(quote)
+            && !text.starts_with(['"', '\''])
         {
             text = format!("{quote}{text}{quote}");
         }

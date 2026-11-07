@@ -387,7 +387,25 @@ fn remeasure_on_window_changes(state: EditorState) {
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_blocks_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_forms_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -405,7 +423,25 @@ mod save_properties;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_splice_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_tests;
 #[cfg(test)]
 mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`

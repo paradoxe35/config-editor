@@ -150,6 +150,10 @@ impl ConfigLanguage for XmlBehavior {
         property_insert(key, property, root, context)
     }
 
+    fn mixed_content(&self, source: &str) -> Option<String> {
+        parse::mixed_content(source)
+    }
+
     fn format_value(&self, value: &Value) -> String {
         xml_text(value)
     }
@@ -160,9 +164,12 @@ impl ConfigLanguage for XmlBehavior {
         let text = xml_text(value);
         match written.chars().next() {
             Some(quote @ ('"' | '\'')) if written.len() >= 2 && written.ends_with(quote) => {
-                let escaped = escape_attribute(&text);
-                let escaped = if quote == '\'' { escaped.replace('\'', "&apos;") } else { escaped };
-                format!("{quote}{escaped}{quote}")
+                let escape = |text: &str| {
+                    let escaped = escape_attribute(text);
+                    if quote == '\'' { escaped.replace('\'', "&apos;") } else { escaped }
+                };
+                let inner = &written[1..written.len() - 1];
+                format!("{quote}{}{quote}", text::attribute_like(&text, inner, &escape))
             }
             _ => text::element_text_like(&text, written),
         }

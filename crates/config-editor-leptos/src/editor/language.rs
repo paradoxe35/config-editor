@@ -964,6 +964,19 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         self.format_value(value)
     }
 
+    /// `value` written over `source[range]`, a value the host wrote there,
+    /// as [`format_value_like`](Self::format_value_like) does; the text before
+    /// it on its line places it (a YAML block scalar's indentation indicator
+    /// counts from its key or dash).
+    fn format_value_at(
+        &self,
+        value: &Value,
+        source: &str,
+        range: std::ops::Range<usize>,
+    ) -> String {
+        self.format_value_like(value, &source[range])
+    }
+
     /// The key under character `column` of `line`, and the column it starts at.
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         let _ = (line, column);
@@ -1041,6 +1054,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             .or_else(|| {
                 toggle_line_comments(source, selection_start, selection_end, config.line_comments)
             })
+    }
+
+    /// The JSON pointer of the first value `source` writes as text beside
+    /// child elements (XML mixed content): no other language can show it, so
+    /// the document does not convert. `None` when there is none.
+    fn mixed_content(&self, source: &str) -> Option<String> {
+        let _ = source;
+        None
     }
 
     /// `previous` with what it writes once and reads in several places (YAML
