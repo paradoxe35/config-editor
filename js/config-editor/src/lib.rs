@@ -12,8 +12,8 @@ use config_editor_leptos::language::{
     Token, TokenKind, Tokens,
 };
 use config_editor_leptos::{
-    ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath, Language, Schema, SchemaSource,
-    TextPosition, TextRange, ThemeColor, ThemeColors,
+    ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath, HostDiagnostic, Language, Schema,
+    SchemaSource, Severity, TextPosition, TextRange, ThemeColor, ThemeColors,
 };
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
@@ -58,7 +58,27 @@ export interface EditorOptions {
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
   onPathChange?: (path: EditorPath) => void;
+  /** Problems the host found (a server's validation), shown next to the editor's own. See `setHostDiagnostics`. */
+  hostDiagnostics?: HostDiagnostic[];
 }
+
+/** A problem the host found, by `path` (preferred: it follows the field through edits and `editAs`) or `range`; with neither, it is about the whole document. */
+export interface HostDiagnostic {
+  path?: FieldPath;
+  /** A stretch of the document in `language`: string indices, or one-based lines and columns. Unplaced while editing as another language. */
+  range?: { start: number; end?: number } | { startLine: number; startColumn: number; endLine?: number; endColumn?: number };
+  /** Default `"error"`. */
+  severity?: Severity;
+  message: string;
+  /** Shown with the message, e.g. `"E_PORT"`. */
+  code?: string;
+  /** Who reported it, shown with the message; default `"host"`. */
+  source?: string;
+  /** A page explaining the problem, opened from its message. */
+  docsUrl?: string;
+}
+
+export type Severity = "error" | "warning" | "info" | "hint";
 
 /** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
 export interface CallbackUpdate {
@@ -92,7 +112,7 @@ export interface Diagnostic {
   column?: number;
   endColumn?: number;
   message: string;
-  severity: "error" | "warning";
+  severity: Severity;
 }
 
 export interface Conversion {
@@ -269,7 +289,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 15] = [
+const OPTIONS: [&str; 16] = [
     "value",
     "language",
     "editAs",
@@ -285,6 +305,7 @@ const OPTIONS: [&str; 15] = [
     "onChange",
     "onEditAsChange",
     "onPathChange",
+    "hostDiagnostics",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -452,6 +473,7 @@ struct State {
     /// Whether `onPathChange` is set: only then is the caret's path computed.
     follows_path: RwSignal<bool>,
     handle: EditorHandle,
+    host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
 }
 
 /// The latest document, outside the reactive arena: an edit saved while the
@@ -555,6 +577,10 @@ impl ConfigEditor {
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_path_change = function_option(&options, "onPathChange")?;
+        let host_diagnostics = match field(&options, "hostDiagnostics") {
+            list if list.is_undefined() || list.is_null() => Vec::new(),
+            list => host_diagnostics_from(&list, &value)?,
+        };
         warn_unknown_options(&options);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -575,6 +601,7 @@ impl ConfigEditor {
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_path_change: StoredValue::new_local(on_path_change),
             handle: EditorHandle::new(),
+            host_diagnostics: RwSignal::new(host_diagnostics),
         });
         let mount_element = element.clone();
         let mounted = owner.with(|| {
@@ -600,6 +627,7 @@ impl ConfigEditor {
                     }
                 };
                 follow_path(state);
+                let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
                 let edit_as = Signal::derive(move || state.edit_as.get());
                 let value_signal = Signal::derive(move || state.value.get());
                 let baseline = Signal::derive(move || state.baseline.get());
@@ -628,6 +656,7 @@ impl ConfigEditor {
                             on_change=changed
                             on_edit_as_change=switched
                             handle=state.handle
+                            host_diagnostics=host_diagnostics
                         />
                     }
                     .into_any(),
@@ -648,6 +677,7 @@ impl ConfigEditor {
                             on_change=changed
                             on_edit_as_change=switched
                             handle=state.handle
+                            host_diagnostics=host_diagnostics
                         />
                     }
                     .into_any(),
@@ -827,6 +857,28 @@ impl ConfigEditor {
         Ok(())
     }
 
+    /// Replaces the host's problems (a server's validation), shown next to
+    /// the editor's own; `[]` clears them.
+    #[wasm_bindgen(js_name = setHostDiagnostics)]
+    pub fn set_host_diagnostics(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "HostDiagnostic[]")] diagnostics: JsValue,
+    ) -> Result<(), JsError> {
+        config_editor_leptos::flush_pending_input();
+        let host_text = self
+            .latest
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_default();
+        let diagnostics = if diagnostics.is_undefined() || diagnostics.is_null() {
+            Vec::new()
+        } else {
+            host_diagnostics_from(&diagnostics, &host_text)?
+        };
+        let _ = self.state.host_diagnostics.try_set(diagnostics);
+        Ok(())
+    }
+
     /// Where the field at `path` is written in the text on screen, or `null`.
     #[wasm_bindgen(js_name = rangeOf)]
     pub fn range_of(
@@ -943,6 +995,102 @@ struct DiagnosticOut {
     end_column: Option<usize>,
     message: String,
     severity: &'static str,
+}
+
+/// Host diagnostics from JavaScript; `host_text` (the document in
+/// `language`) turns string-index ranges into lines and columns.
+fn host_diagnostics_from(list: &JsValue, host_text: &str) -> Result<Vec<HostDiagnostic>, JsError> {
+    if !Array::is_array(list) {
+        return Err(JsError::new(
+            "hostDiagnostics must be an array of { path | range, severity, message, code?, source?, docsUrl? }",
+        ));
+    }
+    Array::from(list)
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            host_diagnostic_from(&item, host_text)
+                .map_err(|error| JsError::new(&format!("hostDiagnostics[{index}]: {error}")))
+        })
+        .collect()
+}
+
+/// Keys a host diagnostic can hold.
+const HOST_DIAGNOSTIC_KEYS: &[&str] = &[
+    "path", "range", "severity", "message", "code", "source", "docsUrl",
+];
+
+fn host_diagnostic_from(item: &JsValue, host_text: &str) -> Result<HostDiagnostic, String> {
+    if !item.is_object() || Array::is_array(item) {
+        return Err("must be an object".to_string());
+    }
+    warn_unknown_keys(item, HOST_DIAGNOSTIC_KEYS, "host diagnostic key");
+    let message = string_field(item, "message").ok_or("message must be a string")?;
+    let severity = match field(item, "severity") {
+        value if value.is_undefined() || value.is_null() => Severity::Error,
+        value => value
+            .as_string()
+            .ok_or_else(|| "severity must be a string".to_string())?
+            .parse::<Severity>()?,
+    };
+    let path = field(item, "path");
+    let range = field(item, "range");
+    let mut diagnostic = if !path.is_undefined() && !path.is_null() {
+        let path = path_from_js(&path).map_err(|_| {
+            "path must be a JSON pointer or an array of keys and indices".to_string()
+        })?;
+        HostDiagnostic::at_path(path, severity, message)
+    } else if !range.is_undefined() && !range.is_null() {
+        HostDiagnostic::at_range(range_from_js(&range, host_text)?, severity, message)
+    } else {
+        HostDiagnostic::document(severity, message)
+    };
+    let optional = |name: &str| -> Result<Option<String>, String> {
+        let value = field(item, name);
+        if value.is_undefined() || value.is_null() {
+            return Ok(None);
+        }
+        value
+            .as_string()
+            .map(Some)
+            .ok_or(format!("{name} must be a string"))
+    };
+    diagnostic.code = optional("code")?;
+    diagnostic.source = optional("source")?;
+    diagnostic.docs_url = optional("docsUrl")?;
+    Ok(diagnostic)
+}
+
+/// A range from JavaScript: string indices `{ start, end }` into
+/// `host_text`, or one-based `{ startLine, startColumn, endLine?, endColumn? }`.
+fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRange, String> {
+    let number = |name: &str| {
+        field(range, name)
+            .as_f64()
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .map(|value| value as usize)
+    };
+    if let Some(start) = number("start") {
+        let end = number("end").unwrap_or(start).max(start);
+        return Ok(TextRange::new(
+            TextPosition::from_offset(host_text, start),
+            TextPosition::from_offset(host_text, end),
+        ));
+    }
+    let line = number("startLine").filter(|line| *line >= 1);
+    let column = number("startColumn").filter(|column| *column >= 1);
+    let (Some(line), Some(column)) = (line, column) else {
+        return Err(
+            "range must be { start, end } (string indices) or { startLine, startColumn, endLine?, endColumn? } (one-based)"
+                .to_string(),
+        );
+    };
+    let end_line = number("endLine").unwrap_or(line).max(line);
+    let end_column = number("endColumn").unwrap_or(column + 1);
+    Ok(TextRange::new(
+        TextPosition::new(line, column),
+        TextPosition::new(end_line, end_column),
+    ))
 }
 
 /// Calls `onPathChange` with the caret's path each time it changes, while one
@@ -1070,10 +1218,7 @@ pub fn validate(
             column: problem.column,
             end_column: problem.end_column,
             message: problem.message,
-            severity: match problem.severity {
-                config_editor_leptos::Severity::Warning => "warning",
-                _ => "error",
-            },
+            severity: problem.severity.as_str(),
         })
         .collect();
     Ok(to_js(&out).unchecked_into())

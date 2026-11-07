@@ -203,6 +203,7 @@ impl Bridge {
                 self.edit.label()
             ),
             severity: Severity::Error,
+            ..Diagnostic::default()
         }
     }
 }
@@ -336,6 +337,7 @@ fn located(
         end_column: span.map(|span| span.end_column),
         message,
         severity,
+        ..Diagnostic::default()
     }
 }
 

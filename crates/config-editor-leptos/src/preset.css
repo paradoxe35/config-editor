@@ -31,6 +31,8 @@
   --config-editor-selection: rgb(38 79 120 / 40%);
   --config-editor-caret: #aeafad;
   --config-editor-warning: #cca700;
+  --config-editor-info: #3794ff;
+  --config-editor-hint: #8a8a8a;
   --config-editor-line-number: #858585;
   --config-editor-file-icon-bg: #8a6e2f;
   --config-editor-file-icon-text: #fff;
@@ -472,6 +474,16 @@
 .config-editor__diagnostic-marker-warning {
   text-decoration-color: var(--config-editor-warning);
 }
+
+/* Info is VS Code's blue; a hint is a quiet dotted underline. */
+.config-editor__diagnostic-marker-info {
+  text-decoration-color: var(--config-editor-info);
+}
+.config-editor__diagnostic-marker-hint {
+  text-decoration: underline dotted var(--config-editor-hint);
+  text-decoration-thickness: 2px;
+}
+
 .config-editor__diagnostic-marker:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
@@ -507,6 +519,29 @@
 .config-editor__diagnostic-marker-near-top::after {
   top: calc(100% + 5px);
   bottom: auto;
+}
+
+/* A host problem's message says who reported it (and its code) on a second
+   line. */
+.config-editor__diagnostic-marker-host::after {
+  content: attr(data-message) "\A" attr(data-detail);
+  white-space: pre-line;
+}
+
+/* With docs, the message stays open while the pointer moves onto it (no gap
+   below it) and a click on it opens them. */
+.config-editor__diagnostic-marker-docs::after {
+  bottom: 100%;
+  border-bottom: 6px solid transparent;
+  background-clip: padding-box;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.config-editor__diagnostic-marker-docs.config-editor__diagnostic-marker-near-top::after {
+  top: 100%;
+  bottom: auto;
+  border-top: 6px solid transparent;
+  border-bottom: 1px solid var(--config-editor-raised-border);
 }
 
 .config-editor__diagnostic-marker-eof::before {

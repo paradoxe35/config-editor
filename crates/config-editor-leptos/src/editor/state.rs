@@ -16,6 +16,7 @@ use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
 use super::history::{EditHistory, Selection, Snapshot};
+use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
@@ -73,6 +74,8 @@ pub(super) struct Init {
     /// The host's `on_change`; edits reach it directly or through the
     /// Edit-as conversion (see `sync`).
     pub(super) host_on_change: Option<Callback<String>>,
+    /// The host's own problems (see `host_diagnostics`).
+    pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
 }
 
 /// A programmatic edit, applied with [`EditorState::commit`].
@@ -233,6 +236,7 @@ impl EditorState {
             read_only,
             features,
             host_on_change,
+            host_diagnostics,
         } = init;
         let mut load_problem = Vec::new();
         let mut pending = None;
@@ -294,12 +298,24 @@ impl EditorState {
                 found
             })
         };
+        // The host's problems, placed on the text validation saw; a new list
+        // from the host re-places only these, not the editor's own.
+        let host_placed = Memo::new(move |_| {
+            if !features.diagnostics {
+                return Vec::new();
+            }
+            let edit = edit_language.get();
+            host_diagnostics.with(|problems| {
+                diagnosed_text
+                    .with(|text| place_host(edit.behavior(), text, problems, edit == host_language))
+            })
+        });
         // Until validation catches up with an edit, markers move with the
         // lines the edit shifted, so they never sit on the wrong text.
         let diagnostics = Memo::new(move |_| {
             let checked = diagnosed_text.get();
-            source
-                .with(|current| validated.with(|found| shift_diagnostics(&checked, current, found)))
+            let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
+            source.with(|current| shift_diagnostics(&checked, current, &found))
         });
         let suggestions = Memo::new(move |_| {
             if !suggestions_requested.get() {

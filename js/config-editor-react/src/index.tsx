@@ -4,6 +4,7 @@ import init, {
   type EditorPath,
   type EditorRange,
   type FieldPath,
+  type HostDiagnostic,
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
@@ -33,7 +34,9 @@ export type {
   EditorPath,
   EditorRange,
   FieldPath,
+  HostDiagnostic,
   LanguageName,
+  Severity,
   ThemeColorMap,
   ThemeName,
 } from "@pngwasi/config-editor";
@@ -98,6 +101,12 @@ export interface ConfigEditorProps {
    * once on mount), for a breadcrumb. The path is computed only while set.
    */
   onPathChange?: (path: EditorPath) => void;
+  /**
+   * Problems the host found (a server's validation), by path or range, shown
+   * next to the editor's own and marked as the host's. A new list replaces
+   * the previous one; only the markers update.
+   */
+  hostDiagnostics?: HostDiagnostic[];
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Text the diff gutter compares against. */
@@ -234,6 +243,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
           onPathChange: current.onPathChange ? followPath : undefined,
+          hostDiagnostics: current.hostDiagnostics,
         };
         try {
           editor.current = new Editor(host.current, options);
@@ -334,6 +344,11 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     useEffect(() => {
       guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
+
+    const hostDiagnostics = JSON.stringify(props.hostDiagnostics ?? []);
+    useEffect(() => {
+      guard((instance) => instance.setHostDiagnostics(JSON.parse(hostDiagnostics) as HostDiagnostic[]));
+    }, [mounted, hostDiagnostics]);
 
     const followsPath = props.onPathChange !== undefined;
     useEffect(() => {

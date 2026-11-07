@@ -136,7 +136,6 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
 /// diagnostics are: the value, or its key when the value is `written_as_block`
 /// below it (a block has no text on the key's line); a `required` problem
 /// (a missing property) on the object's key.
-#[cfg_attr(not(feature = "schema-validation"), allow(dead_code))]
 pub(crate) fn problem_span(
     behavior: &dyn ConfigLanguage,
     source: &str,

@@ -85,6 +85,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
 | `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
 | `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
+| `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -145,6 +146,44 @@ handle answers `None`. The same lookups work headless:
 own gets them from its `key_span`, `value_span`, `hover_key` and
 `completion_context`.
 
+## Host diagnostics
+
+When a server validates the document, pass its problems as
+`host_diagnostics`. Each points at a field by path (preferred: it follows the
+field through edits and `edit_as`) or at a range of the host's text, or at
+the whole document:
+
+```rust
+use config_editor_leptos::{ConfigEditor, HostDiagnostic, Severity};
+
+let problems = RwSignal::new(Vec::new());
+// After the server answered:
+problems.set(vec![
+    HostDiagnostic::at_path("/web/listen", Severity::Error, "port 80 is taken")
+        .with_code("E_PORT")
+        .with_source("burrow")
+        .with_docs_url("https://example.com/docs/ports"),
+    HostDiagnostic::document(Severity::Warning, "restart needed to apply"),
+]);
+view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
+```
+
+- They are marked where the field is written, as schema problems are (the
+  value, or the key of a block), next to the editor's own problems: `F8` /
+  `Shift+F8` stop at them, the footer counts them, and the hover message
+  adds who reported them, the code, and "Open docs ↗" (a click on the
+  message opens `docs_url`). What cannot be placed (a missing field, a range
+  while editing as another language, the whole document) shows in the footer.
+- Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
+  (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
+  and `-hint` (`ThemeColor::Info`, `ThemeColor::Hint`).
+- Each problem shows once: where the host marks the same text as one of the
+  editor's own, only the host's shows. A new list replaces the previous one,
+  and only the markers update.
+- Every `Diagnostic` says where it came from (`origin`:
+  `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
+  `docs_url`.
+
 ## Keyboard
 
 | Keys                                         | Action                                                                           |
@@ -193,7 +232,8 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
 | `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
-| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`).                                                                                                                                    |
+| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, and for host problems `code`, `source`, `docs_url`.                                                                    |
+| `HostDiagnostic`, `DiagnosticTarget`       | A problem the host found, by path, range or for the whole document; see [Host diagnostics](#host-diagnostics).                                                                                                                                                |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
 | `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
 | `ParseError`                               | `message`, `line`, `column`.                                                                                                                                                                                                                                |

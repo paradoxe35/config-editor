@@ -21,6 +21,7 @@ fn capped(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
             end_column: None,
             message: format!("Only the first {MAX_DIAGNOSTICS} problems are shown; more follow."),
             severity: Severity::Warning,
+            ..Diagnostic::default()
         });
     }
     diagnostics
@@ -49,12 +50,13 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     })
 }
 
-/// A syntax or schema problem in a document.
+/// A problem in a document: the editor's own (syntax, schema, Edit-as) or
+/// one the host reported ([`HostDiagnostic`](crate::HostDiagnostic)).
 ///
 /// Positions are one-based; the marker spans `column..end_column` on `line`.
 /// Problems that concern the whole document (such as an invalid schema) have
 /// no position.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
     /// One-based line.
     pub line: Option<usize>,
@@ -66,6 +68,25 @@ pub struct Diagnostic {
     pub message: String,
     /// How serious the problem is.
     pub severity: Severity,
+    /// Who found it.
+    pub origin: DiagnosticOrigin,
+    /// A machine-readable code, from the host.
+    pub code: Option<String>,
+    /// Who reported it, for a host problem (`"host"` unless it said).
+    pub source: Option<String>,
+    /// A page explaining the problem, from the host.
+    pub docs_url: Option<String>,
+}
+
+/// Who found a [`Diagnostic`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DiagnosticOrigin {
+    /// The editor: syntax, schema, or a value Edit-as cannot keep.
+    #[default]
+    Editor,
+    /// The host, through `host_diagnostics`.
+    Host,
 }
 
 /// How serious a [`Diagnostic`] is.
@@ -78,6 +99,40 @@ pub enum Severity {
     /// The document is valid but deserves attention, such as a value the host
     /// language cannot keep exactly when editing with `edit_as`.
     Warning,
+    /// Something worth knowing.
+    Info,
+    /// A suggestion, shown discreetly.
+    Hint,
+}
+
+impl Severity {
+    /// The lowercase name: `"error"`, `"warning"`, `"info"` or `"hint"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "info",
+            Severity::Hint => "hint",
+        }
+    }
+}
+
+impl std::str::FromStr for Severity {
+    type Err = String;
+
+    /// A lowercase name, as [`as_str`](Self::as_str) writes it
+    /// (`"information"` reads as info).
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "error" => Ok(Severity::Error),
+            "warning" => Ok(Severity::Warning),
+            "info" | "information" => Ok(Severity::Info),
+            "hint" => Ok(Severity::Hint),
+            _ => Err(format!(
+                "unknown severity \"{name}\" (expected error, warning, info or hint)"
+            )),
+        }
+    }
 }
 
 /// A JSON Schema that failed to compile, with the reason.
@@ -362,6 +417,7 @@ pub(super) fn validate(
                         .or(fallback.map(|span| span.end_column)),
                     message: error.message,
                     severity: Severity::Error,
+                    ..Diagnostic::default()
                 }];
             }
         };
@@ -373,6 +429,7 @@ pub(super) fn validate(
             end_column: None,
             message: error.to_string(),
             severity: Severity::Error,
+            ..Diagnostic::default()
         }];
     }
 
@@ -480,6 +537,7 @@ pub(super) fn validate(
                                     end_column: location.map(|location| location.end_column),
                                     message,
                                     severity: Severity::Error,
+                                    ..Diagnostic::default()
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -645,6 +703,7 @@ mod shift_tests {
             end_column: Some(2),
             message: String::new(),
             severity: Severity::Error,
+            ..Diagnostic::default()
         }
     }
 

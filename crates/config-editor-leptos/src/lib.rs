@@ -32,6 +32,9 @@
 //!   (`range_of`), which path a position is on (`path_at`), the caret's path
 //!   (`current_path`, or the `on_path_change` callback) and "jump to field"
 //!   (`reveal`). The same lookups work headless on [`Language`].
+//! - `host_diagnostics` shows problems the host found (a server's
+//!   validation, as [`HostDiagnostic`]s by path or range) next to the
+//!   editor's own.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
 //!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or set
@@ -79,7 +82,8 @@ pub use editor::language;
 
 pub use editor::{
     ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
-    EditorHandle, EditorTheme, FieldPath, Language, PRESET_CSS, ParseError, Schema, SchemaError,
-    SchemaSource, Severity, TextPosition, TextRange, ThemeColor, ThemeColors, UnknownLanguage,
-    UnknownTheme, check_syntax, flush_pending_edits, flush_pending_input,
+    DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, HostDiagnostic,
+    Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource, Severity, TextPosition,
+    TextRange, ThemeColor, ThemeColors, UnknownLanguage, UnknownTheme, check_syntax,
+    flush_pending_edits, flush_pending_input,
 };

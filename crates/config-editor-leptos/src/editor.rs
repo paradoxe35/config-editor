@@ -20,6 +20,7 @@ mod diff;
 mod handle;
 mod highlight;
 mod history;
+mod host_diagnostics;
 mod inline;
 mod input;
 pub use input::flush_pending_input;
@@ -38,8 +39,11 @@ mod theme;
 
 pub use codec::{Conversion, ConvertError};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
-pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, check_syntax};
+pub use diagnostics::{
+    Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
+};
 pub use handle::EditorHandle;
+pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
@@ -153,6 +157,12 @@ pub fn ConfigEditor(
     /// a field; see [`EditorHandle`].
     #[prop(optional)]
     handle: Option<EditorHandle>,
+    /// Problems the host found (a server's validation), by path or range,
+    /// shown next to the editor's own and marked as the host's. A new list
+    /// replaces the previous one; only the markers update. See
+    /// [`HostDiagnostic`].
+    #[prop(optional, into)]
+    host_diagnostics: Option<Signal<Vec<HostDiagnostic>>>,
     /// Called with the path of what the caret is on each time it changes
     /// (and once on mount), for a breadcrumb: `/web/listen`, or the root at
     /// the top level.
@@ -189,6 +199,7 @@ pub fn ConfigEditor(
         read_only,
         features,
         host_on_change: on_change,
+        host_diagnostics: host_diagnostics.unwrap_or_default(),
     });
     sync::connect(
         state,
