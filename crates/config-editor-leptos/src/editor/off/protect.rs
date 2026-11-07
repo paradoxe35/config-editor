@@ -150,6 +150,8 @@ impl EditorState {
 
     pub(super) fn snap_to_tokens(&self) {}
 
+    pub(super) fn recheck_tokens(&self) {}
+
     pub(super) fn press_at(&self, _offset: usize) {}
 
     pub(super) fn release_press(&self) {}

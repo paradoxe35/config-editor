@@ -271,6 +271,8 @@ fn debounce_validation(state: EditorState) {
                     // The editor may have been unmounted while this waited.
                     if token.try_get_value() == Some(current) {
                         let _ = diagnosed.try_set(text);
+                        // The pause in typing: the placeholders' fields too.
+                        state.recheck_tokens();
                     }
                 })
                 .unchecked_ref(),

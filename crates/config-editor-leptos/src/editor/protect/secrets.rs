@@ -35,8 +35,6 @@ pub(crate) struct SecretState {
     pub(crate) known: RwSignal<Vec<Known>>,
     /// UTF-16 ranges of the real tokens in the text on screen.
     pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
-    /// The token a mouse press landed inside, until the button is released.
-    pressed: StoredValue<Option<Range<usize>>>,
 }
 
 impl SecretState {
@@ -56,7 +54,6 @@ impl SecretState {
             matcher: StoredValue::new(Arc::new(matcher)),
             known: RwSignal::new(known),
             tokens: RwSignal::new(tokens),
-            pressed: StoredValue::new(None),
         }
     }
 
@@ -313,7 +310,9 @@ impl EditorState {
                 .find(|token| token.start < offset && offset < token.end)
                 .cloned()
         });
-        secrets.pressed.set_value(pressed);
+        self.protect
+            .marks
+            .update_value(|marks| marks.pressed = pressed);
     }
 
     /// The mouse button released: a selection dragged from inside a
@@ -321,9 +320,11 @@ impl EditorState {
     /// (dragged left, at its end; right, at its start); without a drag the
     /// caret snaps out of it.
     pub(crate) fn release_press(&self) {
-        let secrets = self.protect.secrets;
-        let pressed = secrets.pressed.get_value();
-        secrets.pressed.set_value(None);
+        let pressed = self
+            .protect
+            .marks
+            .try_update_value(|marks| marks.pressed.take())
+            .flatten();
         let (Some(token), Some(element)) = (pressed, self.textarea()) else {
             self.snap_to_tokens();
             return;

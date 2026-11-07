@@ -43,6 +43,17 @@ pub(crate) struct ProtectInit {
     pub(crate) secrets: Option<SecretOptions>,
 }
 
+/// The bookkeeping of one editor's protection.
+#[derive(Clone, Default)]
+pub(crate) struct Marks {
+    /// Which tooltip is shown, so a timer hides only its own.
+    tip_token: u64,
+    /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
+    epoch: u64,
+    /// The placeholder a mouse press landed inside, until it is released.
+    pub(crate) pressed: Option<Range<usize>>,
+}
+
 /// The protection signals of one editor.
 #[derive(Clone, Copy)]
 pub(crate) struct ProtectState {
@@ -55,9 +66,8 @@ pub(crate) struct ProtectState {
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
     pub(crate) tip: RwSignal<Option<Tip>>,
-    tip_token: StoredValue<u64>,
-    /// Counts the texts the host gave (see [`Self::trust_text`]).
-    epoch: StoredValue<u64>,
+    /// Small bookkeeping, in one slot: every editor keeps its handles.
+    pub(crate) marks: StoredValue<Marks>,
     /// Secret placeholders (see `secrets`).
     pub(crate) secrets: SecretState,
 }
@@ -94,10 +104,10 @@ impl ProtectState {
         });
         let local =
             RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
-        let epoch = StoredValue::new(0u64);
+        let marks = StoredValue::new(Marks::default());
         let protected = Memo::new_with_compare(
             move |previous: Option<&Arc<Protected>>| {
-                let epoch = epoch.get_value();
+                let epoch = marks.with_value(|marks| marks.epoch);
                 // Values pinned in an earlier text of the same host text and
                 // language carry over a text that does not parse.
                 let previous = previous
@@ -162,8 +172,7 @@ impl ProtectState {
             ranges: local,
             protected,
             tip: RwSignal::new(None),
-            tip_token: StoredValue::new(0),
-            epoch,
+            marks,
             secrets,
         }
     }
@@ -172,7 +181,7 @@ impl ProtectState {
     /// an Edit-as switch): the locked values are read from it afresh, never
     /// carried from the text it replaces.
     pub(crate) fn trust_text(&self) {
-        self.epoch.update_value(|epoch| *epoch += 1);
+        self.marks.update_value(|marks| marks.epoch += 1);
     }
 
     /// Shows `message` at `offset` for a moment.
@@ -182,7 +191,7 @@ impl ProtectState {
             offset,
             hover: false,
         }));
-        self.tip_token.update_value(|token| *token += 1);
+        self.marks.update_value(|marks| marks.tip_token += 1);
         // Native unit tests have no window to time it with.
         #[cfg(target_arch = "wasm32")]
         self.hide_tip_later();
@@ -191,13 +200,13 @@ impl ProtectState {
     /// Hides the tooltip after a moment, unless another took its place.
     #[cfg(target_arch = "wasm32")]
     fn hide_tip_later(&self) {
-        let token = self.tip_token.get_value();
+        let token = self.marks.with_value(|marks| marks.tip_token);
         let state = *self;
         if let Some(window) = web_sys::window() {
             use wasm_bindgen::JsCast;
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                 wasm_bindgen::closure::Closure::once_into_js(move || {
-                    if state.tip_token.try_get_value() == Some(token) {
+                    if state.marks.try_with_value(|marks| marks.tip_token) == Some(token) {
                         let _ = state.tip.try_set(None);
                     }
                 })
@@ -228,17 +237,10 @@ fn offsets(text: &str, ranges: &[TextRange]) -> Vec<Range<usize>> {
 }
 
 impl EditorState {
-    /// Places the host's ranges again each time the host changes them, and
-    /// checks the placeholders' fields at each pause in typing (when the
-    /// diagnostics catch up with the text).
+    /// Places the host's ranges again each time the host changes them.
     pub(crate) fn connect_protection(&self) {
         let state = *self;
-        Effect::new(move |previous: Option<()>| {
-            state.problems.diagnosed_text.track();
-            if previous.is_some() {
-                state.recheck_tokens();
-            }
-        });
+
         Effect::new(move |previous: Option<()>| {
             state.protect.host_ranges.track();
             if previous.is_some() {
