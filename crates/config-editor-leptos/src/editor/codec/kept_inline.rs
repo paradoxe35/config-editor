@@ -88,7 +88,16 @@ pub(super) fn hide(
         .filter_map(|range| host_lines.get(range).map(|lines| lines.join("\n")))
         .collect();
     let string_bodies = !bodies.is_empty();
-    if lines.is_empty() && !multi_line_lists && !multi_line_maps && !string_bodies {
+    // Only where a reference stands as a value (`key: *p`, `- *p`).
+    let references = language.reference_len("*r").is_some()
+        && previous.lines().any(|line| {
+            let code = line.trim_start().trim_start_matches("- ");
+            code.starts_with('*') && language.reference_len(code).is_some()
+                || code
+                    .split_once(": ")
+                    .is_some_and(|(_, value)| language.reference_len(value.trim_start()).is_some())
+        });
+    if lines.is_empty() && !multi_line_lists && !multi_line_maps && !string_bodies && !references {
         return None;
     }
     let mut candidates = Vec::new();
@@ -99,6 +108,14 @@ pub(super) fn hide(
         String::new(),
         &mut candidates,
     );
+    // Containers written by reference (YAML's `- *p`): kept as written.
+    if references {
+        collect_containers(old, String::new(), &mut candidates);
+        candidates.sort();
+        candidates.dedup();
+        // Parents before children, as the outermost-first pass expects.
+        candidates.sort_by_key(|pointer| pointer.matches('/').count());
+    }
     let spans = language.value_spans(previous, &candidates);
     let mut found: Vec<(String, OneLine)> = Vec::new();
     // Outermost first (`collect` lists parents before their children).
@@ -125,6 +142,13 @@ pub(super) fn hide(
                         .then(|| multi_line_list(language, previous, span))
                         .flatten()
                 })
+            })
+            .or_else(|| {
+                // Written by reference, and the same in the new value.
+                let range = super::byte_range(previous, span?)?;
+                let length = language.reference_len(&previous[range.start..])?;
+                (new.pointer(&pointer) == old.pointer(&pointer))
+                    .then_some(range.start..range.start + length)
             })
             .map(|range| OneLine {
                 range: range.clone(),
@@ -315,6 +339,29 @@ fn collect(
                     format!("{pointer}/{index}"),
                     out,
                 );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Pointers of the containers in `value`.
+fn collect_containers(value: &Value, pointer: String, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if !pointer.is_empty() {
+                out.push(pointer.clone());
+            }
+            for (key, child) in map {
+                collect_containers(child, format!("{pointer}/{}", escape(key)), out);
+            }
+        }
+        Value::Array(items) => {
+            if !pointer.is_empty() {
+                out.push(pointer.clone());
+            }
+            for (index, child) in items.iter().enumerate() {
+                collect_containers(child, format!("{pointer}/{index}"), out);
             }
         }
         _ => {}

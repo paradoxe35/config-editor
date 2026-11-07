@@ -1053,6 +1053,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         0
     }
 
+    /// The length of a value written as a reference to another (YAML's
+    /// `*anchor`) at the start of `text`, which a save keeps as written
+    /// while the value it stands for is unchanged. Default: none.
+    fn reference_len(&self, text: &str) -> Option<usize> {
+        let _ = text;
+        None
+    }
+
     /// Whether `code` (a line without its comment, trimmed) opens a map
     /// written inline over the following lines (YAML's `tcp: {`), which a
     /// save keeps as written rather than the serializer's form. Default: no.

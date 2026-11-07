@@ -23,98 +23,142 @@ pub(super) fn rewrite_list_lines(
         return None;
     }
     // Each item line: the comment lines right above it (they go where it
-    // goes), its code without the comma, its trailing comment.
-    struct Line {
-        above: Vec<String>,
-        code: String,
-        comment: String,
+    // goes), the line itself, its code without the comma, whether a comma
+    // ends it.
+    struct Line<'a> {
+        above: Vec<&'a str>,
+        line: &'a str,
+        code: &'a str,
+        comma: bool,
         used: bool,
     }
-    let mut old: Vec<Line> = Vec::new();
-    let mut above: Vec<String> = Vec::new();
-    let mut last_code_line = None;
+    let mut old: Vec<Line<'_>> = Vec::new();
+    let mut above: Vec<&str> = Vec::new();
     for line in &lines[1..lines.len() - 1] {
         if line.trim().is_empty() {
             continue;
         }
-        let code_end = comment_start(language, line);
-        let code = line[..code_end].trim();
+        let code = line[..comment_start(language, line)].trim();
         // A comment of its own: it belongs to the item below it.
         if code.is_empty() {
-            above.push(line.to_string());
+            above.push(line);
             continue;
         }
-        // Several items on one line: not this shape.
-        if code.trim_end_matches(',').contains(',') {
+        let comma = code.ends_with(',');
+        let code = code.trim_end_matches(',').trim_end();
+        // Several items on one line, or one spread over lines: not this shape.
+        if top_level_commas(code) > 0 || !balanced(code) {
             return None;
         }
-        last_code_line = Some(*line);
         old.push(Line {
             above: std::mem::take(&mut above),
-            code: code.trim_end_matches(',').to_string(),
-            comment: line[code_end..].trim().to_string(),
+            line,
+            code,
+            comma,
             used: false,
         });
     }
     // Comments after the last item stay at the end.
     let closing_comments = above;
-    // One line per item, each the item it was: not a list of objects or of
-    // items spread over lines.
+    // One line per item, each the item it was (a one-line object or list
+    // item is trusted by its place; the read-back checks it).
     let one_per_line = old.len() == before.len()
         && old.iter().zip(before).all(|(line, item)| {
-            !item.is_object()
-                && !item.is_array()
-                && comparable(language, &line.code)
+            item.is_object()
+                || item.is_array()
+                || comparable(language, line.code)
                     == comparable(language, &language.format_value(item))
         });
     if !one_per_line {
         return None;
     }
-    let indent: String = lines
-        .iter()
-        .skip(1)
-        .find(|line| !line.trim().is_empty())
+    let indent: String = old
+        .first()
         .map(|line| {
-            line.chars()
+            line.line
+                .chars()
                 .take_while(|character| matches!(character, ' ' | '\t'))
                 .collect()
         })
         .unwrap_or_default();
     // A comma after the last item too, when the host writes one there.
-    let trailing_comma = last_code_line.is_some_and(|line| {
-        line[..comment_start(language, line)]
-            .trim_end()
-            .ends_with(',')
-    });
+    let trailing_comma = old.last().is_some_and(|line| line.comma);
     let mut out = vec![first.to_string()];
     for (index, item) in items.iter().enumerate() {
-        let written = language.format_value(item);
-        let reused = old.iter_mut().find(|line| {
-            !line.used && comparable(language, &line.code) == comparable(language, &written)
-        });
-        let (code, comment) = match reused {
-            Some(line) => {
+        let wants_comma = index + 1 < items.len() || trailing_comma;
+        // The line of an equal item kept as written, its comment and its
+        // spacing too.
+        let reused = (0..old.len()).find(|at| !old[*at].used && before[*at] == *item);
+        match reused {
+            Some(at) => {
+                let line = &mut old[at];
                 line.used = true;
-                out.extend(line.above.iter().cloned());
-                (line.code.clone(), line.comment.clone())
+                out.extend(line.above.iter().map(|above| above.to_string()));
+                if line.comma == wants_comma {
+                    out.push(line.line.to_string());
+                } else {
+                    let comment_at = comment_start(language, line.line);
+                    let comment = &line.line[comment_at..];
+                    let code_end = line.line[..comment_at].trim_end().len();
+                    let gap = &line.line[code_end..comment_at];
+                    let lead = &line.line[..line.line.len() - line.line.trim_start().len()];
+                    let comma = if wants_comma { "," } else { "" };
+                    let gap = if comment.is_empty() {
+                        ""
+                    } else if gap.is_empty() {
+                        " "
+                    } else {
+                        gap
+                    };
+                    out.push(format!("{lead}{}{comma}{gap}{comment}", line.code));
+                }
             }
-            None => (written, String::new()),
-        };
-        let comma = if index + 1 < items.len() || trailing_comma {
-            ","
-        } else {
-            ""
-        };
-        let comment = if comment.is_empty() {
-            String::new()
-        } else {
-            format!(" {comment}")
-        };
-        out.push(format!("{indent}{code}{comma}{comment}"));
+            None => {
+                let written = language.format_value(item);
+                if written.contains('\n') {
+                    return None;
+                }
+                let comma = if wants_comma { "," } else { "" };
+                out.push(format!("{indent}{written}{comma}"));
+            }
+        }
     }
-    out.extend(closing_comments);
+    out.extend(closing_comments.iter().map(|line| line.to_string()));
     out.push(last.to_string());
     Some(out.join("\n"))
+}
+
+/// Commas outside brackets and quotes in `code`.
+fn top_level_commas(code: &str) -> usize {
+    let (mut depth, mut quote, mut commas) = (0i32, None, 0);
+    for character in code.chars() {
+        match (quote, character) {
+            (Some(open), _) if character == open => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '{' | '[' | '(') => depth += 1,
+            (None, '}' | ']' | ')') => depth -= 1,
+            (None, ',') if depth == 0 => commas += 1,
+            _ => {}
+        }
+    }
+    commas
+}
+
+/// Whether `code` closes every bracket it opens.
+fn balanced(code: &str) -> bool {
+    let (mut depth, mut quote) = (0i32, None);
+    for character in code.chars() {
+        match (quote, character) {
+            (Some(open), _) if character == open => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '{' | '[' | '(') => depth += 1,
+            (None, '}' | ']' | ')') => depth -= 1,
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 /// `text` (the host's `{` … `}`, one entry per line, as a YAML flow map or

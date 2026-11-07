@@ -140,6 +140,12 @@ impl ConfigLanguage for YamlBehavior {
         comparable_yaml_line(code)
     }
 
+    fn reference_len(&self, text: &str) -> Option<usize> {
+        let name = text.strip_prefix('*')?;
+        let length = name.find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-'))).unwrap_or(name.len());
+        (length > 0).then_some(length + 1)
+    }
+
     fn value_properties_len(&self, text: &str) -> usize {
         node_properties_len(text)
     }

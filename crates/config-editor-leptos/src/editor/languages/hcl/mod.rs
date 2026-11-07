@@ -155,6 +155,15 @@ impl ConfigLanguage for HclBehavior {
         {
             return format!("{header}\n{text}{terminator}");
         }
+        // A bare expression the host wrote (`var.azs`, read as `${var.azs}`)
+        // stays one.
+        if let Some(text) = value.as_str()
+            && is_bare_expression(written)
+            && let Some(expression) = expression_of(text)
+            && let Ok(written) = hcl::format::to_string(&expression)
+        {
+            return written.trim().to_string();
+        }
         // A template the host wrote (`"${var.port}"`) stays one: its `${`
         // is not escaped into text.
         if let Some(text) = value.as_str()

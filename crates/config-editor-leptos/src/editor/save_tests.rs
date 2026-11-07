@@ -1280,3 +1280,117 @@ fn a_yaml_value_made_empty_again_is_written_empty() {
         .text;
     assert_eq!(saved, "listen: 2\npool:\n  min_idle: ~\n  max_idle: 2\n");
 }
+
+#[test]
+fn round_14_saves_change_only_the_edit() {
+    use serde_json::{Value, json};
+    let mut failures = Vec::new();
+    let mut check = |name: &str,
+                     host: Language,
+                     edit: Language,
+                     text: &str,
+                     change: &dyn Fn(&mut Value),
+                     expected: &str| {
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let mut value: Value = edit.parse(&shown).unwrap();
+        change(&mut value);
+        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        match bridge.to_host(&changed, text) {
+            Ok(saved) if saved.text == expected => {}
+            Ok(saved) => failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
+                saved.text, saved.text
+            )),
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    };
+    let remove = |value: &mut Value, pointer: &str, key: &str| {
+        let map = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
+        let kept: serde_json::Map<String, Value> = std::mem::take(map)
+            .into_iter()
+            .filter(|(name, _)| name != key)
+            .collect();
+        *map = kept;
+    };
+    // H1: an alias item beside a merge that overrides a key.
+    let yaml = "# top\nweb:\n  clients:\n    - &p {name: a, target: 80, w: 3}\napi:\n  clients:\n    - *p\n    - <<: *p\n      w: 2 # override\n";
+    check(
+        "H1 alias item",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["api"]["clients"][0]["target"] = json!(91),
+        &yaml.replace("    - *p\n", "    - {name: a, target: 91, w: 3}\n"),
+    );
+    check(
+        "H1 anchor item",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["web"]["clients"][0]["target"] = json!(81),
+        "# top\nweb:\n  clients:\n    - &p {name: a, target: 81, w: 3}\napi:\n  clients:\n    - {name: a, target: 80, w: 3}\n    - name: a\n      target: 80\n      w: 2 # override\n",
+    );
+    // H2: expressions stay expressions; a labelled block holding one deletes.
+    let hcl = "# top\nvariable \"v\" {\n  d = 1 # d\n}\nvariable \"w\" {\n  type = number\n}\n";
+    check(
+        "H2 delete",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|v| remove(v, "/variable", "w"),
+        "# top\nvariable \"v\" {\n  d = 1 # d\n}\n",
+    );
+    let hcl = "# top\nvariable \"v\" {\n  type = string\n}\nvariable \"w\" {\n  d = 1 # d\n}\n";
+    check(
+        "H2 expression kept",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|v| remove(v, "/variable", "w"),
+        "# top\nvariable \"v\" {\n  type = string\n}\n",
+    );
+    let hcl = "module \"vpc\" {\n  azs = var.azs # e\n  tags = local.tags\n}\nlisten = 1\n";
+    check(
+        "H2 other edit",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|v| v["listen"] = json!(2),
+        &hcl.replace("listen = 1", "listen = 2"),
+    );
+    // H3: a bare expression edited stays an expression.
+    check(
+        "H3",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|v| v["module"]["vpc"]["azs"] = json!("${var.zones}"),
+        &hcl.replace("var.azs", "var.zones"),
+    );
+    // MEDIUM: an untouched line beside an inserted item keeps its spacing.
+    let toml = "deps = [\n  \"click\",  # cli\n]\n";
+    check(
+        "M toml spacing",
+        Language::TOML,
+        Language::JSON,
+        toml,
+        &|v| v["deps"].as_array_mut().unwrap().push(json!("rich")),
+        "deps = [\n  \"click\",  # cli\n  \"rich\",\n]\n",
+    );
+    let hcl = "clients = [\n  { name = \"a\", target = 80 },\n]\n";
+    check(
+        "M hcl list",
+        Language::HCL,
+        Language::YAML,
+        hcl,
+        &|v| {
+            v["clients"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name": "b"}))
+        },
+        "clients = [\n  { name = \"a\", target = 80 },\n  { name = \"b\" },\n]\n",
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

@@ -19,6 +19,9 @@ pub(super) struct HostForms {
     /// Strings the host writes as templates (`"${var.port}"`): written so
     /// again, not escaped as text.
     pub(super) templates: std::collections::HashSet<String>,
+    /// Strings the host writes as bare expressions (`var.azs`, `number`),
+    /// which read as `${…}`: written as those expressions again.
+    pub(super) expressions: std::collections::HashSet<String>,
     /// Paths written as unlabelled blocks (`dns { … }`, once or repeated):
     /// a list there is written as repeated blocks, an empty map as a block.
     pub(super) blocks: std::collections::HashSet<Vec<String>>,
@@ -44,6 +47,14 @@ pub(super) fn host_forms(source: &str) -> HostForms {
             .iter()
             .filter_map(|attribute| source.get(attribute.value_span.0..attribute.value_span.1))
             .filter(|written| is_template(written))
+            .filter_map(|written| hcl::from_str::<serde_json::Value>(&format!("v = {written}")).ok())
+            .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
+            .collect(),
+        expressions: scan
+            .attributes
+            .iter()
+            .filter_map(|attribute| source.get(attribute.value_span.0..attribute.value_span.1))
+            .filter(|written| is_bare_expression(written))
             .filter_map(|written| hcl::from_str::<serde_json::Value>(&format!("v = {written}")).ok())
             .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
             .collect(),
@@ -145,6 +156,10 @@ pub(super) fn hcl_body(
         let mut child_path = path.to_vec();
         child_path.push(key.clone());
         match value {
+            // Labelled blocks before, all of them gone: an empty block.
+            Value::Object(children) if labelled.contains_key(&child_path) && children.is_empty() => {
+                body = body.add_block(hcl::Block { identifier, labels: Vec::new(), body: hcl::Body::default() });
+            }
             // Written as labelled blocks before: one block per entry.
             Value::Object(children) if labelled.contains_key(&child_path) => {
                 for block in labelled_entries(&identifier, children, labelled[&child_path], &child_path, forms)? {
@@ -178,7 +193,7 @@ pub(super) fn hcl_body(
                     body: hcl_body(children, forms, &child_path)?,
                 });
             }
-            _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression_in(value, &forms.templates))),
+            _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression_in(value, forms))),
         }
     }
     Ok(body.build())
@@ -229,14 +244,37 @@ pub(super) fn is_template(written: &str) -> bool {
     written.starts_with('"') && (plain.contains("${") || plain.contains("%{"))
 }
 
-/// [`hcl_expression`], writing the strings in `templates` as templates.
-pub(super) fn hcl_expression_in(value: &Value, templates: &std::collections::HashSet<String>) -> hcl::Expression {
+/// Whether `written` (a value as the host writes it) is a bare expression:
+/// a reference, call or operation, not a literal (`var.azs`, `number`).
+pub(super) fn is_bare_expression(written: &str) -> bool {
+    let written = written.trim();
+    !written.is_empty()
+        && !written.starts_with(['"', '[', '{', '<', '-', '+'])
+        && !written.starts_with(|character: char| character.is_ascii_digit())
+        && !matches!(written, "true" | "false" | "null")
+}
+
+/// The expression a `${…}` string stands for (`${var.azs}` is `var.azs`).
+pub(super) fn expression_of(text: &str) -> Option<hcl::Expression> {
+    let inner = text.strip_prefix("${")?.strip_suffix('}')?;
+    if inner.contains("${") {
+        return None;
+    }
+    inner.trim().parse::<hcl::Expression>().ok()
+}
+
+/// [`hcl_expression`], writing the strings the host writes as templates or
+/// bare expressions that way again.
+pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expression {
     match value {
-        Value::String(text) if templates.contains(text) => {
+        Value::String(text) if forms.expressions.contains(text) => {
+            expression_of(text).unwrap_or_else(|| hcl_expression(value))
+        }
+        Value::String(text) if forms.templates.contains(text) => {
             hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(text.clone())))
         }
-        Value::Array(items) if !templates.is_empty() => {
-            hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, templates)).collect())
+        Value::Array(items) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
+            hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, forms)).collect())
         }
         _ => hcl_expression(value),
     }
@@ -255,7 +293,7 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
             map.iter()
                 .map(|(key, value)| {
                     let key = match hcl::Identifier::new(key.as_str()) {
-                        Ok(identifier) if is_ident(key) => ObjectKey::Identifier(identifier),
+                        Ok(identifier) if is_ident(key) && !key.contains('-') => ObjectKey::Identifier(identifier),
                         _ => ObjectKey::Expression(Expression::String(key.clone())),
                     };
                     (key, hcl_expression(value))

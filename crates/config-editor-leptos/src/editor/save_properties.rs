@@ -175,6 +175,21 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::JSON,
             "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
         ),
+        // Round 14 shapes: a list of an anchor, its alias and a merge that
+        // overrides a key; HCL expressions and dashed object keys; lists of
+        // one-line objects; spacing before comments in lists.
+        (
+            Language::YAML,
+            "# top\nweb:\n  clients:\n    - &p {name: a, target: 80, w: 3}\napi:\n  clients:\n    - *p\n    - <<: *p\n      w: 2 # override\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nvariable \"v\" {\n  type = string # t\n}\nmodule \"vpc\" {\n  azs = var.azs # e\n  headers = { \"X-Real-IP\" = \"a\" }\n}\nclients = [\n  { name = \"a\", target = 80 },\n]\n",
+        ),
+        (
+            Language::TOML,
+            "deps = [\n  \"click\",  # cli\n  \"rich\",\n]\nlisten = 1 # l\n",
+        ),
     ]
 }
 
@@ -468,7 +483,12 @@ fn check(
     // Slack for blank lines, an emptied table written inline (`self = {}`)
     // and a one-line container that must open over lines (an HCL block
     // given a second attribute). A rewrite of the whole host is far over.
-    let budget = changed_lines(&full_old, &full_new) + 5;
+    // Each alias or merge key may need writing out when the edit parts it
+    // from its anchor (a few lines each).
+    let shared = host_text.matches(": *").count()
+        + host_text.matches("- *").count()
+        + host_text.matches("<<: *").count();
+    let budget = changed_lines(&full_old, &full_new) + 5 + 3 * shared;
     let changed = changed_lines(host_text, &saved);
     if changed > budget {
         problems.push(format!(

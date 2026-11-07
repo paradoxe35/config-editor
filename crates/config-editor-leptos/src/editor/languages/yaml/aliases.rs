@@ -66,8 +66,8 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
             // A merge parts only when an inherited key no longer reads the
             // anchor's value: the map's own keys change freely.
             let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
-            let indent = previous[line_start..].len() - previous[line_start..].trim_start().len();
-            let own = own_keys(previous, line_start, indent);
+            let (_, column) = merge_layout(previous, line_start);
+            let own = own_keys(previous, line_start, column);
             match (new.pointer(&alias.pointer), new.pointer(anchor), old.pointer(anchor)) {
                 // The anchor's keys before and after: one it gains would be
                 // inherited too.
@@ -89,17 +89,27 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
             // The merged keys the map does not write itself, as its entries.
             let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
             let line_end = previous[alias.start..].find('\n').map_or(previous.len(), |at| alias.start + at);
-            let indent = &previous[line_start..line_start + previous[line_start..].len() - previous[line_start..].trim_start().len()];
+            // On a list item's line (`- <<: *p`) the map starts after the
+            // dash: the first entry takes its place, the others its column.
+            let (prefix, column) = merge_layout(previous, line_start);
             let Some(Value::Object(merged)) = old.pointer(anchor) else {
                 return None;
             };
-            let own = own_keys(previous, line_start, indent.len());
+            let own = own_keys(previous, line_start, column);
             let lines: Vec<String> = merged
                 .iter()
                 .filter(|(key, _)| !own.contains(*key))
-                .map(|(key, value)| format!("{indent}{}: {}", yaml_key(key), yaml_value(value)))
+                .enumerate()
+                .map(|(index, (key, value))| {
+                    let lead = if index == 0 { prefix.clone() } else { " ".repeat(column) };
+                    format!("{lead}{}: {}", yaml_key(key), yaml_value(value))
+                })
                 .collect();
             if lines.is_empty() {
+                // The item's dash would go with the line.
+                if prefix.trim_start().starts_with('-') {
+                    return None;
+                }
                 edits.push((line_start, (line_end + 1).min(previous.len()), String::new()));
             } else {
                 edits.push((line_start, line_end, lines.join("\n")));
@@ -118,6 +128,14 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         detached.replace_range(start..end, &text);
     }
     Some(detached)
+}
+
+/// What comes before `<<` on the line at `line_start` (its indentation and
+/// any list dashes, `    - `) and the column the merged map's keys sit at.
+fn merge_layout(source: &str, line_start: usize) -> (String, usize) {
+    let line = source[line_start..].split('\n').next().unwrap_or("");
+    let at = line.find("<<").unwrap_or(line.len() - line.trim_start().len());
+    (line[..at].to_string(), line[..at].chars().count())
 }
 
 /// Whether byte `at` of `code` sits inside a quoted string.
