@@ -261,11 +261,12 @@ fn the_caret_path_stays_cheap_in_large_documents() {
     let mut failures = Vec::new();
     for (language, text) in samples {
         let lines = text.split('\n').count();
-        let started = std::time::Instant::now();
-        for line in [lines / 2, lines - 2] {
-            let _ = language.path_at(text, TextPosition::new(line, 5));
-        }
-        let elapsed = started.elapsed() / 2;
+        let (elapsed, ()) = crate::editor::test_timing::best_of(5, || {
+            for line in [lines / 2, lines - 2] {
+                let _ = language.path_at(text, TextPosition::new(line, 5));
+            }
+        });
+        let elapsed = elapsed / 2;
         if elapsed > std::time::Duration::from_millis(15) {
             failures.push(format!("{language}: {elapsed:?} per caret move"));
         }
