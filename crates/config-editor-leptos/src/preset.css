@@ -1239,6 +1239,37 @@
 
 .config-editor__diagnostic-status-error { color: var(--config-editor-status-error); }
 
+/* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */
+.config-editor__tab-focus-status {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 3px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.config-editor__tab-focus-status:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Read by screen readers only: the caret's note, announcements. */
+.config-editor__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
 /* "2 changes": status text that jumps to the next change. */
 .config-editor__change-status {
   flex: none;

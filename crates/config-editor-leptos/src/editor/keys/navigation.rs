@@ -4,6 +4,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::a11y::problem_announcement;
 use super::super::commands::{cycle_offset, offset_at, smart_home as home_target};
 use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
@@ -156,7 +157,18 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     positioned.sort_unstable();
     let offsets: Vec<usize> = positioned.iter().map(|(offset, _)| *offset).collect();
     if let Some(position) = cycle_offset(&offsets, here, event.shift_key()) {
-        state.go_to_diagnostic(positioned[position].1);
+        let index = positioned[position].1;
+        state.go_to_diagnostic(index);
+        // "Error 2 of 5: …" for screen readers, which do not see the
+        // message the marker shows.
+        let said = state.problems.diagnostics.with_untracked(|problems| {
+            problems
+                .get(index)
+                .map(|problem| problem_announcement(problem, position + 1, positioned.len()))
+        });
+        if let Some(said) = said {
+            state.a11y.announce(said);
+        }
     }
     true
 }

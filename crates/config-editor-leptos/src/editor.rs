@@ -9,6 +9,7 @@
 
 use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 
+mod a11y;
 mod bridge;
 mod changes;
 mod codec;
@@ -67,9 +68,9 @@ pub use protect::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
-    BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget,
-    GoToLineWidget, Gutter, HoverCardView, ProtectTipView, SearchHighlights, SourceInput,
-    StatusBar, Toolbar,
+    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup,
+    FindWidget, GoToLineWidget, Gutter, HoverCardView, ProtectTipView, SearchHighlights,
+    SourceInput, StatusBar, Toolbar,
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
@@ -330,6 +331,7 @@ pub fn ConfigEditor(
     }
     input::attach_listeners(state);
     state.connect_protection();
+    a11y::connect_caret_note(state);
     if let Some(handle) = handle {
         handle.attach(state);
     }
@@ -377,6 +379,7 @@ pub fn ConfigEditor(
                     </div>
                 </div>
                 {show_footer.then(|| view! { <StatusBar state=state /> })}
+                <Announcer state=state />
             </section>
             <DiffPeekPopup state=state />
         </div>

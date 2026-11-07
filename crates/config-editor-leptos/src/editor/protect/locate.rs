@@ -71,6 +71,17 @@ impl<'a> LineIndex<'a> {
         units..units + length
     }
 
+    /// Zero-based `line`'s text, without its newline.
+    pub(crate) fn line_text(&self, line: usize) -> &'a str {
+        let line = line.min(self.starts.len() - 1);
+        let start = self.starts[line].0;
+        let end = self
+            .starts
+            .get(line + 1)
+            .map_or(self.text.len(), |(next, _)| next - 1);
+        &self.text[start..end]
+    }
+
     pub(crate) fn line_count(&self) -> usize {
         self.starts.len()
     }

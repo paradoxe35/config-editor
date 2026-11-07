@@ -5,7 +5,7 @@ use web_sys::KeyboardEvent;
 
 use super::super::edit::Edit;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::super::language::{Newline, in_string_body};
+use super::super::language::Newline;
 use super::super::state::{EditorState, textarea_selection};
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
@@ -44,8 +44,7 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     // In a comment or a multi-line string's body the line break is text:
     // keep the line's indentation, nothing more.
     let behavior = state.behavior();
-    let newline = if behavior.lexical_state(&text, start).in_comment
-        || in_string_body(behavior, &text, start)
+    let newline = if behavior.lexical_state(&text, start).in_comment || state.in_string_body(start)
     {
         let line_start = line_start_of(&text, start);
         let indent: String = text[utf16_to_byte_index(&text, line_start)..]

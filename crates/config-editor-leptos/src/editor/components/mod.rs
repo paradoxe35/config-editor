@@ -1,6 +1,7 @@
 //! The editor's view, one component per part of the screen. Each takes the
 //! shared [`EditorState`](super::state::EditorState).
 
+mod announcer;
 mod baseline_notice;
 mod chrome;
 mod code;
@@ -18,6 +19,7 @@ mod source;
 mod status_bar;
 mod toolbar;
 
+pub(super) use announcer::Announcer;
 pub(super) use baseline_notice::BaselineNotice;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 pub(super) use code::CodeLayer;

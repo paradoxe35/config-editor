@@ -175,15 +175,4 @@ impl EditorState {
         self.note_caret(target);
         true
     }
-
-    /// The hint of the placeholder covering UTF-16 `offset`, if any.
-    pub(crate) fn token_hint(&self, offset: usize) -> Option<String> {
-        let secrets = self.protect.secrets;
-        let on_token = secrets.tokens.with_untracked(|tokens| {
-            tokens
-                .iter()
-                .any(|token| token.start <= offset && offset < token.end)
-        });
-        on_token.then(|| secrets.options.with_value(|options| options.hint.clone()))
-    }
 }

@@ -5,6 +5,8 @@
 //! - `?language=xml` — the language the host stores (YAML by default);
 //! - `?edit=hcl` — edit it as another language (`edit_as`);
 //! - `?sample=large` — the ~2000-line config instead of the short one;
+//!   `?sample=page` — the text the page put in `window.configEditorSample`
+//!   before the demo started (the large-file e2e tests load ~6000 lines so);
 //! - `?readonly` — start in view mode (the Read-only box under the editor
 //!   switches it live, beside "Server change" and "Host edit");
 //! - `?schema=help` — the schema-help fixture (deprecated keys, docs links,
@@ -80,6 +82,14 @@ fn samples(language: Language) -> (&'static str, &'static str) {
             include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.yaml"),
         ),
     }
+}
+
+/// The text the page left in `window.configEditorSample` (`?sample=page`),
+/// kept for the page's lifetime.
+fn page_sample() -> Option<&'static str> {
+    let window = web_sys::window()?;
+    let value = web_sys::js_sys::Reflect::get(&window, &"configEditorSample".into()).ok()?;
+    Some(value.as_string()?.leak())
 }
 
 /// The server's version after another client changed it: the first number
@@ -173,9 +183,14 @@ fn main() {
                 .and_then(|name| name.parse::<Language>().ok())
                 .filter(|edit| *edit != language),
         );
-        let large_sample = query_value(&flags, "sample").as_deref() == Some("large");
+        let sample_flag = query_value(&flags, "sample");
+        let large_sample = matches!(sample_flag.as_deref(), Some("large" | "page"));
         let (small, large) = samples(language);
-        let sample = if large_sample { large } else { small };
+        let sample = match sample_flag.as_deref() {
+            Some("page") => page_sample().unwrap_or(large),
+            Some("large") => large,
+            _ => small,
+        };
         let file_name = format!(
             "burrow{}.{}",
             if large_sample { ".large" } else { "" },

@@ -25,3 +25,13 @@ Screenshots from the run are written to `test-results/screens/`.
   undo/redo, Tab and comment shortcuts, bracket pairing, diagnostics and their
   tooltips, the diff gutter with Apply changes, theme font consistency, and hover on
   nested and dynamic keys.
+- `tests/keyboard-a11y.spec.mjs`: leaving the editor with the keyboard (`Ctrl+M`,
+  Escape then Tab), the caret's problem as the textarea's description, `F8`
+  announcements, read-only reasons and secret hints at the caret, documents.
+- `tests/touch.spec.mjs`: a phone (`hasTouch`, `isMobile`): taps place the caret,
+  selections made without a click or key are followed, touch drags scroll the
+  gutter along, suggestions, the footer and messages work by tap.
+- `tests/large-files.spec.mjs`: the demo config generated 6000–8500 lines long
+  (`samples/generate.py --scale 5`) in every language: load, keystroke latency
+  (worst and 95th percentile), Ctrl+End and the wheel, find, fold all and Edit-as,
+  each within a budget; the numbers are logged.

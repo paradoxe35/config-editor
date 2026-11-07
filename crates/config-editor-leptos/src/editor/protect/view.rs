@@ -40,6 +40,8 @@ impl LineMarks {
 
 /// The marks of every line of `text` (empty when nothing is protected),
 /// with its secret placeholders at `tokens` (UTF-16) and their `hint`.
+/// One pass over the text: each piece is measured within its own line,
+/// so a document with thousands of placeholders stays linear.
 pub(crate) fn line_marks(
     text: &str,
     protected: &Protected,
@@ -56,8 +58,7 @@ pub(crate) fn line_marks(
         for range in &lock.ranges {
             for (piece, line) in pieces(range, lock.key.as_ref(), &lines) {
                 let bounds = lines.line_bounds(line);
-                let line_text = &text[utf16_to_byte_index(text, bounds.start)
-                    ..utf16_to_byte_index(text, bounds.end)];
+                let line_text = lines.line_text(line);
                 let byte = |at: usize| utf16_to_byte_index(line_text, at - bounds.start);
                 let entry = &mut marks[line];
                 if piece.start < piece.end {
@@ -71,8 +72,7 @@ pub(crate) fn line_marks(
     for token in tokens {
         for (piece, line) in pieces(token, None, &lines) {
             let bounds = lines.line_bounds(line);
-            let line_text = &text
-                [utf16_to_byte_index(text, bounds.start)..utf16_to_byte_index(text, bounds.end)];
+            let line_text = lines.line_text(line);
             let byte = |at: usize| utf16_to_byte_index(line_text, at - bounds.start);
             let entry = &mut marks[line];
             entry.secret.push(byte(piece.start)..byte(piece.end));
@@ -108,4 +108,41 @@ fn pieces(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::locks::Protected;
+    use super::line_marks;
+
+    /// Each placeholder is measured within its own line: a document with
+    /// thousands of them (a large config's secrets) is marked in one pass.
+    /// Measured from the document's start, as before, this took minutes.
+    #[test]
+    fn many_placeholders_are_marked_in_linear_time() {
+        let lines = 20_000;
+        let line = "  secret: «secret 3f2a» # é\n";
+        let text = line.repeat(lines);
+        let line_units = line.encode_utf16().count();
+        let token_start = "  secret: ".encode_utf16().count();
+        let token_units = "«secret 3f2a»".encode_utf16().count();
+        let tokens: Vec<_> = (0..lines)
+            .map(|index| {
+                let start = index * line_units + token_start;
+                start..start + token_units
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let marks = line_marks(&text, &Protected::default(), &tokens, "hint");
+        let took = started.elapsed();
+        let byte_start = "  secret: ".len();
+        let expected = byte_start..byte_start + "«secret 3f2a»".len();
+        assert_eq!(marks.len(), lines + 1);
+        assert!(
+            marks[..lines]
+                .iter()
+                .all(|marks| marks.secret == [expected.clone()])
+        );
+        assert!(took.as_secs() < 5, "{took:?}");
+    }
 }

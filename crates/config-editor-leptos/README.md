@@ -39,6 +39,7 @@ method and headless function here has a JS option, method or function there
 - [Secrets](#secrets)
 - [Schema help](#schema-help)
 - [Keyboard](#keyboard)
+  - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
   - [Folding](#folding)
 - [Headless API](#headless-api)
@@ -577,6 +578,8 @@ schema whose regex it cannot compile.
 | `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                 |
 | `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote           |
 | `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                      |
+| `Ctrl+M`                                     | Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting |
+| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                   |
 | `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element |
 | `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                        |
 | `Ctrl+/`                                     | Toggle comments                                                                  |
@@ -600,6 +603,38 @@ schema whose regex it cannot compile.
 | `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                             |
 
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Keyboard and screen-reader access
+
+`Tab` indents while editing, so it would trap the focus. Two ways out, as in
+VS Code: `Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus to the
+next or previous element of the page (announced, and shown in the footer as
+"Tab moves focus" until `Ctrl+M` again or a click on it), and right after an
+`Escape` that had nothing to close (no suggestions, find widget, hover card
+or preview), one `Tab` or `Shift+Tab` leaves. While the suggestion list is
+open, `Tab` still accepts. A read-only editor never indents, so there `Tab`
+always moves the focus. In a [`ConfigDocuments`](#several-documents) view,
+the other documents' editors are inert: `Tab` out of the editor goes on to
+its footer and what follows the view, `Shift+Tab` back towards the tabs.
+
+The textarea is described (`aria-describedby`) by what is at the caret: the
+message of each problem there, the editor's or the host's ("Warning from
+burrow: port in use"), why a read-only value is read-only, a secret
+placeholder's hint. It follows the caret a moment after it stops. `F8` and
+`Shift+F8` announce the problem they move to through a polite live region
+("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
+`tooltip`, the change preview a `dialog`, and the footer's counts
+`aria-live`.
+
+On a touch screen a tap places the caret, a tap on underlined or read-only
+text shows its message (there is no hover), and the selection a long press
+or the selection handles make is followed like one made with the keyboard.
+
+```rust
+// Nothing to set up: the keys and descriptions are always there. The
+// footer's indicator is part of the built-in footer (`show_footer`).
+view! { <ConfigEditor initial_value=text /> }
+```
 
 ### Find and replace
 
