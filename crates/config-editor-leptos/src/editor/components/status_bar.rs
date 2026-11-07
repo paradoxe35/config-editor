@@ -2,6 +2,7 @@
 
 use leptos::prelude::*;
 
+use super::super::a11y::{TAB_FOCUS_LABEL, TAB_FOCUS_TITLE, toggle_tab_focus};
 use super::super::changes::ChangeSummary;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::state::EditorState;
@@ -30,6 +31,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 })}
             </span>
             <span class="config-editor__status-meta">
+                <TabFocusStatus state=state />
                 {move || state.config.settings.diagnostics.get().then(|| view! {
                     <button
                         type="button"
@@ -61,6 +63,26 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 </span>
             </span>
         </div>
+    }
+}
+
+/// "Tab moves focus" while `Ctrl+M` is on; clicking it turns it off.
+#[component]
+fn TabFocusStatus(state: EditorState) -> impl IntoView {
+    let turn_off = move |_| toggle_tab_focus(state);
+    move || {
+        state.a11y.tab_moves_focus.get().then(|| {
+            view! {
+                <button
+                    type="button"
+                    class="config-editor__tab-focus-status"
+                    title=TAB_FOCUS_TITLE
+                    on:click=turn_off
+                >
+                    {TAB_FOCUS_LABEL}
+                </button>
+            }
+        })
     }
 }
 

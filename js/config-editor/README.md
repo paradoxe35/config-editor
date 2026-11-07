@@ -25,6 +25,7 @@ which builds on this package.
 - [Functions](#functions)
 - [Binding to a framework](#binding-to-a-framework)
 - [Keyboard](#keyboard)
+  - [Leaving the editor and screen readers](#leaving-the-editor-and-screen-readers)
   - [Folding](#folding)
 - [Saving and unsaved edits](#saving-and-unsaved-edits)
 - [Several documents](#several-documents)
@@ -515,8 +516,27 @@ update them with the setters when they change.
 `Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
 reverts the change · `Ctrl+S` save (with `onSave`) · `Ctrl+Shift+[`/`Ctrl+Shift+]`
 fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything ·
-`Alt+PageDown`/`Alt+PageUp` next/previous document in a `ConfigDocuments` view.
+`Alt+PageDown`/`Alt+PageUp` next/previous document in a `ConfigDocuments` view ·
+`Ctrl+M` toggle Tab moves focus · `Escape` then `Tab`/`Shift+Tab` leave the editor once.
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Leaving the editor and screen readers
+
+`Tab` indents while editing. `Ctrl+M` switches `Tab` and `Shift+Tab` to
+moving the focus out of the editor (announced, and shown in the footer as
+"Tab moves focus" until `Ctrl+M` again or a click on it); right after an
+`Escape` that had nothing to close, one `Tab` or `Shift+Tab` leaves. `Tab`
+still accepts an open suggestion. The textarea's `aria-describedby` holds
+what is at the caret: each problem's message (host ones with their source),
+a read-only value's reason, a secret placeholder's hint; `F8` announces
+"Error 2 of 5: …". On a touch screen a tap on underlined or read-only text
+shows its message, and selections made with a long press or the handles are
+followed. Nothing to configure:
+
+```ts
+const editor = new ConfigEditor(element, { value, language: "yaml" });
+// Tab out with Ctrl+M or Escape, Tab; screen readers hear the caret's problem.
+```
 
 ### Folding
 

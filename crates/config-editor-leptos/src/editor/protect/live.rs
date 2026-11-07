@@ -19,6 +19,7 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use super::texts;
 use super::tokens::SecretOptions;
 
 /// How long a refused edit's tooltip stays, in milliseconds.
@@ -337,6 +338,37 @@ impl EditorState {
         })
     }
 
+    /// What the protected text at UTF-16 `offset` is, with its label: a
+    /// secret placeholder's hint, or why a read-only field is read-only.
+    /// With `ends`, an offset just at either end of it counts (the caret
+    /// beside it).
+    pub(crate) fn protected_note(
+        &self,
+        offset: usize,
+        ends: bool,
+    ) -> Option<(&'static str, String)> {
+        let covers = |range: &Range<usize>| {
+            range.start <= offset && (offset < range.end || (ends && offset == range.end))
+        };
+        let secrets = self.protect.secrets;
+        if secrets
+            .tokens
+            .with_untracked(|tokens| tokens.iter().any(covers))
+        {
+            return Some((
+                texts::SECRET_LABEL,
+                secrets.options.with_value(|options| options.hint.clone()),
+            ));
+        }
+        self.protect.protected.with_untracked(|protected| {
+            protected
+                .locks
+                .iter()
+                .find(|lock| lock.ranges.iter().any(covers))
+                .map(|lock| (texts::LOCK_LABEL, lock.reason.clone()))
+        })
+    }
+
     /// Shows what the protected text at zero-based `line`:`column` is, for
     /// the pointer; `false` when nothing protected is there.
     pub(crate) fn hover_protected(&self, line: usize, column: usize) -> bool {
@@ -352,20 +384,8 @@ impl EditorState {
         }
         let found = self.doc.text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
-            if let Some(hint) = self.token_hint(offset) {
-                return Some((hint, offset));
-            }
-            self.protect.protected.with_untracked(|protected| {
-                protected
-                    .locks
-                    .iter()
-                    .find(|lock| {
-                        lock.ranges
-                            .iter()
-                            .any(|range| range.start <= offset && offset < range.end)
-                    })
-                    .map(|lock| (lock.reason.clone(), offset))
-            })
+            self.protected_note(offset, false)
+                .map(|(_, message)| (message, offset))
         });
         let Some((message, offset)) = found else {
             self.protect.hide_tip(true);

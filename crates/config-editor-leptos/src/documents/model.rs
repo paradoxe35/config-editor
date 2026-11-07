@@ -190,7 +190,7 @@ pub struct CloseRequest {
     pub dirty: bool,
 }
 
-// The tests use built-in languages.
+// The tests need a built-in language.
 #[cfg(all(
     test,
     any(

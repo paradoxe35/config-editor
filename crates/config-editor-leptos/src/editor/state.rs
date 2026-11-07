@@ -20,11 +20,13 @@
 //! | `editing`    | `HostEditing`       | `host_editing`  |
 //! | `fold`       | `FoldState`         | `folding`       |
 //! | `protect`    | `ProtectState`      | `protect`       |
+//! | `a11y`       | `A11yState`         | `a11y`          |
 
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
+use super::a11y::A11yState;
 use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
 use super::diagnostics::SchemaBundle;
@@ -38,7 +40,7 @@ use super::host_editing::{
 };
 use super::hover::HoverState;
 use super::languages::Language;
-use super::layout::ViewState;
+use super::layout::{ViewState, string_bodies};
 use super::line_rows::rendered_lines;
 use super::live_settings::LiveSettings;
 use super::problems::{self, ProblemsState};
@@ -131,6 +133,9 @@ pub(super) struct EditorFields {
     pub(super) fold: FoldState,
     /// Read-only fields and secrets (see `protect`).
     pub(super) protect: ProtectState,
+    /// Leaving with the keyboard, the caret's note, announcements (see
+    /// `a11y`).
+    pub(super) a11y: A11yState,
 }
 
 impl EditorState {
@@ -195,6 +200,7 @@ impl EditorState {
             &sync,
             protect,
         );
+        let string_bodies = string_bodies(doc.text, sync.edit_language);
         let completion = CompletionState::new(completion::Sources {
             text: doc.text,
             caret: doc.caret,
@@ -203,6 +209,7 @@ impl EditorState {
             read_only,
             enabled: settings.completions,
             protect,
+            string_bodies,
         });
         let editing = HostEditing::new(
             host_editing::Init {
@@ -220,10 +227,9 @@ impl EditorState {
         let changes = ChangesState::new(doc.text, editing.shown_baseline, settings.diff);
         let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let view = ViewState::new(
-            doc.text,
-            sync.edit_language,
             projection,
             rendered_lines(doc.text, problems.diagnostics, changes.diff, protect),
+            string_bodies,
         );
         let fold = FoldState::new(
             projection,
@@ -237,6 +243,7 @@ impl EditorState {
             go_to_line: GoToLine::new(),
             typing: TypingState::new(),
             hover: HoverState::new(),
+            a11y: A11yState::new(),
             config,
             doc,
             sync,

@@ -41,13 +41,13 @@ pub(super) struct ViewState {
 }
 
 impl ViewState {
-    /// The view of `text` (in `edit_language`), whose textarea shows
-    /// `projection`, its lines rendered as `lines`.
+    /// The view of the document, whose textarea shows `projection`, its lines
+    /// rendered as `lines`, with the multi-line string bodies of
+    /// [`string_bodies`].
     pub(super) fn new(
-        text: RwSignal<String>,
-        edit_language: RwSignal<Language>,
         projection: RwSignal<Arc<Projection>>,
         lines: Memo<Vec<RenderedLine>>,
+        string_bodies: Memo<Vec<Range<usize>>>,
     ) -> Self {
         let textarea_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
         let scroll_y = RwSignal::new(0.0);
@@ -74,9 +74,6 @@ impl ViewState {
                 (first + (height / line_height).ceil() as usize + 2 * OVERSCAN_ROWS).min(count);
             first..last
         });
-        let string_bodies = Memo::new(move |_| {
-            text.with(|text| edit_language.get().behavior().string_body_lines(text))
-        });
         Self {
             textarea_ref,
             completion_ref: NodeRef::new(),
@@ -89,4 +86,34 @@ impl ViewState {
             string_bodies,
         }
     }
+}
+
+/// The lines inside multi-line strings' bodies of `text` (in
+/// `edit_language`), found once per edit for the view and the suggestions.
+pub(super) fn string_bodies(
+    text: RwSignal<String>,
+    edit_language: RwSignal<Language>,
+) -> Memo<Vec<Range<usize>>> {
+    Memo::new(move |_| text.with(|text| edit_language.get().behavior().string_body_lines(text)))
+}
+
+impl super::state::EditorState {
+    /// Whether UTF-16 `offset` of the document is on a line inside a
+    /// multi-line string's body. Read off the view's memo, which the code
+    /// layer keeps anyway: the keys asking on every keystroke never parse
+    /// the whole document again.
+    pub(super) fn in_string_body(&self, offset: usize) -> bool {
+        let line = self.doc.text.with_untracked(|text| {
+            let byte = super::keyboard::utf16_to_byte_index(text, offset);
+            line_breaks(&text.as_bytes()[..byte])
+        });
+        self.view
+            .string_bodies
+            .with_untracked(|bodies| bodies.iter().any(|lines| lines.contains(&line)))
+    }
+}
+
+/// Line breaks in `bytes`.
+fn line_breaks(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|byte| **byte == b'\n').count()
 }

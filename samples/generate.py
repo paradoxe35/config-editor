@@ -9,12 +9,16 @@ Run from the repository root:
 
     python3 samples/generate.py
 
+`--scale 4 --out DIR` writes a document about four times as long (about
+8000 lines) to DIR instead, for the large-file browser tests.
+
 XML constraints: repeated sibling elements form an array and a single one reads
 as a scalar, so every array holds at least two items (asserted). Map keys must
 be valid XML element names, so path-keyed maps (e.g. a site's `redirects`) are
 left out.
 """
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -61,9 +65,12 @@ def secret(*parts):
     return f"«secret {fingerprint(*parts)}»"
 
 
-def config():
+def config(scale=1):
+    """The config; `scale` repeats the sites (`etiolles`, `etiolles-2`, …),
+    which multiplies the clients and services, for large-file tests."""
+    sites = [site if copy == 0 else f"{site}-{copy + 1}" for copy in range(scale) for site in SITES]
     clients = {}
-    for site in SITES:
+    for site in sites:
         for role in ROLES:
             name = f"{site}-{role}"
             entry = {"secret": secret("client", name)}
@@ -88,8 +95,8 @@ def config():
         elif index % 3 == 1:
             entry["reach"] = {
                 client_names[index % len(client_names)]: [
-                    f"{SITES[index % len(SITES)]}-pve-ssh",
-                    f"{SITES[index % len(SITES)]}-pve-web",
+                    f"{sites[index % len(sites)]}-pve-ssh",
+                    f"{sites[index % len(sites)]}-pve-web",
                 ],
                 client_names[(index * 7) % len(client_names)]: "self",
             }
@@ -102,7 +109,7 @@ def config():
 
     services = {}
     port = 65000
-    for site_index, site in enumerate(SITES):
+    for site_index, site in enumerate(sites):
         pve = f"{site}-pve"
         ai = f"{site}-pve-ai"
         services[f"{site}-pve-ssh"] = {
@@ -545,7 +552,11 @@ def to_xml(data):
 
 
 def main():
-    data = config()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--scale", type=int, default=1, help="repeat the sites this many times")
+    parser.add_argument("--out", type=Path, default=OUT, help="where to write the files")
+    arguments = parser.parse_args()
+    data = config(arguments.scale)
     check_arrays(data)
     outputs = {
         "burrow.large.json": json.dumps(data, indent=2, ensure_ascii=False) + "\n",
@@ -555,7 +566,7 @@ def main():
         "burrow.large.xml": to_xml(data),
     }
     for name, text in outputs.items():
-        (OUT / name).write_text(text, encoding="utf-8")
+        (arguments.out / name).write_text(text, encoding="utf-8")
         print(f"{name}: {text.count(chr(10))} lines, {len(text.encode('utf-8'))} bytes")
 
 

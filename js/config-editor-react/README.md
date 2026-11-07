@@ -15,6 +15,7 @@ editing one language as another, and eleven themes.
 - [Ref](#ref)
   - [Saving](#saving)
   - [Several documents](#several-documents)
+- [Keyboard and screen readers](#keyboard-and-screen-readers)
 - [Other exports](#other-exports)
 - [License](#license)
 <!-- /toc -->
@@ -267,6 +268,23 @@ queries answer `null` until the document has been shown once):
 tabs.current?.editor("main")?.reveal("/public_address");
 ```
 See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+
+## Keyboard and screen readers
+
+The keys are those of [`@pngwasi/config-editor`](../config-editor/README.md#keyboard).
+`Tab` indents while editing; to leave the editor with the keyboard,
+`Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus (announced, and
+shown in the footer as "Tab moves focus" until `Ctrl+M` again), and right
+after an `Escape` that had nothing to close one `Tab` or `Shift+Tab` leaves.
+The textarea's `aria-describedby` holds what is at the caret (each problem's
+message, host ones with their source, a read-only value's reason, a secret
+placeholder's hint), and `F8` announces "Error 2 of 5: …". Nothing to set:
+
+```tsx
+<label htmlFor="after">Next field</label>
+<ConfigEditor value={text} onChange={setText} />
+<input id="after" /> {/* Ctrl+M, Tab (or Escape, Tab) lands here */}
+```
 
 ## Other exports
 

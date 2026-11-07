@@ -9,7 +9,6 @@ use super::super::edit::Edit;
 use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
 };
-use super::super::language::in_string_body;
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::{typed_character, unmodified};
 
@@ -18,12 +17,7 @@ fn caret_in_string_body(state: EditorState) -> bool {
     state
         .textarea()
         .map(|element| textarea_selection(&element).0)
-        .is_some_and(|caret| {
-            state
-                .doc
-                .text
-                .with_untracked(|text| in_string_body(state.behavior(), text, caret))
-        })
+        .is_some_and(|caret| state.in_string_body(caret))
 }
 
 /// Ctrl+/ comments or uncomments the selected lines.

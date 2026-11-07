@@ -19,6 +19,11 @@ use super::state::EditorState;
 pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     // Keys act on the document as the browser last left it.
     super::input::flush_input(state);
+    // Before anything closes: an Escape only arms Tab to leave when it had
+    // nothing to close.
+    if super::a11y::focus_keys(state, event) {
+        return;
+    }
     state.hide_hover();
     state.protect.hide_tip(false);
     if !matches!(

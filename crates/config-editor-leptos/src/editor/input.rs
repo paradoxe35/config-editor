@@ -350,6 +350,33 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
         state.completion.active.set(0);
         state.close_suggestions();
         state.hide_hover();
+        if from_touch(event) {
+            super::a11y::show_at_caret(state);
+        }
+    }
+}
+
+/// Whether a click was a tap on a touch screen.
+fn from_touch(event: &web_sys::MouseEvent) -> bool {
+    web_sys::js_sys::Reflect::get(event, &"pointerType".into())
+        .ok()
+        .and_then(|kind| kind.as_string())
+        .is_some_and(|kind| kind == "touch")
+}
+
+/// The selection changed without a key or a click: a phone's long press
+/// or selection handles, or a script. The caret follows it (the line
+/// highlight, the caret's note, `on_path_change`).
+fn selection_change(state: EditorState) {
+    if state.typing.input_burst.with_value(Option::is_some) {
+        return;
+    }
+    let Some(element) = state.textarea() else {
+        return;
+    };
+    let (start, _) = textarea_selection(&element);
+    if start != state.doc.caret.get_untracked() {
+        state.note_caret(start);
     }
 }
 
@@ -420,6 +447,10 @@ pub(super) fn attach_listeners(state: EditorState) {
             (
                 "paste",
                 clipboard(Box::new(move |event| paste_line(state, &event))),
+            ),
+            (
+                "selectionchange",
+                clipboard(Box::new(move |_| selection_change(state))),
             ),
             (
                 "compositionend",

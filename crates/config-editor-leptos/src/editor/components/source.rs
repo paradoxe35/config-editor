@@ -22,8 +22,11 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             aria-label=move || format!("{} source", state.label())
             aria-autocomplete=move || (!read_only.get()).then_some("list")
             aria-haspopup=move || (!read_only.get()).then_some("listbox")
-            aria-expanded=move || (!state.completion.suggestions.get().is_empty()).to_string()
-            aria-invalid=move || (!state.problems.diagnostics.get().is_empty()).to_string()
+            aria-expanded=move || (!state.completion.suggestions.with(Vec::is_empty)).to_string()
+            aria-invalid=move || (!state.problems.diagnostics.with(Vec::is_empty)).to_string()
+            // What is at the caret: its problems, a read-only reason, a
+            // secret's hint (see `a11y`).
+            aria-describedby=state.a11y.caret_note_id()
             node_ref=state.view.textarea_ref
             spellcheck="false"
             autocapitalize="off"

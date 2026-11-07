@@ -12,7 +12,7 @@ use super::super::languages::Language;
 use super::super::protect::{Around, ProtectState, adjust_suggestions};
 use super::super::state::EditorState;
 use super::{
-    Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
+    Completion, accept_reopens_suggestions, apply_completion, completions_in, inserted_closers,
     next_slot, stop_ranges,
 };
 
@@ -53,6 +53,9 @@ pub(crate) struct Sources {
     /// The `completions` setting.
     pub(crate) enabled: Memo<bool>,
     pub(crate) protect: ProtectState,
+    /// The text's multi-line string bodies (no suggestions there), shared
+    /// with the view.
+    pub(crate) string_bodies: Memo<Vec<std::ops::Range<usize>>>,
 }
 
 impl CompletionState {
@@ -65,6 +68,7 @@ impl CompletionState {
             read_only,
             enabled,
             protect,
+            string_bodies,
         } = sources;
         let requested = RwSignal::new(false);
         let explicit = RwSignal::new(false);
@@ -76,15 +80,18 @@ impl CompletionState {
             let behavior = edit_language.get_untracked().behavior();
             let at = caret.get();
             text.with(|text| {
-                let options = completions_for(
-                    text,
-                    at,
-                    explicit.get(),
-                    schema.as_deref(),
-                    !read_only.get(),
-                    behavior,
-                    replace_word.get(),
-                );
+                let options = string_bodies.with(|bodies| {
+                    completions_in(
+                        text,
+                        at,
+                        explicit.get(),
+                        schema.as_deref(),
+                        !read_only.get(),
+                        behavior,
+                        replace_word.get(),
+                        bodies,
+                    )
+                });
                 if read_only.get() {
                     return options;
                 }
