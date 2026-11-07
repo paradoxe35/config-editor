@@ -55,6 +55,8 @@ export interface EditorOptions {
   onChange?: (value: string) => void;
   /** Called when an `editAs` switch completes (it waits while the document cannot convert yet). */
   onEditAsChange?: (language: LanguageName) => void;
+  /** Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. Without it, each is a console warning. */
+  onSchemaWarning?: (message: string) => void;
 }
 
 /** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
@@ -241,7 +243,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 14] = [
+const OPTIONS: [&str; 15] = [
     "value",
     "language",
     "editAs",
@@ -256,6 +258,7 @@ const OPTIONS: [&str; 14] = [
     "className",
     "onChange",
     "onEditAsChange",
+    "onSchemaWarning",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -521,6 +524,7 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
+        let on_schema_warning = function_option(&options, "onSchemaWarning")?;
         warn_unknown_options(&options);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -562,6 +566,14 @@ impl ConfigEditor {
                         );
                     }
                 };
+                let warn_with = StoredValue::new_local(on_schema_warning.clone());
+                let schema_warning = move |message: String| match warn_with
+                    .try_get_value()
+                    .flatten()
+                {
+                    Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
+                    None => web_sys::console::warn_1(&format!("config-editor: {message}").into()),
+                };
                 let edit_as = Signal::derive(move || state.edit_as.get());
                 let value_signal = Signal::derive(move || state.value.get());
                 let baseline = Signal::derive(move || state.baseline.get());
@@ -589,6 +601,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             on_change=changed
                             on_edit_as_change=switched
+                            on_schema_warning=schema_warning
                         />
                     }
                     .into_any(),
@@ -909,6 +922,18 @@ pub fn convert(
         losses: converted.losses,
     })
     .unchecked_into())
+}
+
+/// What the editor cannot use in a JSON Schema, one message each, such as a
+/// `patternProperties` regex its engine cannot compile. An invalid schema
+/// throws.
+#[wasm_bindgen(js_name = schemaWarnings)]
+pub fn schema_warnings(
+    #[wasm_bindgen(unchecked_param_type = "string")] schema: JsValue,
+) -> Result<Names, JsError> {
+    let schema = Schema::compile(&text_arg(&schema, "schema")?)
+        .map_err(|error| JsError::new(&error.to_string()))?;
+    Ok(to_js(&schema.warnings()).unchecked_into())
 }
 
 /// Names of the built-in and registered languages.

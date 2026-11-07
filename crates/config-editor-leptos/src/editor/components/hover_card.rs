@@ -1,8 +1,8 @@
-//! Schema docs for the key under the pointer.
+//! Schema docs for the key or value under the pointer.
 
 use leptos::prelude::*;
 
-use super::super::completion::KeyHover;
+use super::super::completion::{HoverValue, KeyHover};
 use super::super::state::EditorState;
 
 /// A hover card being shown: what it documents and where.
@@ -23,15 +23,34 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .map(|card| {
                 let info = card.info;
                 let examples = info.examples.join(", ");
+                // A card with a link takes the pointer, so the link can be
+                // reached and clicked; others let it through to the text.
+                let interactive = info.docs_url.is_some();
                 view! {
-                    <div class="config-editor__hover" role="tooltip" style=card.style>
+                    <div
+                        class="config-editor__hover"
+                        class:config-editor__hover--interactive=interactive
+                        role="tooltip"
+                        style=card.style
+                        on:mouseenter=move |_| state.hover_card_entered.set_value(true)
+                        on:mouseleave=move |_| leave_card(state)
+                        // Clicking the link keeps the caret (and the card).
+                        on:mousedown=move |event| event.prevent_default()
+                    >
+                        {info.value.map(value_section)}
                         <div class="config-editor__hover-header">
                             <code class="config-editor__hover-key">{info.key}</code>
                             <span class="config-editor__hover-type">{info.type_label}</span>
                             {info.required.then(|| view! {
                                 <span class="config-editor__hover-required">"required"</span>
                             })}
+                            {info.deprecated.then(|| view! {
+                                <span class="config-editor__hover-deprecated">"deprecated"</span>
+                            })}
                         </div>
+                        {info.deprecation.map(|message| view! {
+                            <p class="config-editor__hover-deprecation">{message}</p>
+                        })}
                         {info.description.map(|description| view! {
                             <p class="config-editor__hover-description">{description}</p>
                         })}
@@ -47,8 +66,41 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                                 <code>{examples}</code>
                             </div>
                         })}
+                        {info.docs_url.map(|url| view! {
+                            <a
+                                class="config-editor__hover-link"
+                                href=url
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                "Documentation"
+                            </a>
+                        })}
                     </div>
                 }
             })
+    }
+}
+
+/// The pointer left the card: it closes, as when it leaves a key.
+fn leave_card(state: EditorState) {
+    state.hover_card_entered.set_value(false);
+    state.hide_hover();
+}
+
+/// The hovered value, first: its title and description, above its key's.
+fn value_section(value: HoverValue) -> impl IntoView {
+    view! {
+        <div class="config-editor__hover-value">
+            <div class="config-editor__hover-header">
+                <code class="config-editor__hover-value-label">{value.label}</code>
+                {value.doc.title.map(|title| view! {
+                    <strong class="config-editor__hover-value-title">{title}</strong>
+                })}
+            </div>
+            {value.doc.description.map(|description| view! {
+                <p class="config-editor__hover-description">{description}</p>
+            })}
+        </div>
     }
 }

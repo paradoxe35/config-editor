@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::commands::{indent_lines, line_range, tab_insert};
-use super::super::completion::next_slot;
+use super::super::completion::next_stop;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::super::state::{Edit, EditorState, is_backward, select, textarea_selection};
 
@@ -42,19 +42,34 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     state.close_suggestions();
 }
 
-/// In a block a suggestion just wrote, Tab goes to its next empty value, as
-/// through a snippet's placeholders.
-fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
+/// In a block a suggestion just wrote, Tab goes to its next empty value or
+/// selects the next value it wrote, as through a snippet's placeholders.
+pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
     let Some((region_start, from_end)) = state.slot_region.get_value() else {
         return false;
     };
-    let region_end = text.encode_utf16().count().saturating_sub(from_end);
-    let slot = (caret >= region_start && caret <= region_end)
-        .then(|| next_slot(text, caret, region_end, state.behavior()))
+    let length = text.encode_utf16().count();
+    let region_end = length.saturating_sub(from_end);
+    let stops: Vec<(usize, usize)> = state
+        .value_stops
+        .get_value()
+        .into_iter()
+        .filter(|(start, _)| *start <= length)
+        .map(|(start, end)| (length - start, length - end))
+        .collect();
+    let next = (caret >= region_start && caret <= region_end)
+        .then(|| next_stop(text, caret, region_end, &stops, state.behavior()))
         .flatten();
-    match slot {
-        Some(slot) => {
-            state.place_caret(slot);
+    match next {
+        Some((anchor, end)) => {
+            state.place_caret(end);
+            if anchor != end {
+                // Selected, so typing replaces it; Tab again moves on.
+                if let Some(element) = state.textarea() {
+                    select(&element, anchor, end, false);
+                }
+                state.placeholder.set_value(Some((anchor, end)));
+            }
             true
         }
         None => {

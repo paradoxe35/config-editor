@@ -52,11 +52,15 @@ pub(super) fn value_completions(
                 }
                 if let Some(score) = match_score(&label, query) {
                     let insert = format!("{leading}{}", behavior.format_value(&value));
+                    // The value's own words, else its branch's.
+                    let detail = value_doc(branch, &value)
+                        .and_then(|doc| doc.detail())
+                        .unwrap_or_else(|| description.to_string());
                     candidates.push((
                         score,
                         Completion {
                             label: label.clone(),
-                            detail: description.to_string(),
+                            detail,
                             type_label: type_label.clone(),
                             cursor_offset: insert.encode_utf16().count(),
                             insert,
@@ -66,6 +70,8 @@ pub(super) fn value_completions(
                             is_value: true,
                             renames: false,
                             matched: match_ranges(&label, query),
+                            deprecated: false,
+                            fills: Vec::new(),
                         },
                     ));
                 }
@@ -189,6 +195,8 @@ pub(super) fn property_completions(
                     is_value: insert_context.position == EntryPosition::Name,
                     renames: false,
                     matched: match_ranges(key, typed),
+                    deprecated: is_deprecated(property, root),
+                    fills: required_fills(property, root),
                 },
             ));
         }
@@ -273,6 +281,8 @@ pub(crate) fn completions_for(
             is_value: true,
             renames: true,
             matched: match_ranges(name, &context.typed),
+            deprecated: false,
+            fills: Vec::new(),
         }];
     }
     line_up_on_indented_line(

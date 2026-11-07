@@ -67,8 +67,9 @@ pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Valu
 }
 
 /// A valid value for a property the user has not filled yet: its default,
-/// const, or first enum value, else an empty value of its first type (`""`,
-/// `0`, `false`, `[]`, `{}`, `null`). Inserting it keeps the document valid.
+/// const, first example ([`schema_example`]) or first enum value, else an
+/// empty value of its first type (`""`, `0`, `false`, `[]`, `{}`, `null`).
+/// Inserting it keeps the document valid.
 pub fn placeholder(schema: &Value, root: &Value) -> Value {
     let branches = resolve_branches(schema, root, 0);
     if let Some(value) = branches
@@ -76,6 +77,9 @@ pub fn placeholder(schema: &Value, root: &Value) -> Value {
         .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
     {
         return value.clone();
+    }
+    if let Some(example) = schema_example(schema, root) {
+        return example;
     }
     if let Some(first) = branches
         .iter()
@@ -229,7 +233,7 @@ pub(super) fn child_schemas<'a>(
                 }
                 if let Some(patterns) = branch.get("patternProperties").and_then(Value::as_object) {
                     for (pattern, property) in patterns {
-                        if Regex::new(pattern).is_ok_and(|regex| regex.is_match(key)) {
+                        if patterns::pattern_matches(pattern, key) {
                             next.push(property);
                             matched = true;
                         }
@@ -405,4 +409,28 @@ pub(super) fn unquoted(typed: &str) -> &str {
         return inner.strip_suffix(quote).unwrap_or(inner);
     }
     typed
+}
+
+#[cfg(test)]
+mod pattern_timing {
+    use super::*;
+
+    #[test]
+    #[ignore = "timing, run by hand"]
+    fn pattern_lookup_timing() {
+        let schema = serde_json::json!({
+            "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {"type": "string"},
+                "^x-[A-Za-z0-9-]+$": {"type": "string"},
+                "^[A-Z_]{2,}$": {"type": "integer"}
+            }
+        });
+        let segment = SchemaPathSegment::Key("listen_port".to_string());
+        let start = std::time::Instant::now();
+        let mut found = 0;
+        for _ in 0..10_000 {
+            found += child_schemas(&schema, &schema, &segment).len();
+        }
+        eprintln!("10000 lookups: {:?} ({found})", start.elapsed());
+    }
 }

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Schema help",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "description": "How requests are routed.",
+      "x-docs-url": "https://example.com/docs/mode",
+      "enum": ["fast", "safe", "debug"],
+      "x-enum-descriptions": ["Skips the checks.", "Checks everything.", "Logs every step."]
+    },
+    "level": {
+      "description": "How much to log.",
+      "oneOf": [
+        { "const": "info", "title": "Info", "description": "Normal messages." },
+        { "const": "trace", "title": "Trace", "description": "Everything, very verbose." }
+      ]
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Seconds before giving up.",
+      "deprecated": true,
+      "deprecationMessage": "Use deadline instead."
+    },
+    "deadline": {
+      "type": "integer",
+      "description": "Seconds before giving up."
+    },
+    "server": {
+      "type": "object",
+      "description": "The upstream server.",
+      "additionalProperties": false,
+      "required": ["host", "port", "scheme"],
+      "properties": {
+        "host": { "type": "string", "description": "Host name." },
+        "port": { "type": "integer", "examples": [8080] },
+        "scheme": { "type": "string", "default": "https" }
+      }
+    },
+    "env": {
+      "type": "object",
+      "description": "Environment variables.",
+      "patternProperties": {
+        "^[A-Z_]+$": { "type": "string", "description": "One variable." }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!x-)[a-z]+$": { "type": "string" }
+      }
+    }
+  }
+}

@@ -31,7 +31,7 @@ use editing::*;
 use convert::*;
 
 use super::super::commands::indent_unit;
-use super::super::completion::{array_branch, object_branch, schema_const, schema_default};
+use super::super::completion::{array_branch, object_branch, schema_const, schema_default, schema_example};
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;

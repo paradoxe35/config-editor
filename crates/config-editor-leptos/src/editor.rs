@@ -108,6 +108,12 @@ pub fn ConfigEditor(
     /// (TOML has no `null`), so this, not `edit_as`, is what is on screen.
     #[prop(optional, into)]
     on_edit_as_change: Option<Callback<Language>>,
+    /// Called once per problem with something in `schema` the editor cannot
+    /// use (see [`Schema::warnings`]), such as a `patternProperties` regex
+    /// its engine cannot compile. Without it, each goes to the browser
+    /// console as a warning.
+    #[prop(optional, into)]
+    on_schema_warning: Option<Callback<String>>,
     /// Inject [`PRESET_CSS`]. Set `false` to style the `config-editor__*`
     /// markup yourself.
     #[prop(default = true)]
@@ -152,6 +158,9 @@ pub fn ConfigEditor(
         None => (None, None),
     };
     let has_schema = schema.is_some();
+    if let Some(schema) = &schema {
+        report_schema_warnings(&schema.warnings, on_schema_warning);
+    }
     let initial_value = normalize_newlines(initial_value.unwrap_or_default());
     let host_text = value
         .as_ref()
@@ -223,6 +232,17 @@ pub fn ConfigEditor(
             </section>
             <DiffPeekPopup state=state />
         </div>
+    }
+}
+
+/// Hands each schema warning to the host, or to the console without a
+/// callback, so a schema feature the editor ignores is never silent.
+fn report_schema_warnings(warnings: &[String], on_schema_warning: Option<Callback<String>>) {
+    for warning in warnings {
+        match on_schema_warning {
+            Some(callback) => callback.run(warning.clone()),
+            None => web_sys::console::warn_1(&format!("config-editor: {warning}").into()),
+        }
     }
 }
 

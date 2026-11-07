@@ -3,19 +3,26 @@
 
 mod accept;
 mod candidates;
+mod docs;
 mod hover;
 mod matching;
+mod patterns;
 mod popup;
 mod schema;
+mod stops;
 
 pub(crate) use accept::*;
 pub(crate) use candidates::*;
+pub(crate) use docs::*;
 pub(crate) use hover::*;
 pub(crate) use matching::*;
+pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;
 pub(crate) use schema::*;
+pub(crate) use stops::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
+pub use stops::schema_example;
 
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;
@@ -26,12 +33,6 @@ use super::language::{
 use super::metrics::read_editor_metrics;
 use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
 use super::state::Closer;
-// Matching `patternProperties` against keys: the engine validation links
-// anyway, else a small one.
-#[cfg(feature = "schema-validation")]
-use regex::Regex;
-#[cfg(not(feature = "schema-validation"))]
-use regex_lite::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
@@ -54,6 +55,13 @@ pub(super) struct Completion {
     pub(super) renames: bool,
     /// Character ranges of `label` matched by the query, for highlighting.
     pub(super) matched: Vec<(usize, usize)>,
+    /// The schema marks the key deprecated: it is listed last, struck through.
+    pub(super) deprecated: bool,
+    /// `(key, value text)` of the values `insert` writes for required
+    /// children (defaults, examples, placeholders): accepting it finds them
+    /// after the caret ([`stop_ranges`]) and Tab selects each in turn, as a
+    /// snippet's placeholders.
+    pub(super) fills: Vec<(String, String)>,
 }
 
 #[cfg(test)]

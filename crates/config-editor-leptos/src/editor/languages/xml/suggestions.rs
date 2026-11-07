@@ -492,8 +492,12 @@ pub(super) fn property_insert(
                         }
                         insert.push_str(&child_indent);
                         insert.push_str(&format!("<{name}>"));
-                        if let Some(default) = schema_default(child, root) {
-                            insert.push_str(&escape_text(&xml_text(default)));
+                        // A default, else an example: a value Tab selects.
+                        if let Some(default) = schema_default(child, root)
+                            .cloned()
+                            .or_else(|| schema_example(child, root))
+                        {
+                            insert.push_str(&escape_text(&xml_text(&default)));
                         }
                         insert.push_str(&format!("</{name}>\n"));
                     }

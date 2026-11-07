@@ -67,6 +67,7 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
     let detail = option.detail.clone();
     let icon = if option.is_value { "V" } else { "K" };
     let type_label = option.type_label.clone();
+    let deprecated = option.deprecated;
     view! {
         <button
             type="button"
@@ -74,6 +75,7 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
             aria-selected=selected
             class="config-editor__completion"
             class:config-editor__completion-active=selected
+            class:config-editor__completion--deprecated=deprecated
             on:mousedown=move |event| event.prevent_default()
             on:mousemove=move |event| hover_selects(state, index, &event)
             on:click=move |_| state.accept(&option, false)
@@ -82,6 +84,9 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
             <span class="config-editor__completion-content">
                 <span class="config-editor__completion-primary">
                     <span class="config-editor__completion-key">{label}</span>
+                    {deprecated.then(|| view! {
+                        <span class="config-editor__completion-deprecated">"deprecated"</span>
+                    })}
                     <span class="config-editor__completion-type">{type_label}</span>
                 </span>
                 {(!detail.is_empty()).then(|| view! {

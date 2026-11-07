@@ -121,17 +121,22 @@ pub(crate) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
 /// Lifts required keys within a match tier, never above the next tier.
 pub(super) const REQUIRED_BONUS: i64 = 40;
 
-/// Best match first. Ties keep schema order for values (enum order, so a
-/// default listed first stays first) and sort alphabetically for properties.
+/// Best match first, deprecated keys after all others. Ties keep schema
+/// order for values (enum order, so a default listed first stays first) and
+/// sort alphabetically for properties.
 pub(super) fn sorted_completions(mut scored: Vec<(i64, Completion)>) -> Vec<Completion> {
     scored.sort_by(|left, right| {
-        right.0.cmp(&left.0).then_with(|| {
-            if left.1.is_value && right.1.is_value {
-                std::cmp::Ordering::Equal
-            } else {
-                left.1.label.cmp(&right.1.label)
-            }
-        })
+        left.1
+            .deprecated
+            .cmp(&right.1.deprecated)
+            .then_with(|| right.0.cmp(&left.0))
+            .then_with(|| {
+                if left.1.is_value && right.1.is_value {
+                    std::cmp::Ordering::Equal
+                } else {
+                    left.1.label.cmp(&right.1.label)
+                }
+            })
     });
     scored.dedup_by(|left, right| left.1.label == right.1.label);
     scored
