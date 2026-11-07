@@ -138,15 +138,49 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
     }
 }
 
-/// The token index of the start tag at `pointer`, and of its end tag unless
-/// it is self-closing.
-fn element_at(source: &str, tokens: &[Token], pointer: &str) -> Option<(usize, Option<usize>)> {
+/// `source` with the element at `pointer` renamed in its start and end tags;
+/// a repeated element (a list, `pointer` naming it without an index) is
+/// renamed in every repetition.
+pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Option<String> {
+    let tokens = tokenize(source);
     let wanted = pointer_segments(pointer);
-    let plan = plan_paths(source, tokens);
-    let index = tokens.iter().position(|token| {
-        matches!(token.kind, Kind::OpenTag { .. })
-            && plan.path_of(token.start).is_some_and(|path| strings(path) == wanted)
-    })?;
+    let plan = plan_paths(source, &tokens);
+    let mut names: Vec<(usize, usize)> = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        let matches = matches!(token.kind, Kind::OpenTag { .. })
+            && plan.path_of(token.start).is_some_and(|path| {
+                let path = strings(path);
+                path == wanted
+                    || path.split_last().is_some_and(|(last, rest)| last.parse::<usize>().is_ok() && rest == wanted.as_slice())
+            });
+        if !matches {
+            continue;
+        }
+        let Some((open, close)) = element_from(source, &tokens, index) else {
+            continue;
+        };
+        let start = tokens[open].start + 1;
+        names.push((start, start + token_name(source, &tokens[open]).len()));
+        if let Some(close) = close {
+            let token = &tokens[close];
+            let name = token_name(source, token);
+            let at = token.start + source[token.start..token.end].find(name.as_str())?;
+            names.push((at, at + name.len()));
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    names.sort_unstable();
+    let mut renamed = source.to_string();
+    for (start, end) in names.into_iter().rev() {
+        renamed.replace_range(start..end, new_key);
+    }
+    Some(renamed)
+}
+
+/// The start tag at token `index` and its end tag, if it has one.
+fn element_from(source: &str, tokens: &[Token], index: usize) -> Option<(usize, Option<usize>)> {
     if source[..tokens[index].end].ends_with("/>") {
         return Some((index, None));
     }
@@ -160,23 +194,6 @@ fn element_at(source: &str, tokens: &[Token], pointer: &str) -> Option<(usize, O
         }
     }
     Some((index, None))
-}
-
-/// `source` with the element at `pointer` renamed in its start and end tags.
-pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Option<String> {
-    let tokens = tokenize(source);
-    let (open, close) = element_at(source, &tokens, pointer)?;
-    let mut renamed = source.to_string();
-    if let Some(close) = close {
-        let token = &tokens[close];
-        let name = token_name(source, token);
-        let at = token.start + source[token.start..token.end].find(name.as_str())?;
-        renamed.replace_range(at..at + name.len(), new_key);
-    }
-    let token = &tokens[open];
-    let name_len = token_name(source, token).len();
-    renamed.replace_range(token.start + 1..token.start + 1 + name_len, new_key);
-    Some(renamed)
 }
 
 /// The range between the tags of the element at `pointer` when it has child

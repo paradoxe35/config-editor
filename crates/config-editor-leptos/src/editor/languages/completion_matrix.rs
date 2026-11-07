@@ -914,3 +914,185 @@ fn an_xml_end_tag_name_completes_and_renames_both_tags() {
         "<burrow config-root=\"true\">\n  <public_address>x</public_address>\n</burrow>\n"
     );
 }
+
+/// Round 11: a closing tag being typed offers only the element it closes,
+/// and accepting writes that end tag, renaming nothing.
+#[test]
+fn a_closing_tag_being_typed_closes_its_element() {
+    let mut failures = Vec::new();
+    for (marked, name, expected) in [
+        ("<websocket>\n  <path>/x</path>\n  </we|", "websocket", "<websocket>\n  <path>/x</path>\n  </websocket>"),
+        ("<websocket>\n  <path>/x</|", "path", "<websocket>\n  <path>/x</path>"),
+        ("<websocket>\n  <path>/x</path>\n  </|\n", "websocket", "<websocket>\n  <path>/x</path>\n  </websocket>\n"),
+    ] {
+        let labels = offered(Language::XML, marked);
+        if labels != [name] {
+            failures.push(format!("{marked:?}: offered {labels:?}"));
+        }
+        match accepted(Language::XML, marked, name) {
+            Ok(text) if text == expected => {}
+            other => failures.push(format!("{marked:?}: {other:?}")),
+        }
+    }
+    report(failures);
+}
+
+/// Round 11: Ctrl+Space over a selection covering the start of a key
+/// replaces the whole key, in every language and form.
+#[test]
+fn ctrl_space_over_part_of_a_key_replaces_all_of_it() {
+    use super::super::completion::{apply_completion, completions_for};
+    let mut failures = Vec::new();
+    for (language, marked, label, rest) in [
+        (Language::YAML, "websocket:\n  pa|th: /x\n", "host", "th"),
+        (Language::JSON, "{\"websocket\": {\"pa|th\": \"/x\"}}\n", "host", "th"),
+        (Language::TOML, "[websocket]\npa|th = \"/x\"\n", "host", "th"),
+        (Language::HCL, "websocket {\n  pa|th = \"/x\"\n}\n", "host", "th"),
+        (Language::XML, "<websocket>\n  <pa|th>/x</path>\n</websocket>\n", "host", "th"),
+        (Language::XML, "<websocket>\n  <path>/x</pa|th>\n</websocket>\n", "host", "th"),
+        (Language::TOML, "[web|socket]\npath = \"/x\"\n", "metrics", "socket"),
+        (Language::HCL, "web|socket {\n  path = \"/x\"\n}\n", "metrics", "socket"),
+        (Language::YAML, "web|socket:\n  path: /x\n", "metrics", "socket"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let options = completions_for(&text, text[..at].encode_utf16().count(), true, Some(&burrow()), true, language.behavior(), true);
+        let Some(option) = options.iter().find(|option| option.label == label) else {
+            failures.push(format!("{}: {label} not offered in {marked:?}", language.label()));
+            continue;
+        };
+        let renamed = apply_completion(&text, option).0;
+        let split = renamed.contains(&format!("{rest}:")) || renamed.contains(&format!("{rest} ")) || renamed.contains(&format!("<{rest}")) || renamed.contains(&format!("[{rest}")) || renamed.contains(&format!("\"{rest}\""));
+        if split || !renamed.contains(label) || parsed(language, &renamed).is_err() {
+            failures.push(format!("{}: {marked:?} became {renamed:?}", language.label()));
+        }
+    }
+    report(failures);
+}
+
+/// Round 11: a key typed in front of a dotted key's last segment keeps the
+/// dotted head on both entries.
+#[test]
+fn a_key_typed_inside_a_dotted_toml_key_keeps_the_head_on_both() {
+    let text = accepted(Language::TOML, "websocket.ho|path = \"/x\"\n", "host").unwrap();
+    let value = parsed(Language::TOML, &text).unwrap();
+    assert_eq!(keys_at(&value, &["websocket"]), ["host", "path"], "{text}");
+}
+
+/// Round 11: a key accepted where the caret sits off its siblings' column
+/// (deeper than they can be, or between its parent's column and theirs in
+/// YAML) is written at their column, with no trailing spaces left.
+#[test]
+fn a_key_accepted_off_its_siblings_column_lines_up_with_them() {
+    let mut failures = Vec::new();
+    for (language, marked) in [
+        (Language::YAML, "websocket:\n  path: /x\n ho| host2: h\n"),
+        (Language::YAML, "websocket:\n  path: /x\n    |\n"),
+        (Language::YAML, "websocket:\n  path: /x\n   ho|\n"),
+        (Language::JSON, "{\n  \"websocket\": {\n    \"path\": \"/x\",\n        \"|\n  }\n}\n"),
+        (Language::TOML, "[websocket]\npath = \"/x\"\n    |\n"),
+        (Language::HCL, "websocket {\n  path = \"/x\"\n      |\n}\n"),
+        (Language::XML, "<websocket>\n  <path>/x</path>\n      |\n</websocket>\n"),
+    ] {
+        let text = match accepted(language, marked, "host") {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(format!("{}: {marked:?}: {error}", language.label()));
+                continue;
+            }
+        };
+        let indent_of = |word: &str| {
+            text.lines()
+                .find(|line| line.contains(word))
+                .map(|line| line.len() - line.trim_start().len())
+        };
+        let parses = language.label() == "YAML" && marked.contains("host2") && text.contains("host2")
+            || parsed(language, &text).is_ok();
+        if !parses
+            || indent_of("host") != indent_of("path")
+            || text.lines().any(|line| line.ends_with([' ', '\t']) && !line.trim_end().ends_with(':'))
+        {
+            failures.push(format!("{}: {marked:?} became {text:?}", language.label()));
+        }
+    }
+    report(failures);
+}
+
+/// Round 11: a key renamed by completion is renamed everywhere it is
+/// written: every dotted key and header through it in TOML, every block of
+/// that name in HCL, every element of that name in XML.
+#[test]
+fn a_key_renamed_by_completion_is_renamed_everywhere_it_is_written() {
+    let mut failures = Vec::new();
+    for (language, marked, label, old) in [
+        (Language::TOML, "t|cp.nodelay = true\ntcp.keepalive_secs = 1\n", "metrics", "tcp"),
+        (Language::TOML, "[clien|.a]\nsecret = \"s\"\n\n[clien.b]\nsecret = \"t\"\n", "clients", "clien."),
+        (Language::HCL, "clien| \"a\" {\n  secret = \"s\"\n}\nclien \"b\" {\n  secret = \"t\"\n}\n", "clients", "clien "),
+        (Language::HCL, "tc|p {\n  nodelay = true\n}\ntcp {\n  nodelay = false\n}\n", "metrics", "tcp"),
+        (Language::XML, "<clien|><a/></clien>\n<clien><b/></clien>\n", "clients", "clien>"),
+    ] {
+        match accepted(language, marked, label) {
+            Ok(text) if !text.contains(old) && text.matches(label).count() >= 2 => {}
+            other => failures.push(format!("{}: {marked:?} became {other:?}", language.label())),
+        }
+    }
+    report(failures);
+}
+
+/// Round 11: a key typed in an HCL block written on one line opens the
+/// block over lines, each attribute on its own; a header typed in front of
+/// a TOML table leaves the caret in the new table; a TOML table made only by
+/// its sub-tables can still be named in a header.
+#[test]
+fn entries_typed_in_one_line_blocks_and_tables_stay_valid() {
+    let mut failures = Vec::new();
+    for (marked, expected) in [
+        ("websocket { ho|path = \"/x\" }\n", "websocket {\n  host = \"\"\n  path = \"/x\"\n}\n"),
+        ("websocket { path = \"/x\" ho| }\n", "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n"),
+        ("websocket { path = \"/x\" | }\n", "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n"),
+    ] {
+        match accepted(Language::HCL, marked, "host") {
+            Ok(text) if text == expected => {}
+            other => failures.push(format!("HCL {marked:?}: {other:?}")),
+        }
+    }
+    match accepted_with_selection(Language::TOML, "[heart|websocket]\npath = \"/x\"\n", "heartbeat") {
+        Ok((text, _, caret)) if text == "[heartbeat]\n\n[websocket]\npath = \"/x\"\n" && caret == "[heartbeat]\n".len() => {}
+        other => failures.push(format!("TOML header in front: {other:?}")),
+    }
+    for marked in ["[websock|et]\n\n[websocket.tls]\ncert = \"c\"\n", "[websockt|]\n\n[websocket.tls]\ncert = \"c\"\n"] {
+        if !offered(Language::TOML, marked).contains(&"websocket".to_string()) {
+            failures.push(format!("TOML {marked:?}: websocket not offered"));
+        }
+    }
+    report(failures);
+}
+/// Round 11: in an XML document with misspelled end tags, the elements
+/// after one are not nested ever deeper (which made every keystroke slower
+/// with the document's length): a misspelled end closes the innermost.
+#[test]
+fn a_misspelled_xml_end_tag_closes_the_innermost_element() {
+    let mut text = String::new();
+    for index in 0..200 {
+        text.push_str(&format!("<listen>{index}</listn>\n"));
+    }
+    text.push_str("<tcp>\n  <no|");
+    let at = text.find('|').unwrap();
+    let source = text.replacen('|', "", 1);
+    let context = Language::XML.behavior().completion_context(&source, source[..at].encode_utf16().count());
+    assert_eq!(context.path, vec![super::super::language::SchemaPathSegment::Key("tcp".into())]);
+}
+
+/// Round 11: past the most problems shown, one more without a position says
+/// that more follow, so a cut list is never taken for the whole one.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn a_cut_problem_list_says_more_follow() {
+    let mut text = String::new();
+    for index in 0..50 {
+        text.push_str(&format!("unknown_{index}: 1\n"));
+    }
+    let problems = super::super::diagnostics::validate(&text, Some(&burrow()), None, true, Language::YAML.behavior());
+    assert_eq!(problems.len(), 21);
+    assert!(problems[20].line.is_none() && problems[20].message.contains("more follow"), "{:?}", problems[20]);
+}

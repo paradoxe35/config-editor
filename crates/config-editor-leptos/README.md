@@ -130,6 +130,7 @@ The same engine without the component:
 use config_editor_leptos::{check_syntax, Language, Schema};
 
 let schema = Schema::compile(include_str!("schema.json"))?;
+// At most 20; past that, a last one without a position says more follow.
 let problems = schema.validate(Language::TOML, &text); // Vec<Diagnostic>
 let syntax_only = check_syntax(Language::JSON, &text);
 

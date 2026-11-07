@@ -331,12 +331,20 @@ pub fn unwrap_block_comments(
 ) -> Option<(String, usize, usize)> {
     let start = utf16_to_byte_index(source, selection_start);
     let end = utf16_to_byte_index(source, selection_end);
-    // Inside one block comment over several lines: its markers go.
+    // Inside one block comment over several lines, its markers on lines of
+    // their own: they go. (One sharing its lines with code is commented
+    // line by line instead: its text would become code.)
+    let own_lines = |at: usize, close_end: usize| {
+        let line_start = source[..at].rfind('\n').map_or(0, |newline| newline + 1);
+        let line_end = source[close_end..].find('\n').map_or(source.len(), |offset| close_end + offset);
+        source[line_start..at].trim().is_empty() && source[close_end..line_end].trim().is_empty()
+    };
     if let Some(at) = source[..start].rfind(open)
         && !source[at..start].contains(close)
         && let Some(close_at) = source[end..].find(close).map(|offset| end + offset)
         && source[at..close_at].contains('\n')
         && !source[at + open.len()..close_at].contains(open)
+        && own_lines(at, close_at + close.len())
     {
         let open_end = at + open.len() + usize::from(source[at + open.len()..].starts_with(' '));
         let close_start =
@@ -650,6 +658,19 @@ pub struct CompletionContext {
     /// The caret ends a name in a complete tag (`<hea|>`, `<hea|/>`): a
     /// suggestion writes just the name (and its `paired_names`).
     pub names_only: bool,
+    /// The caret is in a closing tag being typed (`</we|`): the only
+    /// suggestion is this name, the element it closes, written with what
+    /// ends the tag (`websocket>`), renaming nothing.
+    pub closing_name: Option<(String, String)>,
+    /// Bytes of `entry_suffix` the caret goes past: a new TOML table named
+    /// in front of another (`[hea|websocket]`) leaves the caret in its own
+    /// body, after `]` and the line break.
+    pub suffix_caret: usize,
+    /// When an entry is inserted (not a rename), the UTF-16 range it
+    /// replaces instead of `replace_start..replace_end`, with
+    /// `entry_prefix` and `entry_suffix` rewriting what was there: an HCL
+    /// block on one line opens over lines to take a second attribute.
+    pub insert_range: Option<(usize, usize)>,
 }
 
 /// Splits a JSON pointer into unescaped segments.
@@ -970,8 +991,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
         let config = self.config();
-        let (selection_start, selection_end) =
-            over_whole_strings(self, source, selection_start, selection_end);
+        // Whole strings and constructs over lines, until both hold.
+        let (mut selection_start, mut selection_end) = (selection_start, selection_end);
+        loop {
+            let widened = over_whole_strings(self, source, selection_start, selection_end);
+            let widened = super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
+            if widened == (selection_start, selection_end) {
+                break;
+            }
+            (selection_start, selection_end) = widened;
+        }
         config
             .block_comment
             .and_then(|block| unwrap_block_comments(source, selection_start, selection_end, block))

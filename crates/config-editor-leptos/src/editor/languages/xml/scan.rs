@@ -54,10 +54,11 @@ pub(super) struct PathPlan {
 
 impl PathPlan {
     pub(super) fn path_of(&self, start: usize) -> Option<&[Seg]> {
+        // In document order: found by halving, not by a walk per lookup.
         self.paths
-            .iter()
-            .find(|(tag_start, _)| *tag_start == start)
-            .map(|(_, path)| path.as_slice())
+            .binary_search_by_key(&start, |(tag_start, _)| *tag_start)
+            .ok()
+            .map(|index| self.paths[index].1.as_slice())
     }
 }
 
@@ -102,6 +103,11 @@ pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
                 } else if let Some(position) = stack.iter().rposition(|id| nodes[*id].name == name)
                 {
                     stack.truncate(position);
+                } else {
+                    // An end tag matching no open element (`<listen>1</listn>`):
+                    // a misspelled end of the innermost one, which it closes,
+                    // so the elements after it are not all nested inside it.
+                    stack.pop();
                 }
             }
             _ => {}

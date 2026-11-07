@@ -77,7 +77,8 @@ an older one: a `value` equal to one the editor sent in the last 10 seconds,
 while newer ones are still on their way, is taken as that late echo. Any other `value` (a revert, a reset)
 is applied. To reset to a text the user may have just passed through while a
 late parent is catching up, call `ref.current.setValue(text)`, which always
-applies: it is reported through `onChange` so the parent's state follows,
+applies (also before the editor has mounted, from an effect: it is applied
+when the editor mounts): it is reported through `onChange` so the parent's state follows,
 echoes of values sent before it are skipped, and if the parent's state took
 one of them anyway, `onChange` reports the document again so both end on the
 reset.

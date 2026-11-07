@@ -818,8 +818,12 @@ impl ConfigEditor {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiagnosticOut {
+    // Absent, not `null`, without a position (as the typings say).
+    #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     end_column: Option<usize>,
     message: String,
     severity: &'static str,
@@ -1116,6 +1120,9 @@ fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
         return Ok(Vec::new());
     }
     if let Some(text) = value.as_string() {
+        if text.is_empty() {
+            return Err(JsError::new(&format!("{name} must be a non-empty string")));
+        }
         return Ok(vec![text]);
     }
     if !Array::is_array(value) {
@@ -1159,7 +1166,11 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
             block,
         )
     };
-    let separators = string_list(&field(definition, "separators"), "separators")?;
+    let separators_value = field(definition, "separators");
+    if separators_value.is_string() {
+        return Err(JsError::new("separators must be an array of strings, e.g. [\"=\"]"));
+    }
+    let separators = string_list(&separators_value, "separators")?;
     let brackets_value = field(definition, "brackets");
     let mut brackets = Vec::new();
     if !(brackets_value.is_undefined() || brackets_value.is_null()) {
@@ -1263,6 +1274,26 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
             ));
         };
     let name = label.to_lowercase();
+    // A name or extension another registered language already answers to
+    // would be taken from it, or never reach this one.
+    REGISTERED.with(|languages| {
+        for (other, language) in languages.borrow().iter().filter(|(other, _)| **other != name) {
+            if language.extensions().contains(&name.as_str()) {
+                return Err(JsError::new(&format!(
+                    "\"{name}\" is already an extension of the registered language \"{other}\""
+                )));
+            }
+            if let Some(extension) = extensions
+                .iter()
+                .find(|extension| **extension == other.as_str() || language.extensions().contains(*extension))
+            {
+                return Err(JsError::new(&format!(
+                    "extension \"{extension}\" already names the registered language \"{other}\""
+                )));
+            }
+        }
+        Ok(())
+    })?;
     let config = language_config(&definition)?;
     let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
         config,

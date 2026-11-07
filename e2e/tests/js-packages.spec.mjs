@@ -356,7 +356,7 @@ test.describe('vanilla API: languages described by configuration', () => {
     });
     expect(refused.comments).toContain('comments.lineComment');
     expect(refused.brackets).toContain('single characters');
-    expect(refused.separators).toBe('no error');
+    expect(refused.separators).toContain('array');
     // Ctrl+/ writes the first line comment.
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
@@ -951,5 +951,100 @@ test.describe('round 5: package polish', () => {
       window.target = new module.ConfigEditor(document.createElement('div'), { readonly: true });
     });
     expect(warnings.join('\n')).toContain('unknown option "readonly" is ignored (did you mean "readOnly"?)');
+  });
+});
+
+test.describe('round 11', () => {
+  test('react: ref.setValue before the editor mounts applies and reaches the parent', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?reset-early');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await expect(input(browserPage)).toHaveValue('from-effect: 1\n');
+    await expect(saved(browserPage)).toHaveText('from-effect: 1\n');
+    expect(await browserPage.evaluate(() => window.editorHandle.current.value)).toBe('from-effect: 1\n');
+  });
+
+  test('react: a slow parent replacing the value while echoes are in flight loses no keystroke', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?slow');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('abc', { delay: 80 });
+    await browserPage.locator('#replace').click();
+    await expect(input(browserPage)).toHaveValue('listen: 9000\n');
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('q');
+    await browserPage.waitForTimeout(900);
+    await browserPage.keyboard.type('rstuvw', { delay: 100 });
+    await browserPage.waitForTimeout(3500);
+    await expect(input(browserPage)).toHaveValue('listen: 9000\nqrstuvw');
+    await expect(saved(browserPage)).toHaveText('listen: 9000\nqrstuvw', { timeout: 5000 });
+  });
+
+  test('vanilla: input right after the constructor or setValue, in the same task, is kept', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      const changes = [];
+      const editor = new module.ConfigEditor(element, { value: 'listen: 1\n', onChange: (text) => changes.push(text) });
+      const textarea = element.querySelector('textarea');
+      textarea.focus();
+      textarea.setSelectionRange(10, 10);
+      document.execCommand('insertText', false, 'Q');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const afterConstructor = editor.value;
+      editor.setValue('x: 1\n');
+      textarea.setSelectionRange(5, 5);
+      document.execCommand('insertText', false, 'R');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { afterConstructor, afterSetValue: editor.value, last: changes.at(-1) };
+    });
+    expect(result.afterConstructor).toBe('listen: 1\nQ');
+    expect(result.afterSetValue).toBe('x: 1\nR');
+    expect(result.last).toBe('x: 1\nR');
+  });
+
+  test('vanilla: registered languages cannot take each other’s names or extensions', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const parse = () => ({});
+      const attempt = (definition) => {
+        try {
+          module.registerLanguage({ parse, ...definition });
+          return 'ok';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return {
+        first: attempt({ label: 'Aaa1', extensions: ['ccc1'] }),
+        extensionNamesOther: attempt({ label: 'Bbb1', extensions: ['aaa1'] }),
+        labelIsOthersExtension: attempt({ label: 'Ccc1' }),
+        sharedExtension: attempt({ label: 'Ddd1', extensions: ['ccc1'] }),
+        again: attempt({ label: 'Aaa1', extensions: ['ccc1'] }),
+        emptyComment: attempt({ label: 'Eee1', comments: { lineComment: '' } }),
+        separatorsString: attempt({ label: 'Fff1', separators: '=' }),
+      };
+    });
+    expect(result.first).toBe('ok');
+    expect(result.extensionNamesOther).toContain('aaa1');
+    expect(result.labelIsOthersExtension).toContain('ccc1');
+    expect(result.sharedExtension).toContain('ccc1');
+    expect(result.again).toBe('ok');
+    expect(result.emptyComment).toContain('non-empty');
+    expect(result.separatorsString).toContain('array');
+  });
+
+  test('vanilla: a problem without a position has no position fields, not null ones', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const problems = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      module.registerLanguage({ label: 'Badpos1', parse: () => { throw { message: 'bad', line: 99, column: -3 }; } });
+      return module.validate('badpos1', 'x');
+    });
+    expect(problems[0]).not.toHaveProperty('column');
+    expect(problems[0]).not.toHaveProperty('endColumn');
   });
 });

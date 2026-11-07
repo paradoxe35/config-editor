@@ -254,10 +254,32 @@ pub(crate) fn completions_for(
         );
     }
     let mut context = behavior.completion_context(source, cursor);
+    // A closing tag being typed is closed, never renamed.
+    if let Some((name, close)) = &context.closing_name {
+        let typed = context.typed.to_lowercase();
+        if !force && !name.to_lowercase().starts_with(&typed) {
+            return Vec::new();
+        }
+        let insert = format!("{name}{close}");
+        return vec![Completion {
+            label: name.clone(),
+            detail: format!("Closes <{name}>"),
+            type_label: "end tag".to_string(),
+            cursor_offset: insert.encode_utf16().count(),
+            insert,
+            start: context.replace_start,
+            end: context.replace_end,
+            selected: 0,
+            is_value: true,
+            renames: true,
+            matched: match_ranges(name, &context.typed),
+        }];
+    }
+    line_up_on_indented_line(source, cursor_byte, line_start, line_end, &mut context, behavior);
     if replace_word {
-        // The word is replaced, not filtered by.
+        // The word is replaced, not filtered by: the selected part and the
+        // rest of it after the caret (`«pa»th`).
         context.typed = String::new();
-        context.entry_after = None;
     }
     // A space typed after a complete word ends it: nothing is offered unless
     // asked for, so Enter starts a new line.
@@ -273,13 +295,32 @@ pub(crate) fn completions_for(
     }
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
-    let replaces_word = replaces_word_after_caret(&context, bundle, behavior);
+    let replaces_word = replace_word || replaces_word_after_caret(&context, bundle, behavior);
     // Typed in front of a key, that key is a sibling already there.
     if !replaces_word && let Some(word) = context.entry_after.as_deref() {
         options.retain(|option| option.is_value || option.label != word);
     }
     for option in &mut options {
-        if frame_insert(option, &context, replaces_word) {
+        let renamed = frame_insert(option, &context, replaces_word);
+        // A whole key replaced: every other place it is written follows.
+        let names_a_key = !option.is_value || context.position == EntryPosition::Name;
+        let elsewhere = if names_a_key { other_places(source, &context, option, behavior) } else { Vec::new() };
+        let renamed_elsewhere = !elsewhere.is_empty();
+        if renamed || renamed_elsewhere {
+            // The key replaced whole is renamed: just its name is written.
+            if !renamed {
+                let lead = option.insert.find(option.label.as_str()).map_or("", |at| &option.insert[..at]).to_string();
+                option.insert = format!("{lead}{}", option.label);
+                option.cursor_offset = option.insert.encode_utf16().count();
+                option.selected = 0;
+                option.renames = true;
+            }
+            let mut context = context.clone();
+            for place in elsewhere {
+                if !context.paired_names.contains(&place) {
+                    context.paired_names.push(place);
+                }
+            }
             // A rename keeps what the insert writes before the name (`<`)
             // only where the document has it there too (not in `</name>`).
             let start_byte = utf16_to_byte_index(source, option.start);
@@ -333,7 +374,7 @@ pub(crate) fn completions_for(
                 .entry_after
                 .as_deref()
                 .is_some_and(|word| !word.is_empty());
-        if !in_front {
+        if !in_front && !renamed_elsewhere {
             rename_key_with_value(option, source, cursor, behavior);
         }
         // The key already written, the caret at its end and the key going on
@@ -388,6 +429,110 @@ pub(crate) fn completions_for(
         }
     }
     options
+}
+
+/// Where else the key the option replaces is written (UTF-16 ranges), per
+/// the language's [`ConfigLanguage::rename_key`]: other dotted keys and
+/// headers through it, other blocks or elements of its name. Empty unless
+/// the replaced text is a whole key written in the document.
+fn other_places(
+    source: &str,
+    context: &CompletionContext,
+    option: &Completion,
+    behavior: &dyn ConfigLanguage,
+) -> Vec<(usize, usize)> {
+    const STAND_IN: &str = "configeditorrenamed";
+    let stop = |character: char| character.is_whitespace() || "\"'.=:[]{}<>/,#".contains(character);
+    let start = utf16_to_byte_index(source, option.start);
+    let end = utf16_to_byte_index(source, option.end);
+    let replaced = source[start..end].trim_start_matches(|character: char| stop(character));
+    let word_start = end - replaced.len();
+    let word_len = replaced.find(stop).unwrap_or(replaced.len());
+    let old = &replaced[..word_len];
+    if old.is_empty() || old == option.label {
+        return Vec::new();
+    }
+    let mut pointer = String::new();
+    for segment in &context.path {
+        pointer.push('/');
+        match segment {
+            SchemaPathSegment::Key(key) => pointer.push_str(&key.replace('~', "~0").replace('/', "~1")),
+            SchemaPathSegment::ArrayItem(index) => pointer.push_str(&index.to_string()),
+        }
+    }
+    pointer.push('/');
+    pointer.push_str(&old.replace('~', "~0").replace('/', "~1"));
+    let Some(renamed) = behavior.rename_key(source, &pointer, STAND_IN) else {
+        return Vec::new();
+    };
+    // Each stand-in maps back to the word it replaced.
+    let mut places = Vec::new();
+    let mut delta: isize = 0;
+    for (at, _) in renamed.match_indices(STAND_IN) {
+        let Some(place) = at.checked_add_signed(-delta) else {
+            return Vec::new();
+        };
+        let length = source.get(place..).map_or(0, |rest| rest.find(stop).unwrap_or(rest.len()));
+        if source.get(place..place + length) != Some(old) {
+            return Vec::new();
+        }
+        delta += STAND_IN.len() as isize - length as isize;
+        places.push((place, place + length));
+    }
+    // Only a key written where the caret is: a new key is not a rename.
+    if !places.iter().any(|(place, _)| *place == word_start) {
+        return Vec::new();
+    }
+    let utf16 = |byte: usize| source[..byte].encode_utf16().count();
+    places
+        .into_iter()
+        .filter(|(place, _)| *place != word_start)
+        .map(|(place, place_end)| (utf16(place), utf16(place_end)))
+        .collect()
+}
+
+/// On a line holding only indentation and the word being typed: an entry
+/// indented deeper than one can be there lines up with what Enter after the
+/// line above writes, and indentation left after the caret goes, so an
+/// accepted key neither breaks the document nor leaves trailing spaces.
+fn line_up_on_indented_line(
+    source: &str,
+    cursor_byte: usize,
+    line_start: usize,
+    line_end: usize,
+    context: &mut CompletionContext,
+    behavior: &dyn ConfigLanguage,
+) {
+    let typed_start = utf16_to_byte_index(source, context.replace_start);
+    if context.value_key.is_some()
+        || context.is_array_item
+        || typed_start < line_start
+        || typed_start > cursor_byte
+        || !source[line_start..typed_start].trim().is_empty()
+        || !source[cursor_byte..line_end].trim().is_empty()
+    {
+        return;
+    }
+    if context.replace_end == source[..cursor_byte].encode_utf16().count() {
+        context.replace_end = source[..line_end].encode_utf16().count();
+    }
+    if line_start == 0 {
+        return;
+    }
+    let previous_end = source[..line_start - 1].encode_utf16().count();
+    let newline = behavior.newline(source, previous_end);
+    let written = &newline.text[..newline.caret.min(newline.text.len())];
+    let target = written.rsplit('\n').next().unwrap_or_default();
+    // Only after a sibling (the line above at that indentation): a first
+    // entry may sit deeper under its opener, as the document's style.
+    let above = source[..line_start - 1].rsplit('\n').next().unwrap_or_default();
+    let above_indent = &above[..above.len() - above.trim_start_matches([' ', '\t']).len()];
+    if !target.trim().is_empty() || typed_start - line_start <= target.len() || above_indent != target {
+        return;
+    }
+    context.replace_start = source[..line_start].encode_utf16().count();
+    context.entry_prefix = format!("{target}{}", context.entry_prefix);
+    context.base_indent = target.to_string();
 }
 
 /// Adds the context's entry prefix and suffix to an accepted insert, and lays
@@ -481,8 +626,21 @@ pub(crate) fn frame_insert(
             if context.entry_suffix.starts_with('\n') && option.insert.ends_with('\n') {
                 option.insert.pop();
             }
+            if let Some((start, end)) = context.insert_range {
+                option.start = start;
+                option.end = end;
+            }
+            let before_suffix = option.insert.encode_utf16().count();
             option.insert.push_str(&context.entry_suffix);
             option.cursor_offset += context.entry_prefix.encode_utf16().count();
+            if context.suffix_caret > 0 {
+                let into_suffix = context.entry_suffix[..context.suffix_caret.min(context.entry_suffix.len())]
+                    .encode_utf16()
+                    .count();
+                option.cursor_offset = before_suffix + into_suffix;
+                // In the new entry's body: its keys are offered next.
+                option.is_value = false;
+            }
         }
     }
     renamed

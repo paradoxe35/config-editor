@@ -41,6 +41,47 @@ pub(super) struct InputBurst {
     input_type: String,
     events: usize,
     time: f64,
+    /// The text and selection the browser left after the latest event:
+    /// what the input made, even if something rewrites the textarea before
+    /// the burst is applied.
+    latest: String,
+    latest_selection: (usize, usize),
+}
+
+/// No selection recorded before the input (see [`changed_range`]).
+pub(super) const UNKNOWN_SELECTION: (usize, usize) = (usize::MAX, usize::MAX);
+
+/// The UTF-16 range of `before` that the edit to `after` replaced: what was
+/// selected (or the caret) when the edit was made.
+pub(super) fn changed_range(before: &str, after: &str) -> (usize, usize) {
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    (prefix, old.len() - suffix)
+}
+
+/// The edit that turned `before` into `latest`, made on `current` instead
+/// (where `before` became `current` meanwhile), and the caret after it.
+pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usize) {
+    use super::sync::map_through_change;
+    let (start, end) = changed_range(before, latest);
+    let latest_units: Vec<u16> = latest.encode_utf16().collect();
+    let before_len = before.encode_utf16().count();
+    let inserted_len = latest_units.len() + (end - start) - before_len;
+    let inserted = String::from_utf16_lossy(&latest_units[start..start + inserted_len]);
+    let (from, to) = (map_through_change(before, current, start), map_through_change(before, current, end));
+    let current_units: Vec<u16> = current.encode_utf16().collect();
+    let (from, to) = (from.min(current_units.len()), to.min(current_units.len()).max(from.min(current_units.len())));
+    let mut result = String::from_utf16_lossy(&current_units[..from]);
+    result.push_str(&inserted);
+    result.push_str(&String::from_utf16_lossy(&current_units[to..]));
+    (result, from + inserted_len)
 }
 
 /// An edit the browser applied (typing, paste, cut, drop, IME).
@@ -55,20 +96,32 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         .dyn_ref::<web_sys::InputEvent>()
         .map(web_sys::InputEvent::input_type)
         .unwrap_or_default();
+    let (latest, latest_selection) = target_textarea(event)
+        .map(|element| (element.value(), textarea_selection(&element)))
+        .unwrap_or_else(|| (state.source.get_untracked(), (0, 0)));
     if state.input_burst.with_value(Option::is_some) {
         state.input_burst.update_value(|burst| {
             if let Some(burst) = burst {
                 burst.events += 1;
+                burst.latest = latest;
+                burst.latest_selection = latest_selection;
             }
         });
         return;
     }
+    let before = state.source.get_untracked();
+    // Without a `beforeinput` (`execCommand`, some synthetic events) the
+    // selection is read off the change when the burst is applied.
+    let selection = state.pre_edit_selection.get_value();
+    state.pre_edit_selection.set_value(UNKNOWN_SELECTION);
     state.input_burst.set_value(Some(InputBurst {
-        before: state.source.get_untracked(),
-        selection: state.pre_edit_selection.get_value(),
+        before,
+        selection,
         input_type,
         events: 1,
         time: event.time_stamp(),
+        latest,
+        latest_selection,
     }));
     PENDING.with(|pending| {
         pending
@@ -103,8 +156,23 @@ pub(super) fn flush_input(state: EditorState) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let value = element.value();
-    let before = burst.before;
+    // What the input made, on the document as it is now: a host value
+    // applied since the input (a `setValue` in the same task) gets the input
+    // replayed on it, and a textarea rewritten meanwhile gets it back.
+    let current = state.source.get_untracked();
+    let (value, replayed_caret) = if current == burst.before {
+        (burst.latest.clone(), None)
+    } else {
+        let (value, caret) = replay(&burst.before, &burst.latest, &current);
+        (value, Some(caret))
+    };
+    if element.value() != value {
+        element.set_value(&value);
+        let (start, end) = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
+        let _ = element.set_selection_range(start as u32, end as u32);
+    }
+    let before = current;
+    let burst_selection = if replayed_caret.is_some() { UNKNOWN_SELECTION } else { burst.selection };
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
@@ -125,12 +193,13 @@ pub(super) fn flush_input(state: EditorState) {
         && !state.suggestions.with_untracked(Vec::is_empty);
     state.placeholder.set_value(None);
     let after = textarea_selection(&element);
+    let selection = if burst_selection == UNKNOWN_SELECTION { changed_range(&before, &value) } else { burst_selection };
     if before != value {
         state.history.update(|history| {
             history.record_input(
                 Snapshot {
                     value: before,
-                    selection: burst.selection,
+                    selection,
                 },
                 after,
                 &input_type,
@@ -397,4 +466,30 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
     let caret = start + pasted.encode_utf16().count();
     state.commit(Edit::new(text, (start, end), updated, caret));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::changed_range;
+
+    /// Round 11: the selection an edit replaced, read off the change when
+    /// the browser sent no `beforeinput` (undo puts the caret back there).
+    #[test]
+    fn the_replaced_range_is_read_off_the_change() {
+        assert_eq!(changed_range("abc", "abXc"), (2, 2));
+        assert_eq!(changed_range("abc", "aXYc"), (1, 2));
+        assert_eq!(changed_range("aaa", "aaaa"), (3, 3));
+        assert_eq!(changed_range("a\u{1F600}b", "a\u{1F600}xb"), (3, 3));
+        assert_eq!(changed_range("abc", "ac"), (1, 2));
+    }
+
+    /// Round 11: input made before a host value was applied is made on that
+    /// value instead of being lost.
+    #[test]
+    fn input_is_replayed_on_a_document_replaced_meanwhile() {
+        use super::replay;
+        assert_eq!(replay("listen: 1\n", "listen: 1\nQ", "x: 1\n"), ("x: 1\nQ".to_string(), 6));
+        assert_eq!(replay("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"), ("a: 1\nb: 2X\nc: 3\n".to_string(), 10));
+        assert_eq!(replay("abc", "aXYc", "abc"), ("aXYc".to_string(), 3));
+    }
 }

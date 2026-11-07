@@ -12,6 +12,7 @@ use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 mod bridge;
 mod codec;
 mod commands;
+mod comment_scope;
 mod completion;
 mod components;
 mod diagnostics;

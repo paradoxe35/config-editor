@@ -8,6 +8,24 @@ use serde_json::Value;
 #[cfg(feature = "schema-validation")]
 const MAX_DIAGNOSTICS: usize = 20;
 
+/// The first [`MAX_DIAGNOSTICS`] of `diagnostics`, and when there are more,
+/// one without a position saying so (the footer shows it), so a cut list is
+/// never taken for the whole one.
+#[cfg(feature = "schema-validation")]
+fn capped(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    if diagnostics.len() > MAX_DIAGNOSTICS {
+        diagnostics.truncate(MAX_DIAGNOSTICS);
+        diagnostics.push(Diagnostic {
+            line: None,
+            column: None,
+            end_column: None,
+            message: format!("Only the first {MAX_DIAGNOSTICS} problems are shown; more follow."),
+            severity: Severity::Warning,
+        });
+    }
+    diagnostics
+}
+
 /// Milliseconds after the last keystroke before revalidating, so half-typed
 /// states do not flash squiggles.
 pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
@@ -360,7 +378,7 @@ pub(super) fn validate(
 
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
-        return schema
+        let diagnostics = schema
             .validator
             .iter_errors(&document)
             .flat_map(|top| {
@@ -415,7 +433,7 @@ pub(super) fn validate(
                                 // Only as many as can be shown are located: each is a scan.
                                 unexpected
                                     .iter()
-                                    .take(MAX_DIAGNOSTICS)
+                                    .take(MAX_DIAGNOSTICS + 1)
                                     .map(|key| {
                                         let pointer = format!("{parent}/{}", escape_pointer(key));
                                         let span = super::codec::inline_location(
@@ -501,8 +519,9 @@ pub(super) fn validate(
                     })
                     .collect::<Vec<_>>()
             })
-            .take(MAX_DIAGNOSTICS)
-            .collect();
+            .take(MAX_DIAGNOSTICS + 1)
+            .collect::<Vec<_>>();
+        return capped(diagnostics);
     }
     let _ = schema;
     Vec::new()

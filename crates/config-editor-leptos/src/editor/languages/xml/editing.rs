@@ -132,6 +132,86 @@ pub(super) fn newline_insertion(source: &str, cursor: usize) -> (String, usize) 
 }
 
 /// Unwraps when every selected line is commented; otherwise wraps each line.
+/// The line selection of `start..end` (UTF-16) widened so it holds whole
+/// elements, start tags, attribute values, CDATA sections and comments.
+fn over_balanced_xml_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
+    use super::super::super::comment_scope::{LineState, selected_lines, selection_over, widen};
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut starts = Vec::with_capacity(lines.len() + 1);
+    let mut lowest = Vec::with_capacity(lines.len());
+    let mut depth = 0usize;
+    // What is open: its closing delimiter, and whether it is a start tag.
+    let mut open: Option<(&'static str, bool)> = None;
+    let mut quote: Option<char> = None;
+    for line in &lines {
+        starts.push(LineState { depth, open: open.is_some() || quote.is_some() });
+        let mut low = depth;
+        let mut at = 0;
+        while at < line.len() {
+            let rest = &line[at..];
+            let character = rest.chars().next().unwrap_or(' ');
+            match (open, quote) {
+                (Some(_), Some(active)) => {
+                    if character == active {
+                        quote = None;
+                    }
+                }
+                (Some((_, true)), None) if matches!(character, '"' | '\'') => quote = Some(character),
+                (Some(("/>", true)), None) if rest.starts_with("/>") => {
+                    open = None;
+                    depth = depth.saturating_sub(1);
+                    at += 2;
+                    continue;
+                }
+                (Some((closer, _)), None) if rest.starts_with(closer) => {
+                    open = None;
+                    at += closer.len();
+                    continue;
+                }
+                (Some(_), None) => {}
+                (None, _) if rest.starts_with("<!--") => {
+                    open = Some(("-->", false));
+                    at += 4;
+                    continue;
+                }
+                (None, _) if rest.starts_with("<![CDATA[") => {
+                    open = Some(("]]>", false));
+                    at += 9;
+                    continue;
+                }
+                (None, _) if rest.starts_with("</") => {
+                    depth = depth.saturating_sub(1);
+                    low = low.min(depth);
+                    open = Some((">", false));
+                    at += 2;
+                    continue;
+                }
+                (None, _) if rest.starts_with("<?") || rest.starts_with("<!") => {
+                    open = Some((">", false));
+                }
+                (None, _) if character == '<' => {
+                    // A start tag: an element opens unless it ends `/>`.
+                    depth += 1;
+                    open = Some(("/>", true));
+                }
+                (None, _) => {}
+            }
+            // In a start tag, `>` ends it (the element stays open).
+            if let Some(("/>", true)) = open
+                && quote.is_none()
+                && character == '>'
+            {
+                open = None;
+            }
+            at += character.len_utf8();
+        }
+        lowest.push(low);
+    }
+    starts.push(LineState { depth, open: open.is_some() || quote.is_some() });
+    let (first, last) = selected_lines(source, start, end);
+    selection_over(source, (start, end), widen(&starts, &lowest, first, last))
+}
+
 pub(super) fn toggle_xml_comments(
     source: &str,
     selection_start: usize,
@@ -148,6 +228,10 @@ pub(super) fn toggle_xml_comments(
         // One comment from start to end, not two per-line ones.
         && !source[open + 4..close].contains("-->")
         && !source[open + 4..close].contains("<!--")
+        // On lines of its own: one sharing them with elements is commented
+        // line by line, or its text would become content.
+        && source[source[..open].rfind('\n').map_or(0, |at| at + 1)..open].trim().is_empty()
+        && source[close + 3..source[close..].find('\n').map_or(source.len(), |at| close + at)].trim().is_empty()
     {
         // Markers alone on their lines take the whole line with them.
         let line_start = |at: usize| source[..at].rfind('\n').map_or(0, |index| index + 1);
@@ -177,6 +261,9 @@ pub(super) fn toggle_xml_comments(
         };
         return Some((updated.clone(), map(start), map(end)));
     }
+    // Whole elements, start tags, CDATA and comments over lines.
+    let (selection_start, selection_end) = over_balanced_xml_lines(source, selection_start, selection_end);
+    let (start, end) = (utf16_to_byte_index(source, selection_start), utf16_to_byte_index(source, selection_end));
     let first_line = source[..start]
         .bytes()
         .filter(|byte| *byte == b'\n')

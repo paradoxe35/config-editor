@@ -282,3 +282,56 @@ fn toggling_comments_inside_a_multi_line_block_comment_unwraps_it() {
     );
     assert_eq!(start, unwrapped.find(" = 30").unwrap());
 }
+
+/// Round 11: Ctrl+/ on one line of something written over several lines
+/// comments all of it, so the document still reads and other values keep
+/// theirs; a second Ctrl+/ gives the text back. A block comment sharing its
+/// lines with code is never unwrapped into code.
+#[test]
+fn ctrl_slash_never_cuts_through_something_written_over_lines() {
+    let mut failures = Vec::new();
+    for (language, marked) in [
+        (Language::TOML, "a = 1\ns = \"\"\"mu|lti\nline\"\"\"\nb = 2\n"),
+        (Language::TOML, "a = 1\ns = \"\"\"multi\nli|ne\"\"\"\nb = 2\n"),
+        (Language::TOML, "a = [1,|\n  2]\nb = 2\n"),
+        (Language::YAML, "a: [1,|\n  2]\nb: 2\n"),
+        (Language::YAML, "a: [1,\n  2|]\nb: 2\n"),
+        (Language::YAML, "a: {x: 1,|\n  y: 2}\nb: 2\n"),
+        (Language::HCL, "a = [1,|\n  2]\nb = 2\n"),
+        (Language::HCL, "a = max(1,|\n  2)\nb = 2\n"),
+        (Language::XML, "<a>line1\nli|ne2</a>\n<b>2</b>\n"),
+        (Language::XML, "<a\n  x=\"1\"|\n  y=\"2\">t</a>\n<b>2</b>\n"),
+        (Language::XML, "<a x=\"1\n|2\">t</a>\n<b>2</b>\n"),
+        (Language::XML, "<a><![CDATA[x\n  y|]]></a>\n<b>2</b>\n"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let caret = text[..at].encode_utf16().count();
+        let behavior = language.behavior();
+        let Some((once, start, end)) = behavior.toggle_comments(&text, caret, caret) else {
+            failures.push(format!("{}: nothing toggled in {text:?}", language.label()));
+            continue;
+        };
+        let b = |source: &str| language.parse(source).ok().and_then(|value| value.get("b").cloned());
+        if language.parse(&once).is_err() || b(&once) != b(&text) {
+            failures.push(format!("{}: {text:?} commented as {once:?}", language.label()));
+        }
+        match behavior.toggle_comments(&once, start, end) {
+            Some((twice, _, _)) if twice == text => {}
+            other => failures.push(format!("{}: {text:?} toggled back as {:?}", language.label(), other.map(|o| o.0))),
+        }
+    }
+    for (language, marked, comment) in [
+        (Language::HCL, "a = 1 /* multi\nli|ne */\nb = 2\n", "/*"),
+        (Language::XML, "<a>1</a> <!-- multi\nli|ne --> <b>2</b>\n", "<!--"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let caret = text[..at].encode_utf16().count();
+        let once = language.behavior().toggle_comments(&text, caret, caret).map(|o| o.0).unwrap_or_default();
+        if !once.contains(comment) || language.parse(&once).is_err() {
+            failures.push(format!("{}: {text:?} became {once:?}", language.label()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

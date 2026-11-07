@@ -434,7 +434,7 @@ impl EditorState {
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
             copied_line: StoredValue::new(None),
-            pre_edit_selection: StoredValue::new((0, 0)),
+            pre_edit_selection: StoredValue::new(super::input::UNKNOWN_SELECTION),
             input_burst: StoredValue::new(None),
             hover_card: RwSignal::new(None),
             hover_pending: StoredValue::new(None),

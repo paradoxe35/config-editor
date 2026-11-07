@@ -18,6 +18,9 @@ const late = new URLSearchParams(location.search).has("late");
 // `?slow` applies every onChange value 1.5 s late, none skipped: a slow store
 // round trip with many values in flight.
 const slow = new URLSearchParams(location.search).has("slow");
+// `?reset-early` calls `ref.setValue` from an effect, before the editor has
+// mounted (it mounts once the wasm is ready).
+const resetEarly = new URLSearchParams(location.search).has("reset-early");
 const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -38,6 +41,9 @@ function App({ schema }: { schema: string }) {
   (window as unknown as { setParentValue: typeof setValue }).setParentValue = setValue;
   useEffect(() => {
     void ready.then(() => setThemeNames(themes() as unknown as string[]));
+  }, []);
+  useEffect(() => {
+    if (resetEarly) handle.current?.setValue("from-effect: 1\n");
   }, []);
   // A discard that also drops an edit the late parent has not applied yet.
   const discard = (text: string) => {

@@ -620,6 +620,19 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
     path.pop();
     let open_name_start = open.start + 1;
     let open_name_end = open_name_start + token_name(source, open).len();
+    // Not ended by `>`: a closing tag being typed closes its element.
+    let after_name = source[name_end..].trim_start_matches([' ', '\t']);
+    if !after_name.starts_with('>') {
+        return Some(CompletionContext {
+            path,
+            typed: source[name_start..cursor].to_string(),
+            replace_start: cursor_bytes(source, name_start),
+            replace_end: cursor_bytes(source, name_end),
+            explicit_entry_start: true,
+            closing_name: Some((token_name(source, open).to_string(), ">".to_string())),
+            ..Default::default()
+        });
+    }
     let rest = source[cursor..name_end].to_string();
     Some(CompletionContext {
         path,

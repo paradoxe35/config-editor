@@ -127,6 +127,9 @@ validate("json", '{"insecure_plaintext": "yes"}', schemaText);
 // [{ line: 1, column: 24, endColumn: 29, severity: "error",
 //    message: '/insecure_plaintext: "yes" is not of type "boolean"' }]
 
+// At most 20 problems are listed; past that, a 21st without a position says
+// more follow (the footer shows it too).
+
 convert("yaml", "listen: 7835\n", "toml");
 // { text: "listen = 7835\n", losses: [] }
 ```
@@ -197,8 +200,9 @@ A registered language gets schema validation (placed with `keySpan` and
 `valueSpan`), conversion to and from every other language, and Edit-as;
 `comments`, `brackets` and `separators` add comment toggling,
 bracket-aware Enter, and key/value editing. Schema completion is available
-for the built-in languages only. Built-in names cannot be replaced;
-registering the same label again replaces it for new editors. Its name is
+for the built-in languages only. Built-in names cannot be replaced, and a
+registered language cannot take another's name or extension (`registerLanguage`
+throws); registering the same label again replaces it for new editors. Its name is
 the label lowercased (`"Énv"` → `"énv"`).
 
 ## Styling

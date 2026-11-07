@@ -399,6 +399,13 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     }) {
         ancestors.pop();
     }
+    // The mapping holding the caret's line: its key's column (none at the
+    // top level), when it is a key's mapping.
+    let parent_level = match ancestors.last() {
+        Some((level, SchemaPathSegment::Key(_))) => Some(Some(*level)),
+        Some(_) => None,
+        None => Some(None),
+    };
     let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
     let (line_content, content_offset) = {
         // The caret line's dashes: the first continues the list at its
@@ -547,6 +554,34 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
         .collect();
     let replace_end_byte = if splits { cursor } else { replace_end_byte };
+    // A key typed in the indentation, between its parent's column and its
+    // siblings' (`websocket:\n  path: /x\n ke|`): it is written at the
+    // siblings' column, and an entry after it on the line goes to its own.
+    if value_key.is_none()
+        && !current_is_array_item
+        && content_offset == 0
+        && let Some(parent) = parent_level
+        && let Some(column) = sibling_column(source, current_line_start, current_line_end, parent)
+        && column != indent
+        && parent.is_none_or(|parent| indent > parent)
+    {
+        let siblings = " ".repeat(column);
+        let entry_after_space = !splits && rest.starts_with([' ', '\t']) && entry_follows(rest.trim_start(), b':');
+        let gap = rest.len() - rest.trim_start().len();
+        return CompletionContext {
+            path,
+            typed,
+            replace_start: source[..current_line_start].encode_utf16().count(),
+            replace_end: source[..if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }]
+                .encode_utf16()
+                .count(),
+            entry_prefix: siblings.clone(),
+            entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },
+            entry_after: (splits && gap == 0).then_some(word_after),
+            base_indent: siblings,
+            ..Default::default()
+        };
+    }
     CompletionContext {
         path,
         typed,
@@ -562,6 +597,27 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         base_indent,
         ..Default::default()
     }
+}
+
+/// The column the entries of a mapping write their keys at, found from the
+/// lines around the caret's (`start..end`) that sit deeper than the
+/// mapping's key at `parent` (any line for the top level).
+fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>) -> Option<usize> {
+    let indent_of = |line: &str| {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| line.len() - trimmed.len())
+    };
+    let inside = |column: usize| parent.is_none_or(|parent| column > parent);
+    let before = source[..start.saturating_sub(1)]
+        .lines()
+        .rev()
+        .filter_map(indent_of)
+        .take_while(|column| inside(*column));
+    let after = source[(end + 1).min(source.len())..]
+        .lines()
+        .filter_map(indent_of)
+        .take_while(|column| inside(*column));
+    before.chain(after).min()
 }
 
 pub(super) fn existing_mapping_keys(

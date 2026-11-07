@@ -63,6 +63,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                     .map(|(start, end)| (utf16(&source[..start]), utf16(&source[..end])))
                     .collect()
             },
+            suffix_caret: if name_after.is_empty() { 0 } else { close.len() + 1 },
             entry_after: (!name_after.is_empty()).then_some(name_after),
             position: EntryPosition::Name,
             // `[[…]]` names an array of tables; `[…]` a table.
@@ -247,8 +248,14 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         replace_start: utf16(&source[..query_start]),
         replace_end: utf16(&source[..cursor]),
         path,
-        // In front of a `[table]` header the entry gets a line of its own.
-        entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
+        // In front of a `[table]` header the entry gets a line of its own;
+        // the entry it splits from keeps the dotted head they shared
+        // (`websocket.ho|path` → `websocket.host` and `websocket.path`).
+        entry_suffix: if splits || before_header {
+            format!("\n{indent}{}", if splits { &source[typed_start..query_start] } else { "" })
+        } else {
+            String::new()
+        },
         entry_after: splits.then_some(word_after),
         position: if keys_follow && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
         // The head of a dotted key (`ud|.nodelay = true`): its rest and value
@@ -335,7 +342,12 @@ pub(super) fn existing_table_keys(
                     header.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
                 }
             }
-            keys.extend(child_of(&header));
+            // A header being named may still name a table that only its
+            // sub-tables made (`[websocket]` with `[websocket.tls]` below),
+            // and never counts itself.
+            if index != line_index && (!in_header || header.len() == path.len() + 1) {
+                keys.extend(child_of(&header));
+            }
             section = header;
             if is_array {
                 let seen = array_tables.entry(segments.join(".")).or_insert(0);
@@ -355,7 +367,10 @@ pub(super) fn existing_table_keys(
                     .into_iter()
                     .map(SchemaPathSegment::Key),
             );
-            keys.extend(child_of(&full));
+            // Keys of a deeper table make its parents only implicitly.
+            if !in_header || section.len() <= path.len() {
+                keys.extend(child_of(&full));
+            }
         }
     }
     Some(keys)

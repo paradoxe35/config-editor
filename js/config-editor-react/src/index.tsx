@@ -149,6 +149,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // What a re-mount (language, schema, … changed) starts from, so an
     // uncontrolled document and its diff baseline survive it.
     const carried = useRef<{ value: string; baseline: string } | null>(null);
+    // A `ref.setValue` made while there is no editor (before the first
+    // mount, or while a re-mount has failed): applied and reported on mount.
+    const reset = useRef<string | null>(null);
     const report = (error: unknown) => {
       if (latest.current.onError) latest.current.onError(error);
       else console.error("config-editor-react:", error);
@@ -172,7 +175,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         // A re-mount starts from the newest document: the editor's own, since
         // a late parent's `value` may not have caught up. Values still
         // pending stay pending, so their late echoes are recognized.
-        const value = carried.current?.value ?? current.value ?? current.defaultValue ?? "";
+        const value = reset.current ?? carried.current?.value ?? current.value ?? current.defaultValue ?? "";
         const baseline = current.baseline ?? carried.current?.baseline ?? value;
         carried.current = { value, baseline };
         const options: EditorOptions = {
@@ -199,6 +202,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         try {
           editor.current = new Editor(host.current, options);
           failed.current = false;
+          // A reset made before there was an editor reaches the parent now.
+          if (reset.current !== null) {
+            const value = reset.current;
+            reset.current = null;
+            pending.current.push({ print: fingerprint(value), sent: Date.now() });
+            latest.current.onChange?.(value);
+          }
           setMounted((count) => count + 1);
         } catch (error) {
           failed.current = true;
@@ -262,6 +272,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           pending.current.splice(0, sent + 1);
           if (pending.current.length > 0) return;
         } else {
+          // The parent's own value: the editor's values still on their way
+          // are late echoes of what it replaced, skipped when they come.
+          superseded.current = [...superseded.current, ...pending.current];
           pending.current = [];
         }
         if (instance.value !== value) instance.setValue(value);
@@ -298,6 +311,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           // While a re-mount has failed, the document kept for it.
           return (
             editor.current?.value ??
+            reset.current ??
             carried.current?.value ??
             latest.current.value ??
             latest.current.defaultValue ??
@@ -311,6 +325,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           superseded.current = [...superseded.current, ...pending.current];
           pending.current = [];
           if (carried.current) carried.current.value = value;
+          if (!editor.current) {
+            reset.current = value;
+            return;
+          }
           guard((instance) => {
             if (instance.value === value) return;
             instance.setValue(value);

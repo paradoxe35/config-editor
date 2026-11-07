@@ -2,6 +2,98 @@
 
 use super::*;
 
+/// A key typed in a block written on one line (`websocket { ho|path = "/x" }`,
+/// `websocket { path = "/x" ho| }`): a block on one line holds a single
+/// attribute, so a new one opens it over lines, its attribute on a line of
+/// its own. A key typed inside the existing name renames it in place.
+fn in_one_line_block(
+    source: &str,
+    line_start: usize,
+    line: &str,
+    caret: usize,
+    path: &[SchemaPathSegment],
+    base_indent: &str,
+) -> Option<CompletionContext> {
+    let before = &line[..caret];
+    // The unmatched `{` before the caret, outside strings.
+    let (mut depth, mut quote, mut open) = (0usize, false, None);
+    let mut opens = Vec::new();
+    for (index, character) in before.char_indices() {
+        match character {
+            '"' => quote = !quote,
+            '{' if !quote => {
+                opens.push(index);
+                depth += 1;
+            }
+            '}' if !quote => {
+                opens.pop();
+                depth = depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+    if quote || depth != 1 {
+        return None;
+    }
+    if let Some(&at) = opens.last() {
+        open = Some(at);
+    }
+    let open = open?;
+    // A block's body, not an object expression (`= {`).
+    let head = line[..open].trim_end();
+    if head.is_empty() || head.ends_with(['=', ':', '(', '[', ',', '{']) {
+        return None;
+    }
+    let close = open + matching_close(&line[open..], '}')?;
+    if close < caret {
+        return None;
+    }
+    let typed_len = before.len() - before.trim_end_matches(|character: char| character.is_alphanumeric() || matches!(character, '_' | '-')).len();
+    let typed_start = caret - typed_len;
+    let first = line[open + 1..typed_start].trim();
+    let rest = line[caret..close].trim();
+    // Only between attributes: what comes before is one whole attribute.
+    let complete = first.is_empty()
+        || first.split_once('=').is_some_and(|(key, value)| !key.trim().is_empty() && !value.trim().is_empty());
+    if !complete {
+        return None;
+    }
+    let word_after: String = line[caret..]
+        .chars()
+        .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .collect();
+    let inner = format!("{base_indent}{}", indent_unit(source));
+    let mut entry_prefix = format!("\n{inner}");
+    if !first.is_empty() {
+        entry_prefix.push_str(first);
+        entry_prefix.push('\n');
+        entry_prefix.push_str(&inner);
+    }
+    let mut entry_suffix = String::new();
+    if !rest.is_empty() {
+        entry_suffix.push('\n');
+        entry_suffix.push_str(&inner);
+        entry_suffix.push_str(rest);
+    }
+    entry_suffix.push('\n');
+    entry_suffix.push_str(base_indent);
+    entry_suffix.push('}');
+    let utf16_at = |byte: usize| utf16(&source[..line_start + byte]);
+    Some(CompletionContext {
+        path: path.to_vec(),
+        typed: line[typed_start..caret].to_string(),
+        replace_start: utf16_at(typed_start),
+        replace_end: utf16_at(caret),
+        base_indent: inner,
+        entry_prefix,
+        entry_suffix,
+        entry_after: (!word_after.is_empty()).then_some(word_after),
+        insert_range: Some((utf16_at(open + 1), utf16_at(close + 1))),
+        position: EntryPosition::Block,
+        ..Default::default()
+    })
+}
+
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let scan = analyze(source, cursor);
@@ -54,6 +146,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             no_properties: true,
             ..Default::default()
         };
+    }
+
+    if let Some(context) = in_one_line_block(source, line_start, line, caret_in_line, &path, &base_indent) {
+        return context;
     }
 
     // Inside containers opened on this line (`a = { b = [{ … }, { | }] }`):

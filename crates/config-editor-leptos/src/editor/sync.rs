@@ -31,9 +31,11 @@ pub(super) fn connect(state: EditorState, host: Host) {
     switch_languages(state, host);
 }
 
-/// A controlled `value` flows into the editor.
+/// A controlled `value` flows into the editor, at once: input the browser
+/// sends right after a host sets the value (in the same task) lands on the
+/// new text, not on the old one the effect would replace later.
 fn follow_value(state: EditorState, value: Signal<String>) {
-    Effect::new(move |_| {
+    leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let external = normalize_newlines(value.get());
         // Ignore the host echoing our own edit; reconverting would reformat
         // the text under the caret.

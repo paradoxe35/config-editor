@@ -30,6 +30,13 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
         start = step_past_inserted_closers(state, &text, start);
         end = start;
     }
+    // Inside a line's leading indentation, before its text: the line moves
+    // down whole, its indentation kept, and the caret with it.
+    if start == end && !modified && let Some(updated) = break_in_indentation(&text, start) {
+        state.commit(Edit::new(text, selection, updated, start + 1));
+        state.close_suggestions();
+        return;
+    }
     // In a comment or a multi-line string's body the line break is text:
     // keep the line's indentation, nothing more.
     let behavior = state.behavior();
@@ -87,6 +94,18 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     let caret = start + newline.text[..newline.caret].encode_utf16().count();
     state.commit(Edit::new(text, selection, updated, caret));
     state.close_suggestions();
+}
+
+/// `text` with a line break before the line whose leading indentation holds
+/// `cursor` (strictly inside it, with text after it), or `None`.
+pub(super) fn break_in_indentation(text: &str, cursor: usize) -> Option<String> {
+    let line_start = line_start_of(text, cursor);
+    let line_end = line_end_of(text, cursor);
+    let units: Vec<u16> = text.encode_utf16().skip(line_start).take(line_end - line_start).collect();
+    let column = cursor - line_start;
+    let indent = units.iter().take_while(|unit| **unit == u16::from(b' ') || **unit == u16::from(b'\t')).count();
+    (column > 0 && column < indent && indent < units.len())
+        .then(|| replace_selection(text, line_start, line_start, "\n").0)
 }
 
 /// Ctrl+Shift+Enter opens a line above, at this line's indent.
@@ -147,4 +166,25 @@ fn line_end_of(text: &str, offset: usize) -> usize {
         .map_or(text.len(), |index| byte + index)]
         .encode_utf16()
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::break_in_indentation;
+
+    /// Round 11: Enter inside a line's indentation keeps the line's column.
+    #[test]
+    fn enter_inside_indentation_moves_the_line_down_whole() {
+        for (text, cursor, expected) in [
+            ("a:\n  b: 1\n  c: 2", 4, Some("a:\n\n  b: 1\n  c: 2")),
+            ("{\n    \"b\": 1\n}", 4, Some("{\n\n    \"b\": 1\n}")),
+            ("<a>\n\t\t<b/>\n</a>", 5, Some("<a>\n\n\t\t<b/>\n</a>")),
+            // At the line start, at the text, or on a blank line: Enter as usual.
+            ("a:\n  b: 1", 3, None),
+            ("a:\n  b: 1", 5, None),
+            ("a:\n    \nb: 1", 5, None),
+        ] {
+            assert_eq!(break_in_indentation(text, cursor).as_deref(), expected, "{text:?} at {cursor}");
+        }
+    }
 }
