@@ -8,16 +8,55 @@ use super::super::changes::hunk_for_peek;
 use super::super::diff::{DiffPeek, peek_popup_style, peek_survives_edit};
 use super::super::keys::changes::go_to_change;
 use super::super::state::EditorState;
+use crate::reactive::Relay;
 
 #[component]
 pub(crate) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
     close_when_edited(state);
+    // Each preview is a view of its own, so it reads what it follows
+    // through relays (see `reactive`).
+    let follows = PeekFollows {
+        style: Relay::new(move || peek_style(state)),
+        read_only: Relay::new(move || state.config.read_only.get()),
+    };
     move || {
         state
             .changes
             .peek
             .get()
-            .map(|peek| view! { <Peek state=state peek=peek /> })
+            .map(|peek| view! { <Peek state=state follows=follows peek=peek /> })
+    }
+}
+
+/// What an open preview follows.
+#[derive(Clone, Copy)]
+struct PeekFollows {
+    /// Its position (see [`peek_style`]).
+    style: Relay<String>,
+    read_only: Relay<bool>,
+}
+
+/// Where the open preview goes, under its line; re-measured as the text
+/// scrolls or the layout changes.
+fn peek_style(state: EditorState) -> String {
+    let Some((line, old_count, new_count)) = state.changes.peek.with(|peek| {
+        peek.as_ref()
+            .map(|peek| (peek.line, peek.before.len(), peek.after.len()))
+    }) else {
+        return String::new();
+    };
+    state.view.layout_revision.track();
+    state.view.scroll_y.track();
+    match (state.view.textarea_ref.get(), state.view.root_ref.get()) {
+        (Some(editor), Some(root)) => {
+            // The row the line is on, folded lines skipped.
+            let row = state
+                .fold
+                .projection
+                .with(|projection| projection.row_of_line(line.saturating_sub(1)));
+            peek_popup_style(&editor, &root, row + 1, old_count, new_count)
+        }
+        _ => "visibility:hidden".to_string(),
     }
 }
 
@@ -96,7 +135,7 @@ fn on_peek_keydown(state: EditorState, peek: &DiffPeek, event: &KeyboardEvent) {
 }
 
 #[component]
-fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
+fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoView {
     let DiffPeek {
         line,
         title,
@@ -104,7 +143,7 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
         after,
         ..
     } = peek.clone();
-    let (old_count, new_count) = (before.len(), after.len());
+    let read_only = follows.read_only.read();
     let revert_ref = NodeRef::<leptos::html::Button>::new();
     let label = revert_label(state, &peek);
     // Opened from the keyboard: the revert button takes the focus.
@@ -116,21 +155,7 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
             let _ = button.focus();
         }
     });
-    let style = move || {
-        state.view.layout_revision.get();
-        state.view.scroll_y.get();
-        match (state.view.textarea_ref.get(), state.view.root_ref.get()) {
-            (Some(editor), Some(root)) => {
-                // The row the line is on, folded lines skipped.
-                let row = state
-                    .fold
-                    .projection
-                    .with(|projection| projection.row_of_line(line.saturating_sub(1)));
-                peek_popup_style(&editor, &root, row + 1, old_count, new_count)
-            }
-            _ => "visibility:hidden".to_string(),
-        }
-    };
+    let style = follows.style.read();
     let keydown = {
         let peek = peek.clone();
         move |event: KeyboardEvent| on_peek_keydown(state, &peek, &event)
@@ -148,7 +173,7 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
             <header class="config-editor__diff-peek-header">
                 <strong>{format!("{title} · line {line}")}</strong>
                 <span class="config-editor__diff-peek-actions">
-                    {move || (!state.config.read_only.get()).then(|| view! {
+                    {move || (!read_only.get()).then(|| view! {
                         <button
                             type="button"
                             class="config-editor__diff-peek-revert"

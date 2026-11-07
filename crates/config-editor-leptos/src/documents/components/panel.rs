@@ -12,10 +12,9 @@ use crate::{ConfigEditor, EditorSettings, Language, SaveRequest};
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
     let id = StoredValue::new(entry.id.clone());
+    let active = documents.follows.active.read();
     let shown = Memo::new(move |_| {
-        documents
-            .active
-            .with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
+        active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
     focus_when_mounted(documents, &entry);
     let visited = entry.visited;
@@ -50,10 +49,9 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
 fn focus_when_mounted(documents: Documents, entry: &Entry) {
     let id = entry.id.clone();
     let handle = entry.handle;
+    let focus_editor = documents.follows.focus_editor.read();
     Effect::new(move |_| {
-        let wanted = documents
-            .focus_editor
-            .with(|wanted| wanted.as_deref() == Some(id.as_str()));
+        let wanted = focus_editor.with(|wanted| wanted.as_deref() == Some(id.as_str()));
         if !wanted || !handle.is_mounted() {
             return;
         }
@@ -67,9 +65,7 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
 /// document's id.
 fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let Documents {
-        callbacks,
-        settings: view_settings,
-        ..
+        callbacks, follows, ..
     } = documents;
     let id = StoredValue::new(entry.id.clone());
     let value = entry.value;
@@ -91,6 +87,7 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let schema = entry.setup.schema.clone();
     // The view injects the stylesheet once for all its editors.
     let own_settings = entry.settings;
+    let view_settings = follows.settings.read();
     let settings = Signal::derive(move || EditorSettings {
         styled: false,
         ..own_settings.get().unwrap_or_else(|| view_settings.get())

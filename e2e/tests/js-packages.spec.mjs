@@ -857,14 +857,23 @@ test.describe('vanilla API: mounting into an element that holds an editor', () =
       window.editor.destroy();
       const host = document.getElementById('editor');
       const value = Array.from({ length: 1500 }, (_, index) => `key${index}: ${index}`).join('\n');
-      for (let round = 0; round < 40; round += 1) {
-        // As in the README quick start: no reference kept, no destroy().
-        new module.ConfigEditor(host, { value });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return wasm.memory.buffer.byteLength / 1024 / 1024;
+      // A replaced editor's memory is free once the task that replaced it
+      // ends (its last effects let go of it then): the first batches grow
+      // memory to its peak, later ones reuse it.
+      const batch = async () => {
+        for (let round = 0; round < 20; round += 1) {
+          // As in the README quick start: no reference kept, no destroy().
+          new module.ConfigEditor(host, { value });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return wasm.memory.buffer.byteLength / 1024 / 1024;
+      };
+      await batch();
+      const peak = await batch();
+      await batch();
+      return (await batch()) - peak;
     });
-    expect(megabytes).toBeLessThan(40);
+    expect(megabytes).toBeLessThan(0.5);
     await expect(input(browserPage)).toHaveCount(1);
     await expect(input(browserPage)).toHaveValue(/key1499: 1499$/);
   });

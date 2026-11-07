@@ -7,12 +7,46 @@ use super::super::completion::visual_column;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::metrics::read_editor_metrics;
 use super::super::state::EditorState;
+use crate::reactive::Relay;
 
 /// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
 const TOOLTIP_MAX_WIDTH: f64 = 360.0;
 
+/// What the underlines follow besides their own problem. They are redrawn
+/// after every check, so they read it through relays (see `reactive`).
+#[derive(Clone, Copy)]
+struct Follows {
+    /// The problem whose message is shown.
+    shown: Relay<Option<(usize, usize)>>,
+    scroll_x: Relay<f64>,
+    scroll_y: Relay<f64>,
+}
+
+/// [`Follows`], as signals of one drawing of the underlines.
+#[derive(Clone, Copy)]
+struct Followed {
+    shown: Signal<Option<(usize, usize)>>,
+    scroll_x: Signal<f64>,
+    scroll_y: Signal<f64>,
+}
+
+impl Follows {
+    fn read(&self) -> Followed {
+        Followed {
+            shown: self.shown.read(),
+            scroll_x: self.scroll_x.read(),
+            scroll_y: self.scroll_y.read(),
+        }
+    }
+}
+
 #[component]
 pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
+    let follows = Follows {
+        shown: Relay::new(move || state.problems.current.get()),
+        scroll_x: Relay::new(move || state.view.scroll_x.get()),
+        scroll_y: Relay::new(move || state.view.scroll_y.get()),
+    };
     view! {
         <div
             class="config-editor__diagnostic-overlay"
@@ -22,6 +56,7 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
             {move || {
                 let text = state.doc.text.get();
                 let projection = state.fold.projection.get();
+                let followed = follows.read();
                 state
                     .problems.diagnostics
                     .get()
@@ -33,7 +68,7 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                         if projection.is_hidden(line) {
                             return None;
                         }
-                        marker(state, &text, diagnostic, projection.row_of_line(line))
+                        marker(state, followed, &text, diagnostic, projection.row_of_line(line))
                     })
                     .collect_view()
             }}
@@ -44,6 +79,7 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
 /// The underline for `diagnostic`, drawn on textarea row `row`.
 fn marker(
     state: EditorState,
+    followed: Followed,
     text: &str,
     diagnostic: Diagnostic,
     row: usize,
@@ -93,14 +129,14 @@ fn marker(
             class:config-editor__diagnostic-marker-host=from_host
             class:config-editor__diagnostic-marker-docs=has_docs
             class:config-editor__diagnostic-marker-eof=at_end
-            class:config-editor__diagnostic-marker-shown=move || state.problems.current.get() == Some((line, column))
+            class:config-editor__diagnostic-marker-shown=move || followed.shown.get() == Some((line, column))
             // Near the top of the viewport (not of the document), the message
             // opens below its line.
             class:config-editor__diagnostic-marker-near-top=move || {
                 let line_height = state
                     .textarea()
                     .map_or(22.0, |editor| read_editor_metrics(editor.element()).line_height);
-                row as f64 * line_height - state.view.scroll_y.get() < 3.0 * line_height
+                row as f64 * line_height - followed.scroll_y.get() < 3.0 * line_height
             }
             tabindex="-1"
             aria-label=aria_label
@@ -113,8 +149,8 @@ fn marker(
             )
             // Shifted left, and no wider than the visible text area, so the
             // message is never clipped.
-            style:--config-editor-diagnostic-tooltip-shift=move || tooltip_placement(state, left).0
-            style:--config-editor-diagnostic-tooltip-width=move || tooltip_placement(state, left).1
+            style:--config-editor-diagnostic-tooltip-shift=move || tooltip_placement(state, followed.scroll_x.get(), left).0
+            style:--config-editor-diagnostic-tooltip-width=move || tooltip_placement(state, followed.scroll_x.get(), left).1
             on:mousedown=|event| event.prevent_default()
             on:click=move |event| on_marker_click(state, &event, line, column, docs_url.as_deref())
         >
@@ -170,10 +206,9 @@ fn on_marker_click(
 }
 
 /// `(shift, width)` CSS lengths for a message starting at visual column
-/// `column`: as wide as the visible text area allows (up to
+/// `column`, the text scrolled `scroll` pixels sideways: as wide as the visible text area allows (up to
 /// [`TOOLTIP_MAX_WIDTH`]) and shifted left to stay inside it.
-fn tooltip_placement(state: EditorState, column: f64) -> (String, String) {
-    let scroll = state.view.scroll_x.get();
+fn tooltip_placement(state: EditorState, scroll: f64, column: f64) -> (String, String) {
     let Some(editor) = state.textarea() else {
         return ("0px".to_string(), format!("{TOOLTIP_MAX_WIDTH}px"));
     };

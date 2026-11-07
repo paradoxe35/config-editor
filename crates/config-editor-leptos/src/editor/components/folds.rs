@@ -10,6 +10,7 @@ use super::super::completion::visual_column;
 use super::super::diff::DiffKind;
 use super::super::folding::texts;
 use super::super::state::EditorState;
+use crate::reactive::KeyedList;
 
 /// A line in view that starts a fold range.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -91,7 +92,7 @@ fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) 
 #[component]
 fn FoldGutter(state: EditorState, folds: FoldItems) -> impl IntoView {
     view! {
-        <For
+        <KeyedList
             each=move || folds.get()
             key=|item| item.clone()
             children=move |item| view! { <FoldToggle state=state item=item /> }
@@ -177,7 +178,7 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
             class="config-editor__fold-chips"
             style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
         >
-            <For
+            <KeyedList
                 each=move || folds.get().into_iter().filter(|item| item.closed_end.is_some())
                 key=|item| item.clone()
                 children=move |item| view! { <FoldChip state=state item=item /> }

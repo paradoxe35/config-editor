@@ -4,9 +4,13 @@ use leptos::prelude::*;
 
 use super::super::completion::{Completion, completion_popup_style};
 use super::super::state::EditorState;
+use crate::reactive::Relay;
 
 #[component]
 pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
+    // The items are rebuilt as the list filters, so they read the selection
+    // through a relay (see `reactive`).
+    let active = Relay::new(move || state.completion.active.get());
     view! {
         <div
             class="config-editor__completions"
@@ -36,12 +40,13 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             }
         >
             {move || {
+                let active = active.read();
                 state
                     .completion.suggestions
                     .get()
                     .into_iter()
                     .enumerate()
-                    .map(|(index, option)| view! { <Suggestion state=state index=index option=option /> })
+                    .map(|(index, option)| view! { <Suggestion state=state active=active index=index option=option /> })
                     .collect_view()
             }}
         </div>
@@ -49,8 +54,14 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
 }
 
 #[component]
-fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl IntoView {
-    let selected = move || state.completion.active.get() == index;
+fn Suggestion(
+    state: EditorState,
+    /// The selected item's index.
+    active: Signal<usize>,
+    index: usize,
+    option: Completion,
+) -> impl IntoView {
+    let selected = move || active.get() == index;
     let label = option
         .label
         .chars()

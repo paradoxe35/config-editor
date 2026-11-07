@@ -10,10 +10,9 @@ use super::super::{keys, texts};
 #[component]
 pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> impl IntoView {
     let id = StoredValue::new(entry.id.clone());
+    let active = documents.follows.active.read();
     let selected = Memo::new(move |_| {
-        documents
-            .active
-            .with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
+        active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
     let closable = documents.callbacks.on_close.is_some();
     let Entry {

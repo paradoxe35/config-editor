@@ -348,8 +348,8 @@ view! {
   `inert`) while another is active, so its caret, selection, scroll
   position, undo history, folds, find widget and Edit-as language are where
   they were. Mounting lazily keeps the start cheap; keeping editors avoids
-  re-parsing on every switch (and the memory that unmounting editors does
-  not give back yet). Measured on the release build with ten ~2000-line
+  re-parsing on every switch. Closing a document gives its editor's memory
+  back (all but under 1 KB). Measured on the release build with ten ~2000-line
   documents: about 1.5 to 1.9 MB of wasm memory per editor once shown (21 MB
   with all ten, against 8 MB with one shown and 26 MB for ten separate
   `ConfigEditor`s), about 1,000 DOM nodes per editor; 50 switches between

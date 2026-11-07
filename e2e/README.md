@@ -35,3 +35,23 @@ Screenshots from the run are written to `test-results/screens/`.
   (`samples/generate.py --scale 5`) in every language: load, keystroke latency
   (worst and 95th percentile), Ctrl+End and the wheel, find, fold all and Edit-as,
   each within a budget; the numbers are logged.
+- `tests/memory.spec.mjs`: memory over many cycles, through the npm package:
+  editors mounted and destroyed, a long document scrolled and folded, underlines
+  and suggestion lists redrawn, documents opened and closed in `ConfigDocuments`,
+  and the React component remounting, and a soak of every interactive surface
+  (hover, find, go to line, folding, completions, F8, protected-text tips,
+  the baseline notice, every setting, tab focus, host diagnostics, documents
+  switched, closed and reopened). WebAssembly memory never shrinks, so each
+  test measures its growth after a warm-up. `MEMORY_SOAK_REPORT=1` (or a list
+  of surfaces) with an `alloc-stats` build logs each surface's live bytes per
+  cycle.
+
+## Hunting leaks
+
+Build the npm package with the `alloc-stats` feature (see
+`js/config-editor/src/alloc_stats.rs`) to read the heap from the page:
+`__allocStats()` gives the live bytes and allocations, `__allocSizes()` the live
+allocations per size (diff two snapshots around repeated work), and
+`__allocTrack([sizes])` then `__allocSites()` the stacks that allocated what is
+still live. Most leaks so far were views that come and go subscribing to state
+that stays; see `crates/config-editor-leptos/src/reactive`.

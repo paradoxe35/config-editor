@@ -1,8 +1,11 @@
 use super::diagnostics::{Diagnostic, Severity};
 use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
 use super::folding::FoldRange;
+use super::languages::Language;
 use super::protect::{LineMarks, ProtectState, line_marks};
+use crate::reactive::{Fanout, notify};
 use leptos::prelude::*;
+use std::ops::Range;
 
 /// One line of the document plus its error and diff flags.
 #[derive(Clone, PartialEq)]
@@ -116,6 +119,8 @@ pub(super) struct RowUiState {
     pub(super) marks: Option<Box<LineMarks>>,
     /// A closed fold on this row hides a line with an error.
     pub(super) hidden_error: bool,
+    /// Set by [`LineRows`].
+    pub(super) highlight: RowHighlight,
 }
 
 pub(super) fn row_state(
@@ -137,6 +142,7 @@ pub(super) fn row_state(
     RowUiState {
         marks: folded_marks(row, hidden),
         hidden_error: hidden.iter().any(|row| row.has_error),
+        highlight: RowHighlight::Plain,
         has_error: row.is_some_and(|row| row.has_error),
         change,
         is_active: line == active_line,
@@ -185,115 +191,144 @@ pub(super) fn row_state(
     }
 }
 
-/// Per-row display state for the `For`-keyed gutter and highlight rows.
+/// How a row's text is highlighted. [`LineRows`] sets it; [`row_state`]
+/// leaves it plain.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(super) enum RowHighlight {
+    /// Highlighting is off.
+    #[default]
+    Plain,
+    /// A line inside a multi-line string's body: all string.
+    StringBody,
+    /// Tokens of the language.
+    Language(Language),
+}
+
+/// What highlighting needs to know of the document.
+#[derive(Clone, Copy)]
+pub(super) struct Highlighting<'a> {
+    /// The language, when highlighting is on.
+    pub(super) language: Option<Language>,
+    /// The lines inside multi-line string bodies.
+    pub(super) string_bodies: &'a [Range<usize>],
+}
+
+impl Highlighting<'_> {
+    fn of(&self, index: usize) -> RowHighlight {
+        match self.language {
+            None => RowHighlight::Plain,
+            Some(_)
+                if self
+                    .string_bodies
+                    .iter()
+                    .any(|lines| lines.contains(&index)) =>
+            {
+                RowHighlight::StringBody
+            }
+            Some(language) => RowHighlight::Language(language),
+        }
+    }
+}
+
+/// Everything a row's state is built from.
+#[derive(Clone, Copy)]
+pub(super) struct RowInputs<'a> {
+    pub(super) rows: &'a [RenderedLine],
+    pub(super) line_diff: &'a LineDiff,
+    pub(super) active_line: usize,
+    pub(super) folds: RowFolds<'a>,
+    pub(super) highlighting: Highlighting<'a>,
+}
+
+impl RowInputs<'_> {
+    fn state(&self, index: usize) -> RowUiState {
+        RowUiState {
+            highlight: self.highlighting.of(index),
+            ..row_state(
+                index,
+                self.rows,
+                self.rows.len(),
+                self.line_diff,
+                self.active_line,
+                self.folds,
+            )
+        }
+    }
+}
+
+/// Per-row display state for the keyed gutter and highlight rows.
 ///
-/// Each row owns one signal and [`LineRows::sync`] writes only the signals
-/// whose state changed. Rows must not subscribe to the document-wide memos:
-/// with thousands of rows, every keystroke would re-run every row's closures
-/// and churn subscriptions, which is quadratic.
+/// Each row index has a slot with its state, and [`LineRows::sync`] writes
+/// only the slots whose state changed. Rows must not subscribe to the
+/// document-wide memos: with thousands of rows, every keystroke would re-run
+/// every row's closures and churn subscriptions, which is quadratic.
 ///
-/// Signals are positional (row `i` shows line `i + 1`) and the list only
+/// A rendered row reads its slot through a signal of its own
+/// ([`LineRows::state_for`]), which goes with the row: rows come and go as
+/// the view scrolls, and one subscribing to a signal that outlives it would
+/// stay in that signal's subscribers for good (see `reactive`).
+///
+/// Slots are positional (row `i` shows line `i + 1`) and the list only
 /// grows; unused tail entries are kept for reuse.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(super) struct LineRows {
-    states: RwSignal<Vec<RwSignal<RowUiState>>>,
-    /// Component owner; row signals live here because `For` disposes
-    /// row-local owners on rebuild.
-    owner: Owner,
+    slots: StoredValue<Vec<Fanout<RowUiState>>>,
 }
 
 impl LineRows {
     pub(super) fn new() -> Self {
         Self {
-            states: RwSignal::new(Vec::new()),
-            owner: Owner::current().expect("LineRows::new needs a reactive owner"),
+            slots: StoredValue::new(Vec::new()),
         }
     }
 
-    /// Returns the signal for row `index`, creating any missing rows.
-    pub(super) fn state_for(
-        &self,
-        index: usize,
-        rows: &[RenderedLine],
-        line_diff: &LineDiff,
-        active_line: usize,
-        folds: RowFolds<'_>,
-    ) -> RwSignal<RowUiState> {
-        if let Some(signal) = self
-            .states
-            .with_untracked(|states| states.get(index).copied())
-        {
-            return signal;
-        }
-        // One signal per skipped slot; sharing one would alias rows.
-        let mut seeded = None;
-        self.owner.with(|| {
-            self.states.update(|states| {
-                while states.len() <= index {
-                    let missing = states.len();
-                    let signal = RwSignal::new(row_state(
-                        missing,
-                        rows,
-                        rows.len(),
-                        line_diff,
-                        active_line,
-                        folds,
-                    ));
-                    if missing == index {
-                        seeded = Some(signal);
-                    }
-                    states.push(signal);
-                }
-            });
-        });
-        seeded.expect("sync just pushed a signal for `index`")
+    /// A signal with the state of row `index`, owned by the calling row.
+    pub(super) fn state_for(&self, index: usize, inputs: &RowInputs<'_>) -> RwSignal<RowUiState> {
+        self.slots
+            .try_update_value(|slots| {
+                extend(slots, index + 1, inputs);
+                slots[index].reader()
+            })
+            .expect("rows are built while the editor that keeps their slots is mounted")
     }
 
-    /// Writes the row signals of the `visible` lines whose state changed.
-    /// Rows outside them are not rendered; they are brought up to date when
-    /// they scroll in.
+    /// Writes the slots of the `visible` lines whose state changed. Rows
+    /// outside them are not rendered; they are brought up to date when they
+    /// scroll in.
     ///
-    /// Compare before `set`: `set` always notifies, which would re-render
-    /// every row.
-    pub(super) fn sync(
-        &self,
-        rows: &[RenderedLine],
-        line_diff: &LineDiff,
-        active_line: usize,
-        visible: &[usize],
-        folds: RowFolds<'_>,
-    ) {
+    /// Only changes are written: each write re-renders the row.
+    pub(super) fn sync(&self, inputs: &RowInputs<'_>, visible: &[usize]) {
         let visible: Vec<usize> = visible
             .iter()
             .copied()
-            .filter(|index| *index < rows.len())
+            .filter(|index| *index < inputs.rows.len())
             .collect();
         let needed = visible.iter().max().map_or(0, |last| last + 1);
-        // Extend in a separate step: calling `set` while an `update` guard is
-        // held traps in the reactive runtime.
-        self.owner.with(|| {
-            self.states.update(|states| {
-                while states.len() < needed {
-                    let index = states.len();
-                    states.push(RwSignal::new(row_state(
-                        index,
-                        rows,
-                        rows.len(),
-                        line_diff,
-                        active_line,
-                        folds,
-                    )));
-                }
-            });
-        });
-        let signals: Vec<RwSignal<RowUiState>> = self
-            .states
-            .with_untracked(|states| visible.iter().map(|index| states[*index]).collect());
-        for (signal, index) in signals.iter().zip(visible) {
-            let next = row_state(index, rows, rows.len(), line_diff, active_line, folds);
-            if signal.with_untracked(|current| current != &next) {
-                signal.set(next);
-            }
+        // The rows are written once the slots are let go: a row's
+        // subscribers may run at once.
+        let changed: Vec<(Vec<RwSignal<RowUiState>>, RowUiState)> = self
+            .slots
+            .try_update_value(|slots| {
+                extend(slots, needed, inputs);
+                visible
+                    .iter()
+                    .filter_map(|&index| {
+                        let next = inputs.state(index);
+                        (slots[index].value() != &next)
+                            .then(|| (slots[index].set(next.clone()), next))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (readers, next) in changed {
+            notify(readers, &next);
         }
+    }
+}
+
+/// Adds slots until there are `len`.
+fn extend(slots: &mut Vec<Fanout<RowUiState>>, len: usize, inputs: &RowInputs<'_>) {
+    while slots.len() < len {
+        slots.push(Fanout::new(inputs.state(slots.len())));
     }
 }

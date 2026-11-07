@@ -2,6 +2,8 @@
 
 use leptos::prelude::*;
 
+use crate::reactive::Kept;
+
 use super::super::a11y::{TAB_FOCUS_LABEL, TAB_FOCUS_TITLE, toggle_tab_focus};
 use super::super::changes::ChangeSummary;
 use super::super::diagnostics::{Diagnostic, Severity};
@@ -32,7 +34,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
             </span>
             <span class="config-editor__status-meta">
                 <TabFocusStatus state=state />
-                {move || state.config.settings.diagnostics.get().then(|| view! {
+                <Kept when=state.config.settings.diagnostics view=move || view! {
                     <button
                         type="button"
                         class="config-editor__diagnostic-status"
@@ -53,8 +55,8 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                     >
                         {move || diagnostics.with(|problems| summary(problems))}
                     </button>
-                })}
-                {move || state.config.settings.diff.get().then(|| view! { <ChangeStatus state=state /> })}
+                } />
+                <Kept when=state.config.settings.diff view=move || view! { <ChangeStatus state=state /> } />
                 <span class="config-editor__line-count">
                     {move || {
                         let count = state.doc.text.with(|text| text.split('\n').count());

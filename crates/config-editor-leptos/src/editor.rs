@@ -9,6 +9,8 @@
 
 use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 
+use crate::reactive::Kept;
+
 mod a11y;
 mod bridge;
 mod changes;
@@ -301,23 +303,23 @@ pub fn ConfigEditor(
         >
             {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
             <section class="config-editor__frame" aria-label=move || format!("{} editor", state.label())>
-                {move || shown.toolbar.get().then(|| view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> })}
+                <Kept when=shown.toolbar view=move || view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> } />
                 <BaselineNotice state=state />
                 <div class="config-editor__surface">
-                    <Gutter state=state rows=rows.clone() />
+                    <Gutter state=state rows=rows />
                     <div class="config-editor__input-wrap">
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
-                        {move || shown.search.get().then(|| view! { <SearchHighlights state=state /> })}
+                        <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />
                         <SourceInput state=state />
                         <HoverCardView state=state />
                         <ProtectTipView state=state />
                         <CompletionList state=state />
-                        {move || shown.search.get().then(|| view! { <FindWidget state=state /> })}
-                        {move || shown.go_to_line.get().then(|| view! { <GoToLineWidget state=state /> })}
+                        <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />
+                        <Kept when=shown.go_to_line view=move || view! { <GoToLineWidget state=state /> } />
                     </div>
                 </div>
-                {move || shown.footer.get().then(|| view! { <StatusBar state=state /> })}
+                <Kept when=shown.footer view=move || view! { <StatusBar state=state /> } />
                 <Announcer state=state />
             </section>
             <DiffPeekPopup state=state />

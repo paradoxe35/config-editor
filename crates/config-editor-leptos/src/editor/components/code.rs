@@ -4,9 +4,10 @@ use leptos::prelude::*;
 
 use super::super::diff::DiffKind;
 use super::super::highlight::{self, TokenKind, Tokens};
-use super::super::line_rows::{LineRows, RowFolds};
+use super::super::line_rows::{LineRows, RowHighlight};
 use super::super::state::EditorState;
-use super::RowSpacer;
+use super::{RowSpacer, row_state_for};
+use crate::reactive::KeyedList;
 
 #[component]
 pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -18,36 +19,21 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
         >
             <code>
                 <RowSpacer state=state />
-                <For
+                <KeyedList
                     each=move || state.fold.visible_lines.get()
                     key=|index| *index
-                    children=move |index| view! { <CodeLine state=state rows=rows.clone() index=index /> }
+                    children=move |index| view! { <CodeLine state=state rows=rows index=index /> }
                 />
             </code>
         </pre>
     }
 }
 
+/// One line of the highlighted text. It reads only its row's own state
+/// (see `line_rows`).
 #[component]
 fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
-    // Subscribe only to the row's own signal (see `line_rows`).
-    let active = state.doc.current_line.get_untracked();
-    // Borrow, never clone: cloning the whole document per new row made large
-    // pastes quadratic.
-    let row = state.view.lines.with_untracked(|lines| {
-        state
-            .changes
-            .diff
-            .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
-    });
-    let highlighting = state.config.settings.highlighting;
-    // A line inside a multi-line string's body is all string.
-    let in_string_body = move || {
-        state
-            .view
-            .string_bodies
-            .with(|bodies| bodies.iter().any(|lines| lines.contains(&index)))
-    };
+    let row = row_state_for(state, rows, index);
     view! {
         <span
             class="config-editor__code-line"
@@ -58,17 +44,21 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
             class:config-editor__code-line-modified=move || row.with(|row| row.change == DiffKind::Modified)
         >
             {move || {
-                let (text, marks) = row.with(|row| {
-                    (row.text.clone(), row.marks.as_ref().map_or_else(Vec::new, |marks| marks.classes()))
+                let (text, marks, highlight) = row.with(|row| {
+                    (
+                        row.text.clone(),
+                        row.marks.as_ref().map_or_else(Vec::new, |marks| marks.classes()),
+                        row.highlight,
+                    )
                 });
-                let tokens = if highlighting.get() && in_string_body() {
-                    let mut tokens = Tokens::new();
-                    tokens.push(0, text.len(), TokenKind::String);
-                    tokens.finish()
-                } else if highlighting.get() {
-                    state.sync.edit_language.get().behavior().highlight(&text)
-                } else {
-                    Vec::new()
+                let tokens = match highlight {
+                    RowHighlight::Plain => Vec::new(),
+                    RowHighlight::StringBody => {
+                        let mut tokens = Tokens::new();
+                        tokens.push(0, text.len(), TokenKind::String);
+                        tokens.finish()
+                    }
+                    RowHighlight::Language(language) => language.behavior().highlight(&text),
                 };
                 highlight::render(&text, &tokens, &marks)
             }}

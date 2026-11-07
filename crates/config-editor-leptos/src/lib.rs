@@ -84,6 +84,7 @@
 
 mod documents;
 mod editor;
+mod reactive;
 mod settings;
 
 pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};

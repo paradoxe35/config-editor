@@ -647,7 +647,9 @@ view.isDirty("main");
   history, folds and find widget: an editor mounts the first time its
   document is shown, then stays (hidden) while it is open. With ten
   ~2000-line documents all shown, the view used about 21 MB of wasm memory
-  (1.5 to 1.9 MB per editor) and 4 MB of JS heap.
+  (1.5 to 1.9 MB per editor) and 4 MB of JS heap. Closing a document gives
+  its editor's memory back, as `destroy()` does for a `ConfigEditor` (all
+  but under 1 KB).
 - Keys: `←`/`→`, `Home`/`End` in the tab list (a WAI-ARIA `tablist`),
   `Enter` into the editor, `Delete` to close; `Alt+PageDown`/`Alt+PageUp`
   switch documents from anywhere in the view (browsers keep `Ctrl+Tab` and
