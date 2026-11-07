@@ -717,6 +717,8 @@ update them with the setters when they change.
 - `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
+- `Alt+Enter`: open the documentation of the problem at the caret (a host problem with a docs link)
+- `F6`: while the "file changed on the server" notice is open, move to its choices and back
 - `Alt+Enter` on a problem with a docs link: open its documentation
 - `F6` while the baseline notice is open: to its Keep mine button and back to the text
 
