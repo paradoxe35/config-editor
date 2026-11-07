@@ -62,7 +62,26 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         let Some(anchor) = anchors.get(&alias.name) else {
             continue;
         };
-        let parts = old.pointer(&alias.pointer) != new.pointer(&alias.pointer) || old.pointer(anchor) != new.pointer(anchor);
+        let parts = if alias.merge {
+            // A merge parts only when an inherited key no longer reads the
+            // anchor's value: the map's own keys change freely.
+            let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
+            let indent = previous[line_start..].len() - previous[line_start..].trim_start().len();
+            let own = own_keys(previous, line_start, indent);
+            match (new.pointer(&alias.pointer), new.pointer(anchor), old.pointer(anchor)) {
+                // The anchor's keys before and after: one it gains would be
+                // inherited too.
+                (Some(Value::Object(map)), Some(Value::Object(source)), Some(Value::Object(was))) => was
+                    .keys()
+                    .chain(source.keys())
+                    // An own key gone (deleted, renamed) lets the anchor's
+                    // show through; an inherited one must still match.
+                    .any(|key| if own.contains(key) { !map.contains_key(key) } else { map.get(key) != source.get(key) }),
+                _ => true,
+            }
+        } else {
+            old.pointer(&alias.pointer) != new.pointer(&alias.pointer) || old.pointer(anchor) != new.pointer(anchor)
+        };
         if !parts {
             continue;
         }

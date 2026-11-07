@@ -154,6 +154,13 @@ impl ConfigLanguage for HclBehavior {
         {
             return format!("{header}\n{text}{terminator}");
         }
+        // A template the host wrote (`"${var.port}"`) stays one: its `${`
+        // is not escaped into text.
+        if let Some(text) = value.as_str()
+            && is_template(written)
+        {
+            return serde_json::to_string(text).unwrap_or_else(|_| text.to_string());
+        }
         self.format_value(value)
     }
 

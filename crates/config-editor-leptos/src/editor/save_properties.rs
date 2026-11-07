@@ -155,6 +155,26 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "# h\ntcp = {\n  nodelay = true # a\n  keepalive_secs = 30\n}\nlisten = 1\n",
         ),
+        // Round 13 shapes: anchored flow items in lists and merges beside own
+        // keys, flow maps closing on their last entry, a trailing folded
+        // scalar, nested and repeated HCL blocks with templates, arrays of
+        // tables before their parent table, numbers on a compact JSON line.
+        (
+            Language::YAML,
+            "# c\nbase: &b {min_idle: 1, max_idle: 2}\npool:\n  <<: *b\n  max_idle: 3 # over\nclients:\n  - &p {name: a, target: 80}\n  - *p\ntcp: {nodelay: true,\n      keepalive_secs: 30}\nsecret: >-\n  x\n  y\n",
+        ),
+        (
+            Language::HCL,
+            "listen = \"0.0.0.0:${var.port}\" # templated\nweb {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n    dns {\n      domains = [\"b\"]\n    }\n  }\n}\n",
+        ),
+        (
+            Language::TOML,
+            "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\n",
+        ),
+        (
+            Language::JSON,
+            "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
+        ),
     ]
 }
 
@@ -451,8 +471,17 @@ fn check(
             "changes {changed} lines, a rewrite of the edit {budget}"
         ));
     }
+    // XML shows a one-item list as its item: renamed to a key the schema
+    // does not know, it becomes that item (a TOML `[[…]]` a table), and the
+    // header's comment goes with the header.
+    let renamed_lone_item = op == Op::RenameKey
+        && edit.label() == "XML"
+        && old_host_value
+            .pointer(label.split('"').nth(1).unwrap_or(""))
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.len() == 1);
     // A rename or a scalar becoming a container keeps every comment too.
-    if matches!(
+    if !renamed_lone_item && matches!(
         op,
         Op::AddKey
             | Op::ChangeScalar

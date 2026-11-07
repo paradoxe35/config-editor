@@ -78,8 +78,7 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
         Value::Array(values) => {
             let mut used = vec![false; items.len()];
             for (index, child) in values.iter().enumerate() {
-                let wanted = comparable(language, &language.format_value(child));
-                let reused = (0..items.len()).find(|at| !used[*at] && comparable(language, items[*at].1) == wanted);
+                let reused = (0..items.len()).find(|at| !used[*at] && same_written(language, items[*at].1, child));
                 match reused {
                     Some(at) => {
                         used[at] = true;
@@ -108,10 +107,18 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
 /// `value` where the item `written` was: nested one-line containers are
 /// restyled too, scalars keep their quoting.
 fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> String {
-    if comparable(language, written) == comparable(language, &language.format_value(value)) {
+    if same_written(language, written, value) {
         return written.to_string();
     }
     restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written))
+}
+
+/// Whether `written` already writes `value` (however a number is spelled:
+/// `7.835e3` for 7835).
+fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
+    let formatted = language.format_value(value);
+    comparable(language, written) == comparable(language, &formatted)
+        || value.is_number() && super::canonical_number(written.trim()).is_some_and(|number| Some(number) == super::canonical_number(&formatted))
 }
 
 /// A new item, written like its sibling `model` when both are scalars, and

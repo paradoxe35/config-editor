@@ -799,3 +799,81 @@ fn yaml_merge_keys_merge_the_anchored_map() {
     let value = Language::YAML.parse("base: &b\n  a: 1\n  b: 2\nmine:\n  <<: *b\n  b: 3\n").unwrap();
     assert_eq!(value["mine"], serde_json::json!({"a": 1, "b": 3}));
 }
+
+#[test]
+fn round_13_saves_change_only_the_edit() {
+    use serde_json::{Value, json};
+    let schema = std::sync::Arc::new(
+        super::diagnostics::build_schema(include_str!("../../tests/fixtures/burrow.schema.json")).unwrap(),
+    );
+    let mut failures = Vec::new();
+    let mut check = |name: &str, host: Language, edit: Language, with_schema: bool, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+        let bridge = Bridge::new(host, edit, with_schema.then(|| schema.clone())).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let mut value: Value = edit.parse(&shown).unwrap();
+        change(&mut value);
+        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        match bridge.to_host(&changed, text) {
+            Ok(saved) if saved.text == expected => {}
+            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    };
+    let remove = |value: &mut Value, pointer: &str, key: &str| {
+        let map = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
+        let kept: serde_json::Map<String, Value> = std::mem::take(map).into_iter().filter(|(name, _)| name != key).collect();
+        *map = kept;
+    };
+    // H1: anchored flow mappings.
+    check("H1 flow anchor", Language::YAML, Language::JSON, false, "pool: &p {min_idle: 1}\nlisten: 1 # l\n",
+        &|v| v["pool"]["min_idle"] = json!(2), "pool: &p {min_idle: 2}\nlisten: 1 # l\n");
+    check("H1 list anchor", Language::YAML, Language::JSON, false, "clients:\n  - &p {name: a, target: 80}\n  - *p\nlisten: 1 # t\n",
+        &|v| v["clients"][0]["target"] = json!(81), "clients:\n  - &p {name: a, target: 81}\n  - {name: a, target: 80}\nlisten: 1 # t\n");
+    // H2: a mapping with a merge key keeps it when its own keys change.
+    let yaml = "base: &b {min_idle: 1, max_idle: 2}\npool:\n  <<: *b\n  max_idle: 3 # over\nlisten: 1\n";
+    check("H2 own key", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"]["max_idle"] = json!(4), &yaml.replace("max_idle: 3", "max_idle: 4"));
+    check("H2 added key", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"]["extra"] = json!(5),
+        &yaml.replace("  max_idle: 3 # over\n", "  max_idle: 3 # over\n  extra: 5\n"));
+    // H3: the last entry of a flow map over lines, `}` on its line.
+    check("H3", Language::YAML, Language::JSON, false, "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true,\n      keepalive_secs: 30}\n",
+        &|v| remove(v, "/tcp", "keepalive_secs"), "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true}\n");
+    // H4: a key appended after a last scalar written its own way.
+    for yaml in ["listen: 1\nclients:\n  a:\n    secret: >-\n      x\n      y\n", "listen: 1\nclients:\n  a:\n    max_connections: !!int \"7\"\n"] {
+        check("H4", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"] = json!({"min_idle": 1}), &format!("{yaml}pool:\n  min_idle: 1\n"));
+    }
+    // H5: nested and repeated HCL blocks stay blocks.
+    let hcl = "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n  }\n}\n";
+    check("H5 add to block", Language::HCL, Language::YAML, true, hcl, &|v| {
+        let dns = &mut v["web"]["letsencrypt"]["dns"];
+        let item = if dns.is_array() { &mut dns[0] } else { dns };
+        item["wait_secs"] = json!(3);
+    }, &hcl.replace("      domains = [\"a\"]\n", "      wait_secs = 3\n      domains = [\"a\"]\n"));
+    let hcl = "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n    dns {\n      domains = [\"b\"]\n    }\n  }\n}\n";
+    check("H5 delete block", Language::HCL, Language::YAML, true, hcl, &|v| {
+        v["web"]["letsencrypt"]["dns"].as_array_mut().unwrap().remove(1);
+    }, "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n  }\n}\n");
+    // H6: HCL templates stay templates.
+    check("H6", Language::HCL, Language::YAML, false, "listen = \"0.0.0.0:${var.port}\" # templated\n",
+        &|v| v["listen"] = json!("0.0.0.0:${var.port2}"), "listen = \"0.0.0.0:${var.port2}\" # templated\n");
+    // H7: an array of tables pushed in a Cargo-like TOML host.
+    let toml = "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n";
+    check("H7", Language::TOML, Language::YAML, false, toml, &|v| v["services"]["web"]["clients"].as_array_mut().unwrap().push(json!({"name": "x"})),
+        "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[[services.web.clients]]\nname = \"x\"\n\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n");
+    // MEDIUM: number spellings on a one-line JSON host.
+    check("M json numbers", Language::JSON, Language::YAML, false, "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
+        &|v| v["extra"] = json!(1), "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}, \"extra\": 1}\n");
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Round 13: a YAML value made empty again is written as an empty value
+/// (`key:`), so undoing a fill gives the host back byte for byte.
+#[test]
+fn a_yaml_value_made_empty_again_is_written_empty() {
+    let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
+    let host = "listen: 1\npool:\n  min_idle: 3\n  max_idle: 2\n";
+    let saved = bridge.to_host("{\"listen\": 1, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}", host).unwrap().text;
+    assert_eq!(saved, "listen: 1\npool:\n  min_idle:\n  max_idle: 2\n");
+    let host = "listen: 1\npool:\n  min_idle: ~\n  max_idle: 2\n";
+    let saved = bridge.to_host("{\"listen\": 2, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}", host).unwrap().text;
+    assert_eq!(saved, "listen: 2\npool:\n  min_idle: ~\n  max_idle: 2\n");
+}

@@ -268,3 +268,51 @@ fn host_order(previous: &str, table: &[String], path: &[String]) -> Option<usize
     }
     None
 }
+
+/// A table header's segments, and whether it names an array of tables.
+type Header = (Vec<String>, bool);
+
+/// `rendered` with its tables in the order `previous` writes them: the
+/// writer puts a table before its arrays of tables, a host may not
+/// (`[[a.b]]` then `[a]`). Tables the host lacks follow the one before them.
+pub(super) fn order_tables_like(rendered: &str, previous: &str) -> String {
+    let host: Vec<(Vec<String>, bool)> = previous
+        .lines()
+        .filter_map(|line| parse_header(split_toml_comment(line).0))
+        .collect();
+    if host.is_empty() {
+        return rendered.to_string();
+    }
+    let mut sections: Vec<(Option<Header>, Vec<&str>)> = vec![(None, Vec::new())];
+    for line in rendered.lines() {
+        match parse_header(line) {
+            Some(header) => sections.push((Some(header), vec![line])),
+            None => sections.last_mut().map_or((), |(_, body)| body.push(line)),
+        }
+    }
+    let mut anchor = 0usize;
+    let mut keyed: Vec<((usize, usize), Vec<&str>)> = Vec::new();
+    for (index, (header, body)) in sections.into_iter().enumerate() {
+        if let Some(header) = &header
+            && let Some(at) = host.iter().position(|known| known == header)
+        {
+            anchor = at + 1;
+        }
+        keyed.push(((if header.is_none() { 0 } else { anchor }, index), body));
+    }
+    keyed.sort_by_key(|(key, _)| *key);
+    let mut out: Vec<&str> = Vec::new();
+    for (_, body) in keyed {
+        // A table moved to the end loses the blank line it had before.
+        if !out.is_empty() && body.first().is_some_and(|line| parse_header(line).is_some()) && out.last().is_some_and(|line| !line.is_empty()) {
+            out.push("");
+        }
+        out.extend(body);
+    }
+    while out.last().is_some_and(|line| line.is_empty()) {
+        out.pop();
+    }
+    let mut text = out.join("\n");
+    text.push('\n');
+    text
+}

@@ -149,8 +149,9 @@ pub(super) fn hide(
                         .any(|line| bodies.iter().any(|body| body.contains(line)))
             }) || old.pointer(pointer).and_then(Value::as_str).is_some_and(|text| {
                 // A folded block (`>-`) holds one line of text over lines.
-                let line = text.trim();
-                !line.is_empty() && bodies.iter().any(|body| body.contains(line))
+                let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                !words.is_empty()
+                    && bodies.iter().any(|body| body.split_whitespace().collect::<Vec<_>>().join(" ").contains(&words))
             })
         });
         let spans = language.value_spans(previous, &strings);
@@ -369,6 +370,7 @@ fn braced_one_line(previous: &str, span: Span) -> Option<Range<usize>> {
         .char_indices()
         .nth(span.start_column.saturating_sub(1))
         .map_or(line.len(), |(index, _)| index);
+    let start = start + super::node_properties_len(&line[start..]);
     let text = &line[start..];
     let close = match text.chars().next()? {
         '{' => '}',

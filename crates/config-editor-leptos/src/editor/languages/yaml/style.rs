@@ -6,6 +6,11 @@ use super::*;
 /// `value` written where `written` was. Anything the style cannot hold is
 /// written as [`yaml_value`] does.
 pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &str) -> String {
+    // A value made empty again is written as YAML writes an empty value
+    // (`key:`), unless the host spells its nulls out.
+    if value.is_null() && !matches!(written.trim(), "null" | "Null" | "NULL" | "~") {
+        return String::new();
+    }
     let Value::String(text) = value else {
         return yaml_value(value);
     };

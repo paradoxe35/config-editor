@@ -16,6 +16,12 @@ pub(super) struct HostForms {
     pub(super) attributes: std::collections::HashSet<Vec<String>>,
     /// Blocks written on one line (`clients "a" { secret = "s" }`).
     pub(super) one_line: std::collections::HashSet<Vec<String>>,
+    /// Strings the host writes as templates (`"${var.port}"`): written so
+    /// again, not escaped as text.
+    pub(super) templates: std::collections::HashSet<String>,
+    /// Paths written as unlabelled blocks (`dns { … }`, once or repeated):
+    /// a list there is written as repeated blocks, an empty map as a block.
+    pub(super) blocks: std::collections::HashSet<Vec<String>>,
 }
 
 pub(super) fn host_forms(source: &str) -> HostForms {
@@ -33,6 +39,25 @@ pub(super) fn host_forms(source: &str) -> HostForms {
         labelled: labelled_blocks(source),
         attributes,
         one_line: one_line_headers(source, &scan).into_iter().map(|(path, _)| path).collect(),
+        templates: scan
+            .attributes
+            .iter()
+            .filter_map(|attribute| source.get(attribute.value_span.0..attribute.value_span.1))
+            .filter(|written| is_template(written))
+            .filter_map(|written| hcl::from_str::<serde_json::Value>(&format!("v = {written}")).ok())
+            .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
+            .collect(),
+        blocks: scan
+            .headers
+            .iter()
+            .filter(|header| header.labels.is_empty())
+            .map(|header| {
+                let mut path: Vec<String> =
+                    body_path(&scan, header.parent).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect();
+                path.push(header.block_type.clone());
+                path
+            })
+            .collect(),
     }
 }
 
@@ -126,8 +151,24 @@ pub(super) fn hcl_body(
                     body = body.add_block(block);
                 }
             }
+            // A list the host writes as repeated blocks.
+            Value::Array(items)
+                if forms.blocks.contains(&child_path)
+                    && !items.is_empty()
+                    && items.iter().all(|item| item.as_object().is_some_and(|map| map.keys().all(|key| is_ident(key)))) =>
+            {
+                for item in items {
+                    if let Value::Object(children) = item {
+                        body = body.add_block(hcl::Block {
+                            identifier: identifier.clone(),
+                            labels: Vec::new(),
+                            body: hcl_body(children, forms, &child_path)?,
+                        });
+                    }
+                }
+            }
             Value::Object(children)
-                if !children.is_empty()
+                if (!children.is_empty() || forms.blocks.contains(&child_path))
                     && children.keys().all(|child| is_ident(child))
                     && !forms.attributes.contains(&child_path) =>
             {
@@ -137,7 +178,7 @@ pub(super) fn hcl_body(
                     body: hcl_body(children, forms, &child_path)?,
                 });
             }
-            _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression(value))),
+            _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression_in(value, &forms.templates))),
         }
     }
     Ok(body.build())
@@ -179,6 +220,26 @@ fn labelled_entries(
         });
     }
     Ok(blocks)
+}
+
+/// Whether `written` (a value as the host writes it) is a quoted string
+/// holding a template sequence (an interpolation or directive not escaped).
+pub(super) fn is_template(written: &str) -> bool {
+    let plain = written.replace("$${", "").replace("%%{", "");
+    written.starts_with('"') && (plain.contains("${") || plain.contains("%{"))
+}
+
+/// [`hcl_expression`], writing the strings in `templates` as templates.
+pub(super) fn hcl_expression_in(value: &Value, templates: &std::collections::HashSet<String>) -> hcl::Expression {
+    match value {
+        Value::String(text) if templates.contains(text) => {
+            hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(text.clone())))
+        }
+        Value::Array(items) if !templates.is_empty() => {
+            hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, templates)).collect())
+        }
+        _ => hcl_expression(value),
+    }
 }
 
 /// A document value as an HCL expression; identifier keys stay unquoted.

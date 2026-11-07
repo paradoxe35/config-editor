@@ -183,7 +183,14 @@ impl ConfigLanguage for TomlBehavior {
         let rendered = toml::to_string(value).map_err(|error| error.to_string())?;
         // Tables the host wrote as dotted keys are written that way again.
         Ok(match previous {
-            Some(previous) => fold_dotted_tables(&rendered, &dotted_tables(previous), previous),
+            Some(previous) => {
+                let folded = fold_dotted_tables(&rendered, &dotted_tables(previous), previous);
+                // In the host's table order only where that reads the same:
+                // a sub-table belongs to the array-of-tables entry above it.
+                let ordered = order_tables_like(&folded, previous);
+                let same = toml_parse(&ordered).ok().is_some_and(|value| toml_parse(&folded).ok() == Some(value));
+                if same { ordered } else { folded }
+            }
             None => rendered,
         })
     }

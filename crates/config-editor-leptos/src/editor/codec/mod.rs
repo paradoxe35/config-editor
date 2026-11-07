@@ -203,6 +203,12 @@ pub(super) fn patch_scalars(
                 text = format!("{text} {comment}");
             }
         }
+        // An emptied value takes the space before it along (`key:`).
+        if text.is_empty() {
+            while range.start > 0 && previous[..range.start].ends_with(' ') {
+                range.start -= 1;
+            }
+        }
         edits.push((range, text));
     }
     edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
@@ -252,6 +258,20 @@ pub(super) fn patch_inline(
                 return Some(patched);
             }
         }
+        // A flow collection over lines without comments in it (`{a: 1,\n
+        // b: 2}`): restyled whole, its untouched items as written.
+        if let Some(span) = span
+            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && previous[range.clone()].lines().all(|line| comment_start(language, line) == line.len())
+            && let Some(value) = new.pointer(&pointer)
+            && let Some(text) = flow::restyle(language, value, &previous[range.clone()])
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(range, &text);
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
+        }
         // A flow map or object written one entry per line (`tcp: {` … `}`).
         if let Some(span) = span
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
@@ -284,12 +304,36 @@ pub(super) fn patch_inline(
                 return Some(patched);
             }
         }
+        // A container written inline over lines replaced by a value
+        // (`tcp: {a: 1,\n  b: 2}` → `tcp: 7`): the value in its place.
+        if let Some(span) = span
+            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(value) = new.pointer(&pointer).filter(|value| !value.is_object() && !value.is_array())
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(range, &language.format_value_like(value, ""));
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
+        }
         let parent = pointer.rfind('/')?;
         if parent == 0 && pointer.is_empty() {
             return None;
         }
         pointer.truncate(parent);
         if pointer.is_empty() {
+            // A document that is one container on one line (compact JSON).
+            let trimmed = previous.trim();
+            let start = previous.len() - previous.trim_start().len();
+            if !trimmed.contains('\n')
+                && let Some(text) = flow::restyle(language, new, trimmed)
+            {
+                let mut patched = previous.to_string();
+                patched.replace_range(start..start + trimmed.len(), &text);
+                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                    return Some(patched);
+                }
+            }
             return None;
         }
     }
@@ -350,6 +394,7 @@ fn replace_inline(
             .map_or(line.len(), |(index, _)| index)
     };
     let start = column_byte(span.start_column);
+    let start = start + node_properties_len(&line[start..]);
     let text = &line[start..];
     let close = match text.chars().next()? {
         '{' => '}',
@@ -790,12 +835,13 @@ fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
         }
         None => code,
     };
-    // A YAML anchor (`pool: &p`) names the value; the line is the same.
+    // A YAML anchor or tag (`pool: &p`, `n: !!int "7"`) names or types the
+    // value; the line is the same.
     let anchorless;
-    let code = match [": &", "- &"].iter().find_map(|marker| code.find(marker).map(|at| (at, marker.len()))) {
+    let code = match [": &", "- &", ": !", "- !"].iter().find_map(|marker| code.find(marker).map(|at| (at, marker.len()))) {
         Some((at, length)) => {
             let name_end = code[at + length..]
-                .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-')))
+                .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-' | '!' | ':' | '.' | '/')))
                 .map_or(code.len(), |offset| at + length + offset);
             if name_end > at + length {
                 anchorless = format!("{}{}", &code[..at + length - 1], code[name_end..].trim_start());
@@ -853,6 +899,22 @@ fn canonical_number(text: &str) -> Option<String> {
     Some(if value.fract() == 0.0 && value.abs() < 1e15 { format!("{}", value as i64) } else { value.to_string() })
 }
 
+/// The length of the YAML anchors and tags (`&p `, `!!map `) written
+/// before a value, which a flow collection then follows.
+pub(super) fn node_properties_len(text: &str) -> usize {
+    let mut length = 0;
+    while text[length..].starts_with(['&', '!']) {
+        let token = text[length..].find([' ', '\t']).unwrap_or(text.len() - length);
+        let rest = &text[length + token..];
+        let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        if spaces == 0 {
+            return 0;
+        }
+        length += token + spaces;
+    }
+    length
+}
+
 /// The trailing comment of `line`, or `""`.
 fn trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
     line[comment_start(language, line)..].trim_end()
@@ -896,6 +958,7 @@ pub(super) fn inline_location(
                 .char_indices()
                 .nth(span.start_column.saturating_sub(1))
                 .map_or(0, |(index, _)| index);
+        let start = start + node_properties_len(&source[start..]);
         let text = &source[start..];
         if !text.starts_with(['{', '[']) {
             return None;
