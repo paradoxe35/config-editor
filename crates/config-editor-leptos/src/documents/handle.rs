@@ -64,6 +64,14 @@ impl DocumentsHandle {
         self.documents.try_get_untracked().flatten()
     }
 
+    /// Takes the host's new list now, as the view does once its effects
+    /// run: the active document (and every query) follows it at once.
+    pub(crate) fn take_documents(&self, documents: &[super::Document]) {
+        if let Some(view) = self.view() {
+            untrack(|| view.sync(documents));
+        }
+    }
+
     /// Whether a view is mounted with this handle. Reactive.
     pub fn is_mounted(&self) -> bool {
         self.documents.try_with(Option::is_some).unwrap_or(false)

@@ -516,3 +516,10 @@ fn a_dotted_keys_span_is_its_last_segment() {
     assert_eq!((span.line, span.start_column, span.end_column), (2, 7, 8));
 }
 
+
+#[test]
+fn an_integer_past_the_signed_64_bit_range_is_named_in_the_error() {
+    let value = serde_json::json!({"big": 9_223_372_036_854_775_808_u64});
+    let error = TomlBehavior.serialize(&value, None).unwrap_err();
+    assert_eq!(error, "TOML integers end at 9223372036854775807 (at /big)");
+}

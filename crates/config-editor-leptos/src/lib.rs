@@ -138,4 +138,11 @@ pub mod js_support {
     pub fn check_placeholder(options: &crate::SecretOptions) -> Result<(), String> {
         options.check_placeholder()
     }
+
+    /// Makes the view of `handle` take `documents` (the list just given to
+    /// its `documents` signal) now, not once its effects run, so the
+    /// active id and every query answer for the new list at once.
+    pub fn take_documents(handle: &crate::DocumentsHandle, documents: &[crate::Document]) {
+        handle.take_documents(documents);
+    }
 }

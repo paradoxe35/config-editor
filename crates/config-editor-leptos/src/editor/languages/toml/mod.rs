@@ -200,6 +200,10 @@ impl ConfigLanguage for TomlBehavior {
         if let Some(pointer) = first_pointer(value, &Value::is_null) {
             return Err(format!("TOML has no null value (at {pointer})"));
         }
+        let too_large = |value: &Value| value.as_u64().is_some_and(|number| i64::try_from(number).is_err());
+        if let Some(pointer) = first_pointer(value, &too_large) {
+            return Err(format!("TOML integers end at 9223372036854775807 (at {pointer})"));
+        }
         let rendered = toml::to_string(&super::super::codec::non_finite::Floats(value))
             .map_err(|error| error.to_string())?;
         // Tables the host wrote as dotted keys are written that way again.

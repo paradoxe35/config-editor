@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { editor, setupEditor } from './helpers.mjs';
+
+const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
+const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
+const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
 
 // QA round 16: a syntax error anywhere keeps a read-only block's contents
 // locked (and its repair free), and whitespace inside a locked field stays
@@ -130,5 +137,51 @@ test.describe('yaml: a locked line', () => {
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(300);
     expect(await editor(page).value()).toBe(before);
+  });
+});
+
+test.describe('ConfigDocuments.update', () => {
+  test.skip(!built, 'needs the JS package built (cd js && npm run build)');
+
+  test('moves activeId to the new list before it returns', async ({ page }) => {
+    await page.goto(example('documents.html'));
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const seen = await page.evaluate(() => {
+      const view = window.documentsView;
+      view.update({ documents: [{ id: 'a', fileName: 'a.yaml', value: 'x: 1\n' }] });
+      const first = view.activeId;
+      view.update({ documents: [{ id: 'z', fileName: 'z.yaml', value: 'y: 2\n' }] });
+      return [first, view.activeId];
+    });
+    expect(seen).toEqual(['a', 'z']);
+    await expect(page.locator('[role=tab][aria-selected=true]')).toHaveText(/z\.yaml/);
+  });
+});
+
+test.describe('a string spelled like the reserved infinity form', () => {
+  test.skip(!built, 'needs the JS package built (cd js && npm run build)');
+
+  test('stays a string through parse, serialize and convert', async ({ page }) => {
+    await page.goto(example('vanilla.html'));
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const seen = await page.evaluate(async () => {
+      const tools = await import('../config-editor/pkg/config_editor.js');
+      const forged = '\ufdd0inf';
+      const parsed = tools.parse('json', JSON.stringify({ s: forged, n: 1 }));
+      const yaml = tools.serialize('yaml', { s: forged, rate: Infinity });
+      const converted = tools.convert('json', JSON.stringify({ s: forged }), 'toml');
+      return {
+        parsed: parsed.s === forged,
+        yaml,
+        back: tools.parse('yaml', yaml),
+        converted: converted.losses,
+        toml: tools.parse('toml', converted.text).s === forged,
+      };
+    });
+    expect(seen.parsed).toBe(true);
+    expect(seen.back.s).toBe('\ufdd0inf');
+    expect(seen.back.rate).toBe(Infinity);
+    expect(seen.converted).toEqual([]);
+    expect(seen.toml).toBe(true);
   });
 });

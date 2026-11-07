@@ -622,6 +622,16 @@ impl ConfigDocuments {
         }
         if let Some(listed) = listed {
             self.state.show(listed);
+            // Taken now: `activeId` and every query answer for the new list
+            // right after `update` returns.
+            if let Some(documents) = self.state.documents.try_get_untracked() {
+                self.owner.with(|| {
+                    config_editor_leptos::js_support::take_documents(
+                        &self.state.handle,
+                        &documents,
+                    );
+                });
+            }
         } else if !own.is_empty() {
             let _ = self.state.documents.try_update(|documents| {
                 for document in documents.iter_mut() {
