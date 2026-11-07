@@ -36,44 +36,48 @@ pub(super) fn connect(state: EditorState, host: Host) {
 /// new text, not on the old one the effect would replace later.
 fn follow_value(state: EditorState, value: Signal<String>) {
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
-        let external = normalize_newlines(value.get());
-        // Ignore the host echoing our own edit; reconverting would reformat
-        // the text under the caret.
-        if external == state.host_text.get_value() {
-            return;
-        }
-        state.host_text.set_value(external.clone());
-        let edit = state.shown(&external);
-        state.synced_edit.set_value(edit.clone());
-        state.synced_hosts.update_value(Vec::clear);
-        let current = state.source.get_untracked();
-        if current != edit {
-            // Keep the caret on the same text and the view where it was:
-            // write the new value here and map the caret through the change,
-            // so the later `prop:value` (identical text) leaves the selection
-            // alone. Writing the value scrolls the textarea, so the scroll
-            // position is put back.
-            let kept = state.textarea().map(|element| {
-                let selection = textarea_selection(&element);
-                (selection, element.scroll_top(), element.scroll_left())
-            });
-            state.write_text(edit.clone());
-            if let (Some(element), Some(((start, end), top, left))) = (state.textarea(), kept) {
-                let map = |offset: usize| map_through_change(&current, &edit, offset);
-                let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
-                element.set_scroll_top(top);
-                element.set_scroll_left(left);
-                state.scroll_x.set(f64::from(element.scroll_left()));
-                state.scroll_y.set(f64::from(element.scroll_top()));
-            }
-            state.redetect_indent();
-            // A new text from the host: its ranges and placeholders anew. Not
-            // on an echo of the editor's own edit, where they are followed
-            // (a pasted look-alike there never becomes the host's).
-            state.place_ranges();
-            state.rescan_tokens(true);
-        }
+        take_host_value(state, normalize_newlines(value.get()));
     });
+}
+
+/// Shows `external` (normalized), a new text from the host.
+pub(super) fn take_host_value(state: EditorState, external: String) {
+    // Ignore the host echoing our own edit; reconverting would reformat
+    // the text under the caret.
+    if external == state.host_text.get_value() {
+        return;
+    }
+    state.host_text.set_value(external.clone());
+    let edit = state.shown(&external);
+    state.synced_edit.set_value(edit.clone());
+    state.synced_hosts.update_value(Vec::clear);
+    let current = state.source.get_untracked();
+    if current != edit {
+        // Keep the caret on the same text and the view where it was:
+        // write the new value here and map the caret through the change,
+        // so the later `prop:value` (identical text) leaves the selection
+        // alone. Writing the value scrolls the textarea, so the scroll
+        // position is put back.
+        let kept = state.textarea().map(|element| {
+            let selection = textarea_selection(&element);
+            (selection, element.scroll_top(), element.scroll_left())
+        });
+        state.write_text(edit.clone());
+        if let (Some(element), Some(((start, end), top, left))) = (state.textarea(), kept) {
+            let map = |offset: usize| map_through_change(&current, &edit, offset);
+            let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
+            element.set_scroll_top(top);
+            element.set_scroll_left(left);
+            state.scroll_x.set(f64::from(element.scroll_left()));
+            state.scroll_y.set(f64::from(element.scroll_top()));
+        }
+        state.redetect_indent();
+        // A new text from the host: its ranges and placeholders anew. Not
+        // on an echo of the editor's own edit, where they are followed
+        // (a pasted look-alike there never becomes the host's).
+        state.place_ranges();
+        state.rescan_tokens(true);
+    }
 }
 
 /// Debounced so half-typed text does not flash squiggles; everything else

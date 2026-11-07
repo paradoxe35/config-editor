@@ -632,3 +632,35 @@ fn random_edits_never_change_a_read_only_value() {
         "applied {applied}, saved {saved}"
     );
 }
+
+/// Editing as another language, the host's read-only ranges lock the
+/// fields they cover in the host's text: a new host text puts them on what
+/// it now has there, not on what the text held at mount.
+#[test]
+fn host_ranges_lock_the_fields_of_the_current_host_text_while_editing_as() {
+    use super::super::paths::{TextPosition, TextRange};
+    use super::super::sync::take_host_value;
+    use super::super::test_state::TestEditor;
+    use leptos::prelude::*;
+    let (_owner, state) = TestEditor {
+        edit_as: Some(Language::JSON),
+        read_only_ranges: vec![TextRange::new(
+            TextPosition::new(2, 1),
+            TextPosition::new(2, 5),
+        )],
+        ..TestEditor::new(Language::YAML, "a: 1\nb: 2\n")
+    }
+    .mount();
+    let locked = || {
+        state.protect().protected.with_untracked(|protected| {
+            protected
+                .locks
+                .iter()
+                .filter_map(|lock| lock.pointer.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(locked(), ["/b"]);
+    take_host_value(state, "b: 2\na: 1\n".to_string());
+    assert_eq!(locked(), ["/a"]);
+}

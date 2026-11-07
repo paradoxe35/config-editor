@@ -488,7 +488,6 @@ impl EditorState {
             shown.clone(),
         )));
         let baseline = RwSignal::new(normalize_newlines(baseline));
-        let host_text_store = StoredValue::new(host_text.clone());
         let synced_edit = StoredValue::new(shown.clone());
         let shown_baseline = Memo::new(move |_| {
             let host = baseline.get();

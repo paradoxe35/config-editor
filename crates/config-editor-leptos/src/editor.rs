@@ -41,6 +41,8 @@ mod protect;
 mod search;
 mod state;
 mod sync;
+#[cfg(test)]
+mod test_state;
 mod theme;
 
 pub use changes::{ChangeSummary, unified_diff};
