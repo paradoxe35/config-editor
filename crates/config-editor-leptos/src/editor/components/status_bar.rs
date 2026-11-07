@@ -19,10 +19,12 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
             state.go_to_diagnostic(index);
         }
     };
+    // Follows `read_only`, which switches without remounting.
+    let offers_completions = move || state.features.completions && !state.read_only.get();
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
-                {state.features.completions.then(|| view! {
+                {move || offers_completions().then(|| view! {
                     <span><kbd>Ctrl</kbd><span>"+"</span><kbd>Space</kbd><span>"for suggestions"</span></span>
                 })}
             </span>

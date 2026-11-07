@@ -21,18 +21,33 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
         >
             {move || {
                 let text = state.source.get();
+                let projection = state.folds().projection.get();
                 state
                     .diagnostics
                     .get()
                     .into_iter()
-                    .filter_map(|diagnostic| marker(state, &text, diagnostic))
+                    .filter_map(|diagnostic| {
+                        // A folded line's problem shows on the fold's line
+                        // in the gutter, not as an underline.
+                        let line = diagnostic.line?.saturating_sub(1);
+                        if projection.is_hidden(line) {
+                            return None;
+                        }
+                        marker(state, &text, diagnostic, projection.row_of_line(line))
+                    })
                     .collect_view()
             }}
         </div>
     }
 }
 
-fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl IntoView + use<>> {
+/// The underline for `diagnostic`, drawn on textarea row `row`.
+fn marker(
+    state: EditorState,
+    text: &str,
+    diagnostic: Diagnostic,
+    row: usize,
+) -> Option<impl IntoView + use<>> {
     let line = diagnostic.line?;
     let column = diagnostic.column?;
     let line_text = text.lines().nth(line.saturating_sub(1)).unwrap_or("");
@@ -84,8 +99,8 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
             class:config-editor__diagnostic-marker-near-top=move || {
                 let line_height = state
                     .textarea()
-                    .map_or(22.0, |editor| read_editor_metrics(&editor).line_height);
-                (line as f64 - 1.0) * line_height - state.scroll_y.get() < 3.0 * line_height
+                    .map_or(22.0, |editor| read_editor_metrics(editor.element()).line_height);
+                row as f64 * line_height - state.scroll_y.get() < 3.0 * line_height
             }
             tabindex="-1"
             aria-label=aria_label
@@ -93,7 +108,7 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
             data-detail=detail
             style=format!(
                 "left: {left}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
-                line.saturating_sub(1),
+                row,
                 visual_width.max(1.0),
             )
             // Shifted left, and no wider than the visible text area, so the
@@ -159,7 +174,7 @@ fn tooltip_placement(state: EditorState, column: f64) -> (String, String) {
     let Some(editor) = state.textarea() else {
         return ("0px".to_string(), format!("{TOOLTIP_MAX_WIDTH}px"));
     };
-    let metrics = read_editor_metrics(&editor);
+    let metrics = read_editor_metrics(editor.element());
     let visible = f64::from(editor.client_width());
     let width = TOOLTIP_MAX_WIDTH.min(visible - 16.0).max(120.0);
     let left = metrics.padding_left + column * metrics.char_width - scroll;

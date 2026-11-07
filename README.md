@@ -8,6 +8,20 @@ React.
 
 ![Schema completion in YAML](docs/screenshots/completion.png)
 
+<!-- toc -->
+## Contents
+
+- [Features](#features)
+- [Packages](#packages)
+  - [Leptos](#leptos)
+  - [JavaScript](#javascript)
+  - [React](#react)
+- [Repository layout](#repository-layout)
+- [Development](#development)
+- [Releasing](#releasing)
+- [License](#license)
+<!-- /toc -->
+
 ## Features
 
 - **Schema completion:** keys and values from your JSON Schema, inserted with
@@ -150,6 +164,9 @@ cd js && npm install && npm run build
 
 # End-to-end tests (after `trunk build` and the npm build)
 cd e2e && npm install && npx playwright install chromium && npx playwright test
+
+# The READMEs' contents lists, after adding or renaming a section (CI checks them)
+node scripts/readme-toc.mjs
 ```
 
 ## Releasing

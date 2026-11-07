@@ -5,6 +5,18 @@ a schema-aware YAML, JSON, TOML, HCL and XML editor running as WebAssembly,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes.
 
+<!-- toc -->
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [`<ConfigEditor>` props](#configeditor-props)
+- [Ref](#ref)
+  - [Saving](#saving)
+- [Other exports](#other-exports)
+- [License](#license)
+<!-- /toc -->
+
 ## Install
 
 ```sh
@@ -64,7 +76,10 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `secrets` | `SecretOptions` | defaults | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic and are kept unless replaced; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#secrets). Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
-| `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
+| `baseline` | `string` | initial value | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine). |
+| `onSave` | `(value: string, language: string) => void` | — | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `ref.save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. |
+| `onDirtyChange` | `(dirty: boolean) => void` | — | Called with whether the document differs from `baseline`: once on mount, then each time that changes. |
+| `onBaselineConflict` | `(event: BaselineConflict) => void` | — | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`). |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
 | `colors` | `Record<string, string>` | — | Colors overriding the theme's by token (`bg`, `key`, …); see `colorTokens()`. |
 | `readOnly` | `boolean` | `false` | View mode. |
@@ -72,13 +87,14 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `showToolbar` / `showFooter` | `boolean` | `false` | Built-in toolbar and status bar. |
 | `search` | `boolean` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`); `false` leaves those keys to the browser. |
 | `goToLine` | `boolean` | `true` | Go to line (`Ctrl+G`); `false` leaves the key to the browser. |
+| `folding` | `boolean` | `true` | Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only: `onChange` and copying see the whole text. |
 | `editorClassName` | `string` | — | Class on the editor root. |
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
 `value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics`, `readOnlyPaths`, `readOnlyRanges` and `onPathChange` update the
 live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
-`search`, `goToLine` and `editorClassName` re-create it; the document and its diff baseline carry
+`search`, `goToLine`, `folding` and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
 
 A parent that applies `onChange` values late cannot roll the document back to
@@ -118,7 +134,41 @@ ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColum
 ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
 ref.current?.currentPath;                  // the caret's path
 ref.current?.focus();
+ref.current?.save();     // as Ctrl+S: calls onSave; false when nothing was sent
+ref.current?.isDirty;    // the document differs from baseline
+
+// Folding (view only).
+ref.current?.foldAll();
+ref.current?.unfoldAll();
+ref.current?.fold("/clients");             // fold the block its key opens; false if none
+ref.current?.unfold("/web/listen");        // open the folds around a field
 ```
+
+### Saving
+
+```tsx
+const [saved, setSaved] = useState(loaded);
+const [text, setText] = useState(loaded);
+const [dirty, setDirty] = useState(false);
+<ConfigEditor
+  value={text}
+  onChange={setText}
+  baseline={saved}
+  onSave={async (next) => {
+    await putConfig(next);
+    setSaved(next); // nothing unsaved any more
+  }}
+  onDirtyChange={setDirty}
+/>;
+```
+
+When `baseline` changes while the user has unsaved edits (another client
+saved), the editor shows "The file changed on the server." with **Reload**
+(the document becomes the new baseline, reported through `onChange`) and
+**Keep mine** (or `Escape`: the document stays, diffed against the new
+baseline). A baseline equal to the document, or to a text the editor sent
+(a save coming back while the user typed on, or a late parent), never asks.
+A new `value` from the parent keeps the caret and the scroll position.
 
 Ranges and indices refer to the text on screen (the `editAs` language while
 editing as another one). `reveal` selects the key and its value when they

@@ -21,6 +21,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+mod folding;
 
 use tokens::*;
 use scan::*;
@@ -103,6 +104,10 @@ impl ConfigLanguage for XmlBehavior {
     fn kept_value_end(&self, source: &str, end: usize) -> usize {
         let rest = &source[end..];
         if rest.trim_start().starts_with("</") { end + rest.len() - rest.trim_start().len() } else { end }
+    }
+
+    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::xml_fold_ranges(source)
     }
 
     /// Lines inside element text written over several lines.

@@ -42,7 +42,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
         visual_column(&text[line_start..byte])
     });
-    let metrics = read_editor_metrics(&element);
+    let metrics = read_editor_metrics(element.element());
     let caret_x = column * metrics.char_width;
     if caret_x < f64::from(element.scroll_left()) {
         element.set_scroll_left((caret_x - 2.0 * metrics.char_width).max(0.0) as i32);
@@ -136,11 +136,10 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     if let Some(restored) = restored {
         let (start, end) = restored.selection;
-        state.source.set(restored.value.clone());
+        state.write_text(restored.value.clone());
         state.cursor.set(end);
         state.current_line.set(line_at_cursor(&restored.value, end));
         if let Some(element) = state.textarea() {
-            element.set_value(&restored.value);
             set_caret_visible(&element, &restored.value, end, state.scroll_y);
             let _ = element.set_selection_range(start as u32, end as u32);
         }

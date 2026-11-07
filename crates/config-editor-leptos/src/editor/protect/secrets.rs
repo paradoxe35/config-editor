@@ -109,6 +109,17 @@ impl EditorState {
         }
     }
 
+    /// Takes the placeholders of `host` (a text the host gave, such as a
+    /// reloaded baseline) as real, and finds them in the text on screen.
+    pub(crate) fn adopt_host_tokens(&self, host: &str) {
+        let secrets = self.protect().secrets;
+        let known = secrets.matcher.with_value(|matcher| matcher.known(host));
+        if secrets.known.with_untracked(|current| *current != known) {
+            secrets.known.set(known);
+        }
+        self.rescan_tokens(false);
+    }
+
     /// Moves a selection end left inside a placeholder (by a click, Home,
     /// a vertical move) out of it: a caret to the nearest edge, a selection
     /// grown to take it whole.

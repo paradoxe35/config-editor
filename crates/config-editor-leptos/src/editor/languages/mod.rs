@@ -51,6 +51,15 @@ mod editing_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod fold_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nested_tests;
 #[cfg(all(
     test,
@@ -265,6 +274,24 @@ impl Language {
     /// ```
     pub fn range_of(self, source: &str, path: impl Into<FieldPath>) -> Option<TextRange> {
         paths::field_range(self.0, source, &path.into().to_pointer())
+    }
+
+    /// The line ranges of `source` that fold (see
+    /// [`ConfigLanguage::fold_ranges`]): 0-based, the first line staying
+    /// visible.
+    ///
+    /// ```
+    /// # #[cfg(feature = "json")] {
+    /// use config_editor_leptos::{Language, language::FoldRange};
+    /// let text = "{\n  \"web\": {\n    \"http\": 80\n  }\n}";
+    /// assert_eq!(
+    ///     Language::JSON.fold_ranges(text),
+    ///     [FoldRange::new(0, 3), FoldRange::new(1, 2)]
+    /// );
+    /// # }
+    /// ```
+    pub fn fold_ranges(self, source: &str) -> Vec<super::language::FoldRange> {
+        self.0.fold_ranges(source)
     }
 
     /// The path of what `position` is on in `source`: the key under or just

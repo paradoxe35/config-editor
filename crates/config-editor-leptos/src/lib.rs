@@ -81,9 +81,10 @@ mod editor;
 pub use editor::language;
 
 pub use editor::{
-    ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError,
-    Diagnostic, DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath,
-    HostDiagnostic, Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource,
-    SecretOptions, Severity, TextPosition, TextRange, ThemeColor, ThemeColors, UnknownLanguage,
-    UnknownTheme, check_syntax, flush_pending_edits, flush_pending_input, unified_diff,
+    BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,
+    Conversion, ConvertError, Diagnostic, DiagnosticOrigin, DiagnosticTarget, EditorHandle,
+    EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
+    SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
+    ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, flush_pending_edits,
+    flush_pending_input, unified_diff,
 };

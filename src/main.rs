@@ -5,7 +5,8 @@
 //! - `?language=xml` — the language the host stores (YAML by default);
 //! - `?edit=hcl` — edit it as another language (`edit_as`);
 //! - `?sample=large` — the ~2000-line config instead of the short one;
-//! - `?readonly` — view mode;
+//! - `?readonly` — start in view mode (the Read-only box under the editor
+//!   switches it live, beside "Server change" and "Host edit");
 //! - `?schema=help` — the schema-help fixture (deprecated keys, docs links,
 //!   documented values) instead of the burrow schema, with its warnings
 //!   listed under the editor;
@@ -13,7 +14,9 @@
 //!   secrets with their placeholders) and its document;
 //!   `&lock=/name,/listen` locks more fields as the host.
 
-use config_editor_leptos::{ConfigEditor, ConfigEditorToolbar, EditorTheme, FieldPath, Language};
+use config_editor_leptos::{
+    ConfigEditor, ConfigEditorToolbar, EditorTheme, FieldPath, Language, SaveRequest,
+};
 use leptos::prelude::*;
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
@@ -73,6 +76,19 @@ fn samples(language: Language) -> (&'static str, &'static str) {
             include_str!("../crates/config-editor-leptos/tests/fixtures/samples/burrow.large.yaml"),
         ),
     }
+}
+
+/// The server's version after another client changed it: the first number
+/// goes up by one (`listen: 7835` becomes `7836`), else a line is added.
+fn changed_on_server(text: &str) -> String {
+    let Some(start) = text.find(|c: char| c.is_ascii_digit()) else {
+        return format!("{text}\n");
+    };
+    let end = text[start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map_or(text.len(), |length| start + length);
+    let number: u64 = text[start..end].parse().unwrap_or(0);
+    format!("{}{}{}", &text[..start], number + 1, &text[end..])
 }
 
 /// The page's query flags (`language=json`, `sample=large`, `readonly`).
@@ -152,9 +168,12 @@ fn main() {
             if large_sample { ".large" } else { "" },
             key(language)
         );
-        let read_only = flags
-            .iter()
-            .any(|pair| pair == "readonly" || pair == "readonly=1");
+        let read_only = RwSignal::new(
+            flags
+                .iter()
+                .any(|pair| pair == "readonly" || pair == "readonly=1"),
+        );
+        let folding = query_value(&flags, "folding").as_deref() != Some("0");
         let (schema, sample) = match query_value(&flags, "schema").as_deref() {
             Some("help") => (HELP_SCHEMA, ""),
             Some("protected") => (PROTECTED_SCHEMA, protected_sample(language)),
@@ -175,6 +194,20 @@ fn main() {
         let baseline = RwSignal::new(sample.to_string());
         let saved = RwSignal::new(sample.to_string());
         let theme = RwSignal::new(EditorTheme::VsCodeDark);
+        // Host-controlled editing: what was saved, whether there are unsaved
+        // edits, and the baseline conflicts seen (for the e2e tests).
+        let saves = RwSignal::new(0usize);
+        let dirty = RwSignal::new(false);
+        let conflicts = RwSignal::new(Vec::<String>::new());
+        let server_change = move |_| {
+            // Another client saved: the server's version moves on.
+            baseline.update(|text| *text = changed_on_server(text));
+        };
+        let save = move |request: SaveRequest| {
+            saved.set(request.text.clone());
+            baseline.set(request.text);
+            saves.update(|count| *count += 1);
+        };
         // What the editor shows, which lags `edit_as` while a switch waits.
         let editing = RwSignal::new(edit_as.get_untracked().unwrap_or(language));
         let shown = move || editing.get();
@@ -283,6 +316,9 @@ fn main() {
                     baseline=baseline
                     value=saved
                     on_change=move |text| saved.set(text)
+                    on_save=save
+                    on_dirty_change=move |now| dirty.set(now)
+                    on_baseline_conflict=move |event| conflicts.update(|all| all.push(format!("{event:?}")))
                     on_edit_as_change=move |edit| editing.set(edit)
                     schema=schema
                     on_schema_warning=move |warning| schema_warnings.update(|all| all.push(warning))
@@ -292,12 +328,39 @@ fn main() {
                     read_only_paths=locked
                     show_toolbar=false
                     show_footer=true
+                    enable_folding=folding
                 />
                 <ul class="demo__schema-warnings">
                     {move || schema_warnings.get().into_iter().map(|warning| view! { <li>{warning}</li> }).collect_view()}
                 </ul>
                 <details class="demo__output">
-                    <summary>{format!("Saved value ({language}) — what on_change sends the host")}</summary>
+                    <summary class="demo__summary">
+                        <span>{format!("Saved value ({language}) — what on_change sends the host")}</span>
+                        <span class="demo__host">
+                            <label class="demo__picker">
+                                <input
+                                    type="checkbox"
+                                    class="demo__read-only"
+                                    prop:checked=move || read_only.get()
+                                    on:change=move |event| read_only.set(event_target_checked(&event))
+                                />
+                                "Read-only"
+                            </label>
+                            <button class="demo__button demo__server-change" type="button" on:click=server_change>
+                                "Server change"
+                            </button>
+                            <button
+                                class="demo__button demo__host-edit"
+                                type="button"
+                                on:click=move |_| saved.update(|text| *text = changed_on_server(text))
+                            >
+                                "Host edit"
+                            </button>
+                            <span class="demo__host-status" title="Unsaved changes" data-dirty=move || dirty.get().to_string() data-saves=move || saves.get().to_string() data-conflicts=move || conflicts.get().join(",")>
+                                {move || if dirty.get() { "●" } else { "" }}
+                            </span>
+                        </span>
+                    </summary>
                     <pre class="demo__output-text">{move || saved.get()}</pre>
                 </details>
             </div>

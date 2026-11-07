@@ -239,6 +239,12 @@ pub enum ThemeColor {
     SecretChip,
     /// Secret placeholder chip outlines and the gutter key.
     SecretChipBorder,
+    /// Fold chevrons in the gutter.
+    FoldToggle,
+    /// The `…` chip after a folded line.
+    FoldChip,
+    /// The chip's text.
+    FoldChipText,
 }
 
 impl ThemeColor {
@@ -311,6 +317,9 @@ impl ThemeColor {
         Self::Locked,
         Self::SecretChip,
         Self::SecretChipBorder,
+        Self::FoldToggle,
+        Self::FoldChip,
+        Self::FoldChipText,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -383,6 +392,9 @@ impl ThemeColor {
             Self::Locked => "--config-editor-locked",
             Self::SecretChip => "--config-editor-secret-chip",
             Self::SecretChipBorder => "--config-editor-secret-chip-border",
+            Self::FoldToggle => "--config-editor-fold-toggle",
+            Self::FoldChip => "--config-editor-fold-chip",
+            Self::FoldChipText => "--config-editor-fold-chip-text",
         }
     }
 }

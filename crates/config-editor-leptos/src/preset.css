@@ -66,6 +66,9 @@
   --config-editor-locked: var(--config-editor-muted);
   --config-editor-secret-chip: rgb(204 167 0 / 16%);
   --config-editor-secret-chip-border: rgb(204 167 0 / 55%);
+  --config-editor-fold-toggle: var(--config-editor-line-number);
+  --config-editor-fold-chip: color-mix(in srgb, var(--config-editor-muted) 24%, transparent);
+  --config-editor-fold-chip-text: var(--config-editor-muted);
   --config-editor-font-size: 12px;
   --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
   --config-editor-padding-top: 15px;
@@ -160,6 +163,44 @@
 .config-editor__action-button:disabled {
   color: var(--config-editor-control-disabled-text);
   cursor: default;
+}
+
+/* The notice when the host's baseline changed under unsaved edits. */
+.config-editor__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  border-left: 3px solid var(--config-editor-warning);
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__notice[hidden] { display: none; }
+
+.config-editor__notice-detail { color: var(--config-editor-raised-muted); }
+
+.config-editor__notice-actions { display: flex; gap: 6px; }
+
+.config-editor__notice-button {
+  padding: 3px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.config-editor__notice-button:hover { background: var(--config-editor-raised-hover); }
+
+.config-editor__notice-button:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
 }
 
 .config-editor__surface {
@@ -489,6 +530,104 @@
   min-width: 100%;
   height: var(--config-editor-line-height);
   display: block;
+}
+
+.config-editor__gutter-content {
+  position: relative;
+}
+
+/* Folding: chevrons right of the diff markers, shown while the gutter is
+   hovered (always on touch screens and on folded lines). */
+.config-editor__gutter.config-editor__gutter-folding {
+  --config-editor-fold-gutter: 14px;
+  width: calc(52px + var(--config-editor-fold-gutter));
+  padding-right: calc(13px + var(--config-editor-fold-gutter));
+}
+
+.config-editor__fold-toggle {
+  position: absolute;
+  z-index: 1;
+  right: calc(-11px - var(--config-editor-fold-gutter));
+  width: var(--config-editor-fold-gutter);
+  height: var(--config-editor-line-height);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--config-editor-fold-toggle);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.config-editor__fold-toggle::before {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-75%) rotate(45deg);
+}
+
+.config-editor__fold-toggle-closed::before {
+  transform: translate(-25%, -50%) rotate(-45deg);
+}
+
+.config-editor__gutter:hover .config-editor__fold-toggle,
+.config-editor__fold-toggle-closed,
+.config-editor__fold-toggle:focus-visible {
+  opacity: 1;
+}
+
+.config-editor__fold-toggle:hover {
+  color: var(--config-editor-line-active);
+}
+
+@media (hover: none) {
+  .config-editor__fold-toggle { opacity: 1; }
+}
+
+/* A closed fold hiding changes: a dotted bar where the diff markers go. */
+.config-editor__fold-changes {
+  position: absolute;
+  right: -9px;
+  width: 3px;
+  height: calc(var(--config-editor-line-height) - 6px);
+  margin-top: 3px;
+  background: repeating-linear-gradient(var(--config-editor-modified) 0 2px, transparent 2px 4px);
+}
+
+/* The chips after folded lines, over the text; only the chips take the
+   pointer. */
+.config-editor__fold-chips {
+  position: absolute;
+  z-index: 3;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  pointer-events: none;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+}
+
+.config-editor__fold-chip {
+  position: absolute;
+  height: var(--config-editor-line-height);
+  padding: 0 0.6ch;
+  border: 0;
+  border-radius: 3px;
+  background: var(--config-editor-fold-chip);
+  color: var(--config-editor-fold-chip-text);
+  font: inherit;
+  line-height: var(--config-editor-line-height);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.config-editor__fold-chip:hover {
+  color: var(--config-editor-text);
 }
 
 .config-editor__code-line-active { background: var(--config-editor-active-line); }
@@ -1269,6 +1408,10 @@
 @media (max-width: 600px) {
   .config-editor__toolbar { padding: 0 10px; }
   .config-editor__gutter { width: 40px; padding-right: 10px; }
+  .config-editor__gutter.config-editor__gutter-folding {
+    width: calc(40px + var(--config-editor-fold-gutter));
+    padding-right: calc(10px + var(--config-editor-fold-gutter));
+  }
   .config-editor__schema-state { font-size: 0; }
   .config-editor__status-meta { gap: 5px; }
 }

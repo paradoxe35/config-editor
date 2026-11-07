@@ -61,6 +61,10 @@ pub use super::completion::{
     array_branch, fill_value, object_branch, placeholder, schema_const, schema_default,
     schema_example,
 };
+pub use super::folding::{
+    FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
+    indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
+};
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{
     InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, in_front_of_inline_entry,
@@ -1131,6 +1135,21 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         let _ = source;
         Vec::new()
+    }
+
+    /// The line ranges that fold (see [`FoldRange`]), sorted by start with
+    /// one range per start line (see [`merge_fold_ranges`]): the gutter
+    /// shows a chevron on each start line, and `Ctrl+Shift+[` folds the
+    /// innermost one around the caret. A range that opens and closes on one
+    /// line folds nothing and is left out.
+    ///
+    /// The default folds by indentation, by the brackets and block comments
+    /// of [`config`](Self::config), runs of line comments, and the
+    /// [multi-line strings](Self::string_body_lines) (see
+    /// [`default_fold_ranges`]). Languages override it with their own
+    /// structure, combining the same building blocks.
+    fn fold_ranges(&self, source: &str) -> Vec<FoldRange> {
+        default_fold_ranges(source, &self.config(), &self.string_body_lines(source))
     }
 
     /// The byte offset where the trailing comment of `line` starts, outside

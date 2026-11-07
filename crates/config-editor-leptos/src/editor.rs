@@ -18,11 +18,13 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod folding;
 mod go_to_line;
 mod handle;
 mod highlight;
 mod history;
 mod host_diagnostics;
+mod host_editing;
 mod inline;
 mod input;
 pub use input::flush_pending_input;
@@ -49,6 +51,7 @@ pub use diagnostics::{
 };
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic};
+pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
@@ -56,8 +59,9 @@ pub use protect::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
-    CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget, GoToLineWidget,
-    Gutter, HoverCardView, ProtectTipView, SearchHighlights, SourceInput, StatusBar, Toolbar,
+    BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget,
+    GoToLineWidget, Gutter, HoverCardView, ProtectTipView, SearchHighlights, SourceInput,
+    StatusBar, Toolbar,
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
@@ -93,8 +97,15 @@ pub fn ConfigEditor(
     /// `on_change` to keep the host as the source of truth.
     #[prop(optional, into)]
     value: Option<Signal<String>>,
-    /// Text to diff against. Set it to the current text (for example after
-    /// saving) to clear the diff.
+    /// Text to diff against, in `language`: the version the host last saved
+    /// or loaded. Set it to the saved text after saving to clear the diff.
+    /// Unset, it is the document at mount (`value`, else `initial_value`).
+    ///
+    /// A new baseline while the user has unsaved edits (the text differs
+    /// from the current baseline) opens a notice instead of mixing them:
+    /// "Reload" makes it the text, "Keep mine" keeps the text and diffs it
+    /// against the new baseline. A baseline equal to the text, or to a text
+    /// the editor sent (`on_change`, `on_save`), never asks.
     #[prop(optional, into)]
     baseline: Option<Signal<String>>,
     /// JSON Schema for live diagnostics, completions, and hover docs: a JSON
@@ -175,6 +186,11 @@ pub fn ConfigEditor(
     /// Go to line (`Ctrl+G`). When `false`, the key is left to the browser.
     #[prop(default = true)]
     enable_go_to_line: bool,
+    /// Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and
+    /// `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for
+    /// everything (`Cmd` on macOS). View only: the text stays whole.
+    #[prop(default = true)]
+    enable_folding: bool,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
@@ -210,6 +226,26 @@ pub fn ConfigEditor(
     /// are secrets.
     #[prop(optional, into)]
     secrets: Option<SecretOptions>,
+    /// Called when the user saves (`Ctrl+S` / `Cmd+S`, the browser's save
+    /// dialog prevented) or the host calls [`EditorHandle::save`], with the
+    /// document in `language`. Nothing saves by itself. Without it, `Ctrl+S`
+    /// is left to the browser. See [`SaveRequest`] for an edit that cannot
+    /// convert back yet.
+    #[prop(optional, into)]
+    on_save: Option<Callback<SaveRequest>>,
+    /// Whether `Ctrl+S` / `Cmd+S` saves (with `on_save` set). When `false`,
+    /// the key is left to the browser and only [`EditorHandle::save`]
+    /// saves. May be a signal.
+    #[prop(default = Signal::from(true), into)]
+    enable_save_shortcut: Signal<bool>,
+    /// Called with whether the text differs from `baseline`: once on mount,
+    /// then each time that changes (not on every keystroke).
+    #[prop(optional, into)]
+    on_dirty_change: Option<Callback<bool>>,
+    /// Called when a new `baseline` arrives under unsaved edits and the
+    /// notice opens, and again when it closes; see [`BaselineConflict`].
+    #[prop(optional, into)]
+    on_baseline_conflict: Option<Callback<BaselineConflict>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -225,8 +261,11 @@ pub fn ConfigEditor(
         .as_ref()
         .map(Signal::get_untracked)
         .map_or_else(|| initial_value.clone(), normalize_newlines);
+    let baseline = baseline.unwrap_or_else(|| Signal::stored(host_text.clone()));
     let features = Features {
-        completions: enable_completions && !read_only.get_untracked(),
+        // `read_only` switches live; the parts that offer completions read
+        // it as well.
+        completions: enable_completions,
         auto_trigger: auto_trigger_completions,
         hover_docs: enable_hover_docs && has_schema,
         highlighting: enable_highlighting,
@@ -235,6 +274,7 @@ pub fn ConfigEditor(
         diff: show_diff,
         search: enable_search,
         go_to_line: enable_go_to_line,
+        folding: enable_folding,
     };
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
@@ -242,7 +282,7 @@ pub fn ConfigEditor(
         schema,
         schema_error,
         host_text,
-        baseline: baseline.unwrap_or_else(|| Signal::derive(move || initial_value.clone())),
+        baseline: baseline.get_untracked(),
         read_only,
         features,
         host_on_change: on_change,
@@ -252,6 +292,9 @@ pub fn ConfigEditor(
             ranges: read_only_ranges.unwrap_or_default(),
             secrets: secrets.unwrap_or_default(),
         },
+        on_save,
+        save_shortcut: enable_save_shortcut,
+        on_baseline_conflict,
     });
     sync::connect(
         state,
@@ -260,6 +303,13 @@ pub fn ConfigEditor(
             edit_as,
             on_edit_as_change,
             initial_pending,
+        },
+    );
+    host_editing::connect(
+        state,
+        host_editing::Host {
+            baseline,
+            on_dirty_change,
         },
     );
     if let Some(callback) = on_change_summary {
@@ -275,6 +325,9 @@ pub fn ConfigEditor(
     }
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
+    if enable_folding {
+        components::mount_fold_layers(state);
+    }
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());
@@ -295,6 +348,7 @@ pub fn ConfigEditor(
             {styled.then(|| view! { <style>{PRESET_CSS}</style> })}
             <section class="config-editor__frame" aria-label=move || format!("{} editor", state.label())>
                 {show_toolbar.then(|| view! { <Toolbar state=state file_name=file_name has_schema=has_schema /> })}
+                <BaselineNotice state=state />
                 <div class="config-editor__surface">
                     <Gutter state=state rows=rows.clone() />
                     <div class="config-editor__input-wrap">

@@ -118,7 +118,12 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
         state.scroll_y.get();
         match (state.editor_ref.get(), state.root_ref.get()) {
             (Some(editor), Some(root)) => {
-                peek_popup_style(&editor, &root, line, old_count, new_count)
+                // The row the line is on, folded lines skipped.
+                let row = state
+                    .folds()
+                    .projection
+                    .with(|projection| projection.row_of_line(line.saturating_sub(1)));
+                peek_popup_style(&editor, &root, row + 1, old_count, new_count)
             }
             _ => "visibility:hidden".to_string(),
         }
@@ -140,14 +145,14 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
             <header class="config-editor__diff-peek-header">
                 <strong>{format!("{title} · line {line}")}</strong>
                 <span class="config-editor__diff-peek-actions">
-                    {(!state.read_only.get_untracked()).then(|| view! {
+                    {move || (!state.read_only.get()).then(|| view! {
                         <button
                             type="button"
                             class="config-editor__diff-peek-revert"
                             aria-label=label.clone()
-                            title=label
+                            title=label.clone()
                             node_ref=revert_ref
-                            on:click=revert
+                            on:click=revert.clone()
                         >"Revert"</button>
                     })}
                     <button

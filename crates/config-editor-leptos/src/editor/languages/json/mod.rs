@@ -12,6 +12,7 @@ mod scan;
 mod parse;
 mod suggestions;
 mod editing;
+mod folding;
 
 use tokens::*;
 use scan::*;
@@ -42,6 +43,10 @@ impl ConfigLanguage for JsonBehavior {
             icon: "J",
             extensions: &["json"],
         }
+    }
+
+    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::json_fold_ranges(source, &self.config())
     }
 
     fn config(&self) -> LanguageConfig {

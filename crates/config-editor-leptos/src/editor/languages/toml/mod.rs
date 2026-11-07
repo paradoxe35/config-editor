@@ -14,6 +14,7 @@ mod style;
 mod parse;
 mod suggestions;
 mod editing;
+mod folding;
 
 use style::*;
 use parse::*;
@@ -207,6 +208,10 @@ impl ConfigLanguage for TomlBehavior {
         })
     }
 
+
+    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::toml_fold_ranges(source, &self.config(), &self.string_body_lines(source))
+    }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         multi_line_string_bodies(source)

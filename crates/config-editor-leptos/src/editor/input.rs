@@ -7,26 +7,49 @@ use wasm_bindgen::JsCast;
 use super::commands::{line_at_cursor, line_range};
 use super::completion::{key_hover, should_auto_trigger};
 use super::components::HoverCard;
+use super::folding::SourceArea;
 use super::history::{EditHistory, Snapshot};
 use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
 use super::state::{Edit, EditorState, textarea_selection};
 
-fn target_textarea(event: &web_sys::Event) -> Option<web_sys::HtmlTextAreaElement> {
-    event.target()?.dyn_into().ok()
+/// The textarea an event came from, in document offsets.
+fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceArea> {
+    let element: web_sys::HtmlTextAreaElement = event.target()?.dyn_into().ok()?;
+    Some(SourceArea::new(element, state))
 }
 
 /// Read-only cancels edits here instead of setting `readonly`, which in
 /// Chromium also stops the caret: navigation and selection keep working.
+///
+/// An edit the keys did not already open folds for (an IME, a drop, the
+/// context menu) that would reach into a fold opens it and is cancelled:
+/// the browser would apply it to the textarea's text, where the fold's
+/// lines are missing.
 pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
     if state.read_only.get_untracked() {
         event.prevent_default();
         return;
     }
-    if let Some(element) = target_textarea(event) {
-        state
-            .pre_edit_selection
-            .set_value(textarea_selection(&element));
+    if let Some(element) = target_textarea(state, event) {
+        let (start, end) = textarea_selection(&element);
+        let reach = match event.input_type().as_str() {
+            kind if kind.starts_with("deleteContentBackward")
+                || kind.starts_with("deleteWordBackward")
+                || kind.starts_with("deleteSoftLineBackward")
+                || kind.starts_with("deleteHardLineBackward") =>
+            {
+                (start.saturating_sub(usize::from(start == end)), end)
+            }
+            kind if kind.starts_with("delete") => (start, end + usize::from(start == end)),
+            _ => (start, end),
+        };
+        if state.touches_fold(reach.0, reach.1) {
+            event.prevent_default();
+            state.unfold_touched(reach.0, reach.1);
+            return;
+        }
+        state.pre_edit_selection.set_value((start, end));
     }
 }
 
@@ -116,16 +139,14 @@ pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usiz
 /// An edit the browser applied (typing, paste, cut, drop, IME).
 pub(super) fn input(state: EditorState, event: &web_sys::Event) {
     if state.read_only.get_untracked() {
-        if let Some(element) = target_textarea(event) {
-            element.set_value(&state.source.get_untracked());
-        }
+        state.show_text();
         return;
     }
     let input_type = event
         .dyn_ref::<web_sys::InputEvent>()
         .map(web_sys::InputEvent::input_type)
         .unwrap_or_default();
-    let (latest, latest_selection) = target_textarea(event)
+    let (latest, latest_selection) = target_textarea(state, event)
         .map(|element| (element.value(), textarea_selection(&element)))
         .unwrap_or_else(|| (state.source.get_untracked(), (0, 0)));
     if state.input_burst.with_value(Option::is_some) {
@@ -195,11 +216,6 @@ pub(super) fn flush_input(state: EditorState) {
         let (value, caret) = replay(&burst.before, &burst.latest, &current);
         (value, Some(caret))
     };
-    if element.value() != value {
-        element.set_value(&value);
-        let (start, end) = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
-        let _ = element.set_selection_range(start as u32, end as u32);
-    }
     let before = current;
     let burst_selection = if replayed_caret.is_some() {
         UNKNOWN_SELECTION
@@ -209,7 +225,8 @@ pub(super) fn flush_input(state: EditorState) {
     // An edit changing a read-only field is undone, its reason shown; one
     // cutting a secret placeholder takes it whole.
     let mut value = value;
-    let caret = textarea_selection(&element).0;
+    let mut widened_caret = None;
+    let caret = replayed_caret.unwrap_or(burst.latest_selection.0);
     if before != value {
         match state.allow_edit(&before, value.clone(), caret) {
             None => {
@@ -218,18 +235,21 @@ pub(super) fn flush_input(state: EditorState) {
                 } else {
                     burst_selection
                 };
-                element.set_value(&before);
-                let _ = element.set_selection_range(start as u32, end as u32);
+                // The document is unchanged: the textarea shows it again,
+                // folds as they were.
+                state.restore_folds();
+                state.show_text();
+                let _ = element.restore_selection(start as u32, end as u32);
                 state.note_caret(start);
                 return;
             }
             Some((allowed, allowed_caret)) => {
+                state.folds().before_edit.set_value(None);
                 if allowed != value {
-                    element.set_value(&allowed);
-                    let _ = element.set_selection_range(allowed_caret as u32, allowed_caret as u32);
                     value = allowed;
+                    widened_caret = Some(allowed_caret);
                 }
-                state.follow_edit(&before, &value, textarea_selection(&element).0);
+                state.follow_edit(&before, &value, widened_caret.unwrap_or(caret));
             }
         }
     }
@@ -252,6 +272,15 @@ pub(super) fn flush_input(state: EditorState) {
         && state.suggestions_requested.get_untracked()
         && !state.suggestions.with_untracked(Vec::is_empty);
     state.placeholder.set_value(None);
+    // The textarea is rewritten when the input was replayed on a newer
+    // document, or an edit opened a fold: the caret goes back where the
+    // input left it.
+    if state.write_text(value.clone()) || widened_caret.is_some() {
+        let (start, end) = widened_caret
+            .or(replayed_caret)
+            .map_or(burst.latest_selection, |caret| (caret, caret));
+        let _ = element.set_selection_range(start as u32, end as u32);
+    }
     let after = textarea_selection(&element);
     let selection = if burst_selection == UNKNOWN_SELECTION {
         edit_range(&before, &value, after.0)
@@ -274,7 +303,6 @@ pub(super) fn flush_input(state: EditorState) {
     let (position, _) = after;
     state.cursor.set(position);
     state.current_line.set(line_at_cursor(&value, position));
-    state.source.set(value);
     // Pasted or dropped text may bring its own indentation.
     if matches!(input_type.as_str(), "insertFromPaste" | "insertFromDrop") {
         state.redetect_indent();
@@ -298,7 +326,7 @@ pub(super) fn flush_input(state: EditorState) {
 /// Hovering a key shows its schema docs after a short pause; hovering a
 /// read-only value says why it is read-only.
 pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
-    let Some(element) = target_textarea(event) else {
+    let Some(element) = target_textarea(state, event) else {
         return;
     };
     if !state.suggestions.with_untracked(Vec::is_empty) {
@@ -369,7 +397,7 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.snap_to_tokens();
     state.forget_typing_aids();
     state.hide_shown_problem();
-    if let Some(element) = target_textarea(event) {
+    if let Some(element) = target_textarea(state, event) {
         let (position, _) = textarea_selection(&element);
         state.note_caret(position);
         state.active_completion.set(0);
@@ -381,7 +409,7 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
 /// After a key: track the caret, and end suggestions on navigation or a
 /// selection.
 pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
-    let Some(element) = target_textarea(event) else {
+    let Some(element) = target_textarea(state, event) else {
         return;
     };
     state.snap_to_tokens();
@@ -416,7 +444,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
 
 pub(super) fn scroll(state: EditorState, event: &web_sys::Event) {
     state.hide_hover();
-    if let Some(element) = target_textarea(event) {
+    if let Some(element) = target_textarea(state, event) {
         state.scroll_x.set(f64::from(element.scroll_left()));
         state.scroll_y.set(f64::from(element.scroll_top()));
     }
@@ -482,7 +510,11 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     // A selection cutting a secret placeholder copies it whole.
     state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
-    let (Some(clipboard), true) = (event.clipboard_data(), start == end) else {
+    if start != end {
+        copy_across_folds(state, event, (start, end), cut);
+        return;
+    }
+    let Some(clipboard) = event.clipboard_data() else {
         return;
     };
     let text = state.source.get_untracked();
@@ -523,6 +555,38 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     ));
 }
 
+/// Copy or cut of a selection across a fold takes the hidden lines too:
+/// the textarea's own copy would miss them.
+fn copy_across_folds(
+    state: EditorState,
+    event: &web_sys::ClipboardEvent,
+    (start, end): (usize, usize),
+    cut: bool,
+) {
+    if !state
+        .folds()
+        .projection
+        .with_untracked(|projection| projection.hides_within(start, end))
+    {
+        return;
+    }
+    let Some(clipboard) = event.clipboard_data() else {
+        return;
+    };
+    let text = state.source.get_untracked();
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let selected = String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())]);
+    if clipboard.set_data("text/plain", &selected).is_err() {
+        return;
+    }
+    event.prevent_default();
+    if !cut || state.read_only.get_untracked() {
+        return;
+    }
+    let (updated, _) = replace_selection(&text, start, end, "");
+    state.commit(Edit::new(text, (start, end), updated, start));
+}
+
 /// Pasting a line copied with nothing selected puts it above the caret's
 /// line and keeps the caret on its text, as in VS Code.
 fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
@@ -530,6 +594,10 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
         return;
     };
     let (start, end) = textarea_selection(&element);
+    // The paste lands on the whole text: the folds it touches open first.
+    if !state.read_only.get_untracked() {
+        state.unfold_touched(start, end);
+    }
     let Ok(pasted) = clipboard.get_data("text/plain") else {
         return;
     };

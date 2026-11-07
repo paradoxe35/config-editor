@@ -5,7 +5,7 @@ use leptos::prelude::*;
 
 use super::super::commands::line_range;
 use super::super::diff::{DiffKind, DiffPeek};
-use super::super::line_rows::{LineRows, RowUiState};
+use super::super::line_rows::{LineRows, RowFolds, RowUiState};
 use super::super::state::{EditorState, line_count};
 use super::RowSpacer;
 
@@ -14,11 +14,17 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
     view! {
         <div
             class="config-editor__gutter"
+            class:config-editor__gutter-folding=state.features.folding
             // Wide enough for the longest line number beside the diagnostic
-            // dot (52px fits four digits).
+            // dot (52px fits four digits) and the fold chevrons.
             style:width=move || {
                 let digits = state.source.with(|text| line_count(text)).to_string().len();
-                (digits > 4).then(|| format!("calc(52px + {}ch)", digits - 4))
+                (digits > 4).then(|| {
+                    format!(
+                        "calc(52px + var(--config-editor-fold-gutter, 0px) + {}ch)",
+                        digits - 4
+                    )
+                })
             }
         >
             <div
@@ -27,7 +33,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             >
                 <RowSpacer state=state />
                 <For
-                    each=move || state.visible_rows.get()
+                    each=move || state.folds().visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <LineNumber state=state rows=rows.clone() index=index /> }
                 />
@@ -46,7 +52,7 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
     let row = state.lines.with_untracked(|lines| {
         state
             .diff
-            .with_untracked(|diff| rows.state_for(index, lines, diff, active))
+            .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
     });
     let select_line = move |_| {
         // A line number selects its whole line, as in VS Code.
@@ -130,7 +136,7 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
 
 /// The state classes of a line number.
 fn line_number_class(row: &RowUiState) -> &'static str {
-    match (row.is_active, row.has_error, row.change) {
+    match (row.is_active, row.has_error || row.hidden_error, row.change) {
         (false, false, DiffKind::Unchanged) => "",
         (true, false, DiffKind::Unchanged) => "config-editor__line-number-active",
         (false, false, DiffKind::Added) => "config-editor__line-number-added",

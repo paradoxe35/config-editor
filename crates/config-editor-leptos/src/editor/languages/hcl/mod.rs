@@ -17,6 +17,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+mod folding;
 
 use tokens::*;
 use scan::*;
@@ -261,6 +262,10 @@ impl ConfigLanguage for HclBehavior {
         rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
     }
 
+
+    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::hcl_fold_ranges(source, &self.string_body_lines(source))
+    }
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         heredoc_bodies(source)

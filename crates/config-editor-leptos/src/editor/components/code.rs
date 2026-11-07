@@ -4,7 +4,7 @@ use leptos::prelude::*;
 
 use super::super::diff::DiffKind;
 use super::super::highlight::{self, TokenKind, Tokens};
-use super::super::line_rows::LineRows;
+use super::super::line_rows::{LineRows, RowFolds};
 use super::super::state::EditorState;
 use super::RowSpacer;
 
@@ -19,7 +19,7 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
             <code>
                 <RowSpacer state=state />
                 <For
-                    each=move || state.visible_rows.get()
+                    each=move || state.folds().visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <CodeLine state=state rows=rows.clone() index=index /> }
                 />
@@ -37,7 +37,7 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
     let row = state.lines.with_untracked(|lines| {
         state
             .diff
-            .with_untracked(|diff| rows.state_for(index, lines, diff, active))
+            .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
     });
     let highlighting = state.features.highlighting;
     // A line inside a multi-line string's body is all string.

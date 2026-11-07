@@ -223,3 +223,38 @@ for (const name of ['vanilla.html', 'react.html']) {
     });
   });
 }
+
+// Folding: the textarea holds the text on screen, folded lines cut out.
+const foldRow = (page, line) => page.locator(`.config-editor__gutter-content > div[data-line="${line}"]`);
+const foldToggle = (page, line) => page.locator(`.config-editor__fold-toggle[data-line="${line}"]`);
+async function fold(page, line) {
+  await foldRow(page, line).hover();
+  await foldToggle(page, line).click();
+  await expect(foldToggle(page, line)).toHaveClass(/config-editor__fold-toggle-closed/);
+}
+
+for (const [query, tlsLine] of [['?schema=protected', 7], ['?schema=protected&edit=json', 9]]) {
+  test.describe(`secret placeholders in a fold (${query})`, () => {
+    setupEditor(test, query);
+
+    test('a folded placeholder shows on its fold, and stays atomic after unfolding', async ({ page }) => {
+      const ed = editor(page);
+      await expect(chips(page)).toHaveCount(2);
+      await fold(page, tlsLine);
+      // Hidden: no chip drawn, the key shows on the fold's row.
+      await expect(chips(page)).toHaveCount(0);
+      await expect(page.locator(`[data-line="${tlsLine}"] .config-editor__secret-marker`)).toHaveCount(1);
+      expect(await ed.value()).not.toContain('«');
+      await page.locator(`.config-editor__fold-chip[data-line="${tlsLine}"]`).click();
+      await expect(chips(page)).toHaveText([KEY, PIN]);
+      // After unfolding, a click inside still snaps to an edge.
+      const start = await offsetOf(page, KEY);
+      await clickAt(page, KEY, 4);
+      expect([[start, start], [start + KEY.length, start + KEY.length]]).toContainEqual(await selection(page));
+      await clickAt(page, KEY, KEY.length);
+      await page.keyboard.press('Backspace');
+      await expect.poll(ed.value).not.toContain('secret 3f2a');
+      expect(await ed.value()).toContain(PIN);
+    });
+  });
+}

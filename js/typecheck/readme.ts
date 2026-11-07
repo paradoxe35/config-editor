@@ -23,3 +23,16 @@ const env = registerLanguage({
 new ConfigEditor(element, { language: env, schema: schemaText });
 convert("env", "listen=7835\n", "yaml").text;
 await init({ module_or_path: "/assets/config_editor_bg.wasm" });
+// Saving and unsaved edits.
+declare function putConfig(text: string): Promise<void>; declare const saveButton: HTMLButtonElement;
+const saving = new ConfigEditor(element, {
+  value: "a: 1\n", baseline: "a: 1\n",
+  onSave: async (text, language) => { await putConfig(text); saving.setBaseline(text); void language; },
+  onDirtyChange: (dirty) => (saveButton.disabled = !dirty),
+  onBaselineConflict: (event: "opened" | "reloaded" | "kept-mine" | "settled") => console.log(event),
+});
+const sent: boolean = saving.save(); const unsaved: boolean = saving.isDirty;
+saving.setCallbacks({ onSave: null, onDirtyChange: null, onBaselineConflict: null });
+new ConfigEditor(element, { folding: false });
+editor.foldAll(); editor.unfoldAll();
+const folded: boolean = editor.fold(["clients"]) && editor.unfold("/web/listen");

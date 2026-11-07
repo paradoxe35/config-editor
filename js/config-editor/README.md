@@ -9,13 +9,37 @@ and ships as WebAssembly; this package is its framework-free JavaScript API.
 For React, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
 which builds on this package.
 
+<!-- toc -->
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+  - [Loading the WebAssembly](#loading-the-webassembly)
+- [`new ConfigEditor(element, options)`](#new-configeditorelement-options)
+  - [Instance members](#instance-members)
+  - [Host diagnostics](#host-diagnostics)
+  - [Read-only fields](#read-only-fields)
+  - [Secrets](#secrets)
+  - [Paths](#paths)
+- [Functions](#functions)
+- [Binding to a framework](#binding-to-a-framework)
+- [Keyboard](#keyboard)
+  - [Folding](#folding)
+- [Saving and unsaved edits](#saving-and-unsaved-edits)
+- [Reviewing changes](#reviewing-changes)
+- [Languages written in JavaScript](#languages-written-in-javascript)
+- [Themes](#themes)
+- [Styling](#styling)
+- [License](#license)
+<!-- /toc -->
+
 ## Install
 
 ```sh
 npm install @pngwasi/config-editor
 ```
 
-Browsers only (ES modules + WebAssembly). The `.wasm` file is about 1.5 MB
+Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2 MB
 gzipped and loads once per page.
 
 ## Quick start
@@ -66,7 +90,7 @@ throws, and an unknown option name is reported in the console.
 | `value`          | `string`                     | `""`             | The document.                                                                                                                                                                                                 |
 | `editAs`         | `string`                     | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                         |
 | `schema`         | `string`                     | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                                                                              |
-| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against.                                                                                                                                                                        |
+| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                            |
 | `theme`          | `string`                     | `"vscode-dark"`  | A theme slug; see `themes()`.                                                                                                                                                                                 |
 | `colors`         | `Record<string, string>`     | —                | CSS colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …); see `colorTokens()`. A value the browser does not read as a color throws.                                              |
 | `readOnly`       | `boolean`                    | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                         |
@@ -75,6 +99,7 @@ throws, and an unknown option name is reported in the console.
 | `showFooter`     | `boolean`                    | `false`          | Problem counts and line count.                                                                                                                                                                                |
 | `search`         | `boolean`                    | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`, as in VS Code). `false` leaves those keys to the browser.                                                                                                         |
 | `goToLine`       | `boolean`                    | `true`           | Go to line (`Ctrl+G`): `line` or `line:column`. `false` leaves the key to the browser.                                                                                                                        |
+| `folding`        | `boolean`                    | `true`           | Folding by structure: gutter chevrons, `…` on folded lines, and the folding keys; see [Folding](#folding).                                                                                                    |
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
@@ -85,6 +110,9 @@ throws, and an unknown option name is reported in the console.
 | `readOnlyPaths`  | `FieldPath[]`                | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
 | `readOnlyRanges` | `TextRangeInput[]`           | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` string indices or one-based `{ startLine, startColumn, endLine?, endColumn? }`. |
 | `secrets`        | `SecretOptions`              | defaults         | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: how secret placeholders are matched, described and completed; see [Secrets](#secrets). |
+| `onSave`         | `(value: string, language: string) => void` | — | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. |
+| `onDirtyChange`  | `(dirty: boolean) => void`   | —                | Called with whether the document differs from `baseline`: once on mount, then each time that changes. |
+| `onBaselineConflict` | `(event: BaselineConflict) => void` | — | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`). |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -100,11 +128,14 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
+| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange?, onSave?, onDirtyChange?, onBaselineConflict? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
+| `save()`                                       | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). |
+| `isDirty` (getter)                             | Whether the document differs from the baseline. |
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
 | `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
 | `setReadOnlyPaths(paths)`, `setReadOnlyRanges(ranges)` | Replace the host's read-only fields or ranges; `[]` clears them. See [Read-only fields](#read-only-fields). |
+| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding). |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
@@ -412,8 +443,66 @@ update them with the setters when they change.
 `Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
 `Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
 `Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
-reverts the change.
+reverts the change · `Ctrl+S` save (with `onSave`) · `Ctrl+Shift+[`/`Ctrl+Shift+]`
+fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything.
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Folding
+
+Lines that start a block (a YAML mapping, a JSON object, a TOML table, an
+HCL block, an XML element, a run of comments, a multi-line string) get a
+chevron in the gutter, shown while the pointer is over it and always on a
+folded line, as in VS Code. A folded line shows `…`; clicking it or the
+chevron opens it.
+
+```ts
+editor.foldAll();
+editor.unfold("/web/listen");   // show one field; false when nothing was folded around it
+editor.fold(["clients"]);        // fold the block its key opens; false when there is none
+```
+
+Folding only changes the view: `value`, `onChange`, undo and saving see the
+whole text, and copying a selection across a fold copies the hidden lines.
+An edit that touches a fold (typing at the end of a folded line, Backspace
+at the start of the next one, a paste over a selection reaching into it)
+opens it first, and whatever moves the caret into a fold (find, go to line,
+`F8`, `reveal`, a click on a problem) opens it. A folded block hiding an
+error or changes marks its line. The textarea holds the text on screen, so
+read the document from `value`, not from the element.
+
+## Saving and unsaved edits
+
+Nothing is saved by itself: `Ctrl+S` / `Cmd+S` in the editor (and
+`editor.save()`) calls `onSave` with the document in `language`. While
+editing as another language, an edit still waiting out the typing pause is
+converted first; when it cannot be written in `language` (invalid, or a
+`null` for TOML), nothing is sent, `save()` returns `false`, and the caret
+goes to the problem. The document is dirty while it differs from `baseline`
+(the document at mount when no `baseline` is given).
+
+```js
+const editor = new ConfigEditor(element, {
+  value: loaded,
+  baseline: loaded,
+  onSave: async (text) => {
+    await putConfig(text);
+    editor.setBaseline(text); // saved: nothing is unsaved any more
+  },
+  onDirtyChange: (dirty) => (saveButton.disabled = !dirty),
+  onBaselineConflict: (event) => console.log("baseline conflict:", event),
+});
+// Another client saved: the server's version moves on.
+events.on("config-changed", (text) => editor.setBaseline(text));
+```
+
+A new baseline while the user has unsaved edits opens a notice in the editor,
+"The file changed on the server.", focused on **Keep mine** when the user is
+in the editor: **Reload** makes the new baseline the document (one undo step,
+reported through `onChange`), **Keep mine** (or `Escape`) keeps the document
+and diffs it against the new baseline. Without unsaved edits, or when the new
+baseline is the document or a text the editor sent (`onChange`, `onSave`: a
+save coming back while the user typed on), it is taken silently. A `setValue`
+keeps the caret and the scroll position.
 
 ## Reviewing changes
 

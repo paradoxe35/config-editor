@@ -48,16 +48,24 @@ fn follow_value(state: EditorState, value: Signal<String>) {
         state.synced_hosts.update_value(Vec::clear);
         let current = state.source.get_untracked();
         if current != edit {
-            // Keep the caret on the same text: write the new value here and
-            // map the caret through the change, so the later `prop:value`
-            // (identical text) leaves the selection alone.
-            if let Some(element) = state.textarea() {
-                let (start, end) = textarea_selection(&element);
+            // Keep the caret on the same text and the view where it was:
+            // write the new value here and map the caret through the change,
+            // so the later `prop:value` (identical text) leaves the selection
+            // alone. Writing the value scrolls the textarea, so the scroll
+            // position is put back.
+            let kept = state.textarea().map(|element| {
+                let selection = textarea_selection(&element);
+                (selection, element.scroll_top(), element.scroll_left())
+            });
+            state.write_text(edit.clone());
+            if let (Some(element), Some(((start, end), top, left))) = (state.textarea(), kept) {
                 let map = |offset: usize| map_through_change(&current, &edit, offset);
-                element.set_value(&edit);
                 let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
+                element.set_scroll_top(top);
+                element.set_scroll_left(left);
+                state.scroll_x.set(f64::from(element.scroll_left()));
+                state.scroll_y.set(f64::from(element.scroll_top()));
             }
-            state.source.set(edit);
             state.redetect_indent();
             // A new text from the host: its ranges and placeholders anew. Not
             // on an echo of the editor's own edit, where they are followed
@@ -156,7 +164,7 @@ pub fn flush_pending_edits() {
 }
 
 /// [`convert_edits`]' work for `text` edited as `language`.
-fn convert_now(state: EditorState, text: String, language: Language) {
+pub(super) fn convert_now(state: EditorState, text: String, language: Language) {
     {
         let Some(bridge) = state.bridge_to(language) else {
             state.conversion_problems.set(Vec::new());
@@ -172,8 +180,10 @@ fn convert_now(state: EditorState, text: String, language: Language) {
             state.host_text.get_value(),
         );
         let previous = state.host_text.get_value();
+        let mut hosts_own = false;
         let result = bridge.to_host(&text, &previous).map(|mut conversion| {
-            // Back to a text saved before (an undo): its host text exactly.
+            // Back to a text saved before (an undo), or the host's own (a
+            // reloaded baseline): its host text exactly.
             if let Some(host) = state.synced_hosts.with_value(|saved| {
                 saved
                     .iter()
@@ -181,12 +191,17 @@ fn convert_now(state: EditorState, text: String, language: Language) {
                     .map(|(_, host)| host.clone())
             }) {
                 conversion.text = host;
+                hosts_own = true;
             }
             conversion
         });
         // However the edit got there, a save never changes a read-only
-        // value: it is refused like any other unsafe save.
+        // value: it is refused like any other unsafe save. A text the host
+        // itself had is its own to restore.
         let result = result.and_then(|conversion| {
+            if hosts_own {
+                return Ok(conversion);
+            }
             state
                 .check_host_save(&previous, &conversion.text)
                 .map(|()| conversion)
@@ -210,7 +225,7 @@ fn convert_now(state: EditorState, text: String, language: Language) {
 /// Edited texts remembered with their host text (see `synced_hosts`).
 const SYNCED_HOSTS_KEPT: usize = 64;
 
-fn remember_synced(state: EditorState, edit: String, host: String) {
+pub(super) fn remember_synced(state: EditorState, edit: String, host: String) {
     state.synced_hosts.update_value(|saved| {
         saved.retain(|(known, _)| *known != edit);
         saved.push((edit, host));
@@ -383,7 +398,9 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                 callback.run(next);
             }
             state.diagnosed_text.set(converted.clone());
-            state.source.set(converted);
+            // Another language's lines: the folds do not carry over.
+            state.folds().folded.set(Vec::new());
+            state.write_text(converted);
             state.redetect_indent();
             state.place_ranges();
             state.rescan_tokens(false);

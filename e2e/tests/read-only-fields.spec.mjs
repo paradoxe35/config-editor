@@ -269,3 +269,100 @@ for (const name of ['vanilla.html', 'react.html']) {
     });
   });
 }
+
+// Folding: the textarea holds the text on screen, folded lines cut out.
+const foldRow = (page, line) => page.locator(`.config-editor__gutter-content > div[data-line="${line}"]`);
+const foldToggle = (page, line) => page.locator(`.config-editor__fold-toggle[data-line="${line}"]`);
+async function fold(page, line) {
+  await foldRow(page, line).hover();
+  await foldToggle(page, line).click();
+  await expect(foldToggle(page, line)).toHaveClass(/config-editor__fold-toggle-closed/);
+}
+const documentText = (page) => page.locator('.demo__output-text').textContent();
+
+for (const [query, limitsLine] of [['?schema=protected', 4], ['?schema=protected&edit=json', 5]]) {
+  test.describe(`read-only fields in a fold (${query})`, () => {
+    setupEditor(test, query);
+
+    test('an edit taking a fold with a locked value is refused and the fold stays', async ({ page }) => {
+      const ed = editor(page);
+      await fold(page, limitsLine);
+      const screen = await ed.value();
+      expect(screen).not.toContain('burst');
+      const whole = await documentText(page);
+      // Delete the folded line (and with it the hidden ones).
+      await clickInto(page, 'limits', 1);
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+ArrowDown');
+      await page.keyboard.press('Delete');
+      await page.waitForTimeout(200);
+      expect(await ed.value()).toBe(screen);
+      await expect(tip(page)).toContainText('Set by your plan');
+      await expect(foldToggle(page, limitsLine)).toHaveClass(/config-editor__fold-toggle-closed/);
+      expect(await documentText(page)).toBe(whole);
+      // Unfolded, the values inside are still locked.
+      await page.locator(`.config-editor__fold-chip[data-line="${limitsLine}"]`).click();
+      const before = await ed.value();
+      await clickInto(page, 'burst', 1);
+      await page.keyboard.type('x');
+      await expectUnchanged(page, before, 'Set by your plan');
+      // A free edit still works.
+      await clickInto(page, 'edge', 4);
+      await page.keyboard.type('5');
+      await expect(page.locator('.demo__output-text')).toContainText('edge5');
+    });
+  });
+}
+
+test.describe('read-only fields and the host', () => {
+  setupEditor(test, '?schema=protected');
+
+  test('a refused edit leaves the document clean; a reloaded baseline may change a read-only value', async ({ page }) => {
+    const ed = editor(page);
+    const status = page.locator('.demo__host-status');
+    await clickInto(page, 'srv-42', 3);
+    await page.keyboard.type('x');
+    await page.waitForTimeout(150);
+    await expect(status).toHaveAttribute('data-dirty', 'false');
+    // An edit of mine, then the server's version changes `id` (srv-43).
+    await clickInto(page, 'edge', 4);
+    await page.keyboard.type('9');
+    await expect(status).toHaveAttribute('data-dirty', 'true');
+    await page.locator('.demo__output summary').click();
+    await page.locator('.demo__server-change').click();
+    await expect(page.locator('.config-editor__notice')).toBeVisible();
+    await page.locator('.config-editor__notice').getByRole('button', { name: /reload/i }).click();
+    // The host's own text: the lock does not hold it back.
+    await expect.poll(ed.value).toContain('id: srv-43');
+    expect(await ed.value()).not.toContain('edge9');
+    await expect(status).toHaveAttribute('data-dirty', 'false');
+  });
+});
+
+test.describe('saving with a read-only value changed in Edit-as (vanilla.html)', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  test('save refuses an edit to a field the host locked meanwhile', async ({ page }) => {
+    await page.goto(pathToFileURL(join(examples, 'examples', 'vanilla.html')).href);
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await page.locator('#edit-as').selectOption('json');
+    const input = page.locator('.config-editor__input');
+    await expect(input).toHaveValue(/"public_address"/);
+    // An edit to public_address still waiting out the typing pause, then
+    // the host locks the field and saves: the save must not carry it.
+    await clickInto(page, 'tunnel', 2);
+    const sent = await page.evaluate(() => {
+      const element = document.querySelector('.config-editor__input');
+      element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'Q', bubbles: true, cancelable: true }));
+      element.setRangeText('Q', element.selectionStart, element.selectionStart, 'end');
+      element.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: 'Q', bubbles: true }));
+      window.editor.setReadOnlyPaths(['/public_address']);
+      const before = window.saves.length;
+      window.editor.save();
+      return window.saves.length - before;
+    });
+    expect(sent).toBe(0);
+    await expect(page.locator('#saved')).not.toContainText('tuQnnel');
+    await expect(page.locator('.config-editor__diagnostic-marker[data-message*="read-only"]')).toHaveCount(1);
+  });
+});

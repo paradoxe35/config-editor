@@ -1,4 +1,5 @@
 import init, {
+  type BaselineConflict,
   type ChangeSummary,
   ConfigEditor as Editor,
   type EditorOptions,
@@ -34,6 +35,7 @@ export {
   validate,
 } from "@pngwasi/config-editor";
 export type {
+  BaselineConflict,
   ChangeSummary,
   Conversion,
   CustomLanguage,
@@ -136,8 +138,22 @@ export interface ConfigEditorProps {
   schema?: string;
   /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
   onSchemaWarning?: (message: string) => void;
-  /** Text the diff gutter compares against. */
+  /**
+   * Text the diff gutter compares against: the version last saved or loaded.
+   * A new one while the user has unsaved edits opens a notice (Reload / Keep
+   * mine) instead of mixing them; see `onBaselineConflict`.
+   */
   baseline?: string;
+  /**
+   * Called when the user presses `Ctrl+S` / `Cmd+S` (the browser's dialog
+   * prevented) or you call `ref.save()`, with the document in `language`.
+   * Nothing saves by itself. Without it, `Ctrl+S` is the browser's.
+   */
+  onSave?: (value: string, language: LanguageName) => void;
+  /** Called with whether the document differs from `baseline`: once on mount, then each time that changes. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Called when a new `baseline` arrives under unsaved edits, and when that conflict is settled. */
+  onBaselineConflict?: (event: BaselineConflict) => void;
   fileName?: string;
   theme?: ThemeName;
   colors?: ThemeColorMap;
@@ -148,6 +164,8 @@ export interface ConfigEditorProps {
   search?: boolean;
   /** Go to line (`Ctrl+G`). Default `true`. Changing it re-mounts. */
   goToLine?: boolean;
+  /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`. View only. Default `true`. Changing it re-mounts. */
+  folding?: boolean;
   /** Class on the editor root (inside the container). */
   editorClassName?: string;
   /** Class and style of the container element. */
@@ -188,8 +206,20 @@ export interface ConfigEditorHandle {
   pathAt(offset: number): EditorPath | null;
   /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
   reveal(path: FieldPath): boolean;
+  /** Folds the block the field at `path` opens; `false` when there is none to fold. */
+  fold(path: FieldPath): boolean;
+  /** Opens the folds around the field at `path`; `false` when none was closed. */
+  unfold(path: FieldPath): boolean;
+  /** Folds every block. */
+  foldAll(): void;
+  /** Opens every fold. */
+  unfoldAll(): void;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
+  /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, not mounted, or an `editAs` edit that cannot convert back yet). */
+  save(): boolean;
+  /** Whether the document differs from `baseline`. */
+  readonly isDirty: boolean;
 }
 
 /**
@@ -241,6 +271,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     };
 
     const followPath = (path: EditorPath) => latest.current.onPathChange?.(path);
+    const save = (value: string, language: LanguageName) => latest.current.onSave?.(value, language);
 
     // The secrets options that re-mount (the check function does not).
     const secretsKey = JSON.stringify(
@@ -280,6 +311,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           showFooter: current.showFooter,
           search: current.search,
           goToLine: current.goToLine,
+          folding: current.folding,
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
@@ -298,6 +330,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
               ? (token: string) => latest.current.secrets?.isPlaceholder?.(token) ?? false
               : undefined,
           },
+          onSave: current.onSave ? save : undefined,
+          onDirtyChange: (dirty) => latest.current.onDirtyChange?.(dirty),
+          onBaselineConflict: (event) => latest.current.onBaselineConflict?.(event),
           onSchemaWarning: (message) => {
             const report = latest.current.onSchemaWarning;
             if (report) report(message);
@@ -359,6 +394,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.showFooter,
       props.search,
       props.goToLine,
+      props.folding,
       props.editorClassName,
       secretsKey,
       retry,
@@ -427,6 +463,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       guard((instance) => instance.setCallbacks({ onPathChange: followsPath ? followPath : null }));
     }, [mounted, followsPath]);
 
+    // `Ctrl+S` is the editor's only while `onSave` is set.
+    const saves = props.onSave !== undefined;
+    useEffect(() => {
+      guard((instance) => instance.setCallbacks({ onSave: saves ? save : null }));
+    }, [mounted, saves]);
+
     // Runs `query` on the editor; `fallback` before it mounts or when it throws.
     const ask = <T,>(query: (instance: Editor) => T, fallback: T): T => {
       const instance = editor.current;
@@ -462,7 +504,15 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         rangeOf: (path: FieldPath) => ask((instance) => instance.rangeOf(path), null),
         pathAt: (offset: number) => ask((instance) => instance.pathAt(offset), null),
         reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
+        fold: (path: FieldPath) => ask((instance) => instance.fold(path), false),
+        unfold: (path: FieldPath) => ask((instance) => instance.unfold(path), false),
+        foldAll: () => guard((instance) => instance.foldAll()),
+        unfoldAll: () => guard((instance) => instance.unfoldAll()),
         focus: () => guard((instance) => instance.focus()),
+        save: () => ask((instance) => instance.save(), false),
+        get isDirty() {
+          return ask((instance) => instance.isDirty, false);
+        },
         setValue(value: string) {
           if (typeof value !== "string") {
             report(new TypeError("setValue needs a string"));

@@ -4,6 +4,7 @@
 
 pub(super) mod changes;
 mod enter;
+mod folding;
 mod navigation;
 mod search;
 mod suggestions;
@@ -26,6 +27,9 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.hide_shown_problem();
     }
+    if folding::shortcuts(state, event) {
+        return;
+    }
     if state.step_over_token(event)
         || navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
@@ -44,6 +48,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         }
         return;
     }
+    folding::unfold_before_edit(state, event);
     let handled = navigation::undo_redo(state, event)
         || suggestions::request(state, event)
         || navigation::next_problem(state, event)
@@ -71,7 +76,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
 /// Keys on the editor root, from the text or a widget: find and replace
 /// shortcuts; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
-    if search::shortcuts(state, event) || go_to_line_key(state, event) {
+    if search::shortcuts(state, event) || go_to_line_key(state, event) || save_key(state, event) {
         return;
     }
     if event.key() == "Escape" {
@@ -91,6 +96,20 @@ fn go_to_line_key(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     event.prevent_default();
     super::go_to_line::open(state);
+    true
+}
+
+/// `Ctrl+S` / `Cmd+S` saves through `on_save`, instead of the browser's
+/// save dialog; without `on_save` the browser keeps the key.
+fn save_key(state: EditorState, event: &KeyboardEvent) -> bool {
+    let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
+    let enabled =
+        state.editing().on_save.is_some() && state.editing().save_shortcut.get_untracked();
+    if !enabled || !command || !event.key().eq_ignore_ascii_case("s") {
+        return false;
+    }
+    event.prevent_default();
+    state.save();
     true
 }
 

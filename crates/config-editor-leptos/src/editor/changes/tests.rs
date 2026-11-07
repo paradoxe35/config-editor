@@ -214,7 +214,7 @@ fn every_marker_preview_finds_its_hunk() {
         let line_diff = diff_lines(&baseline, &current);
         let rows = rendered(&current, &line_diff);
         for index in 0..rows.len() {
-            let row = row_state(index, &rows, rows.len(), &line_diff, 0);
+            let row = row_state(index, &rows, rows.len(), &line_diff, 0, Default::default());
             for peek in [
                 row.modified_peek,
                 row.added_peek,
@@ -261,7 +261,7 @@ fn an_added_line_preview_survives_edits_elsewhere_only() {
     let current = "a: 1\nnew: 3\nb: 2\nc: 3\n";
     let line_diff = diff_lines(baseline, current);
     let rows = rendered(current, &line_diff);
-    let peek = row_state(1, &rows, rows.len(), &line_diff, 0)
+    let peek = row_state(1, &rows, rows.len(), &line_diff, 0, Default::default())
         .added_peek
         .expect("line 2 is added");
     assert_eq!(peek.kind, PeekKind::Added);
