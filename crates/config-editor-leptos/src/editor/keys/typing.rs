@@ -34,7 +34,7 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     };
     let (start, end) = textarea_selection(&element);
     let backward = is_backward(&element);
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let Some((updated, selection_start, selection_end)) =
         state.behavior().toggle_comments(&before, start, end)
     else {
@@ -94,7 +94,7 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
 /// Typed over: closers the editor wrote, and the quote that ends the
 /// string the caret is in.
 fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
-    let source = state.doc.text.get_untracked();
+    let source = state.doc().text.get_untracked();
     // A `>` typed before a tag's own `>` (`<tcp|></tcp>`) in a markup
     // language moves over it rather than closing the tag a second time.
     if typed == '>' && state.behavior().closing_markup_len("</a>").is_some() {
@@ -136,7 +136,7 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     state.place_caret(next);
     // The value or container is finished: its suggestions are done too.
     state.close_suggestions();
-    state.completion.explicit.set(false);
+    state.completion().explicit.set(false);
     true
 }
 
@@ -150,7 +150,7 @@ fn closer_already_there(
     start: usize,
     typed: char,
 ) -> bool {
-    let source = state.doc.text.get_untracked();
+    let source = state.doc().text.get_untracked();
     let byte = utf16_to_byte_index(&source, start);
     let line_start = source[..byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[byte..]
@@ -253,7 +253,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
     let Some(closer) = state.closer_at(start) else {
         return false;
     };
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     // A quote run the editor wrote (`"""|"""`): one quote goes on each side.
     if closer.len > 1 && start > 0 {
         let byte = utf16_to_byte_index(&before, start);
@@ -282,7 +282,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
 
 /// A line that only now shows it closes a block re-indents.
 fn reindent(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let Some(indent) = state.behavior().reindent_on_type(&before, start, typed) else {
         return false;
     };
@@ -305,7 +305,7 @@ fn reindent(state: EditorState, event: &KeyboardEvent, start: usize, typed: char
 /// Text the language closes as it is typed (`>` finishing `<k>` writes
 /// `</k>`; `"""` writes its closing `"""`).
 fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let Some(closing) = state.behavior().auto_close(&before, start, typed) else {
         return false;
     };
@@ -337,7 +337,7 @@ fn open_pair(
     (start, end): (usize, usize),
     opening: char,
 ) -> bool {
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let Some((updated, selection_start, selection_end)) =
         paired_edit(&before, start, end, opening, state.behavior())
     else {
@@ -369,7 +369,7 @@ fn open_pair(
     {
         select(&element, selection_start, selection_end, true);
     }
-    state.completion.requested.set(opens_entry);
+    state.completion().requested.set(opens_entry);
     true
 }
 
@@ -383,7 +383,7 @@ pub(super) fn join_with_next_line(state: EditorState, event: &KeyboardEvent) -> 
         return false;
     };
     let (start, end) = textarea_selection(&element);
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let byte = utf16_to_byte_index(&text, start);
     if start != end || !text[byte..].starts_with('\n') {
         return false;
@@ -410,9 +410,9 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
     if start != end {
         return false;
     }
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let edit = match event.key().as_str() {
-        "Backspace" => backspace_indent(&text, start, &state.doc.indent.get_value()),
+        "Backspace" => backspace_indent(&text, start, &state.doc().indent.get_value()),
         "}" => typed_closer(&text, start, '}', state.behavior()),
         "]" => typed_closer(&text, start, ']', state.behavior()),
         ")" => typed_closer(&text, start, ')', state.behavior()),

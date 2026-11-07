@@ -53,11 +53,11 @@ impl EditorState {
     /// The inserted closer starting at UTF-16 `offset`, if any.
     pub(super) fn closer_at(&self, offset: usize) -> Option<Closer> {
         let distance = self
-            .doc
+            .doc()
             .text
             .with_untracked(|text| text.encode_utf16().count())
             .checked_sub(offset)?;
-        self.typing.closers.with_value(|closers| {
+        self.typing().closers.with_value(|closers| {
             closers
                 .iter()
                 .find(|closer| closer.distance == distance)
@@ -68,11 +68,11 @@ impl EditorState {
     /// Forgets the inserted closer starting at UTF-16 `offset`.
     pub(super) fn forget_closer_at(&self, offset: usize) {
         let distance = self
-            .doc
+            .doc()
             .text
             .with_untracked(|text| text.encode_utf16().count())
             .saturating_sub(offset);
-        self.typing
+        self.typing()
             .closers
             .update_value(|closers| closers.retain(|closer| closer.distance != distance));
     }
@@ -87,7 +87,7 @@ impl EditorState {
         opener: Option<char>,
     ) {
         let distance = text.encode_utf16().count() - offset;
-        self.typing.closers.update_value(|closers| {
+        self.typing().closers.update_value(|closers| {
             closers.push(Closer {
                 distance,
                 len,
@@ -99,9 +99,9 @@ impl EditorState {
     /// Forgets the typing aids tied to the caret's place (inserted closers,
     /// placeholder slots) and ends the undo group.
     pub(super) fn forget_typing_aids(&self) {
-        self.typing.closers.update_value(Vec::clear);
-        self.completion.slot_region.set_value(None);
-        self.completion.value_stops.update_value(Vec::clear);
-        self.doc.history.update(EditHistory::seal);
+        self.typing().closers.update_value(Vec::clear);
+        self.completion().slot_region.set_value(None);
+        self.completion().value_stops.update_value(Vec::clear);
+        self.doc().history.update(EditHistory::seal);
     }
 }

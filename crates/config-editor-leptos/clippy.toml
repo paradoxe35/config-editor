@@ -1,5 +1,7 @@
 # Deferred work goes through one door, `reactive::later`, which runs it only
-# if the editor (or documents view) it needs is still mounted. The paths are
+# if the editor (or documents view) it needs is still mounted, and closures
+# handed to the browser are kept and dropped with their owner, never left to
+# the JavaScript garbage collector. The paths are
 # the defining items: the code reaches most of them through `leptos::prelude`,
 # and clippy matches the definition (`Closure` is an alias of
 # `ScopedClosure`).
@@ -16,4 +18,7 @@ disallowed-methods = [
   { path = "web_sys::Window::request_animation_frame", reason = "use reactive::later::next_frame, which skips work whose editor has gone" },
   { path = "wasm_bindgen::closure::ScopedClosure::once_into_js", reason = "deferred work goes through reactive::later (after, next_frame, soon)" },
   { path = "wasm_bindgen::closure::ScopedClosure::forget", reason = "a forgotten closure outlives the editor: keep it and drop it on cleanup, or use reactive::later" },
+  { path = "leptos_dom::helpers::window_event_listener", reason = "its closure waits for the JS garbage collector after removal: use reactive::window_listener" },
+  { path = "leptos_dom::helpers::window_event_listener_untyped", reason = "its closure waits for the JS garbage collector after removal: use reactive::window_listener" },
+  { path = "wasm_bindgen::closure::ScopedClosure::into_js_value", reason = "the closure waits for the JS garbage collector: keep it and drop it on cleanup (see reactive::window_listener)" },
 ]

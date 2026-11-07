@@ -7,7 +7,7 @@ use super::super::{input, keys};
 
 #[component]
 pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
-    let read_only = state.config.read_only;
+    let read_only = state.config().read_only;
     // A tachys element holds at most 26 attributes; clipboard and
     // composition listeners are added in `input::attach_listeners`.
     view! {
@@ -16,18 +16,18 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             style=move || {
                 format!(
                     "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
-                    state.view.projection.with(|projection| projection.rows()),
+                    state.view().projection.with(|projection| projection.rows()),
                 )
             }
             aria-label=state.language_text(|strings| &strings.source_label)
             aria-autocomplete=move || (!read_only.get()).then_some("list")
             aria-haspopup=move || (!read_only.get()).then_some("listbox")
-            aria-expanded=move || (!state.completion.suggestions.with(Vec::is_empty)).to_string()
-            aria-invalid=move || (!state.problems.diagnostics.with(Vec::is_empty)).to_string()
+            aria-expanded=move || (!state.completion().suggestions.with(Vec::is_empty)).to_string()
+            aria-invalid=move || (!state.problems().diagnostics.with(Vec::is_empty)).to_string()
             // What is at the caret: its problems, a read-only reason, a
             // secret's hint (see `a11y`).
-            aria-describedby=state.a11y.caret_note_id()
-            node_ref=state.view.textarea_ref
+            aria-describedby=state.a11y().caret_note_id()
+            node_ref=state.view().textarea_ref
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
@@ -37,8 +37,8 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             aria-readonly=move || read_only.get().to_string()
             inputmode=move || read_only.get().then_some("none")
             prop:value=move || {
-                let projection = state.view.projection.get();
-                state.doc.text.with(|doc| projection.view(doc).to_string())
+                let projection = state.view().projection.get();
+                state.doc().text.with(|doc| projection.view(doc).to_string())
             }
             on:beforeinput=move |event| input::before_input(state, &event)
             on:input=move |event| input::input(state, &event)
@@ -53,7 +53,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             // The text is there as soon as the element is: `prop:value`
             // applies a moment later, and input or a host reading the
             // textarea in between must not see it empty.
-            {state.doc.text.get_untracked()}
+            {state.doc().text.get_untracked()}
         </textarea>
     }
 }

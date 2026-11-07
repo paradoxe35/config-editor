@@ -276,6 +276,6 @@ pub(super) fn connect(state: EditorState, host: Host) {
     });
     conflict::settle_when_text_matches(state);
     if let Some(callback) = on_dirty_change {
-        Effect::new(move |_| callback.run(state.editing.dirty.get()));
+        Effect::new(move |_| callback.run(state.editing().dirty.get()));
     }
 }

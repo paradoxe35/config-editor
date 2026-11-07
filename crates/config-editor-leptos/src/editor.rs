@@ -7,9 +7,9 @@
 //! - The rest is the editing core the parts call into: languages, schema
 //!   completion and diagnostics, conversion, diff, history, commands.
 
-use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
+use leptos::prelude::*;
 
-use crate::reactive::Kept;
+use crate::reactive::{Kept, window_listener};
 
 mod a11y;
 mod bridge;
@@ -306,7 +306,7 @@ pub fn ConfigEditor(
         handle.attach(state);
     }
     if let Some(on_path_change) = on_path_change {
-        Effect::new(move |_| on_path_change.run(state.doc.caret_path.get()));
+        Effect::new(move |_| on_path_change.run(state.doc().caret_path.get()));
     }
     remeasure_on_window_changes(state);
     live_settings::follow(state);
@@ -316,7 +316,7 @@ pub fn ConfigEditor(
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());
     let root_class = class.unwrap_or_default();
-    let shown = state.config.settings;
+    let shown = state.config().settings;
 
     view! {
         <div
@@ -327,7 +327,7 @@ pub fn ConfigEditor(
             data-theme=move || shown.theme.get().css_family()
             data-color-theme=move || shown.theme.get().as_str()
             style=move || shown.color_style()
-            node_ref=state.view.root_ref
+            node_ref=state.view().root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
             {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
@@ -370,13 +370,13 @@ fn report_schema_warnings(warnings: &[String], on_schema_warning: Option<Callbac
 
 /// Window resizes and page scrolls move the editor, so popups re-measure.
 fn remeasure_on_window_changes(state: EditorState) {
-    let bump = move || state.view.layout_revision.update(|revision| *revision += 1);
-    let resize = window_event_listener(ev::resize, move |_| bump());
-    let scroll = window_event_listener(ev::scroll, move |_| bump());
-    on_cleanup(move || {
-        resize.remove();
-        scroll.remove();
-    });
+    let bump = move || {
+        state
+            .view()
+            .layout_revision
+            .update(|revision| *revision += 1)
+    };
+    window_listener(&["resize", "scroll"], bump);
 }
 
 #[cfg(all(

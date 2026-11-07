@@ -114,11 +114,11 @@ impl super::state::EditorState {
     /// layer keeps anyway: the keys asking on every keystroke never parse
     /// the whole document again.
     pub(super) fn in_string_body(&self, offset: usize) -> bool {
-        let line = self.doc.text.with_untracked(|text| {
+        let line = self.doc().text.with_untracked(|text| {
             let byte = super::keyboard::utf16_to_byte_index(text, offset);
             line_breaks(&text.as_bytes()[..byte])
         });
-        self.view
+        self.view()
             .string_bodies
             .with_untracked(|bodies| bodies.iter().any(|lines| lines.contains(&line)))
     }

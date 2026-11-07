@@ -147,26 +147,26 @@ impl CompletionState {
 
 impl EditorState {
     pub(crate) fn close_suggestions(&self) {
-        self.completion.requested.set(false);
-        if self.completion.replace_word.get_untracked() {
-            self.completion.replace_word.set(false);
+        self.completion().requested.set(false);
+        if self.completion().replace_word.get_untracked() {
+            self.completion().replace_word.set(false);
         }
     }
 
     /// Writes `option` into the document, remembering what it inserted for
     /// Tab and closer handling.
     pub(crate) fn accept(&self, option: &Completion, reveal: bool) {
-        let before = self.doc.text.get_untracked();
+        let before = self.doc().text.get_untracked();
         let (updated, anchor, caret) = apply_completion(&before, option);
         // Closers after the replaced text stay (an XML end tag the editor
         // wrote before a value was accepted into it); the insert adds its own.
         let old_length = before.encode_utf16().count();
         let inserted = inserted_closers(option, &updated, (anchor, caret), self.behavior());
-        self.typing.closers.update_value(|closers| {
+        self.typing().closers.update_value(|closers| {
             closers.retain(|closer| old_length - closer.distance.min(old_length) >= option.end);
             closers.extend(inserted);
         });
-        self.completion
+        self.completion()
             .placeholder
             .set_value((anchor != caret).then_some((anchor, caret)));
         // Tab walks the empty values the insert wrote after the caret, on one
@@ -183,8 +183,8 @@ impl EditorState {
                 .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
                 .collect();
         let has_stops = !stops.is_empty();
-        self.completion.value_stops.set_value(stops);
-        self.completion.slot_region.set_value(
+        self.completion().value_stops.set_value(stops);
+        self.completion().slot_region.set_value(
             (option.insert.contains('\n') || has_slots || has_stops).then(|| {
                 (
                     insert_start,
@@ -193,25 +193,25 @@ impl EditorState {
             }),
         );
         let reopen =
-            accept_reopens_suggestions(option, self.config.settings.auto_trigger.get_untracked());
+            accept_reopens_suggestions(option, self.config().settings.auto_trigger.get_untracked());
         self.hide_hover();
-        let at = self.doc.caret.get_untracked();
+        let at = self.doc().caret.get_untracked();
         let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
         if !self.commit(if reveal { edit } else { edit.quiet() }) {
-            self.completion.placeholder.set_value(None);
+            self.completion().placeholder.set_value(None);
             self.forget_typing_aids();
             self.close_suggestions();
             return;
         }
-        self.completion.active.set(0);
-        self.completion.explicit.set(true);
-        self.completion.requested.set(reopen);
+        self.completion().active.set(0);
+        self.completion().explicit.set(true);
+        self.completion().requested.set(reopen);
     }
 
     /// Accepts the highlighted suggestion.
     pub(crate) fn accept_active(&self) {
-        let options = self.completion.suggestions.get_untracked();
-        if let Some(option) = options.get(self.completion.active.get_untracked()) {
+        let options = self.completion().suggestions.get_untracked();
+        if let Some(option) = options.get(self.completion().active.get_untracked()) {
             self.accept(option, true);
         }
     }

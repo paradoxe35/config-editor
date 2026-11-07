@@ -425,9 +425,9 @@ fn the_caret_note_says_why_a_locked_value_is_read_only_in_every_language() {
         .mount();
         let note_at = |needle: &str, past: usize| {
             let byte = text.find(needle).unwrap() + past;
-            state.doc.caret.set(text[..byte].encode_utf16().count());
+            state.doc().caret.set(text[..byte].encode_utf16().count());
             update_note(state);
-            state.a11y.caret_note.get_untracked()
+            state.a11y().caret_note.get_untracked()
         };
         let inside = note_at("srv-42", 2);
         if !inside.starts_with("Read-only: ") {
@@ -459,8 +459,8 @@ fn the_same_announcement_twice_is_said_twice() {
     let (_owner, state) = TestEditor::new(Language::YAML, "a: 1\n").mount();
     let mut said = Vec::new();
     for message in ["one", "one", "one", "two"] {
-        state.a11y.announce(message.to_string());
-        said.push(state.a11y.announcement.get_untracked());
+        state.a11y().announce(message.to_string());
+        said.push(state.a11y().announcement.get_untracked());
     }
     assert_eq!(said[0], "one");
     assert_ne!(said[1], said[0]);

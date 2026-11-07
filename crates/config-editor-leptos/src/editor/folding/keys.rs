@@ -11,12 +11,12 @@ use super::super::state::{EditorState, textarea_selection};
 
 /// The folding shortcuts. Returns whether the key was one.
 pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !state.config.settings.folding.get_untracked() {
+    if !state.config().settings.folding.get_untracked() {
         return false;
     }
     let command = event.ctrl_key() || event.meta_key();
-    if state.fold.fold_chord.get_value() && !matches!(event.key().as_str(), "Control" | "Meta") {
-        state.fold.fold_chord.set_value(false);
+    if state.fold().fold_chord.get_value() && !matches!(event.key().as_str(), "Control" | "Meta") {
+        state.fold().fold_chord.set_value(false);
         let key = event.key().to_ascii_lowercase();
         if command && (key == "0" || event.code() == "Digit0") {
             event.prevent_default();
@@ -34,7 +34,7 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
     }
     if !event.shift_key() && event.key().eq_ignore_ascii_case("k") {
         event.prevent_default();
-        state.fold.fold_chord.set_value(true);
+        state.fold().fold_chord.set_value(true);
         return true;
     }
     if !event.shift_key() {
@@ -60,7 +60,7 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
 /// line after a fold, Delete at a folded line's end, any edit of a
 /// selection reaching into one. The edit then applies to the whole text.
 pub(in crate::editor) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
-    if state.fold.folded.with_untracked(Vec::is_empty) {
+    if state.fold().folded.with_untracked(Vec::is_empty) {
         return;
     }
     let Some(element) = state.textarea() else {

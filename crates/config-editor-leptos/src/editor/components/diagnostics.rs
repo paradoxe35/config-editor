@@ -45,24 +45,24 @@ impl Follows {
 #[component]
 pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
     let follows = Follows {
-        shown: Relay::new(move || state.problems.current.get()),
-        scroll_x: Relay::new(move || state.view.scroll_x.get()),
-        scroll_y: Relay::new(move || state.view.scroll_y.get()),
+        shown: Relay::new(move || state.problems().current.get()),
+        scroll_x: Relay::new(move || state.view().scroll_x.get()),
+        scroll_y: Relay::new(move || state.view().scroll_y.get()),
     };
     view! {
         <div
             class="config-editor__diagnostic-overlay"
             aria-label=state.language_text(|strings| &strings.problems_label)
-            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             {move || {
-                let text = state.doc.text.get();
-                let projection = state.view.projection.get();
+                let text = state.doc().text.get();
+                let projection = state.view().projection.get();
                 let followed = follows.read();
                 // New texts redraw the underlines' names and details.
-                state.config.settings.strings.track();
+                state.config().settings.strings.track();
                 state
-                    .problems.diagnostics
+                    .problems().diagnostics
                     .get()
                     .into_iter()
                     .filter_map(|diagnostic| {
@@ -199,7 +199,7 @@ fn on_marker_click(
     state.focus_at(line, column);
     // Its message stays shown, as after F8: a tap on a touch screen has
     // no hover to show it with.
-    state.problems.current.set(Some((line, column)));
+    state.problems().current.set(Some((line, column)));
 }
 
 /// `(shift, width)` CSS lengths for a message starting at visual column

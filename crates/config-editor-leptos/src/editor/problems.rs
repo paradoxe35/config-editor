@@ -126,7 +126,7 @@ impl ProblemsState {
 impl EditorState {
     /// Moves to diagnostic `index`, which must have a position.
     pub(super) fn go_to_diagnostic(&self, index: usize) {
-        let position = self.problems.diagnostics.with_untracked(|problems| {
+        let position = self.problems().diagnostics.with_untracked(|problems| {
             problems
                 .get(index)
                 .and_then(|problem| Some((problem.line?, problem.column?)))
@@ -134,13 +134,13 @@ impl EditorState {
         if let Some((line, column)) = position {
             self.focus_at(line, column);
         }
-        self.problems.current.set(position);
+        self.problems().current.set(position);
     }
 
     /// Hides the message F8 showed.
     pub(super) fn hide_shown_problem(&self) {
-        if self.problems.current.get_untracked().is_some() {
-            self.problems.current.set(None);
+        if self.problems().current.get_untracked().is_some() {
+            self.problems().current.set(None);
         }
     }
 }

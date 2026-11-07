@@ -40,7 +40,7 @@ pub(super) fn row_states(state: EditorState) -> LineRows {
     let rows = LineRows::new();
     Effect::new(move |_| {
         state
-            .view
+            .view()
             .visible_lines
             .with(|visible| with_row_inputs(state, |inputs| rows.sync(inputs, visible)));
     });
@@ -49,16 +49,16 @@ pub(super) fn row_states(state: EditorState) -> LineRows {
 
 /// Calls `f` with what the rows' states are built from (tracked).
 pub(super) fn with_row_inputs<R>(state: EditorState, f: impl FnOnce(&RowInputs<'_>) -> R) -> R {
-    let active_line = state.doc.current_line.get();
+    let active_line = state.doc().current_line.get();
     let language = state
-        .config
+        .config()
         .settings
         .highlighting
         .get()
-        .then(|| state.sync.edit_language.get());
+        .then(|| state.sync().edit_language.get());
     state.with_closed_folds(|closed| {
-        state.view.string_bodies.with(|string_bodies| {
-            state.view.lines.with(|rows| {
+        state.view().string_bodies.with(|string_bodies| {
+            state.view().lines.with(|rows| {
                 with_line_diff(state, |line_diff| {
                     f(&RowInputs {
                         rows,
@@ -95,7 +95,7 @@ fn RowSpacer(state: EditorState) -> impl IntoView {
             style:height=move || {
                 format!(
                     "calc({} * var(--config-editor-line-height))",
-                    state.view.visible_rows.with(|rows| rows.start),
+                    state.view().visible_rows.with(|rows| rows.start),
                 )
             }
         ></span>

@@ -9,7 +9,7 @@ use super::super::state::EditorState;
 
 #[component]
 pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
-    let editing = state.editing;
+    let editing = state.editing();
     let open = move || editing.conflict.with(Option::is_some);
     let reload = move |_| state.reload_baseline();
     let keep_mine = move |_| state.keep_mine();

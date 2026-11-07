@@ -11,10 +11,10 @@ pub(crate) fn EditAsNotice(state: EditorState) -> impl IntoView {
     let shown = Memo::new(move |_| state.edit_as_notice());
     let message = move || {
         let reasons = shown.get();
-        let edit = state.sync.edit_language.get();
+        let edit = state.sync().edit_language.get();
         state.strings(|strings| {
             reasons
-                .messages(strings, state.config.host_language, edit)
+                .messages(strings, state.config().host_language, edit)
                 .join(" ")
         })
     };

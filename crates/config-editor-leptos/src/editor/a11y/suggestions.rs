@@ -26,15 +26,15 @@ impl A11yState {
 /// step with the list.
 pub(in crate::editor) fn connect_suggestions(state: EditorState) {
     Effect::new(move |_| {
-        let Some(element) = state.view.textarea_ref.get() else {
+        let Some(element) = state.view().textarea_ref.get() else {
             return;
         };
-        let open = !state.completion.suggestions.with(Vec::is_empty);
-        let active = state.completion.active.get();
-        let _ = element.set_attribute("aria-controls", &state.a11y.suggestions_id());
+        let open = !state.completion().suggestions.with(Vec::is_empty);
+        let active = state.completion().active.get();
+        let _ = element.set_attribute("aria-controls", &state.a11y().suggestions_id());
         if open {
             let _ =
-                element.set_attribute("aria-activedescendant", &state.a11y.suggestion_id(active));
+                element.set_attribute("aria-activedescendant", &state.a11y().suggestion_id(active));
         } else {
             let _ = element.remove_attribute("aria-activedescendant");
         }

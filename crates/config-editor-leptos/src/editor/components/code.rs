@@ -15,12 +15,12 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
         <pre
             class="config-editor__highlight"
             aria-hidden="true"
-            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             <code>
                 <RowSpacer state=state />
                 <KeyedList
-                    each=move || state.view.visible_lines.get()
+                    each=move || state.view().visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <CodeLine state=state rows=rows index=index /> }
                 />

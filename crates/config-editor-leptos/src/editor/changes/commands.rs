@@ -57,27 +57,27 @@ impl EditorState {
     /// editing as another language) like typing. Closes the preview and
     /// returns to the text.
     pub(in crate::editor) fn revert_change(&self, peek: &DiffPeek) {
-        if self.config.read_only.get_untracked() {
+        if self.config().read_only.get_untracked() {
             return;
         }
         let Some(hunk) = self
-            .changes
+            .changes()
             .diff
             .with_untracked(|line_diff| hunk_for_peek(line_diff, peek).cloned())
         else {
             return;
         };
-        let before = self.doc.text.get_untracked();
+        let before = self.doc().text.get_untracked();
         let (text, caret) = revert_hunk(&before, &hunk);
         let element = self.textarea();
         let selection = element.as_ref().map_or_else(
             || {
-                let at = self.doc.caret.get_untracked();
+                let at = self.doc().caret.get_untracked();
                 (at, at)
             },
             textarea_selection,
         );
-        self.changes.peek.set(None);
+        self.changes().peek.set(None);
         self.close_suggestions();
         self.hide_hover();
         self.forget_typing_aids();
@@ -96,12 +96,12 @@ impl EditorState {
     /// wrapping around; with `preview`, opens that change's preview too,
     /// focused so `Enter` or `R` reverts it.
     pub(in crate::editor) fn go_to_change(&self, forward: bool, preview: bool) {
-        let line_count = self.view.lines.with_untracked(Vec::len);
-        let here = self.doc.current_line.get_untracked().saturating_sub(1);
-        let Some((line, peek)) = self.changes.diff.with_untracked(|line_diff| {
+        let line_count = self.view().lines.with_untracked(Vec::len);
+        let here = self.doc().current_line.get_untracked().saturating_sub(1);
+        let Some((line, peek)) = self.changes().diff.with_untracked(|line_diff| {
             let hunk = adjacent_change(line_diff, line_count, here, forward)?;
             let line = change_line(hunk, line_count);
-            let row = self.view.lines.with_untracked(|lines| {
+            let row = self.view().lines.with_untracked(|lines| {
                 row_state(line, lines, line_count, line_diff, 0, Default::default())
             });
             let peeks = row.peeks;
@@ -118,10 +118,10 @@ impl EditorState {
         };
         self.focus_at(line + 1, 1);
         if preview {
-            self.changes
+            self.changes()
                 .focus_preview
-                .set_value(!self.config.read_only.get_untracked());
-            self.changes.peek.set(peek);
+                .set_value(!self.config().read_only.get_untracked());
+            self.changes().peek.set(peek);
         }
     }
 }
@@ -130,5 +130,5 @@ impl EditorState {
 /// now and again each time it changes. It reads the diff the gutter already
 /// keeps, so it costs no rendering.
 pub(in crate::editor) fn report_changes(state: EditorState, callback: Callback<ChangeSummary>) {
-    Effect::new(move |_| callback.run(state.changes.summary.get()));
+    Effect::new(move |_| callback.run(state.changes().summary.get()));
 }

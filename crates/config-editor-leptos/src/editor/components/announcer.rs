@@ -8,7 +8,7 @@ use super::super::state::EditorState;
 
 #[component]
 pub(crate) fn Announcer(state: EditorState) -> impl IntoView {
-    let a11y = state.a11y;
+    let a11y = state.a11y();
     view! {
         <div class="config-editor__sr-only" id=a11y.caret_note_id()>
             {move || a11y.caret_note.get()}

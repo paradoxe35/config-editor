@@ -176,7 +176,7 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                 ..TestEditor::new(host, host_text)
             }
             .mount();
-            let shown = state.doc.text.get_untracked();
+            let shown = state.doc().text.get_untracked();
             let original = codec::read(edit.behavior(), &shown, None).ok();
             for (what, after, inserted) in additions(edit) {
                 take_host_shown(state, &shown);
@@ -188,7 +188,7 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                 let mut at = found + after.len();
                 let mut all = true;
                 for step in chars(inserted) {
-                    let before = state.doc.text.get_untracked();
+                    let before = state.doc().text.get_untracked();
                     let edited = format!("{}{step}{}", &before[..at], &before[at..]);
                     let caret = at + step.len();
                     if state.commit(Edit::new(before, (at, at), edited, caret)) {
@@ -197,7 +197,7 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                         all = false;
                     }
                 }
-                let left = state.doc.text.get_untracked();
+                let left = state.doc().text.get_untracked();
                 let read = codec::read(edit.behavior(), &left, None).ok();
                 let changed = read.is_some_and(|read| {
                     let original = original.as_ref().expect("the shown text reads");
@@ -217,7 +217,7 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
 /// Puts the shown text back as a new text from the host would.
 fn take_host_shown(state: super::super::state::EditorState, shown: &str) {
     use leptos::prelude::*;
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     if before != shown {
         let mut edit = Edit::new(before, (0, 0), shown.to_string(), 0);
         edit.origin = super::super::edit::Origin::Switch;

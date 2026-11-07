@@ -28,13 +28,13 @@ const SEED_MAX_CHARS: usize = 200;
 /// editor), taking a one-line selection as the query, and focuses it.
 pub(in crate::editor) fn open(state: EditorState, replacing: bool) {
     flush_input(state);
-    let search = state.search;
+    let search = state.search();
     if let Some(seed) = selected_text(state).filter(|seed| {
         !seed.is_empty() && !seed.contains('\n') && seed.chars().count() <= SEED_MAX_CHARS
     }) {
         search.query.set(seed);
     }
-    let replacing = replacing && !state.config.read_only.get_untracked();
+    let replacing = replacing && !state.config().read_only.get_untracked();
     search.open.set(true);
     if replacing {
         search.replacing.set(true);
@@ -66,7 +66,7 @@ pub(in crate::editor) fn open(state: EditorState, replacing: bool) {
 /// Closes the widget and returns focus to the text, the current match left
 /// selected.
 pub(in crate::editor) fn close(state: EditorState) {
-    if !state.search.open.get_untracked() {
+    if !state.search().open.get_untracked() {
         return;
     }
     dismiss(state);
@@ -81,7 +81,7 @@ pub(in crate::editor) fn close(state: EditorState) {
 
 /// Closes the widget where the focus is (the `search` setting switched off).
 pub(in crate::editor) fn dismiss(state: EditorState) {
-    let search = state.search;
+    let search = state.search();
     search.open.set(false);
     search.replacing.set(false);
     search.current.set(None);
@@ -94,14 +94,14 @@ pub(in crate::editor) fn dismiss(state: EditorState) {
 /// or an option changes), and selects it when `reveal`.
 pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
     flush_input(state);
-    let search = state.search;
+    let search = state.search();
     search.notice.set(None);
     let Some(element) = state.textarea() else {
         return;
     };
     let (start, _) = textarea_selection(&element);
     let from = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| utf16_to_byte_index(text, start));
     let current = search.results.with_untracked(|results| {
@@ -118,13 +118,13 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
 /// (`Shift+Enter`, `Shift+F3`), wrapping around.
 pub(in crate::editor) fn step(state: EditorState, backward: bool) {
     flush_input(state);
-    let search = state.search;
+    let search = state.search();
     search.notice.set(None);
     let Some(element) = state.textarea() else {
         return;
     };
     let (start, end) = textarea_selection(&element);
-    let next = state.doc.text.with_untracked(|text| {
+    let next = state.doc().text.with_untracked(|text| {
         let (start, end) = (
             utf16_to_byte_index(text, start),
             utf16_to_byte_index(text, end),
@@ -162,17 +162,17 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
 
 /// Flips a match option (case, whole word, regular expression).
 pub(in crate::editor) fn toggle_option(state: EditorState, flip: fn(&mut SearchOptions)) {
-    state.search.options.update(flip);
+    state.search().options.update(flip);
     select_nearest(state, true);
 }
 
 /// Replaces the current match and steps to the next one.
 pub(in crate::editor) fn replace_current(state: EditorState) {
-    if state.config.read_only.get_untracked() {
+    if state.config().read_only.get_untracked() {
         return;
     }
     flush_input(state);
-    let search = state.search;
+    let search = state.search();
     let Some(matcher) = search.matcher() else {
         return;
     };
@@ -183,7 +183,7 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
     let Some(found) = target else {
         return;
     };
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let replacement = search.replacement.get_untracked();
     let (updated, inserted) =
         replace::replace_one(&before, &matcher, found.start..found.end, &replacement);
@@ -204,15 +204,15 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
 
 /// Replaces every match as one edit: one undo step, one `on_change`.
 pub(in crate::editor) fn replace_all(state: EditorState) {
-    if state.config.read_only.get_untracked() {
+    if state.config().read_only.get_untracked() {
         return;
     }
     flush_input(state);
-    let search = state.search;
+    let search = state.search();
     let Some(matcher) = search.matcher() else {
         return;
     };
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let replacement = search.replacement.get_untracked();
     // Matches in read-only text are left as they are, and counted.
     let protected = state.protected_bytes(&before);
@@ -297,7 +297,7 @@ impl SearchNotice {
 /// Selects the current match in the text and scrolls it into view, clear
 /// of the widget.
 fn show_current(state: EditorState) {
-    let search = state.search;
+    let search = state.search();
     let Some(found) = search.current.get_untracked().and_then(|index| {
         search
             .results
@@ -309,7 +309,7 @@ fn show_current(state: EditorState) {
         return;
     };
     let (start, end) = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| (utf16(text, found.start), utf16(text, found.end)));
     let _ = element.set_selection_range(start as u32, end as u32);
@@ -317,10 +317,9 @@ fn show_current(state: EditorState) {
         .widget_ref
         .get_untracked()
         .map_or(0.0, |widget| f64::from(widget.offset_height()));
-    state
-        .doc
-        .text
-        .with_untracked(|text| reveal_centered(&element, text, start, state.view.scroll_y, inset));
+    state.doc().text.with_untracked(|text| {
+        reveal_centered(&element, text, start, state.view().scroll_y, inset)
+    });
     state.forget_typing_aids();
     state.close_suggestions();
     state.note_caret(end);
@@ -329,7 +328,7 @@ fn show_current(state: EditorState) {
 fn selected_text(state: EditorState) -> Option<String> {
     let element = state.textarea()?;
     let (start, end) = textarea_selection(&element);
-    state.doc.text.with_untracked(|text| {
+    state.doc().text.with_untracked(|text| {
         let (start, end) = (
             utf16_to_byte_index(text, start),
             utf16_to_byte_index(text, end),

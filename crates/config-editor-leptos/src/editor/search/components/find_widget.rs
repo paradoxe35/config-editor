@@ -11,8 +11,8 @@ use crate::EditorStrings;
 
 #[component]
 pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
-    let search = state.search;
-    let editable = move || !state.config.read_only.get();
+    let search = state.search();
+    let editable = move || !state.config().read_only.get();
     let invalid = move || search.results.with(|results| results.error.is_some());
     view! {
         <div
@@ -145,7 +145,7 @@ fn OptionToggle(
     read: fn(&SearchOptions) -> bool,
     flip: fn(&mut SearchOptions),
 ) -> impl IntoView {
-    let pressed = move || state.search.options.with(read);
+    let pressed = move || state.search().options.with(read);
     view! {
         <button
             type="button"
@@ -174,7 +174,7 @@ fn flip_regex(options: &mut SearchOptions) {
 }
 
 fn count_text(state: EditorState) -> String {
-    let search = state.search;
+    let search = state.search();
     if let Some(notice) = search.notice.get() {
         return state.strings(|strings| notice.text(strings));
     }
@@ -188,12 +188,12 @@ fn count_text(state: EditorState) -> String {
 }
 
 fn query_input(state: EditorState, value: String) {
-    state.search.query.set(value);
+    state.search().query.set(value);
     search::select_nearest(state, true);
 }
 
 fn toggle_replace(state: EditorState) {
-    let search = state.search;
+    let search = state.search();
     let replacing = !search.replacing.get_untracked();
     search.replacing.set(replacing);
     let target = if replacing {

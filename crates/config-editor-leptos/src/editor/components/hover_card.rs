@@ -17,10 +17,10 @@ pub(crate) struct HoverCard {
 pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     move || {
         state
-            .hover
+            .hover()
             .card
             .get()
-            .filter(|_| state.completion.suggestions.get().is_empty())
+            .filter(|_| state.completion().suggestions.get().is_empty())
             .map(|card| {
                 let info = card.info;
                 let examples = info.examples.join(", ");
@@ -33,7 +33,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class:config-editor__hover--interactive=interactive
                         role="tooltip"
                         style=card.style
-                        on:mouseenter=move |_| state.hover.card_entered.set_value(true)
+                        on:mouseenter=move |_| state.hover().card_entered.set_value(true)
                         on:mouseleave=move |_| leave_card(state)
                         // Clicking the link keeps the caret (and the card).
                         on:mousedown=move |event| event.prevent_default()
@@ -85,7 +85,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
 
 /// The pointer left the card: it closes, as when it leaves a key.
 fn leave_card(state: EditorState) {
-    state.hover.card_entered.set_value(false);
+    state.hover().card_entered.set_value(false);
     state.hide_hover();
 }
 

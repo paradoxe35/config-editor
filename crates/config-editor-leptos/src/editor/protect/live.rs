@@ -238,7 +238,7 @@ impl EditorState {
         let state = *self;
 
         Effect::new(move |previous: Option<()>| {
-            state.protect.host_ranges.track();
+            state.protect().host_ranges.track();
             if previous.is_some() {
                 state.place_ranges();
             }
@@ -248,10 +248,10 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        self.protect
+        self.protect()
             .protected
             .with_untracked(|protected| {
-                self.config.schema.with_value(|schema| {
+                self.config().schema.with_value(|schema| {
                     check(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
@@ -291,7 +291,7 @@ impl EditorState {
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
         self.follow_tokens(before, after, caret);
-        if self.protect.ranges.with_untracked(Vec::is_empty) {
+        if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
         let region = {
@@ -300,7 +300,7 @@ impl EditorState {
         };
         let inserted = (after.encode_utf16().count() + region.len())
             .saturating_sub(before.encode_utf16().count());
-        self.protect.ranges.update(|ranges| {
+        self.protect().ranges.update(|ranges| {
             *ranges = ranges
                 .iter()
                 .map(|range| follow_range(range, &region, inserted))
@@ -311,30 +311,30 @@ impl EditorState {
     /// Places the host's ranges on the text on screen again (they changed,
     /// or the host replaced the text).
     pub(crate) fn place_ranges(&self) {
-        let host = self.config.host_language == self.sync.edit_language.get_untracked();
+        let host = self.config().host_language == self.sync().edit_language.get_untracked();
         let placed = if host {
-            self.protect
-                .host_ranges
-                .with_untracked(|ranges| self.doc.text.with_untracked(|text| offsets(text, ranges)))
+            self.protect().host_ranges.with_untracked(|ranges| {
+                self.doc().text.with_untracked(|text| offsets(text, ranges))
+            })
         } else {
             Vec::new()
         };
-        self.protect.ranges.set(placed);
+        self.protect().ranges.set(placed);
     }
 
     /// Refuses an Edit-as save from the host's `old` text to `new` that would
     /// change a read-only value.
     pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), ReadOnlyChange> {
-        self.config.schema.with_value(|schema| {
+        self.config().schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
             let marking = schema
                 .as_deref()
                 .filter(|bundle| bundle.has_marks)
                 .map(|bundle| &bundle.schema);
-            let behavior = self.config.host_language.behavior();
-            let paths = self.protect.host_paths.get_untracked();
+            let behavior = self.config().host_language.behavior();
+            let paths = self.protect().host_paths.get_untracked();
             let ranges = self
-                .protect
+                .protect()
                 .host_ranges
                 .with_untracked(|ranges| offsets(old, ranges));
             if marking.is_none() && paths.is_empty() && ranges.is_empty() {
@@ -360,13 +360,13 @@ impl EditorState {
     #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
-        self.protect.protected.with_untracked(|protected| {
+        self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
                 .map(|range| byte(range.start)..byte(range.end))
-                .chain(self.protect.secrets.tokens.with_untracked(|tokens| {
+                .chain(self.protect().secrets.tokens.with_untracked(|tokens| {
                     tokens
                         .iter()
                         .map(|range| byte(range.start)..byte(range.end))
@@ -384,7 +384,7 @@ impl EditorState {
         let covers = |range: &Range<usize>| {
             range.start <= offset && (offset < range.end || (ends && offset == range.end))
         };
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         if secrets
             .tokens
             .with_untracked(|tokens| tokens.iter().any(covers))
@@ -397,7 +397,7 @@ impl EditorState {
                 (strings.secret_label.clone(), hint)
             }));
         }
-        self.protect.protected.with_untracked(|protected| {
+        self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
@@ -413,31 +413,31 @@ impl EditorState {
     /// Shows what the protected text at zero-based `line`:`column` is, for
     /// the pointer; `false` when nothing protected is there.
     pub(crate) fn hover_protected(&self, line: usize, column: usize) -> bool {
-        let no_tokens = self.protect.secrets.tokens.with_untracked(Vec::is_empty);
+        let no_tokens = self.protect().secrets.tokens.with_untracked(Vec::is_empty);
         if no_tokens
             && self
-                .protect
+                .protect()
                 .protected
                 .with_untracked(|protected| protected.is_empty())
         {
-            self.protect.hide_tip(true);
+            self.protect().hide_tip(true);
             return false;
         }
-        let found = self.doc.text.with_untracked(|text| {
+        let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
             self.protected_note(offset, false)
                 .map(|(_, message)| (message, offset))
         });
         let Some((message, offset)) = found else {
-            self.protect.hide_tip(true);
+            self.protect().hide_tip(true);
             return false;
         };
-        let same = self.protect.tip.with_untracked(|tip| {
+        let same = self.protect().tip.with_untracked(|tip| {
             tip.as_ref()
                 .is_some_and(|tip| tip.hover && tip.message == message)
         });
         if !same {
-            self.protect.tip.set(Some(Tip {
+            self.protect().tip.set(Some(Tip {
                 message,
                 offset,
                 hover: true,
