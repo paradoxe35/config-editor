@@ -246,8 +246,8 @@ pub(super) fn flush_input(state: EditorState) {
     }
     // The text as made (widened over a placeholder it cut).
     let value = state.doc.text.get_untracked();
-    let auto_trigger =
-        state.config.features.auto_trigger && should_auto_trigger(&input_type, &before, &value);
+    let auto_trigger = state.config.settings.auto_trigger.get_untracked()
+        && should_auto_trigger(&input_type, &before, &value);
     if matches!(
         input_type.as_str(),
         "insertFromPaste" | "insertFromDrop" | "deleteByCut" | "deleteByDrag"
@@ -284,7 +284,7 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         f64::from(event.client_y()),
     );
     let on_protected = state.hover_protected(line, column);
-    if !state.config.features.hover_docs {
+    if !state.config.settings.hover_docs.get_untracked() {
         return;
     }
     let info = state.doc.text.with_untracked(|text| {

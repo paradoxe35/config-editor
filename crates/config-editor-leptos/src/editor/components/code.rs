@@ -40,7 +40,7 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
             .diff
             .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
     });
-    let highlighting = state.config.features.highlighting;
+    let highlighting = state.config.settings.highlighting;
     // A line inside a multi-line string's body is all string.
     let in_string_body = move || {
         state
@@ -61,11 +61,11 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
                 let (text, marks) = row.with(|row| {
                     (row.text.clone(), row.marks.as_ref().map_or_else(Vec::new, |marks| marks.classes()))
                 });
-                let tokens = if highlighting && in_string_body() {
+                let tokens = if highlighting.get() && in_string_body() {
                     let mut tokens = Tokens::new();
                     tokens.push(0, text.len(), TokenKind::String);
                     tokens.finish()
-                } else if highlighting {
+                } else if highlighting.get() {
                     state.sync.edit_language.get().behavior().highlight(&text)
                 } else {
                     Vec::new()

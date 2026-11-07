@@ -36,6 +36,9 @@ step_clippy() {
 
 step_test() {
   run_tests test -p config-editor-leptos
+  # Also checks that the settings' generated TypeScript type and README tables
+  # match `EditorSettings` (UPDATE_GENERATED=1 rewrites them).
+  run_tests test -p config-editor-js
 }
 
 # Each language (and schema validation) built and tested on its own, so a

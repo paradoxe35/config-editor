@@ -7,7 +7,7 @@
 use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
-use crate::{ConfigEditor, Language, SaveRequest};
+use crate::{ConfigEditor, EditorSettings, Language, SaveRequest};
 
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
@@ -67,7 +67,9 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
 /// document's id.
 fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let Documents {
-        callbacks, options, ..
+        callbacks,
+        settings: view_settings,
+        ..
     } = documents;
     let id = StoredValue::new(entry.id.clone());
     let value = entry.value;
@@ -87,6 +89,12 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let edit_as = entry.edit_as;
     let edit_as = Signal::derive(move || edit_as.get());
     let schema = entry.setup.schema.clone();
+    // The view injects the stylesheet once for all its editors.
+    let own_settings = entry.settings;
+    let settings = Signal::derive(move || EditorSettings {
+        styled: false,
+        ..own_settings.get().unwrap_or_else(|| view_settings.get())
+    });
     let language: Language = entry.setup.language;
 
     view! {
@@ -98,12 +106,11 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             read_only=entry.read_only
             nostrip:schema=schema
             file_name=entry.file_name.get_untracked()
-            theme=options.theme
-            colors=options.colors
-            styled=false
-            show_footer=options.show_footer
-            show_diff=options.show_diff
-            enable_save_shortcut=options.save_shortcut
+            settings=settings
+            host_diagnostics=entry.host_diagnostics
+            read_only_paths=entry.read_only_paths
+            read_only_ranges=entry.read_only_ranges
+            secrets=entry.secrets.clone()
             on_change=changed
             nostrip:on_save=saved
             on_dirty_change=dirty_changed

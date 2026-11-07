@@ -58,22 +58,27 @@ pub(in crate::editor) fn open(state: EditorState, replacing: bool) {
 /// Closes the widget and returns focus to the text, the current match left
 /// selected.
 pub(in crate::editor) fn close(state: EditorState) {
-    let search = state.search;
-    if !search.open.get_untracked() {
+    if !state.search.open.get_untracked() {
         return;
     }
-    search.open.set(false);
-    search.replacing.set(false);
-    search.current.set(None);
-    if let Some(widget) = search.widget_ref.get_untracked() {
-        widget.set_hidden(true);
-    }
+    dismiss(state);
     if let Some(element) = state.textarea() {
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
         // Focusing scrolls to the caret; the match is already in view.
         element.set_scroll_top(top);
         element.set_scroll_left(left);
+    }
+}
+
+/// Closes the widget where the focus is (the `search` setting switched off).
+pub(in crate::editor) fn dismiss(state: EditorState) {
+    let search = state.search;
+    search.open.set(false);
+    search.replacing.set(false);
+    search.current.set(None);
+    if let Some(widget) = search.widget_ref.get_untracked() {
+        widget.set_hidden(true);
     }
 }
 

@@ -12,7 +12,8 @@ mod matcher;
 mod replace;
 
 pub(super) use actions::{
-    close, count_label, open, replace_all, replace_current, select_nearest, step, toggle_option,
+    close, count_label, dismiss, open, replace_all, replace_current, select_nearest, step,
+    toggle_option,
 };
 pub(super) use matcher::{SearchMatch, SearchOptions};
 

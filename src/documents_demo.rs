@@ -8,9 +8,11 @@
 //! in the status line's `data-*` attributes, for the e2e tests.
 
 use config_editor_leptos::{
-    CloseRequest, ConfigDocuments, Document, DocumentsHandle, Language, SaveRequest,
+    CloseRequest, ConfigDocuments, Document, DocumentsHandle, EditorSettings, Language, SaveRequest,
 };
 use leptos::prelude::*;
+
+use crate::settings_panel::SettingsPanel;
 
 const SCHEMA: &str = include_str!("../schema.json");
 const MAIN: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\nlimits:\n  handshake_timeout_secs: 5\n  max_handshakes: 4096\n  max_pending: 512\nheartbeat:\n  interval_secs: 15\n";
@@ -100,6 +102,10 @@ pub fn view(many: bool) -> impl IntoView {
     // A dirty document the user asked to close, waiting for "Discard".
     let asking = RwSignal::new(None::<String>);
     let added = RwSignal::new(0usize);
+    let settings = RwSignal::new(EditorSettings {
+        show_footer: true,
+        ..EditorSettings::default()
+    });
 
     let changed = move |(id, text): (String, String)| {
         with_document(documents, &id, |document| document.value = text);
@@ -201,8 +207,9 @@ pub fn view(many: bool) -> impl IntoView {
                 on_dirty_change=dirty_changed
                 on_close=close_requested
                 on_select=selected
-                show_footer=true
+                settings=settings
             />
+            <SettingsPanel settings=settings />
             <p
                 class="demo__documents-status"
                 data-saves=move || saves.get().join(",")

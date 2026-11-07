@@ -17,11 +17,15 @@
 //!   `documents_demo`.
 
 use config_editor_leptos::{
-    ConfigEditor, ConfigEditorToolbar, EditorTheme, FieldPath, Language, SaveRequest,
+    ConfigEditor, ConfigEditorToolbar, EditorSettings, EditorTheme, FieldPath, Language,
+    SaveRequest,
 };
 use leptos::prelude::*;
 
 mod documents_demo;
+mod settings_panel;
+
+use settings_panel::SettingsPanel;
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
@@ -186,7 +190,13 @@ fn main() {
                 .iter()
                 .any(|pair| pair == "readonly" || pair == "readonly=1"),
         );
-        let folding = query_value(&flags, "folding").as_deref() != Some("0");
+        // Every setting switches live from the panel below the editor.
+        let settings = RwSignal::new(EditorSettings {
+            show_footer: true,
+            folding: query_value(&flags, "folding").as_deref() != Some("0"),
+            ..EditorSettings::default()
+        });
+        let theme = Signal::derive(move || settings.with(|settings| settings.theme));
         let (schema, sample) = match query_value(&flags, "schema").as_deref() {
             Some("help") => (HELP_SCHEMA, ""),
             Some("protected") => (PROTECTED_SCHEMA, protected_sample(language)),
@@ -206,7 +216,6 @@ fn main() {
 
         let baseline = RwSignal::new(sample.to_string());
         let saved = RwSignal::new(sample.to_string());
-        let theme = RwSignal::new(EditorTheme::VsCodeDark);
         // Host-controlled editing: what was saved, whether there are unsaved
         // edits, and the baseline conflicts seen (for the e2e tests).
         let saves = RwSignal::new(0usize);
@@ -302,7 +311,8 @@ fn main() {
                             class="demo__select demo__theme-select"
                             aria-label="Editor theme"
                             on:change=move |event| {
-                                theme.set(event_target_value(&event).parse().unwrap_or_default());
+                                let theme = event_target_value(&event).parse().unwrap_or_default();
+                                settings.update(|settings| settings.theme = theme);
                             }
                         >
                             {EditorTheme::ALL
@@ -321,6 +331,7 @@ fn main() {
                     >
                         "Apply changes"
                     </button>
+                    <SettingsPanel settings=settings />
                 </ConfigEditorToolbar>
                 <ConfigEditor
                     language=language
@@ -336,12 +347,9 @@ fn main() {
                     schema=schema
                     on_schema_warning=move |warning| schema_warnings.update(|all| all.push(warning))
                     file_name=file_name
-                    theme=theme
+                    settings=settings
                     read_only=read_only
                     read_only_paths=locked
-                    show_toolbar=false
-                    show_footer=true
-                    enable_folding=folding
                 />
                 <ul class="demo__schema-warnings">
                     {move || schema_warnings.get().into_iter().map(|warning| view! { <li>{warning}</li> }).collect_view()}

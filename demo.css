@@ -20,6 +20,29 @@
   outline: 2px solid var(--config-editor-accent);
   outline-offset: 1px;
 }
+/* The settings switches: a dropdown in the toolbar (in the flow of the
+   documents demo), so the page keeps its height. */
+.demo__settings {
+  position: relative;
+  color: var(--config-editor-muted);
+  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__settings > summary {
+  cursor: pointer;
+}
+.config-editor__toolbar .demo__settings-list {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  padding: 8px;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 4px;
+  background: var(--config-editor-panel);
+}
+.demo__settings-list {
+  display: grid;
+  gap: 4px;
+}
 .demo__output {
   max-height: 30vh;
   overflow: auto;

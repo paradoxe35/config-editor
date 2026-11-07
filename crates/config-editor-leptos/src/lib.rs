@@ -38,11 +38,14 @@
 //! - [`ConfigDocuments`] shows several [`Document`]s (a main file and its
 //!   drop-ins) as tabs, each with its own language, baseline and read-only
 //!   state, one editor per document kept across switches.
+//! - `settings` takes [`EditorSettings`]: the theme and every on/off switch
+//!   (toolbar, footer, diagnostics, diff, completions, search, folding, …),
+//!   as a value or a signal that switches them live.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
-//!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or set
-//!   `styled=false` and style the semantic
-//!   `config-editor__*` markup yourself ([`PRESET_CSS`] is the preset).
+//!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or turn
+//!   the `styled` setting off and style the semantic `config-editor__*`
+//!   markup yourself ([`PRESET_CSS`] is the preset).
 //!
 //! # Headless use
 //!
@@ -81,9 +84,11 @@
 
 mod documents;
 mod editor;
+mod settings;
 
 pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};
 pub use editor::language;
+pub use settings::EditorSettings;
 
 pub use editor::{
     BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,
