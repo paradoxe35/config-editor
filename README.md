@@ -155,6 +155,8 @@ The crate has no JavaScript in it, so a Rust project can vendor
 
 ## Development
 
+How the editor is built, its design rules and the checks to run before a commit: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Requirements: Rust 1.88+ with the `wasm32-unknown-unknown` target,
 [trunk](https://trunkrs.dev), `wasm-bindgen-cli` matching the version in
 `Cargo.lock`, and Node.js 20+.
