@@ -59,8 +59,12 @@ fn follow_value(state: EditorState, value: Signal<String>) {
             }
             state.source.set(edit);
             state.redetect_indent();
+            // A new text from the host: its ranges and placeholders anew. Not
+            // on an echo of the editor's own edit, where they are followed
+            // (a pasted look-alike there never becomes the host's).
+            state.place_ranges();
+            state.rescan_tokens(true);
         }
-        state.place_ranges();
     });
 }
 
@@ -382,6 +386,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
             state.source.set(converted);
             state.redetect_indent();
             state.place_ranges();
+            state.rescan_tokens(false);
         }
         Err(error) => {
             state.pending_switch.set(Some(next));

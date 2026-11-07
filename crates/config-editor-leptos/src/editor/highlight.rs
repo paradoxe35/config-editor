@@ -97,6 +97,9 @@ pub(super) fn render(
         Some(class) => view! { <span class=class>{line[from..to].to_string()}</span> }.into_any(),
         None => view! { <span>{line[from..to].to_string()}</span> }.into_any(),
     };
+    // Pieces cut at the marks' ends, each with its mark; a run of pieces
+    // under one mark goes in one wrapper (a placeholder is one chip).
+    let mut group: Option<(&'static str, usize, Vec<AnyView>)> = None;
     for (start, end, class) in runs {
         if marks.is_empty() {
             parts.push(piece(start, end, class));
@@ -119,13 +122,25 @@ pub(super) fn render(
             let (from, to) = (pair[0], pair[1]);
             let mark = marks
                 .iter()
-                .find(|(range, _)| from < to && range.start <= from && to <= range.end)
-                .map(|(_, mark)| *mark);
-            parts.push(match mark {
-                Some(mark) => view! { <span class=mark>{piece(from, to, class)}</span> }.into_any(),
-                None => piece(from, to, class),
-            });
+                .enumerate()
+                .find(|(_, (range, _))| from < to && range.start <= from && to <= range.end)
+                .map(|(index, (_, mark))| (*mark, index));
+            let same =
+                matches!((&group, mark), (Some((_, open, _)), Some((_, index))) if *open == index);
+            if !same && let Some((class, _, children)) = group.take() {
+                parts.push(view! { <span class=class>{children}</span> }.into_any());
+            }
+            match mark {
+                Some((mark, index)) => group
+                    .get_or_insert_with(|| (mark, index, Vec::new()))
+                    .2
+                    .push(piece(from, to, class)),
+                None => parts.push(piece(from, to, class)),
+            }
         }
+    }
+    if let Some((class, _, children)) = group.take() {
+        parts.push(view! { <span class=class>{children}</span> }.into_any());
     }
     view! { <span>{parts}</span> }.into_any()
 }

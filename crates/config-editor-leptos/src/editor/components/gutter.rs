@@ -68,8 +68,16 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
         >
             <span aria-hidden="true">{line}</span>
             {move || {
-                row.with(|row| row.marks.as_ref().and_then(|marks| marks.lock.clone())).map(|label| view! {
-                    <span class="config-editor__lock-marker" role="img" aria-label=label.clone() title=label></span>
+                // A lock, else a key beside a secret placeholder: one node.
+                row.with(|row| {
+                    row.marks.as_ref().and_then(|marks| match (&marks.lock, &marks.key) {
+                        (Some(lock), _) => Some(("config-editor__lock-marker", lock.clone())),
+                        (None, Some(key)) => Some(("config-editor__secret-marker", key.clone())),
+                        (None, None) => None,
+                    })
+                })
+                .map(|(class, label)| view! {
+                    <span class=class role="img" aria-label=label.clone() title=label></span>
                 })
             }}
             {move || {

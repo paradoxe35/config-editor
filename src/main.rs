@@ -9,8 +9,9 @@
 //! - `?schema=help` — the schema-help fixture (deprecated keys, docs links,
 //!   documented values) instead of the burrow schema, with its warnings
 //!   listed under the editor;
-//! - `?schema=protected` — the protected-fields fixture (read-only fields)
-//!   and its document; `&lock=/name,/listen` locks more fields as the host.
+//! - `?schema=protected` — the protected-fields fixture (read-only fields,
+//!   secrets with their placeholders) and its document;
+//!   `&lock=/name,/listen` locks more fields as the host.
 
 use config_editor_leptos::{ConfigEditor, ConfigEditorToolbar, EditorTheme, FieldPath, Language};
 use leptos::prelude::*;
@@ -30,19 +31,19 @@ const PROTECTED_SCHEMA: &str =
 fn protected_sample(language: Language) -> &'static str {
     match language.label() {
         "JSON" => {
-            "{\n  \"id\": \"srv-42\",\n  \"name\": \"edge\",\n  \"listen\": 7835,\n  \"limits\": {\n    \"max\": 10,\n    \"burst\": 20\n  },\n  \"tls\": {\n    \"cert\": \"/etc/edge.pem\"\n  }\n}\n"
+            "{\n  \"id\": \"srv-42\",\n  \"name\": \"edge\",\n  \"listen\": 7835,\n  \"limits\": {\n    \"max\": 10,\n    \"burst\": 20\n  },\n  \"tls\": {\n    \"cert\": \"/etc/edge.pem\",\n    \"key\": \"«secret 3f2a»\",\n    \"pin\": \"«secret 0b1c»\"\n  }\n}\n"
         }
         "TOML" => {
-            "id = \"srv-42\"\nname = \"edge\"\nlisten = 7835\n\n[limits]\nmax = 10\nburst = 20\n\n[tls]\ncert = \"/etc/edge.pem\"\n"
+            "id = \"srv-42\"\nname = \"edge\"\nlisten = 7835\n\n[limits]\nmax = 10\nburst = 20\n\n[tls]\ncert = \"/etc/edge.pem\"\nkey = \"«secret 3f2a»\"\npin = \"«secret 0b1c»\"\n"
         }
         "HCL" => {
-            "id = \"srv-42\"\nname = \"edge\"\nlisten = 7835\n\nlimits {\n  max = 10\n  burst = 20\n}\n\ntls {\n  cert = \"/etc/edge.pem\"\n}\n"
+            "id = \"srv-42\"\nname = \"edge\"\nlisten = 7835\n\nlimits {\n  max = 10\n  burst = 20\n}\n\ntls {\n  cert = \"/etc/edge.pem\"\n  key = \"«secret 3f2a»\"\n  pin = \"«secret 0b1c»\"\n}\n"
         }
         "XML" => {
-            "<id>srv-42</id>\n<name>edge</name>\n<listen>7835</listen>\n<limits>\n  <max>10</max>\n  <burst>20</burst>\n</limits>\n<tls>\n  <cert>/etc/edge.pem</cert>\n</tls>\n"
+            "<id>srv-42</id>\n<name>edge</name>\n<listen>7835</listen>\n<limits>\n  <max>10</max>\n  <burst>20</burst>\n</limits>\n<tls>\n  <cert>/etc/edge.pem</cert>\n  <key>«secret 3f2a»</key>\n  <pin>«secret 0b1c»</pin>\n</tls>\n"
         }
         _ => {
-            "id: srv-42\nname: edge\nlisten: 7835\nlimits:\n  max: 10\n  burst: 20\ntls:\n  cert: /etc/edge.pem\n"
+            "id: srv-42\nname: edge\nlisten: 7835\nlimits:\n  max: 10\n  burst: 20\ntls:\n  cert: /etc/edge.pem\n  key: «secret 3f2a»\n  pin: «secret 0b1c»\n"
         }
     }
 }

@@ -147,6 +147,8 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
         if let Some(on_change) = state.on_change {
             on_change.run(restored.value);
         }
+        // A placeholder an undo brings back is the host's again.
+        state.rescan_tokens(false);
         state.close_suggestions();
     }
     true

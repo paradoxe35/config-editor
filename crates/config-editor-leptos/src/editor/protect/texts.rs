@@ -23,8 +23,54 @@ pub(crate) const LOCK_LABEL: &str = "Read-only";
 
 /// What Replace All adds when it left matches in protected text alone.
 pub(crate) fn skipped_matches(count: usize) -> String {
-    format!("; skipped {count} in read-only text")
+    format!("; skipped {count} in read-only text or secret placeholders")
 }
+
+/// The gutter key's label.
+pub(crate) const SECRET_LABEL: &str = "Secret placeholder";
+
+/// The default hover text of a secret placeholder.
+pub(crate) const SECRET_HINT: &str = "Keeps the current secret unless you replace it";
+
+/// The default placeholder pattern.
+pub(crate) const SECRET_PATTERN: &str = "«secret [0-9a-f]+»";
+
+/// The default reference forms offered in a secret field.
+pub(crate) const REFERENCE_PREFIXES: [&str; 2] = ["${", "file:"];
+
+/// What a schema message says instead of a secret field's value.
+#[cfg(feature = "schema-validation")]
+pub(crate) const SECRET_VALUE: &str = "the secret value";
+
+/// A placeholder the host did not give, in a secret field.
+pub(crate) fn unknown_placeholder(pointer: &str) -> String {
+    format!(
+        "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"
+    )
+}
+
+/// What a reference suggestion is, in its detail.
+pub(crate) fn reference_detail(prefix: &str) -> String {
+    match prefix {
+        "${" => "Read the secret from an environment variable".to_string(),
+        "file:" => "Read the secret from a file".to_string(),
+        other => format!("A reference starting with {other}"),
+    }
+}
+
+/// The label of a reference suggestion: the prefix with a stand-in for
+/// what follows it (`${VAR}`, `file:path`).
+pub(crate) fn reference_label(prefix: &str, closer: &str) -> String {
+    let stand_in = match prefix {
+        "${" => "VAR",
+        "file:" => "path",
+        _ => "…",
+    };
+    format!("{prefix}{stand_in}{closer}")
+}
+
+/// The type column of a reference suggestion.
+pub(crate) const REFERENCE_TYPE: &str = "reference";
 
 /// What Replace All says when every match is in read-only text.
 pub(crate) const NOTHING_REPLACED: &str = "Every match is in read-only text; nothing was replaced";

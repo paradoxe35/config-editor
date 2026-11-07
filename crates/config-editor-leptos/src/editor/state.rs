@@ -14,7 +14,7 @@ use super::completion::{
     next_slot, stop_ranges,
 };
 use super::components::HoverCard;
-use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
+use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate_with};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
 use super::go_to_line::GoToLine;
 use super::history::{EditHistory, Selection, Snapshot};
@@ -27,6 +27,7 @@ use super::paths::{FieldPath, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
 use super::protect::{
     Around, Inputs, LineMarks, ProtectInit, ProtectState, adjust_suggestions, line_marks,
+    unknown_placeholders,
 };
 use super::search::SearchState;
 
@@ -310,19 +311,51 @@ impl EditorState {
             })
         });
 
+        let host_text_store = StoredValue::new(host_text.clone());
+        let protect = ProtectState::new(
+            protect,
+            Inputs {
+                source,
+                edit_language,
+                host_language,
+                schema: schema.clone(),
+                host_text: host_text_store,
+            },
+        );
         let validated = {
             let schema = schema.clone();
             Memo::new(move |_| {
-                let mut found = validate(
-                    &diagnosed_text.get(),
-                    schema.as_deref(),
-                    schema_error.as_deref(),
-                    features.diagnostics,
-                    edit_language.get().behavior(),
-                );
+                // The host's placeholders stand for the current secrets.
+                let accepted = protect.secrets.known_tokens();
+                let behavior = edit_language.get().behavior();
+                let mut found = diagnosed_text.with(|text| {
+                    validate_with(
+                        text,
+                        schema.as_deref(),
+                        schema_error.as_deref(),
+                        features.diagnostics,
+                        behavior,
+                        &accepted,
+                    )
+                });
                 if features.diagnostics {
                     found.extend(load_problems.get());
                     found.extend(conversion_problems.get());
+                    if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
+                        found.extend(diagnosed_text.with(|text| {
+                            protect.secrets.matcher.with_value(|matcher| {
+                                protect.secrets.known.with(|known| {
+                                    unknown_placeholders(
+                                        behavior,
+                                        text,
+                                        matcher,
+                                        known,
+                                        &bundle.schema,
+                                    )
+                                })
+                            })
+                        }));
+                    }
                 }
                 found
             })
@@ -346,19 +379,8 @@ impl EditorState {
             let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
             source.with(|current| shift_diagnostics(&checked, current, &found))
         });
-        let host_text_store = StoredValue::new(host_text.clone());
-        let protect = ProtectState::new(
-            protect,
-            Inputs {
-                source,
-                edit_language,
-                host_language,
-                schema: schema.clone(),
-                host_text: host_text_store,
-            },
-        );
         let suggestions = Memo::new(move |_| {
-            if !suggestions_requested.get() {
+            if !suggestions_requested.get() || !features.completions {
                 return Vec::new();
             }
             let behavior = edit_language.get_untracked().behavior();
@@ -373,9 +395,10 @@ impl EditorState {
                     behavior,
                     replace_word.get(),
                 );
-                if options.is_empty() {
-                    return options;
-                }
+                let prefixes = protect
+                    .secrets
+                    .options
+                    .with_value(|options| options.reference_prefixes.clone());
                 protect.host_paths.with(|host_paths| {
                     protect.protected.with(|protected| {
                         adjust_suggestions(
@@ -384,6 +407,8 @@ impl EditorState {
                                 behavior,
                                 source: text,
                                 cursor: at,
+                                explicit: explicit_request.get(),
+                                prefixes: &prefixes,
                                 schema: schema.as_deref().map(|bundle| &bundle.schema),
                                 host_paths,
                                 protected,
@@ -437,9 +462,13 @@ impl EditorState {
                     .collect()
             });
             source.with(|text| {
-                let marks = protect
-                    .protected
-                    .with(|protected| line_marks(text, protected));
+                let marks = protect.protected.with(|protected| {
+                    protect.secrets.tokens.with(|tokens| {
+                        protect.secrets.options.with_value(|options| {
+                            line_marks(text, protected, tokens, &options.hint)
+                        })
+                    })
+                });
                 diff.with(|line_diff| {
                     text.split('\n')
                         .enumerate()
@@ -611,16 +640,22 @@ impl EditorState {
             anchor,
             reveal,
         } = edit;
-        if !self.edit_allowed(&before, &text, caret) {
+        let widened_from = caret;
+        let Some((text, caret)) = self.allow_edit(&before, text, caret) else {
             if let Some(element) = self.textarea() {
                 element.set_value(&before);
                 let _ = element
                     .set_selection_range(before_selection.0 as u32, before_selection.1 as u32);
             }
             return false;
-        }
+        };
         self.follow_edit(&before, &text, caret);
-        let anchor = anchor.unwrap_or(caret);
+        // An edit widened over a placeholder leaves just the caret.
+        let anchor = if caret == widened_from {
+            anchor.unwrap_or(caret)
+        } else {
+            caret
+        };
         let (start, end) = (anchor.min(caret), anchor.max(caret));
         self.history.update(|history| {
             history.record_action(

@@ -235,6 +235,10 @@ pub enum ThemeColor {
     ToggleActive,
     /// Read-only values and the gutter lock (by default the `Muted` color).
     Locked,
+    /// Secret placeholder chips.
+    SecretChip,
+    /// Secret placeholder chip outlines and the gutter key.
+    SecretChipBorder,
 }
 
 impl ThemeColor {
@@ -305,6 +309,8 @@ impl ThemeColor {
         Self::InputBorder,
         Self::ToggleActive,
         Self::Locked,
+        Self::SecretChip,
+        Self::SecretChipBorder,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -375,6 +381,8 @@ impl ThemeColor {
             Self::InputBorder => "--config-editor-input-border",
             Self::ToggleActive => "--config-editor-toggle-active",
             Self::Locked => "--config-editor-locked",
+            Self::SecretChip => "--config-editor-secret-chip",
+            Self::SecretChipBorder => "--config-editor-secret-chip-border",
         }
     }
 }

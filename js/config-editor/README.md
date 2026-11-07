@@ -84,6 +84,7 @@ throws, and an unknown option name is reported in the console.
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). |
 | `readOnlyPaths`  | `FieldPath[]`                | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
 | `readOnlyRanges` | `TextRangeInput[]`           | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` string indices or one-based `{ startLine, startColumn, endLine?, endColumn? }`. |
+| `secrets`        | `SecretOptions`              | defaults         | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: how secret placeholders are matched, described and completed; see [Secrets](#secrets). |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -167,6 +168,38 @@ editor.setReadOnlyPaths(["/limits", "/tls/cert"]); // at runtime
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
   save that would change one is refused (shown as an error, not sent).
+
+### Secrets
+
+Fields the schema marks `writeOnly: true` or `x-secret: true` are secrets.
+The host sends a placeholder instead of the value, and the editor keeps it
+unless the user replaces it:
+
+```ts
+const editor = new ConfigEditor(element, {
+  language: "yaml",
+  value: "tls:\n  key: «secret 3f2a»\n",
+  schema,
+  secrets: {
+    placeholder: "«secret [0-9a-f]+»", // the default (Rust regex syntax)
+    isPlaceholder: (token) => knownTokens.has(token), // optional
+    hint: "Keeps the current secret unless you replace it",
+    referencePrefixes: ["${", "file:"],
+  },
+});
+```
+
+- Only tokens in the host's own `value` (and accepted by `isPlaceholder`)
+  are placeholders; typed or pasted look-alikes stay plain text, and one in
+  a secret field is flagged.
+- A placeholder is atomic: the caret never lands inside, `Backspace` and
+  `Delete` remove it whole, an edit cutting into it replaces it whole, and
+  copying keeps its text. It shows as a chip (color tokens `secret-chip`,
+  `secret-chip-border`) with a key in the gutter; hovering shows `hint`.
+- In a secret field, suggestions offer `${VAR}` and `file:` references.
+- The schema check accepts an untouched placeholder (no `pattern`,
+  `format`, length or type problem), and `editAs` and saving keep it
+  byte-for-byte.
 
 ### Paths
 

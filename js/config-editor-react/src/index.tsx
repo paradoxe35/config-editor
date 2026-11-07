@@ -7,6 +7,7 @@ import init, {
   type FieldPath,
   type HostDiagnostic,
   type LanguageName,
+  type SecretOptions,
   type TextRangeInput,
   type ThemeColorMap,
   type ThemeName,
@@ -42,6 +43,7 @@ export type {
   FieldPath,
   HostDiagnostic,
   LanguageName,
+  SecretOptions,
   Severity,
   TextRangeInput,
   ThemeColorMap,
@@ -124,6 +126,12 @@ export interface ConfigEditorProps {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change. Updates live. */
   readOnlyRanges?: TextRangeInput[];
+  /**
+   * How secret placeholders are matched, described and completed. Changing
+   * `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder`
+   * may change freely (the latest one is called).
+   */
+  secrets?: SecretOptions;
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
@@ -234,6 +242,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
 
     const followPath = (path: EditorPath) => latest.current.onPathChange?.(path);
 
+    // The secrets options that re-mount (the check function does not).
+    const secretsKey = JSON.stringify(
+      props.secrets
+        ? [props.secrets.placeholder, props.secrets.hint, props.secrets.referencePrefixes, !!props.secrets.isPlaceholder]
+        : null,
+    );
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
       let cancelled = false;
@@ -278,6 +292,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           hostDiagnostics: current.hostDiagnostics,
           readOnlyPaths: current.readOnlyPaths,
           readOnlyRanges: current.readOnlyRanges,
+          secrets: current.secrets && {
+            ...current.secrets,
+            isPlaceholder: current.secrets.isPlaceholder
+              ? (token: string) => latest.current.secrets?.isPlaceholder?.(token) ?? false
+              : undefined,
+          },
           onSchemaWarning: (message) => {
             const report = latest.current.onSchemaWarning;
             if (report) report(message);
@@ -340,6 +360,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.search,
       props.goToLine,
       props.editorClassName,
+      secretsKey,
       retry,
     ]);
 

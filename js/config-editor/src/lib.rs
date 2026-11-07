@@ -13,7 +13,8 @@ use config_editor_leptos::language::{
 };
 use config_editor_leptos::{
     ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath, HostDiagnostic,
-    Language, Schema, SchemaSource, Severity, TextPosition, TextRange, ThemeColor, ThemeColors,
+    Language, Schema, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
+    ThemeColors,
 };
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
@@ -72,6 +73,20 @@ export interface EditorOptions {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits. See `setReadOnlyRanges`. */
   readOnlyRanges?: TextRangeInput[];
+  /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
+  secrets?: SecretOptions;
+}
+
+/** Secret placeholders: tokens the host writes in place of real secrets. */
+export interface SecretOptions {
+  /** A regular expression (Rust `regex` syntax) matching placeholder tokens. Default `«secret [0-9a-f]+»`. Only tokens in the host's own `value` are real. */
+  placeholder?: string;
+  /** Decides which matched tokens are real placeholders. */
+  isPlaceholder?: (token: string) => boolean;
+  /** Hover text of a placeholder. Default "Keeps the current secret unless you replace it". */
+  hint?: string;
+  /** Reference forms offered in a secret field's value. Default `["${", "file:"]`. */
+  referencePrefixes?: string[];
 }
 
 /** A stretch of the host's document: string indices, or one-based lines and columns. */
@@ -314,7 +329,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 22] = [
+const OPTIONS: [&str; 23] = [
     "value",
     "language",
     "editAs",
@@ -337,7 +352,11 @@ const OPTIONS: [&str; 22] = [
     "onSchemaWarning",
     "readOnlyPaths",
     "readOnlyRanges",
+    "secrets",
 ];
+
+/// Keys `secrets` can hold.
+const SECRET_KEYS: &[&str] = &["placeholder", "isPlaceholder", "hint", "referencePrefixes"];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
 /// `readOnly`), which would otherwise be ignored without a word.
@@ -635,6 +654,7 @@ impl ConfigEditor {
         let latest: Latest = std::sync::Arc::new(std::sync::Mutex::new(value.clone()));
         let latest_for_view = latest.clone();
         let owner = Owner::new();
+        let secrets = owner.with(|| secrets_from(&field(&options, "secrets")))?;
         let state = owner.with(|| State {
             value: RwSignal::new(value.clone()),
             baseline: RwSignal::new(baseline),
@@ -727,6 +747,7 @@ impl ConfigEditor {
                             on_schema_warning=schema_warning
                             read_only_paths=read_only_paths
                             read_only_ranges=read_only_ranges
+                            secrets=secrets.clone()
                         />
                     }
                     .into_any(),
@@ -753,6 +774,7 @@ impl ConfigEditor {
                             host_diagnostics=host_diagnostics
                             read_only_paths=read_only_paths
                             read_only_ranges=read_only_ranges
+                            secrets=secrets.clone()
                         />
                     }
                     .into_any(),
@@ -1241,6 +1263,52 @@ fn host_diagnostic_from(item: &JsValue, host_text: &str) -> Result<HostDiagnosti
 
 /// A range from JavaScript: string indices `{ start, end }` into
 /// `host_text`, or one-based `{ startLine, startColumn, endLine?, endColumn? }`.
+/// The `secrets` option (absent: the defaults). Call inside the editor's
+/// owner: a host check is kept there.
+fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
+    let mut options = SecretOptions::default();
+    if value.is_undefined() || value.is_null() {
+        return Ok(options);
+    }
+    if !value.is_object() || Array::is_array(value) {
+        return Err(JsError::new(
+            "secrets must be an object: { placeholder?, isPlaceholder?, hint?, referencePrefixes? }",
+        ));
+    }
+    warn_unknown_keys(value, SECRET_KEYS, "secrets key");
+    if let Some(pattern) = optional_text(&field(value, "placeholder"), "secrets.placeholder")? {
+        options = options.with_placeholder(pattern);
+    }
+    if let Some(hint) = optional_text(&field(value, "hint"), "secrets.hint")? {
+        options = options.with_hint(hint);
+    }
+    let prefixes = field(value, "referencePrefixes");
+    if !prefixes.is_undefined() && !prefixes.is_null() {
+        let list = Array::is_array(&prefixes)
+            .then(|| Array::from(&prefixes))
+            .ok_or_else(|| JsError::new("secrets.referencePrefixes must be an array of strings"))?;
+        let prefixes: Option<Vec<String>> = list.iter().map(|prefix| prefix.as_string()).collect();
+        options = options.with_reference_prefixes(prefixes.ok_or_else(|| {
+            JsError::new("secrets.referencePrefixes must be an array of strings")
+        })?);
+    }
+    if let Some(check) = function_option(value, "isPlaceholder")? {
+        let check = StoredValue::new_local(Some(check));
+        options = options.with_matcher(move |token: String| {
+            check
+                .try_with_value(|check| {
+                    check.as_ref().is_some_and(|check| {
+                        check
+                            .call1(&JsValue::NULL, &JsValue::from_str(&token))
+                            .is_ok_and(|real| real.is_truthy())
+                    })
+                })
+                .unwrap_or(false)
+        });
+    }
+    Ok(options)
+}
+
 /// An optional list of paths (`readOnlyPaths`).
 fn paths_from(list: &JsValue, name: &str) -> Result<Vec<FieldPath>, JsError> {
     if list.is_undefined() || list.is_null() {

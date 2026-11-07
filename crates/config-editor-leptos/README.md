@@ -91,6 +91,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
 | `read_only_paths`              | `Signal<Vec<FieldPath>>`                   | —                | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
 | `read_only_ranges`             | `Signal<Vec<TextRange>>`                   | —                | Stretches of the host's text the user cannot change; they follow the text through edits.                                             |
+| `secrets`                      | `SecretOptions`                            | defaults         | How secret placeholders are matched, described and completed; see [Secrets](#secrets).                                              |
 | `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
 | `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
 
@@ -274,6 +275,48 @@ view! {
   An Edit-as save that would still change a read-only value, by any route,
   is refused like other unsafe saves: it is not sent, and an error says
   which field.
+
+## Secrets
+
+Fields the schema marks `writeOnly: true` or `x-secret: true` are secrets.
+The host never sends their values: it writes a placeholder token instead
+(`«secret 3f2a»` by default), and the editor keeps it as it is unless the
+user replaces it.
+
+```rust
+use config_editor_leptos::{ConfigEditor, SecretOptions};
+
+// tls:
+//   key: «secret 3f2a»
+let secrets = SecretOptions::default()
+    .with_placeholder(r"«secret [0-9a-f]+»") // the default
+    .with_matcher(|token| token.len() < 40)  // optional: which matches are real
+    .with_hint("Keeps the current secret unless you replace it")
+    .with_reference_prefixes(["${", "file:"]);
+view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
+```
+
+- Only tokens the host gave are placeholders: a match of the pattern (and
+  of the host's check) found in the host's own `value`. A look-alike typed
+  or pasted in stays plain text, and one in a secret field is flagged as a
+  problem (it stands for no current secret).
+- A placeholder is atomic: the caret never lands inside it (clicks, arrows,
+  `Home`/`End` and selections snap to its edges; `←`/`→` step over it),
+  `Backspace` or `Delete` next to it removes it whole, an edit or a
+  selection cutting into it replaces it whole, and copying it copies the
+  token as it is. Undo brings it back as a placeholder.
+- It is drawn as a chip (`--config-editor-secret-chip`,
+  `--config-editor-secret-chip-border`: `ThemeColor::SecretChip`,
+  `SecretChipBorder`), with a key in the gutter; hovering it shows the hint.
+- In a secret field's value, suggestions offer references instead of
+  values: `${VAR}` (the caret inside the braces) and `file:`; HCL writes
+  `${` escaped as `$${`, so the text survives conversion.
+- The schema check takes an untouched placeholder as the current secret:
+  no `pattern`, `format`, length or type problem is reported on it, and
+  messages about a secret field never quote what was typed there.
+- Edit-as conversions and saves keep each placeholder byte-for-byte, in
+  every language pair and back. Real secret values never reach the editor;
+  it logs nothing about field values.
 
 ## Schema help
 
@@ -528,7 +571,8 @@ The find widget uses `SearchMatch`, `SearchMatchCurrent` and
 `SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
 and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
 option buttons. Read-only values and the gutter lock use `Locked`
-(`--config-editor-locked`, which follows `Muted` unless set).
+(`--config-editor-locked`, which follows `Muted` unless set), secret
+placeholders `SecretChip` and `SecretChipBorder`.
 
 ## Cargo features
 

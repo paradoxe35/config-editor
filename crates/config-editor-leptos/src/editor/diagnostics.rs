@@ -399,6 +399,21 @@ pub(super) fn validate(
     enabled: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Diagnostic> {
+    validate_with(source, schema, schema_error, enabled, behavior, &[])
+}
+
+/// [`validate`], accepting a field whose whole value is one of `accepted`
+/// (the host's secret placeholders, standing for the current secret)
+/// whatever its schema says: no `pattern`, `format`, length or type
+/// problem is reported on it. Messages never quote a secret field's value.
+pub(super) fn validate_with(
+    source: &str,
+    schema: Option<&SchemaBundle>,
+    schema_error: Option<&str>,
+    enabled: bool,
+    behavior: &dyn ConfigLanguage,
+    accepted: &[String],
+) -> Vec<Diagnostic> {
     if !enabled {
         return Vec::new();
     }
@@ -462,8 +477,22 @@ pub(super) fn validate(
     let deprecated = schema
         .map(|schema| deprecation_warnings(&document, schema, source, behavior))
         .unwrap_or_default();
+    // Without `schema-validation` no check could reject a placeholder.
+    #[cfg(not(feature = "schema-validation"))]
+    let _ = accepted;
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
+        let placeholders = accepted_pointers(&document, accepted);
+        let secrets = if schema.has_marks {
+            super::protect::schema_marks(&document, &schema.schema).secret
+        } else {
+            Vec::new()
+        };
+        let inside = |path: &str, pointers: &[String]| {
+            pointers
+                .iter()
+                .any(|pointer| path == pointer || path.starts_with(&format!("{pointer}/")))
+        };
         let mut diagnostics = schema
             .validator
             .iter_errors(&document)
@@ -472,6 +501,9 @@ pub(super) fn validate(
                     .into_iter()
                     .flat_map(|error| {
                         let path = error.instance_path().as_str().to_string();
+                        if inside(&path, &placeholders) {
+                            return Vec::new();
+                        }
                         let message = match error.kind() {
                             ValidationErrorKind::AnyOf { context }
                             | ValidationErrorKind::OneOfNotValid { context } => {
@@ -498,7 +530,9 @@ pub(super) fn validate(
                         };
                         // A large value is abbreviated rather than quoted whole.
                         let instance = error.instance().to_string();
-                        let message = if instance.chars().count() > MAX_QUOTED_VALUE {
+                        let message = if inside(&path, &secrets) {
+                            message.replace(&instance, super::protect::SECRET_VALUE)
+                        } else if instance.chars().count() > MAX_QUOTED_VALUE {
                             let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
                             message.replacen(&instance, &format!("{short}…"), 1)
                         } else {
@@ -579,6 +613,35 @@ pub(super) fn validate(
         return capped(diagnostics);
     }
     deprecated
+}
+
+/// Pointers of the values of `document` that are one of `accepted`.
+#[cfg(feature = "schema-validation")]
+fn accepted_pointers(document: &Value, accepted: &[String]) -> Vec<String> {
+    if accepted.is_empty() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut stack = vec![(String::new(), document)];
+    while let Some((pointer, value)) = stack.pop() {
+        match value {
+            Value::String(text) if accepted.iter().any(|token| token == text) => {
+                found.push(pointer)
+            }
+            Value::Object(map) => stack.extend(
+                map.iter()
+                    .map(|(key, child)| (format!("{pointer}/{}", escape_pointer(key)), child)),
+            ),
+            Value::Array(items) => stack.extend(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| (format!("{pointer}/{index}"), child)),
+            ),
+            _ => {}
+        }
+    }
+    found
 }
 
 /// Most deprecated keys marked in one document.

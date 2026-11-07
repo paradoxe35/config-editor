@@ -36,7 +36,8 @@
           "writeOnly": true,
           "minLength": 40,
           "pattern": "^-----BEGIN"
-        }
+        },
+        "pin": { "type": "integer", "description": "The key's PIN.", "x-secret": true }
       }
     },
     "clients": {

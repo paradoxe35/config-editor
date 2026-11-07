@@ -136,6 +136,9 @@ function App({ schema }: { schema: string }) {
           <input id="lock-first-line" type="checkbox" checked={lockFirstLine} onChange={(event) => setLockFirstLine(event.target.checked)} />{" "}
           Lock line 1
         </label>
+        <button id="load-secret" type="button" onClick={() => setValue("clients:\n  acme:\n    secret: «secret 3f2a»\n")}>
+          Load a secret
+        </button>
         <span id="editing">{editing}</span>
         <span id="changes">{changes}</span>
         <code id="breadcrumb">{path}</code>
@@ -163,6 +166,7 @@ function App({ schema }: { schema: string }) {
         }
         onPathChange={(next) => setPath(next.pointer || "/")}
         hostDiagnostics={hostProblems}
+        secrets={{ hint: "Keeps the stored secret" }}
         readOnlyPaths={lockAddress ? ["/public_address"] : []}
         readOnlyRanges={lockFirstLine ? [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }] : []}
         theme={theme}

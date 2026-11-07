@@ -61,6 +61,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
 | `readOnlyPaths` | `FieldPath[]` | — | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones; they hold with `editAs` too. See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#read-only-fields). Updates live. |
 | `readOnlyRanges` | `TextRangeInput[]` | — | Stretches of the document (in `language`) the user cannot change: `{ start, end }` or `{ startLine, startColumn, endLine?, endColumn? }`. Updates live. |
+| `secrets` | `SecretOptions` | defaults | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic and are kept unless replaced; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#secrets). Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
@@ -103,6 +104,8 @@ const ref = useRef<ConfigEditorHandle>(null);
   hostDiagnostics={[{ path: "/web/listen", message: "port 80 is taken", source: "server" }]} />;
 <ConfigEditor value={text} onChange={setText} schema={schema}
   readOnlyPaths={["/limits"]} />; // plus the schema's `readOnly` fields
+<ConfigEditor value={text} onChange={setText} schema={schema}
+  secrets={{ hint: "Keeps the stored secret" }} />; // `«secret 3f2a»` stays atomic
 
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted

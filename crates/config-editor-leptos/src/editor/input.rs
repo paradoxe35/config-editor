@@ -206,21 +206,32 @@ pub(super) fn flush_input(state: EditorState) {
     } else {
         burst.selection
     };
-    // An edit changing a read-only field is undone, its reason shown.
+    // An edit changing a read-only field is undone, its reason shown; one
+    // cutting a secret placeholder takes it whole.
+    let mut value = value;
     let caret = textarea_selection(&element).0;
-    if before != value && !state.edit_allowed(&before, &value, caret) {
-        let (start, end) = if burst_selection == UNKNOWN_SELECTION {
-            edit_range(&before, &value, caret)
-        } else {
-            burst_selection
-        };
-        element.set_value(&before);
-        let _ = element.set_selection_range(start as u32, end as u32);
-        state.note_caret(start);
-        return;
-    }
     if before != value {
-        state.follow_edit(&before, &value, caret);
+        match state.allow_edit(&before, value.clone(), caret) {
+            None => {
+                let (start, end) = if burst_selection == UNKNOWN_SELECTION {
+                    edit_range(&before, &value, caret)
+                } else {
+                    burst_selection
+                };
+                element.set_value(&before);
+                let _ = element.set_selection_range(start as u32, end as u32);
+                state.note_caret(start);
+                return;
+            }
+            Some((allowed, allowed_caret)) => {
+                if allowed != value {
+                    element.set_value(&allowed);
+                    let _ = element.set_selection_range(allowed_caret as u32, allowed_caret as u32);
+                    value = allowed;
+                }
+                state.follow_edit(&before, &value, textarea_selection(&element).0);
+            }
+        }
     }
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
@@ -354,6 +365,8 @@ pub(super) fn blur(state: EditorState) {
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.protect().hide_tip(false);
+    // The caret never lands inside a secret placeholder.
+    state.snap_to_tokens();
     state.forget_typing_aids();
     state.hide_shown_problem();
     if let Some(element) = target_textarea(event) {
@@ -371,6 +384,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     let Some(element) = target_textarea(event) else {
         return;
     };
+    state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     // Whether the list was open when the key moved the caret: ArrowUp/Down
     // with it closed are caret navigation, even when the new caret position
@@ -465,6 +479,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let Some(element) = state.textarea() else {
         return;
     };
+    // A selection cutting a secret placeholder copies it whole.
+    state.snap_to_tokens();
     let (start, end) = textarea_selection(&element);
     let (Some(clipboard), true) = (event.clipboard_data(), start == end) else {
         return;

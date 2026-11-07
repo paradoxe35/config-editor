@@ -24,6 +24,7 @@
       <button id="destroy" type="button">Destroy</button>
       <button id="reveal" type="button">Go to insecure_plaintext</button>
       <label><input id="lock-address" type="checkbox" /> Lock public_address</label>
+      <button id="load-secret" type="button">Load a secret</button>
       <label><input id="lock-first-line" type="checkbox" /> Lock line 1</label>
       <code id="breadcrumb"></code>
     </header>
@@ -90,6 +91,7 @@
         onChange: (text) => (saved.textContent = text),
         onEditAsChange: (language) => (document.body.dataset.editing = language),
         onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
+        secrets: { hint: "Keeps the stored secret" },
       });
       window.editor = editor;
       window.configEditor = { validate };
@@ -102,6 +104,8 @@
       document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");
       document.getElementById("destroy").onclick = () => editor.destroy();
       document.getElementById("reveal").onclick = () => editor.reveal("/insecure_plaintext");
+      document.getElementById("load-secret").onclick = () =>
+        editor.setValue("clients:\n  acme:\n    secret: «secret 3f2a»\n");
       document.getElementById("lock-address").onchange = (event) =>
         editor.setReadOnlyPaths(event.target.checked ? ["/public_address"] : []);
       document.getElementById("lock-first-line").onchange = (event) =>

@@ -17,6 +17,8 @@ use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{check_save, locked_pointers, range_pointers};
+use super::secrets::SecretState;
+use super::tokens::SecretOptions;
 
 /// How long a refused edit's tooltip stays, in milliseconds.
 const TIP_MS: i32 = 2500;
@@ -36,6 +38,7 @@ pub(crate) struct Tip {
 pub(crate) struct ProtectInit {
     pub(crate) paths: Signal<Vec<FieldPath>>,
     pub(crate) ranges: Signal<Vec<TextRange>>,
+    pub(crate) secrets: SecretOptions,
 }
 
 /// The protection signals of one editor.
@@ -51,6 +54,8 @@ pub(crate) struct ProtectState {
     pub(crate) protected: Memo<Arc<Protected>>,
     pub(crate) tip: RwSignal<Option<Tip>>,
     tip_token: StoredValue<u64>,
+    /// Secret placeholders (see `secrets`).
+    pub(crate) secrets: SecretState,
 }
 
 /// What the memo of locks reads.
@@ -64,7 +69,11 @@ pub(crate) struct Inputs {
 
 impl ProtectState {
     pub(crate) fn new(init: ProtectInit, inputs: Inputs) -> Self {
-        let ProtectInit { paths, ranges } = init;
+        let ProtectInit {
+            paths,
+            ranges,
+            secrets,
+        } = init;
         let Inputs {
             source,
             edit_language,
@@ -72,6 +81,9 @@ impl ProtectState {
             schema,
             host_text,
         } = inputs;
+        let secrets = host_text.with_value(|host| {
+            source.with_untracked(|shown| SecretState::new(secrets, host, shown))
+        });
         let local =
             RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
         let protected = Memo::new_with_compare(
@@ -127,6 +139,7 @@ impl ProtectState {
             protected,
             tip: RwSignal::new(None),
             tip_token: StoredValue::new(0),
+            secrets,
         }
     }
 
@@ -210,8 +223,9 @@ impl EditorState {
     }
 
     /// Follows an applied edit with what is kept by position (the host's
-    /// ranges).
+    /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
+        self.follow_tokens(before, after, caret);
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
@@ -284,6 +298,12 @@ impl EditorState {
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
                 .map(|range| byte(range.start)..byte(range.end))
+                .chain(self.protect().secrets.tokens.with_untracked(|tokens| {
+                    tokens
+                        .iter()
+                        .map(|range| byte(range.start)..byte(range.end))
+                        .collect::<Vec<_>>()
+                }))
                 .collect()
         })
     }
@@ -291,16 +311,21 @@ impl EditorState {
     /// Shows what the protected text at zero-based `line`:`column` is, for
     /// the pointer; `false` when nothing protected is there.
     pub(crate) fn hover_protected(&self, line: usize, column: usize) -> bool {
-        if self
-            .protect()
-            .protected
-            .with_untracked(|protected| protected.is_empty())
+        let no_tokens = self.protect().secrets.tokens.with_untracked(Vec::is_empty);
+        if no_tokens
+            && self
+                .protect()
+                .protected
+                .with_untracked(|protected| protected.is_empty())
         {
             self.protect().hide_tip(true);
             return false;
         }
         let found = self.source.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
+            if let Some(hint) = self.token_hint(offset) {
+                return Some((hint, offset));
+            }
             self.protect().protected.with_untracked(|protected| {
                 protected
                     .locks

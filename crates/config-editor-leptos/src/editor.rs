@@ -52,6 +52,7 @@ pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
+pub use protect::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
@@ -204,6 +205,11 @@ pub fn ConfigEditor(
     /// language, the fields they cover are locked instead.
     #[prop(optional, into)]
     read_only_ranges: Option<Signal<Vec<TextRange>>>,
+    /// How secret placeholders are matched, described and completed; see
+    /// [`SecretOptions`]. Fields the schema marks `writeOnly` or `x-secret`
+    /// are secrets.
+    #[prop(optional, into)]
+    secrets: Option<SecretOptions>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -244,6 +250,7 @@ pub fn ConfigEditor(
         protect: protect::ProtectInit {
             paths: read_only_paths.unwrap_or_default(),
             ranges: read_only_ranges.unwrap_or_default(),
+            secrets: secrets.unwrap_or_default(),
         },
     });
     sync::connect(
