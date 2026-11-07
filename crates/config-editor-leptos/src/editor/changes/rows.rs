@@ -21,7 +21,7 @@ pub(in crate::editor) fn with_line_diff<R>(
     state: EditorState,
     f: impl FnOnce(&LineDiff) -> R,
 ) -> R {
-    state.changes.diff.with(f)
+    state.changes().diff.with(f)
 }
 
 /// How line `index` (0-based) differs from the baseline.
@@ -91,7 +91,7 @@ pub(in crate::editor) fn hides_change(
     state: EditorState,
     lines: std::ops::RangeInclusive<usize>,
 ) -> bool {
-    state.changes.diff.with(|diff| {
+    state.changes().diff.with(|diff| {
         lines.into_iter().any(|index| {
             line_kind(diff, index) != DiffKind::Unchanged
                 || diff.deleted_before.get(index).copied().unwrap_or(false)

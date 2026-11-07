@@ -10,31 +10,31 @@ use crate::reactive::Relay;
 pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
     // The items are rebuilt as the list filters, so they read the selection
     // through a relay (see `reactive`).
-    let active = Relay::new(move || state.completion.active.get());
+    let active = Relay::new(move || state.completion().active.get());
     view! {
         <div
             class="config-editor__completions"
-            class:hidden=move || state.completion.suggestions.get().is_empty()
+            class:hidden=move || state.completion().suggestions.get().is_empty()
             role="listbox"
-            id=state.a11y.suggestions_id()
+            id=state.a11y().suggestions_id()
             aria-label=state.language_text(|strings| &strings.suggestions_label)
-            node_ref=state.view.completion_ref
+            node_ref=state.view().completion_ref
             style=move || {
-                state.view.layout_revision.get();
-                state.view.scroll_x.get();
-                state.view.scroll_y.get();
+                state.view().layout_revision.get();
+                state.view().scroll_x.get();
+                state.view().scroll_y.get();
                 // Return before reading source and caret so typing with the
                 // list hidden forces no layout.
-                let count = state.completion.suggestions.with(Vec::len);
+                let count = state.completion().suggestions.with(Vec::len);
                 if count == 0 {
                     return "visibility:hidden".to_string();
                 }
                 state
-                    .view.textarea_ref
+                    .view().textarea_ref
                     .get()
                     .map(|editor| {
-                        state.view.projection.with(|projection| {
-                            completion_popup_style(&editor, projection, &state.doc.text.get(), state.doc.caret.get(), count)
+                        state.view().projection.with(|projection| {
+                            completion_popup_style(&editor, projection, &state.doc().text.get(), state.doc().caret.get(), count)
                         })
                     })
                     .unwrap_or_else(|| "visibility:hidden".to_string())
@@ -43,7 +43,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             {move || {
                 let active = active.read();
                 state
-                    .completion.suggestions
+                    .completion().suggestions
                     .get()
                     .into_iter()
                     .enumerate()
@@ -88,7 +88,7 @@ fn Suggestion(
         <button
             type="button"
             role="option"
-            id=state.a11y.suggestion_id(index)
+            id=state.a11y().suggestion_id(index)
             aria-selected=move || selected().to_string()
             class="config-editor__completion"
             class:config-editor__completion-active=selected
@@ -118,7 +118,7 @@ fn Suggestion(
 /// pointer that stays still keeps the keyboard's selection.
 fn hover_selects(state: EditorState, index: usize, event: &web_sys::MouseEvent) {
     let moved = event.movement_x() != 0 || event.movement_y() != 0;
-    if moved && state.completion.active.get_untracked() != index {
-        state.completion.active.set(index);
+    if moved && state.completion().active.get_untracked() != index {
+        state.completion().active.set(index);
     }
 }

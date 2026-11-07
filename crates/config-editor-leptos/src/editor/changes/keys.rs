@@ -11,7 +11,7 @@ pub(in crate::editor) fn go_to_change(state: EditorState, event: &KeyboardEvent)
     if !event.alt_key()
         || event.ctrl_key()
         || event.meta_key()
-        || !state.config.settings.diff.get_untracked()
+        || !state.config().settings.diff.get_untracked()
     {
         return false;
     }

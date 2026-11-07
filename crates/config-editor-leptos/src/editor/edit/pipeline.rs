@@ -38,7 +38,7 @@ impl EditorState {
         let changed = edit.before != edit.text;
         // A switch, or an undo or redo back across one: another language's
         // text, whole (see `Origin::Switch`).
-        let language_before = self.sync.edit_language.get_untracked();
+        let language_before = self.sync().edit_language.get_untracked();
         let switching = edit
             .language
             .filter(|language| *language != language_before);
@@ -59,7 +59,7 @@ impl EditorState {
 
         trace(Stage::Check);
         if changed && origin.is_checked() {
-            let refusal = if self.config.read_only.get_untracked() {
+            let refusal = if self.config().read_only.get_untracked() {
                 Some(None)
             } else {
                 self.check_edit(&edit).err().map(Some)
@@ -86,7 +86,7 @@ impl EditorState {
             _ => None,
         };
         if changed && !edit.origin.is_checked() {
-            self.protect.trust_text();
+            self.protect().trust_text();
         }
         let rewritten = self.write_text(edit.text.clone());
         if origin.redetects_indent() {
@@ -114,7 +114,7 @@ impl EditorState {
     /// selection is then lost).
     fn write_text(&self, text: String) -> bool {
         let moved = self.folds_through(&text);
-        self.doc.text.set(text);
+        self.doc().text.set(text);
         self.settle_folds(moved)
     }
 
@@ -132,7 +132,7 @@ impl EditorState {
         }
         self.note_caret(start);
         if let Some(reason) = reason {
-            self.protect.flash(reason, edit.caret());
+            self.protect().flash(reason, edit.caret());
         }
     }
 
@@ -150,8 +150,8 @@ impl EditorState {
                 let (start, end) = (anchor.min(caret), anchor.max(caret));
                 if let Some(area) = area {
                     if reveal {
-                        self.doc.text.with_untracked(|text| {
-                            set_caret_visible(&area, text, caret, self.view.scroll_y)
+                        self.doc().text.with_untracked(|text| {
+                            set_caret_visible(&area, text, caret, self.view().scroll_y)
                         });
                     }
                     // The text between the anchor and the caret stays
@@ -189,8 +189,8 @@ impl EditorState {
                 let _ = area.set_selection_range(start as u32, end as u32);
                 area.set_scroll_top(top);
                 area.set_scroll_left(left);
-                self.view.scroll_x.set(f64::from(area.scroll_left()));
-                self.view.scroll_y.set(f64::from(area.scroll_top()));
+                self.view().scroll_x.set(f64::from(area.scroll_left()));
+                self.view().scroll_y.set(f64::from(area.scroll_top()));
                 (start, end)
             }
             After::Kept => (0, 0),
@@ -204,7 +204,7 @@ impl EditorState {
             selection: edit.replaced(after.0),
             language: None,
         };
-        let history = self.doc.history;
+        let history = self.doc().history;
         match &edit.origin {
             Origin::Command | Origin::Reload { .. } => {
                 history.update(|history| history.record_action(before(), after));

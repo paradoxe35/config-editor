@@ -22,7 +22,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     let (anchor, caret) = directed_selection(&element);
     let target = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| home_target(text, caret));
     event.prevent_default();
@@ -41,7 +41,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         let _ = element.set_selection_range(target as u32, target as u32);
     }
     // Bring the caret back into view when the line is scrolled sideways.
-    let column = state.doc.text.with_untracked(|text| {
+    let column = state.doc().text.with_untracked(|text| {
         let byte = utf16_to_byte_index(text, target);
         let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
         visual_column(&text[line_start..byte])
@@ -53,9 +53,9 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     // And vertically, when the caret's line is scrolled out of view.
     state
-        .doc
+        .doc()
         .text
-        .with_untracked(|text| reveal_offset(&element, text, target, state.view.scroll_y));
+        .with_untracked(|text| reveal_offset(&element, text, target, state.view().scroll_y));
     state.note_caret(target);
     true
 }
@@ -64,7 +64,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
 /// steps past it (and its closing quote) and is done; Enter goes on from
 /// the end of its line, so a string or element is never split.
 pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> bool {
-    let Some((start, end)) = state.completion.placeholder.get_value() else {
+    let Some((start, end)) = state.completion().placeholder.get_value() else {
         return false;
     };
     let key = event.key();
@@ -74,11 +74,11 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
     let Some(element) = state.textarea() else {
         return false;
     };
-    state.completion.placeholder.set_value(None);
+    state.completion().placeholder.set_value(None);
     if textarea_selection(&element) != (start, end) {
         return false;
     }
-    let end = state.doc.text.with_untracked(|text| {
+    let end = state.doc().text.with_untracked(|text| {
         let byte = utf16_to_byte_index(text, end);
         let rest = &text[byte..];
         let skip = if key == "Enter" {
@@ -89,13 +89,13 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         end + rest[..skip].encode_utf16().count()
     });
     let _ = element.set_selection_range(end as u32, end as u32);
-    state.doc.caret.set(end);
+    state.doc().caret.set(end);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
         // On to the block's next value, if it has one.
         state
-            .doc
+            .doc()
             .text
             .with_untracked(|text| super::tab::next_placeholder_slot(state, text, end));
         return true;
@@ -113,8 +113,8 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
-    state.typing.closers.update_value(Vec::clear);
-    state.completion.slot_region.set_value(None);
+    state.typing().closers.update_value(Vec::clear);
+    state.completion().slot_region.set_value(None);
     // Undo never changes a read-only field the host locked meanwhile: the
     // pipeline refuses it, and the step stays.
     if let Some(edit) = state.history_edit(redo)
@@ -134,17 +134,17 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     // Right after an edit the problems are those of the text before the
     // typing pause: check the text as it is now first.
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     if state
-        .problems
+        .problems()
         .diagnosed_text
         .with_untracked(|diagnosed| *diagnosed != text)
     {
-        state.problems.diagnosed_text.set(text);
+        state.problems().diagnosed_text.set(text);
     }
-    let here = state.doc.caret.get_untracked();
-    let mut positioned: Vec<(usize, usize)> = state.doc.text.with_untracked(|text| {
-        state.problems.diagnostics.with_untracked(|problems| {
+    let here = state.doc().caret.get_untracked();
+    let mut positioned: Vec<(usize, usize)> = state.doc().text.with_untracked(|text| {
+        state.problems().diagnostics.with_untracked(|problems| {
             problems
                 .iter()
                 .enumerate()
@@ -162,14 +162,14 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         // "Error 2 of 5: …" for screen readers, which do not see the
         // message the marker shows.
         let said = state.strings_untracked(|strings| {
-            state.problems.diagnostics.with_untracked(|problems| {
+            state.problems().diagnostics.with_untracked(|problems| {
                 problems.get(index).map(|problem| {
                     problem_announcement(strings, problem, position + 1, positioned.len())
                 })
             })
         });
         if let Some(said) = said {
-            state.a11y.announce(said);
+            state.a11y().announce(said);
         }
     }
     true
@@ -178,7 +178,7 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Escape closes the suggestion list, then the find widget, or with nothing
 /// to close collapses a selection.
 pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
-    if state.completion.requested.get_untracked() {
+    if state.completion().requested.get_untracked() {
         event.prevent_default();
         state.close_suggestions();
         return;

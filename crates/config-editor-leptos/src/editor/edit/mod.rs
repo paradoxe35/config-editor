@@ -278,7 +278,7 @@ impl EditorState {
     /// Undo (or redo, with `redo`) as an edit from the document as it is;
     /// `None` with nothing to undo (redo).
     pub(super) fn history_edit(&self, redo: bool) -> Option<Edit> {
-        let to = self.doc.history.with_untracked(|history| {
+        let to = self.doc().history.with_untracked(|history| {
             if redo {
                 history.next_redo().cloned()
             } else {
@@ -287,14 +287,14 @@ impl EditorState {
         })?;
         let selection = self.textarea().map_or_else(
             || {
-                let at = self.doc.caret.get_untracked();
+                let at = self.doc().caret.get_untracked();
                 (at, at)
             },
             |area| textarea_selection(&area),
         );
         Some(Edit::step(
             redo,
-            self.doc.text.get_untracked(),
+            self.doc().text.get_untracked(),
             selection,
             to,
         ))

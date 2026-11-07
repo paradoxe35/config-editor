@@ -8,7 +8,7 @@ use leptos::prelude::*;
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use crate::EditorStrings;
-use crate::reactive::{Relay, detached_owner};
+use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, SecretOptions,
     TextRange,
@@ -104,9 +104,11 @@ impl Entry {
     }
 
     /// Frees the entry's signals once its tab and editor are gone.
-    fn dispose_later(&self) {
+    fn dispose_later(&self, documents: Documents) {
         let owner = self.owner.clone();
-        request_animation_frame(move || owner.cleanup());
+        // Gone with the view, the work drops the owner, which cleans it up
+        // then.
+        later::next_frame(documents, move |_| owner.cleanup());
     }
 
     /// The document's tab element id.
@@ -193,6 +195,14 @@ pub(super) struct Documents {
 
 thread_local! {
     static NEXT_PREFIX: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Gone with the view's owner: deferred work skips it then (see
+/// `reactive::later`).
+impl IsDisposed for Documents {
+    fn is_disposed(&self) -> bool {
+        self.entries.is_disposed()
+    }
 }
 
 impl Documents {
@@ -309,7 +319,7 @@ impl Documents {
                 }
                 Fate::Remount(index) => {
                     let old = &existing[index];
-                    old.dispose_later();
+                    old.dispose_later(*self);
                     let mut document = document.clone();
                     // The new editor diffs against what the old one did.
                     if document.baseline.is_none() {
@@ -334,7 +344,7 @@ impl Documents {
             }
         }
         for index in removed {
-            existing[index].dispose_later();
+            existing[index].dispose_later(*self);
         }
         let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
         self.entries.set(entries);
@@ -488,7 +498,7 @@ impl Documents {
     fn focus_tab(&self, id: &str) {
         let documents = *self;
         let id = id.to_string();
-        request_animation_frame(move || {
+        later::next_frame(documents, move |documents| {
             if let Some(tab) = documents.tab_element(&id) {
                 let _ = tab.focus();
             }

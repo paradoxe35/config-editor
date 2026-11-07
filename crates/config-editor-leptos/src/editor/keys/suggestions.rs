@@ -27,11 +27,11 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
         let _ = element.set_selection_range(end, end);
         state.note_caret(end as usize);
         // The selected word is to be replaced: every key is offered.
-        state.completion.replace_word.set(true);
+        state.completion().replace_word.set(true);
     }
-    state.completion.active.set(0);
-    state.completion.explicit.set(true);
-    state.completion.requested.set(true);
+    state.completion().active.set(0);
+    state.completion().explicit.set(true);
+    state.completion().requested.set(true);
     true
 }
 
@@ -44,7 +44,7 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Returns whether the list is still open for the key, or `None` when the
 /// key was handled here.
 pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> Option<bool> {
-    let options = state.completion.suggestions.get_untracked();
+    let options = state.completion().suggestions.get_untracked();
     if options.is_empty() {
         return Some(false);
     }
@@ -56,9 +56,9 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         return Some(true);
     }
     let unchanged_caret = options
-        .get(state.completion.active.get_untracked())
+        .get(state.completion().active.get_untracked())
         .and_then(|option| {
-            state.doc.text.with_untracked(|text| {
+            state.doc().text.with_untracked(|text| {
                 let (updated, _, caret) = apply_completion(text, option);
                 (updated == *text).then_some(caret)
             })
@@ -68,14 +68,14 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
     };
     if let Some(element) = state.textarea() {
         let _ = element.set_selection_range(caret as u32, caret as u32);
-        state.doc.caret.set(caret);
+        state.doc().caret.set(caret);
     }
     state.close_suggestions();
     // Text after the caret on its line (`nodelay| = true`) would be split
     // off by a new line: Enter only closes the list there. A closer the
     // editor inserted (`</mode>`) is stepped out of by Enter instead.
     let line_continues = state.closer_at(caret).is_none()
-        && state.doc.text.with_untracked(|text| {
+        && state.doc().text.with_untracked(|text| {
             let byte = utf16_to_byte_index(text, caret);
             text[byte..]
                 .lines()
@@ -84,7 +84,7 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         });
     // After an explicit Ctrl+Space, Enter on what is already written only
     // closes the list.
-    let asked = state.completion.explicit.get_untracked();
+    let asked = state.completion().explicit.get_untracked();
     if key == "Tab" || line_continues || asked {
         event.prevent_default();
         return None;
@@ -94,13 +94,13 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
 
 /// Page and arrow keys move through an open list; Enter and Tab accept.
 pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
-    let count = state.completion.suggestions.with_untracked(Vec::len);
+    let count = state.completion().suggestions.with_untracked(Vec::len);
     // With a modifier the keys keep their editing meaning (Shift+arrows
     // select, Ctrl+Enter opens a line below).
     if count == 0 || super::modified(event) {
         return false;
     }
-    let current = state.completion.active.get_untracked();
+    let current = state.completion().active.get_untracked();
     let next = match event.key().as_str() {
         "PageDown" => (current + COMPLETION_PAGE_ROWS).min(count - 1),
         "PageUp" => current.saturating_sub(COMPLETION_PAGE_ROWS),
@@ -119,8 +119,8 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
         _ => return false,
     };
     event.prevent_default();
-    state.completion.active.set(next);
-    if let Some(list) = state.view.completion_ref.get_untracked() {
+    state.completion().active.set(next);
+    if let Some(list) = state.view().completion_ref.get_untracked() {
         scroll_completion_into_view(&list, next);
     }
     true

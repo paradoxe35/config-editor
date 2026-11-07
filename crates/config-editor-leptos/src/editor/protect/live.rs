@@ -20,9 +20,9 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use crate::reactive::later::{self, Timeout};
 
 /// How long a refused edit's tooltip stays, in milliseconds.
-#[cfg(target_arch = "wasm32")]
 const TIP_MS: i32 = 2500;
 
 /// A short message at a place in the text: why an edit was refused, or
@@ -46,8 +46,9 @@ pub(crate) struct ProtectInit {
 /// The bookkeeping of one editor's protection.
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    /// Which tooltip is shown, so a timer hides only its own.
-    tip_token: u64,
+    /// The timer hiding the refusal tooltip: one per editor, which a new
+    /// refusal replaces.
+    tip_timer: Timeout,
     /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
@@ -191,28 +192,22 @@ impl ProtectState {
             offset,
             hover: false,
         }));
-        self.marks.update_value(|marks| marks.tip_token += 1);
-        // Native unit tests have no window to time it with.
-        #[cfg(target_arch = "wasm32")]
-        self.hide_tip_later();
+        // Native unit tests have no clock: there it stays (unless a test
+        // holds the timers).
+        if later::defers() {
+            self.cancel_tip_timer();
+            let timer = later::after(self.tip, TIP_MS, |tip| tip.set(None));
+            self.marks.update_value(|marks| marks.tip_timer = timer);
+        }
     }
 
-    /// Hides the tooltip after a moment, unless another took its place.
-    #[cfg(target_arch = "wasm32")]
-    fn hide_tip_later(&self) {
-        let token = self.marks.with_value(|marks| marks.tip_token);
-        let state = *self;
-        if let Some(window) = web_sys::window() {
-            use wasm_bindgen::JsCast;
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                wasm_bindgen::closure::Closure::once_into_js(move || {
-                    if state.marks.try_with_value(|marks| marks.tip_token) == Some(token) {
-                        let _ = state.tip.try_set(None);
-                    }
-                })
-                .unchecked_ref(),
-                TIP_MS,
-            );
+    /// Drops the pending timer that would hide the tooltip.
+    fn cancel_tip_timer(&self) {
+        let timer = self
+            .marks
+            .try_update_value(|marks| std::mem::take(&mut marks.tip_timer));
+        if let Some(timer) = timer {
+            timer.cancel();
         }
     }
 
@@ -223,6 +218,7 @@ impl ProtectState {
             .with_untracked(|tip| tip.as_ref().map(|tip| tip.hover));
         if shown.is_some_and(|hover| hover || !hover_only) {
             self.tip.set(None);
+            self.cancel_tip_timer();
         }
     }
 }
@@ -242,7 +238,7 @@ impl EditorState {
         let state = *self;
 
         Effect::new(move |previous: Option<()>| {
-            state.protect.host_ranges.track();
+            state.protect().host_ranges.track();
             if previous.is_some() {
                 state.place_ranges();
             }
@@ -252,10 +248,10 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        self.protect
+        self.protect()
             .protected
             .with_untracked(|protected| {
-                self.config.schema.with_value(|schema| {
+                self.config().schema.with_value(|schema| {
                     check(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
@@ -295,7 +291,7 @@ impl EditorState {
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
         self.follow_tokens(before, after, caret);
-        if self.protect.ranges.with_untracked(Vec::is_empty) {
+        if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
         let region = {
@@ -304,7 +300,7 @@ impl EditorState {
         };
         let inserted = (after.encode_utf16().count() + region.len())
             .saturating_sub(before.encode_utf16().count());
-        self.protect.ranges.update(|ranges| {
+        self.protect().ranges.update(|ranges| {
             *ranges = ranges
                 .iter()
                 .map(|range| follow_range(range, &region, inserted))
@@ -315,30 +311,30 @@ impl EditorState {
     /// Places the host's ranges on the text on screen again (they changed,
     /// or the host replaced the text).
     pub(crate) fn place_ranges(&self) {
-        let host = self.config.host_language == self.sync.edit_language.get_untracked();
+        let host = self.config().host_language == self.sync().edit_language.get_untracked();
         let placed = if host {
-            self.protect
-                .host_ranges
-                .with_untracked(|ranges| self.doc.text.with_untracked(|text| offsets(text, ranges)))
+            self.protect().host_ranges.with_untracked(|ranges| {
+                self.doc().text.with_untracked(|text| offsets(text, ranges))
+            })
         } else {
             Vec::new()
         };
-        self.protect.ranges.set(placed);
+        self.protect().ranges.set(placed);
     }
 
     /// Refuses an Edit-as save from the host's `old` text to `new` that would
     /// change a read-only value.
     pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), ReadOnlyChange> {
-        self.config.schema.with_value(|schema| {
+        self.config().schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
             let marking = schema
                 .as_deref()
                 .filter(|bundle| bundle.has_marks)
                 .map(|bundle| &bundle.schema);
-            let behavior = self.config.host_language.behavior();
-            let paths = self.protect.host_paths.get_untracked();
+            let behavior = self.config().host_language.behavior();
+            let paths = self.protect().host_paths.get_untracked();
             let ranges = self
-                .protect
+                .protect()
                 .host_ranges
                 .with_untracked(|ranges| offsets(old, ranges));
             if marking.is_none() && paths.is_empty() && ranges.is_empty() {
@@ -364,13 +360,13 @@ impl EditorState {
     #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
-        self.protect.protected.with_untracked(|protected| {
+        self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
                 .map(|range| byte(range.start)..byte(range.end))
-                .chain(self.protect.secrets.tokens.with_untracked(|tokens| {
+                .chain(self.protect().secrets.tokens.with_untracked(|tokens| {
                     tokens
                         .iter()
                         .map(|range| byte(range.start)..byte(range.end))
@@ -388,7 +384,7 @@ impl EditorState {
         let covers = |range: &Range<usize>| {
             range.start <= offset && (offset < range.end || (ends && offset == range.end))
         };
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         if secrets
             .tokens
             .with_untracked(|tokens| tokens.iter().any(covers))
@@ -401,7 +397,7 @@ impl EditorState {
                 (strings.secret_label.clone(), hint)
             }));
         }
-        self.protect.protected.with_untracked(|protected| {
+        self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
@@ -417,31 +413,31 @@ impl EditorState {
     /// Shows what the protected text at zero-based `line`:`column` is, for
     /// the pointer; `false` when nothing protected is there.
     pub(crate) fn hover_protected(&self, line: usize, column: usize) -> bool {
-        let no_tokens = self.protect.secrets.tokens.with_untracked(Vec::is_empty);
+        let no_tokens = self.protect().secrets.tokens.with_untracked(Vec::is_empty);
         if no_tokens
             && self
-                .protect
+                .protect()
                 .protected
                 .with_untracked(|protected| protected.is_empty())
         {
-            self.protect.hide_tip(true);
+            self.protect().hide_tip(true);
             return false;
         }
-        let found = self.doc.text.with_untracked(|text| {
+        let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
             self.protected_note(offset, false)
                 .map(|(_, message)| (message, offset))
         });
         let Some((message, offset)) = found else {
-            self.protect.hide_tip(true);
+            self.protect().hide_tip(true);
             return false;
         };
-        let same = self.protect.tip.with_untracked(|tip| {
+        let same = self.protect().tip.with_untracked(|tip| {
             tip.as_ref()
                 .is_some_and(|tip| tip.hover && tip.message == message)
         });
         if !same {
-            self.protect.tip.set(Some(Tip {
+            self.protect().tip.set(Some(Tip {
                 message,
                 offset,
                 hover: true,

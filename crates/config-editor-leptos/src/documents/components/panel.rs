@@ -7,6 +7,7 @@
 use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
+use crate::reactive::later;
 use crate::{ConfigEditor, EditorSettings, Language, SaveRequest};
 
 #[component]
@@ -57,7 +58,7 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
         }
         documents.focus_editor.set(None);
         // After the panel has lost `inert`.
-        request_animation_frame(move || handle.focus());
+        later::next_frame(documents, move |_| handle.focus());
     });
 }
 

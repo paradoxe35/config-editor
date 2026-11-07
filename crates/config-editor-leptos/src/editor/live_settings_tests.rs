@@ -25,16 +25,16 @@ fn editor(settings: RwSignal<EditorSettings>) -> (Owner, EditorState) {
 
 /// What every switch the state reads shows now, by setting.
 fn observed(state: EditorState) -> Vec<(&'static str, bool)> {
-    let settings = state.config.settings;
+    let settings = state.config().settings;
     vec![
         (
             "diagnostics",
-            !state.problems.diagnostics.get_untracked().is_empty(),
+            !state.problems().diagnostics.get_untracked().is_empty(),
         ),
-        ("diff", state.changes.summary.get_untracked().hunks > 0),
+        ("diff", state.changes().summary.get_untracked().hunks > 0),
         (
             "folding",
-            !state.fold.fold_ranges.get_untracked().is_empty(),
+            !state.fold().fold_ranges.get_untracked().is_empty(),
         ),
         ("completions", settings.completions.get_untracked()),
         ("auto_trigger", settings.auto_trigger.get_untracked()),
@@ -45,7 +45,10 @@ fn observed(state: EditorState) -> Vec<(&'static str, bool)> {
         ("toolbar", settings.toolbar.get_untracked()),
         ("footer", settings.footer.get_untracked()),
         ("styled", settings.styled.get_untracked()),
-        ("save_shortcut", state.editing.save_shortcut.get_untracked()),
+        (
+            "save_shortcut",
+            state.editing().save_shortcut.get_untracked(),
+        ),
     ]
 }
 
@@ -127,7 +130,7 @@ fn each_switch_changes_only_its_own_part() {
 fn theme_and_colors_follow_the_signal() {
     let settings = RwSignal::new(EditorSettings::default());
     let (_owner, state) = editor(settings);
-    let live = state.config.settings;
+    let live = state.config().settings;
     assert_eq!(live.theme.get_untracked(), EditorTheme::VsCodeDark);
     assert_eq!(live.color_style(), None);
     settings.update(|settings| {
@@ -145,7 +148,7 @@ fn theme_and_colors_follow_the_signal() {
 fn hover_docs_need_a_schema() {
     let settings = RwSignal::new(all(true));
     let (_owner, state) = editor(settings);
-    assert!(!state.config.settings.hover_docs.get_untracked());
+    assert!(!state.config().settings.hover_docs.get_untracked());
 }
 
 /// The text, caret and undo history are the state's own: no setting
@@ -161,11 +164,11 @@ fn switching_keeps_the_text_caret_and_history() {
         settings.set(all(on));
         settings.update(|settings| settings.theme = EditorTheme::Dracula);
     }
-    assert_eq!(state.doc.text.get_untracked(), after);
-    assert_eq!(state.doc.caret.get_untracked(), caret);
+    assert_eq!(state.doc().text.get_untracked(), after);
+    assert_eq!(state.doc().caret.get_untracked(), caret);
     assert!(
         state
-            .doc
+            .doc()
             .history
             .with_untracked(|history| history.can_undo())
     );
@@ -186,7 +189,7 @@ fn texts_follow_the_strings_setting_live() {
     let find = state.text(|strings| &strings.find);
     let source = state.language_text(|strings| &strings.source_label);
     let lock = move || {
-        state.view.lines.with_untracked(|lines| {
+        state.view().lines.with_untracked(|lines| {
             lines
                 .iter()
                 .find_map(|line| line.marks.as_ref().and_then(|marks| marks.lock.clone()))

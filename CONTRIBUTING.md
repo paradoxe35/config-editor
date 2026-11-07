@@ -35,14 +35,32 @@ A test or helper that needs a built-in language is gated by it
 
 ## Design rules
 
-### The editor state is one pointer
+### The editor state is one handle into the arena
 
-`EditorState` is `&'static EditorFields` (`src/editor/state.rs`): every
+`EditorState` is a `StoredValue<EditorFields>` (`src/editor/state.rs`): every
 handler and view closure copies it, and an unoptimized (debug) wasm build
 keeps each copy on its stack, so a state held inline overflowed the stack
-once it grew past about a kilobyte. Add fields to the group of the module
-that owns them (`state.doc`, `state.sync`, `state.fold`, …), never inline.
-Guarded by `the_state_handlers_copy_is_one_pointer`.
+once it grew past about a kilobyte. The fields belong to the editor
+component's owner and are freed with it at unmount, so a mounted and
+destroyed editor leaves nothing behind. Add fields to the group of the module
+that owns them, never inline: a group is a `Copy` struct of handles, listed
+once in the `groups!` macro, which gives it an accessor (`state.doc()`,
+`state.sync()`, `state.fold()`, …). Each accessor is an arena lookup: code
+that reads a group many times (a loop, a render) takes it once
+(`let doc = state.doc();`). Guarded by
+`the_state_handlers_copy_is_at_most_two_words` and the memory tests.
+
+### Deferred work goes through `reactive::later`
+
+A timer, an animation frame or a microtask may run after its editor has
+unmounted, when its state is gone (an accessor then panics). So deferred
+work is scheduled only through `reactive::later` (`after`, `next_frame`,
+`soon`), naming the editor state, signal or documents view it needs alive:
+it runs only if that target still is. `clippy.toml` forbids the raw
+schedulers (Leptos's helpers, `web_sys`'s `set_timeout…` and
+`request_animation_frame`, `Closure::once_into_js`, `Closure::forget`)
+everywhere else. Guarded by `e2e/tests/unmount.spec.mjs` (an editor
+destroyed while each kind of work waits) and the door's unit tests.
 
 ### Every change to the document goes through the edit pipeline
 

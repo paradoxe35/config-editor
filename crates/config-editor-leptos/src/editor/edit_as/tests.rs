@@ -283,7 +283,7 @@ fn a_mounted_editor_shows_dismisses_and_reshows_the_notice() {
     state.dismiss_edit_as_notice();
     assert!(!state.edit_as_notice().any());
     state
-        .problems
+        .problems()
         .diagnosed_text
         .set("# typed\nlisten = 1\n".to_string());
     let shown = state.edit_as_notice();

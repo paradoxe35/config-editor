@@ -14,7 +14,7 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
 }
 
 fn find_keys(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !state.config.settings.search.get_untracked() {
+    if !state.config().settings.search.get_untracked() {
         return false;
     }
     let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
@@ -31,7 +31,7 @@ fn find_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     if event.key() == "F3" && !event.ctrl_key() && !event.meta_key() && !event.alt_key() {
         event.prevent_default();
-        if !state.search.open.get_untracked() {
+        if !state.search().open.get_untracked() {
             search::open(state, false);
         }
         search::step(state, event.shift_key());
@@ -43,7 +43,7 @@ fn find_keys(state: EditorState, event: &KeyboardEvent) -> bool {
 /// `Ctrl+G` opens the go-to-line field.
 fn go_to_line_key(state: EditorState, event: &KeyboardEvent) -> bool {
     let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
-    if !state.config.settings.go_to_line.get_untracked()
+    if !state.config().settings.go_to_line.get_untracked()
         || !command
         || !event.key().eq_ignore_ascii_case("g")
     {

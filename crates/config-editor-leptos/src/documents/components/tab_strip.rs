@@ -6,7 +6,7 @@ use web_sys::WheelEvent;
 
 use super::super::entries::{Documents, Entry};
 use super::DocumentTab;
-use crate::reactive::KeyedList;
+use crate::reactive::{KeyedList, later};
 
 #[component]
 pub(in crate::documents) fn TabStrip(documents: Documents, label: Option<String>) -> impl IntoView {
@@ -47,7 +47,7 @@ fn reveal_active_tab(documents: Documents) {
         let Some(id) = documents.active.get() else {
             return;
         };
-        request_animation_frame(move || {
+        later::next_frame(documents, move |documents| {
             let (Some(strip), Some(tab)) =
                 (documents.strip.get_untracked(), documents.tab_element(&id))
             else {

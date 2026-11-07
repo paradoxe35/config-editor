@@ -38,19 +38,19 @@ use line_diff::{DiffPeek, Hunk, PeekKind, diff_lines, document_lines};
 
 /// Switching the `show_diff` setting off closes the preview.
 pub(super) fn follow_settings(state: EditorState) {
-    on_switch_off(state.config.settings.diff, move || {
-        state.changes.peek.set(None)
+    on_switch_off(state.config().settings.diff, move || {
+        state.changes().peek.set(None)
     });
 }
 
 /// Closes the change preview.
 pub(super) fn close_preview(state: EditorState) {
-    state.changes.peek.set(None);
+    state.changes().peek.set(None);
 }
 
 /// Whether the change preview is open.
 pub(super) fn preview_open(state: EditorState) -> bool {
-    state.changes.peek.with_untracked(Option::is_some)
+    state.changes().peek.with_untracked(Option::is_some)
 }
 
 impl ChangeSummary {

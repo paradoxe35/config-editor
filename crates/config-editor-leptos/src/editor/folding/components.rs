@@ -34,10 +34,10 @@ pub(crate) type FoldItems = Memo<Vec<FoldItem>>;
 /// The [`FoldItems`] of `state`, kept in step with the rows in view.
 fn fold_items(state: EditorState) -> FoldItems {
     Memo::new(move |_| {
-        let rows = state.view.visible_rows.get();
-        state.view.visible_lines.with(|lines| {
-            state.fold.fold_ranges.with(|ranges| {
-                state.fold.folded.with(|closed| {
+        let rows = state.view().visible_rows.get();
+        state.view().visible_lines.with(|lines| {
+            state.fold().fold_ranges.with(|ranges| {
+                state.fold().folded.with(|closed| {
                     lines
                         .iter()
                         .zip(rows)
@@ -71,7 +71,7 @@ fn fold_items(state: EditorState) -> FoldItems {
 /// Whether the fold `line..=end` hides changes, and its line's width.
 fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) {
     let changed = hides_change(state, line + 1..=end);
-    let width = state.view.lines.with(|lines| {
+    let width = state.view().lines.with(|lines| {
         lines
             .get(line)
             .map_or(0.0, |rendered| visual_column(&rendered.text))
@@ -101,7 +101,7 @@ pub(in crate::editor) fn mount_fold_layers(state: EditorState) {
     let layers: StoredValue<Vec<Box<dyn std::any::Any>>, LocalStorage> =
         StoredValue::new_local(Vec::new());
     Effect::new(move |_| {
-        let Some(root) = state.view.root_ref.get() else {
+        let Some(root) = state.view().root_ref.get() else {
             return;
         };
         let find = |selector: &str| {
@@ -167,7 +167,7 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
     view! {
         <div
             class="config-editor__fold-chips"
-            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             <KeyedList
                 each=move || folds.get().into_iter().filter(|item| item.closed_end.is_some())

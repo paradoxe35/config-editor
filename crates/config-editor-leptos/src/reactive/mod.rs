@@ -21,13 +21,19 @@
 //! - [`detached_owner`]: an owner no parent keeps a record of.
 //! - [`Kept`]: a part a setting switches on and off, built once and then
 //!   taken off the page and put back.
+//! - [`later`]: the one door for deferred work (timers, frames,
+//!   microtasks), which skips work whose editor has gone.
+//! - [`window_listener`]: a window listener freed with its owner.
 
 mod kept;
 mod keyed;
+pub(crate) mod later;
 mod relay;
 #[cfg(test)]
 mod tests;
+mod window_listener;
 
 pub(crate) use kept::Kept;
 pub(crate) use keyed::{KeyedList, detached_owner};
 pub(crate) use relay::{Fanout, Relay, notify};
+pub(crate) use window_listener::window_listener;

@@ -29,7 +29,7 @@ pub(crate) fn SearchHighlights(state: EditorState) -> impl IntoView {
         <div
             class="config-editor__search-highlights"
             aria-hidden="true"
-            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view().scroll_x.get(), -state.view().scroll_y.get())
         >
             {move || boxes(state).into_iter().map(match_box).collect_view()}
         </div>
@@ -53,17 +53,17 @@ fn match_box(found: MatchBox) -> impl IntoView {
 
 /// The boxes for the matches on the rendered rows.
 fn boxes(state: EditorState) -> Vec<MatchBox> {
-    let search = state.search;
-    let rows = state.view.visible_rows.get();
+    let search = state.search();
+    let rows = state.view().visible_rows.get();
     let current = search.current.get();
-    let projection = state.view.projection.get();
+    let projection = state.view().projection.get();
     search.results.with(|results| {
         if results.matches.is_empty() || rows.is_empty() {
             return Vec::new();
         }
         // The document lines on the rendered rows, folded ones skipped.
         let rows = projection.line_of_row(rows.start)..projection.line_of_row(rows.end - 1) + 1;
-        state.doc.text.with(|text| {
+        state.doc().text.with(|text| {
             // A match starting above the rows may run into them.
             let first = results
                 .matches

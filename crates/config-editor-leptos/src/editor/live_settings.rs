@@ -78,7 +78,7 @@ impl LiveSettings {
 /// hover card. The parts themselves already read their memo (suggestions,
 /// problems, the diff, highlighting).
 pub(super) fn follow(state: EditorState) {
-    let settings = state.config.settings;
+    let settings = state.config().settings;
     folding::follow_settings(state);
     search::follow_settings(state);
     changes::follow_settings(state);

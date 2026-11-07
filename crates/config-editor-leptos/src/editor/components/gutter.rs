@@ -15,20 +15,20 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
     view! {
         <div
             class="config-editor__gutter"
-            class:config-editor__gutter-folding=state.config.settings.folding
+            class:config-editor__gutter-folding=state.config().settings.folding
             // As wide as the longest line number (at least three digits);
             // the stylesheet adds the marker column and the padding.
             style:--config-editor-gutter-digits=move || {
-                state.doc.text.with(|text| line_count(text)).to_string().len().max(3).to_string()
+                state.doc().text.with(|text| line_count(text)).to_string().len().max(3).to_string()
             }
         >
             <div
                 class="config-editor__gutter-content"
-                style:transform=move || format!("translateY(-{}px)", state.view.scroll_y.get())
+                style:transform=move || format!("translateY(-{}px)", state.view().scroll_y.get())
             >
                 <RowSpacer state=state />
                 <KeyedList
-                    each=move || state.view.visible_lines.get()
+                    each=move || state.view().visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <LineNumber state=state rows=rows index=index /> }
                 />
@@ -47,7 +47,7 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
             return;
         };
         let (_, line_end) = state
-            .doc
+            .doc()
             .text
             .with_untracked(|text| line_range(text, offset));
         if let Some(element) = state.textarea() {

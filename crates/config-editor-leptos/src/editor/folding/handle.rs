@@ -45,7 +45,7 @@ impl EditorHandle {
     /// stays visible and the last hidden one. Reactive.
     pub fn folded_lines(&self) -> Vec<(usize, usize)> {
         self.editor_tracked()
-            .and_then(|state| state.fold.folded.try_get())
+            .and_then(|state| state.fold().folded.try_get())
             .unwrap_or_default()
             .iter()
             .map(|fold| (fold.start + 1, fold.end + 1))

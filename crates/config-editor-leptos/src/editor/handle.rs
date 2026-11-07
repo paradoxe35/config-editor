@@ -5,6 +5,7 @@ use leptos::prelude::*;
 
 use super::paths::{FieldPath, TextPosition, TextRange, field_range, path_at};
 use super::state::EditorState;
+use crate::reactive::later::Alive;
 
 /// A handle on a mounted [`ConfigEditor`](crate::ConfigEditor), for paths
 /// and positions: where a field is written, which field a position is on,
@@ -64,7 +65,10 @@ impl EditorHandle {
     }
 
     pub(super) fn editor(self) -> Option<EditorState> {
-        self.state.try_get_untracked().flatten()
+        self.state
+            .try_get_untracked()
+            .flatten()
+            .filter(|state| state.is_alive())
     }
 
     /// The mounted editor, tracked: a closure reading it re-runs when the
@@ -80,7 +84,7 @@ impl EditorHandle {
 
     /// The text on screen.
     pub fn text(&self) -> Option<String> {
-        self.editor()?.doc.text.try_get_untracked()
+        self.editor()?.doc().text.try_get_untracked()
     }
 
     /// Where the field at `path` is written: its key and value when they share
@@ -90,7 +94,7 @@ impl EditorHandle {
         let state = self.editor()?;
         let pointer = path.into().to_pointer();
         state
-            .doc
+            .doc()
             .text
             .try_with_untracked(|text| field_range(state.behavior(), text, &pointer))
             .flatten()
@@ -101,7 +105,7 @@ impl EditorHandle {
     pub fn path_at(&self, position: TextPosition) -> Option<FieldPath> {
         let state = self.editor()?;
         state
-            .doc
+            .doc()
             .text
             .try_with_untracked(|text| {
                 if position.line > text.split('\n').count() {
@@ -117,7 +121,7 @@ impl EditorHandle {
     /// only when the path does. See also the `on_path_change` prop.
     pub fn current_path(&self) -> Option<FieldPath> {
         self.editor_tracked()
-            .and_then(|state| state.doc.caret_path.try_get())
+            .and_then(|state| state.doc().caret_path.try_get())
     }
 
     /// Scrolls to the field at `path`, selects it (as
@@ -132,7 +136,7 @@ impl EditorHandle {
             return false;
         };
         let (start, end) = state
-            .doc
+            .doc()
             .text
             .with_untracked(|text| (range.start.to_offset(text), range.end.to_offset(text)));
         state.hide_shown_problem();
@@ -152,7 +156,7 @@ impl EditorHandle {
     /// `on_dirty_change` prop). Reactive; `false` before the editor mounts.
     pub fn is_dirty(&self) -> bool {
         self.editor_tracked()
-            .and_then(|state| state.editing.dirty.try_get())
+            .and_then(|state| state.editing().dirty.try_get())
             .unwrap_or(false)
     }
 

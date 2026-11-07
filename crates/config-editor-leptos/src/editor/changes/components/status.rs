@@ -10,7 +10,7 @@ use crate::strings::{counted, fill};
 /// "2 changes" against the baseline; it moves to the next one, as `Alt+F5`.
 #[component]
 pub(in crate::editor) fn ChangeStatus(state: EditorState) -> impl IntoView {
-    let changes = state.changes.summary;
+    let changes = state.changes().summary;
     let strings = state.strings_signal();
     let next_change = move |_| state.go_to_change(true, false);
     move || {

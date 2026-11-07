@@ -57,20 +57,43 @@ const settle = (browserPage) =>
 
 /** Runs `cycle` `warmUp` times, then `cycles` more; returns the growth of
  * the WebAssembly memory over the later ones. */
-async function growth(browserPage, { warmUp = 5, cycles, cycle }) {
+async function growth(browserPage, options) {
+  return (await growths(browserPage, options)).wasm;
+}
+
+/** `growth`, with the live heap bytes the later cycles left behind too
+ * (`heap`: null unless the package is built with `alloc-stats`). */
+async function growths(browserPage, { warmUp = 5, cycles, cycle }) {
   for (let round = 0; round < warmUp; round += 1) await cycle(round);
   await settle(browserPage);
-  const before = await wasmBytes(browserPage);
+  const before = { wasm: await wasmBytes(browserPage), heap: await heap(browserPage) };
+  // A timer still pending holds its closure (the typing pause's holds the
+  // text): the heap is read once they have all run.
+  if (before.heap) {
+    await outlastTimers(browserPage);
+    before.heap = await heap(browserPage);
+  }
   for (let round = warmUp; round < warmUp + cycles; round += 1) await cycle(round);
   await settle(browserPage);
-  return (await wasmBytes(browserPage)) - before;
+  const wasm = await wasmBytes(browserPage);
+  if (before.heap) await outlastTimers(browserPage);
+  const after = { wasm, heap: await heap(browserPage) };
+  return { wasm: after.wasm - before.wasm, heap: before.heap && after.heap.bytes - before.heap.bytes };
 }
+
+/** Live heap bytes and live allocations per size, in a package built
+ * with `alloc-stats` (else null). */
+const heap = (browserPage) =>
+  browserPage.evaluate(async () => {
+    const module = await import('../config-editor/pkg/config_editor.js');
+    return module.__allocStats ? { bytes: module.__allocStats()[0], sizes: Array.from(module.__allocSizes()) } : null;
+  });
 
 test.describe('memory', () => {
   test('editors destroyed and freed give their memory back', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
-    const grown = await growth(browserPage, {
-      cycles: 40,
+    const grown = await growths(browserPage, {
+      cycles: 200,
       cycle: () =>
         browserPage.evaluate(async () => {
           const { ConfigEditor } = await import('../config-editor/pkg/config_editor.js');
@@ -80,8 +103,10 @@ test.describe('memory', () => {
           editor.free();
         }),
     });
-    // Each mount keeps its state's handles (under 1 KB, see `EditorState`).
-    expect(grown).toBeLessThanOrEqual(128 * KB);
+    // Nothing stays per mount: an editor's state lives in its owner's
+    // arena (a leaked state, 960 B a mount, grew it by 192 KB here).
+    expect(grown.wasm).toBeLessThanOrEqual(64 * KB);
+    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);
   });
 
@@ -189,7 +214,7 @@ test.describe('memory', () => {
       window.mainFile = { id: 'main', fileName: 'main.yaml', value: 'listen: 7835\n' };
       window.documentsView.update({ documents: [window.mainFile] });
     });
-    const grown = await growth(browserPage, {
+    const grown = await growths(browserPage, {
       cycles: 400,
       cycle: async (round) => {
         const id = `file${round}`;
@@ -208,9 +233,12 @@ test.describe('memory', () => {
         );
       },
     });
-    // Each editor keeps its state's handles (under 1 KB: 300 KB here);
-    // leaking, each closed document kept about as much again.
-    expect(grown).toBeLessThanOrEqual(480 * KB);
+    // Nothing stays per closed document (a leaked editor state, 960 B a
+    // document, grew it by 375 KB here); the allocator's spread over 400
+    // long documents reaches two pages at times. The heap (with
+    // `alloc-stats`) keeps exactly nothing.
+    expect(grown.wasm).toBeLessThanOrEqual(128 * KB);
+    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);
   });
 
@@ -450,14 +478,6 @@ async function soakEditor(browserPage) {
   return errors;
 }
 
-/** Live heap bytes and live allocations per size, in a package built
- * with `alloc-stats` (else null). */
-const heap = (browserPage) =>
-  browserPage.evaluate(async () => {
-    const module = await import('../config-editor/pkg/config_editor.js');
-    return module.__allocStats ? { bytes: module.__allocStats()[0], sizes: Array.from(module.__allocSizes()) } : null;
-  });
-
 /** Logs what `cycle` leaves behind on its own, per cycle. */
 async function report(browserPage, name, cycle) {
   try {
@@ -549,7 +569,6 @@ test.describe('memory soak', () => {
     };
     if (process.env.MEMORY_SOAK_REPORT) await report(browserPage, 'documents', cycle);
     const grown = await growth(browserPage, { warmUp: 3, cycles: 20, cycle });
-    // Each reopened editor keeps its state's handles (under 1 KB).
     expect(grown).toBeLessThanOrEqual(256 * KB);
     expect(errors).toEqual([]);
   });
