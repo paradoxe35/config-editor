@@ -66,6 +66,28 @@ pub(super) fn changed_range(before: &str, after: &str) -> (usize, usize) {
     (prefix, old.len() - suffix)
 }
 
+/// The UTF-16 range of `before` the edit to `after` replaced, placed by the
+/// caret it left (`caret`): inserted text ends there, which tells apart
+/// places the texts alone cannot (`aa|a` + `a`).
+pub(super) fn edit_range(before: &str, after: &str, caret: usize) -> (usize, usize) {
+    let (start, end) = changed_range(before, after);
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    let removed = end - start;
+    let Some(inserted) = (new.len() + removed).checked_sub(old.len()) else {
+        return (start, end);
+    };
+    if let Some(from) = caret.checked_sub(inserted)
+        && caret <= new.len()
+        && from + removed <= old.len()
+        && old[..from] == new[..from]
+        && old[from + removed..] == new[caret..]
+    {
+        return (from, from + removed);
+    }
+    (start, end)
+}
+
 /// The edit that turned `before` into `latest`, made on `current` instead
 /// (where `before` became `current` meanwhile), and the caret after it.
 pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usize) {
@@ -193,7 +215,11 @@ pub(super) fn flush_input(state: EditorState) {
         && !state.suggestions.with_untracked(Vec::is_empty);
     state.placeholder.set_value(None);
     let after = textarea_selection(&element);
-    let selection = if burst_selection == UNKNOWN_SELECTION { changed_range(&before, &value) } else { burst_selection };
+    let selection = if burst_selection == UNKNOWN_SELECTION {
+        edit_range(&before, &value, after.0)
+    } else {
+        burst_selection
+    };
     if before != value {
         state.history.update(|history| {
             history.record_input(
@@ -481,6 +507,11 @@ mod tests {
         assert_eq!(changed_range("aaa", "aaaa"), (3, 3));
         assert_eq!(changed_range("a\u{1F600}b", "a\u{1F600}xb"), (3, 3));
         assert_eq!(changed_range("abc", "ac"), (1, 2));
+        // Placed by the caret where the texts alone are ambiguous (round 12).
+        use super::edit_range;
+        assert_eq!(edit_range("a: 1\nb: 2", "a: 1\nx: 1\nb: 2", 9), (4, 4));
+        assert_eq!(edit_range("k: aaa", "k: aaaa", 6), (5, 5));
+        assert_eq!(edit_range("a: 1\na: 1", "a: 1\na: 1\na: 1", 10), (5, 5));
     }
 
     /// Round 11: input made before a host value was applied is made on that

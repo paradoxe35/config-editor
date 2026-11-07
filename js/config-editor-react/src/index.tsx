@@ -48,6 +48,8 @@ function fingerprint(text: string): string {
   return `${text.length}:${hash >>> 0}`;
 }
 let loading: Promise<unknown> | undefined;
+// Editors whose own load failed, retried when a later load succeeds.
+const onLoaded = new Set<() => void>();
 
 /**
  * Loads the WebAssembly module once. The component calls it itself; call it
@@ -56,10 +58,16 @@ let loading: Promise<unknown> | undefined;
  */
 export function loadConfigEditor(input?: InitInput): Promise<unknown> {
   // A failed load is not kept: calling again (with the right URL) retries.
-  loading ??= init(input).catch((error: unknown) => {
-    loading = undefined;
-    throw error;
-  });
+  loading ??= init(input).then(
+    (value) => {
+      for (const retry of [...onLoaded]) retry();
+      return value;
+    },
+    (error: unknown) => {
+      loading = undefined;
+      throw error;
+    },
+  );
   return loading;
 }
 
@@ -169,6 +177,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
       let cancelled = false;
+      // When this load fails, the app's own `loadConfigEditor(url)` succeeding
+      // later mounts the editor.
+      const retryOnLoad = () => {
+        onLoaded.delete(retryOnLoad);
+        if (!cancelled) setRetry((count) => count + 1);
+      };
       void loadConfigEditor().then(() => {
         if (cancelled || !host.current) return;
         const current = latest.current;
@@ -206,6 +220,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           if (reset.current !== null) {
             const value = reset.current;
             reset.current = null;
+            // The `value` prop still holds what the parent had before the
+            // reset reaches it: not a new value of its own.
+            handledValue.current = latest.current.value;
             pending.current.push({ print: fingerprint(value), sent: Date.now() });
             latest.current.onChange?.(value);
           }
@@ -214,9 +231,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           failed.current = true;
           report(error);
         }
-      }, report);
+      }, (error: unknown) => {
+        onLoaded.add(retryOnLoad);
+        report(error);
+      });
       return () => {
         cancelled = true;
+        onLoaded.delete(retryOnLoad);
         // destroy() first: it saves an edit still waiting to convert.
         editor.current?.destroy();
         if (editor.current && carried.current) carried.current.value = editor.current.value;

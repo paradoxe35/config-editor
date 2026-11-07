@@ -63,6 +63,10 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text.                                                                  |
 | `on_change`                    | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                               |
 | `on_edit_as_change`            | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                |
+
+While editing as another language, edits reach `on_change` after each typing
+pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
+document from code (a Save button) to send an edit still waiting first.
 | `baseline`                     | `Signal<String>`                           | `initial_value`  | Text the diff gutter compares against; set it to the saved text to clear the diff.                                                   |
 | `schema`                       | `&str`, `String` or `Schema`               | —                | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
 | `theme`                        | `EditorTheme` or a signal                  | `VsCodeDark`     | Color theme.                                                                                                                         |

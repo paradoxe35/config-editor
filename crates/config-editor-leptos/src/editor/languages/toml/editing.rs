@@ -13,6 +13,31 @@ pub(super) fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> 
     let closers = split_toml_comment(rest).0.trim_end();
     let before = &source[line_start..byte];
     let header = before.trim_start().starts_with('[') && !before.contains('=');
+    // Inside an inline table with more of it after the caret
+    // (`{ a = 1,| b = 2 }`): TOML keeps inline tables on one line, so the
+    // new line starts after the whole line's code.
+    let mut depth = 0i32;
+    let mut quote: Option<char> = None;
+    for character in before.chars() {
+        match (quote, character) {
+            (Some(open), _) if character == open => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '{') => depth += 1,
+            (None, '}') => depth -= 1,
+            _ => {}
+        }
+    }
+    if depth > 0 && quote.is_none() && closers.contains('}') {
+        let line = &source[line_start..];
+        let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
+        return Some(Newline {
+            text: format!("{closers}\n{indent}"),
+            caret: closers.len() + 1 + indent.len(),
+            replaces: closers.len(),
+            replaces_before: 0,
+        });
+    }
     if closers.is_empty()
         || !(closers.contains('}') || header)
         || !closers.chars().all(|character| matches!(character, '}' | ']' | ' ' | '\t' | ','))

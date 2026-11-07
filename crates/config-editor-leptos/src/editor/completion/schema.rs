@@ -175,9 +175,14 @@ pub(super) fn schema_at_path<'a>(
     let mut schemas = vec![root];
     for segment in path {
         let mut next: Vec<&Value> = schemas
-            .into_iter()
+            .iter()
             .flat_map(|schema| child_schemas(schema, root, segment))
             .collect();
+        // An item of something the schema has as one value (a block or an
+        // element written twice): each copy is that value.
+        if next.is_empty() && matches!(segment, SchemaPathSegment::ArrayItem(_)) {
+            next = schemas.clone();
+        }
         if repeats_arrays && matches!(segment, SchemaPathSegment::Key(_)) {
             let items: Vec<&Value> = next
                 .iter()

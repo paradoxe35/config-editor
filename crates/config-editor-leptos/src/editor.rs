@@ -22,6 +22,7 @@ mod history;
 mod inline;
 mod input;
 pub use input::flush_pending_input;
+pub use sync::flush_pending_edits;
 mod keyboard;
 mod keys;
 pub mod language;

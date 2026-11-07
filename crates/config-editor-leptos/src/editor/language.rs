@@ -671,6 +671,11 @@ pub struct CompletionContext {
     /// `entry_prefix` and `entry_suffix` rewriting what was there: an HCL
     /// block on one line opens over lines to take a second attribute.
     pub insert_range: Option<(usize, usize)>,
+    /// A dotted head typed before the caret (`websocket.` of
+    /// `websocket.ho|path`): the entry after the caret keeps it when its key
+    /// is one under that head (it was `websocket.path`), else it was typed
+    /// for the new entry only (`tls.|path` leaves `path` as it was).
+    pub suffix_head: String,
 }
 
 /// Splits a JSON pointer into unescaped segments.
@@ -991,11 +996,18 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
         let config = self.config();
+        // Inside a block comment on lines of its own: its markers go.
+        if let Some(block) = config.block_comment
+            && let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block)
+        {
+            return Some(unwrapped);
+        }
         // Whole strings and constructs over lines, until both hold.
         let (mut selection_start, mut selection_end) = (selection_start, selection_end);
         loop {
             let widened = over_whole_strings(self, source, selection_start, selection_end);
             let widened = super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
+            let widened = self.comment_scope(source, widened.0, widened.1);
             if widened == (selection_start, selection_end) {
                 break;
             }
@@ -1007,6 +1019,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             .or_else(|| {
                 toggle_line_comments(source, selection_start, selection_end, config.line_comments)
             })
+    }
+
+    /// The UTF-16 selection Ctrl+/ comments, widened over what the selected
+    /// lines own that would be left broken (a YAML key's indented children).
+    /// The default keeps it.
+    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        let _ = source;
+        (start, end)
     }
 
     /// Text to insert after the caret when `typed` is typed at `cursor`
@@ -1230,12 +1250,8 @@ pub fn over_whole_strings(
             inside[range.start..end].fill(true);
         }
     }
-    for (line, &at) in line_starts.iter().enumerate().skip(1) {
-        let utf16 = source[..at].encode_utf16().count();
-        if behavior.lexical_state(source, utf16).quote.is_some() {
-            inside[line] = true;
-        }
-    }
+    // (Quoted strings over lines are taken whole by
+    // `comment_scope::over_balanced_lines`, which reads them in one pass.)
     // A closing delimiter alone after a body (`"""`, `'''`, `EOT`).
     let closes = |line: usize| {
         lines.get(line).is_some_and(|text| {
@@ -1254,6 +1270,10 @@ pub fn over_whole_strings(
     };
     let (first_line, last_line) = (line_of(start), line_of(end));
     let (mut first, mut last) = (first_line, last_line);
+    // On a closing delimiter (`EOF`): its body and opening line too.
+    if first > 0 && inside[first - 1] && closes(first) {
+        first -= 1;
+    }
     while first > 0 && inside[first] {
         first -= 1;
     }

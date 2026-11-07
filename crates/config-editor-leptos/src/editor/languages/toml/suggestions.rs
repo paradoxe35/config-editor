@@ -251,11 +251,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         // In front of a `[table]` header the entry gets a line of its own;
         // the entry it splits from keeps the dotted head they shared
         // (`websocket.ho|path` → `websocket.host` and `websocket.path`).
-        entry_suffix: if splits || before_header {
-            format!("\n{indent}{}", if splits { &source[typed_start..query_start] } else { "" })
-        } else {
-            String::new()
-        },
+        entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
+        suffix_head: if splits { source[typed_start..query_start].to_string() } else { String::new() },
         entry_after: splits.then_some(word_after),
         position: if keys_follow && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
         // The head of a dotted key (`ud|.nodelay = true`): its rest and value

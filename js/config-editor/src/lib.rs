@@ -180,6 +180,13 @@ fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
         let css = pair.get(1).as_string().ok_or_else(|| {
             JsError::new(&format!("color \"{token}\" must be a CSS color string"))
         })?;
+        // As the browser reads colors (`var(--x)` included): a typo or a
+        // `url(…)` would otherwise be dropped, or fetched, silently.
+        if !web_sys::css::supports_with_value("color", &css).unwrap_or(false) {
+            return Err(JsError::new(&format!(
+                "color \"{token}\": \"{css}\" is not a CSS color"
+            )));
+        }
         let color = ThemeColor::ALL
             .iter()
             .copied()
@@ -628,8 +635,9 @@ impl ConfigEditor {
     /// The document, in `language`.
     #[wasm_bindgen(getter)]
     pub fn value(&self) -> String {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
+        // Input the browser sent in this task, and an Edit-as edit still
+        // waiting out the typing pause, first: the document as shown.
+        config_editor_leptos::flush_pending_edits();
         match &self.final_value {
             Some(value) => value.clone(),
             None => self
@@ -647,8 +655,9 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
     ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
+        // Input the browser sent in this task, and an Edit-as edit still
+        // waiting out the typing pause, first: the reset replaces them.
+        config_editor_leptos::flush_pending_edits();
         if self.id.is_none() {
             return Ok(());
         }

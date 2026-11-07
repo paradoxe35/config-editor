@@ -127,6 +127,12 @@ impl ConfigLanguage for YamlBehavior {
         yaml_value(value)
     }
 
+    /// A key opening a block (`websocket:`) takes its indented lines along:
+    /// commented alone, they would be left without their parent.
+    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        children_of_selected_keys(source, start, end)
+    }
+
     fn format_value_like(&self, value: &Value, written: &str) -> String {
         style::yaml_value_like(self, value, written)
     }

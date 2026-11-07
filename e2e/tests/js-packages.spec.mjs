@@ -1048,3 +1048,65 @@ test.describe('round 11', () => {
     expect(problems[0]).not.toHaveProperty('endColumn');
   });
 });
+
+test.describe('round 12', () => {
+  test('vanilla: value and setValue see an Edit-as edit still waiting out the typing pause', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      const changes = [];
+      const editor = new module.ConfigEditor(element, { value: '# c\nlisten: 1\n', editAs: 'json', onChange: (text) => changes.push(text) });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const textarea = element.querySelector('textarea');
+      const at = textarea.value.indexOf('1');
+      textarea.focus();
+      textarea.setSelectionRange(at, at + 1);
+      document.execCommand('insertText', false, '7');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const valueRightAway = editor.value;
+      editor.setValue('# c\nlisten: 1\n');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return { valueRightAway, final: editor.value, shown: textarea.value };
+    });
+    expect(result.valueRightAway).toBe('# c\nlisten: 7\n');
+    expect(result.final).toBe('# c\nlisten: 1\n');
+    expect(result.shown).toContain('1');
+    expect(result.shown).not.toContain('7');
+  });
+
+  test('react: a reset made before mount survives a late parent', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?reset-early&late');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await expect(input(browserPage)).toHaveValue('from-effect: 1\n');
+    await browserPage.waitForTimeout(1500);
+    await expect(input(browserPage)).toHaveValue('from-effect: 1\n');
+    await expect(saved(browserPage)).toHaveText('from-effect: 1\n');
+  });
+
+  test('react: the editor mounts when the app loads the wasm after the component’s own load failed', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?late-load');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
+  });
+
+  test('vanilla: colors must be CSS colors', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      const editor = new module.ConfigEditor(element, { value: 'a: 1\n' });
+      const attempt = (color) => {
+        try {
+          editor.setColors({ key: color });
+          return 'ok';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      };
+      return ['#12345', 'redd', 'url(http://x/y)', 'red; x: y', '', '#ffcc66', 'var(--x)', 'rgb(1 2 3)'].map(attempt);
+    });
+    expect(result.slice(0, 5).every((message) => message.includes('is not a CSS color'))).toBe(true);
+    expect(result.slice(5)).toEqual(['ok', 'ok', 'ok']);
+  });
+});

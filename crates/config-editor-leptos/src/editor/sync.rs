@@ -94,7 +94,57 @@ fn debounce_validation(state: EditorState) {
 fn convert_edits(state: EditorState) {
     Effect::new(move |_| {
         let text = state.diagnosed_text.get();
-        let Some(bridge) = state.bridge_to(state.edit_language.get()) else {
+        convert_now(state, text, state.edit_language.get());
+    });
+    // `flush_pending_edits` converts an edit still waiting out the pause.
+    let id = NEXT_EDITOR.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    });
+    CONVERSIONS.with(|conversions| {
+        conversions.borrow_mut().push((
+            id,
+            std::rc::Rc::new(move || {
+                if let (Some(text), Some(language)) = (state.source.try_get_untracked(), state.edit_language.try_get_untracked()) {
+                    convert_now(state, text, language);
+                }
+            }),
+        ));
+    });
+    on_cleanup(move || {
+        let _ = CONVERSIONS.try_with(|conversions| conversions.borrow_mut().retain(|(known, _)| *known != id));
+    });
+}
+
+/// An editor's id and its way to convert its pending edit now.
+type Conversion = (u64, std::rc::Rc<dyn Fn()>);
+
+thread_local! {
+    static NEXT_EDITOR: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Each mounted editor's way to convert its pending edit now.
+    static CONVERSIONS: std::cell::RefCell<Vec<Conversion>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// Converts edits made in another language (Edit-as) that are still waiting
+/// out the typing pause and sends them to the host now, in every editor.
+/// Call it before reading the host's document from code (a Save button) or
+/// replacing it, so neither works on the text before the last keystrokes.
+pub fn flush_pending_edits() {
+    super::input::flush_pending_input();
+    // Cloned out first: a conversion's `onChange` may mount or unmount
+    // editors, which changes the list.
+    let conversions: Vec<std::rc::Rc<dyn Fn()>> =
+        CONVERSIONS.with(|conversions| conversions.borrow().iter().map(|(_, convert)| convert.clone()).collect());
+    for convert in conversions {
+        convert();
+    }
+}
+
+/// [`convert_edits`]' work for `text` edited as `language`.
+fn convert_now(state: EditorState, text: String, language: Language) {
+    {
+        let Some(bridge) = state.bridge_to(language) else {
             state.conversion_problems.set(Vec::new());
             return;
         };
@@ -129,7 +179,7 @@ fn convert_edits(state: EditorState) {
                 }
             }
         }
-    });
+    }
 }
 
 /// Edited texts remembered with their host text (see `synced_hosts`).

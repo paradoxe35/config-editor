@@ -635,19 +635,27 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
             replace_start: cursor_bytes(source, name_start),
             replace_end: cursor_bytes(source, name_end),
             explicit_entry_start: true,
-            closing_name: Some((token_name(source, open).to_string(), ">".to_string())),
+            // Its name as written, with any prefix (`a:b`).
+            closing_name: Some((
+                source[open.start + 1..]
+                    .split(|character: char| character.is_whitespace() || matches!(character, '>' | '/'))
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+                ">".to_string(),
+            )),
             ..Default::default()
         });
     }
-    let rest = source[cursor..name_end].to_string();
+    // In a complete end tag the name is renamed whole, from anywhere in it:
+    // nothing is ever inserted inside an end tag.
     Some(CompletionContext {
         path,
         typed: source[name_start..cursor].to_string(),
         replace_start: cursor_bytes(source, name_start),
-        replace_end: cursor_bytes(source, cursor),
+        replace_end: cursor_bytes(source, name_end),
         explicit_entry_start: true,
-        names_only: rest.is_empty(),
-        entry_after: (!rest.is_empty()).then_some(rest),
+        names_only: true,
         paired_names: vec![(cursor_bytes(source, open_name_start), cursor_bytes(source, open_name_end))],
         ..Default::default()
     })

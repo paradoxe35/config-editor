@@ -335,3 +335,41 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Round 12: Ctrl+/ comments exactly the construct the caret is in: a quoted
+/// string over lines (no further), a heredoc from its closing line, a YAML
+/// parent with its children, lines inside a block comment shared with code.
+#[test]
+fn ctrl_slash_takes_exactly_the_construct_under_the_caret() {
+    let mut failures = Vec::new();
+    for (language, marked, expected) in [
+        (Language::YAML, "motd: \"abc\n  de|f\"\nlisten: 1\npath: 2\n", "# motd: \"abc\n#   def\"\nlisten: 1\npath: 2\n"),
+        (Language::YAML, "motd: \"abc\n  def\"\nli|sten: 1\npath: 2\n", "motd: \"abc\n  def\"\n# listen: 1\npath: 2\n"),
+        (Language::YAML, "- 'a\n  b|'\n- c\n", "# - 'a\n#   b'\n- c\n"),
+        (Language::YAML, "webs|ocket:\n  path: /x\nlisten: 1\n", "# websocket:\n#   path: /x\nlisten: 1\n"),
+        (Language::HCL, "a = <<EOF\nx\nEOF|\nb = 1\n", "# a = <<EOF\n# x\n# EOF\nb = 1\n"),
+        (Language::HCL, "x {\n  a = <<-EOF\n    x\n    EOF|\n}\nb = 1\n", "x {\n  # a = <<-EOF\n  #   x\n  #   EOF\n}\nb = 1\n"),
+        (Language::HCL, "listen = 1 /* c\n  m|ore */ path = 2\nb = 1\n", "# listen = 1 /* c\n#   more */ path = 2\nb = 1\n"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let caret = text[..at].encode_utf16().count();
+        match language.behavior().toggle_comments(&text, caret, caret) {
+            Some((once, _, _)) if once == expected => {}
+            other => failures.push(format!("{}: {text:?} became {:?}", language.label(), other.map(|o| o.0))),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Round 12: Enter inside a TOML inline table leaves it whole on its line
+/// (TOML 1.0 keeps inline tables on one line) and starts the next line.
+#[test]
+fn enter_inside_a_toml_inline_table_keeps_it_on_one_line() {
+    let source = "ws = { path = \"/x\", host = \"h\" }\n";
+    let caret = source.find(" host").unwrap();
+    let newline = Language::TOML.behavior().newline(source, caret);
+    let rest = &source[caret..source.find('\n').unwrap()];
+    assert_eq!(newline.replaces, rest.len());
+    assert_eq!(newline.text, format!("{rest}\n"));
+}

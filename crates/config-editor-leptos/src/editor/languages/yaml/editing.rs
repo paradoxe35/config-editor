@@ -419,3 +419,39 @@ pub(super) fn quoted_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> 
     }
     bodies
 }
+
+/// The UTF-16 selection `start..end` widened to the end of the indented
+/// block below its last line when that line is a key opening one
+/// (`websocket:` with `  path: /x` under it).
+pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) -> (usize, usize) {
+    let end_byte = utf16_to_byte_index(source, end);
+    let line_start = source[..end_byte].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = source[end_byte..].find('\n').map_or(source.len(), |at| end_byte + at);
+    let line = &source[line_start..line_end];
+    let code = line[..line_comment_start(line).unwrap_or(line.len())].trim_end();
+    let indent = |text: &str| text.len() - text.trim_start_matches([' ', '\t']).len();
+    let opens_block = code.ends_with(':') && !code.trim_start().starts_with('#');
+    if !opens_block {
+        return (start, end);
+    }
+    let own = indent(line);
+    let mut last_end = line_end;
+    let mut offset = line_end;
+    for next in source[line_end..].split('\n').skip(1) {
+        let begin = offset + 1;
+        offset = begin + next.len();
+        if next.trim().is_empty() {
+            continue;
+        }
+        // A list may sit at its key's column (`key:\n- a`).
+        let child = indent(next) > own || (indent(next) == own && next.trim_start().starts_with("- "));
+        if !child {
+            break;
+        }
+        last_end = offset;
+    }
+    if last_end == line_end {
+        return (start, end);
+    }
+    (start, end.max(source[..last_end].encode_utf16().count()))
+}

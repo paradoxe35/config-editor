@@ -1096,3 +1096,59 @@ fn a_cut_problem_list_says_more_follow() {
     assert_eq!(problems.len(), 21);
     assert!(problems[20].line.is_none() && problems[20].message.contains("more follow"), "{:?}", problems[20]);
 }
+
+/// Round 12: a name completed in a block or end tag renames it; a dotted
+/// key typed in front of an existing entry leaves that entry as it was.
+#[test]
+fn names_complete_in_place_and_entries_in_front_stay() {
+    use super::super::completion::{apply_completion, completions_for};
+    let mut failures = Vec::new();
+    for (language, marked, label, expected) in [
+        (Language::HCL, "heart| { path = \"/x\" }\n", "heartbeat", "heartbeat { path = \"/x\" }\n"),
+        (Language::HCL, "heart| {}\n", "heartbeat", "heartbeat {}\n"),
+        (Language::XML, "<listen>1</|listen>\n", "public_address", "<public_address>1</public_address>\n"),
+        (Language::XML, "<websocket><path>/x</path></p|websocket>\n", "pool", "<pool><path>/x</path></pool>\n"),
+    ] {
+        match accepted(language, marked, label) {
+            Ok(text) if text == expected => {}
+            other => failures.push(format!("{}: {marked:?} became {other:?}", language.label())),
+        }
+    }
+    for marked in ["[websocket]\ntls.|path = \"/x\"\n", "[websocket]\ntls.c|path = \"/x\"\n"] {
+        match accepted(Language::TOML, marked, "cert") {
+            Ok(text) => {
+                let value = parsed(Language::TOML, &text);
+                let path = value.as_ref().ok().and_then(|value| value.pointer("/websocket/path").cloned());
+                if path != Some(serde_json::json!("/x")) {
+                    failures.push(format!("TOML {marked:?} became {text:?}"));
+                }
+            }
+            Err(error) => failures.push(format!("TOML {marked:?}: {error}")),
+        }
+    }
+    // The namespaced element is closed with its prefix.
+    let at = "<a:b>\n  </".len();
+    let text = "<a:b>\n  </";
+    let options = completions_for(text, at, true, Some(&burrow()), true, Language::XML.behavior(), false);
+    match options.first() {
+        Some(option) if apply_completion(text, option).0 == "<a:b>\n  </a:b>" => {}
+        other => failures.push(format!("XML prefix: {:?}", other.map(|o| (o.label.clone(), o.insert.clone())))),
+    }
+    report(failures);
+}
+
+/// Round 12: inside a repeated HCL block or XML element the keys are offered
+/// as in the first.
+#[test]
+fn a_repeated_block_or_element_offers_its_keys() {
+    let mut failures = Vec::new();
+    for (language, marked) in [
+        (Language::HCL, "websocket {\n  path = \"/x\"\n}\nwebsocket {\n  |\n}\n"),
+        (Language::XML, "<websocket>\n  <path>/x</path>\n</websocket>\n<websocket>\n  |\n</websocket>\n"),
+    ] {
+        if !offered(language, marked).contains(&"host".to_string()) {
+            failures.push(format!("{}: {:?}", language.label(), offered(language, marked)));
+        }
+    }
+    report(failures);
+}

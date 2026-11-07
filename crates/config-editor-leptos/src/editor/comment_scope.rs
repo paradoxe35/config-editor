@@ -81,12 +81,15 @@ pub(crate) fn over_balanced_lines(
     let mut starts = Vec::with_capacity(lines.len() + 1);
     let mut lowest = Vec::with_capacity(lines.len());
     let mut depth = 0usize;
-    // The open quote: its delimiter.
+    // The open quote or block comment: its closing delimiter.
     let mut quote: Option<&'static str> = None;
+    let block_comment = behavior.config().block_comment;
     for (index, line) in lines.iter().enumerate() {
         starts.push(LineState { depth, open: quote.is_some() || body[index] });
         let mut low = depth;
-        if body[index] {
+        // A body line of a block string is text; one inside an open quote is
+        // read for its closing quote.
+        if body[index] && quote.is_none() {
             lowest.push(low);
             continue;
         }
@@ -107,6 +110,13 @@ pub(crate) fn over_balanced_lines(
                     continue;
                 }
                 at += character.len_utf8();
+                continue;
+            }
+            if let Some((open, close)) = block_comment
+                && rest.starts_with(open)
+            {
+                quote = Some(close);
+                at += open.len();
                 continue;
             }
             if comment.is_some_and(|comment| at >= comment) {

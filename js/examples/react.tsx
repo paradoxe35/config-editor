@@ -8,7 +8,13 @@ import {
 } from "@pngwasi/config-editor-react";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
-const ready = loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
+// `?late-load` loads it only after the component's own load (from its
+// default URL, which fails here) has failed: the editor still mounts.
+const lateLoad = new URLSearchParams(location.search).has("late-load");
+const wasm = { module_or_path: "../config-editor/pkg/config_editor_bg.wasm" };
+const ready = lateLoad
+  ? new Promise((resolve) => setTimeout(resolve, 800)).then(() => loadConfigEditor(wasm))
+  : loadConfigEditor(wasm);
 
 // `?uncontrolled` renders the editor with `defaultValue` instead of `value`.
 const uncontrolled = new URLSearchParams(location.search).has("uncontrolled");

@@ -238,7 +238,9 @@ impl ConfigLanguage for HclBehavior {
     /// type and labels (`pol| {`, `servi| "ssh" {`).
     fn value_follows_key(&self, rest: &str) -> bool {
         let rest = rest.trim_start();
-        let block_body = (rest.starts_with('{') || rest.starts_with('"')) && rest.trim_end().ends_with('{');
+        // A body over lines (`{` ending the line) or on one (`{ … }`, `{}`),
+        // after any labels.
+        let block_body = rest.starts_with('{') || (rest.starts_with('"') && rest.contains('{'));
         rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
     }
 

@@ -276,6 +276,24 @@ pub(crate) fn completions_for(
         }];
     }
     line_up_on_indented_line(source, cursor_byte, line_start, line_end, &mut context, behavior);
+    // A dotted head typed in front of an entry of the table it is typed in
+    // (`tls.c|path`, `path` a key of that table): the entry is not renamed.
+    let head_segments = context.suffix_head.matches('.').count();
+    let entry_of_table = head_segments > 0
+        && context.path.len() >= head_segments
+        && context.entry_after.as_deref().is_some_and(|word| {
+            known_key(bundle, &context.path[..context.path.len() - head_segments], word, behavior)
+                && !known_key(bundle, &context.path, word, behavior)
+        });
+    // The entry after the caret keeps a dotted head only when its key is
+    // one under it (see `suffix_head`).
+    if !context.suffix_head.is_empty()
+        && let Some(word) = context.entry_after.clone()
+        && known_key(bundle, &context.path, &word, behavior)
+    {
+        let head = std::mem::take(&mut context.suffix_head);
+        context.entry_suffix.push_str(&head);
+    }
     if replace_word {
         // The word is replaced, not filtered by: the selected part and the
         // rest of it after the caret (`«pa»th`).
@@ -295,7 +313,7 @@ pub(crate) fn completions_for(
     }
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
-    let replaces_word = replace_word || replaces_word_after_caret(&context, bundle, behavior);
+    let replaces_word = replace_word || (!entry_of_table && replaces_word_after_caret(&context, bundle, behavior));
     // Typed in front of a key, that key is a sibling already there.
     if !replaces_word && let Some(word) = context.entry_after.as_deref() {
         options.retain(|option| option.is_value || option.label != word);
@@ -537,6 +555,18 @@ fn line_up_on_indented_line(
 
 /// Adds the context's entry prefix and suffix to an accepted insert, and lays
 /// out a multi-line insert per `context.block`.
+/// Whether the schema has `key` among the properties at `path`.
+fn known_key(bundle: &SchemaBundle, path: &[SchemaPathSegment], key: &str, behavior: &dyn ConfigLanguage) -> bool {
+    schema_at_path(&bundle.schema, path, behavior.repetition() != Repetition::None)
+        .iter()
+        .any(|schema| {
+            object_branch(schema, &bundle.schema)
+                .and_then(|branch| branch.get("properties"))
+                .and_then(Value::as_object)
+                .is_some_and(|properties| properties.contains_key(key))
+        })
+}
+
 /// Whether the word after the caret (`cp` of `t|cp`) is the rest of the key
 /// being edited, so a suggestion replaces the whole key, rather than an
 /// existing key the user is typing in front of (`k|nodelay`). Only a word
