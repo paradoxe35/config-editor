@@ -97,6 +97,8 @@ export interface ConfigEditorProps {
   readOnly?: boolean;
   showToolbar?: boolean;
   showFooter?: boolean;
+  /** Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Default `true`. Changing it re-mounts. */
+  search?: boolean;
   /** Class on the editor root (inside the container). */
   editorClassName?: string;
   /** Class and style of the container element. */
@@ -203,6 +205,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           readOnly: current.readOnly,
           showToolbar: current.showToolbar,
           showFooter: current.showFooter,
+          search: current.search,
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
@@ -264,6 +267,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.fileName,
       props.showToolbar,
       props.showFooter,
+      props.search,
       props.editorClassName,
       retry,
     ]);

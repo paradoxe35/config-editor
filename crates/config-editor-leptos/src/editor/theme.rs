@@ -213,6 +213,18 @@ pub enum ThemeColor {
     PeekShadow,
     /// Hover card shadow.
     HoverShadow,
+    /// Find matches.
+    SearchMatch,
+    /// The current find match.
+    SearchMatchCurrent,
+    /// The current find match's outline.
+    SearchMatchCurrentBorder,
+    /// Text fields (the find widget's).
+    InputBackground,
+    /// Text field borders.
+    InputBorder,
+    /// A pressed option button (match case, whole word, regex).
+    ToggleActive,
 }
 
 impl ThemeColor {
@@ -272,6 +284,12 @@ impl ThemeColor {
         Self::PopupShadow,
         Self::PeekShadow,
         Self::HoverShadow,
+        Self::SearchMatch,
+        Self::SearchMatchCurrent,
+        Self::SearchMatchCurrentBorder,
+        Self::InputBackground,
+        Self::InputBorder,
+        Self::ToggleActive,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -331,6 +349,12 @@ impl ThemeColor {
             Self::PopupShadow => "--config-editor-popup-shadow",
             Self::PeekShadow => "--config-editor-peek-shadow",
             Self::HoverShadow => "--config-editor-hover-shadow",
+            Self::SearchMatch => "--config-editor-search-match",
+            Self::SearchMatchCurrent => "--config-editor-search-match-current",
+            Self::SearchMatchCurrentBorder => "--config-editor-search-match-current-border",
+            Self::InputBackground => "--config-editor-input-bg",
+            Self::InputBorder => "--config-editor-input-border",
+            Self::ToggleActive => "--config-editor-toggle-active",
         }
     }
 }

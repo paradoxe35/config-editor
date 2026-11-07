@@ -83,6 +83,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
+| `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -122,9 +123,25 @@ and `colors` so they match the editor.
 | `F8` / `Shift+F8`                            | Next / previous problem                                                          |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
-| `Escape`                                     | Close popups, then collapse the selection                                        |
+| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                            |
+| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                     |
+| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                          |
+| `Escape`                                     | Close popups and the find widget, then collapse the selection                    |
 
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Find and replace
+
+`Ctrl+F` opens a find widget over the text; `Ctrl+H` adds the replace row
+(never in a read-only editor). Options match case, whole words, or a regular
+expression (the `regex` engine with `schema-validation`, else `regex-lite`,
+whose case folding is ASCII-only); an invalid pattern is shown, not thrown.
+In a regular expression's replacement, `$1` and `${name}` insert groups, and
+`\n` and `\t` a line break and a tab. Replacing goes through the normal edit
+path: undo, `on_change` and Edit-as all see it, and replace all is one undo
+step. Up to 10,000 matches are counted and stepped through, and only those
+in view are drawn, so large documents stay fast.
 
 ## Headless API
 
@@ -264,7 +281,10 @@ let brand = ThemeColors::new()
 ```
 
 The same tokens are CSS variables (`--config-editor-key`, …), so a stylesheet
-can set them too.
+can set them too. The find widget uses `SearchMatch`, `SearchMatchCurrent` and
+`SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
+and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
+option buttons.
 
 ## Cargo features
 

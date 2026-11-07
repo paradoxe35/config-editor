@@ -21,6 +21,7 @@ use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
 use super::positioning::set_caret_visible;
+use super::search::SearchState;
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -39,6 +40,7 @@ pub(super) struct Features {
     pub(super) auto_closing: bool,
     pub(super) diagnostics: bool,
     pub(super) diff: bool,
+    pub(super) search: bool,
 }
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
@@ -212,6 +214,9 @@ pub(super) struct EditorState {
     pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
+
+    /// Find and replace (see `search`).
+    pub(super) search: SearchState,
 }
 
 impl EditorState {
@@ -398,6 +403,7 @@ impl EditorState {
             source.with(|text| edit_language.get().behavior().string_body_lines(text))
         });
         let state = Self {
+            search: SearchState::new(source),
             string_bodies,
             host_language,
             edit_language,

@@ -4,6 +4,7 @@
 
 mod enter;
 mod navigation;
+mod search;
 mod suggestions;
 mod tab;
 mod typing;
@@ -61,8 +62,12 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     }
 }
 
-/// Keys on the editor root: Escape closes every popup.
+/// Keys on the editor root, from the text or a widget: find and replace
+/// shortcuts; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
+    if search::shortcuts(state, event) {
+        return;
+    }
     if event.key() == "Escape" {
         event.prevent_default();
         state.close_suggestions();
