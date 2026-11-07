@@ -72,8 +72,6 @@ mod sync;
 // Used by the tests that mount a YAML editor (all of them need YAML).
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
-#[cfg(test)]
-mod test_timing;
 mod theme;
 mod typing;
 
@@ -410,3 +408,7 @@ mod save_properties;
 mod save_tests;
 #[cfg(test)]
 mod tests;
+// The timing tests' helper. Declared after the code, as every `#[cfg(test)]`
+// item is: strings/usage_tests.rs reads a file only up to its first one.
+#[cfg(test)]
+mod test_timing;
