@@ -35,6 +35,7 @@ method and headless function here has a JS option, method or function there
   - [Built-in texts](#built-in-texts)
   - [Changes against the baseline](#changes-against-the-baseline)
   - [Saving and unsaved edits](#saving-and-unsaved-edits)
+  - [Embedding](#embedding)
 - [Several documents](#several-documents)
 - [Paths and positions](#paths-and-positions)
 - [Host diagnostics](#host-diagnostics)
