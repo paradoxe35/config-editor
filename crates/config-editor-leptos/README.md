@@ -24,6 +24,7 @@ method and headless function here has a JS option, method or function there
 `e2e/tests/api-parity.spec.mjs` checks it.
 
 <!-- toc -->
+
 ## Contents
 
 - [Install](#install)
@@ -92,31 +93,31 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 
 ## `<ConfigEditor>` props
 
-| Prop                | Type                                       | Default          | Purpose                                                                                                                  |
-| ------------------- | ------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `language`          | `Language`                                 | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.         |
-| `edit_as`           | `Language`, `Option<Language>` or a signal | unset            | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included. |
-| `initial_value`     | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                    |
-| `value`             | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                      |
-| `on_change`         | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                   |
-| `on_edit_as_change` | `Fn(Language)`                             | —                | Called with the language on screen when an `edit_as` switch completes, and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`. |
-| `on_schema_warning` | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.  |
-| `baseline` | `Signal<String>` | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
-| `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
-| `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included. |
-| `file_name` | `String` | `untitled.<ext>` | Name shown in the toolbar. |
-| `class` | `String` | — | Extra class on the editor root. |
-| `settings` | `EditorSettings` or a signal | defaults | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live. |
-| `on_change_summary` | `Fn(ChangeSummary)` | — | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes. |
-| `handle` | `EditorHandle` | — | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions). |
-| `on_path_change` | `Fn(FieldPath)` | — | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. |
-| `host_diagnostics` | `Signal<Vec<HostDiagnostic>>` | — | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
-| `read_only_paths` | `Signal<Vec<FieldPath>>` | — | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
-| `read_only_ranges` | `Signal<Vec<TextRange>>` | — | Stretches of the host's text the user cannot change; they follow the text through edits. |
-| `secrets` | `SecretOptions` | defaults | How secret placeholders are matched, described and completed; see [Secrets](#secrets). |
-| `on_save` | `Fn(SaveRequest)` | — | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
-| `on_dirty_change` | `Fn(bool)` | — | Called with whether the text differs from `baseline`: once on mount, then each time that changes. |
-| `on_baseline_conflict` | `Fn(BaselineConflict)` | — | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled. |
+| Prop                   | Type                                       | Default               | Purpose                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `language`             | `Language`                                 | `Language::YAML`      | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                                                                                                                                                                                                                                                                               |
+| `edit_as`              | `Language`, `Option<Language>` or a signal | unset                 | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.                                                                                                                                                                                                                                                                       |
+| `initial_value`        | `String`                                   | `""`                  | Starting text, also the diff baseline (uncontrolled).                                                                                                                                                                                                                                                                                                                                          |
+| `value`                | `Signal<String>`                           | —                     | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                                                                                                                                                                                                                                                                            |
+| `on_change`            | `Fn(String)`                               | —                     | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                         |
+| `on_edit_as_change`    | `Fn(Language)`                             | —                     | Called with the language on screen when an `edit_as` switch completes, and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`. |
+| `on_schema_warning`    | `Fn(String)`                               | console warning       | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.                                                                                                                                                                                                                                                                        |
+| `baseline`             | `Signal<String>`                           | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                       |
+| `schema`               | `&str`, `String` or `Schema`               | —                     | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors.                                                                                                                                                                                                                                                           |
+| `read_only`            | `bool` or a signal                         | `false`               | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.                                                                                                                                                                                                                                                                |
+| `file_name`            | `String`                                   | `untitled.<ext>`      | Name shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                     |
+| `class`                | `String`                                   | —                     | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                |
+| `settings`             | `EditorSettings` or a signal               | defaults              | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live.                                                                                                                                                                                                                       |
+| `on_change_summary`    | `Fn(ChangeSummary)`                        | —                     | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.                                                                                                                                                                                                                                                                        |
+| `handle`               | `EditorHandle`                             | —                     | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                                                                                                                                                                                                                                                                              |
+| `on_path_change`       | `Fn(FieldPath)`                            | —                     | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                                                                                                                                                                                                                                                                                       |
+| `host_diagnostics`     | `Signal<Vec<HostDiagnostic>>`              | —                     | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                     |
+| `read_only_paths`      | `Signal<Vec<FieldPath>>`                   | —                     | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                        |
+| `read_only_ranges`     | `Signal<Vec<TextRange>>`                   | —                     | Stretches of the host's text the user cannot change; they follow the text through edits.                                                                                                                                                                                                                                                                                                       |
+| `secrets`              | `SecretOptions`                            | defaults              | How secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                                                                         |
+| `on_save`              | `Fn(SaveRequest)`                          | —                     | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's.                                                                                                                                                                                                                                          |
+| `on_dirty_change`      | `Fn(bool)`                                 | —                     | Called with whether the text differs from `baseline`: once on mount, then each time that changes.                                                                                                                                                                                                                                                                                              |
+| `on_baseline_conflict` | `Fn(BaselineConflict)`                     | —                     | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                                                                                                                                                                                                                                                                          |
 
 While editing as another language, edits reach `on_change` after each typing
 pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
@@ -156,25 +157,25 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 
 <!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
-| Field | Default | |
-|---|---|---|
-| `theme` | `EditorTheme::VsCodeDark` | The bundled color theme. |
-| `colors` | none | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette. |
-| `styled` | `true` | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript). |
-| `show_toolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
-| `show_footer` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
-| `show_diagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
-| `show_diff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature. |
-| `completions` | `true` | Schema completions (`Ctrl+Space`). |
-| `auto_trigger_completions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
-| `hover_docs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
-| `highlighting` | `true` | Syntax colors. |
-| `auto_closing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
-| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature. |
-| `go_to_line` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature. |
-| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
-| `save_shortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
-| `strings` | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`. |
+| Field                      | Default                   |                                                                                                                                                                                                                                                                                    |
+| -------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`                    | `EditorTheme::VsCodeDark` | The bundled color theme.                                                                                                                                                                                                                                                           |
+| `colors`                   | none                      | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                             |
+| `styled`                   | `true`                    | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                                                                                                                                         |
+| `show_toolbar`             | `false`                   | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                     |
+| `show_footer`              | `false`                   | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                              |
+| `show_diagnostics`         | `true`                    | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                      |
+| `show_diff`                | `true`                    | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
+| `completions`              | `true`                    | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
+| `auto_trigger_completions` | `true`                    | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
+| `hover_docs`               | `true`                    | Show the schema's description, type, default and examples when hovering a key.                                                                                                                                                                                                     |
+| `highlighting`             | `true`                    | Syntax colors.                                                                                                                                                                                                                                                                     |
+| `auto_closing`             | `true`                    | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
+| `search`                   | `true`                    | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
+| `go_to_line`               | `true`                    | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
+| `folding`                  | `true`                    | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
+| `save_shortcut`            | `true`                    | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
+| `strings`                  | English (see below)       | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
 
 <!-- settings:end -->
 
@@ -254,159 +255,159 @@ they come.
 <details>
 <summary>Every text and its default (151 texts)</summary>
 
-| Field | Default | |
-|---|---|---|
-| `suggestions_hint` | `"{key} for suggestions"` | The footer's suggestions hint; `{key}` is where the chord goes. |
-| `suggestions_key` | `"Ctrl+Space"` | The chord that opens suggestions, as the footer draws it: keys between `+`. |
-| `no_problems` | `"No errors"` | The footer's problem count when there are none. |
-| `errors_one` | `"{count} error"` | One error, in the footer's problem count. |
-| `errors_other` | `"{count} errors"` | Several errors, in the footer's problem count. |
-| `warnings_one` | `"{count} warning"` | One warning, in the footer's problem count. |
-| `warnings_other` | `"{count} warnings"` | Several warnings, in the footer's problem count. |
-| `infos_one` | `"{count} info"` | One info, in the footer's problem count. |
-| `infos_other` | `"{count} info"` | Several infos, in the footer's problem count. |
-| `hints_one` | `"{count} hint"` | One hint, in the footer's problem count. |
-| `hints_other` | `"{count} hints"` | Several hints, in the footer's problem count. |
-| `problems_hint` | `"hover or focus underlined text"` | After the problem count when every problem has its place. |
-| `problems_cut` | `"only the first {count} are shown"` | After the problem count when the list was cut; `{count}` is how many are shown. |
-| `problems_more` | `"Only the first {count} problems are shown; more follow."` | The problem that says the list was cut, after `{count}` problems. |
-| `changes_one` | `"{count} change"` | The footer's change count against the baseline, for one change. |
-| `changes_other` | `"{count} changes"` | The footer's change count, for several changes. |
-| `change_details_one` | `"{lines} line · Alt+F5 for the next"` | The change count's tooltip when one line changed; `{lines}` lists the added, modified and removed counts. |
-| `change_details_other` | `"{lines} lines · Alt+F5 for the next"` | The change count's tooltip when several lines changed. |
-| `changed_added` | `"{count} added"` | Added lines, in the change count's tooltip. |
-| `changed_modified` | `"{count} modified"` | Modified lines, in the change count's tooltip. |
-| `changed_removed` | `"{count} removed"` | Removed lines, in the change count's tooltip. |
-| `lines_one` | `"{count} line"` | The footer's line count, for one line. |
-| `lines_other` | `"{count} lines"` | The footer's line count, for several lines. |
-| `tab_focus` | `"Tab moves focus"` | The footer's indicator while Tab moves the focus. |
-| `tab_focus_title` | `"Tab moves focus (Ctrl+M to indent with Tab)"` | Its tooltip; clicking it turns the mode off. |
-| `tab_focus_on` | `"Tab moves focus: Tab and Shift+Tab now leave the editor. Ctrl+M to indent with Tab again."` | Announced when `Ctrl+M` makes Tab move the focus. |
-| `tab_focus_off` | `"Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."` | Announced when `Ctrl+M` makes Tab indent again. |
-| `schema_connected` | `"Schema connected"` | The toolbar's schema state. |
-| `edit_as_host_comments` | `"The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."` | The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps. |
-| `edit_as_typed_comments` | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."` | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments. |
-| `edit_as_typed_comments_none` | `"Comments typed in {edit} are not saved: {host} has no comments."` | The same when the host's language has no comments (JSON). |
-| `edit_as_dismiss` | `"Dismiss"` | The Edit-as notice's close button. |
-| `baseline_changed` | `"The file changed on the server."` | The notice shown when the host's baseline changes under unsaved edits. |
-| `baseline_changed_detail` | `"Reload it, losing your changes, or keep your text and compare it with the new version."` | What the notice's choices do, after its message. |
-| `reload` | `"Reload"` | The notice's button that takes the new baseline as the text. |
-| `reload_title` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
-| `keep_mine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
-| `keep_mine_title` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
-| `baseline_changed_keys` | `"F6 moves to the choices and back."` | How to reach the notice's choices from the keyboard, shown on it (and announced with it). |
-| `find_widget` | `"Find and replace"` | The find widget's accessible name. |
-| `toggle_replace` | `"Toggle replace"` | The button showing the replace row. |
-| `toggle_replace_title` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
-| `find` | `"Find"` | The query field's accessible name and placeholder. |
-| `match_case` | `"Match case"` | The match-case toggle. |
-| `match_case_title` | `"Match case (Alt+C)"` | Its tooltip. |
-| `whole_word` | `"Match whole word"` | The whole-word toggle. |
-| `whole_word_title` | `"Match whole word (Alt+W)"` | Its tooltip. |
-| `use_regex` | `"Use regular expression"` | The regular-expression toggle. |
-| `use_regex_title` | `"Use regular expression (Alt+R)"` | Its tooltip. |
-| `previous_match` | `"Previous match"` | The previous-match button. |
-| `previous_match_title` | `"Previous match (Shift+Enter)"` | Its tooltip. |
-| `next_match` | `"Next match"` | The next-match button. |
-| `next_match_title` | `"Next match (Enter)"` | Its tooltip. |
-| `close` | `"Close"` | The find widget's close button. |
-| `close_title` | `"Close (Escape)"` | Its tooltip. |
-| `replace` | `"Replace"` | The replacement field's accessible name and placeholder, and the button replacing the current match. |
-| `replace_title` | `"Replace (Enter)"` | The replace button's tooltip. |
-| `replace_all` | `"All"` | The replace-all button. |
-| `replace_all_label` | `"Replace all"` | Its accessible name. |
-| `replace_all_title` | `"Replace all (Ctrl+Alt+Enter)"` | Its tooltip. |
-| `match_position` | `"{current} of {total}"` | The match count: match `{current}` of `{total}`. |
-| `no_results` | `"No results"` | The match count when nothing matches. |
-| `invalid_pattern` | `"Invalid pattern"` | The match count when the regular expression is invalid. |
-| `replaced_one` | `"Replaced {count} occurrence"` | After Replace All, for one match. |
-| `replaced_other` | `"Replaced {count} occurrences"` | After Replace All, for several. |
-| `replace_skipped` | `"; skipped {count} in read-only text or secret placeholders"` | Added when Replace All left matches in protected text alone. |
-| `nothing_replaced` | `"Every match is in read-only text; nothing was replaced"` | After Replace All when every match is in read-only text. |
-| `go_to_line` | `"Go to line"` | The go-to-line field's accessible name. |
-| `go_to_line_placeholder` | `"line or line:column"` | Its placeholder. |
-| `go_to_line_hint` | `"Line 1–{lines}, or line:column"` | Its hint: the range of lines. |
-| `go_to_line_invalid` | `"Type a line number between 1 and {lines}"` | Its hint when the text is no position. |
-| `added_line` | `"Added line"` | The change preview's title for an added line. |
-| `modified_line` | `"Modified line"` | For a modified line. |
-| `removed_lines` | `"Removed lines"` | For removed lines. |
-| `removed_lines_at_end` | `"Removed lines at end of document"` | For lines removed after the last one. |
-| `show_added` | `"Show added line {line}"` | The gutter marker of an added line. |
-| `show_added_title` | `"Show added line"` | Its tooltip. |
-| `show_modified` | `"Show before and after for modified line {line}"` | The gutter marker of a modified line. |
-| `show_modified_title` | `"Show before and after"` | Its tooltip. |
-| `show_removed` | `"Show removed lines before line {line}"` | The gutter marker of removed lines. |
-| `show_removed_title` | `"Show removed lines"` | Its tooltip, and that of lines removed at the end. |
-| `show_removed_at_end` | `"Show removed lines at end of document"` | The gutter marker of lines removed after the last one. |
-| `preview_heading` | `"{title} · line {line}"` | The change preview's heading: its `{title}` and `{line}`. |
-| `preview_label` | `"{title}, line {line}"` | The change preview's accessible name. |
-| `revert` | `"Revert"` | The preview's revert button. |
-| `revert_title` | `"Revert this change (R)"` | Its tooltip, for a one-line change. |
-| `revert_lines_title` | `"Revert this change (lines {first}–{last}) (R)"` | Its tooltip, for a change over lines `{first}` to `{last}`. |
-| `revert_line_and_removed_title` | `"Revert this change (line {line} and the removed lines) (R)"` | Its tooltip, for a changed line with removed lines. |
-| `close_preview` | `"Close change preview"` | The preview's close button. |
-| `before` | `"Before"` | The preview's column of the baseline's lines. |
-| `current` | `"Current"` | The preview's column of the current lines. |
-| `fold` | `"Fold line {line}"` | The chevron of an open range. |
-| `unfold` | `"Unfold lines {first}–{last}"` | The chevron or chip of a closed fold. |
-| `folded_changes` | `"Folded lines have changes"` | A closed fold's line number when it hides changes or problems. |
-| `required` | `"required"` | The hover card's mark of a required key. |
-| `deprecated` | `"deprecated"` | The hover card's mark of a deprecated key. |
-| `default_value` | `"Default"` | The hover card's default row. |
-| `examples` | `"Examples"` | The hover card's examples row. |
-| `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
-| `open_docs` | `"Open docs ↗ (Alt+Enter)"` | The link under a host problem's message. |
-| `error` | `"Error"` | An error, as a screen reader hears it. |
-| `warning` | `"Warning"` | A warning, as a screen reader hears it. |
-| `info` | `"Info"` | An info, as a screen reader hears it. |
-| `hint` | `"Hint"` | A hint, as a screen reader hears it. |
-| `problem_source` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
-| `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
-| `problem_position` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
-| `problem_code` | `" Code {code}."` | After a problem's text for screen readers: its `{code}` (from the host). |
-| `problem_docs` | `" Documentation: {url} (Alt+Enter opens it)."` | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it. |
-| `problem_marker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
-| `protected_note` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
-| `source_label` | `"{language} source"` | The text area. |
-| `suggestions_label` | `"{language} suggestions"` | The suggestions list. |
-| `problems_label` | `"Inline {language} diagnostics"` | The layer of underlined problems. |
-| `editor_label` | `"{language} editor"` | The editor's frame. |
-| `read_only_field` | `"This field is read-only"` | Why a field is read-only when neither the schema nor the host says. |
-| `read_only_text` | `"This text is read-only"` | Why text in a read-only range the host gave cannot change. |
-| `holds_read_only` | `"Holds a read-only field: {reason}"` | Why renaming or moving the key above a read-only field is refused. |
-| `save_refused` | `"{pointer} is read-only and this change would alter it"` | A save refused because it would change a read-only value. |
-| `read_only_label` | `"Read-only"` | The gutter lock's label, before the reason. |
-| `secret_label` | `"Secret placeholder"` | The gutter key's label, before the hint. |
-| `secret_hint` | `"Keeps the current secret unless you replace it"` | The hover text of a secret placeholder, unless the host gives one. |
-| `secret_value` | `"the secret value"` | What a schema problem says instead of a secret field's value. |
-| `unknown_placeholder` | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field. |
-| `moved_placeholder` | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"` | One of the host's placeholders outside the field it stands in. |
-| `env_reference` | `"Read the secret from an environment variable"` | The detail of the `${…}` reference suggestion. |
-| `file_reference` | `"Read the secret from a file"` | The detail of the `file:` reference suggestion. |
-| `other_reference` | `"A reference starting with {prefix}"` | The detail of another reference suggestion. |
-| `reference_type` | `"reference"` | The type column of a reference suggestion. |
-| `closes_tag` | `"Closes <{name}>"` | The detail of the end tag XML suggests. |
-| `end_tag` | `"end tag"` | Its type column. |
-| `key_not_allowed` | `"{pointer}: '{key}' is not allowed here"` | A key the schema does not allow. |
-| `text_not_allowed` | `"{pointer}: text is not allowed here, only elements"` | Text in an element the schema wants elements in (XML). |
-| `key_deprecated` | `"{pointer}: '{key}' is deprecated"` | A deprecated key. |
-| `key_deprecated_instead` | `"{pointer}: '{key}' is deprecated. {message}"` | A deprecated key whose schema says what to use instead. |
-| `not_one_of` | `"{value} is not one of {allowed}"` | A value not among the allowed ones. |
-| `wrong_type` | `"{value} is not of type {types}"` | A value of none of the accepted types. |
-| `invalid_schema` | `"Invalid JSON Schema: {error}"` | A schema that does not compile. |
-| `host_cannot_keep` | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"` | A value the host's language reads back differently (Edit-as). |
-| `edit_cannot_show` | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"` | A value the edited language cannot show exactly (Edit-as). |
-| `not_saved` | `"Not saved as {host}: {error}"` | An edit the host's language cannot save (Edit-as). |
-| `no_null` | `"{host} has no null value (at {pointer})"` | A null the host's language cannot write (Edit-as). |
-| `no_non_finite` | `"{host} has no infinity or NaN (at {pointer})"` | An infinity or NaN the host's language has no number for (Edit-as). |
-| `cannot_edit_as` | `"Cannot edit this {host} as {edit}: {error}"` | A host document that does not convert for editing. |
-| `cannot_switch` | `"Cannot switch to {edit} yet: {error}"` | An Edit-as switch waiting until the document converts. |
-| `tab_list` | `"Open files"` | The tab list's accessible name, unless the host gives one. |
-| `no_documents` | `"No open files"` | Shown in place of an editor while no document is open. |
-| `close_tab` | `"Close {name}"` | A tab's close button. |
-| `close_tab_title` | `"Close (Delete)"` | Its tooltip. |
-| `unsaved` | `"unsaved changes"` | The dirty dot's tooltip, and what a tab's accessible name adds for it. |
-| `read_only_tab` | `"read-only"` | What a read-only document's tab adds to its accessible name. |
+| Field                           | Default                                                                                                    |                                                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `suggestions_hint`              | `"{key} for suggestions"`                                                                                  | The footer's suggestions hint; `{key}` is where the chord goes.                                                              |
+| `suggestions_key`               | `"Ctrl+Space"`                                                                                             | The chord that opens suggestions, as the footer draws it: keys between `+`.                                                  |
+| `no_problems`                   | `"No errors"`                                                                                              | The footer's problem count when there are none.                                                                              |
+| `errors_one`                    | `"{count} error"`                                                                                          | One error, in the footer's problem count.                                                                                    |
+| `errors_other`                  | `"{count} errors"`                                                                                         | Several errors, in the footer's problem count.                                                                               |
+| `warnings_one`                  | `"{count} warning"`                                                                                        | One warning, in the footer's problem count.                                                                                  |
+| `warnings_other`                | `"{count} warnings"`                                                                                       | Several warnings, in the footer's problem count.                                                                             |
+| `infos_one`                     | `"{count} info"`                                                                                           | One info, in the footer's problem count.                                                                                     |
+| `infos_other`                   | `"{count} info"`                                                                                           | Several infos, in the footer's problem count.                                                                                |
+| `hints_one`                     | `"{count} hint"`                                                                                           | One hint, in the footer's problem count.                                                                                     |
+| `hints_other`                   | `"{count} hints"`                                                                                          | Several hints, in the footer's problem count.                                                                                |
+| `problems_hint`                 | `"hover or focus underlined text"`                                                                         | After the problem count when every problem has its place.                                                                    |
+| `problems_cut`                  | `"only the first {count} are shown"`                                                                       | After the problem count when the list was cut; `{count}` is how many are shown.                                              |
+| `problems_more`                 | `"Only the first {count} problems are shown; more follow."`                                                | The problem that says the list was cut, after `{count}` problems.                                                            |
+| `changes_one`                   | `"{count} change"`                                                                                         | The footer's change count against the baseline, for one change.                                                              |
+| `changes_other`                 | `"{count} changes"`                                                                                        | The footer's change count, for several changes.                                                                              |
+| `change_details_one`            | `"{lines} line · Alt+F5 for the next"`                                                                     | The change count's tooltip when one line changed; `{lines}` lists the added, modified and removed counts.                    |
+| `change_details_other`          | `"{lines} lines · Alt+F5 for the next"`                                                                    | The change count's tooltip when several lines changed.                                                                       |
+| `changed_added`                 | `"{count} added"`                                                                                          | Added lines, in the change count's tooltip.                                                                                  |
+| `changed_modified`              | `"{count} modified"`                                                                                       | Modified lines, in the change count's tooltip.                                                                               |
+| `changed_removed`               | `"{count} removed"`                                                                                        | Removed lines, in the change count's tooltip.                                                                                |
+| `lines_one`                     | `"{count} line"`                                                                                           | The footer's line count, for one line.                                                                                       |
+| `lines_other`                   | `"{count} lines"`                                                                                          | The footer's line count, for several lines.                                                                                  |
+| `tab_focus`                     | `"Tab moves focus"`                                                                                        | The footer's indicator while Tab moves the focus.                                                                            |
+| `tab_focus_title`               | `"Tab moves focus (Ctrl+M to indent with Tab)"`                                                            | Its tooltip; clicking it turns the mode off.                                                                                 |
+| `tab_focus_on`                  | `"Tab moves focus: Tab and Shift+Tab now leave the editor. Ctrl+M to indent with Tab again."`              | Announced when `Ctrl+M` makes Tab move the focus.                                                                            |
+| `tab_focus_off`                 | `"Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."`                            | Announced when `Ctrl+M` makes Tab indent again.                                                                              |
+| `schema_connected`              | `"Schema connected"`                                                                                       | The toolbar's schema state.                                                                                                  |
+| `edit_as_host_comments`         | `"The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."`    | The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps.              |
+| `edit_as_typed_comments`        | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."`                   | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments. |
+| `edit_as_typed_comments_none`   | `"Comments typed in {edit} are not saved: {host} has no comments."`                                        | The same when the host's language has no comments (JSON).                                                                    |
+| `edit_as_dismiss`               | `"Dismiss"`                                                                                                | The Edit-as notice's close button.                                                                                           |
+| `baseline_changed`              | `"The file changed on the server."`                                                                        | The notice shown when the host's baseline changes under unsaved edits.                                                       |
+| `baseline_changed_detail`       | `"Reload it, losing your changes, or keep your text and compare it with the new version."`                 | What the notice's choices do, after its message.                                                                             |
+| `reload`                        | `"Reload"`                                                                                                 | The notice's button that takes the new baseline as the text.                                                                 |
+| `reload_title`                  | `"Replace your text with the new version (Ctrl+Z brings yours back)"`                                      | Its tooltip.                                                                                                                 |
+| `keep_mine`                     | `"Keep mine"`                                                                                              | The notice's button that keeps the text against the new baseline.                                                            |
+| `keep_mine_title`               | `"Keep your text; the changes are now shown against the new version (Escape)"`                             | Its tooltip.                                                                                                                 |
+| `baseline_changed_keys`         | `"F6 moves to the choices and back."`                                                                      | How to reach the notice's choices from the keyboard, shown on it (and announced with it).                                    |
+| `find_widget`                   | `"Find and replace"`                                                                                       | The find widget's accessible name.                                                                                           |
+| `toggle_replace`                | `"Toggle replace"`                                                                                         | The button showing the replace row.                                                                                          |
+| `toggle_replace_title`          | `"Toggle replace (Ctrl+H)"`                                                                                | Its tooltip.                                                                                                                 |
+| `find`                          | `"Find"`                                                                                                   | The query field's accessible name and placeholder.                                                                           |
+| `match_case`                    | `"Match case"`                                                                                             | The match-case toggle.                                                                                                       |
+| `match_case_title`              | `"Match case (Alt+C)"`                                                                                     | Its tooltip.                                                                                                                 |
+| `whole_word`                    | `"Match whole word"`                                                                                       | The whole-word toggle.                                                                                                       |
+| `whole_word_title`              | `"Match whole word (Alt+W)"`                                                                               | Its tooltip.                                                                                                                 |
+| `use_regex`                     | `"Use regular expression"`                                                                                 | The regular-expression toggle.                                                                                               |
+| `use_regex_title`               | `"Use regular expression (Alt+R)"`                                                                         | Its tooltip.                                                                                                                 |
+| `previous_match`                | `"Previous match"`                                                                                         | The previous-match button.                                                                                                   |
+| `previous_match_title`          | `"Previous match (Shift+Enter)"`                                                                           | Its tooltip.                                                                                                                 |
+| `next_match`                    | `"Next match"`                                                                                             | The next-match button.                                                                                                       |
+| `next_match_title`              | `"Next match (Enter)"`                                                                                     | Its tooltip.                                                                                                                 |
+| `close`                         | `"Close"`                                                                                                  | The find widget's close button.                                                                                              |
+| `close_title`                   | `"Close (Escape)"`                                                                                         | Its tooltip.                                                                                                                 |
+| `replace`                       | `"Replace"`                                                                                                | The replacement field's accessible name and placeholder, and the button replacing the current match.                         |
+| `replace_title`                 | `"Replace (Enter)"`                                                                                        | The replace button's tooltip.                                                                                                |
+| `replace_all`                   | `"All"`                                                                                                    | The replace-all button.                                                                                                      |
+| `replace_all_label`             | `"Replace all"`                                                                                            | Its accessible name.                                                                                                         |
+| `replace_all_title`             | `"Replace all (Ctrl+Alt+Enter)"`                                                                           | Its tooltip.                                                                                                                 |
+| `match_position`                | `"{current} of {total}"`                                                                                   | The match count: match `{current}` of `{total}`.                                                                             |
+| `no_results`                    | `"No results"`                                                                                             | The match count when nothing matches.                                                                                        |
+| `invalid_pattern`               | `"Invalid pattern"`                                                                                        | The match count when the regular expression is invalid.                                                                      |
+| `replaced_one`                  | `"Replaced {count} occurrence"`                                                                            | After Replace All, for one match.                                                                                            |
+| `replaced_other`                | `"Replaced {count} occurrences"`                                                                           | After Replace All, for several.                                                                                              |
+| `replace_skipped`               | `"; skipped {count} in read-only text or secret placeholders"`                                             | Added when Replace All left matches in protected text alone.                                                                 |
+| `nothing_replaced`              | `"Every match is in read-only text; nothing was replaced"`                                                 | After Replace All when every match is in read-only text.                                                                     |
+| `go_to_line`                    | `"Go to line"`                                                                                             | The go-to-line field's accessible name.                                                                                      |
+| `go_to_line_placeholder`        | `"line or line:column"`                                                                                    | Its placeholder.                                                                                                             |
+| `go_to_line_hint`               | `"Line 1–{lines}, or line:column"`                                                                         | Its hint: the range of lines.                                                                                                |
+| `go_to_line_invalid`            | `"Type a line number between 1 and {lines}"`                                                               | Its hint when the text is no position.                                                                                       |
+| `added_line`                    | `"Added line"`                                                                                             | The change preview's title for an added line.                                                                                |
+| `modified_line`                 | `"Modified line"`                                                                                          | For a modified line.                                                                                                         |
+| `removed_lines`                 | `"Removed lines"`                                                                                          | For removed lines.                                                                                                           |
+| `removed_lines_at_end`          | `"Removed lines at end of document"`                                                                       | For lines removed after the last one.                                                                                        |
+| `show_added`                    | `"Show added line {line}"`                                                                                 | The gutter marker of an added line.                                                                                          |
+| `show_added_title`              | `"Show added line"`                                                                                        | Its tooltip.                                                                                                                 |
+| `show_modified`                 | `"Show before and after for modified line {line}"`                                                         | The gutter marker of a modified line.                                                                                        |
+| `show_modified_title`           | `"Show before and after"`                                                                                  | Its tooltip.                                                                                                                 |
+| `show_removed`                  | `"Show removed lines before line {line}"`                                                                  | The gutter marker of removed lines.                                                                                          |
+| `show_removed_title`            | `"Show removed lines"`                                                                                     | Its tooltip, and that of lines removed at the end.                                                                           |
+| `show_removed_at_end`           | `"Show removed lines at end of document"`                                                                  | The gutter marker of lines removed after the last one.                                                                       |
+| `preview_heading`               | `"{title} · line {line}"`                                                                                  | The change preview's heading: its `{title}` and `{line}`.                                                                    |
+| `preview_label`                 | `"{title}, line {line}"`                                                                                   | The change preview's accessible name.                                                                                        |
+| `revert`                        | `"Revert"`                                                                                                 | The preview's revert button.                                                                                                 |
+| `revert_title`                  | `"Revert this change (R)"`                                                                                 | Its tooltip, for a one-line change.                                                                                          |
+| `revert_lines_title`            | `"Revert this change (lines {first}–{last}) (R)"`                                                          | Its tooltip, for a change over lines `{first}` to `{last}`.                                                                  |
+| `revert_line_and_removed_title` | `"Revert this change (line {line} and the removed lines) (R)"`                                             | Its tooltip, for a changed line with removed lines.                                                                          |
+| `close_preview`                 | `"Close change preview"`                                                                                   | The preview's close button.                                                                                                  |
+| `before`                        | `"Before"`                                                                                                 | The preview's column of the baseline's lines.                                                                                |
+| `current`                       | `"Current"`                                                                                                | The preview's column of the current lines.                                                                                   |
+| `fold`                          | `"Fold line {line}"`                                                                                       | The chevron of an open range.                                                                                                |
+| `unfold`                        | `"Unfold lines {first}–{last}"`                                                                            | The chevron or chip of a closed fold.                                                                                        |
+| `folded_changes`                | `"Folded lines have changes"`                                                                              | A closed fold's line number when it hides changes or problems.                                                               |
+| `required`                      | `"required"`                                                                                               | The hover card's mark of a required key.                                                                                     |
+| `deprecated`                    | `"deprecated"`                                                                                             | The hover card's mark of a deprecated key.                                                                                   |
+| `default_value`                 | `"Default"`                                                                                                | The hover card's default row.                                                                                                |
+| `examples`                      | `"Examples"`                                                                                               | The hover card's examples row.                                                                                               |
+| `documentation`                 | `"Documentation"`                                                                                          | The hover card's link to the schema's documentation.                                                                         |
+| `open_docs`                     | `"Open docs ↗ (Alt+Enter)"`                                                                                | The link under a host problem's message.                                                                                     |
+| `error`                         | `"Error"`                                                                                                  | An error, as a screen reader hears it.                                                                                       |
+| `warning`                       | `"Warning"`                                                                                                | A warning, as a screen reader hears it.                                                                                      |
+| `info`                          | `"Info"`                                                                                                   | An info, as a screen reader hears it.                                                                                        |
+| `hint`                          | `"Hint"`                                                                                                   | A hint, as a screen reader hears it.                                                                                         |
+| `problem_source`                | `" from {source}"`                                                                                         | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems).                |
+| `problem`                       | `"{severity}{source}: {message}"`                                                                          | A problem at the caret, for screen readers.                                                                                  |
+| `problem_position`              | `"{severity} {position} of {total}{source}: {message}"`                                                    | Announced on `F8`: problem `{position}` of `{total}`.                                                                        |
+| `problem_code`                  | `" Code {code}."`                                                                                          | After a problem's text for screen readers: its `{code}` (from the host).                                                     |
+| `problem_docs`                  | `" Documentation: {url} (Alt+Enter opens it)."`                                                            | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it.                           |
+| `problem_marker`                | `"{language} {severity}{source} on line {line}: {message}"`                                                | An underlined problem's accessible name.                                                                                     |
+| `protected_note`                | `"{label}: {message}"`                                                                                     | What protected text at the caret is, for screen readers: its `{label}` and `{message}`.                                      |
+| `source_label`                  | `"{language} source"`                                                                                      | The text area.                                                                                                               |
+| `suggestions_label`             | `"{language} suggestions"`                                                                                 | The suggestions list.                                                                                                        |
+| `problems_label`                | `"Inline {language} diagnostics"`                                                                          | The layer of underlined problems.                                                                                            |
+| `editor_label`                  | `"{language} editor"`                                                                                      | The editor's frame.                                                                                                          |
+| `read_only_field`               | `"This field is read-only"`                                                                                | Why a field is read-only when neither the schema nor the host says.                                                          |
+| `read_only_text`                | `"This text is read-only"`                                                                                 | Why text in a read-only range the host gave cannot change.                                                                   |
+| `holds_read_only`               | `"Holds a read-only field: {reason}"`                                                                      | Why renaming or moving the key above a read-only field is refused.                                                           |
+| `save_refused`                  | `"{pointer} is read-only and this change would alter it"`                                                  | A save refused because it would change a read-only value.                                                                    |
+| `read_only_label`               | `"Read-only"`                                                                                              | The gutter lock's label, before the reason.                                                                                  |
+| `secret_label`                  | `"Secret placeholder"`                                                                                     | The gutter key's label, before the hint.                                                                                     |
+| `secret_hint`                   | `"Keeps the current secret unless you replace it"`                                                         | The hover text of a secret placeholder, unless the host gives one.                                                           |
+| `secret_value`                  | `"the secret value"`                                                                                       | What a schema problem says instead of a secret field's value.                                                                |
+| `unknown_placeholder`           | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field.                                                                      |
+| `moved_placeholder`             | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"`  | One of the host's placeholders outside the field it stands in.                                                               |
+| `env_reference`                 | `"Read the secret from an environment variable"`                                                           | The detail of the `${…}` reference suggestion.                                                                               |
+| `file_reference`                | `"Read the secret from a file"`                                                                            | The detail of the `file:` reference suggestion.                                                                              |
+| `other_reference`               | `"A reference starting with {prefix}"`                                                                     | The detail of another reference suggestion.                                                                                  |
+| `reference_type`                | `"reference"`                                                                                              | The type column of a reference suggestion.                                                                                   |
+| `closes_tag`                    | `"Closes <{name}>"`                                                                                        | The detail of the end tag XML suggests.                                                                                      |
+| `end_tag`                       | `"end tag"`                                                                                                | Its type column.                                                                                                             |
+| `key_not_allowed`               | `"{pointer}: '{key}' is not allowed here"`                                                                 | A key the schema does not allow.                                                                                             |
+| `text_not_allowed`              | `"{pointer}: text is not allowed here, only elements"`                                                     | Text in an element the schema wants elements in (XML).                                                                       |
+| `key_deprecated`                | `"{pointer}: '{key}' is deprecated"`                                                                       | A deprecated key.                                                                                                            |
+| `key_deprecated_instead`        | `"{pointer}: '{key}' is deprecated. {message}"`                                                            | A deprecated key whose schema says what to use instead.                                                                      |
+| `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                        | A value not among the allowed ones.                                                                                          |
+| `wrong_type`                    | `"{value} is not of type {types}"`                                                                         | A value of none of the accepted types.                                                                                       |
+| `invalid_schema`                | `"Invalid JSON Schema: {error}"`                                                                           | A schema that does not compile.                                                                                              |
+| `host_cannot_keep`              | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"`                            | A value the host's language reads back differently (Edit-as).                                                                |
+| `edit_cannot_show`              | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"`                        | A value the edited language cannot show exactly (Edit-as).                                                                   |
+| `not_saved`                     | `"Not saved as {host}: {error}"`                                                                           | An edit the host's language cannot save (Edit-as).                                                                           |
+| `no_null`                       | `"{host} has no null value (at {pointer})"`                                                                | A null the host's language cannot write (Edit-as).                                                                           |
+| `no_non_finite`                 | `"{host} has no infinity or NaN (at {pointer})"`                                                           | An infinity or NaN the host's language has no number for (Edit-as).                                                          |
+| `cannot_edit_as`                | `"Cannot edit this {host} as {edit}: {error}"`                                                             | A host document that does not convert for editing.                                                                           |
+| `cannot_switch`                 | `"Cannot switch to {edit} yet: {error}"`                                                                   | An Edit-as switch waiting until the document converts.                                                                       |
+| `tab_list`                      | `"Open files"`                                                                                             | The tab list's accessible name, unless the host gives one.                                                                   |
+| `no_documents`                  | `"No open files"`                                                                                          | Shown in place of an editor while no document is open.                                                                       |
+| `close_tab`                     | `"Close {name}"`                                                                                           | A tab's close button.                                                                                                        |
+| `close_tab_title`               | `"Close (Delete)"`                                                                                         | Its tooltip.                                                                                                                 |
+| `unsaved`                       | `"unsaved changes"`                                                                                        | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                       |
+| `read_only_tab`                 | `"read-only"`                                                                                              | What a read-only document's tab adds to its accessible name.                                                                 |
 
 </details>
 
@@ -860,37 +861,37 @@ schema whose regex it cannot compile.
 
 ## Keyboard
 
-| Keys                                         | Action                                                                           |
-| -------------------------------------------- | -------------------------------------------------------------------------------- |
-| `Ctrl+Space`                                 | Open suggestions (with schema examples)                                          |
-| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                 |
-| `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote           |
-| `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                      |
+| Keys                                         | Action                                                                            |
+| -------------------------------------------- | --------------------------------------------------------------------------------- |
+| `Ctrl+Space`                                 | Open suggestions (with schema examples)                                           |
+| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                  |
+| `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote            |
+| `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                       |
 | `Ctrl+M`                                     | Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting |
-| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                   |
-| `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element |
-| `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                        |
-| `Ctrl+/`                                     | Toggle comments                                                                  |
-| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
-| `F8` / `Shift+F8`                            | Next / previous problem                                                          |
-| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                              |
-| `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                      |
-| `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
-| `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
-| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
-| `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                          |
-| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                     |
-| `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                       |
-| `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold    |
-| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                              |
-| `Home`                                       | First non-blank character, then the line start                                   |
-| `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
-| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |
-| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                            |
-| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                     |
-| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                          |
-| `Escape`                                     | Close popups and the find widget, then collapse the selection                    |
-| `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                             |
+| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                    |
+| `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element  |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                         |
+| `Ctrl+/`                                     | Toggle comments                                                                   |
+| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                        |
+| `F8` / `Shift+F8`                            | Next / previous problem                                                           |
+| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                               |
+| `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                       |
+| `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert              |
+| `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)          |
+| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel       |
+| `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                           |
+| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                      |
+| `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                        |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold     |
+| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                               |
+| `Home`                                       | First non-blank character, then the line start                                    |
+| `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                              |
+| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)           |
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                             |
+| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                      |
+| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                           |
+| `Escape`                                     | Close popups and the find widget, then collapse the selection                     |
+| `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                              |
 
 `Cmd` works in place of `Ctrl` on macOS.
 
@@ -1201,18 +1202,18 @@ root carries the theme too (`data-color-theme`), so they follow the theme.
 
 All are on by default; turn off what you don't use to shrink the build.
 
-| Feature             | Enables                                                                                                                                                                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `schema-validation` | Live JSON Schema diagnostics (`jsonschema`, the heaviest dependency). Completions, hover docs and schema-shaped reading work without it, from the schema alone; leave it out when documents are validated on a server. Syntax is always checked. |
-| `yaml`              | `Language::YAML` (`noyalib`)                                                                                                                                                                                                                     |
-| `json`              | `Language::JSON`                                                                                                                                                                                                                                 |
-| `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                        |
-| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                       |
-| `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                    |
-| `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                            |
+| Feature             | Enables                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema-validation` | Live JSON Schema diagnostics (`jsonschema`, the heaviest dependency). Completions, hover docs and schema-shaped reading work without it, from the schema alone; leave it out when documents are validated on a server. Syntax is always checked.  |
+| `yaml`              | `Language::YAML` (`noyalib`)                                                                                                                                                                                                                      |
+| `json`              | `Language::JSON`                                                                                                                                                                                                                                  |
+| `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                         |
+| `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                        |
+| `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                     |
+| `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                             |
 | `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving. |
-| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                            |
-| `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                        |
+| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                             |
+| `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                         |
 
 ```toml
 # YAML with live schema diagnostics:
@@ -1259,19 +1260,21 @@ What a host does not use (`ConfigDocuments`, the handle's methods, the
 headless functions) is left out by the linker, feature or not.
 
 <!-- wasm-sizes:start -->
-| Build | wasm, gzip -9 |
-| ----- | ------------- |
-| Everything (the default features) | 1815 KB |
-| YAML + JSON, every optional feature, no `schema-validation` | 721 KB |
-| YAML + JSON, every optional feature, with `schema-validation` | 1417 KB |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB |
-| Saved by leaving out `schema-validation` (from everything) | -700 KB |
-| Saved by leaving out `search` (from everything) | -34 KB |
-| Saved by leaving out `folding` (from everything) | -30 KB |
-| Saved by leaving out `diff` (from everything) | -25 KB |
-| Saved by leaving out `protect` (from everything) | -53 KB |
+
+| Build                                                           | wasm, gzip -9 |
+| --------------------------------------------------------------- | ------------- |
+| Everything (the default features)                               | 1815 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 721 KB        |
+| YAML + JSON, every optional feature, with `schema-validation`   | 1417 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB        |
+| Saved by leaving out `schema-validation` (from everything)      | -700 KB       |
+| Saved by leaving out `search` (from everything)                 | -34 KB        |
+| Saved by leaving out `folding` (from everything)                | -30 KB        |
+| Saved by leaving out `diff` (from everything)                   | -25 KB        |
+| Saved by leaving out `protect` (from everything)                | -53 KB        |
 
 Measured 2026-11-07 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+
 <!-- wasm-sizes:end -->
 
 To measure again (needs the `wasm32-unknown-unknown` target and the

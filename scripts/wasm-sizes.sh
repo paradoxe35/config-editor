@@ -88,5 +88,8 @@ if [[ "${1:-}" == "--write" ]]; then
   block=$(printf '%s\n\n%s' "$table" "$note")
   BLOCK="$block" perl -0pi -e \
     's/(<!-- wasm-sizes:start -->\n).*?(<!-- wasm-sizes:end -->)/$1$ENV{BLOCK}\n$2/s' "$readme"
+  # Formatted as the other docs are (Prettier aligns the table).
+  prettier=js/node_modules/.bin/prettier
+  if [[ -x "$prettier" ]]; then "$prettier" --log-level warn --write "$readme"; fi
   echo "rewrote the table in $readme" >&2
 fi

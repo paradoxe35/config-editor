@@ -6,6 +6,9 @@ when it is broken.
 
 ## Checks
 
+`make help` lists every command below as a target (`make check`, `make e2e`,
+`make fmt`, `make docs-generate`, …).
+
 `scripts/ci.sh` runs every check CI runs (CI calls its steps one by one):
 formatting, clippy in every configuration, the tests, each language feature
 on its own, every language without schema validation, each optional feature
@@ -171,7 +174,13 @@ and in both JavaScript packages' READMEs.
   gets a scene in `e2e/screenshots.mjs` and an entry in
   `e2e/screenshots-gallery.mjs`.
 
-`scripts/ci.sh docs` fails when either is stale, and when a Markdown table
+Markdown is formatted by Prettier (the version pinned in `js/package.json`,
+the same one an editor's Prettier extension runs): `git ls-files '*.md' |
+xargs js/node_modules/.bin/prettier --write`. The generators above write its
+output, so formatting a file never fights them.
+
+`scripts/ci.sh docs` fails when either is stale, when a file is not
+formatted, and when a Markdown table
 is broken (`scripts/markdown-tables.mjs`: text written between a table's
 rows makes the rest render as one paragraph of `|`s).
 

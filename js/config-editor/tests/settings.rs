@@ -300,10 +300,76 @@ fn table(described: &Described, rust: bool) -> String {
         let text = field.docs.join(" ").replace('|', "\\|");
         out.push_str(&format!("| `{name}` | {default} | {text} |\n"));
     }
+    // Aligned as Prettier writes Markdown tables, so formatting a README
+    // (an editor's format-on-save) leaves the generated table as it is.
+    let (head, tail) = out.split_at(out.find("| ").expect("a table"));
+    let table_end = tail.find("\n\n").unwrap_or(tail.len());
+    let (table, rest) = tail.split_at(table_end);
+    let mut out = format!("{head}{}\n{rest}", aligned(table));
     if folded {
         out.push_str("\n</details>\n");
     }
     out
+}
+
+/// A Markdown table with every column padded to its widest cell and the
+/// separator's dashes as wide, the way Prettier formats it.
+fn aligned(table: &str) -> String {
+    let rows: Vec<Vec<String>> = table
+        .lines()
+        .map(|line| {
+            cells(line)
+                .into_iter()
+                .map(|cell| cell.trim().to_string())
+                .collect()
+        })
+        .collect();
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let width = |text: &str| text.chars().count();
+    let widths: Vec<usize> = (0..columns)
+        .map(|column| {
+            rows.iter()
+                .enumerate()
+                .filter(|(index, _)| *index != 1)
+                .map(|(_, row)| row.get(column).map_or(0, |cell| width(cell)))
+                .max()
+                .unwrap_or(0)
+                .max(3)
+        })
+        .collect();
+    rows.iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let cells: Vec<String> = (0..columns)
+                .map(|column| {
+                    if index == 1 {
+                        "-".repeat(widths[column])
+                    } else {
+                        let cell = row.get(column).map_or("", String::as_str);
+                        format!("{cell}{}", " ".repeat(widths[column] - width(cell)))
+                    }
+                })
+                .collect();
+            format!("| {} |", cells.join(" | "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The cells of a table row, splitting on `|` that is not escaped.
+fn cells(line: &str) -> Vec<&str> {
+    let inner = line.trim().trim_start_matches('|').trim_end_matches('|');
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let bytes = inner.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'|' && (index == 0 || bytes[index - 1] != b'\\') {
+            cells.push(&inner[start..index]);
+            start = index + 1;
+        }
+    }
+    cells.push(&inner[start..]);
+    cells
 }
 
 fn repo() -> PathBuf {
