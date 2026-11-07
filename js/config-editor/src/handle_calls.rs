@@ -1,4 +1,4 @@
-//! What `ConfigEditor` and a document's `DocumentEditor` answer through the
+//! What `ConfigEditor` and a document's `EditorView` answer through the
 //! crate's [`EditorHandle`]: paths, ranges, folds, focus. One body for both
 //! classes; each method of theirs is a call here. `None` (a document whose
 //! editor has not mounted yet) answers `null`, `false` or nothing.
@@ -16,7 +16,7 @@ pub(crate) fn range_of(
     handle: Option<EditorHandle>,
     path: &JsValue,
 ) -> Result<RangeResult, JsError> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
     let found = handle.and_then(|handle| handle.range_of(path).zip(handle.text()));
     Ok(found
@@ -28,7 +28,7 @@ pub(crate) fn path_at(
     handle: Option<EditorHandle>,
     offset: &JsValue,
 ) -> Result<PathResult, JsError> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     let offset = index_arg(offset, "offset")?;
     let path = handle.and_then(|handle| {
         handle
@@ -47,7 +47,7 @@ pub(crate) fn current_path(handle: Option<EditorHandle>) -> PathResult {
 }
 
 pub(crate) fn text(handle: Option<EditorHandle>) -> Option<String> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     untrack(|| handle.and_then(|handle| handle.text()))
 }
 
@@ -61,25 +61,25 @@ pub(crate) fn folded_lines(handle: Option<EditorHandle>) -> LineRanges {
 }
 
 pub(crate) fn reveal(handle: Option<EditorHandle>, path: &JsValue) -> Result<bool, JsError> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
     Ok(handle.is_some_and(|handle| handle.reveal(path)))
 }
 
 pub(crate) fn fold(handle: Option<EditorHandle>, path: &JsValue) -> Result<bool, JsError> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
     Ok(handle.is_some_and(|handle| handle.fold(path)))
 }
 
 pub(crate) fn unfold(handle: Option<EditorHandle>, path: &JsValue) -> Result<bool, JsError> {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
     Ok(handle.is_some_and(|handle| handle.unfold(path)))
 }
 
 pub(crate) fn fold_all(handle: Option<EditorHandle>) {
-    config_editor_leptos::flush_pending_input();
+    config_editor_leptos::js_support::flush_pending_input();
     if let Some(handle) = handle {
         handle.fold_all();
     }

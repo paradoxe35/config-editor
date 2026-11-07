@@ -12,7 +12,8 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { type DocumentEditor, DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor";
+  import type { EditorView } from "@pngwasi/config-editor";
+  import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
   import type { ConfigDocumentsProps } from "./types.js";
   import { readAll } from "./track.js";
 
@@ -67,7 +68,7 @@
     handle.focus();
   }
   /** The editor of the document `id` (paths, folds, focus, saving), or `null`. */
-  export function editor(id: string): DocumentEditor | null {
+  export function editor(id: string): EditorView | null {
     return handle.editor(id);
   }
 </script>

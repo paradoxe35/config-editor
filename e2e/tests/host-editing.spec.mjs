@@ -425,7 +425,7 @@ test.describe('vanilla: without onSave', () => {
   test('Ctrl+S is left to the browser, and save() sends nothing', async ({ page }) => {
     await open(page, 'vanilla.html');
     await page.evaluate(() => {
-      window.editor.setCallbacks({ onSave: null });
+      window.editor.update({ onSave: null });
       window.addEventListener('keydown', (event) => {
         if (event.key === 's') window.savePrevented = event.defaultPrevented;
       });

@@ -1,5 +1,5 @@
 // For the e2e tests: a load that fails (a wrong .wasm URL) can be retried.
-import { loadConfigEditor } from "@pngwasi/config-editor-react";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 
 const outcome: string[] = [];
 try {

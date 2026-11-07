@@ -1,5 +1,5 @@
 export { default as ConfigEditor } from "./ConfigEditor.svelte";
 export { default as ConfigDocuments } from "./ConfigDocuments.svelte";
 export type { ConfigDocumentsProps, ConfigEditorProps } from "./types.js";
-export { changeSummary, colorTokens, convert, foldRanges, languageForFile, languageInfo, languages, loadConfigEditor, parse, pathAt, presetCss, rangeOf, registerLanguage, schemaWarnings, serialize, settingKeys, themeInfo, themes, unifiedDiff, validate, } from "@pngwasi/config-editor";
-export type { BaselineConflict, ChangeSummary, CloseRequest, ConfigDocumentsHandle, ConfigEditorHandle, DocumentEditor, DocumentsCallbackUpdate, DocumentsOptions, DocumentSpec, Conversion, CustomLanguage, Diagnostic, EditorPath, EditorRange, EditorSettings, EditorStrings, FieldPath, HostDiagnostic, LanguageInfo, LanguageName, LineRange, SecretOptions, Severity, TextRangeInput, ThemeColorMap, ThemeInfo, ThemeName, } from "@pngwasi/config-editor";
+export type { BaselineConflict, ChangeSummary, CloseRequest, DocumentSpec, EditorPath, EditorRange, EditorSettings, EditorStrings, EditorView, FieldPath, HostDiagnostic, LanguageName, LineRange, SecretOptions, Severity, TextRangeInput, ThemeColorMap, ThemeName, } from "@pngwasi/config-editor";
+export type { ConfigDocumentsHandle, ConfigEditorHandle } from "@pngwasi/config-editor/binding";

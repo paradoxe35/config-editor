@@ -258,9 +258,9 @@ test.describe('a host problem at the caret', () => {
     await page.goto(pathToFileURL(join(js, 'examples', 'vanilla.html')).href);
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
     await page.evaluate(() =>
-      window.editor.setHostDiagnostics([
+      window.editor.update({ hostDiagnostics: [
         { path: '/listen', severity: 'warning', message: 'port in use', source: 'burrow' },
-      ]),
+      ] }),
     );
     const input = page.locator('.config-editor__input');
     await expect(page.locator('.config-editor__diagnostic-marker-host')).toHaveCount(1);

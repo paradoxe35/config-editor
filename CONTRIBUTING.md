@@ -107,18 +107,27 @@ one off cleans up after itself.
 
 ### The JS and framework packages follow the Rust API
 
-`e2e/tests/api-parity.spec.mjs` fails when a public Rust prop, handle method
-or exported function has no JS counterpart and none in each framework
-package (React, Vue, Svelte): add it, or add it to its exemptions with the
-reason.
+`e2e/tests/api-parity.spec.mjs` fails when a feature of the Rust crate (a
+public prop, handle method or exported item) is not reachable from
+JavaScript and from each framework package (React, Vue, Svelte): its
+mapping names the JS member that reaches it (an option, and its `update`
+key or why it is fixed; an instance member; a function of the main entry or
+of `/tools`; a type), or exempts it with the reason. Its last test proves
+each check fails when a counterpart is missing. The JS package has three
+entries with explicit export lists (`index.js`, `tools.js`, `binding.js`;
+`e2e/tests/js-entries.spec.mjs` checks them at runtime); a mounted instance
+changes through one method, `update`, whose rules are in `src/update.rs`.
 
 What a framework component does with an editor is written once, in
-`EditorBinding` and `DocumentsBinding` (`js/config-editor/binding.js`): which
+`EditorBinding` and `DocumentsBinding` (`js/config-editor/binding.js`, the
+`@pngwasi/config-editor/binding` entry): which
 props apply live and which re-mount, the bound value through `ValueSync`,
 focus and caret carried through a re-mount, retries, the one WebAssembly
 load, the instance API. The React, Vue and Svelte components only hand it
 their props (renamed to their idiom) and expose its handle, so a fix there
-fixes all three. A new option goes into the binding (its props and the
+fixes all three. The framework packages export only their components and
+the types they take; apps import the helpers from `@pngwasi/config-editor`.
+A new option goes into the binding (its props and the
 options it passes) and then into each component's props; the shared
 component tests (`e2e/tests/framework-cases.mjs`) run on each framework's
 example page, which have the same controls, ids and `window` hooks.

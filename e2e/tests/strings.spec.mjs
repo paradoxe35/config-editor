@@ -137,8 +137,9 @@ const seenKeys = (page) =>
     return [...parts.join('\n').matchAll(/«(\w+)»/g)].map(([, key]) => key);
   });
 
+/** Sets the texts `strings` gives, the others back to their defaults. */
 async function setStrings(page, strings) {
-  await page.evaluate((strings) => window.editor.setSettings({ ...window.editor.settings, strings }), strings);
+  await page.evaluate((strings) => window.editor.update({ strings: null }) ?? window.editor.update({ strings }), strings);
 }
 
 test('every built-in text comes from the strings setting', async ({ page }) => {
@@ -163,7 +164,7 @@ test('every built-in text comes from the strings setting', async ({ page }) => {
 
   // A warning too.
   await page.evaluate(() =>
-    window.editor.setHostDiagnostics([{ path: '/public_address', message: 'Hmm', severity: 'warning', source: 'host' }]),
+    window.editor.update({ hostDiagnostics: [{ path: '/public_address', message: 'Hmm', severity: 'warning', source: 'host' }] }),
   );
   await expect(page.locator('.config-editor__diagnostic-status')).toContainText('«warningsOne»');
   await look();
@@ -261,7 +262,7 @@ test('every built-in text comes from the strings setting', async ({ page }) => {
   // Editing as JSON: the notice about the file's comments; then as TOML
   // with a comment typed in it.
   await page.locator('#replace').click();
-  await page.evaluate(() => window.editor.setValue('# the port\nlisten: 7835\n'));
+  await page.evaluate(() => window.editor.update({ value: '# the port\nlisten: 7835\n' }));
   await page.locator('#edit-as').selectOption('json');
   await expect(page.locator('.config-editor__edit-as-notice')).toContainText('«editAsHostComments»');
   await look();
@@ -291,7 +292,7 @@ test('texts change live, counts pick singular or plural, and English fills the r
   await expect(footer).toContainText('Keine Fehler');
   await expect(footer).toContainText('5 Zeilen');
   await expect(page.locator('.config-editor__toolbar')).toContainText('Schema connected');
-  await page.evaluate(() => window.editor.setValue('listen: 7835'));
+  await page.evaluate(() => window.editor.update({ value: 'listen: 7835' }));
   await expect(footer).toContainText('1 Zeile');
   await expect(footer).not.toContainText('1 Zeilen');
   // Back to English.
@@ -313,7 +314,7 @@ test('strings must be an object of texts', async ({ page }) => {
   await open(page);
   const error = await page.evaluate(() => {
     try {
-      window.editor.setSettings({ ...window.editor.settings, strings: { find: 3 } });
+      window.editor.update({ strings: { find: 3 } });
       return null;
     } catch (error) {
       return String(error.message ?? error);
@@ -322,7 +323,7 @@ test('strings must be an object of texts', async ({ page }) => {
   expect(error).toContain('strings.find');
   const notObject = await page.evaluate(() => {
     try {
-      window.editor.setSettings({ ...window.editor.settings, strings: 'Deutsch' });
+      window.editor.update({ strings: 'Deutsch' });
       return null;
     } catch (error) {
       return String(error.message ?? error);
@@ -338,8 +339,7 @@ test('the documents view takes its tab texts from the strings setting', async ({
   await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
   await page.locator('[role="tab"]').first().waitFor();
   await page.evaluate(() =>
-    window.documentsView.setSettings({
-      ...window.documentsView.settings,
+    window.documentsView.update({
       strings: {
         tabList: 'Offene Dateien',
         closeTab: '{name} schließen',

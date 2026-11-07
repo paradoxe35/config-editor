@@ -1,4 +1,4 @@
-//! Host diagnostics (`hostDiagnostics`, `setHostDiagnostics`) from JavaScript.
+//! Host diagnostics (the `hostDiagnostics` option and `update` key) from JavaScript.
 
 use config_editor_leptos::{HostDiagnostic, Severity};
 use js_sys::Array;
@@ -82,7 +82,7 @@ pub(crate) fn host_diagnostic_from(
     diagnostic.source = optional("source")?;
     diagnostic.docs_url = optional("docsUrl")?;
     if let Some(url) = &diagnostic.docs_url
-        && !config_editor_leptos::is_web_url(url)
+        && !config_editor_leptos::js_support::is_web_url(url)
     {
         return Err(format!("docsUrl must be an http(s) URL (got {url:?})"));
     }

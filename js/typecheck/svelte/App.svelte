@@ -15,10 +15,9 @@
     type EditorPath,
     type HostDiagnostic,
     type LanguageName,
-    loadConfigEditor,
-    unifiedDiff,
-    validate,
   } from "@pngwasi/config-editor-svelte";
+  import { loadConfigEditor } from "@pngwasi/config-editor";
+  import { unifiedDiff, validate } from "@pngwasi/config-editor/tools";
 
   let { schema, wasmUrl }: { schema: string; wasmUrl: string } = $props();
   // Start the download early, with the URL your bundler serves the `.wasm` at.

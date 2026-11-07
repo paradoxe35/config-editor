@@ -1,10 +1,5 @@
-import {
-  type CloseRequest,
-  type DocumentSpec,
-  DocumentsBinding,
-  type DocumentsBindingProps,
-  type LanguageName,
-} from "@pngwasi/config-editor";
+import type { CloseRequest, DocumentSpec, LanguageName } from "@pngwasi/config-editor";
+import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
 import {
   type ExtractPublicPropTypes,
   type PropType,
@@ -27,7 +22,7 @@ const optional = <T>(type: PropType<T>) => ({ type, default: undefined });
 const documentsProps = {
   /** The open documents, in tab order (keep each `value` up to date from `@change`). */
   documents: { type: Array as PropType<DocumentSpec[]>, required: true as const },
-  /** The document shown first. Default: the first one. */
+  /** The document shown first (default: the first one); a new id shows that document, leaving the focus where it is. */
   activeId: optional(String),
   /** `@select`: a document's id when it becomes the active one. */
   onSelect: optional(Function as PropType<(id: string) => void>),

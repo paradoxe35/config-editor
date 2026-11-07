@@ -26,7 +26,7 @@ async function open(browserPage, name) {
 const input = (browserPage) => browserPage.locator('.config-editor__input');
 const markers = (browserPage) => browserPage.locator('.config-editor__diagnostic-marker');
 const footer = (browserPage) => browserPage.locator('.config-editor__diagnostic-status');
-const setHost = (browserPage, list) => browserPage.evaluate((problems) => window.editor.setHostDiagnostics(problems), list);
+const setHost = (browserPage, list) => browserPage.evaluate((problems) => window.editor.update({ hostDiagnostics: problems }), list);
 
 // The vanilla page's document:
 //   1 # Burrow server configuration

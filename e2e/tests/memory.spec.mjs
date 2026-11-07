@@ -43,7 +43,7 @@ async function open(browserPage, name) {
 /** The WebAssembly memory's size, in bytes. */
 async function wasmBytes(browserPage) {
   return browserPage.evaluate(async () => {
-    if (window.packageApi) return (await window.packageApi.loadConfigEditor()).memory.buffer.byteLength;
+    if (window.coreApi) return (await window.coreApi.loadConfigEditor()).memory.buffer.byteLength;
     const module = await import('../config-editor/pkg/config_editor.js');
     return (await module.default()).memory.buffer.byteLength;
   });
@@ -135,9 +135,9 @@ test.describe('memory', () => {
       cycles: 20,
       cycle: async () => {
         // Every underline is drawn again, and again without the host's.
-        await browserPage.evaluate(() => window.editor.setHostDiagnostics(window.hostProblems));
+        await browserPage.evaluate(() => window.editor.update({ hostDiagnostics: window.hostProblems }));
         await expect(browserPage.locator('.config-editor__diagnostic-marker-host').first()).toBeAttached();
-        await browserPage.evaluate(() => window.editor.setHostDiagnostics([]));
+        await browserPage.evaluate(() => window.editor.update({ hostDiagnostics: [] }));
         await expect(browserPage.locator('.config-editor__diagnostic-marker-host')).toHaveCount(0);
         // A suggestion list opens and closes (the root's keys, at the start).
         await browserPage.keyboard.press('Control+Home');
@@ -169,8 +169,7 @@ test.describe('memory', () => {
         for (const on of [false, true]) {
           await browserPage.evaluate(
             ({ parts, on }) =>
-              window.editor.setSettings({
-                ...window.editor.settings,
+              window.editor.update({
                 ...Object.fromEntries(parts.map((part) => [part, on])),
               }),
             { parts, on },
@@ -188,7 +187,7 @@ test.describe('memory', () => {
     const errors = await open(browserPage, 'documents.html');
     await browserPage.evaluate(() => {
       window.mainFile = { id: 'main', fileName: 'main.yaml', value: 'listen: 7835\n' };
-      window.documentsView.setDocuments([window.mainFile]);
+      window.documentsView.update({ documents: [window.mainFile] });
     });
     const grown = await growth(browserPage, {
       cycles: 400,
@@ -198,11 +197,11 @@ test.describe('memory', () => {
           async ({ id }) => {
             const view = window.documentsView;
             const pause = () => new Promise((resolve) => setTimeout(resolve, 10));
-            view.setDocuments([window.mainFile, { id, fileName: `${id}.yaml`, value: window.longDocument }]);
+            view.update({ documents: [window.mainFile, { id, fileName: `${id}.yaml`, value: window.longDocument }] });
             await pause();
             view.select(id);
             await pause();
-            view.setDocuments([window.mainFile]);
+            view.update({ documents: [window.mainFile] });
             await pause();
           },
           { id },
@@ -388,21 +387,20 @@ const surfaces = {
     await goToLine(p, 2);
     await p.keyboard.press('End');
     await p.keyboard.type('9');
-    await p.evaluate(() => window.editor.setBaseline(window.soakDocument.replace('7835', '7836')));
+    await p.evaluate(() => window.editor.update({ baseline: window.soakDocument.replace('7835', '7836') }));
     await expect(p.locator('.config-editor__notice')).toBeVisible();
     await p.locator('.config-editor__notice-keep').click();
     await expect(p.locator('.config-editor__notice')).toBeHidden();
     await input(p).focus();
     await p.keyboard.press('Control+z');
-    await p.evaluate(() => window.editor.setBaseline(window.soakDocument));
+    await p.evaluate(() => window.editor.update({ baseline: window.soakDocument }));
     await expect.poll(() => p.evaluate(() => window.editor.value === window.soakDocument)).toBe(true);
   },
   async settings(p) {
     for (const on of [false, true]) {
       await p.evaluate(
         (on) =>
-          window.editor.setSettings({
-            ...window.editor.settings,
+          window.editor.update({
             ...Object.fromEntries(
               Object.entries(window.editor.settings)
                 .filter(([, value]) => typeof value === 'boolean')
@@ -422,9 +420,9 @@ const surfaces = {
     await expect(p.locator('.config-editor__tab-focus-status')).toHaveCount(0);
   },
   async hostDiagnostics(p) {
-    await p.evaluate(() => window.editor.setHostDiagnostics(window.hostProblems));
+    await p.evaluate(() => window.editor.update({ hostDiagnostics: window.hostProblems }));
     await expect(p.locator('.config-editor__diagnostic-marker-host').first()).toBeAttached();
-    await p.evaluate(() => window.editor.setHostDiagnostics([]));
+    await p.evaluate(() => window.editor.update({ hostDiagnostics: [] }));
     await expect(p.locator('.config-editor__diagnostic-marker-host')).toHaveCount(0);
   },
 };
@@ -527,7 +525,7 @@ test.describe('memory soak', () => {
     const errors = await open(browserPage, 'documents.html');
     await browserPage.evaluate((value) => {
       window.files = ['a', 'b', 'c'].map((id) => ({ id, fileName: `${id}.yaml`, value }));
-      window.documentsView.setDocuments(window.files);
+      window.documentsView.update({ documents: window.files });
     }, soakDocument());
     const tab = (id) => browserPage.locator(`.config-editor-documents__tab[data-document-id="${id}"]`);
     const shownInput = browserPage.locator(
@@ -541,10 +539,10 @@ test.describe('memory soak', () => {
       }
       // Close one and reopen it: a new editor each time.
       await browserPage.evaluate(() =>
-        window.documentsView.setDocuments(window.files.filter((file) => file.id !== 'c')),
+        window.documentsView.update({ documents: window.files.filter((file) => file.id !== 'c') }),
       );
       await expect(tab('c')).toHaveCount(0);
-      await browserPage.evaluate(() => window.documentsView.setDocuments(window.files));
+      await browserPage.evaluate(() => window.documentsView.update({ documents: window.files }));
       await tab('c').click();
       await expect(shownInput).toBeVisible();
       await tab('a').click();

@@ -54,7 +54,7 @@ export class ValueSync {
   /**
    * The host's value arrived. `current` is the editor's document now (read
    * `editor.value` first: it sends an edit still waiting out the typing
-   * pause). Returns the text to apply with `setValue`, if any, and the text
+   * pause). Returns the text to apply with `update({ value })`, if any, and the text
    * to report to the host through its change callback, if any (already
    * recorded as sent).
    * @param {string} value

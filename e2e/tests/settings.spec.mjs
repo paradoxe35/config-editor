@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Every setting of `EditorSettings` switches live on the example pages:
-// vanilla (`setSettings`), React, Vue and Svelte (props), and the documents view, vanilla
-// (`setSettings` on the view) and each framework's (its props). Live means the editor
+// vanilla (`update`), React, Vue and Svelte (props), and the documents view, vanilla
+// (`update` on the view) and each framework's (its props). Live means the editor
 // is not mounted again: the textarea stays the same element, the caret
 // stays where it was and the typing before the switch is undone after it.
 // Also: a document's own settings over the view's, and reaching a
@@ -47,9 +47,9 @@ const root = (page, name) => scope(page, name).locator('.config-editor').first()
 async function setSettings(page, name, partial) {
   await page.evaluate(
     ([name, partial]) => {
-      if (name === 'vanilla.html') window.editor.setSettings({ ...window.editor.settings, ...partial });
+      if (name === 'vanilla.html') window.editor.update(partial);
       else if (!name.startsWith('documents')) window.setExtraProps((props) => ({ ...props, ...partial }));
-      else if (name === 'documents.html') window.documentsView.setSettings({ ...window.documentsView.settings, ...partial });
+      else if (name === 'documents.html') window.documentsView.update(partial);
       else window.setViewSettings((settings) => ({ ...settings, ...partial }));
     },
     [name, partial],
@@ -309,8 +309,10 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORKS]) {
           },
           [name, id, method, args],
         );
-      expect(await call('nope', 'id')).toBe('none');
-      expect(await call('main', 'id')).toBe('main');
+      expect(await call('nope', 'value')).toBe('none');
+      expect(await call('main', 'value')).toContain('listen: 7835');
+      expect(await call('main', 'unifiedDiff')).toBe('');
+      expect((await call('main', 'settings')).folding).toBe(true);
       expect(await call('main', 'rangeOf', '/public_address')).toMatchObject({ startLine: 2, startColumn: 1 });
       expect(await call('main', 'currentPath')).not.toBeNull();
       // Not shown yet: its editor has not mounted, so it answers nothing.

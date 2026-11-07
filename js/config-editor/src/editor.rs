@@ -1,11 +1,11 @@
 //! The `ConfigEditor` class: the crate's component mounted into an element,
-//! with setters writing the signals it reads.
+//! `update` writing the signals it reads.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::{EditorHandle, Language, Schema};
-use js_sys::{Array, Function};
+use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -14,21 +14,24 @@ use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State};
 use crate::options::{
-    CALLBACK_KEYS, EDITOR_OPTIONS, bool_option, function_option, string_option, warn_unknown_keys,
+    EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
 use crate::settings::{settings_from, settings_result};
 use crate::typings::{
-    EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, Settings, SettingsResult,
+    EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, SettingsResult,
+};
+use crate::update::{
+    callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
 
 /// A config editor mounted into an element.
 ///
 /// ```js
-/// import init, { ConfigEditor } from "@pngwasi/config-editor";
-/// await init();
+/// import { ConfigEditor, loadConfigEditor } from "@pngwasi/config-editor";
+/// await loadConfigEditor();
 /// const editor = new ConfigEditor(document.getElementById("config"), {
 ///   language: "yaml",
 ///   value: "listen: 7835\n",
@@ -76,6 +79,16 @@ thread_local! {
     /// Rust side dropped), but the editor stays on the page until `destroy`.
     pub(crate) static MOUNTED: RefCell<HashMap<u32, Mounted>> = RefCell::new(HashMap::new());
     pub(crate) static NEXT_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+impl ConfigEditor {
+    /// The document as the host last saw it.
+    fn latest_text(&self) -> String {
+        self.latest
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_default()
+    }
 }
 
 #[wasm_bindgen]
@@ -151,6 +164,7 @@ impl ConfigEditor {
             on_save: StoredValue::new_local(on_save),
             on_dirty_change: StoredValue::new_local(on_dirty_change),
             on_baseline_conflict: StoredValue::new_local(on_baseline_conflict),
+            on_schema_warning: StoredValue::new_local(on_schema_warning),
             handle: EditorHandle::new(),
             host_diagnostics: RwSignal::new(host_diagnostics),
             read_only_paths: RwSignal::new(read_only_paths),
@@ -162,7 +176,6 @@ impl ConfigEditor {
             schema,
             file_name: file_name.unwrap_or_default(),
             class: class.unwrap_or_default(),
-            on_schema_warning,
             secrets,
         };
         let mount_element = element.clone();
@@ -195,68 +208,8 @@ impl ConfigEditor {
         config_editor_leptos::flush_pending_edits();
         match &self.final_value {
             Some(value) => value.clone(),
-            None => self
-                .latest
-                .lock()
-                .map(|text| text.clone())
-                .unwrap_or_default(),
+            None => self.latest_text(),
         }
-    }
-
-    /// Replaces the document (as a host update; the caret is kept when the
-    /// text is unchanged).
-    #[wasm_bindgen(js_name = setValue)]
-    pub fn set_value(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task, and an Edit-as edit still
-        // waiting out the typing pause, first: the reset replaces them.
-        config_editor_leptos::flush_pending_edits();
-        if self.id.is_none() {
-            return Ok(());
-        }
-        let value = text_arg(&value, "value")?;
-        *self
-            .latest
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
-        let _ = self.state.value.try_set(value);
-        Ok(())
-    }
-
-    /// Sets the text the diff gutter compares against.
-    #[wasm_bindgen(js_name = setBaseline)]
-    pub fn set_baseline(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "string")] baseline: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let _ = self
-            .state
-            .baseline
-            .try_set(text_arg(&baseline, "baseline")?);
-        Ok(())
-    }
-
-    /// Edits in another language, or in `language` again with `null`.
-    #[wasm_bindgen(js_name = setEditAs)]
-    pub fn set_edit_as(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "string | null | undefined")] language: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let language = if language.is_null() || language.is_undefined() {
-            None
-        } else {
-            Some(writable_edit_as(language_named(&text_arg(
-                &language, "editAs",
-            )?)?)?)
-        };
-        let _ = self.state.edit_as.try_set(language);
-        Ok(())
     }
 
     /// The settings in effect: every key of `EditorSettings`, set.
@@ -265,110 +218,132 @@ impl ConfigEditor {
         settings_result(&self.state.settings.try_get_untracked().unwrap_or_default())
     }
 
-    /// Replaces the settings, live (the caret, undo history and folds
-    /// stay); keys left out take their defaults, as in the constructor. To
-    /// change one: `editor.setSettings({ ...editor.settings, folding: false })`.
-    #[wasm_bindgen(js_name = setSettings)]
-    pub fn set_settings(&self, settings: Settings) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let settings: JsValue = settings.into();
-        if !settings.is_object() || Array::is_array(&settings) {
-            return Err(JsError::new(
-                "setSettings takes an object: { showFooter?, folding?, theme?, … }",
-            ));
+    /// Changes what the editor shows, live (the caret, undo history and
+    /// folds stay): the constructor's options, any of them. A key left out
+    /// or `undefined` stays as it is; `null` removes a callback, clears
+    /// `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`, turns
+    /// `editAs` and `readOnly` off and returns a setting to its default.
+    /// Settings merge key by key, `strings` text by text. A new `value`
+    /// replaces the document as a host update (the caret kept when the
+    /// text is unchanged). `language`, `schema`, `fileName`, `className`
+    /// and `secrets` are what the editor is built from: they throw (create
+    /// a new editor instead). Every key is checked before any applies.
+    pub fn update(&self, options: EditorUpdate) -> Result<(), JsError> {
+        let options: JsValue = options.into();
+        plain_object(
+            &options,
+            "update takes an object of options: { value?, readOnly?, theme?, onChange?, … }",
+        )?;
+        refuse_remount(&options, EDITOR_REMOUNT_OPTIONS, "ConfigEditor")?;
+        warn_unknown_options(&options, EDITOR_OPTIONS);
+        let value = given(&options, "value")
+            .map(|value| text_arg(&value, "value"))
+            .transpose()?;
+        // Input the browser sent in this task, and an Edit-as edit still
+        // waiting out the typing pause when the document is replaced, first.
+        if value.is_some() {
+            config_editor_leptos::flush_pending_edits();
+        } else {
+            config_editor_leptos::js_support::flush_pending_input();
         }
-        warn_unknown_keys(
-            &settings,
-            &crate::settings::setting_keys()
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            "setting",
-        );
-        let settings = settings_from(&settings)?;
-        if self
-            .state
-            .settings
-            .try_with_untracked(|current| *current != settings)
-            == Some(true)
+        if self.id.is_none() {
+            return Ok(());
+        }
+        let baseline = given(&options, "baseline")
+            .map(|baseline| text_arg(&baseline, "baseline"))
+            .transpose()?;
+        let edit_as = given(&options, "editAs")
+            .map(|language| {
+                if language.is_null() {
+                    Ok(None)
+                } else {
+                    language_named(&text_arg(&language, "editAs")?)
+                        .and_then(writable_edit_as)
+                        .map(Some)
+                }
+            })
+            .transpose()?;
+        let read_only = flag_change(&options, "readOnly")?;
+        let current = self.state.settings.try_get_untracked().unwrap_or_default();
+        let settings = settings_change(&current, &options)?;
+        // Ranges are in the document as it will be.
+        let host_text = value.clone().unwrap_or_else(|| self.latest_text());
+        let host_diagnostics = given(&options, "hostDiagnostics")
+            .map(|list| {
+                if list.is_null() {
+                    Ok(Vec::new())
+                } else {
+                    host_diagnostics_from(&list, &host_text)
+                }
+            })
+            .transpose()?;
+        let read_only_paths = given(&options, "readOnlyPaths")
+            .map(|list| paths_from(&list, "readOnlyPaths"))
+            .transpose()?;
+        let read_only_ranges = given(&options, "readOnlyRanges")
+            .map(|list| ranges_from(&list, &host_text, "readOnlyRanges"))
+            .transpose()?;
+        let state = self.state;
+        let mut callbacks = Vec::new();
+        for (name, slot) in [
+            ("onChange", state.on_change),
+            ("onEditAsChange", state.on_edit_as_change),
+            ("onChangeSummary", state.on_change_summary),
+            ("onDirtyChange", state.on_dirty_change),
+            ("onBaselineConflict", state.on_baseline_conflict),
+            ("onSchemaWarning", state.on_schema_warning),
+        ] {
+            callbacks.push((callback_change(&options, name)?, slot));
+        }
+        let on_path_change = callback_change(&options, "onPathChange")?;
+        let on_save = callback_change(&options, "onSave")?;
+
+        // Everything checked: apply.
+        if let Some(value) = value {
+            *self
+                .latest
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
+            let _ = state.value.try_set(value);
+        }
+        if let Some(baseline) = baseline {
+            let _ = state.baseline.try_set(baseline);
+        }
+        if let Some(edit_as) = edit_as {
+            let _ = state.edit_as.try_set(edit_as);
+        }
+        if let Some(read_only) = read_only {
+            let _ = state.read_only.try_set(read_only);
+        }
+        if let Some(settings) = settings
+            && state
+                .settings
+                .try_with_untracked(|current| *current != settings)
+                == Some(true)
         {
-            let _ = self.state.settings.try_set(settings);
+            let _ = state.settings.try_set(settings);
         }
-        Ok(())
-    }
-
-    #[wasm_bindgen(js_name = setReadOnly)]
-    #[allow(non_snake_case, reason = "the parameter name shows in TypeScript")]
-    pub fn set_read_only(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "boolean")] readOnly: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let read_only = readOnly
-            .as_bool()
-            .ok_or_else(|| JsError::new("readOnly must be a boolean"))?;
-        let _ = self.state.read_only.try_set(read_only);
-        Ok(())
-    }
-
-    /// Replaces callbacks (`onChange`, `onSave`, …; see `CallbackUpdate`).
-    #[wasm_bindgen(js_name = setCallbacks)]
-    pub fn set_callbacks(&self, callbacks: EditorUpdate) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let callbacks: JsValue = callbacks.into();
-        if !callbacks.is_object() || Array::is_array(&callbacks) {
-            return Err(JsError::new(
-                "setCallbacks takes an object: { onChange?, onEditAsChange? }",
-            ));
+        if let Some(diagnostics) = host_diagnostics {
+            let _ = state.host_diagnostics.try_set(diagnostics);
         }
-        warn_unknown_keys(&callbacks, CALLBACK_KEYS, "callback");
-        // Check both before changing either.
-        let read = |name: &str| -> Result<Option<Option<Function>>, JsError> {
-            let value = field(&callbacks, name);
-            if value.is_undefined() {
-                Ok(None)
-            } else if value.is_null() {
-                Ok(Some(None))
-            } else {
-                value
-                    .dyn_into::<Function>()
-                    .map(|callback| Some(Some(callback)))
-                    .map_err(|_| JsError::new(&format!("{name} must be a function or null")))
+        if let Some(paths) = read_only_paths {
+            let _ = state.read_only_paths.try_set(paths);
+        }
+        if let Some(ranges) = read_only_ranges {
+            let _ = state.read_only_ranges.try_set(ranges);
+        }
+        for (change, slot) in callbacks {
+            if let Some(callback) = change {
+                let _ = slot.try_set_value(callback);
             }
-        };
-        // A function replaces a callback; `null` removes it; absent keeps it.
-        let on_change = read("onChange")?;
-        let on_edit_as_change = read("onEditAsChange")?;
-        let on_change_summary = read("onChangeSummary")?;
-        let on_path_change = read("onPathChange")?;
-        let on_save = read("onSave")?;
-        let on_dirty_change = read("onDirtyChange")?;
-        let on_baseline_conflict = read("onBaselineConflict")?;
+        }
         if let Some(callback) = on_save {
-            let _ = self.state.saves.try_set(callback.is_some());
-            let _ = self.state.on_save.try_set_value(callback);
-        }
-        if let Some(callback) = on_dirty_change {
-            let _ = self.state.on_dirty_change.try_set_value(callback);
-        }
-        if let Some(callback) = on_baseline_conflict {
-            let _ = self.state.on_baseline_conflict.try_set_value(callback);
-        }
-        if let Some(callback) = on_change {
-            let _ = self.state.on_change.try_set_value(callback);
-        }
-        if let Some(callback) = on_edit_as_change {
-            let _ = self.state.on_edit_as_change.try_set_value(callback);
-        }
-        if let Some(callback) = on_change_summary {
-            let _ = self.state.on_change_summary.try_set_value(callback);
+            let _ = state.saves.try_set(callback.is_some());
+            let _ = state.on_save.try_set_value(callback);
         }
         if let Some(callback) = on_path_change {
-            let _ = self.state.follows_path.try_set(callback.is_some());
-            let _ = self.state.on_path_change.try_set_value(callback);
+            let _ = state.follows_path.try_set(callback.is_some());
+            let _ = state.on_path_change.try_set_value(callback);
         }
         Ok(())
     }
@@ -391,59 +366,6 @@ impl ConfigEditor {
         Ok(config_editor_leptos::unified_diff(
             &baseline, &current, context,
         ))
-    }
-
-    /// Replaces the host's problems (a server's validation), shown next to
-    /// the editor's own; `[]` clears them.
-    #[wasm_bindgen(js_name = setHostDiagnostics)]
-    pub fn set_host_diagnostics(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "HostDiagnostic[]")] diagnostics: JsValue,
-    ) -> Result<(), JsError> {
-        config_editor_leptos::flush_pending_input();
-        let host_text = self
-            .latest
-            .lock()
-            .map(|text| text.clone())
-            .unwrap_or_default();
-        let diagnostics = if diagnostics.is_undefined() || diagnostics.is_null() {
-            Vec::new()
-        } else {
-            host_diagnostics_from(&diagnostics, &host_text)?
-        };
-        let _ = self.state.host_diagnostics.try_set(diagnostics);
-        Ok(())
-    }
-
-    /// Replaces the fields the user cannot change (on top of the schema's
-    /// `readOnly` ones); `[]` clears them.
-    #[wasm_bindgen(js_name = setReadOnlyPaths)]
-    pub fn set_read_only_paths(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "FieldPath[]")] paths: JsValue,
-    ) -> Result<(), JsError> {
-        config_editor_leptos::flush_pending_input();
-        let paths = paths_from(&paths, "readOnlyPaths")?;
-        let _ = self.state.read_only_paths.try_set(paths);
-        Ok(())
-    }
-
-    /// Replaces the stretches of the document (in `language`) the user
-    /// cannot change; `[]` clears them.
-    #[wasm_bindgen(js_name = setReadOnlyRanges)]
-    pub fn set_read_only_ranges(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "TextRangeInput[]")] ranges: JsValue,
-    ) -> Result<(), JsError> {
-        config_editor_leptos::flush_pending_input();
-        let host_text = self
-            .latest
-            .lock()
-            .map(|text| text.clone())
-            .unwrap_or_default();
-        let ranges = ranges_from(&ranges, &host_text, "readOnlyRanges")?;
-        let _ = self.state.read_only_ranges.try_set(ranges);
-        Ok(())
     }
 
     /// Where the field at `path` is written in the text on screen, or `null`.
@@ -534,7 +456,7 @@ impl ConfigEditor {
     /// `destroy`, or while an `editAs` edit cannot convert back (the caret
     /// goes to the problem).
     pub fn save(&self) -> bool {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return false;
         }
@@ -544,7 +466,7 @@ impl ConfigEditor {
     /// Whether the document differs from the baseline.
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         untrack(|| self.state.handle.is_dirty())
     }
 
@@ -553,7 +475,7 @@ impl ConfigEditor {
     /// to `onChange` first.
     pub fn destroy(&mut self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         let Some((mounted, owner, _)) = self
             .id
             .take()
@@ -568,24 +490,14 @@ impl ConfigEditor {
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns.
-            self.final_value = Some(
-                self.latest
-                    .lock()
-                    .map(|text| text.clone())
-                    .unwrap_or_default(),
-            );
+            self.final_value = Some(self.latest_text());
             let deferred = Closure::once_into_js(unmount);
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
             }
         } else {
             unmount();
-            self.final_value = Some(
-                self.latest
-                    .lock()
-                    .map(|text| text.clone())
-                    .unwrap_or_default(),
-            );
+            self.final_value = Some(self.latest_text());
         }
     }
 }

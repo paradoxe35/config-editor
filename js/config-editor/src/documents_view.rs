@@ -1,6 +1,6 @@
 //! The `ConfigDocuments` class: the crate's documents view (a tab strip over
-//! one editor per document) mounted into an element, with setters writing
-//! the signals it reads.
+//! one editor per document) mounted into an element, `update` writing the
+//! signals it reads.
 
 use std::collections::HashMap;
 
@@ -14,8 +14,8 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::document_editor::DocumentEditor;
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
+use crate::editor_view::DocumentEditorView;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
@@ -24,9 +24,8 @@ use crate::options::{
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
 use crate::settings::{setting_keys, settings_from, settings_over, settings_result};
-use crate::typings::{
-    DocumentEditorResult, DocumentList, DocumentsOptions, DocumentsUpdate, Settings, SettingsResult,
-};
+use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
+use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{field, optional_text, text_arg, to_js};
 
 /// The options `new ConfigDocuments` takes apart from the settings.
@@ -59,9 +58,8 @@ const DOCUMENT_KEYS: &[&str] = &[
     "secrets",
 ];
 
-/// The callbacks `setCallbacks` replaces.
-const DOCUMENTS_CALLBACKS: &[&str] =
-    &["onSelect", "onClose", "onChange", "onSave", "onDirtyChange"];
+/// The options the view is built from, which `update` refuses.
+const DOCUMENTS_REMOUNT_OPTIONS: &[&str] = &["className", "label"];
 
 /// What a list from JavaScript reads into: the documents, and each one's
 /// own `settings` as given (laid over the view's again when those change).
@@ -195,7 +193,7 @@ struct CloseOut {
     dirty: bool,
 }
 
-/// The live state a mounted view reads; setters write it.
+/// The live state a mounted view reads; `update` writes it.
 #[derive(Clone, Copy)]
 pub(crate) struct State {
     documents: RwSignal<Vec<Document>>,
@@ -212,35 +210,81 @@ pub(crate) struct State {
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_save: StoredValue<Option<Function>, LocalStorage>,
     on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
+    /// Whether the view was mounted with `onClose`: tabs have close buttons.
+    closable: bool,
+    /// Each document's text and baseline as the host last saw them.
+    texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     pub(crate) handle: DocumentsHandle,
 }
 
+/// A document's text (the host's, then each edit's) and the baseline it is
+/// diffed against (given, else the text it was added with), as the view's
+/// own entries keep them.
+#[derive(Clone)]
+pub(crate) struct Texts {
+    pub(crate) value: String,
+    pub(crate) baseline: String,
+}
+
 impl State {
-    /// The text the host last gave the document `id`.
-    pub(crate) fn value_of(&self, id: &str) -> Option<String> {
-        self.documents
+    /// The document `id`'s text and baseline, while it is listed.
+    pub(crate) fn texts_of(&self, id: &str) -> Option<Texts> {
+        self.texts
+            .try_with_value(|texts| texts.get(id).cloned())
+            .flatten()
+    }
+
+    /// The settings of the document `id`'s editor: its own over the view's.
+    pub(crate) fn settings_of(&self, id: &str) -> Option<EditorSettings> {
+        let own = self
+            .documents
             .try_with_untracked(|documents| {
                 documents
                     .iter()
                     .find(|document| document.id == id)
-                    .map(|document| document.value.clone())
+                    .map(|document| document.settings.clone())
             })
-            .flatten()
+            .flatten()?;
+        own.or_else(|| self.settings.try_get_untracked())
     }
 
-    /// Reads a list from JavaScript against the view's settings.
-    fn read(&self, list: &JsValue) -> Result<Listed, JsError> {
-        let view = self.settings.try_get_untracked().unwrap_or_default();
+    /// Reads a list from JavaScript against the view's settings `view`.
+    fn read(&self, list: &JsValue, view: &EditorSettings) -> Result<Listed, JsError> {
         let mut secrets = self.secrets.try_get_value().unwrap_or_default();
-        let listed = documents_from(list, &view, &mut secrets)?;
+        let listed = documents_from(list, view, &mut secrets)?;
         let _ = self.secrets.try_set_value(secrets);
         Ok(listed)
     }
 
     fn show(&self, listed: Listed) {
+        remember_texts(self.texts, &listed.documents);
         let _ = self.overrides.try_set_value(listed.overrides);
         let _ = self.documents.try_set(listed.documents);
     }
+}
+
+/// Keeps each listed document's text and baseline (see [`Texts`]).
+fn remember_texts(
+    texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
+    documents: &[Document],
+) {
+    let _ = texts.try_update_value(|texts| {
+        texts.retain(|id, _| documents.iter().any(|document| document.id == *id));
+        for document in documents {
+            let baseline = document
+                .baseline
+                .clone()
+                .or_else(|| texts.get(&document.id).map(|known| known.baseline.clone()))
+                .unwrap_or_else(|| document.value.clone());
+            texts.insert(
+                document.id.clone(),
+                Texts {
+                    value: document.value.clone(),
+                    baseline,
+                },
+            );
+        }
+    });
 }
 
 /// What the component takes once, at mount.
@@ -261,6 +305,11 @@ fn view(state: State, setup: Setup) -> AnyView {
         }
     };
     let changed = move |(id, text): (String, String)| {
+        let _ = state.texts.try_update_value(|texts| {
+            if let Some(known) = texts.get_mut(&id) {
+                known.value.clone_from(&text);
+            }
+        });
         if let Some(callback) = host(state.on_change) {
             call_host_with(
                 &callback,
@@ -323,8 +372,8 @@ fn view(state: State, setup: Setup) -> AnyView {
 /// element.
 ///
 /// ```js
-/// import init, { ConfigDocuments } from "@pngwasi/config-editor";
-/// await init();
+/// import { ConfigDocuments, loadConfigEditor } from "@pngwasi/config-editor";
+/// await loadConfigEditor();
 /// let files = [
 ///   { id: "main", fileName: "burrow.yaml", value: mainText, schema },
 ///   { id: "tls", fileName: "conf.d/tls.toml", value: tlsText, schema },
@@ -333,7 +382,7 @@ fn view(state: State, setup: Setup) -> AnyView {
 ///   documents: files,
 ///   onChange: (id, value) => {
 ///     files = files.map((file) => (file.id === id ? { ...file, value } : file));
-///     tabs.setDocuments(files);
+///     tabs.update({ documents: files });
 ///   },
 ///   onSave: (id, value) => upload(id, value),
 ///   onClose: ({ id, dirty }) => { if (!dirty || confirm("Discard changes?")) close(id); },
@@ -398,8 +447,11 @@ impl ConfigDocuments {
             on_change: StoredValue::new_local(on_change),
             on_save: StoredValue::new_local(on_save),
             on_dirty_change: StoredValue::new_local(on_dirty_change),
+            closable: setup.closable,
+            texts: StoredValue::new_local(HashMap::new()),
             handle: DocumentsHandle::new(),
         });
+        remember_texts(state.texts, &state.documents.get_untracked());
         let mount_element = element.clone();
         let mounted = owner.with(|| leptos::mount::mount_to(element, move || view(state, setup)));
         let id = NEXT_ID.with(|next| {
@@ -418,25 +470,13 @@ impl ConfigDocuments {
         })
     }
 
-    /// Replaces the list of documents. A document keeps its editor (caret,
-    /// undo history, scroll, folds) while its `id` stays listed; its text,
-    /// baseline, file name and read-only state update in place, and a new
-    /// `language` or `schema` mounts a new editor.
-    #[wasm_bindgen(js_name = setDocuments)]
-    pub fn set_documents(&self, documents: DocumentList) -> Result<(), JsError> {
-        config_editor_leptos::flush_pending_input();
-        let listed = self.owner.with(|| self.state.read(&documents.into()))?;
-        self.state.show(listed);
-        Ok(())
-    }
-
     /// Shows the document `id` and focuses its editor; `false` when no
     /// document has that id.
     pub fn select(
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         Ok(self.state.handle.select(&text_arg(&id, "id")?))
     }
 
@@ -452,7 +492,7 @@ impl ConfigDocuments {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         let id = text_arg(&id, "id")?;
         Ok(untrack(|| self.state.handle.is_dirty(&id)))
     }
@@ -464,7 +504,7 @@ impl ConfigDocuments {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         let id = text_arg(&id, "id")?;
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Ok(false);
@@ -476,7 +516,7 @@ impl ConfigDocuments {
     /// the ids sent.
     #[wasm_bindgen(js_name = saveAll)]
     pub fn save_all(&self) -> Vec<String> {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Vec::new();
         }
@@ -494,42 +534,6 @@ impl ConfigDocuments {
         settings_result(&self.state.settings.try_get_untracked().unwrap_or_default())
     }
 
-    /// Replaces the view's settings, live: the tabs' theme and colors and
-    /// every editor's settings (a document's own `settings` stay over
-    /// them). Keys left out take their defaults, as in the constructor.
-    #[wasm_bindgen(js_name = setSettings)]
-    pub fn set_settings(&self, settings: Settings) -> Result<(), JsError> {
-        config_editor_leptos::flush_pending_input();
-        let settings: JsValue = settings.into();
-        if !settings.is_object() || Array::is_array(&settings) {
-            return Err(JsError::new(
-                "setSettings takes an object: { showFooter?, folding?, theme?, … }",
-            ));
-        }
-        let keys = setting_keys();
-        let known: Vec<&str> = keys.iter().map(String::as_str).collect();
-        warn_unknown_keys(&settings, &known, "setting");
-        let settings = settings_from(&settings)?;
-        // The documents' own settings, laid over the new ones (checked
-        // before anything changes).
-        let overrides = self.state.overrides.try_get_value().unwrap_or_default();
-        let mut own = Vec::with_capacity(overrides.len());
-        for (id, given) in &overrides {
-            own.push((id.clone(), settings_over(&settings, given)?));
-        }
-        let _ = self.state.settings.try_set(settings);
-        if !own.is_empty() {
-            let _ = self.state.documents.try_update(|documents| {
-                for document in documents.iter_mut() {
-                    if let Some((_, settings)) = own.iter().find(|(id, _)| *id == document.id) {
-                        document.settings = Some(settings.clone());
-                    }
-                }
-            });
-        }
-        Ok(())
-    }
-
     /// The editor of the document `id`: paths, folds, focus and saving for
     /// that document (`null` when no document has that id). Its
     /// queries answer `null` (or `false`) until the document has been shown
@@ -539,49 +543,96 @@ impl ConfigDocuments {
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<DocumentEditorResult, JsError> {
         let id = text_arg(&id, "id")?;
-        let listed = self.state.value_of(&id).is_some();
+        let listed = self.state.texts_of(&id).is_some();
         Ok(if listed {
-            JsValue::from(DocumentEditor::new(self.state, id))
+            JsValue::from(DocumentEditorView::new(self.state, id))
         } else {
             JsValue::NULL
         }
         .unchecked_into())
     }
 
-    /// Replaces callbacks: a function replaces, `null` removes, absent    /// Replaces callbacks: a function replaces, `null` removes, absent
-    /// keeps. Close buttons show only when `onClose` was given to the
-    /// constructor.
-    #[wasm_bindgen(js_name = setCallbacks)]
-    pub fn set_callbacks(&self, callbacks: DocumentsUpdate) -> Result<(), JsError> {
-        let callbacks: JsValue = callbacks.into();
-        if !callbacks.is_object() || Array::is_array(&callbacks) {
+    /// Changes the view, live: `documents`, `activeId`, the settings and
+    /// the callbacks, any of them. A key left out or `undefined` stays as
+    /// it is; `null` removes a callback or returns a setting to its default.
+    /// Settings merge key by key (`strings` text by text), under each
+    /// document's own `settings`. A new `documents` list replaces the list:
+    /// a document keeps its editor (caret, undo history, scroll, folds)
+    /// while its `id` stays listed, its text, baseline, file name and
+    /// read-only state update in place, and a new `language` or `schema`
+    /// mounts a new editor. `activeId` shows that document, leaving the
+    /// focus where it is. `className` and `label`, and an `onClose` for a
+    /// view mounted without one (its tabs have no close buttons), throw:
+    /// create a new view instead. Every key is checked before any applies.
+    pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
+        let options: JsValue = options.into();
+        plain_object(
+            &options,
+            "update takes an object of options: { documents?, activeId?, theme?, onSave?, … }",
+        )?;
+        refuse_remount(&options, DOCUMENTS_REMOUNT_OPTIONS, "ConfigDocuments")?;
+        warn_unknown_options(&options, DOCUMENTS_OPTIONS);
+        config_editor_leptos::js_support::flush_pending_input();
+        if self.id.is_none() {
+            return Ok(());
+        }
+        let active = given(&options, "activeId")
+            .map(|id| text_arg(&id, "activeId"))
+            .transpose()?;
+        let mut callbacks = Vec::new();
+        for (name, slot) in [
+            ("onSelect", self.state.on_select),
+            ("onClose", self.state.on_close),
+            ("onChange", self.state.on_change),
+            ("onDirtyChange", self.state.on_dirty_change),
+        ] {
+            callbacks.push((callback_change(&options, name)?, slot));
+        }
+        if !self.state.closable && matches!(callbacks[1].0, Some(Some(_))) {
             return Err(JsError::new(
-                "setCallbacks takes an object: { onChange?, onSave?, … }",
+                "onClose cannot be added to a ConfigDocuments mounted without one: its tabs are \
+                 built without close buttons. Create a new ConfigDocuments with onClose",
             ));
         }
-        warn_unknown_keys(&callbacks, DOCUMENTS_CALLBACKS, "callback");
-        let read = |name: &str| -> Result<Option<Option<Function>>, JsError> {
-            let value = field(&callbacks, name);
-            if value.is_undefined() {
-                Ok(None)
-            } else if value.is_null() {
-                Ok(Some(None))
-            } else {
-                value
-                    .dyn_into::<Function>()
-                    .map(|callback| Some(Some(callback)))
-                    .map_err(|_| JsError::new(&format!("{name} must be a function or null")))
-            }
+        let on_save = callback_change(&options, "onSave")?;
+        let current = self.state.settings.try_get_untracked().unwrap_or_default();
+        let settings = settings_change(&current, &options)?;
+        let view = settings.clone().unwrap_or(current);
+        // The new list, read against the new settings; else the documents'
+        // own settings laid over the new ones (checked before anything
+        // changes).
+        let listed = match given(&options, "documents") {
+            Some(list) if list.is_null() => Some(Listed {
+                documents: Vec::new(),
+                overrides: Vec::new(),
+            }),
+            Some(list) => Some(self.owner.with(|| self.state.read(&list, &view))?),
+            None => None,
         };
-        let updates = [
-            (read("onSelect")?, self.state.on_select),
-            (read("onClose")?, self.state.on_close),
-            (read("onChange")?, self.state.on_change),
-            (read("onDirtyChange")?, self.state.on_dirty_change),
-        ];
-        let on_save = read("onSave")?;
-        for (update, slot) in updates {
-            if let Some(callback) = update {
+        let mut own = Vec::new();
+        if listed.is_none() && settings.is_some() {
+            for (id, given) in &self.state.overrides.try_get_value().unwrap_or_default() {
+                own.push((id.clone(), settings_over(&view, given)?));
+            }
+        }
+
+        // Everything checked: apply.
+        if let Some(settings) = settings {
+            let _ = self.state.settings.try_set(settings);
+        }
+        if let Some(listed) = listed {
+            self.state.show(listed);
+        } else if !own.is_empty() {
+            let _ = self.state.documents.try_update(|documents| {
+                for document in documents.iter_mut() {
+                    if let Some((_, settings)) = own.iter().find(|(id, _)| *id == document.id) {
+                        document.settings = Some(settings.clone());
+                    }
+                }
+            });
+        }
+        for (change, slot) in callbacks {
+            if let Some(callback) = change {
                 let _ = slot.try_set_value(callback);
             }
         }
@@ -589,13 +640,16 @@ impl ConfigDocuments {
             let _ = self.state.saves.try_set(callback.is_some());
             let _ = self.state.on_save.try_set_value(callback);
         }
+        if let Some(id) = active {
+            self.state.handle.show(&id);
+        }
         Ok(())
     }
 
     /// Unmounts the view and its editors. The instance cannot be used
     /// afterwards.
     pub fn destroy(&mut self) {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         let Some((mounted, owner, _)) = self
             .id
             .take()

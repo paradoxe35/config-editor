@@ -1,73 +1,45 @@
+import type {
+  BaselineConflict,
+  ChangeSummary,
+  CloseRequest,
+  DocumentSpec,
+  EditorPath,
+  EditorSettings,
+  FieldPath,
+  HostDiagnostic,
+  LanguageName,
+  SecretOptions,
+  TextRangeInput,
+} from "@pngwasi/config-editor";
 import {
-  type BaselineConflict,
-  type ChangeSummary,
-  type CloseRequest,
   type ConfigDocumentsHandle,
   type ConfigEditorHandle,
-  type DocumentSpec,
   DocumentsBinding,
   EditorBinding,
-  type EditorPath,
-  type EditorSettings,
-  type FieldPath,
-  type HostDiagnostic,
-  type LanguageName,
-  type SecretOptions,
-  type TextRangeInput,
-} from "@pngwasi/config-editor";
+} from "@pngwasi/config-editor/binding";
 import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties } from "react";
 
-export {
-  changeSummary,
-  colorTokens,
-  convert,
-  foldRanges,
-  languageForFile,
-  languageInfo,
-  languages,
-  loadConfigEditor,
-  parse,
-  pathAt,
-  presetCss,
-  rangeOf,
-  registerLanguage,
-  schemaWarnings,
-  serialize,
-  settingKeys,
-  themeInfo,
-  themes,
-  unifiedDiff,
-  validate,
-} from "@pngwasi/config-editor";
 export type {
   BaselineConflict,
   ChangeSummary,
   CloseRequest,
-  ConfigDocumentsHandle,
-  ConfigEditorHandle,
-  DocumentEditor,
-  DocumentsCallbackUpdate,
-  DocumentsOptions,
   DocumentSpec,
-  Conversion,
-  CustomLanguage,
-  Diagnostic,
   EditorPath,
   EditorRange,
   EditorSettings,
   EditorStrings,
+  EditorView,
   FieldPath,
   HostDiagnostic,
-  LanguageInfo,
   LanguageName,
   LineRange,
   SecretOptions,
   Severity,
   TextRangeInput,
   ThemeColorMap,
-  ThemeInfo,
   ThemeName,
 } from "@pngwasi/config-editor";
+export type { ConfigDocumentsHandle, ConfigEditorHandle } from "@pngwasi/config-editor/binding";
 
 /**
  * Props of `<ConfigEditor>`: the document and its callbacks, and every
@@ -162,7 +134,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(fu
   const host = useRef<HTMLDivElement>(null);
   // Everything an editor needs from a component (live props, re-mounts,
   // the bound value through `ValueSync`), shared with the Vue and Svelte
-  // packages: `EditorBinding` from `@pngwasi/config-editor`.
+  // packages: `EditorBinding` from `@pngwasi/config-editor/binding`.
   const binding = useRef<EditorBinding | null>(null);
   binding.current ??= new EditorBinding("config-editor-react", props);
   useEffect(() => {
@@ -182,7 +154,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(fu
 export interface ConfigDocumentsProps extends EditorSettings {
   /** The open documents, in tab order (controlled: keep each `value` up to date from `onChange`). */
   documents: DocumentSpec[];
-  /** The document shown first. Default: the first one. */
+  /** The document shown first (default: the first one); a new id shows that document, leaving the focus where it is. */
   activeId?: string;
   /** Called with a document's id when it becomes the active one. */
   onSelect?: (id: string) => void;

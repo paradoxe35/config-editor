@@ -6,8 +6,8 @@ import {
   type DocumentSpec,
   type EditorSettings,
   type LanguageName,
-  loadConfigEditor,
 } from "@pngwasi/config-editor-vue";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 
 // The same page as documents-react.html, for the same tests. The documents
 // live in a reactive array the handlers change in place, as Vue apps do.

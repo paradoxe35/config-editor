@@ -239,11 +239,11 @@ test.describe('js packages', () => {
     });
     expect(error).toContain('context must be a whole number');
     // setBaseline to the text clears the count; setCallbacks replaces it.
-    await page.evaluate(() => window.target.setBaseline(window.target.value));
+    await page.evaluate(() => window.target.update({ baseline: window.target.value }));
     await expect.poll(() => page.evaluate(() => window.summaries.at(-1).hunks)).toBe(0);
     await page.evaluate(() => {
       window.replaced = [];
-      window.target.setCallbacks({ onChangeSummary: (summary) => window.replaced.push(summary.hunks) });
+      window.target.update({ onChangeSummary: (summary) => window.replaced.push(summary.hunks) });
     });
     await page.keyboard.type('0');
     await expect.poll(() => page.evaluate(() => window.replaced.at(-1))).toBe(1);

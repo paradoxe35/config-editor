@@ -121,7 +121,7 @@ for (const name of Object.keys(PAGES)) {
       await open(page, name, { styled: false });
       await expect(page.locator('.config-editor style')).toHaveCount(0);
       const css = await page.evaluate(async () =>
-        (window.packageApi ?? (await import('../config-editor/pkg/config_editor.js'))).presetCss(),
+        (window.toolsApi ?? (await import('../config-editor/tools.js'))).presetCss(),
       );
       expect(css).toContain('.config-editor');
       expect(css).toContain('--config-editor-bg');
@@ -134,7 +134,7 @@ for (const name of Object.keys(PAGES)) {
       await page.waitForTimeout(300);
       expect(await saveCount(page, name)).toBe(0);
       await page.evaluate((vanilla) => {
-        if (vanilla) window.editor.setSettings({ ...window.editor.settings, saveShortcut: true });
+        if (vanilla) window.editor.update({ saveShortcut: true });
         else window.setExtraProps({ saveShortcut: true });
       }, name === 'vanilla.html');
       await input(page).focus();
@@ -147,7 +147,7 @@ for (const name of Object.keys(PAGES)) {
       const read = (property) =>
         page.evaluate((property) => (window.editor ?? window.editorHandle.current)[property], property);
       expect(await read('foldedLines')).toEqual([]);
-      await page.evaluate(() => (window.editor ?? window.editorHandle.current).setValue('web:\n  http: 80\nlimits:\n  a: 1\n'));
+      await page.evaluate((text) => (window.editor ? window.editor.update({ value: text }) : window.editorHandle.current.setValue(text)), 'web:\n  http: 80\nlimits:\n  a: 1\n');
       await page.evaluate(() => (window.editor ?? window.editorHandle.current).foldAll());
       expect(await read('foldedLines')).toEqual([{ startLine: 1, endLine: 2 }, { startLine: 3, endLine: 4 }]);
       await page.locator('#edit-as').selectOption('json');
@@ -158,7 +158,7 @@ for (const name of Object.keys(PAGES)) {
 }
 
 test.describe('vanilla: the switches are checked like the other options', () => {
-  test('a wrong type throws, setSettings checks its argument', async ({ page }) => {
+  test('a wrong type throws, update checks its argument', async ({ page }) => {
     await open(page, 'vanilla.html');
     const messages = await page.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -172,7 +172,7 @@ test.describe('vanilla: the switches are checked like the other options', () => 
       };
       return {
         option: caught(() => new module.ConfigEditor(document.createElement('div'), { showDiff: 'no' })),
-        setter: caught(() => window.editor.setSettings({ saveShortcut: 'yes' })),
+        setter: caught(() => window.editor.update({ saveShortcut: 'yes' })),
       };
     });
     expect(messages).toEqual({
@@ -197,7 +197,8 @@ test.describe('headless functions, every language', () => {
       await open(page, 'vanilla.html');
       const result = await page.evaluate(
         async ({ language, text }) => {
-          const api = await import('../config-editor/pkg/config_editor.js');
+          const api = await import('../config-editor/tools.js');
+          const { languages } = await import('../config-editor/index.js');
           const range = api.rangeOf(language, text, ['web', 'http']);
           const written = api.serialize(language, { web: { http: 80 }, limits: { a: 1 } });
           return {
@@ -209,7 +210,7 @@ test.describe('headless functions, every language', () => {
             path: api.pathAt(language, text, text.indexOf('80') + 1),
             pastEnd: api.pathAt(language, text, text.length + 1),
             folds: api.foldRanges(language, text),
-            info: api.languageInfo(language),
+            info: languages().find((info) => info.name === language),
           };
         },
         { language, text },
@@ -233,7 +234,8 @@ test.describe('headless functions, every language', () => {
   for (const name of FRAMEWORK_PAGES) test(`the same answers as the editor, and from the ${name} package`, async ({ page }) => {
     await open(page, name);
     const result = await page.evaluate(() => {
-      const api = window.packageApi;
+      const api = window.toolsApi;
+      const core = window.coreApi;
       const handle = window.editorHandle.current;
       const text = handle.text;
       const index = text.indexOf('7835');
@@ -241,10 +243,11 @@ test.describe('headless functions, every language', () => {
         range: [api.rangeOf('yaml', text, '/listen'), handle.rangeOf('/listen')],
         path: [api.pathAt('yaml', text, index), handle.pathAt(index)],
         summary: api.changeSummary('a: 1\nb: 2\nc: 3\n', 'a: 1\nb: 20\nc: 3\nd: 4\n'),
-        file: [api.languageForFile('main.tf'), api.languageForFile('app.YML'), api.languageForFile('notes.txt')],
-        info: api.languageInfo('yml'),
-        theme: api.themeInfo('nord'),
-        themes: api.themes().map((name) => api.themeInfo(name).label),
+        file: [core.languageForFile('main.tf'), core.languageForFile('app.YML'), core.languageForFile('notes.txt')],
+        info: core.languages().find((info) => info.extensions.includes('yml')),
+        theme: core.themes().find((theme) => theme.name === 'nord'),
+        light: core.themes().find((theme) => theme.name === 'vscode-light'),
+        themes: core.themes().map((theme) => theme.label),
         css: api.presetCss().length > 1000,
       };
     });
@@ -253,7 +256,8 @@ test.describe('headless functions, every language', () => {
     expect(result.summary).toEqual({ added: 1, removed: 0, modified: 1, hunks: 2 });
     expect(result.file).toEqual(['hcl', 'yaml', null]);
     expect(result.info).toEqual({ name: 'yaml', label: 'YAML', icon: expect.any(String), extensions: ['yaml', 'yml'], defaultFileName: 'untitled.yaml' });
-    expect(result.theme).toEqual({ name: 'nord', label: 'Nord' });
+    expect(result.theme).toEqual({ name: 'nord', label: 'Nord', dark: true });
+    expect(result.light).toEqual({ name: 'vscode-light', label: 'VS Code Light', dark: false });
     expect(result.themes).toContain('VS Code Dark');
     expect(result.css).toBe(true);
   });
@@ -261,14 +265,15 @@ test.describe('headless functions, every language', () => {
   test('the README examples answer what the README says', async ({ page }) => {
     await open(page, 'vanilla.html');
     const result = await page.evaluate(async () => {
-      const api = await import('../config-editor/pkg/config_editor.js');
+      const api = await import('../config-editor/tools.js');
+      const { languageForFile, languages } = await import('../config-editor/index.js');
       return [
         api.parse('toml', '[web]\nhttp = 80\n'),
         api.serialize('hcl', { web: { http: 80 } }),
         api.rangeOf('yaml', 'web:\n  http: 80\n', '/web/http'),
         api.foldRanges('json', '{\n  "web": {\n    "http": 80\n  }\n}'),
-        api.languageForFile('deploy/main.tf'),
-        api.languageInfo('yml'),
+        languageForFile('deploy/main.tf'),
+        languages().find((info) => info.extensions.includes('yml')),
       ];
     });
     expect(result).toEqual([
@@ -284,7 +289,8 @@ test.describe('headless functions, every language', () => {
   test('registered languages answer too; errors are thrown with their message', async ({ page }) => {
     await open(page, 'vanilla.html');
     const result = await page.evaluate(async () => {
-      const api = await import('../config-editor/pkg/config_editor.js');
+      const api = await import('../config-editor/tools.js');
+      const { languageForFile, languages } = await import('../config-editor/index.js');
       const caught = (run) => {
         try {
           run();
@@ -294,15 +300,15 @@ test.describe('headless functions, every language', () => {
         }
       };
       return {
-        file: api.languageForFile('.config/prod.env'),
-        info: api.languageInfo('env'),
+        file: languageForFile('.config/prod.env'),
+        info: languages().find((info) => info.name === 'env'),
         parsed: api.parse('env', 'A=1\nB=x\n'),
         written: api.serialize('env', { A: 1 }),
         syntax: caught(() => api.parse('json', '{\n  "a": \n')),
         unsupported: caught(() => api.serialize('toml', { a: null })),
         notData: caught(() => api.serialize('yaml', { a: () => 1 })),
-        unknown: caught(() => api.languageInfo('cobol')),
-        badTheme: caught(() => api.themeInfo('neon')),
+        unknown: caught(() => api.parse('cobol', 'a: 1')),
+        badTheme: caught(() => window.editor.update({ theme: 'neon' })),
         badIndex: caught(() => api.pathAt('yaml', 'a: 1', -1)),
       };
     });

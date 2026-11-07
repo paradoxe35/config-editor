@@ -135,8 +135,8 @@ test.describe('vanilla API robustness', () => {
       };
       return {
         element: attempt(() => new module.ConfigEditor(null, {})),
-        theme: attempt(() => window.editor.setSettings({ theme: 5 })),
-        value: attempt(() => window.editor.setValue(null)),
+        theme: attempt(() => window.editor.update({ theme: 5 })),
+        value: attempt(() => window.editor.update({ value: null })),
         validate: attempt(() => module.validate('yaml', 5)),
         extensions: attempt(() => module.registerLanguage({ label: 'Plain', parse: () => ({}) })),
         builtIn: attempt(() => module.registerLanguage({ label: 'YAML', parse: () => ({}) })),
@@ -235,7 +235,7 @@ test.describe('vanilla API: callbacks, teardown and custom languages', () => {
        const cleared = !document.getElementById('old');
        kept.destroy();
        let readOnly;
-       try { const editor = new module.ConfigEditor(host, {}); editor.setReadOnly('yes'); editor.destroy(); readOnly = 'no error'; } catch (error) { readOnly = String(error.message); }
+       try { const editor = new module.ConfigEditor(host, {}); editor.update({ readOnly: 'yes' }); editor.destroy(); readOnly = 'no error'; } catch (error) { readOnly = String(error.message); }
        return {
          cleared,
          value: attempt({ value: 5 }),
@@ -382,7 +382,7 @@ test.describe('vanilla API: fourth-round findings', () => {
     expect(reported).toEqual(['json']);
   });
 
-  test('setCallbacks and setSettings check their arguments', async ({ page: browserPage }) => {
+  test('update checks its argument, callbacks and settings', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const messages = await browserPage.evaluate(() => {
       const attempt = (run) => {
@@ -394,20 +394,20 @@ test.describe('vanilla API: fourth-round findings', () => {
         }
       };
       return {
-        callbackType: attempt(() => window.editor.setCallbacks({ onChange: 'x' })),
-        callbacksNumber: attempt(() => window.editor.setCallbacks(5)),
-        colorsNumber: attempt(() => window.editor.setSettings({ colors: 5 })),
-        colorsString: attempt(() => window.editor.setSettings({ colors: 'red' })),
-        settingsNumber: attempt(() => window.editor.setSettings(5)),
-        unknownToken: attempt(() => window.editor.setSettings({ colors: { keys: 'red' } })),
-        removal: attempt(() => window.editor.setCallbacks({ onChange: null })),
+        callbackType: attempt(() => window.editor.update({ onChange: 'x' })),
+        notObject: attempt(() => window.editor.update(5)),
+        array: attempt(() => window.editor.update([])),
+        colorsNumber: attempt(() => window.editor.update({ colors: 5 })),
+        colorsString: attempt(() => window.editor.update({ colors: 'red' })),
+        unknownToken: attempt(() => window.editor.update({ colors: { keys: 'red' } })),
+        removal: attempt(() => window.editor.update({ onChange: null })),
       };
     });
     expect(messages.callbackType).toContain('onChange must be a function or null');
-    expect(messages.callbacksNumber).toContain('setCallbacks takes an object');
+    expect(messages.notObject).toContain('update takes an object of options');
+    expect(messages.array).toContain('update takes an object of options');
     expect(messages.colorsNumber).toContain('colors must be an object');
     expect(messages.colorsString).toContain('colors must be an object');
-    expect(messages.settingsNumber).toContain('setSettings takes an object');
     expect(messages.unknownToken).toContain('colors: unknown color token "keys"');
     expect(messages.removal).toBe('no error');
   });
@@ -422,14 +422,14 @@ test.describe('vanilla API: fourth-round findings', () => {
       element.setSelectionRange(at, at);
     });
     await browserPage.keyboard.type('1');
-    await browserPage.evaluate(() => window.editor.setEditAs(null));
+    await browserPage.evaluate(() => window.editor.update({ editAs: null }));
     await expect(saved(browserPage)).toContainText('listen: 78351');
     expect(await browserPage.evaluate(() => window.editor.value)).toContain('listen: 78351');
   });
 });
 
-test.describe('vanilla API: setters right after construction', () => {
-  test('setEditAs in the same task as the constructor switches the view', async ({ page: browserPage }) => {
+test.describe('vanilla API: update right after construction', () => {
+  test('update({ editAs }) in the same task as the constructor switches the view', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -437,11 +437,11 @@ test.describe('vanilla API: setters right after construction', () => {
       document.body.append(element);
       const reported = [];
       const editor = new module.ConfigEditor(element, { value: 'listen: 7835\n', onEditAsChange: (name) => reported.push(name) });
-      editor.setEditAs('json');
+      editor.update({ editAs: 'json' });
       await new Promise((resolve) => setTimeout(resolve, 100));
       const shown = element.querySelector('textarea').value;
       const back = new module.ConfigEditor(document.body.appendChild(document.createElement('div')), { value: 'listen: 7835\n', editAs: 'json' });
-      back.setEditAs(null);
+      back.update({ editAs: null });
       await new Promise((resolve) => setTimeout(resolve, 100));
       return { shown, reported, back: back.value, backShown: document.body.lastChild.querySelector('textarea').value };
     });
@@ -524,7 +524,7 @@ test.describe('vanilla API: multi-line text inserted without a paste event', () 
 });
 
 test.describe('vanilla API: input in the same task as an API call', () => {
-  test('setValue, value and destroy see input the browser sent just before', async ({ page: browserPage }) => {
+  test('update({ value }), value and destroy see input the browser sent just before', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -538,11 +538,11 @@ test.describe('vanilla API: input in the same task as an API call', () => {
       const first = mount({ value: 'a: 1\n' });
       const shownAtOnce = first.textarea.value;
       await new Promise((resolve) => setTimeout(resolve, 0));
-      // Input then setValue in one task: the reset wins.
+      // Input then update({ value }) in one task: the reset wins.
       first.textarea.focus();
       first.textarea.setSelectionRange(3, 4);
       document.execCommand('insertText', false, '5');
-      first.editor.setValue('reset: 0\n');
+      first.editor.update({ value: 'reset: 0\n' });
       const afterReset = first.editor.value;
       await new Promise((resolve) => setTimeout(resolve, 0));
       const afterResetLater = first.editor.value;
@@ -569,7 +569,7 @@ test.describe('vanilla API: input in the same task as an API call', () => {
 });
 
 test.describe('vanilla API: misspelled keys are warned about', () => {
-  test('setCallbacks and registerLanguage name the key they ignore, with a hint', async ({ page: browserPage }) => {
+  test('update and registerLanguage name the key they ignore, with a hint', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const warnings = [];
     browserPage.on('console', (message) => {
@@ -579,7 +579,7 @@ test.describe('vanilla API: misspelled keys are warned about', () => {
       const module = await import('../config-editor/pkg/config_editor.js');
       const element = document.body.appendChild(document.createElement('div'));
       const editor = new module.ConfigEditor(element, { value: 'a: 1\n' });
-      editor.setCallbacks({ onChnge: () => {} });
+      editor.update({ onChnge: () => {} });
       module.registerLanguage({ label: 'Typo', parse: () => ({}), seperators: ['='] });
     });
     await expect.poll(() => warnings.join('\n')).toContain('"onChnge" is ignored (did you mean "onChange"?)');
@@ -667,7 +667,7 @@ test.describe('round 5: package polish', () => {
         }
       };
       return {
-        setter: attempt(() => window.editor.setEditAs('readonlylang')),
+        setter: attempt(() => window.editor.update({ editAs: 'readonlylang' })),
         option: attempt(() => new module.ConfigEditor(document.createElement('div'), { editAs: 'readonlylang' })),
       };
     });
@@ -681,7 +681,7 @@ test.describe('round 5: package polish', () => {
     expect(types).not.toContain('ReadableStreamType');
     expect(types).not.toMatch(/__wbg_(?!init)/);
     expect(types).not.toContain('IntoUnderlying');
-    expect(types).toContain('setReadOnly(readOnly');
+    expect(types).toContain('update(options: EditorUpdate): void;');
   });
 
   test('a failed load can be retried', async ({ page: browserPage }) => {
@@ -732,7 +732,7 @@ test.describe('round 5: package polish', () => {
 });
 
 test.describe('round 11', () => {
-  test('vanilla: input right after the constructor or setValue, in the same task, is kept', async ({ page: browserPage }) => {
+  test('vanilla: input right after the constructor or update({ value }), in the same task, is kept', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -745,7 +745,7 @@ test.describe('round 11', () => {
       document.execCommand('insertText', false, 'Q');
       await new Promise((resolve) => setTimeout(resolve, 50));
       const afterConstructor = editor.value;
-      editor.setValue('x: 1\n');
+      editor.update({ value: 'x: 1\n' });
       textarea.setSelectionRange(5, 5);
       document.execCommand('insertText', false, 'R');
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -801,7 +801,7 @@ test.describe('round 11', () => {
 });
 
 test.describe('round 12', () => {
-  test('vanilla: value and setValue see an Edit-as edit still waiting out the typing pause', async ({ page: browserPage }) => {
+  test('vanilla: value and update({ value }) see an Edit-as edit still waiting out the typing pause', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -816,7 +816,7 @@ test.describe('round 12', () => {
       document.execCommand('insertText', false, '7');
       await new Promise((resolve) => setTimeout(resolve, 0));
       const valueRightAway = editor.value;
-      editor.setValue('# c\nlisten: 1\n');
+      editor.update({ value: '# c\nlisten: 1\n' });
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return { valueRightAway, final: editor.value, shown: textarea.value };
     });
@@ -834,7 +834,7 @@ test.describe('round 12', () => {
       const editor = new module.ConfigEditor(element, { value: 'a: 1\n' });
       const attempt = (color) => {
         try {
-          editor.setSettings({ colors: { key: color } });
+          editor.update({ colors: { key: color } });
           return 'ok';
         } catch (error) {
           return String(error.message ?? error);
@@ -852,7 +852,7 @@ test.describe('ValueSync without a framework', () => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
-      const { ValueSync } = await import('../config-editor/index.js');
+      const { ValueSync } = await import('../config-editor/binding.js');
       const element = document.body.appendChild(document.createElement('div'));
       const sync = new ValueSync();
       let hostValue = 'a: 1\n';
@@ -864,7 +864,7 @@ test.describe('ValueSync without a framework', () => {
           setTimeout(() => {
             hostValue = text;
             const { apply, report } = sync.received(text, editor.value);
-            if (apply !== null) editor.setValue(apply);
+            if (apply !== null) editor.update({ value: apply });
             if (report !== null) hostValue = report;
           }, 300);
         },
@@ -882,7 +882,7 @@ test.describe('ValueSync without a framework', () => {
       const typed = editor.value;
       // The host's own value (a reset): applied.
       const { apply } = sync.received('reset: 1\n', editor.value);
-      if (apply !== null) editor.setValue(apply);
+      if (apply !== null) editor.update({ value: apply });
       await new Promise((resolve) => setTimeout(resolve, 50));
       return { shown, typed, host: hostValue, reset: editor.value };
     });
@@ -890,17 +890,6 @@ test.describe('ValueSync without a framework', () => {
     expect(result.typed).toBe('a: 1\nxyz');
     expect(result.host).toBe('a: 1\nxyz');
     expect(result.reset).toBe('reset: 1\n');
-  });
-});
-
-test.describe('package entry', () => {
-  test('exports init, the editor, the functions and ValueSync together', async ({ page: browserPage }) => {
-    await open(browserPage, 'vanilla.html');
-    const names = await browserPage.evaluate(async () => {
-      const entry = await import('../config-editor/index.js');
-      return ['default', 'initSync', 'ConfigEditor', 'convert', 'validate', 'registerLanguage', 'ValueSync'].filter((name) => typeof entry[name] === 'function');
-    });
-    expect(names).toEqual(['default', 'initSync', 'ConfigEditor', 'convert', 'validate', 'registerLanguage', 'ValueSync']);
   });
 });
 
