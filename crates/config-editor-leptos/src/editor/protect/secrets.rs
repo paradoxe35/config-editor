@@ -11,8 +11,9 @@ use web_sys::KeyboardEvent;
 
 use super::super::edit::Edit;
 use super::super::input::edit_range;
+use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection};
-use super::tokens::{SecretMatcher, SecretOptions, follow, locate, snap, snap_selection, widen};
+use super::tokens::{SecretMatcher, follow, locate, snap, snap_selection, widen};
 
 /// The secret placeholders of one editor.
 #[derive(Clone, Copy)]

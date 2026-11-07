@@ -59,9 +59,11 @@ mod paths;
 mod positioning;
 mod problems;
 mod projection;
+#[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
+mod secret_options;
 mod source_area;
 mod state;
 mod sync;
@@ -85,15 +87,16 @@ pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
-pub use protect::SecretOptions;
+pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use crate::EditorSettings;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, Gutter, HoverCardView,
-    ProtectTipView, SourceInput, StatusBar, Toolbar,
+    SourceInput, StatusBar, Toolbar,
 };
+use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
 use state::{EditorState, Init, normalize_newlines};
 
@@ -204,17 +207,22 @@ pub fn ConfigEditor(
     /// Fields the user cannot change, each with everything inside it, on
     /// top of those the schema marks `readOnly`; may be a signal to change
     /// them at runtime. They are found by path in the language on screen,
-    /// so they hold while editing as another language too.
+    /// so they hold while editing as another language too. Needs the
+    /// `protect` feature: without it, nothing is locked (the console says
+    /// so).
     #[prop(optional, into)]
     read_only_paths: Option<Signal<Vec<FieldPath>>>,
     /// Stretches of the host's text the user cannot change; may be a
     /// signal. They follow the text through edits; while editing as another
-    /// language, the fields they cover are locked instead.
+    /// language, the fields they cover are locked instead. Needs the
+    /// `protect` feature: without it, nothing is locked (the console says
+    /// so).
     #[prop(optional, into)]
     read_only_ranges: Option<Signal<Vec<TextRange>>>,
     /// How secret placeholders are matched, described and completed; see
     /// [`SecretOptions`]. Fields the schema marks `writeOnly` or `x-secret`
-    /// are secrets.
+    /// are secrets. Needs the `protect` feature: without it, placeholders
+    /// are plain text.
     #[prop(optional, into)]
     secrets: Option<SecretOptions>,
     /// Called when the user saves (`Ctrl+S` / `Cmd+S`, the browser's save
@@ -260,9 +268,9 @@ pub fn ConfigEditor(
         host_on_change: on_change,
         host_diagnostics: host_diagnostics.unwrap_or_default(),
         protect: protect::ProtectInit {
-            paths: read_only_paths.unwrap_or_default(),
-            ranges: read_only_ranges.unwrap_or_default(),
-            secrets: secrets.unwrap_or_default(),
+            paths: read_only_paths,
+            ranges: read_only_ranges,
+            secrets,
         },
         on_save,
         on_baseline_conflict,

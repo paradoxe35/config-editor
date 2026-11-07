@@ -8,8 +8,9 @@ use leptos::prelude::*;
 
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::Edit;
+use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
-use super::super::protect::{Around, ProtectState, adjust_suggestions};
+use super::super::protect::ProtectState;
 use super::super::state::EditorState;
 use super::{
     Completion, accept_reopens_suggestions, apply_completion, completions_in, inserted_closers,
@@ -41,6 +42,19 @@ pub(crate) struct CompletionState {
     /// The values that block wrote (defaults, examples), each as distances
     /// of its start and end from the end of the text: Tab selects them.
     pub(crate) value_stops: StoredValue<Vec<(usize, usize)>>,
+}
+
+/// Where suggestions are asked for, for what adjusts them (see `protect`).
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only protection reads it")
+)]
+pub(crate) struct SuggestionPlace<'a> {
+    pub(crate) behavior: &'a dyn ConfigLanguage,
+    pub(crate) source: &'a str,
+    pub(crate) cursor: usize,
+    pub(crate) explicit: bool,
+    pub(crate) schema: Option<&'a serde_json::Value>,
 }
 
 /// What the list is computed from.
@@ -95,27 +109,16 @@ impl CompletionState {
                 if read_only.get() {
                     return options;
                 }
-                let prefixes = protect
-                    .secrets
-                    .options
-                    .with_value(|options| options.reference_prefixes.clone());
-                protect.host_paths.with(|host_paths| {
-                    protect.protected.with(|protected| {
-                        adjust_suggestions(
-                            options,
-                            &Around {
-                                behavior,
-                                source: text,
-                                cursor: at,
-                                explicit: explicit.get(),
-                                prefixes: &prefixes,
-                                schema: schema.as_deref().map(|bundle| &bundle.schema),
-                                host_paths,
-                                protected,
-                            },
-                        )
-                    })
-                })
+                protect.adjust_suggestions(
+                    options,
+                    &SuggestionPlace {
+                        behavior,
+                        source: text,
+                        cursor: at,
+                        explicit: explicit.get(),
+                        schema: schema.as_deref().map(|bundle| &bundle.schema),
+                    },
+                )
             })
         });
         Self {

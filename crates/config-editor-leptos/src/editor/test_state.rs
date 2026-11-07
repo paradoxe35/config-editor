@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use super::languages::Language;
 use super::paths::{FieldPath, TextRange};
-use super::protect::{ProtectInit, SecretOptions};
+use super::protect::ProtectInit;
 use super::state::{EditorState, Init};
 use crate::EditorSettings;
 
@@ -55,9 +55,9 @@ impl TestEditor {
             host_on_change: self.on_change,
             host_diagnostics: Signal::default(),
             protect: ProtectInit {
-                paths: Signal::stored(self.read_only_paths),
-                ranges: Signal::stored(self.read_only_ranges),
-                secrets: SecretOptions::default(),
+                paths: Some(Signal::stored(self.read_only_paths)),
+                ranges: Some(Signal::stored(self.read_only_ranges)),
+                secrets: None,
             },
             on_save: None,
             on_baseline_conflict: None,

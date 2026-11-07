@@ -9,10 +9,11 @@ use super::super::Language;
 use super::super::bridge::Bridge;
 use super::super::codec;
 use super::super::diagnostics::build_schema;
+use super::super::secret_options::SecretOptions;
 use super::locks::{Sources, protect};
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
-use super::tokens::{SecretMatcher, SecretOptions, locate, widen};
+use super::tokens::{SecretMatcher, locate, widen};
 
 const SCHEMA: &str = r#"{
   "type": "object",

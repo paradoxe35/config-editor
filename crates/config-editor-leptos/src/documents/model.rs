@@ -140,21 +140,23 @@ impl Document {
         self
     }
 
-    /// Sets the fields the user cannot change.
+    /// Sets the fields the user cannot change (the `protect` feature).
     #[must_use]
     pub fn read_only_paths(mut self, paths: Vec<FieldPath>) -> Self {
         self.read_only_paths = paths;
         self
     }
 
-    /// Sets the stretches of the text the user cannot change.
+    /// Sets the stretches of the text the user cannot change (the `protect`
+    /// feature).
     #[must_use]
     pub fn read_only_ranges(mut self, ranges: Vec<TextRange>) -> Self {
         self.read_only_ranges = ranges;
         self
     }
 
-    /// Sets how secret placeholders are matched, described and completed.
+    /// Sets how secret placeholders are matched, described and completed
+    /// (the `protect` feature).
     #[must_use]
     pub fn secrets(mut self, secrets: SecretOptions) -> Self {
         self.secrets = Some(secrets);

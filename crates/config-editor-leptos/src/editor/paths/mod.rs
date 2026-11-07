@@ -81,7 +81,9 @@ pub(crate) fn field_range(
 }
 
 /// Where the key of the field at `pointer` is written, in any spelling of
-/// the pointer; `None` for an array item or a field not written.
+/// the pointer; `None` for an array item or a field not written. (Locks
+/// cover keys with it.)
+#[cfg(feature = "protect")]
 pub(crate) fn key_range(
     behavior: &dyn ConfigLanguage,
     source: &str,

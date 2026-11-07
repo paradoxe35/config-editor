@@ -24,15 +24,6 @@ pub(crate) const LOCK_LABEL: &str = "Read-only";
 /// The gutter key's label.
 pub(crate) const SECRET_LABEL: &str = "Secret placeholder";
 
-/// The default hover text of a secret placeholder.
-pub(crate) const SECRET_HINT: &str = "Keeps the current secret unless you replace it";
-
-/// The default placeholder pattern.
-pub(crate) const SECRET_PATTERN: &str = "«secret [0-9a-f]+»";
-
-/// The default reference forms offered in a secret field.
-pub(crate) const REFERENCE_PREFIXES: [&str; 2] = ["${", "file:"];
-
 /// What a schema message says instead of a secret field's value.
 #[cfg(feature = "schema-validation")]
 pub(crate) const SECRET_VALUE: &str = "the secret value";

@@ -6,11 +6,11 @@ use leptos::prelude::*;
 use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::positioning::hover_card_style;
-use super::super::protect::Tip;
 use super::super::state::EditorState;
+use super::live::Tip;
 
 #[component]
-pub(crate) fn ProtectTipView(state: EditorState) -> impl IntoView {
+pub(in crate::editor) fn ProtectTipView(state: EditorState) -> impl IntoView {
     move || {
         let tip = state.protect.tip.get()?;
         let style = tip_style(state, &tip)?;

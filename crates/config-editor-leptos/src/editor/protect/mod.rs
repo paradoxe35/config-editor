@@ -15,7 +15,9 @@
 //! - `view`: the gutter lock and muted values of each line;
 //! - `texts`: the built-in texts.
 
+mod components;
 mod guard;
+mod hooks;
 mod live;
 mod locate;
 mod locks;
@@ -28,16 +30,13 @@ mod texts;
 mod tokens;
 mod view;
 
-pub(crate) use live::{Inputs, ProtectInit, ProtectState, Tip};
+pub(super) use components::ProtectTipView;
+#[cfg(feature = "schema-validation")]
+pub(crate) use hooks::secret_pointers;
+pub(crate) use live::{Inputs, ProtectInit, ProtectState};
 pub(crate) use marks::mentions_marks;
 #[cfg(feature = "schema-validation")]
-pub(crate) use marks::schema_marks;
-pub(crate) use problems::unknown_placeholders;
-pub(crate) use suggest::{Around, adjust as adjust_suggestions};
-#[cfg(feature = "schema-validation")]
 pub(crate) use texts::SECRET_VALUE;
-pub use tokens::SecretOptions;
-pub(crate) use view::{LineMarks, line_marks};
 
 #[cfg(all(
     test,

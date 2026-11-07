@@ -43,7 +43,7 @@ export interface EditorSettings {
    */
   showDiagnostics?: boolean;
   /**
-   * Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero.
+   * Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.
    *
    * @default true
    */
@@ -79,19 +79,19 @@ export interface EditorSettings {
    */
   autoClosing?: boolean;
   /**
-   * Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser.
+   * Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.
    *
    * @default true
    */
   search?: boolean;
   /**
-   * Go to line (`Ctrl+G`). Off, the key is left to the browser.
+   * Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.
    *
    * @default true
    */
   goToLine?: boolean;
   /**
-   * Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold.
+   * Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature.
    *
    * @default true
    */

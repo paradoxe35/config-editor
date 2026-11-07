@@ -3,7 +3,7 @@ use super::diagnostics::{Diagnostic, Severity};
 use super::diff::DiffKind;
 use super::fold_ranges::FoldRange;
 use super::languages::Language;
-use super::protect::{LineMarks, ProtectState, line_marks};
+use super::protect::ProtectState;
 use crate::reactive::{Fanout, notify};
 use leptos::prelude::*;
 use std::ops::Range;
@@ -34,14 +34,7 @@ pub(super) fn rendered_lines(
                 .collect()
         });
         text.with(|text| {
-            let marks = protect.protected.with(|protected| {
-                protect.secrets.tokens.with(|tokens| {
-                    protect
-                        .secrets
-                        .options
-                        .with_value(|options| line_marks(text, protected, tokens, &options.hint))
-                })
-            });
+            let marks = protect.line_marks(text);
             text.split('\n')
                 .enumerate()
                 .map(|(index, line)| RenderedLine {
@@ -55,6 +48,35 @@ pub(super) fn rendered_lines(
                 .collect::<Vec<_>>()
         })
     })
+}
+
+/// What one line shows of protected text (see `protect`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct LineMarks {
+    /// Byte ranges of the line drawn muted.
+    pub(super) muted: Vec<Range<usize>>,
+    /// The gutter lock's label, with the reason.
+    pub(super) lock: Option<String>,
+    /// Byte ranges of the line's secret placeholders.
+    pub(super) secret: Vec<Range<usize>>,
+    /// The gutter key's label, on a line with a placeholder.
+    pub(super) key: Option<String>,
+}
+
+impl LineMarks {
+    /// The byte ranges drawn specially, each with its class.
+    pub(super) fn classes(&self) -> Vec<(Range<usize>, &'static str)> {
+        // A placeholder in a read-only value is drawn as a placeholder.
+        self.secret
+            .iter()
+            .map(|range| (range.clone(), "config-editor__secret"))
+            .chain(
+                self.muted
+                    .iter()
+                    .map(|range| (range.clone(), "config-editor__locked")),
+            )
+            .collect()
+    }
 }
 
 /// A row's protected-text marks; a closed fold on it that hides a

@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use super::diagnostics::{Diagnostic, SchemaBundle, shift_diagnostics, validate_with};
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::languages::Language;
-use super::protect::{ProtectState, unknown_placeholders};
+use super::protect::ProtectState;
 use super::state::EditorState;
 use super::sync::SyncState;
 
@@ -52,36 +52,33 @@ impl ProblemsState {
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
-        let validated = Memo::new(move |_| {
-            let enabled = enabled.get();
-            // The host's placeholders stand for the current secrets.
-            let accepted = protect.secrets.known_tokens();
-            let behavior = edit_language.get().behavior();
-            let mut found = diagnosed_text.with(|text| {
-                validate_with(
-                    text,
-                    schema.as_deref(),
-                    schema_error.as_deref(),
-                    enabled,
-                    behavior,
-                    &accepted,
-                )
-            });
-            if enabled {
-                found.extend(load_problems.get());
-                found.extend(conversion_problems.get());
-                if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
-                    found.extend(diagnosed_text.with(|text| {
-                        protect.secrets.matcher.with_value(|matcher| {
-                            protect.secrets.known.with(|known| {
-                                unknown_placeholders(behavior, text, matcher, known, &bundle.schema)
-                            })
-                        })
-                    }));
+        let validated =
+            Memo::new(move |_| {
+                let enabled = enabled.get();
+                // The host's placeholders stand for the current secrets.
+                let accepted = protect.accepted_tokens();
+                let behavior = edit_language.get().behavior();
+                let mut found = diagnosed_text.with(|text| {
+                    validate_with(
+                        text,
+                        schema.as_deref(),
+                        schema_error.as_deref(),
+                        enabled,
+                        behavior,
+                        &accepted,
+                    )
+                });
+                if enabled {
+                    found.extend(load_problems.get());
+                    found.extend(conversion_problems.get());
+                    if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
+                        found.extend(diagnosed_text.with(|text| {
+                            protect.placeholder_problems(behavior, text, &bundle.schema)
+                        }));
+                    }
                 }
-            }
-            found
-        });
+                found
+            });
         // The host's problems, placed on the text validation saw; a new list
         // from the host re-places only these, not the editor's own.
         let host_placed = Memo::new(move |_| {

@@ -79,7 +79,7 @@ fn popup_open(state: EditorState) -> bool {
         || state.hover.card.with_untracked(Option::is_some)
         || super::super::changes::preview_open(state)
         || state.problems.current.with_untracked(Option::is_some)
-        || state.protect.tip.with_untracked(Option::is_some)
+        || state.protect.tip_open()
 }
 
 /// The focus keys, first among the textarea's: `true` when the key was

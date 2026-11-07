@@ -366,7 +366,8 @@ fn f8_announces_the_problem_with_its_place_in_the_list() {
     feature = "json",
     feature = "toml",
     feature = "hcl",
-    feature = "xml"
+    feature = "xml",
+    feature = "protect"
 ))]
 #[test]
 fn the_caret_note_says_why_a_locked_value_is_read_only_in_every_language() {

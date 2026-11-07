@@ -492,7 +492,7 @@ pub(super) fn validate_with(
     if let Some(schema) = schema {
         let placeholders = accepted_pointers(&document, accepted);
         let secrets = if schema.has_marks {
-            super::protect::schema_marks(&document, &schema.schema).secret
+            super::protect::secret_pointers(&document, &schema.schema)
         } else {
             Vec::new()
         };

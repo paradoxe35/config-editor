@@ -34,6 +34,10 @@ use crate::{EditorTheme, ThemeColors};
 /// or a signal: a change applies live, keeping the caret, the undo history
 /// and the folds.
 ///
+/// Every field exists in every build: a switch whose Cargo feature is off
+/// (`search`, `diff`, `folding`) does nothing, so one settings value fits
+/// every build.
+///
 /// It reads from and writes to JSON with camelCase keys, missing keys taking
 /// their defaults (`{"showFooter": true, "theme": "nord"}`), as the npm
 /// package's options do.
@@ -60,6 +64,7 @@ pub struct EditorSettings {
     pub show_diagnostics: bool,
     /// Show line changes against the baseline in the gutter (`Alt+F5` /
     /// `Alt+F3` move between them). Off, the change summary stays at zero.
+    /// In Rust, needs the `diff` Cargo feature.
     pub show_diff: bool,
     /// Schema completions (`Ctrl+Space`).
     pub completions: bool,
@@ -75,14 +80,16 @@ pub struct EditorSettings {
     /// pairs on Backspace.
     pub auto_closing: bool,
     /// Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left
-    /// to the browser.
+    /// to the browser. In Rust, needs the `search` Cargo feature.
     pub search: bool,
-    /// Go to line (`Ctrl+G`). Off, the key is left to the browser.
+    /// Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust,
+    /// needs the `search` Cargo feature.
     pub go_to_line: bool,
     /// Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and
     /// `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for
     /// everything (`Cmd` on macOS). View only: the text stays whole.
-    /// Switching it off opens every fold.
+    /// Switching it off opens every fold. In Rust, needs the `folding` Cargo
+    /// feature.
     pub folding: bool,
     /// Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off,
     /// the key is left to the browser and only the handle's `save` saves.

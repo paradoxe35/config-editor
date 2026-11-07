@@ -64,8 +64,7 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
     Effect::new(move |_| {
         state.doc.caret.track();
         state.problems.diagnostics.track();
-        state.protect.protected.track();
-        state.protect.secrets.tokens.track();
+        state.protect.track();
         state.a11y.note_token.update_value(|token| *token += 1);
         let token = state.a11y.note_token.get_value();
         later(move || {

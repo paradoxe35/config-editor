@@ -50,6 +50,8 @@ method and headless function here has a JS option, method or function there
   - [Optional refinements](#optional-refinements)
 - [Themes and colors](#themes-and-colors)
 - [Cargo features](#cargo-features)
+  - [Without a feature](#without-a-feature)
+  - [Size](#size)
 - [License](#license)
 <!-- /toc -->
 
@@ -160,15 +162,15 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 | `show_toolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
 | `show_footer` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
 | `show_diagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
-| `show_diff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. |
+| `show_diff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature. |
 | `completions` | `true` | Schema completions (`Ctrl+Space`). |
 | `auto_trigger_completions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
 | `hover_docs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
 | `highlighting` | `true` | Syntax colors. |
 | `auto_closing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
-| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. |
-| `go_to_line` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
-| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
+| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature. |
+| `go_to_line` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature. |
+| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
 | `save_shortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
 
 <!-- settings:end -->
@@ -945,15 +947,59 @@ All are on by default; turn off what you don't use to shrink the build.
 | `toml`              | `Language::TOML` (`toml`)                                                                                                                                                                                                                        |
 | `hcl`               | `Language::HCL` (`hcl-rs`)                                                                                                                                                                                                                       |
 | `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                    |
+| `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                            |
+| `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving. |
+| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                            |
+| `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                        |
 
 ```toml
 # YAML with live schema diagnostics:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
 # YAML and TOML with schema completions and hover, validated on a server:
 config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml", "toml"] }
+# The smallest editor: YAML, nothing optional:
+config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml"] }
 ```
 
 With no language feature, use your own languages through `Language::new`.
+
+### Without a feature
+
+What a feature adds to the API goes with it, with two exceptions that keep
+a host's code the same in every build:
+
+- The `<ConfigEditor>` props and the [`EditorSettings`](#settings) fields
+  stay, and do nothing: `folding: true` folds nothing without `folding`,
+  `on_change_summary` is never called without `diff`, and
+  `read_only_paths`, `read_only_ranges` and `secrets` lock nothing without
+  `protect` (the browser console says so once when one is given). Each
+  one's documentation names its feature. So do the `Document` builder's
+  methods that feed them.
+- The [`ConfigLanguage`](#your-own-language) hooks and building blocks
+  stay (`fold_ranges`, `FoldRange`, …), so a language of your own builds
+  either way.
+
+Everything else exists only with its feature, so code that needs one says
+so at compile time: the handle's `fold`, `unfold`, `fold_all`, `unfold_all`
+and `folded_lines` (`folding`), `unified_diff` and `ChangeSummary::between`
+(`diff`), `Language::fold_ranges` (`folding`). The keys of a feature that is
+out (`Ctrl+F`, `Ctrl+G`, `Alt+F5`, `Ctrl+Shift+[`) stay the browser's.
+
+The npm packages (`@pngwasi/config-editor`, `@pngwasi/config-editor-react`)
+are built with every feature.
+
+### Size
+
+The wasm a small host ships (one `<ConfigEditor>`, release build, gzip -9),
+by features:
+
+<!-- wasm-sizes:start -->
+<!-- wasm-sizes:end -->
+
+To measure again (needs the `wasm32-unknown-unknown` target and the
+wasm-bindgen CLI; uses `wasm-opt` when installed):
+`scripts/wasm-sizes.sh` prints the table, and `scripts/wasm-sizes.sh --write`
+puts it here. Sizes move with the toolchain and the dependencies.
 
 ## License
 
