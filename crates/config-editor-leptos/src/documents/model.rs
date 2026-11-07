@@ -103,7 +103,13 @@ impl Document {
     }
 
     /// The language the document is in: `language`, else the one of
-    /// `file_name`'s extension, else YAML.
+    /// `file_name`'s extension, else the first built-in language (YAML with
+    /// the default features).
+    ///
+    /// # Panics
+    ///
+    /// When neither tells and no built-in language feature is enabled (as
+    /// [`Language::default`]): give such documents a `language`.
     pub fn resolved_language(&self) -> Language {
         self.language
             .or_else(|| Language::from_path(&self.file_name))
@@ -125,7 +131,17 @@ pub struct CloseRequest {
     pub dirty: bool,
 }
 
-#[cfg(test)]
+// The tests use built-in languages.
+#[cfg(all(
+    test,
+    any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
 mod tests {
     use super::*;
 

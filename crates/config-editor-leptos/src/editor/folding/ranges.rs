@@ -138,7 +138,8 @@ pub fn bracket_fold_ranges(
 pub(crate) struct BracketScan {
     pub(crate) ranges: Vec<FoldRange>,
     /// Per line, whether it starts outside every bracket, string and
-    /// comment.
+    /// comment (TOML reads it to find its table headers).
+    #[cfg_attr(not(feature = "toml"), allow(dead_code))]
     pub(crate) at_top: Vec<bool>,
 }
 

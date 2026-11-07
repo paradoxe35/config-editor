@@ -159,13 +159,32 @@ impl SchemaCache {
             .collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(
+            feature = "yaml",
+            feature = "json",
+            feature = "toml",
+            feature = "hcl",
+            feature = "xml"
+        )
+    ))]
     fn len(&self) -> usize {
         self.compiled.len()
     }
 }
 
-#[cfg(test)]
+// The tests use built-in languages.
+#[cfg(all(
+    test,
+    any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
 mod tests {
     use super::*;
 

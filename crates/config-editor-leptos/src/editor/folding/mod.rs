@@ -83,6 +83,7 @@ impl FoldState {
     }
 }
 pub(crate) use projection::Projection;
+#[cfg(feature = "toml")]
 pub(crate) use ranges::scan_brackets;
 pub use ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,

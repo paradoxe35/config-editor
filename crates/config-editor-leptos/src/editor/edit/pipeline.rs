@@ -217,7 +217,7 @@ fn trace(_stage: Stage) {
 }
 
 /// The stages edits passed on this thread since the last call.
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml"))]
 pub(in crate::editor) fn take_trace() -> Vec<Stage> {
     TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
 }
