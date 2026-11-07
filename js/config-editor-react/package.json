@@ -39,12 +39,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/paradoxe35/laptos-yaml-editor.git",
+    "url": "git+https://github.com/paradoxe35/config-editor.git",
     "directory": "js/config-editor-react"
   },
-  "homepage": "https://github.com/paradoxe35/laptos-yaml-editor#readme",
+  "homepage": "https://github.com/paradoxe35/config-editor#readme",
   "bugs": {
-    "url": "https://github.com/paradoxe35/laptos-yaml-editor/issues"
+    "url": "https://github.com/paradoxe35/config-editor/issues"
   },
   "publishConfig": {
     "access": "public"
