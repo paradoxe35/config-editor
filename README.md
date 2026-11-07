@@ -37,8 +37,15 @@ React.
   with a before/after preview, "Revert this change", `Alt+F5` between
   changes, a change count for the host and a unified diff for review.
 - **Editing you expect from VS Code:** auto-closed brackets, quotes and XML
-  tags, smart indentation, `Ctrl+/` comments, line copy/cut, `F8` through
-  problems, undo/redo.
+  tags, smart indentation, `Ctrl+/` comments, line copy/cut, find and replace
+  (with regex), go to line, folding, `F8` through problems, undo/redo.
+- **Schema help:** deprecated keys, documentation links and documented values.
+- **Host control:** read-only fields and regions, secret placeholders that are
+  never shown, problems from your server shown with the editor's own, `Ctrl+S`
+  saving, an unsaved-edits flag, and a notice when the file changes on the
+  server.
+- **Several documents** as tabs, each with its own language and state.
+- **A path API:** jump to a field and follow the caret's path for a breadcrumb.
 - **Eleven themes** and per-token color overrides; a read-only mode.
 - **Fast with large files:** only visible lines are rendered.
 - **Your own languages,** in Rust or in JavaScript.
@@ -51,6 +58,8 @@ React.
 | A YAML file edited as TOML                       | Changes against the baseline               |
 
 ![Light theme](docs/screenshots/light-theme.png)
+
+More: [every feature in screenshots](docs/screenshots/README.md).
 
 ## Packages
 
@@ -138,7 +147,7 @@ js/config-editor-react/        React wrapper → @pngwasi/config-editor-react
 js/examples/                   vanilla and React example pages
 src/, index.html, demo.css     the demo app (trunk)
 e2e/                           Playwright end-to-end tests
-docs/screenshots/              images for this README
+docs/screenshots/              a screenshot of every feature (e2e/screenshots.mjs)
 ```
 
 The crate has no JavaScript in it, so a Rust project can vendor
@@ -164,6 +173,9 @@ cd js && npm install && npm run build
 
 # End-to-end tests (after `trunk build` and the npm build)
 cd e2e && npm install && npx playwright install chromium && npx playwright test
+
+# The screenshots in docs/screenshots, after a UI change (after the builds above)
+cd e2e && npm run screenshots
 
 # The READMEs' contents lists, after adding or renaming a section (CI checks them)
 node scripts/readme-toc.mjs
