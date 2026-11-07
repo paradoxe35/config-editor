@@ -1,6 +1,11 @@
 //! A new baseline from the host: taken silently when nothing is unsaved,
 //! otherwise held back while a notice asks the user to reload it or keep
 //! their text.
+//!
+//! The notice never takes the focus: it opens while the user may be typing,
+//! and a key in flight would land on its buttons (Space or Enter choosing
+//! for them). It is `role="alert"`, so it is announced, and `F6` moves the
+//! focus to it and back.
 
 use leptos::prelude::*;
 
@@ -45,7 +50,6 @@ impl EditorState {
                     .set(Some(PendingBaseline { host: new, shown }));
                 if pending.is_none() {
                     self.report_conflict(BaselineConflict::Opened);
-                    self.focus_notice();
                 }
             }
         }
@@ -99,8 +103,6 @@ impl EditorState {
 
     fn close_conflict(&self, how: BaselineConflict) {
         let focused_notice = self.notice_has_focus();
-        // A focus asked for by a notice that never rendered is dropped.
-        self.editing.focus_keep_mine.set(false);
         self.editing.conflict.set(None);
         self.report_conflict(how);
         if focused_notice && let Some(element) = self.textarea() {
@@ -139,17 +141,22 @@ impl EditorState {
         }
     }
 
-    /// The notice takes the focus when it opens while the user is in the
-    /// editor (never from elsewhere on the page), on Keep mine, the choice
-    /// that loses nothing.
-    fn focus_notice(&self) {
-        let in_editor = self.view.root_ref.get_untracked().is_some_and(|root| {
-            active_element().is_some_and(|active| root.contains(Some(&active)))
-        });
-        if !in_editor {
-            return;
+    /// `F6` while the notice is open: from the text to Keep mine (the
+    /// choice that loses nothing), and from the notice back to the text.
+    pub(in crate::editor) fn notice_shortcut(&self, event: &web_sys::KeyboardEvent) -> bool {
+        let plain = !(event.ctrl_key() || event.meta_key() || event.alt_key() || event.shift_key());
+        if event.key() != "F6" || !plain || self.editing.conflict.with_untracked(Option::is_none) {
+            return false;
         }
-        self.editing.focus_keep_mine.set(true);
+        event.prevent_default();
+        if self.notice_has_focus() {
+            if let Some(element) = self.textarea() {
+                let _ = element.focus();
+            }
+        } else if let Some(button) = self.editing.keep_mine_ref.get_untracked() {
+            let _ = button.focus();
+        }
+        true
     }
 
     fn notice_has_focus(&self) -> bool {
@@ -165,22 +172,6 @@ impl EditorState {
 
 fn active_element() -> Option<web_sys::Element> {
     web_sys::window()?.document()?.active_element()
-}
-
-/// Moves the focus to Keep mine once the notice that asked for it is
-/// rendered: in the same turn as the opening (effects run before the browser
-/// handles the next event), so a click or key that comes after it is never
-/// overridden by a late focus move (a frame later, on a loaded machine, it
-/// took the focus back from the text the user had just clicked).
-pub(super) fn focus_when_rendered(state: EditorState) {
-    Effect::new(move |_| {
-        let wanted = state.editing.focus_keep_mine.get();
-        let button = state.editing.keep_mine_ref.get();
-        if let (true, Some(button)) = (wanted, button) {
-            untrack(|| state.editing.focus_keep_mine.set(false));
-            let _ = button.focus();
-        }
-    });
 }
 
 /// While the notice is open, a text that comes to equal the new baseline

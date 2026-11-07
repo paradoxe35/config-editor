@@ -2,14 +2,19 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
+mod compare;
+mod empty_containers;
 mod flow;
 mod kept_inline;
+mod lines;
 mod lists;
 pub(super) mod non_finite;
 mod renames;
 mod reorder;
 mod steps;
 
+use compare::{canonical_number, comment_start, comparable};
+pub(super) use lines::patch_structure;
 pub use non_finite::{float_of, float_value};
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
 pub(super) use reorder::patch_reorder;
@@ -176,7 +181,12 @@ pub(super) fn patch_scalars(
                 let lone = pointer.replace("/0/", "/");
                 find(lone.strip_suffix("/0").unwrap_or(&lone))
             })?
-        })?;
+        });
+        // A value the host does not write there (a YAML merge key's) may
+        // follow from another change (its anchor's): the read-back decides.
+        let Some(span) = span else {
+            continue;
+        };
         // A value never takes the line break after it (a heredoc's span runs
         // through its terminator line).
         let mut range = byte_range(previous, span)?;
@@ -186,6 +196,16 @@ pub(super) fn patch_scalars(
         // A string in one of the language's long quotes runs to its closing
         // delimiter.
         range.end = through_long_quote(language, previous, range.clone());
+        // With the whitespace around it that belongs to the value (XML text).
+        range = language.written_value_range(previous, range.clone());
+        // Its anchor or tag (`&x two`) stays: only the value after it changes.
+        range.start += language.value_properties_len(&previous[range.clone()]);
+        // An alias (`*x`) reads its anchor's value, which the read-back
+        // checks: the anchor's own change carries to it.
+        let written = previous[range.clone()].trim();
+        if language.reference_len(written) == Some(written.len()) {
+            continue;
+        }
         // In the host's style for what was there (plain, quoted, a block, a
         // long string).
         let mut text = language.format_value_like(value, &previous[range.clone()]);
@@ -276,6 +296,21 @@ pub(super) fn patch_inline(
                 return Some(patched);
             }
         }
+        // A flow map or object written one entry per line (`tcp: {` … `}`), its
+        // entries kept on their lines (before restyling it whole).
+        if let Some(span) = span
+            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(Value::Object(entries)) = new.pointer(&pointer)
+            && let Some(Value::Object(before)) = old.pointer(&pointer)
+            && let Some(text) =
+                lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(range, &text);
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
+        }
         // A flow collection over lines without comments in it (`{a: 1,\n
         // b: 2}`): restyled whole, its untouched items as written.
         if let Some(span) = span
@@ -285,20 +320,6 @@ pub(super) fn patch_inline(
                 .all(|line| comment_start(language, line) == line.len())
             && let Some(value) = new.pointer(&pointer)
             && let Some(text) = flow::restyle(language, value, &previous[range.clone()])
-        {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
-                return Some(patched);
-            }
-        }
-        // A flow map or object written one entry per line (`tcp: {` … `}`).
-        if let Some(span) = span
-            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
-            && let Some(Value::Object(entries)) = new.pointer(&pointer)
-            && let Some(Value::Object(before)) = old.pointer(&pointer)
-            && let Some(text) =
-                lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
         {
             let mut patched = previous.to_string();
             patched.replace_range(range, &text);
@@ -393,7 +414,8 @@ fn changed_container(old: &Value, new: &Value, pointer: String) -> Option<String
 }
 
 /// `previous` with the inline container at `span` written as `new`'s value at
-/// `pointer`, or `None` when the span holds no one-line `{…}` or `[…]`.
+/// `pointer` (a container or a value), or `None` when the span holds no
+/// one-line `{…}` or `[…]`.
 fn replace_inline(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -402,9 +424,6 @@ fn replace_inline(
     pointer: &str,
 ) -> Option<String> {
     let value = new.pointer(pointer)?;
-    if !(value.is_object() || value.is_array()) {
-        return None;
-    }
     let line_start: usize = previous
         .split_inclusive('\n')
         .take(span.line.checked_sub(1)?)
@@ -427,536 +446,16 @@ fn replace_inline(
     let end = start + matching_close(text, close)? + 1;
     let mut patched = previous.to_string();
     let written = &line[start..end];
-    let text = flow::restyle(language, value, written)
-        .unwrap_or_else(|| language.format_value_like(value, written));
+    // A container replaced by a value (`tcp: {a: 1}` → `tcp: 7`) is that
+    // value in its place.
+    let text = if value.is_object() || value.is_array() {
+        flow::restyle(language, value, written)
+            .unwrap_or_else(|| language.format_value_like(value, written))
+    } else {
+        language.format_value_like(value, "")
+    };
     patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)
-}
-
-/// `previous` with a structural edit (keys or items added or removed) applied
-/// line by line, keeping its comments and formatting elsewhere: the host
-/// serializer renders the old and the new value, their line diff is mapped
-/// onto `previous`, and the result is kept only if it reads back as `new`.
-///
-/// One-line containers the host wrote inline (`allow: [a, b]`) are kept as
-/// written: the serializer would spread them over several lines that match
-/// nothing in the host (see [`kept_inline`]).
-pub(super) fn patch_structure(
-    language: &dyn ConfigLanguage,
-    previous: &str,
-    old: &Value,
-    new: &Value,
-    schema: Option<&Value>,
-) -> Option<String> {
-    // An empty host is written whole: there is nothing to keep.
-    if previous.trim().is_empty() {
-        return None;
-    }
-    let reads_as_new = |text: &str| read(language, text, schema).ok().as_ref() == Some(new);
-    if let Some(kept) = kept_inline::hide(language, previous, old, new)
-        && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new)
-    {
-        let restored = kept.restore(&patched);
-        if reads_as_new(&restored) {
-            return Some(restored);
-        }
-    }
-    patch_lines(language, previous, old, new).filter(|patched| reads_as_new(patched))
-}
-
-/// [`patch_structure`]'s line diff, unchecked.
-fn patch_lines(
-    language: &dyn ConfigLanguage,
-    previous: &str,
-    old: &Value,
-    new: &Value,
-) -> Option<String> {
-    use super::diff::{DiffEdit, myers_edits};
-    let before = serialize(language, old, Some(previous)).ok()?;
-    let after = serialize(language, new, Some(previous)).ok()?;
-    let rendered_old: Vec<&str> = before.lines().collect();
-    let rendered_new: Vec<&str> = after.lines().collect();
-    let host: Vec<&str> = previous.lines().collect();
-    // Where each line of the old rendering sits in the host's text: a
-    // forward match that skips the host's comments and blank lines, and
-    // compares lines without quotes or trailing comments.
-    let normalized_host: Vec<String> = host.iter().map(|line| comparable(language, line)).collect();
-    let mut place = vec![None; rendered_old.len()];
-    let mut next = 0;
-    for (index, line) in rendered_old.iter().enumerate() {
-        let wanted = comparable(language, line);
-        if wanted.is_empty() {
-            continue;
-        }
-        // Look ahead a bounded distance so a missing line cannot make the
-        // rest of the document unmatched. A line of only punctuation (`}`,
-        // `],`) says nothing about where it is, so it matches only the next
-        // line with code, never one further on.
-        let punctuation = wanted
-            .chars()
-            .all(|character| matches!(character, '{' | '}' | '[' | ']' | '(' | ')' | ','));
-        let window = if punctuation {
-            (next..host.len())
-                .find(|candidate| !normalized_host[*candidate].is_empty())
-                .map_or(next, |candidate| candidate + 1)
-        } else {
-            (next + 400).min(host.len())
-        };
-        if let Some(found) = (next..window).find(|candidate| normalized_host[*candidate] == wanted)
-        {
-            place[index] = Some(found);
-            next = found + 1;
-        }
-    }
-    // The old → new edits, applied to the host's lines.
-    let mut removed = vec![false; host.len()];
-    let mut inserted: Vec<Vec<&str>> = vec![Vec::new(); host.len() + 1];
-    let (mut old_index, mut new_index) = (0, 0);
-    // The host line a run of deletions started at: lines inserted right
-    // after them replace them (a renamed table) and go in their place.
-    let mut replacing: Option<usize> = None;
-    let mut edits = myers_edits(&rendered_old, &rendered_new)?;
-    slide_deletions_up(&mut edits, &rendered_old);
-    // Each inserted line indented as the host indents (four spaces, a list
-    // at its key's column, `-   item`), from the matched lines above it.
-    let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
-    {
-        let (host_unit, rendered_unit) = (
-            super::commands::indent_unit(previous),
-            super::commands::indent_unit(&before),
-        );
-        let (mut old_at, mut new_at) = (0, 0);
-        for edit in &edits {
-            match edit {
-                DiffEdit::Equal => {
-                    old_at += 1;
-                    new_at += 1;
-                }
-                DiffEdit::Delete => old_at += 1,
-                DiffEdit::Insert => {
-                    written_new[new_at] = in_host_indentation(
-                        rendered_new[new_at],
-                        &rendered_old[..old_at],
-                        &place[..old_at],
-                        &host,
-                        &host_unit,
-                        &rendered_unit,
-                    );
-                    new_at += 1;
-                }
-            }
-        }
-    }
-    for edit in edits {
-        match edit {
-            DiffEdit::Equal => {
-                old_index += 1;
-                new_index += 1;
-                replacing = None;
-            }
-            DiffEdit::Delete => {
-                // A rendered line with no host line (a blank line the
-                // serializer writes between tables) has nothing to remove;
-                // a real mismatch is caught by the read-back below.
-                if let Some(at) = place[old_index] {
-                    removed[at] = true;
-                    replacing.get_or_insert(at);
-                }
-                old_index += 1;
-            }
-            DiffEdit::Insert => {
-                // Where the lines it replaces were; else after the host line
-                // of the nearest placed rendered line above; at the top,
-                // before the first placed line (after a header comment);
-                // with nothing placed, at the end.
-                let slot = match replacing {
-                    Some(at) => at,
-                    None => match place[..old_index].iter().rposition(Option::is_some) {
-                        // Past the host's blank lines that match rendered
-                        // ones in between, so the insert sits after them.
-                        Some(placed) => {
-                            let mut slot = place[placed].unwrap_or_default() + 1;
-                            let blanks = rendered_old[placed + 1..old_index]
-                                .iter()
-                                .filter(|line| line.trim().is_empty())
-                                .count();
-                            for _ in 0..blanks {
-                                if slot < host.len() && host[slot].trim().is_empty() {
-                                    slot += 1;
-                                }
-                            }
-                            slot
-                        }
-                        None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
-                    },
-                };
-                inserted[slot].push(written_new[new_index].as_str());
-                new_index += 1;
-            }
-        }
-    }
-    // A removed entry takes the comment lines directly above it (`# beta`
-    // above a deleted `beta { … }`); a file's header comment is never taken.
-    // Blank lines are tidied so no gap is left: the one above the comments
-    // goes, or, under an opener (`clients {`), the one after the entry.
-    for index in 0..host.len() {
-        // A replaced line keeps the comment above it.
-        if !removed[index] || index == 0 || removed[index - 1] || !inserted[index].is_empty() {
-            continue;
-        }
-        let is_comment =
-            |line: &str| !line.trim().is_empty() && comparable(language, line).is_empty();
-        let mut top = index;
-        while top > 0 && is_comment(host[top - 1]) {
-            top -= 1;
-        }
-        // Comments at the very top are the file's header, except the lines
-        // right above the entry that name it (`# tcp` over `tcp { … }`); a
-        // header of several lines keeps its first one.
-        if top == 0 {
-            let key: String = host[index]
-                .trim_start()
-                .trim_start_matches(['<', '[', '"'])
-                .chars()
-                .take_while(|character| {
-                    character.is_alphanumeric() || matches!(character, '_' | '-')
-                })
-                .collect::<String>()
-                .to_lowercase();
-            let names_it = |line: &str| {
-                !key.is_empty()
-                    && line
-                        .to_lowercase()
-                        .split(|character: char| {
-                            !(character.is_alphanumeric() || matches!(character, '_' | '-'))
-                        })
-                        .any(|word| word == key)
-            };
-            let mut first = index;
-            while first > 0 && names_it(host[first - 1]) {
-                first -= 1;
-            }
-            if first == 0 && index > 1 {
-                first = 1;
-            }
-            for line in removed.iter_mut().take(index).skip(first) {
-                *line = true;
-            }
-            continue;
-        }
-        for line in removed.iter_mut().take(index).skip(top) {
-            *line = true;
-        }
-        if host[top - 1].trim().is_empty() {
-            if top < index {
-                removed[top - 1] = true;
-            }
-        } else {
-            let mut end = index;
-            while end + 1 < host.len() && removed[end + 1] {
-                end += 1;
-            }
-            if top < index && end + 1 < host.len() && host[end + 1].trim().is_empty() {
-                removed[end + 1] = true;
-            }
-        }
-    }
-    drop_doubled_blank_lines(language, &host, &mut removed, &inserted);
-    follow_sibling_spacing(&host, &mut inserted);
-    let mut inserted: Vec<Vec<String>> = inserted
-        .into_iter()
-        .map(|slot| slot.into_iter().map(str::to_string).collect())
-        .collect();
-    // A replaced line (a renamed key) keeps its trailing comment: the
-    // comment moves to the line inserted in its place at the same indent.
-    for index in 0..host.len() {
-        if !removed[index] {
-            continue;
-        }
-        let comment = trailing_comment(language, host[index]);
-        let indent = |line: &str| line.len() - line.trim_start().len();
-        if let Some(first) = inserted[index].first_mut()
-            && !comment.is_empty()
-            && indent(first) == indent(host[index])
-            && trailing_comment(language, first).is_empty()
-        {
-            first.push(' ');
-            first.push_str(comment);
-        }
-    }
-    let mut lines: Vec<&str> = Vec::with_capacity(host.len() + rendered_new.len());
-    for index in 0..=host.len() {
-        lines.extend(inserted[index].iter().map(String::as_str));
-        if index < host.len() && !removed[index] {
-            lines.push(host[index]);
-        }
-    }
-    let mut patched = lines.join("\n");
-    if previous.ends_with('\n') {
-        patched.push('\n');
-    }
-    Some(patched)
-}
-
-/// `line` (rendered by the host's serializer) indented as the host would:
-/// at the host indent of the nearest matched line above with the same
-/// rendered indent (a sibling), else one host unit per rendered unit below
-/// the nearest shallower one (its parent); a list item takes the sibling's
-/// spacing after its dash.
-fn in_host_indentation(
-    line: &str,
-    rendered_old: &[&str],
-    place: &[Option<usize>],
-    host: &[&str],
-    host_unit: &str,
-    rendered_unit: &str,
-) -> String {
-    let indent = |text: &str| text.len() - text.trim_start_matches([' ', '\t']).len();
-    let content = line.trim_start_matches([' ', '\t']);
-    if content.is_empty() {
-        return line.to_string();
-    }
-    let wanted = indent(line);
-    let placed = || {
-        (0..rendered_old.len())
-            .rev()
-            .filter_map(|index| Some((rendered_old[index], host[place[index]?])))
-            .filter(|(rendered, _)| !rendered.trim().is_empty())
-    };
-    let dash_gap = |text: &str| {
-        let content = text.trim_start_matches([' ', '\t']);
-        content
-            .strip_prefix('-')
-            .filter(|rest| rest.starts_with(' '))
-            .map(|rest| rest.len() - rest.trim_start_matches(' ').len())
-    };
-    let (prefix, content) =
-        if let Some((_, sibling)) = placed().find(|(rendered, _)| indent(rendered) == wanted) {
-            let mut content = content.to_string();
-            if let (Some(_), Some(gap)) = (dash_gap(line), dash_gap(sibling)) {
-                content = format!(
-                    "-{}{}",
-                    " ".repeat(gap),
-                    content[1..].trim_start_matches(' ')
-                );
-            }
-            (sibling[..indent(sibling)].to_string(), content)
-        } else if let Some((rendered, parent)) =
-            placed().find(|(rendered, _)| indent(rendered) < wanted)
-        {
-            let levels = (wanted - indent(rendered)) / rendered_unit.len().max(1);
-            let extra = (wanted - indent(rendered)) % rendered_unit.len().max(1);
-            (
-                format!(
-                    "{}{}{}",
-                    &parent[..indent(parent)],
-                    host_unit.repeat(levels),
-                    " ".repeat(extra)
-                ),
-                content.to_string(),
-            )
-        } else {
-            return line.to_string();
-        };
-    format!("{prefix}{content}")
-}
-
-/// A removed run of lines between two blank lines (or after a blank line at
-/// the end) would leave the blank lines doubled: the one above goes.
-fn drop_doubled_blank_lines(
-    language: &dyn ConfigLanguage,
-    host: &[&str],
-    removed: &mut [bool],
-    inserted: &[Vec<&str>],
-) {
-    let blank = |index: usize| host[index].trim().is_empty();
-    let mut index = 0;
-    while index < host.len() {
-        if !removed[index] {
-            index += 1;
-            continue;
-        }
-        let start = index;
-        while index < host.len() && removed[index] {
-            index += 1;
-        }
-        let untouched = (start..=index).all(|slot| inserted[slot].is_empty());
-        // A closer (`}`, `]`, `</a>`) after the run ends the body: no blank
-        // line belongs before it either.
-        let closes = |line: &str| {
-            let trimmed = line.trim();
-            trimmed.starts_with(['}', ']', ')']) || language.closing_markup_len(trimmed).is_some()
-        };
-        let after_blank = index == host.len() || blank(index) || closes(host[index]);
-        if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
-            removed[start - 1] = true;
-        }
-        // Removed from the top of the file: no blank line left to start it.
-        if untouched && start == 0 && index < host.len() && blank(index) {
-            removed[index] = true;
-        }
-    }
-}
-
-/// An inserted entry starting with a blank line (as the serializer separates
-/// blocks) keeps it only where the host separates siblings that way: the
-/// earlier sibling at the slot's indent ending its block is followed by a
-/// blank line there.
-fn follow_sibling_spacing(host: &[&str], inserted: &mut [Vec<&str>]) {
-    let indent = |line: &str| line.len() - line.trim_start().len();
-    for slot in 1..inserted.len() {
-        let starts_blank = inserted[slot]
-            .first()
-            .is_some_and(|line| line.trim().is_empty());
-        let before = host[slot - 1];
-        if !starts_blank || before.trim().is_empty() {
-            continue;
-        }
-        let level = indent(before);
-        // The closer of the sibling before `before`'s block, if any.
-        let mut earlier = None;
-        for index in (0..slot - 1).rev() {
-            let line = host[index];
-            if line.trim().is_empty() {
-                continue;
-            }
-            if indent(line) < level {
-                break;
-            }
-            if indent(line) == level && line.trim().starts_with(['}', ']']) {
-                earlier = Some(index);
-                break;
-            }
-        }
-        if let Some(index) = earlier
-            && host
-                .get(index + 1)
-                .is_some_and(|line| !line.trim().is_empty())
-        {
-            inserted[slot].remove(0);
-        }
-    }
-}
-
-/// Shifts each run of deleted lines up while the line before it equals its
-/// last line, so a repeated block (`[[web.certificates]]` items) is deleted
-/// whole from its first line rather than straddling two items. Closing
-/// brackets stay where the diff put them: they end the block above.
-fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
-    use super::diff::DiffEdit;
-    let mut changed = true;
-    while changed {
-        changed = false;
-        let mut old_index = 0;
-        let mut index = 0;
-        while index < edits.len() {
-            if edits[index] == DiffEdit::Equal {
-                let run = edits[index + 1..]
-                    .iter()
-                    .take_while(|edit| **edit == DiffEdit::Delete)
-                    .count();
-                // A closer (`}`) ends the block above; sliding past it would
-                // delete that block's end and keep the deleted one's.
-                let closer = old[old_index]
-                    .trim()
-                    .chars()
-                    .all(|character| matches!(character, '}' | ']' | ')' | ','));
-                if run > 0 && !closer && old[old_index] == old[old_index + run] {
-                    edits[index] = DiffEdit::Delete;
-                    edits[index + run] = DiffEdit::Equal;
-                    changed = true;
-                }
-            }
-            if edits[index] != DiffEdit::Insert {
-                old_index += 1;
-            }
-            index += 1;
-        }
-    }
-}
-
-/// A line as the structural patch compares it: trimmed, without quotes and
-/// without its trailing comment (as the language finds it).
-fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
-    let code = line[..comment_start(language, line)].trim();
-    // Written forms the language reads the same (its own rules).
-    let code = language.comparable_line(code);
-    let code = code.as_ref();
-    // A number however it is written (`0x10`, `1.5e1`, `1_000`) is the same
-    // line as the serializer's `16`, `15.0`, `1000`.
-    let numbered;
-    let code = match [": ", " = "].iter().find_map(|separator| {
-        code.split_once(separator)
-            .map(|(key, value)| (key, *separator, value))
-    }) {
-        Some((key, separator, value)) => match canonical_number(value.trim_end_matches(',').trim())
-        {
-            Some(number) => {
-                numbered = format!(
-                    "{key}{separator}{number}{}",
-                    if value.trim_end().ends_with(',') {
-                        ","
-                    } else {
-                        ""
-                    }
-                );
-                numbered.as_str()
-            }
-            None => code,
-        },
-        None => code,
-    };
-    let unquoted = code.replace(['"', '\''], "");
-    // A line of quotes alone (a multi-line string's `"""`) still is a line.
-    if unquoted.is_empty() {
-        code.to_string()
-    } else {
-        unquoted
-    }
-}
-
-/// `text` as one spelling of the number it writes, or `None` when it writes
-/// none (`16` for `0x10` and `16`, `15` for `1.5e1` and `15.0`).
-fn canonical_number(text: &str) -> Option<String> {
-    let text = text.replace('_', "");
-    let (sign, digits) = match text.strip_prefix('-') {
-        Some(rest) => (-1.0, rest),
-        None => (1.0, text.strip_prefix('+').unwrap_or(&text)),
-    };
-    let radix = [("0x", 16), ("0o", 8), ("0b", 2)]
-        .iter()
-        .find_map(|(prefix, radix)| digits.strip_prefix(prefix).map(|rest| (rest, *radix)));
-    let value = match radix {
-        Some((rest, radix)) => i64::from_str_radix(rest, radix).ok()? as f64,
-        None if !digits.is_empty()
-            && digits.chars().all(|character| {
-                character.is_ascii_digit() || matches!(character, '.' | 'e' | 'E' | '+' | '-')
-            })
-            && digits
-                .starts_with(|character: char| character.is_ascii_digit() || character == '.') =>
-        {
-            digits.parse::<f64>().ok()?
-        }
-        None => return None,
-    } * sign;
-    Some(if value.fract() == 0.0 && value.abs() < 1e15 {
-        format!("{}", value as i64)
-    } else {
-        value.to_string()
-    })
-}
-
-/// The trailing comment of `line`, or `""`.
-fn trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
-    line[comment_start(language, line)..].trim_end()
-}
-
-/// Where the trailing comment of `line` starts, or its length.
-fn comment_start(language: &dyn ConfigLanguage, line: &str) -> usize {
-    language
-        .comment_start(line)
-        .filter(|start| *start <= line.len() && line.is_char_boundary(*start))
-        .unwrap_or(line.len())
 }
 
 /// The span of what `pointer` names when it lies inside an inline container

@@ -12,6 +12,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod style;
+mod block_scalar;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 // The fold ranges (the `folding` feature).
@@ -160,6 +161,10 @@ impl ConfigLanguage for YamlBehavior {
 
     fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
         aliases::detach_shared(previous, old, new)
+    }
+
+    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
+        self.parse(&format!("k: [{}]\n", written.trim())).ok().and_then(|document| document.get("k")?.get(0).cloned()).as_ref() == Some(value)
     }
 
     fn format_value_like(&self, value: &Value, written: &str) -> String {

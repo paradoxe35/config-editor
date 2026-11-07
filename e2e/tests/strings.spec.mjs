@@ -23,6 +23,8 @@ test.skip(!built, 'js packages not built: run `npm run build` in js/');
 const ELSEWHERE = {
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
+  problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',
+  problemDocs: 'as problemCode',
   hintsOne: 'as infosOne',
   hintsOther: 'as infosOne',
   warningsOther: 'one warning is enough to show the pair is used',

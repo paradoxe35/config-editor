@@ -27,48 +27,15 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
     };
     match written.chars().next() {
         Some('\'') if !text.contains('\n') => format!("'{}'", text.replace('\'', "''")),
-        Some('"') => serde_json::to_string(text).unwrap_or_else(|_| yaml_value(value)),
-        Some('|' | '>') => block_scalar(written, text).unwrap_or_else(|| yaml_value(value)),
+        Some('"') => super::super::escapes::like_written(
+            serde_json::to_string(text).unwrap_or_else(|_| yaml_value(value)),
+            written,
+            super::super::escapes::Astral::Long,
+        ),
+        Some('|' | '>') => super::block_scalar::block_scalar(language, written, text).unwrap_or_else(|| yaml_value(value)),
         Some(_) if !text.is_empty() && reads_back(text) => text.clone(),
         _ => yaml_value(value),
     }
-}
-
-/// `text` as the block scalar `written` (`>-` then its indented lines), with
-/// the chomping its line breaks need; `None` when it cannot be one.
-fn block_scalar(written: &str, text: &str) -> Option<String> {
-    let mut lines = written.split('\n');
-    let header = lines.next()?;
-    let indent: String = lines
-        .find(|line| !line.trim().is_empty())?
-        .chars()
-        .take_while(|character| *character == ' ')
-        .collect();
-    let body = text.strip_suffix('\n').unwrap_or(text);
-    if indent.is_empty()
-        || body.contains("\n\n")
-        || body.ends_with('\n')
-        || body.split('\n').any(|line| line.starts_with([' ', '\t']) || line.trim_end() != line)
-        || body.is_empty()
-    {
-        return None;
-    }
-    let indicator_end = header
-        .find(|character: char| !matches!(character, '|' | '>' | '-' | '+' | '0'..='9'))
-        .unwrap_or(header.len());
-    let mut style = header[..1].to_string();
-    // Folded text keeps its line breaks only as literal text.
-    if style == ">" && body.contains('\n') {
-        style = "|".to_string();
-    }
-    let chomping = if text.ends_with('\n') { "" } else { "-" };
-    let mut out = format!("{style}{chomping}{}", &header[indicator_end..]);
-    for line in body.split('\n') {
-        out.push('\n');
-        out.push_str(&indent);
-        out.push_str(line);
-    }
-    Some(out)
 }
 
 /// `code` with written forms YAML reads the same made equal: a list item's

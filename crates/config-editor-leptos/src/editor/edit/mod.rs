@@ -45,12 +45,13 @@
 //!    selection is placed. Positions follow before the text changes, since
 //!    they are mapped from the text before.
 //! 4. **Record** — the undo history: one step for a command, typing grouped
-//!    by kind, a step moved for undo and redo, a new history for a switch,
-//!    nothing for a host value. After the apply stage, which settles the
+//!    by kind, a step moved for undo and redo, a step for a switch (its
+//!    snapshot in the language it left), nothing for a host value. After the apply stage, which settles the
 //!    selection a step returns to.
 //! 5. **Notify** — `on_change` with the new document, once the text, the
 //!    caret and the history are all in their new state (a host reading the
-//!    editor from the callback sees the edit whole). Edit-as conversion
+//!    editor from the callback sees the edit whole); `on_edit_as_change`
+//!    after an edit that changed the language on screen. Edit-as conversion
 //!    back to the host's language, the dirty flag and the change count
 //!    follow reactively from the text (see `sync`, `host_editing`,
 //!    `changes`).
@@ -71,6 +72,7 @@ use leptos::prelude::*;
 
 use super::history::{Selection, Snapshot};
 use super::input::{UNKNOWN_SELECTION, edit_range};
+use super::languages::Language;
 use super::state::{EditorState, textarea_selection};
 
 /// A change to the document: the text before and after, the selection it
@@ -86,6 +88,9 @@ pub(super) struct Edit {
     pub(super) text: String,
     pub(super) after: After,
     pub(super) origin: Origin,
+    /// The language `text` is in, when the edit changes the language on
+    /// screen: an Edit-as switch, or an undo or redo back across one.
+    pub(super) language: Option<Language>,
 }
 
 /// Where the selection goes after an edit.
@@ -123,6 +128,7 @@ impl Edit {
                 reveal: true,
             },
             origin: Origin::Command,
+            language: None,
         }
     }
 
@@ -169,6 +175,7 @@ impl Edit {
                 forced: false,
             },
             origin: Origin::Input { kind, time },
+            language: None,
         }
     }
 
@@ -186,6 +193,7 @@ impl Edit {
                 reveal: true,
             },
             origin: if redo { Origin::Redo } else { Origin::Undo },
+            language: to.language,
         }
     }
 
@@ -204,7 +212,28 @@ impl Edit {
             text,
             after,
             origin,
+            language: None,
         }
+    }
+
+    /// The document converted by an Edit-as switch to `language`, the caret
+    /// at `caret` (on the field it was on), else where the textarea has it.
+    pub(super) fn switching(
+        before: String,
+        text: String,
+        language: Language,
+        caret: Option<usize>,
+    ) -> Self {
+        let mut edit = Self::replacing(before, text, Origin::Switch);
+        edit.language = Some(language);
+        if let Some(caret) = caret {
+            edit.after = After::Select {
+                anchor: caret,
+                caret,
+                reveal: true,
+            };
+        }
+        edit
     }
 
     /// The caret the edit leaves (where the browser or the command put it).

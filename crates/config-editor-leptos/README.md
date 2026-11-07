@@ -44,6 +44,7 @@ method and headless function here has a JS option, method or function there
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
   - [Folding](#folding)
+  - [Large documents](#large-documents)
 - [Headless API](#headless-api)
 - [XML mapping](#xml-mapping)
 - [Your own language](#your-own-language)
@@ -98,12 +99,8 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `initial_value`     | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                    |
 | `value`             | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                      |
 | `on_change`         | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                   |
-| `on_edit_as_change` | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).    |
+| `on_edit_as_change` | `Fn(Language)`                             | —                | Called with the language on screen when an `edit_as` switch completes, and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`. |
 | `on_schema_warning` | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.  |
-
-While editing as another language, edits reach `on_change` after each typing
-pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
-document from code (a Save button) to send an edit still waiting first.
 | `baseline` | `Signal<String>` | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
 | `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
 | `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included. |
@@ -120,6 +117,10 @@ document from code (a Save button) to send an edit still waiting first.
 | `on_save` | `Fn(SaveRequest)` | — | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
 | `on_dirty_change` | `Fn(bool)` | — | Called with whether the text differs from `baseline`: once on mount, then each time that changes. |
 | `on_baseline_conflict` | `Fn(BaselineConflict)` | — | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled. |
+
+While editing as another language, edits reach `on_change` after each typing
+pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
+document from code (a Save button) to send an edit still waiting first.
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -189,7 +190,21 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 ```
 
 - Only what the user changed is written back: untouched values keep their
-  exact host spelling, and the host's comments and formatting survive.
+  exact host spelling, and the host's comments and formatting survive. An
+  edited value keeps its form: a YAML block scalar stays a block (folded text
+  keeps its line breaks where the words around them did, and holding a line
+  folding cannot, it is written literally), TOML long strings and HCL
+  heredocs stay so, XML CDATA stays CDATA, YAML anchors stay on their items
+  (an alias or merge is written out only where the edit parts it from its
+  anchor, numbers as the host wrote them), and a JSON string keeps its
+  `\uXXXX` escapes.
+- XML element text is the value exactly as an XML reader reports it, the
+  whitespace and line breaks around it included (a number, boolean or `null`
+  reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
+  and a YAML `|` block keeps its final line break through the XML view.
+- Switching the language is an undo step: `Ctrl+Z` goes back to the view and
+  text before the switch (`on_edit_as_change` hears it), `Ctrl+Y` returns,
+  and the caret stays on the field it was on.
 - Invalid text is never sent to the host.
 - Values the host cannot carry exactly (for example an empty list in XML)
   are flagged as warnings on the value.
@@ -237,7 +252,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (148 texts)</summary>
+<summary>Every text and its default (151 texts)</summary>
 
 | Field | Default | |
 |---|---|---|
@@ -279,6 +294,7 @@ they come.
 | `reload_title` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
 | `keep_mine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
 | `keep_mine_title` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
+| `baseline_changed_keys` | `"F6 moves to the choices and back."` | How to reach the notice's choices from the keyboard, shown on it (and announced with it). |
 | `find_widget` | `"Find and replace"` | The find widget's accessible name. |
 | `toggle_replace` | `"Toggle replace"` | The button showing the replace row. |
 | `toggle_replace_title` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
@@ -339,7 +355,7 @@ they come.
 | `default_value` | `"Default"` | The hover card's default row. |
 | `examples` | `"Examples"` | The hover card's examples row. |
 | `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
-| `open_docs` | `"Open docs ↗"` | The link under a host problem's message. |
+| `open_docs` | `"Open docs ↗ (Alt+Enter)"` | The link under a host problem's message. |
 | `error` | `"Error"` | An error, as a screen reader hears it. |
 | `warning` | `"Warning"` | A warning, as a screen reader hears it. |
 | `info` | `"Info"` | An info, as a screen reader hears it. |
@@ -347,6 +363,8 @@ they come.
 | `problem_source` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
 | `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
 | `problem_position` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
+| `problem_code` | `" Code {code}."` | After a problem's text for screen readers: its `{code}` (from the host). |
+| `problem_docs` | `" Documentation: {url} (Alt+Enter opens it)."` | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it. |
 | `problem_marker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
 | `protected_note` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
 | `source_label` | `"{language} source"` | The text area. |
@@ -473,8 +491,11 @@ the text, "The file changed on the server.", instead of mixing the two:
   also while editing as another language).
 - **Keep mine** keeps the text and diffs it against the new baseline.
   `Escape` in the notice chooses it, as the choice that loses nothing.
-- The notice is `role="alert"`. It takes the focus (on Keep mine) only when
-  the focus was in the editor, and gives it back to the text when closed.
+- The notice is `role="alert"`, so screen readers announce it, and it never
+  takes the focus: it opens while the user may be typing, and a key in
+  flight would land on its buttons. `F6` moves the focus to Keep mine and
+  back to the text (the notice says so); closing it returns the focus to
+  the text.
 - It closes by itself (`BaselineConflict::Settled`) when the text comes to
   equal the new baseline, or the host sets the old one back.
 
@@ -663,8 +684,10 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   value, or the key of a block), next to the editor's own problems: `F8` /
   `Shift+F8` stop at them, the footer counts them, and the hover message
   adds who reported them, the code, and "Open docs ↗" (a click on the
-  message opens `docs_url`, an `http:` or `https:` URL; `is_web_url` checks
-  one, and another is not linked). What cannot be placed (a missing field, a range
+  message opens `docs_url`, an `http:` or `https:` URL (`is_web_url`
+  checks one; another is not linked), as `Alt+Enter` does with the caret
+  on the problem; screen readers hear the code and the link with the
+  problem, in the caret's description and on `F8`). What cannot be placed (a missing field, a range
   while editing as another language, the whole document) shows in the footer.
 - Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
   (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
@@ -850,11 +873,13 @@ schema whose regex it cannot compile.
 | `Ctrl+/`                                     | Toggle comments                                                                  |
 | `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
 | `F8` / `Shift+F8`                            | Next / previous problem                                                          |
+| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                              |
 | `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                      |
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
 | `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
 | `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                          |
+| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                     |
 | `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                       |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold    |
 | `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                              |
@@ -907,8 +932,10 @@ view! { <ConfigEditor initial_value=text /> }
 (never in a read-only editor). Options match case, whole words, or a regular
 expression (the `regex` engine with `schema-validation`, else `regex-lite`,
 whose case folding is ASCII-only); an invalid pattern is shown, not thrown.
-In a regular expression's replacement, `$1` and `${name}` insert groups, and
-`\n` and `\t` a line break and a tab. Replacing goes through the normal edit
+A regular expression's replacement reads as in VS Code: `$1`–`$99` insert
+groups (`$1_host` is group 1, then `_host`), `$<name>` or `${name}` a named
+group, `$&` or `$0` the whole match, `$$` a `$`, and `\n` and `\t` a line
+break and a tab. Replacing goes through the normal edit
 path: undo, `on_change` and Edit-as all see it, and replace all is one undo
 step. Up to 10,000 matches are counted and stepped through, and only those
 in view are drawn, so large documents stay fast.
@@ -953,6 +980,17 @@ view! {
     <ConfigEditor handle=editor value=text />
 }
 ```
+
+### Large documents
+
+Only the rows in view are rendered, and typing, scrolling, find, folding
+and selecting stay within their budgets on 6,000–8,000-line documents
+(`e2e/tests/large-files.spec.mjs`). One thing on the host's page can slow
+selecting down: in Chrome, while the page holds a closed `<details>` or an
+element with `hidden="until-found"` anywhere, selecting many lines of a
+textarea takes time quadratic in the lines selected (`Ctrl+A` over 8,000
+lines takes seconds). A disclosure button (`aria-expanded` and `hidden`)
+in their place keeps it instant; the demo pages use one.
 
 ## Headless API
 

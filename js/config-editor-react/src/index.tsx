@@ -175,7 +175,7 @@ export interface ConfigEditorProps extends EditorSettings {
   language?: LanguageName;
   /** Edit in another language; switches live. */
   editAs?: LanguageName | null;
-  /** Called when an `editAs` switch completes. */
+  /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (a switch waits while the document cannot convert, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;

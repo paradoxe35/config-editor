@@ -87,6 +87,7 @@ step_optional() {
 # Generated docs are up to date (no build needed).
 step_docs() {
   node scripts/readme-toc.mjs --check
+  node scripts/markdown-tables.mjs
   node e2e/screenshots.mjs --check
 }
 

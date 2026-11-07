@@ -2,7 +2,11 @@
 //! the selection after it, so both directions restore exactly where the user
 //! was. Typing (or deleting) continues a step only where the previous one
 //! ended and within [`UNDO_GROUPING_WINDOW_MS`]; a caret move, a paste, or a
-//! command starts a new one.
+//! command starts a new one. An Edit-as switch is a step too: its snapshots
+//! carry the language their text is in, so undo goes back to the view it
+//! left and redo returns to the new one.
+
+use super::languages::Language;
 
 /// A selection as `(start, end)` UTF-16 offsets; equal for a caret.
 pub(super) type Selection = (usize, usize);
@@ -11,12 +15,17 @@ pub(super) type Selection = (usize, usize);
 pub(super) struct Snapshot {
     pub(super) value: String,
     pub(super) selection: Selection,
+    /// The language `value` is in, for a step that changed the language on
+    /// screen (an Edit-as switch); `None` for every other step.
+    pub(super) language: Option<Language>,
 }
 
 #[derive(Clone, Debug)]
 struct Step {
     before: Snapshot,
     after: Selection,
+    /// The language the step left, when it changed it.
+    after_language: Option<Language>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +93,11 @@ impl EditHistory {
         if continues && let Some(step) = self.undo.last_mut() {
             step.after = after;
         } else {
-            self.push(Step { before, after });
+            self.push(Step {
+                before,
+                after,
+                after_language: None,
+            });
         }
         self.open = group.map(|group| (group, timestamp));
     }
@@ -98,7 +111,22 @@ impl EditHistory {
     /// An edit the editor made (a command, an accepted suggestion): always
     /// its own step.
     pub(super) fn record_action(&mut self, before: Snapshot, after: Selection) {
-        self.push(Step { before, after });
+        self.push(Step {
+            before,
+            after,
+            after_language: None,
+        });
+        self.open = None;
+    }
+
+    /// An Edit-as switch from `before` (its language in it) to `language`:
+    /// its own step.
+    pub(super) fn record_switch(&mut self, before: Snapshot, after: Selection, language: Language) {
+        self.push(Step {
+            before,
+            after,
+            after_language: Some(language),
+        });
         self.open = None;
     }
 
@@ -117,8 +145,10 @@ impl EditHistory {
             before: Snapshot {
                 value: current,
                 selection: step.after,
+                language: step.after_language,
             },
             after: step.before.selection,
+            after_language: step.before.language,
         });
         self.open = None;
         Some(step.before)
@@ -154,8 +184,10 @@ impl EditHistory {
             before: Snapshot {
                 value: current,
                 selection: step.after,
+                language: step.after_language,
             },
             after: step.before.selection,
+            after_language: step.before.language,
         });
         self.open = None;
         Some(step.before)
@@ -170,6 +202,7 @@ mod tests {
         Snapshot {
             value: value.into(),
             selection: (caret, caret),
+            language: None,
         }
     }
 
@@ -204,6 +237,7 @@ mod tests {
         let composing = |value: &str, from: usize, to: usize| Snapshot {
             value: value.into(),
             selection: (from, to),
+            language: None,
         };
         history.record_input(
             composing("name: に", 6, 7),
@@ -260,6 +294,7 @@ mod tests {
         let before = Snapshot {
             value: "a: 1\nb: 2".into(),
             selection: (0, 9),
+            language: None,
         };
         history.record_action(before.clone(), (0, 13));
         assert_eq!(history.undo("  a: 1\n  b: 2".into()), Some(before));
@@ -268,7 +303,31 @@ mod tests {
             Some(Snapshot {
                 value: "  a: 1\n  b: 2".into(),
                 selection: (0, 13),
+                language: None,
             })
+        );
+    }
+
+    #[cfg(all(feature = "yaml", feature = "json"))]
+    #[test]
+    fn a_switch_is_a_step_undone_into_the_language_it_left() {
+        use super::Language;
+        let mut history = EditHistory::default();
+        let yaml = Snapshot {
+            value: "a: 1\n".into(),
+            selection: (0, 0),
+            language: Some(Language::YAML),
+        };
+        history.record_switch(yaml.clone(), (4, 4), Language::JSON);
+        assert_eq!(history.undo("{\"a\": 1}\n".into()), Some(yaml));
+        let redone = history.redo("a: 1\n".into()).expect("the switch again");
+        assert_eq!(redone.language, Some(Language::JSON));
+        assert_eq!(redone.value, "{\"a\": 1}\n");
+        assert_eq!(
+            history
+                .undo("{\"a\": 1}\n".into())
+                .and_then(|step| step.language),
+            Some(Language::YAML)
         );
     }
 

@@ -1,5 +1,6 @@
 //! The notice over the text when the host's baseline changed under unsaved
-//! edits: Reload or Keep mine.
+//! edits: Reload or Keep mine. It leaves the focus where it is (see
+//! `host_editing::conflict`); `F6` reaches it.
 
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
@@ -25,6 +26,8 @@ pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
                 <strong>{state.text(|strings| &strings.baseline_changed)}</strong>
                 " "
                 <span class="config-editor__notice-detail">{state.text(|strings| &strings.baseline_changed_detail)}</span>
+                " "
+                <span class="config-editor__notice-keys">{state.text(|strings| &strings.baseline_changed_keys)}</span>
             </span>
             <span class="config-editor__notice-actions">
                 <button

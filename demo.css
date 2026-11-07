@@ -1,23 +1,41 @@
 /* Demo page only: the pickers and the saved-value panel around the editor.
-   The editor's own styles come from the crate (PRESET_CSS). */
-.demo__picker {
+   The editor's own styles come from the crate (PRESET_CSS); every color here
+   is one of the theme's variables, so the page follows the theme. */
+body { margin: 0; }
+/* The page takes the theme's background below the editor too. */
+.demo {
+  min-height: 100vh;
+  background: var(--config-editor-bg);
+}
+.demo__picker,
+.demo__check {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--config-editor-muted);
+  color: var(--config-editor-toolbar-text);
   font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-.demo__select {
-  max-width: 190px;
-  padding: 4px 7px;
-  border: 1px solid var(--config-editor-border);
+/* Controls look alike and are at least 24px tall (a touch target). */
+.demo__select,
+.demo__button,
+.demo__settings-toggle {
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
-  background: var(--config-editor-panel);
-  color: var(--config-editor-text);
-  font: inherit;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-.demo__select:focus-visible {
-  outline: 2px solid var(--config-editor-accent);
+.demo__button,
+.demo__settings-toggle { cursor: pointer; }
+.demo__button:hover,
+.demo__settings-toggle:hover { background: var(--config-editor-raised-hover); }
+.demo__select:focus-visible,
+.demo__button:focus-visible,
+.demo__settings-toggle:focus-visible,
+.demo__output-toggle:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
 }
 /* The settings switches: a dropdown in the toolbar (in the flow of the
@@ -25,90 +43,103 @@
 .demo__settings {
   position: relative;
   align-self: center;
-  color: var(--config-editor-muted);
-  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-/* Looks like the toolbar's selects beside it. */
-.demo__settings-toggle {
-  padding: 4px 7px;
-  border: 1px solid var(--config-editor-border);
-  border-radius: 4px;
-  background: var(--config-editor-panel);
-  color: var(--config-editor-text);
-  cursor: pointer;
-  list-style: none;
+/* Chevrons drawn with borders: a font's arrows vary from one system to
+   another (some have none). */
+.demo__settings-toggle::after,
+.demo__output-toggle::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-2px) rotate(45deg);
 }
-.demo__settings-toggle::-webkit-details-marker { display: none; }
-.demo__settings-toggle::after { content: " ▾"; color: var(--config-editor-muted); }
-.demo__settings-toggle:focus-visible {
-  outline: 2px solid var(--config-editor-accent);
-  outline-offset: 1px;
-}
-.config-editor__toolbar .demo__settings-list {
+.demo__settings-toggle::after { margin-left: 7px; color: var(--config-editor-raised-muted); }
+.demo__settings-toggle[aria-expanded="true"]::after { transform: translateY(1px) rotate(-135deg); }
+.demo__settings-list {
   position: absolute;
   right: 0;
   z-index: 20;
-  padding: 8px;
-  border: 1px solid var(--config-editor-border);
-  border-radius: 4px;
-  background: var(--config-editor-panel);
-}
-.demo__settings-list {
   display: grid;
   gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
 }
+.demo__settings-list[hidden] { display: none; }
+.demo__settings-list .demo__picker { color: var(--config-editor-raised-text); }
+
+/* The saved value, under the editor. */
 .demo__output {
-  max-height: 30vh;
-  overflow: auto;
   border-top: 1px solid var(--config-editor-border);
   background: var(--config-editor-panel);
-  color: var(--config-editor-muted);
+  color: var(--config-editor-toolbar-text);
   font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-.demo__output > summary {
-  padding: 6px 12px;
-  cursor: pointer;
-}
-.demo__output-text {
-  margin: 0;
-  padding: 0 12px 10px;
-  color: var(--config-editor-text);
-  font: 11px/1.5 var(--config-editor-mono);
-  white-space: pre;
-}
-
 .demo__summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 4px 12px;
+  padding: 6px 12px;
 }
-.demo__summary > span:first-child { flex: 1; }
-/* `display: flex` drops the disclosure marker: draw it. */
-.demo__summary > span:first-child::before { content: "▸ "; }
-.demo__output[open] > .demo__summary > span:first-child::before { content: "▾ "; }
-.demo__host { display: flex; align-items: center; gap: 8px; }
-.demo__button {
-  padding: 0 6px;
-  border: 1px solid var(--config-editor-border);
-  border-radius: 4px;
-  background: var(--config-editor-panel);
-  color: var(--config-editor-text);
-  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+.demo__output-toggle {
+  flex: 1;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
+.demo__output-toggle::before { margin: 0 8px 0 2px; transform: rotate(-45deg); }
+.demo__output-toggle[aria-expanded="true"]::before { transform: translateY(-2px) rotate(45deg); }
+.demo__output-text {
+  max-height: 30vh;
+  overflow: auto;
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--config-editor-text);
+  font: 11px/1.5 var(--config-editor-mono);
+  white-space: pre;
+}
+.demo__output-text[hidden] { display: none; }
+.demo__host { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .demo__host-status { min-width: 1ch; color: var(--config-editor-modified); }
+
+/* `?schema=help`: the schema's warnings, under the editor. */
+.demo__schema-warnings {
+  margin: 0;
+  padding: 6px 12px 6px 28px;
+  background: var(--config-editor-panel);
+  color: var(--config-editor-toolbar-text);
+  font: 11px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__schema-warnings[hidden] { display: none; }
+
+/* Touch screens: the checkboxes and their labels are finger-sized too. */
+@media (pointer: coarse) {
+  .demo__check,
+  .demo__setting { min-height: 24px; }
+  .demo__check input,
+  .demo__setting input { width: 18px; height: 18px; }
+}
 
 @media (max-width: 600px) {
   .demo__toolbar { gap: 8px; padding: 0 8px; }
   .demo__toolbar .config-editor__file > span:not(.config-editor__file-icon) { display: none; }
-  .demo__picker { gap: 0; font-size: 0; }
-  .demo__select { max-width: 112px; font-size: 11px; }
+  /* The selects keep their names (aria-label) and whole options. */
+  .demo__picker-label { display: none; }
 }
 
 /* `?documents`: the host's buttons and its "discard unsaved changes?" question. */
-.demo-documents { padding: 8px; background: #181818; min-height: 100vh; box-sizing: border-box; }
+.demo-documents { padding: 8px; box-sizing: border-box; }
 .demo__documents-actions,
 .demo__ask {
   display: flex;
@@ -116,8 +147,9 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
-  color: #ccc;
+  color: var(--config-editor-toolbar-text);
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-.demo__documents-status { color: #999; font: 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
-.demo__documents-values { max-height: 30vh; overflow: auto; color: #bbb; font: 11px/1.4 monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.demo__documents-actions .demo__settings { order: 1; }
+.demo__documents-status { color: var(--config-editor-muted); font: 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.demo__documents-values { max-height: 30vh; overflow: auto; color: var(--config-editor-text); font: 11px/1.4 var(--config-editor-mono); white-space: pre-wrap; overflow-wrap: anywhere; }

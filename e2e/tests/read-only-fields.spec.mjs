@@ -328,7 +328,7 @@ test.describe('read-only fields and the host', () => {
     await clickInto(page, 'edge', 4);
     await page.keyboard.type('9');
     await expect(status).toHaveAttribute('data-dirty', 'true');
-    await page.locator('.demo__output summary').click();
+    await page.locator('.demo__output-toggle').click();
     await page.locator('.demo__server-change').click();
     await expect(page.locator('.config-editor__notice')).toBeVisible();
     await page.locator('.config-editor__notice').getByRole('button', { name: /reload/i }).click();

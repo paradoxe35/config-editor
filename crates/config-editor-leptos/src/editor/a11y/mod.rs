@@ -9,14 +9,18 @@
 //!   points at, updated a moment after the caret stops.
 //! - `announce`: one polite live region for short messages (the Tab mode,
 //!   "Error 2 of 5: …" on F8).
+//! - `suggestions`: the suggestion list named on the textarea, with the
+//!   highlighted suggestion as its active descendant.
 //! - `texts`: how problems are worded for screen readers.
 
 mod caret_note;
 mod focus;
+mod suggestions;
 mod texts;
 
-pub(super) use caret_note::{connect_caret_note, show_at_caret};
+pub(super) use caret_note::{connect_caret_note, open_docs_key, show_at_caret};
 pub(super) use focus::{focus_keys, toggle_tab_focus};
+pub(super) use suggestions::connect_suggestions;
 pub(super) use texts::{problem_announcement, problem_marker};
 
 use leptos::prelude::*;

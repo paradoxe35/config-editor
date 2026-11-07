@@ -152,6 +152,9 @@ pub struct EditorStrings {
     pub keep_mine: String,
     /// Its tooltip.
     pub keep_mine_title: String,
+    /// How to reach the notice's choices from the keyboard, shown on it
+    /// (and announced with it).
+    pub baseline_changed_keys: String,
 
     // Find and replace.
     /// The find widget's accessible name.
@@ -300,6 +303,12 @@ pub struct EditorStrings {
     pub problem: String,
     /// Announced on `F8`: problem `{position}` of `{total}`.
     pub problem_position: String,
+    /// After a problem's text for screen readers: its `{code}` (from the
+    /// host).
+    pub problem_code: String,
+    /// After a problem's text for screen readers: its documentation's
+    /// `{url}`, and the key that opens it.
+    pub problem_docs: String,
     /// An underlined problem's accessible name.
     pub problem_marker: String,
     /// What protected text at the caret is, for screen readers: its
@@ -454,6 +463,7 @@ impl Default for EditorStrings {
             keep_mine_title: text(
                 "Keep your text; the changes are now shown against the new version (Escape)",
             ),
+            baseline_changed_keys: text("F6 moves to the choices and back."),
             find_widget: text("Find and replace"),
             toggle_replace: text("Toggle replace"),
             toggle_replace_title: text("Toggle replace (Ctrl+H)"),
@@ -516,7 +526,7 @@ impl Default for EditorStrings {
             default_value: text("Default"),
             examples: text("Examples"),
             documentation: text("Documentation"),
-            open_docs: text("Open docs ↗"),
+            open_docs: text("Open docs ↗ (Alt+Enter)"),
             error: text("Error"),
             warning: text("Warning"),
             info: text("Info"),
@@ -524,6 +534,8 @@ impl Default for EditorStrings {
             problem_source: text(" from {source}"),
             problem: text("{severity}{source}: {message}"),
             problem_position: text("{severity} {position} of {total}{source}: {message}"),
+            problem_code: text(" Code {code}."),
+            problem_docs: text(" Documentation: {url} (Alt+Enter opens it)."),
             problem_marker: text("{language} {severity}{source} on line {line}: {message}"),
             protected_note: text("{label}: {message}"),
             source_label: text("{language} source"),

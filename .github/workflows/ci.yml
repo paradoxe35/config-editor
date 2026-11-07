@@ -62,7 +62,7 @@ jobs:
       - name: Type-check the README examples
         working-directory: js
         run: npm run typecheck
-      - name: Generated docs are up to date (contents lists, screenshot gallery)
+      - name: Docs are up to date and well formed (contents lists, screenshot gallery, tables)
         run: scripts/ci.sh docs
       - name: Build the demo
         run: trunk build

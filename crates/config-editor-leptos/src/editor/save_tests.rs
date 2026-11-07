@@ -881,13 +881,21 @@ fn round_11_saves_change_only_the_edit() {
             &xml.replace("secret=\"s2\"", &format!("secret=\"{written}\"")),
         );
     }
-    // H7: XML text ending in a line break.
+    // H7: XML text ending in a line break (part of its value, `k1\nk2\n`,
+    // so a value without it is written without it).
     let xml = "<!-- c -->\n<beta>\n  <secret>k1\nk2\n</secret>\n</beta>\n<listen>1</listen>\n";
     check(
         "H7 edit",
         Language::XML,
         xml,
         &|v| v["beta"]["secret"] = json!("k3"),
+        "<!-- c -->\n<beta>\n  <secret>k3</secret>\n</beta>\n<listen>1</listen>\n",
+    );
+    check(
+        "H7 edit keeping the line break",
+        Language::XML,
+        xml,
+        &|v| v["beta"]["secret"] = json!("k3\n"),
         "<!-- c -->\n<beta>\n  <secret>k3\n</secret>\n</beta>\n<listen>1</listen>\n",
     );
     check(

@@ -296,31 +296,32 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
                     frames.pop();
                 }
             }
-            Kind::Text { quoted } => {
-                if quoted {
-                    // Quoted values are recorded by `record_attribute_values`.
-                } else if !is_partial {
-                    let raw = &source[token.start..token.end];
-                    let text = raw.trim();
-                    if !text.is_empty()
-                        && let Some(frame) = frames.last()
-                        && !frame.path.is_empty()
-                    {
-                        let path = strings(&frame.path);
-                        let start = token.start + (raw.len() - raw.trim_start().len());
-                        let end = start + text.len();
-                        // Text over several lines is one value: its span runs
-                        // from its first line to its last.
-                        match scan.value_spans.last_mut() {
-                            Some((last, _, last_end)) if *last == path && source[*last_end..start].trim().is_empty() => {
-                                *last_end = end;
-                            }
-                            _ => scan.value_spans.push((path, start, end)),
+            // A CDATA section is element text, its markers included.
+            Kind::Text { quoted: false } | Kind::Special
+                if !is_partial
+                    && (token.kind != Kind::Special || source[token.start..].starts_with("<![CDATA[")) =>
+            {
+                let raw = &source[token.start..token.end];
+                let text = raw.trim();
+                if !text.is_empty()
+                    && let Some(frame) = frames.last()
+                    && !frame.path.is_empty()
+                {
+                    let path = strings(&frame.path);
+                    let start = token.start + (raw.len() - raw.trim_start().len());
+                    let end = start + text.len();
+                    // Text over several lines is one value: its span runs
+                    // from its first line to its last.
+                    match scan.value_spans.last_mut() {
+                        Some((last, _, last_end)) if *last == path && source[*last_end..start].trim().is_empty() => {
+                            *last_end = end;
                         }
+                        _ => scan.value_spans.push((path, start, end)),
                     }
                 }
             }
-            Kind::Comment | Kind::Special | Kind::Equals => {}
+            // Quoted values are recorded by `record_attribute_values`.
+            Kind::Text { .. } | Kind::Comment | Kind::Special | Kind::Equals => {}
         }
         index += 1;
     }

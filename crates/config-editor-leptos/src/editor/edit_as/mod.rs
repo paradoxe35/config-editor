@@ -17,6 +17,15 @@ mod problems;
     feature = "hcl",
     feature = "xml"
 ))]
+mod switch_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod tests;
 
 pub(super) use notice::NoticeReasons;

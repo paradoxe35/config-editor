@@ -80,7 +80,10 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                 _ => true,
             }
         } else {
-            old.pointer(&alias.pointer) != new.pointer(&alias.pointer) || old.pointer(anchor) != new.pointer(anchor)
+            // An alias edited as its anchor was still reads it.
+            let (alias_now, anchor_now) = (new.pointer(&alias.pointer), new.pointer(anchor));
+            (old.pointer(&alias.pointer) != alias_now || old.pointer(anchor) != anchor_now)
+                && !(alias_now.is_some() && alias_now == anchor_now)
         };
         if !parts {
             continue;
@@ -102,7 +105,8 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                 .enumerate()
                 .map(|(index, (key, value))| {
                     let lead = if index == 0 { prefix.clone() } else { " ".repeat(column) };
-                    format!("{lead}{}: {}", yaml_key(key), yaml_value(value))
+                    let pointer = format!("{anchor}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    format!("{lead}{}: {}", yaml_key(key), written_value(previous, &pointer, value))
                 })
                 .collect();
             if lines.is_empty() {
@@ -116,7 +120,7 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
             }
         } else {
             let value = old.pointer(&alias.pointer)?;
-            edits.push((alias.start, alias.end, yaml_value(value)));
+            edits.push((alias.start, alias.end, written_value(previous, anchor, value)));
         }
     }
     if edits.is_empty() {
@@ -128,6 +132,24 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         detached.replace_range(start..end, &text);
     }
     Some(detached)
+}
+
+/// `value` as `previous` writes it at `pointer` (`0x1F`, `'quoted'`) when
+/// that is one line reading as it, else as YAML writes it.
+fn written_value(previous: &str, pointer: &str, value: &Value) -> String {
+    let written = || {
+        let (line, start, end) = yaml_value_span_for_path(previous, pointer)?;
+        let text = previous.lines().nth(line.checked_sub(1)?)?;
+        let characters: Vec<char> = text.chars().collect();
+        let text: String = characters.get(start.checked_sub(1)?..end.checked_sub(1)?)?.iter().collect();
+        let text = text[node_properties_len(&text)..].trim().to_string();
+        let reads = YamlBehavior.parse(&format!("k: {text}\n")).ok()?;
+        (!text.is_empty() && !text.starts_with(['|', '>', '*']) && reads.get("k") == Some(value)).then_some(text)
+    };
+    if value.is_object() || value.is_array() {
+        return yaml_value(value);
+    }
+    written().unwrap_or_else(|| yaml_value(value))
 }
 
 /// What comes before `<<` on the line at `line_start` (its indentation and

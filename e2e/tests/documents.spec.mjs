@@ -67,13 +67,13 @@ test.describe('documents as tabs', () => {
   });
 
   test('editors mount the first time their document is shown, then stay', async ({ page }) => {
-    await expect(page.locator('.config-editor')).toHaveCount(1);
+    await expect(page.locator('.config-editor-documents .config-editor')).toHaveCount(1);
     await expect(panel(page, 'limits').locator('.config-editor')).toHaveCount(0);
     await tab(page, 'limits').click();
-    await expect(page.locator('.config-editor')).toHaveCount(2);
+    await expect(page.locator('.config-editor-documents .config-editor')).toHaveCount(2);
     await tab(page, 'main').click();
     await tab(page, 'limits').click();
-    await expect(page.locator('.config-editor')).toHaveCount(2);
+    await expect(page.locator('.config-editor-documents .config-editor')).toHaveCount(2);
     // One stylesheet for the whole view.
     await expect(page.locator('style')).toHaveCount(1);
   });

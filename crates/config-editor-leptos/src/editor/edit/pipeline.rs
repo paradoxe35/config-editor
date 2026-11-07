@@ -4,7 +4,8 @@
 use leptos::prelude::*;
 
 use super::super::fold_ranges::FoldRange;
-use super::super::history::{EditHistory, Selection, Snapshot};
+use super::super::history::{Selection, Snapshot};
+use super::super::languages::Language;
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, textarea_selection};
 use super::super::sync::map_through_change;
@@ -35,18 +36,29 @@ impl EditorState {
     /// dirty flag) and notifies no one.
     pub(in crate::editor) fn commit(&self, mut edit: Edit) -> bool {
         let changed = edit.before != edit.text;
+        // A switch, or an undo or redo back across one: another language's
+        // text, whole (see `Origin::Switch`).
+        let language_before = self.sync.edit_language.get_untracked();
+        let switching = edit
+            .language
+            .filter(|language| *language != language_before);
+        let origin = if switching.is_some() {
+            Origin::Switch
+        } else {
+            edit.origin.clone()
+        };
 
         trace(Stage::Prepare);
         let opened = self.take_opened_folds();
-        if changed && edit.origin.widens() {
+        if changed && origin.widens() {
             self.widen_edit(&mut edit);
         }
-        if edit.origin == Origin::Switch {
+        if origin == Origin::Switch {
             self.forget_folds();
         }
 
         trace(Stage::Check);
-        if changed && edit.origin.is_checked() {
+        if changed && origin.is_checked() {
             let refusal = if self.config.read_only.get_untracked() {
                 Some(None)
             } else {
@@ -60,7 +72,10 @@ impl EditorState {
         }
 
         trace(Stage::Apply);
-        if changed && edit.origin.follows() {
+        if let Some(language) = switching {
+            self.show_language(language, &edit);
+        }
+        if changed && origin.follows() {
             self.follow_edit(&edit.before, &edit.text, edit.caret());
         }
         let kept = match edit.after {
@@ -74,18 +89,21 @@ impl EditorState {
             self.protect.trust_text();
         }
         let rewritten = self.write_text(edit.text.clone());
-        if edit.origin.redetects_indent() {
+        if origin.redetects_indent() {
             self.redetect_indent();
         }
-        self.find_protected_again(&edit.origin);
+        self.find_protected_again(&origin);
         let after = self.place_selection(&edit, rewritten, kept);
 
         trace(Stage::Record);
-        self.record(&edit, changed, after);
+        self.record(&edit, changed, after, language_before);
 
         trace(Stage::Notify);
         if edit.origin.notifies() {
             self.notify_change();
+        }
+        if let Some(language) = switching {
+            self.report_language(language);
         }
         true
     }
@@ -180,10 +198,11 @@ impl EditorState {
     }
 
     /// The undo history, by origin; `after` is the selection the edit left.
-    fn record(&self, edit: &Edit, changed: bool, after: Selection) {
+    fn record(&self, edit: &Edit, changed: bool, after: Selection, language: Language) {
         let before = || Snapshot {
             value: edit.before.clone(),
             selection: edit.replaced(after.0),
+            language: None,
         };
         let history = self.doc.history;
         match &edit.origin {
@@ -201,7 +220,17 @@ impl EditorState {
             Origin::Redo => history.update(|history| {
                 history.redo(edit.before.clone());
             }),
-            Origin::Switch => history.set(EditHistory::default()),
+            Origin::Switch => match edit.language {
+                // Its own step, undone into the language it left.
+                Some(next) if next != language => history.update(|history| {
+                    let before = Snapshot {
+                        language: Some(language),
+                        ..before()
+                    };
+                    history.record_switch(before, after, next);
+                }),
+                _ => history.update(|history| history.record_action(before(), after)),
+            },
             Origin::HostValue => {}
         }
     }
