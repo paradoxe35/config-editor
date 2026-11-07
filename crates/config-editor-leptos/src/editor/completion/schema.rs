@@ -381,7 +381,7 @@ pub(super) fn schema_value_candidates(branch: &Value, open: bool) -> Vec<Value> 
     values
 }
 
-pub(super) fn path_with_key(path: &[SchemaPathSegment], key: &str) -> Vec<SchemaPathSegment> {
+pub(crate) fn path_with_key(path: &[SchemaPathSegment], key: &str) -> Vec<SchemaPathSegment> {
     let mut path = path.to_vec();
     path.push(SchemaPathSegment::Key(key.to_string()));
     path

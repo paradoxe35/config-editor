@@ -76,6 +76,7 @@ throws, and an unknown option name is reported in the console.
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
+| `onPathChange`   | `(path: EditorPath) => void` | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                  |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -91,12 +92,35 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setCallbacks({ onChange?, onEditAsChange? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                                           |
+| `setCallbacks({ onChange?, onEditAsChange?, onPathChange? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                           |
+| `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
+
+### Paths
+
+A path names a field the same way in every language: a JSON pointer
+(`"/web/hosts/1"`) or its keys and indices (`["web", "hosts", 1]`).
+
+```ts
+editor.reveal("/web/listen");     // scroll to it, select it, focus; false when absent
+editor.rangeOf(["web", "listen"]);
+// { start: 31, end: 43, startLine: 3, startColumn: 3, endLine: 3, endColumn: 15 } or null
+editor.pathAt(35);                // { pointer: "/web/listen", segments: ["web", "listen"] } or null
+editor.currentPath;               // the caret's path
+new ConfigEditor(element, { onPathChange: (path) => (crumb.textContent = path.pointer || "/") });
+```
+
+`start`/`end` and `pathAt`'s index are string indices into the text on screen
+(the `editAs` language while editing as another one), as `selectionStart`
+counts; lines and columns are one-based. `reveal` and `rangeOf` cover the key
+and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`),
+the key alone when the value is a block below it, and the value alone for a
+list item. `pathAt` gives the key under or just before the index, else the
+value or container holding it (`""` at the top level).
 
 ## Functions
 

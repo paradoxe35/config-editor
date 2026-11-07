@@ -17,6 +17,7 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod handle;
 mod highlight;
 mod history;
 mod inline;
@@ -29,6 +30,7 @@ pub mod language;
 mod languages;
 mod line_rows;
 mod metrics;
+mod paths;
 mod positioning;
 mod state;
 mod sync;
@@ -37,8 +39,10 @@ mod theme;
 pub use codec::{Conversion, ConvertError};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, check_syntax};
+pub use handle::EditorHandle;
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
+pub use paths::{FieldPath, TextPosition, TextRange};
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
@@ -145,6 +149,15 @@ pub fn ConfigEditor(
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
+    /// A handle the host keeps to find fields, follow the caret and jump to
+    /// a field; see [`EditorHandle`].
+    #[prop(optional)]
+    handle: Option<EditorHandle>,
+    /// Called with the path of what the caret is on each time it changes
+    /// (and once on mount), for a breadcrumb: `/web/listen`, or the root at
+    /// the top level.
+    #[prop(optional, into)]
+    on_path_change: Option<Callback<FieldPath>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -187,6 +200,12 @@ pub fn ConfigEditor(
         },
     );
     input::attach_listeners(state);
+    if let Some(handle) = handle {
+        handle.attach(state);
+    }
+    if let Some(on_path_change) = on_path_change {
+        Effect::new(move |_| on_path_change.run(state.caret_path.get()));
+    }
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
     let file_name = file_name

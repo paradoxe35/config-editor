@@ -461,46 +461,13 @@ pub(super) fn validate(
                                     _ => false,
                                 };
                                 // A missing property is reported on the object's key.
-                                let locate = |path: &str| {
-                                    if matches!(error.kind(), ValidationErrorKind::Required { .. })
-                                    {
-                                        super::codec::inline_location(behavior, source, path, true)
-                                            .or_else(|| behavior.key_span(source, path))
-                                            .or_else(|| behavior.value_span(source, path))
-                                    } else {
-                                        // A value written as an indented block has no
-                                        // text on its key's line: underline the key.
-                                        super::codec::inline_location(behavior, source, path, false)
-                                            .or_else(|| {
-                                                behavior.value_span(source, path).filter(|span| {
-                                                    !written_as_block
-                                                        || source
-                                                            .lines()
-                                                            .nth(span.line.saturating_sub(1))
-                                                            .is_some_and(|line| {
-                                                                span.start_column
-                                                                    <= line
-                                                                        .trim_end()
-                                                                        .chars()
-                                                                        .count()
-                                                            })
-                                                })
-                                            })
-                                            .or_else(|| behavior.key_span(source, path))
-                                            .or_else(|| behavior.value_span(source, path))
-                                    }
-                                };
-                                // A lone block or element read as a one-item list
-                                // is addressed `…/0/…` but written without it.
-                                let location = locate(&path).or_else(|| {
-                                    (behavior.repetition() != super::language::Repetition::None
-                                        && path.contains("/0"))
-                                    .then(|| {
-                                        let lone = path.replace("/0/", "/");
-                                        locate(lone.strip_suffix("/0").unwrap_or(&lone))
-                                    })
-                                    .flatten()
-                                });
+                                let location = super::paths::problem_span(
+                                    behavior,
+                                    source,
+                                    &path,
+                                    matches!(error.kind(), ValidationErrorKind::Required { .. }),
+                                    written_as_block,
+                                );
                                 vec![(location, message)]
                             };
                         locations

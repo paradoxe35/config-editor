@@ -83,6 +83,8 @@ document from code (a Save button) to send an edit still waiting first.
 | `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
+| `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
+| `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -106,6 +108,42 @@ and `colors` so they match the editor.
   are flagged as warnings on the value.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
+
+## Paths and positions
+
+A [`FieldPath`] names a field the same way in every language: a JSON pointer
+(`"/web/hosts/1"`) or segments (`FieldPath::root().key("web").key("hosts").index(1)`).
+An [`EditorHandle`] passed as `handle` maps paths to the text on screen and
+back, and jumps to fields:
+
+```rust
+use config_editor_leptos::{ConfigEditor, EditorHandle, FieldPath};
+
+let editor = EditorHandle::new();
+let crumb = RwSignal::new(FieldPath::root());
+view! {
+    <nav>{move || crumb.get().to_pointer()}</nav>
+    <button on:click=move |_| { editor.reveal("/web/listen"); }>"Go to web.listen"</button>
+    <ConfigEditor handle=editor on_path_change=move |path| crumb.set(path) value=text />
+}
+```
+
+| `EditorHandle` method  | Description                                                                                                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `range_of(path)`       | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item. |
+| `path_at(position)`    | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                         |
+| `current_path()`       | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                       |
+| `reveal(path)`         | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                      |
+| `focus()`, `text()`    | Focus the editor; the text on screen.                                                                                                                                                         |
+
+Positions (`TextPosition`: one-based `line` and character `column`) refer to
+the text on screen, which is the `edit_as` language while editing as another
+one; paths are the same in every language. Before the editor mounts the
+handle answers `None`. The same lookups work headless:
+`Language::YAML.range_of(text, "/web/http")` and
+`Language::YAML.path_at(text, TextPosition::new(2, 5))`. A language of your
+own gets them from its `key_span`, `value_span`, `hover_key` and
+`completion_context`.
 
 ## Keyboard
 
@@ -153,6 +191,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share.                                                                                                                                         |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
+| `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
 | `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`).                                                                                                                                    |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |

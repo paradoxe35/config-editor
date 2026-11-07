@@ -43,6 +43,7 @@ function App({ schema }: { schema: string }) {
   const [theme, setTheme] = useState("vscode-dark");
   const [readOnly, setReadOnly] = useState(false);
   const [editing, setEditing] = useState("yaml");
+  const [path, setPath] = useState("");
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
@@ -108,7 +109,11 @@ function App({ schema }: { schema: string }) {
         <button id="rename" type="button" onClick={() => setFileName((name) => `renamed-${name}`)}>
           Rename (re-mounts)
         </button>
+        <button id="reveal" type="button" onClick={() => handle.current?.reveal(["public_address"])}>
+          Go to public_address
+        </button>
         <span id="editing">{editing}</span>
+        <code id="breadcrumb">{path}</code>
       </header>
       <ConfigEditor
         ref={handle}
@@ -128,6 +133,7 @@ function App({ schema }: { schema: string }) {
         }}
         editAs={editAs}
         onEditAsChange={setEditing}
+        onPathChange={(next) => setPath(next.pointer || "/")}
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}

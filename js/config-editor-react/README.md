@@ -56,6 +56,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `language` | `string` | `"yaml"` | `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. `value`, `baseline` and `onChange` are always in it. |
 | `editAs` | `string \| null` | — | Show and edit the document in another language; it is saved back in `language`, keeping its comments. |
 | `onEditAsChange` | `(language: string) => void` | — | Called when an `editAs` switch completes (a switch waits while the document cannot convert, e.g. a `null` to TOML). |
+| `onPathChange` | `(path: EditorPath) => void` | — | Called with the path of what the caret is on (`{ pointer: "/web/listen", segments: ["web", "listen"] }`) each time it changes, for a breadcrumb. The path is computed only while this is set. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()`. |
@@ -95,7 +96,19 @@ const ref = useRef<ConfigEditorHandle>(null);
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted
 ref.current?.setValue(saved); // replace the document, always; onChange reports it
+
+// Paths: a JSON pointer or keys and indices, the same in every language.
+ref.current?.reveal("/web/listen");       // scroll to it, select it, focus; false if absent
+ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColumn, endLine, endColumn } | null
+ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
+ref.current?.currentPath;                  // the caret's path
+ref.current?.focus();
 ```
+
+Ranges and indices refer to the text on screen (the `editAs` language while
+editing as another one). `reveal` selects the key and its value when they
+share a line, the key alone when the value is a block below it, and the
+value alone for a list item.
 
 ## Other exports
 
@@ -110,6 +123,7 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
 Types: `ConfigEditorProps`, `ConfigEditorHandle`, `Diagnostic`, `Conversion`,
+`FieldPath`, `EditorPath`, `EditorRange`,
 `CustomLanguage`, `LanguageName`, `ThemeName`, `ThemeColorMap`.
 
 ```tsx

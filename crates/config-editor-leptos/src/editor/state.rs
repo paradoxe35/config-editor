@@ -20,7 +20,8 @@ use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
-use super::positioning::set_caret_visible;
+use super::paths::{FieldPath, path_at};
+use super::positioning::{reveal_offset, set_caret_visible};
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -212,6 +213,9 @@ pub(super) struct EditorState {
     pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
+    /// The path of what the caret is on (see `paths::path_at`). Lazy: only
+    /// computed while something reads it (`on_path_change`, a handle).
+    pub(super) caret_path: Memo<FieldPath>,
 }
 
 impl EditorState {
@@ -397,7 +401,13 @@ impl EditorState {
         let string_bodies = Memo::new(move |_| {
             source.with(|text| edit_language.get().behavior().string_body_lines(text))
         });
+        let caret_path = Memo::new(move |_| {
+            let behavior = edit_language.get().behavior();
+            let at = cursor.get();
+            source.with(|text| path_at(behavior, text, at).unwrap_or_default())
+        });
         let state = Self {
+            caret_path,
             string_bodies,
             host_language,
             edit_language,
@@ -632,24 +642,30 @@ impl EditorState {
     /// Focuses the editor with the caret at `line`:`column`, scrolled into
     /// view, closing popups.
     pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<usize> {
-        let element = self.textarea()?;
         let offset = self
             .source
             .with_untracked(|text| offset_at(text, line, column));
+        self.focus_range(offset, offset)?;
+        Some(offset)
+    }
+
+    /// Focuses the editor with UTF-16 `start..end` selected, its start
+    /// scrolled into view, closing popups.
+    pub(super) fn focus_range(&self, start: usize, end: usize) -> Option<()> {
+        let element = self.textarea()?;
         // Focusing scrolls back to the old caret; keep the view where the
         // user clicked (a line number, an underline), then reveal if needed.
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
-        let _ = element.set_selection_range(offset as u32, offset as u32);
+        let _ = element.set_selection_range(start as u32, end as u32);
         element.set_scroll_top(top);
         element.set_scroll_left(left);
         self.source
-            .with_untracked(|text| set_caret_visible(&element, text, offset, self.scroll_y));
-        self.cursor.set(offset);
-        self.current_line.set(line);
+            .with_untracked(|text| reveal_offset(&element, text, start, self.scroll_y));
+        self.note_caret(start);
         self.close_suggestions();
         self.hide_hover();
-        Some(offset)
+        Some(())
     }
 
     /// Moves to diagnostic `index`, which must have a position.

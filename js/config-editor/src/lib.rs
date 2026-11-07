@@ -8,11 +8,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::language::{
-    ConfigLanguage, LanguageConfig, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind,
-    Tokens,
+    ConfigLanguage, LanguageConfig, LanguageInfo, Lexical, ParseError, SchemaPathSegment, Span,
+    Token, TokenKind, Tokens,
 };
 use config_editor_leptos::{
-    ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
+    ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath, Language, Schema, SchemaSource,
+    TextPosition, TextRange, ThemeColor, ThemeColors,
 };
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
@@ -55,12 +56,35 @@ export interface EditorOptions {
   onChange?: (value: string) => void;
   /** Called when an `editAs` switch completes (it waits while the document cannot convert yet). */
   onEditAsChange?: (language: LanguageName) => void;
+  /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
+  onPathChange?: (path: EditorPath) => void;
 }
 
 /** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
 export interface CallbackUpdate {
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
+  onPathChange?: ((path: EditorPath) => void) | null;
+}
+
+/** A field: a JSON pointer (`"/web/hosts/1"`) or its keys and indices (`["web", "hosts", 1]`). The same in every language. */
+export type FieldPath = string | (string | number)[];
+
+/** A path the editor reports: as a JSON pointer and as keys and indices. */
+export interface EditorPath {
+  /** `""` for the whole document. */
+  pointer: string;
+  segments: (string | number)[];
+}
+
+/** A stretch of the text on screen: string indices (`start`, `end`, as `selectionStart` counts) and one-based lines and columns. */
+export interface EditorRange {
+  start: number;
+  end: number;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
 }
 
 export interface Diagnostic {
@@ -117,6 +141,10 @@ extern "C" {
     pub type ConversionResult;
     #[wasm_bindgen(typescript_type = "string[]")]
     pub type Names;
+    #[wasm_bindgen(typescript_type = "EditorRange | null")]
+    pub type RangeResult;
+    #[wasm_bindgen(typescript_type = "EditorPath | null")]
+    pub type PathResult;
 }
 
 #[wasm_bindgen(start)]
@@ -241,7 +269,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 14] = [
+const OPTIONS: [&str; 15] = [
     "value",
     "language",
     "editAs",
@@ -256,6 +284,7 @@ const OPTIONS: [&str; 14] = [
     "className",
     "onChange",
     "onEditAsChange",
+    "onPathChange",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -280,7 +309,7 @@ const DEFINITION_KEYS: &[&str] = &[
 ];
 
 /// Keys `setCallbacks` takes.
-const CALLBACK_KEYS: &[&str] = &["onChange", "onEditAsChange"];
+const CALLBACK_KEYS: &[&str] = &["onChange", "onEditAsChange", "onPathChange"];
 
 /// A console warning for each key of `object` not in `known`, with the
 /// closest known one as a hint (`valu` → `value`).
@@ -419,6 +448,10 @@ struct State {
     read_only: RwSignal<bool>,
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
+    on_path_change: StoredValue<Option<Function>, LocalStorage>,
+    /// Whether `onPathChange` is set: only then is the caret's path computed.
+    follows_path: RwSignal<bool>,
+    handle: EditorHandle,
 }
 
 /// The latest document, outside the reactive arena: an edit saved while the
@@ -521,6 +554,7 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
+        let on_path_change = function_option(&options, "onPathChange")?;
         warn_unknown_options(&options);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -537,7 +571,10 @@ impl ConfigEditor {
             colors: RwSignal::new(colors),
             read_only: RwSignal::new(read_only),
             on_change: StoredValue::new_local(on_change),
+            follows_path: RwSignal::new(on_path_change.is_some()),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
+            on_path_change: StoredValue::new_local(on_path_change),
+            handle: EditorHandle::new(),
         });
         let mount_element = element.clone();
         let mounted = owner.with(|| {
@@ -562,6 +599,7 @@ impl ConfigEditor {
                         );
                     }
                 };
+                follow_path(state);
                 let edit_as = Signal::derive(move || state.edit_as.get());
                 let value_signal = Signal::derive(move || state.value.get());
                 let baseline = Signal::derive(move || state.baseline.get());
@@ -589,6 +627,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             on_change=changed
                             on_edit_as_change=switched
+                            handle=state.handle
                         />
                     }
                     .into_any(),
@@ -608,6 +647,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             on_change=changed
                             on_edit_as_change=switched
+                            handle=state.handle
                         />
                     }
                     .into_any(),
@@ -773,13 +813,80 @@ impl ConfigEditor {
         // A function replaces a callback; `null` removes it; absent keeps it.
         let on_change = read("onChange")?;
         let on_edit_as_change = read("onEditAsChange")?;
+        let on_path_change = read("onPathChange")?;
         if let Some(callback) = on_change {
             let _ = self.state.on_change.try_set_value(callback);
         }
         if let Some(callback) = on_edit_as_change {
             let _ = self.state.on_edit_as_change.try_set_value(callback);
         }
+        if let Some(callback) = on_path_change {
+            let _ = self.state.follows_path.try_set(callback.is_some());
+            let _ = self.state.on_path_change.try_set_value(callback);
+        }
         Ok(())
+    }
+
+    /// Where the field at `path` is written in the text on screen, or `null`.
+    #[wasm_bindgen(js_name = rangeOf)]
+    pub fn range_of(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
+    ) -> Result<RangeResult, JsError> {
+        config_editor_leptos::flush_pending_input();
+        let path = path_from_js(&path)?;
+        let handle = self.state.handle;
+        let found = handle.range_of(path).zip(handle.text());
+        Ok(found
+            .map_or(JsValue::NULL, |(range, text)| range_to_js(&text, range))
+            .unchecked_into())
+    }
+
+    /// The path of what the text on screen holds at string index `offset`.
+    #[wasm_bindgen(js_name = pathAt)]
+    pub fn path_at(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] offset: JsValue,
+    ) -> Result<PathResult, JsError> {
+        config_editor_leptos::flush_pending_input();
+        let offset = offset
+            .as_f64()
+            .filter(|offset| offset.is_finite() && *offset >= 0.0 && offset.fract() == 0.0)
+            .ok_or_else(|| JsError::new("offset must be a non-negative integer"))?
+            as usize;
+        let handle = self.state.handle;
+        let path = handle.text().and_then(|text| {
+            if offset > text.encode_utf16().count() {
+                return None;
+            }
+            handle.path_at(TextPosition::from_offset(&text, offset))
+        });
+        Ok(path
+            .map_or(JsValue::NULL, |path| path_to_js(&path))
+            .unchecked_into())
+    }
+
+    /// The path of what the caret is on.
+    #[wasm_bindgen(getter, js_name = currentPath)]
+    pub fn current_path(&self) -> PathResult {
+        untrack(|| self.state.handle.current_path())
+            .map_or(JsValue::NULL, |path| path_to_js(&path))
+            .unchecked_into()
+    }
+
+    /// Scrolls to the field at `path`, selects it and focuses the editor;
+    /// `false` when the document has no such field.
+    pub fn reveal(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
+    ) -> Result<bool, JsError> {
+        config_editor_leptos::flush_pending_input();
+        Ok(self.state.handle.reveal(path_from_js(&path)?))
+    }
+
+    /// Focuses the editor, keeping its selection.
+    pub fn focus(&self) {
+        self.state.handle.focus();
     }
 
     /// Unmounts the editor. The instance cannot be used afterwards. An edit
@@ -836,6 +943,100 @@ struct DiagnosticOut {
     end_column: Option<usize>,
     message: String,
     severity: &'static str,
+}
+
+/// Calls `onPathChange` with the caret's path each time it changes, while one
+/// is set (only then is the path computed).
+fn follow_path(state: State) {
+    Effect::new(move |_| {
+        if !state.follows_path.get() {
+            return;
+        }
+        let Some(path) = state.handle.current_path() else {
+            return;
+        };
+        if let Some(callback) = state.on_path_change.try_get_value().flatten() {
+            call_host(&callback, &path_to_js(&path));
+        }
+    });
+}
+
+/// A path from JavaScript: a JSON pointer, or keys (strings) and indices
+/// (non-negative integers).
+fn path_from_js(value: &JsValue) -> Result<FieldPath, JsError> {
+    if let Some(pointer) = value.as_string() {
+        return Ok(FieldPath::from(pointer));
+    }
+    if !Array::is_array(value) {
+        return Err(JsError::new(
+            "a path is a JSON pointer (\"/web/hosts/0\") or an array of keys and indices ([\"web\", \"hosts\", 0])",
+        ));
+    }
+    let mut path = FieldPath::root();
+    for segment in Array::from(value).iter() {
+        path = if let Some(key) = segment.as_string() {
+            path.key(key)
+        } else if let Some(index) = segment
+            .as_f64()
+            .filter(|index| *index >= 0.0 && index.fract() == 0.0 && index.is_finite())
+        {
+            path.index(index as usize)
+        } else {
+            return Err(JsError::new(
+                "a path segment is a key (string) or an index (non-negative integer)",
+            ));
+        };
+    }
+    Ok(path)
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SegmentOut {
+    Key(String),
+    Index(usize),
+}
+
+#[derive(Serialize)]
+struct PathOut {
+    pointer: String,
+    segments: Vec<SegmentOut>,
+}
+
+fn path_to_js(path: &FieldPath) -> JsValue {
+    to_js(&PathOut {
+        pointer: path.to_pointer(),
+        segments: path
+            .segments()
+            .iter()
+            .map(|segment| match segment {
+                SchemaPathSegment::Key(key) => SegmentOut::Key(key.clone()),
+                SchemaPathSegment::ArrayItem(index) => SegmentOut::Index(*index),
+            })
+            .collect(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RangeOut {
+    start: usize,
+    end: usize,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+}
+
+fn range_to_js(text: &str, range: TextRange) -> JsValue {
+    to_js(&RangeOut {
+        start: range.start.to_offset(text),
+        end: range.end.to_offset(text),
+        start_line: range.start.line,
+        start_column: range.start.column,
+        end_line: range.end.line,
+        end_column: range.end.column,
+    })
 }
 
 fn to_js<T: Serialize>(value: &T) -> JsValue {

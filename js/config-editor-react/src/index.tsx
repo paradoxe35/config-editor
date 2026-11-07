@@ -1,6 +1,9 @@
 import init, {
   ConfigEditor as Editor,
   type EditorOptions,
+  type EditorPath,
+  type EditorRange,
+  type FieldPath,
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
@@ -27,6 +30,9 @@ export type {
   Conversion,
   CustomLanguage,
   Diagnostic,
+  EditorPath,
+  EditorRange,
+  FieldPath,
   LanguageName,
   ThemeColorMap,
   ThemeName,
@@ -87,6 +93,11 @@ export interface ConfigEditorProps {
   editAs?: LanguageName | null;
   /** Called when an `editAs` switch completes. */
   onEditAsChange?: (language: LanguageName) => void;
+  /**
+   * Called with the path of what the caret is on each time it changes (and
+   * once on mount), for a breadcrumb. The path is computed only while set.
+   */
+  onPathChange?: (path: EditorPath) => void;
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Text the diff gutter compares against. */
@@ -123,6 +134,16 @@ export interface ConfigEditorHandle {
    * goes through here.
    */
   setValue(value: string): void;
+  /** The path of what the caret is on, or `null` before the editor mounts. */
+  readonly currentPath: EditorPath | null;
+  /** Where the field at `path` is written in the text on screen, or `null`. */
+  rangeOf(path: FieldPath): EditorRange | null;
+  /** The path at a string index of the text on screen, or `null`. */
+  pathAt(offset: number): EditorPath | null;
+  /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
+  reveal(path: FieldPath): boolean;
+  /** Focuses the editor, keeping its selection. */
+  focus(): void;
 }
 
 /**
@@ -173,6 +194,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       }
     };
 
+    const followPath = (path: EditorPath) => latest.current.onPathChange?.(path);
+
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
       let cancelled = false;
@@ -210,6 +233,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             latest.current.onChange?.(value);
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
+          onPathChange: current.onPathChange ? followPath : undefined,
         };
         try {
           editor.current = new Editor(host.current, options);
@@ -311,6 +335,23 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
 
+    const followsPath = props.onPathChange !== undefined;
+    useEffect(() => {
+      guard((instance) => instance.setCallbacks({ onPathChange: followsPath ? followPath : null }));
+    }, [mounted, followsPath]);
+
+    // Runs `query` on the editor; `fallback` before it mounts or when it throws.
+    const ask = <T,>(query: (instance: Editor) => T, fallback: T): T => {
+      const instance = editor.current;
+      if (!instance) return fallback;
+      try {
+        return query(instance);
+      } catch (error) {
+        report(error);
+        return fallback;
+      }
+    };
+
     useImperativeHandle(
       ref,
       () => ({
@@ -328,6 +369,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         get editor() {
           return editor.current;
         },
+        get currentPath() {
+          return ask((instance) => instance.currentPath, null);
+        },
+        rangeOf: (path: FieldPath) => ask((instance) => instance.rangeOf(path), null),
+        pathAt: (offset: number) => ask((instance) => instance.pathAt(offset), null),
+        reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
+        focus: () => guard((instance) => instance.focus()),
         setValue(value: string) {
           if (typeof value !== "string") {
             report(new TypeError("setValue needs a string"));
