@@ -4,20 +4,21 @@ import init, {
   type CloseRequest,
   ConfigDocuments as Documents,
   ConfigEditor as Editor,
+  type DocumentEditor,
   type DocumentSpec,
   type DocumentsOptions,
   type EditorOptions,
   type EditorPath,
   type EditorRange,
+  type EditorSettings,
   type FieldPath,
   type HostDiagnostic,
   type LanguageName,
   type LineRange,
   type SecretOptions,
   type TextRangeInput,
-  type ThemeColorMap,
-  type ThemeName,
   ValueSync,
+  settingKeys,
   unifiedDiff as diffTexts,
 } from "@pngwasi/config-editor";
 import {
@@ -44,6 +45,7 @@ export {
   registerLanguage,
   schemaWarnings,
   serialize,
+  settingKeys,
   themeInfo,
   themes,
   unifiedDiff,
@@ -53,6 +55,7 @@ export type {
   BaselineConflict,
   ChangeSummary,
   CloseRequest,
+  DocumentEditor,
   DocumentsCallbackUpdate,
   DocumentsOptions,
   DocumentSpec,
@@ -61,6 +64,7 @@ export type {
   Diagnostic,
   EditorPath,
   EditorRange,
+  EditorSettings,
   FieldPath,
   HostDiagnostic,
   LanguageInfo,
@@ -116,7 +120,50 @@ export function loadConfigEditor(input?: InitInput): Promise<unknown> {
   return loading;
 }
 
-export interface ConfigEditorProps {
+/**
+ * The settings among `props`: the keys of `EditorSettings` it sets (call
+ * once the module has loaded).
+ */
+function settingsOf(props: object): EditorSettings {
+  const settings: Record<string, unknown> = {};
+  for (const key of settingKeys()) {
+    const value = (props as Record<string, unknown>)[key];
+    if (value !== undefined) settings[key] = value;
+  }
+  return settings as EditorSettings;
+}
+
+/**
+ * Applies the settings among the props live, on each render where they
+ * differ from those applied last (a JSON comparison). Before the first
+ * mount it does nothing; after a mount failed (a bad theme or color),
+ * changed settings retry it.
+ */
+function useLiveSettings(
+  latest: { current: object },
+  apply: (settings: EditorSettings) => void,
+  failed: { current: boolean },
+  retry: () => void,
+): { current: string | null } {
+  const applied = useRef<string | null>(null);
+  useEffect(() => {
+    if (applied.current === null) return;
+    const settings = settingsOf(latest.current);
+    const key = JSON.stringify(settings);
+    if (key === applied.current) return;
+    applied.current = key;
+    if (failed.current) retry();
+    else apply(settings);
+  });
+  return applied;
+}
+
+/**
+ * Props of `<ConfigEditor>`: the document and its callbacks, and every
+ * setting (`EditorSettings`: `theme`, `showFooter`, `folding`, …), which
+ * apply live.
+ */
+export interface ConfigEditorProps extends EditorSettings {
   /** The document, in `language` (controlled). */
   value?: string;
   /** The initial document when uncontrolled. */
@@ -177,35 +224,8 @@ export interface ConfigEditorProps {
   /** Called when a new `baseline` arrives under unsaved edits, and when that conflict is settled. */
   onBaselineConflict?: (event: BaselineConflict) => void;
   fileName?: string;
-  theme?: ThemeName;
-  colors?: ThemeColorMap;
+  /** View mode; switches live. */
   readOnly?: boolean;
-  showToolbar?: boolean;
-  showFooter?: boolean;
-  /** Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Default `true`. Changing it re-mounts. */
-  search?: boolean;
-  /** Go to line (`Ctrl+G`). Default `true`. Changing it re-mounts. */
-  goToLine?: boolean;
-  /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`. View only. Default `true`. Changing it re-mounts. */
-  folding?: boolean;
-  /** Line changes against `baseline` in the gutter. Default `true`. Changing it re-mounts. */
-  showDiff?: boolean;
-  /** Syntax and schema problems inline, in the footer and on hover. Default `true`. Changing it re-mounts. */
-  showDiagnostics?: boolean;
-  /** Schema completion (`Ctrl+Space`). Default `true`. Changing it re-mounts. */
-  completions?: boolean;
-  /** Open suggestions while typing; `false` opens them only with `Ctrl+Space`. Default `true`. Changing it re-mounts. */
-  autoTriggerCompletions?: boolean;
-  /** Schema docs when hovering a key. Default `true`. Changing it re-mounts. */
-  hoverDocs?: boolean;
-  /** Syntax colors. Default `true`. Changing it re-mounts. */
-  highlighting?: boolean;
-  /** Auto-close quotes and brackets. Default `true`. Changing it re-mounts. */
-  autoClosing?: boolean;
-  /** Inject the preset stylesheet; `false` leaves the `config-editor__*` markup to your styles (see `presetCss()`). Default `true`. Changing it re-mounts. */
-  styled?: boolean;
-  /** Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`); `false` leaves it to the browser and only `ref.save()` saves. Default `true`. Updates live. */
-  saveShortcut?: boolean;
   /** Class on the editor root (inside the container). */
   editorClassName?: string;
   /** Class and style of the container element. */
@@ -281,7 +301,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     latest.current = props;
     const [mounted, setMounted] = useState(0);
     // Bumped to retry a mount that failed on a bad prop once a live prop
-    // (theme, colors, editAs) changes, as a re-mount prop change would.
+    // (a setting, editAs) changes, as a re-mount prop change would.
     const [retry, setRetry] = useState(0);
     const failed = useRef(false);
     // Tells the parent's own values (applied) from late echoes of what the
@@ -341,30 +361,17 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         const value = reset.current ?? carried.current?.value ?? current.value ?? current.defaultValue ?? "";
         const baseline = current.baseline ?? carried.current?.baseline ?? value;
         carried.current = { value, baseline };
+        const settings = settingsOf(current);
+        appliedSettings.current = JSON.stringify(settings);
         const options: EditorOptions = {
+          ...settings,
           value,
           language: current.language,
           editAs: current.editAs ?? undefined,
           schema: current.schema,
           baseline,
           fileName: current.fileName,
-          theme: current.theme,
-          colors: current.colors,
           readOnly: current.readOnly,
-          showToolbar: current.showToolbar,
-          showFooter: current.showFooter,
-          search: current.search,
-          goToLine: current.goToLine,
-          folding: current.folding,
-          showDiff: current.showDiff,
-          showDiagnostics: current.showDiagnostics,
-          completions: current.completions,
-          autoTriggerCompletions: current.autoTriggerCompletions,
-          hoverDocs: current.hoverDocs,
-          highlighting: current.highlighting,
-          autoClosing: current.autoClosing,
-          styled: current.styled,
-          saveShortcut: current.saveShortcut,
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
@@ -439,32 +446,19 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         editor.current?.free();
         editor.current = null;
       };
-    }, [
-      props.language,
-      props.schema,
-      props.fileName,
-      props.showToolbar,
-      props.showFooter,
-      props.search,
-      props.goToLine,
-      props.folding,
-      props.showDiff,
-      props.showDiagnostics,
-      props.completions,
-      props.autoTriggerCompletions,
-      props.hoverDocs,
-      props.highlighting,
-      props.autoClosing,
-      props.styled,
-      props.editorClassName,
-      secretsKey,
-      retry,
-    ]);
+    }, [props.language, props.schema, props.fileName, props.editorClassName, secretsKey, retry]);
 
-    const liveProps = JSON.stringify([props.theme ?? null, props.colors ?? null, props.editAs ?? null]);
+    // Settings apply live, keeping the caret, undo history and folds.
+    const appliedSettings = useLiveSettings(
+      latest,
+      (settings) => guard((instance) => instance.setSettings(settings)),
+      failed,
+      () => setRetry((count) => count + 1),
+    );
+
     useEffect(() => {
       if (failed.current) setRetry((count) => count + 1);
-    }, [liveProps]);
+    }, [props.editAs ?? null]);
 
     useEffect(() => {
       guard((instance) => {
@@ -492,21 +486,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     }, [mounted, props.editAs]);
 
     useEffect(() => {
-      guard((instance) => instance.setTheme(props.theme ?? null));
-    }, [mounted, props.theme]);
-
-    const colors = JSON.stringify(props.colors ?? {});
-    useEffect(() => {
-      guard((instance) => instance.setColors(JSON.parse(colors) as ThemeColorMap));
-    }, [mounted, colors]);
-
-    useEffect(() => {
       guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
-
-    useEffect(() => {
-      guard((instance) => instance.setSaveShortcut(props.saveShortcut ?? true));
-    }, [mounted, props.saveShortcut]);
 
     const hostDiagnostics = JSON.stringify(props.hostDiagnostics ?? []);
     useEffect(() => {
@@ -628,7 +609,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
   },
 );
 
-export interface ConfigDocumentsProps {
+/**
+ * Props of `<ConfigDocuments>`: the documents and callbacks, and the settings
+ * (`EditorSettings`) of every editor and of the tabs; a document's own
+ * `settings` override them. They apply live.
+ */
+export interface ConfigDocumentsProps extends EditorSettings {
   /** The open documents, in tab order (controlled: keep each `value` up to date from `onChange`). */
   documents: DocumentSpec[];
   /** The document shown first. Default: the first one. */
@@ -648,17 +634,6 @@ export interface ConfigDocumentsProps {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
-  theme?: ThemeName;
-  /** Color overrides, the `tab-*` tokens included. */
-  colors?: ThemeColorMap;
-  /** Inject the preset stylesheet (once for the view). Default `true`. Changing it re-mounts. */
-  styled?: boolean;
-  /** Each editor's status footer. Default `false`. Changing it re-mounts. */
-  showFooter?: boolean;
-  /** Line changes against each document's baseline. Default `true`. Changing it re-mounts. */
-  showDiff?: boolean;
-  /** Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`). Default `true`. Updates live. */
-  saveShortcut?: boolean;
   /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
   label?: string;
   /** Class on the view's root (inside the container). */
@@ -686,6 +661,12 @@ export interface ConfigDocumentsHandle {
   saveAll(): string[];
   /** Focuses the active document's editor. */
   focus(): void;
+  /**
+   * The editor of the document `id` (paths, folds, focus, saving), or `null`
+   * when there is no such document or the view has not mounted. Its queries
+   * answer `null` / `false` until the document has been shown once.
+   */
+  editor(id: string): DocumentEditor | null;
 }
 
 /**
@@ -704,6 +685,7 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
     latest.current = props;
     const [mounted, setMounted] = useState(0);
     const [retry, setRetry] = useState(0);
+    const failed = useRef(false);
     // Per document: what its editor holds now, and the echoes of its edits
     // still on their way through the parent (see `ValueSync`).
     const texts = useRef(new Map<string, string>());
@@ -761,15 +743,12 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
         const current = latest.current;
         texts.current.clear();
         syncs.current.clear();
+        const settings = settingsOf(current);
+        appliedSettings.current = JSON.stringify(settings);
         const options: DocumentsOptions = {
+          ...settings,
           documents: reconcile(current.documents),
           activeId: current.activeId,
-          theme: current.theme,
-          colors: current.colors,
-          styled: current.styled,
-          showFooter: current.showFooter,
-          showDiff: current.showDiff,
-          saveShortcut: current.saveShortcut,
           className: current.viewClassName,
           label: current.label,
           onSelect: (id) => latest.current.onSelect?.(id),
@@ -786,8 +765,10 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
         };
         try {
           instance.current = new Documents(host.current, options);
+          failed.current = false;
           setMounted((count) => count + 1);
         } catch (error) {
+          failed.current = true;
           report(error);
         }
       }, (error: unknown) => {
@@ -801,24 +782,19 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
         instance.current?.free();
         instance.current = null;
       };
-    }, [props.styled, props.showFooter, props.showDiff, props.label, props.viewClassName, closable, retry]);
+    }, [props.label, props.viewClassName, closable, retry]);
+
+    // Settings apply live: every editor keeps its caret, undo history and folds.
+    const appliedSettings = useLiveSettings(
+      latest,
+      (settings) => guard((view) => view.setSettings(settings)),
+      failed,
+      () => setRetry((count) => count + 1),
+    );
 
     useEffect(() => {
       guard((view) => view.setDocuments(reconcile(props.documents)));
     }, [mounted, props.documents]);
-
-    useEffect(() => {
-      guard((view) => view.setTheme(props.theme ?? null));
-    }, [mounted, props.theme]);
-
-    const colors = JSON.stringify(props.colors ?? {});
-    useEffect(() => {
-      guard((view) => view.setColors(JSON.parse(colors) as ThemeColorMap));
-    }, [mounted, colors]);
-
-    useEffect(() => {
-      guard((view) => view.setSaveShortcut(props.saveShortcut ?? true));
-    }, [mounted, props.saveShortcut]);
 
     // `Ctrl+S` is the view's only while `onSave` is set.
     const saves = props.onSave !== undefined;
@@ -855,6 +831,7 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
         save: (id: string) => ask((view) => view.save(id), false),
         saveAll: () => ask((view) => view.saveAll(), [] as string[]),
         focus: () => guard((view) => view.focus()),
+        editor: (id: string) => ask((view) => view.editor(id) ?? null, null),
       }),
       [],
     );

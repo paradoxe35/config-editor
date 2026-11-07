@@ -50,8 +50,8 @@ pub(crate) struct Sources {
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) read_only: Signal<bool>,
-    /// The `enable_completions` prop.
-    pub(crate) enabled: bool,
+    /// The `completions` setting.
+    pub(crate) enabled: Memo<bool>,
     pub(crate) protect: ProtectState,
 }
 
@@ -70,7 +70,7 @@ impl CompletionState {
         let explicit = RwSignal::new(false);
         let replace_word = RwSignal::new(false);
         let suggestions = Memo::new(move |_| {
-            if !requested.get() || !enabled {
+            if !requested.get() || !enabled.get() {
                 return Vec::new();
             }
             let behavior = edit_language.get_untracked().behavior();
@@ -81,7 +81,7 @@ impl CompletionState {
                     at,
                     explicit.get(),
                     schema.as_deref(),
-                    enabled && !read_only.get(),
+                    !read_only.get(),
                     behavior,
                     replace_word.get(),
                 );
@@ -171,7 +171,8 @@ impl EditorState {
                 )
             }),
         );
-        let reopen = accept_reopens_suggestions(option, self.config.features.auto_trigger);
+        let reopen =
+            accept_reopens_suggestions(option, self.config.settings.auto_trigger.get_untracked());
         self.hide_hover();
         let at = self.doc.caret.get_untracked();
         let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);

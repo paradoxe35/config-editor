@@ -16,6 +16,7 @@ which builds on this package.
 - [Quick start](#quick-start)
   - [Loading the WebAssembly](#loading-the-webassembly)
 - [`new ConfigEditor(element, options)`](#new-configeditorelement-options)
+  - [Settings](#settings)
   - [Instance members](#instance-members)
   - [Host diagnostics](#host-diagnostics)
   - [Read-only fields](#read-only-fields)
@@ -83,7 +84,9 @@ Call `init()` once, before creating editors or calling any other function.
 
 Mounts an editor into `element` (an `HTMLElement`; its previous content is
 replaced, editors included). Options are type-checked: a value of the wrong type
-throws, and an unknown option name is reported in the console.
+throws, and an unknown option name is reported in the console. They are the
+document and its callbacks (below) and every [setting](#settings) (`theme`,
+`showFooter`, `folding`, …).
 
 | Option           | Type                         | Default          | Purpose                                                                                                                                                                                                       |
 | ---------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -92,24 +95,8 @@ throws, and an unknown option name is reported in the console.
 | `editAs`         | `string`                     | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                         |
 | `schema`         | `string`                     | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                                                                              |
 | `baseline`       | `string`                     | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                            |
-| `theme`          | `string`                     | `"vscode-dark"`  | A theme slug; see `themes()`.                                                                                                                                                                                 |
-| `colors`         | `Record<string, string>`     | —                | CSS colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …); see `colorTokens()`. A value the browser does not read as a color throws.                                              |
 | `readOnly`       | `boolean`                    | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                         |
 | `fileName`       | `string`                     | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                         |
-| `showToolbar`    | `boolean`                    | `false`          | File name, schema state and language.                                                                                                                                                                         |
-| `showFooter`     | `boolean`                    | `false`          | Problem counts and line count.                                                                                                                                                                                |
-| `search`         | `boolean`                    | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`, as in VS Code). `false` leaves those keys to the browser.                                                                                                         |
-| `goToLine`       | `boolean`                    | `true`           | Go to line (`Ctrl+G`): `line` or `line:column`. `false` leaves the key to the browser.                                                                                                                        |
-| `folding`        | `boolean`                    | `true`           | Folding by structure: gutter chevrons, `…` on folded lines, and the folding keys; see [Folding](#folding).                                                                                                    |
-| `showDiff`       | `boolean`                    | `true`           | Line changes against `baseline` in the gutter, with `Alt+F5` / `Alt+F3` between them. `onChangeSummary` stays at zero without it.                                                                             |
-| `showDiagnostics` | `boolean`                   | `true`           | Syntax and schema problems inline, in the footer and on hover (`F8` between them). `validate()` still reports them.                                                                                          |
-| `completions`    | `boolean`                    | `true`           | Schema completion; `false` offers no suggestions, `Ctrl+Space` included.                                                                                                                                      |
-| `autoTriggerCompletions` | `boolean`            | `true`           | Open suggestions while typing and after accepting a key; `false` opens them only with `Ctrl+Space`.                                                                                                           |
-| `hoverDocs`      | `boolean`                    | `true`           | Schema docs (description, type, default, examples) when hovering a key.                                                                                                                                       |
-| `highlighting`   | `boolean`                    | `true`           | Syntax colors.                                                                                                                                                                                                |
-| `autoClosing`    | `boolean`                    | `true`           | Auto-close quotes and brackets, wrap a selection in them, delete an empty pair on Backspace.                                                                                                                  |
-| `styled`         | `boolean`                    | `true`           | Inject the preset stylesheet. `false` leaves the `config-editor__*` markup to your styles; `presetCss()` returns the preset to start from. See [Styling](#styling).                                          |
-| `saveShortcut`   | `boolean`                    | `true`           | Whether `Ctrl+S` / `Cmd+S` saves (with `onSave` set); `false` leaves the key to the browser and only `save()` saves. Switches live with `setSaveShortcut`.                                                    |
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
@@ -127,19 +114,56 @@ throws, and an unknown option name is reported in the console.
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
 
-`value`, `baseline`, `editAs`, `theme`, `colors`, `readOnly`, `saveShortcut`,
-`hostDiagnostics` and the callbacks change live through the setters below.
-The other options (`language`, `schema`, `fileName`, the toolbar, footer and
-feature switches, `styled`, `className`) are fixed for the editor's life:
-create a new one to change them (the React component does it for you).
+`value`, `baseline`, `editAs`, `readOnly`, `hostDiagnostics`, the read-only
+fields, the callbacks and every setting change live through the setters
+below. The other options (`language`, `schema`, `fileName`, `className`,
+`secrets`) are fixed for the editor's life: create a new one to change them
+(the React component does it for you).
+
+### Settings
+
+The settings are the theme, the colors and every on/off switch: the
+`EditorSettings` type, generated from the Rust crate's struct, each with a
+default. Give them with the other options, and switch any of them live with
+`setSettings`: the caret, the undo history and the folds stay. `setSettings`
+replaces them all (a key left out takes its default, as in the
+constructor); `settings` returns them, every key set.
 
 ```ts
 // A plain viewer: no colors, no diff, no suggestions, no popups.
-new ConfigEditor(element, {
+const viewer = new ConfigEditor(element, {
   value: text, readOnly: true,
   highlighting: false, showDiff: false, completions: false, hoverDocs: false, showDiagnostics: false,
 });
+
+// Later: one setting changed, the rest kept.
+viewer.setSettings({ ...viewer.settings, showDiagnostics: true });
 ```
+
+<!-- settings:start -->
+
+<!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
+
+| Setting | Default | |
+|---|---|---|
+| `theme` | `"vscode-dark"` | The bundled color theme. |
+| `colors` | none | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette. |
+| `styled` | `true` | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript). |
+| `showToolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
+| `showFooter` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
+| `showDiagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
+| `showDiff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. |
+| `completions` | `true` | Schema completions (`Ctrl+Space`). |
+| `autoTriggerCompletions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
+| `hoverDocs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
+| `highlighting` | `true` | Syntax colors. |
+| `autoClosing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
+| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. |
+| `goToLine` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
+| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
+| `saveShortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
+
+<!-- settings:end -->
 
 ### Instance members
 
@@ -149,10 +173,8 @@ new ConfigEditor(element, {
 | `setValue(text)`                               | Replace the document (for example after loading a file). The caret stays on the same text when possible.                                                                                 |
 | `setBaseline(text)`                            | Set the diff baseline; pass the saved text to clear the diff.                                                                                                                            |
 | `setEditAs(language \| null)`                  | Switch the editing language live; `null` edits in `language` again. The language must be able to write documents (a registered one needs `serialize`).                                   |
-| `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
-| `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setSaveShortcut(boolean)`                     | Whether `Ctrl+S` / `Cmd+S` saves (see the `saveShortcut` option).                                                                                                                         |
+| `settings` (getter), `setSettings(settings)`   | The settings in effect (every key set), and replacing them live; see [Settings](#settings).                                                                                             |
 | `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange?, onSave?, onDirtyChange?, onBaselineConflict? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
 | `save()`                                       | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). |
 | `isDirty` (getter)                             | Whether the document differs from the baseline. |
@@ -303,6 +325,7 @@ value or container holding it (`""` at the top level).
 | `languages()`                       | `string[]`         | Built-in and registered language names.                                                                                                                                                                                                                          |
 | `themes()`                          | `string[]`         | Theme slugs.                                                                                                                                                                                                                                                     |
 | `colorTokens()`                     | `string[]`         | Tokens accepted by `colors`.                                                                                                                                                                                                                                     |
+| `settingKeys()`                     | `string[]`         | The keys of `EditorSettings` (`"showFooter"`, `"folding"`, …): what the options and `setSettings` read as settings. A framework wrapper picks them out of its props with it.                                                                                     |
 | `registerLanguage(definition)`      | `string`           | Add a language written in JavaScript (below); returns its name.                                                                                                                                                                                                  |
 
 ```ts
@@ -556,8 +579,9 @@ keeps the caret and the scroll position.
 
 `ConfigDocuments` shows several files, a main config and its drop-ins, as
 VS Code-style tabs over one editor per document, each with its own language
-(from `fileName` unless given), baseline, read-only state, `editAs` and
-schema (documents with the same schema text share one compiled schema).
+(from `fileName` unless given), baseline, read-only state, `editAs`,
+schema (documents with the same schema text share one compiled schema) and,
+optionally, settings, host problems and read-only fields.
 
 ```js
 import init, { ConfigDocuments } from "@pngwasi/config-editor";
@@ -608,11 +632,33 @@ view.isDirty("main");
   `Enter` into the editor, `Delete` to close; `Alt+PageDown`/`Alt+PageUp`
   switch documents from anywhere in the view (browsers keep `Ctrl+Tab` and
   `Ctrl+PageDown`). `Ctrl+S` saves the document being edited.
-- Other options: `activeId` (shown first), `theme`, `colors` (the `tab-*`
-  tokens style the tabs, see [Styling](#styling)), `styled`, `showFooter`,
-  `showDiff`, `saveShortcut`, `className`, `label` (the tab list's name);
-  setters `setTheme`, `setColors`, `setSaveShortcut`, `setCallbacks`, and
-  `destroy()`.
+- Settings: the options take every [setting](#settings), for all the
+  editors and the tabs (`theme`, `colors` with the `tab-*` tokens, see
+  [Styling](#styling); `styled` injects the stylesheet once for the view);
+  `settings` / `setSettings` read and switch them live. A document's own
+  `settings` go over them for its editor: the keys it gives replace the
+  view's, the rest follow the view's.
+- Per document, as on `ConfigEditor`: `hostDiagnostics`, `readOnlyPaths`,
+  `readOnlyRanges` (updated in place by `setDocuments`) and `secrets` (read
+  when its editor mounts).
+- `editor(id)` returns that document's `DocumentEditor`, with the
+  `ConfigEditor` members about its text: `rangeOf`, `pathAt`,
+  `currentPath`, `text`, `reveal`, `fold`, `unfold`, `foldAll`,
+  `unfoldAll`, `foldedLines`, `focus`, `save`, `isDirty`, and `id`
+  (`undefined` for an id not listed). An editor mounts the first time its
+  document is shown: until then its queries answer `null` or `false`
+  (`text` answers the document's `value`).
+- Other options: `activeId` (shown first), `className`, `label` (the tab
+  list's name); also `setCallbacks` and `destroy()`.
+
+```js
+files = files.map((file) =>
+  file.id === "limits" ? { ...file, settings: { folding: false }, readOnlyPaths: ["/limits/max_pending"] } : file,
+);
+view.setDocuments(files);
+view.setSettings({ ...view.settings, showFooter: true }); // every editor; limits keeps folding off
+view.editor("main").reveal("/public_address");
+```
 
 ## Reviewing changes
 
@@ -695,7 +741,7 @@ the label lowercased (`"Énv"` → `"énv"`).
 
 ## Themes
 
-`theme` and `setTheme` take a slug; `themes()` returns them all.
+The `theme` setting takes a slug; `themes()` returns them all.
 
 <details>
 <summary>The eleven themes</summary>
@@ -733,7 +779,7 @@ With `styled: false` the editor injects nothing, and its markup
 (`config-editor__*` classes) is yours to style; `presetCss()` returns the
 preset stylesheet to serve or adapt.
 
-The `colors` option sets the variables per editor. The diff markers use `added`,
+The `colors` setting sets the variables per editor. The diff markers use `added`,
 `modified` and `removed` (which follows `error` unless set), and the
 footer's change count `status-changes`.
 
@@ -742,7 +788,7 @@ The tabs of `ConfigDocuments` use `tab-bar` (the strip), `tab-bg` /
 `tab-active-border` (the line over the active tab) and `tab-dirty` (the
 unsaved-changes dot); they follow `panel`, `bg`, `muted`, `text`, `border`
 and `accent` unless set, as variables on the `.config-editor-documents` root
-or through its `colors` option.
+or through its `colors` setting.
 
 ## License
 

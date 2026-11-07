@@ -25,13 +25,14 @@ pub(in crate::editor) struct ChangesState {
 
 impl ChangesState {
     /// The changes of `text` against `baseline` (as shown); with `enabled`
-    /// off (`show_diff=false`) there are none.
+    /// off (the `show_diff` setting) there are none.
     pub(in crate::editor) fn new(
         text: RwSignal<String>,
         baseline: Memo<String>,
-        enabled: bool,
+        enabled: Memo<bool>,
     ) -> Self {
         let diff = Memo::new(move |_| {
+            let enabled = enabled.get();
             text.with(|text| {
                 if enabled {
                     baseline.with(|baseline| diff_lines(baseline, text))

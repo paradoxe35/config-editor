@@ -21,7 +21,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     };
     // Follows `read_only`, which switches without remounting.
     let offers_completions =
-        move || state.config.features.completions && !state.config.read_only.get();
+        move || state.config.settings.completions.get() && !state.config.read_only.get();
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
@@ -30,7 +30,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 })}
             </span>
             <span class="config-editor__status-meta">
-                {state.config.features.diagnostics.then(|| view! {
+                {move || state.config.settings.diagnostics.get().then(|| view! {
                     <button
                         type="button"
                         class="config-editor__diagnostic-status"
@@ -52,7 +52,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                         {move || diagnostics.with(|problems| summary(problems))}
                     </button>
                 })}
-                {state.config.features.diff.then(|| view! { <ChangeStatus state=state /> })}
+                {move || state.config.settings.diff.get().then(|| view! { <ChangeStatus state=state /> })}
                 <span class="config-editor__line-count">
                     {move || {
                         let count = state.doc.text.with(|text| text.split('\n').count());

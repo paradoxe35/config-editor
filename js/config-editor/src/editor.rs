@@ -4,59 +4,25 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use config_editor_leptos::{EditorHandle, EditorTheme, Language, Schema, ThemeColor, ThemeColors};
-use js_sys::{Array, Function, Object};
+use config_editor_leptos::{EditorHandle, Language, Schema};
+use js_sys::{Array, Function};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::catalog::theme_named;
+use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State};
 use crate::options::{
-    CALLBACK_KEYS, Toggles, bool_option, function_option, string_option, warn_unknown_keys,
+    CALLBACK_KEYS, EDITOR_OPTIONS, bool_option, function_option, string_option, warn_unknown_keys,
     warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::typings::{ColorMap, EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult};
-use crate::values::{
-    context_arg, field, index_arg, line_ranges_to_js, optional_text, path_at_index, path_from_js,
-    path_to_js, range_to_js, text_arg,
+use crate::settings::{settings_from, settings_result};
+use crate::typings::{
+    EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, Settings, SettingsResult,
 };
-
-pub(crate) fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
-    let mut colors = ThemeColors::new();
-    if value.is_undefined() || value.is_null() {
-        return Ok(colors);
-    }
-    if !value.is_object() || Array::is_array(value) || value.is_function() {
-        return Err(JsError::new(
-            "colors must be an object of token: CSS color, such as { key: \"#ffcc66\" }",
-        ));
-    }
-    let entries = Object::entries(value.unchecked_ref());
-    for entry in entries.iter() {
-        let pair: Array = entry.unchecked_into();
-        let token = pair.get(0).as_string().unwrap_or_default();
-        let css = pair.get(1).as_string().ok_or_else(|| {
-            JsError::new(&format!("color \"{token}\" must be a CSS color string"))
-        })?;
-        // As the browser reads colors (`var(--x)` included): a typo or a
-        // `url(…)` would otherwise be dropped, or fetched, silently.
-        if !web_sys::css::supports_with_value("color", &css).unwrap_or(false) {
-            return Err(JsError::new(&format!(
-                "color \"{token}\": \"{css}\" is not a CSS color"
-            )));
-        }
-        let color = ThemeColor::ALL
-            .iter()
-            .copied()
-            .find(|color| color.css_var().strip_prefix("--config-editor-") == Some(token.as_str()))
-            .ok_or_else(|| JsError::new(&format!("unknown color token \"{token}\"")))?;
-        colors = colors.set(color, css);
-    }
-    Ok(colors)
-}
+use crate::values::{context_arg, field, text_arg};
 
 /// A config editor mounted into an element.
 ///
@@ -134,11 +100,7 @@ impl ConfigEditor {
             .map(|name| language_named(&name).and_then(writable_edit_as))
             .transpose()?
             .filter(|edit| *edit != language);
-        let theme = match string_option(&options, "theme")? {
-            Some(name) => theme_named(&name)?,
-            None => EditorTheme::default(),
-        };
-        let colors = colors_from(&field(&options, "colors"))?;
+        let settings = settings_from(&options)?;
         let schema = match string_option(&options, "schema")? {
             Some(json) => {
                 Some(Schema::compile(&json).map_err(|error| JsError::new(&error.to_string()))?)
@@ -149,9 +111,7 @@ impl ConfigEditor {
         let baseline = string_option(&options, "baseline")?.unwrap_or_else(|| value.clone());
         let file_name = string_option(&options, "fileName")?;
         let class = string_option(&options, "className")?;
-        let toggles = Toggles::read(&options)?;
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
-        let save_shortcut = bool_option(&options, "saveShortcut")?.unwrap_or(true);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
@@ -167,7 +127,7 @@ impl ConfigEditor {
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
         let read_only_ranges =
             ranges_from(&field(&options, "readOnlyRanges"), &value, "readOnlyRanges")?;
-        warn_unknown_options(&options);
+        warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
         element.set_text_content(None);
@@ -180,8 +140,7 @@ impl ConfigEditor {
             value: RwSignal::new(value.clone()),
             baseline: RwSignal::new(baseline),
             edit_as: RwSignal::new(edit_as),
-            theme: RwSignal::new(theme),
-            colors: RwSignal::new(colors),
+            settings: RwSignal::new(settings),
             read_only: RwSignal::new(read_only),
             on_change: StoredValue::new_local(on_change),
             follows_path: RwSignal::new(on_path_change.is_some()),
@@ -189,7 +148,6 @@ impl ConfigEditor {
             on_change_summary: StoredValue::new_local(on_change_summary),
             on_path_change: StoredValue::new_local(on_path_change),
             saves: RwSignal::new(on_save.is_some()),
-            save_shortcut: RwSignal::new(save_shortcut),
             on_save: StoredValue::new_local(on_save),
             on_dirty_change: StoredValue::new_local(on_dirty_change),
             on_baseline_conflict: StoredValue::new_local(on_baseline_conflict),
@@ -204,7 +162,6 @@ impl ConfigEditor {
             schema,
             file_name: file_name.unwrap_or_default(),
             class: class.unwrap_or_default(),
-            toggles,
             on_schema_warning,
             secrets,
         };
@@ -302,28 +259,42 @@ impl ConfigEditor {
         Ok(())
     }
 
-    /// Switches the theme; `null` returns to the default one.
-    #[wasm_bindgen(js_name = setTheme)]
-    pub fn set_theme(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "ThemeName | null | undefined")] theme: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let theme = match optional_text(&theme, "theme")? {
-            Some(name) => theme_named(&name)?,
-            None => EditorTheme::default(),
-        };
-        let _ = self.state.theme.try_set(theme);
-        Ok(())
+    /// The settings in effect: every key of `EditorSettings`, set.
+    #[wasm_bindgen(getter)]
+    pub fn settings(&self) -> SettingsResult {
+        settings_result(&self.state.settings.try_get_untracked().unwrap_or_default())
     }
 
-    /// Replaces the color overrides; `{}` clears them.
-    #[wasm_bindgen(js_name = setColors)]
-    pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
+    /// Replaces the settings, live (the caret, undo history and folds
+    /// stay); keys left out take their defaults, as in the constructor. To
+    /// change one: `editor.setSettings({ ...editor.settings, folding: false })`.
+    #[wasm_bindgen(js_name = setSettings)]
+    pub fn set_settings(&self, settings: Settings) -> Result<(), JsError> {
         // Input the browser sent in this task first (see `flush_pending_input`).
         config_editor_leptos::flush_pending_input();
-        let _ = self.state.colors.try_set(colors_from(&colors.into())?);
+        let settings: JsValue = settings.into();
+        if !settings.is_object() || Array::is_array(&settings) {
+            return Err(JsError::new(
+                "setSettings takes an object: { showFooter?, folding?, theme?, … }",
+            ));
+        }
+        warn_unknown_keys(
+            &settings,
+            &crate::settings::setting_keys()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            "setting",
+        );
+        let settings = settings_from(&settings)?;
+        if self
+            .state
+            .settings
+            .try_with_untracked(|current| *current != settings)
+            == Some(true)
+        {
+            let _ = self.state.settings.try_set(settings);
+        }
         Ok(())
     }
 
@@ -339,22 +310,6 @@ impl ConfigEditor {
             .as_bool()
             .ok_or_else(|| JsError::new("readOnly must be a boolean"))?;
         let _ = self.state.read_only.try_set(read_only);
-        Ok(())
-    }
-
-    /// Whether `Ctrl+S` / `Cmd+S` saves (with `onSave` set); `false` leaves
-    /// the key to the browser, and only `save()` saves.
-    #[wasm_bindgen(js_name = setSaveShortcut)]
-    pub fn set_save_shortcut(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "boolean")] enabled: JsValue,
-    ) -> Result<(), JsError> {
-        // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::flush_pending_input();
-        let enabled = enabled
-            .as_bool()
-            .ok_or_else(|| JsError::new("saveShortcut must be a boolean"))?;
-        let _ = self.state.save_shortcut.try_set(enabled);
         Ok(())
     }
 
@@ -497,13 +452,7 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
     ) -> Result<RangeResult, JsError> {
-        config_editor_leptos::flush_pending_input();
-        let path = path_from_js(&path)?;
-        let handle = self.state.handle;
-        let found = handle.range_of(path).zip(handle.text());
-        Ok(found
-            .map_or(JsValue::NULL, |(range, text)| range_to_js(&text, range))
-            .unchecked_into())
+        handle_calls::range_of(Some(self.state.handle), &path)
     }
 
     /// The path of what the text on screen holds at string index `offset`.
@@ -512,23 +461,13 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "number")] offset: JsValue,
     ) -> Result<PathResult, JsError> {
-        config_editor_leptos::flush_pending_input();
-        let offset = index_arg(&offset, "offset")?;
-        let handle = self.state.handle;
-        let path = handle
-            .text()
-            .and_then(|text| path_at_index(&text, offset, |position| handle.path_at(position)));
-        Ok(path
-            .map_or(JsValue::NULL, |path| path_to_js(&path))
-            .unchecked_into())
+        handle_calls::path_at(Some(self.state.handle), &offset)
     }
 
     /// The path of what the caret is on.
     #[wasm_bindgen(getter, js_name = currentPath)]
     pub fn current_path(&self) -> PathResult {
-        untrack(|| self.state.handle.current_path())
-            .map_or(JsValue::NULL, |path| path_to_js(&path))
-            .unchecked_into()
+        handle_calls::current_path(Some(self.state.handle))
     }
 
     /// The text on screen: in the `editAs` language while editing as another
@@ -536,15 +475,14 @@ impl ConfigEditor {
     /// last document.
     #[wasm_bindgen(getter)]
     pub fn text(&self) -> String {
-        config_editor_leptos::flush_pending_input();
-        untrack(|| self.state.handle.text()).unwrap_or_else(|| self.value())
+        handle_calls::text(Some(self.state.handle)).unwrap_or_else(|| self.value())
     }
 
     /// The folded blocks, as one-based `{ startLine, endLine }`: the line
     /// that stays visible and the last hidden one.
     #[wasm_bindgen(getter, js_name = foldedLines)]
     pub fn folded_lines(&self) -> LineRanges {
-        line_ranges_to_js(untrack(|| self.state.handle.folded_lines())).unchecked_into()
+        handle_calls::folded_lines(Some(self.state.handle))
     }
 
     /// Scrolls to the field at `path`, selects it and focuses the editor;
@@ -553,8 +491,7 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
-        Ok(self.state.handle.reveal(path_from_js(&path)?))
+        handle_calls::reveal(Some(self.state.handle), &path)
     }
 
     /// Folds the block the field at `path` opens; `false` when there is none
@@ -563,8 +500,7 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
-        Ok(self.state.handle.fold(path_from_js(&path)?))
+        handle_calls::fold(Some(self.state.handle), &path)
     }
 
     /// Opens the folds around the field at `path`; `false` when none was
@@ -573,26 +509,24 @@ impl ConfigEditor {
         &self,
         #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::flush_pending_input();
-        Ok(self.state.handle.unfold(path_from_js(&path)?))
+        handle_calls::unfold(Some(self.state.handle), &path)
     }
 
     /// Folds every block (`Ctrl+K Ctrl+0`).
     #[wasm_bindgen(js_name = foldAll)]
     pub fn fold_all(&self) {
-        config_editor_leptos::flush_pending_input();
-        self.state.handle.fold_all();
+        handle_calls::fold_all(Some(self.state.handle));
     }
 
     /// Opens every fold (`Ctrl+K Ctrl+J`).
     #[wasm_bindgen(js_name = unfoldAll)]
     pub fn unfold_all(&self) {
-        self.state.handle.unfold_all();
+        handle_calls::unfold_all(Some(self.state.handle));
     }
 
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
-        self.state.handle.focus();
+        handle_calls::focus(Some(self.state.handle));
     }
 
     /// Saves as `Ctrl+S` does: calls `onSave` with the document in

@@ -2,33 +2,37 @@
 //! one editor per document) mounted into an element, with setters writing
 //! the signals it reads.
 
+use std::collections::HashMap;
+
 use config_editor_leptos::{
-    CloseRequest, ConfigDocuments as DocumentsView, Document, DocumentsHandle, EditorTheme,
-    SaveRequest, ThemeColors,
+    CloseRequest, ConfigDocuments as DocumentsView, Document, DocumentsHandle, EditorSettings,
+    SaveRequest, SecretOptions,
 };
-use js_sys::{Array, Function};
+use js_sys::{Array, Function, Object};
 use leptos::prelude::*;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::catalog::{language_name, theme_named};
-use crate::editor::{MOUNTED, Mounted, NEXT_ID, colors_from, replace_editors_in};
+use crate::catalog::language_name;
+use crate::document_editor::DocumentEditor;
+use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
+use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{IN_CALLBACK, call_host, call_host_with};
-use crate::options::{bool_option, function_option, string_option, warn_unknown_keys};
-use crate::typings::{ColorMap, DocumentList, DocumentsOptions, DocumentsUpdate};
+use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
+use crate::options::{
+    bool_option, function_option, string_option, warn_unknown_keys, warn_unknown_options,
+};
+use crate::protect::{paths_from, ranges_from, secrets_from};
+use crate::settings::{setting_keys, settings_from, settings_over, settings_result};
+use crate::typings::{
+    DocumentEditorResult, DocumentList, DocumentsOptions, DocumentsUpdate, Settings, SettingsResult,
+};
 use crate::values::{field, optional_text, text_arg, to_js};
 
-/// The options `new ConfigDocuments` takes.
-pub(crate) const DOCUMENTS_OPTIONS: [&str; 15] = [
+/// The options `new ConfigDocuments` takes apart from the settings.
+pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "documents",
     "activeId",
-    "theme",
-    "colors",
-    "styled",
-    "showFooter",
-    "showDiff",
-    "saveShortcut",
     "className",
     "label",
     "onSelect",
@@ -40,16 +44,41 @@ pub(crate) const DOCUMENTS_OPTIONS: [&str; 15] = [
 
 /// The keys of one document.
 const DOCUMENT_KEYS: &[&str] = &[
-    "id", "fileName", "value", "language", "baseline", "readOnly", "schema", "editAs",
+    "id",
+    "fileName",
+    "value",
+    "language",
+    "baseline",
+    "readOnly",
+    "schema",
+    "editAs",
+    "settings",
+    "hostDiagnostics",
+    "readOnlyPaths",
+    "readOnlyRanges",
+    "secrets",
 ];
 
 /// The callbacks `setCallbacks` replaces.
 const DOCUMENTS_CALLBACKS: &[&str] =
     &["onSelect", "onClose", "onChange", "onSave", "onDirtyChange"];
 
+/// What a list from JavaScript reads into: the documents, and each one's
+/// own `settings` as given (laid over the view's again when those change).
+struct Listed {
+    documents: Vec<Document>,
+    overrides: Vec<(String, JsValue)>,
+}
+
 /// The documents JavaScript lists, as the component takes them. Schemas
 /// stay JSON text: the view compiles each distinct text once and shares it.
-fn documents_from(list: &JsValue) -> Result<Vec<Document>, JsError> {
+/// A document's `settings` go over `view`; its `secrets` are built once per
+/// id (`secrets`), as its editor reads them when it mounts.
+fn documents_from(
+    list: &JsValue,
+    view: &EditorSettings,
+    secrets: &mut HashMap<String, SecretOptions>,
+) -> Result<Listed, JsError> {
     if !Array::is_array(list) {
         return Err(JsError::new(
             "documents must be an array of { id, fileName, value, … }",
@@ -57,6 +86,7 @@ fn documents_from(list: &JsValue) -> Result<Vec<Document>, JsError> {
     }
     let list: &Array = list.unchecked_ref();
     let mut documents = Vec::with_capacity(list.length() as usize);
+    let mut overrides = Vec::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
         if !item.is_object() || Array::is_array(&item) {
@@ -87,9 +117,75 @@ fn documents_from(list: &JsValue) -> Result<Vec<Document>, JsError> {
                 document = document.edit_as(edit_as);
             }
         }
+        document = with_protection(document, &item, index, secrets)?;
+        let own = field(&item, "settings");
+        if !own.is_undefined() && !own.is_null() {
+            if !own.is_object() || Array::is_array(&own) {
+                return Err(JsError::new(&format!(
+                    "{}: must be an object of settings",
+                    name("settings")
+                )));
+            }
+            let keys = setting_keys();
+            let known: Vec<&str> = keys.iter().map(String::as_str).collect();
+            warn_unknown_keys(&own, &known, "setting");
+            let settings =
+                settings_over(view, &own).map_err(|error| prefixed(&name("settings"), error))?;
+            // A copy: the host may change its object afterwards.
+            let own = Object::assign(&Object::new(), own.unchecked_ref());
+            overrides.push((document.id.clone(), own.into()));
+            document = document.settings(settings);
+        }
         documents.push(document);
     }
-    Ok(documents)
+    secrets.retain(|id, _| documents.iter().any(|document| document.id == *id));
+    Ok(Listed {
+        documents,
+        overrides,
+    })
+}
+
+/// A document's host problems, read-only fields and secrets.
+fn with_protection(
+    mut document: Document,
+    item: &JsValue,
+    index: usize,
+    secrets: &mut HashMap<String, SecretOptions>,
+) -> Result<Document, JsError> {
+    let name = |key: &str| format!("documents[{index}].{key}");
+    let diagnostics = field(item, "hostDiagnostics");
+    if !diagnostics.is_undefined() && !diagnostics.is_null() {
+        let list = host_diagnostics_from(&diagnostics, &document.value)
+            .map_err(|error| prefixed(&name("hostDiagnostics"), error))?;
+        document = document.host_diagnostics(list);
+    }
+    let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
+    let ranges = ranges_from(
+        &field(item, "readOnlyRanges"),
+        &document.value,
+        &name("readOnlyRanges"),
+    )?;
+    document = document.read_only_paths(paths).read_only_ranges(ranges);
+    let given = field(item, "secrets");
+    if !given.is_undefined() && !given.is_null() {
+        let options = match secrets.get(&document.id) {
+            Some(options) => options.clone(),
+            None => {
+                let options = secrets_from(&given)?;
+                secrets.insert(document.id.clone(), options.clone());
+                options
+            }
+        };
+        document = document.secrets(options);
+    }
+    Ok(document)
+}
+
+/// `error` with `name` in front, so it says which document it is about.
+fn prefixed(name: &str, error: JsError) -> JsError {
+    let message = JsValue::from(error);
+    let text = field(&message, "message").as_string().unwrap_or_default();
+    JsError::new(&format!("{name}: {text}"))
 }
 
 /// What `onClose` receives.
@@ -101,27 +197,55 @@ struct CloseOut {
 
 /// The live state a mounted view reads; setters write it.
 #[derive(Clone, Copy)]
-struct State {
+pub(crate) struct State {
     documents: RwSignal<Vec<Document>>,
-    theme: RwSignal<EditorTheme>,
-    colors: RwSignal<ThemeColors>,
-    save_shortcut: RwSignal<bool>,
+    /// The view's settings, the default of every document.
+    settings: RwSignal<EditorSettings>,
+    /// Each document's own `settings`, as JavaScript gave them.
+    overrides: StoredValue<Vec<(String, JsValue)>, LocalStorage>,
+    /// Each document's secret options, built once (see `documents_from`).
+    secrets: StoredValue<HashMap<String, SecretOptions>, LocalStorage>,
     /// Whether `onSave` is set: only then does `Ctrl+S` save.
-    saves: RwSignal<bool>,
+    pub(crate) saves: RwSignal<bool>,
     on_select: StoredValue<Option<Function>, LocalStorage>,
     on_close: StoredValue<Option<Function>, LocalStorage>,
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_save: StoredValue<Option<Function>, LocalStorage>,
     on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
-    handle: DocumentsHandle,
+    pub(crate) handle: DocumentsHandle,
+}
+
+impl State {
+    /// The text the host last gave the document `id`.
+    pub(crate) fn value_of(&self, id: &str) -> Option<String> {
+        self.documents
+            .try_with_untracked(|documents| {
+                documents
+                    .iter()
+                    .find(|document| document.id == id)
+                    .map(|document| document.value.clone())
+            })
+            .flatten()
+    }
+
+    /// Reads a list from JavaScript against the view's settings.
+    fn read(&self, list: &JsValue) -> Result<Listed, JsError> {
+        let view = self.settings.try_get_untracked().unwrap_or_default();
+        let mut secrets = self.secrets.try_get_value().unwrap_or_default();
+        let listed = documents_from(list, &view, &mut secrets)?;
+        let _ = self.secrets.try_set_value(secrets);
+        Ok(listed)
+    }
+
+    fn show(&self, listed: Listed) {
+        let _ = self.overrides.try_set_value(listed.overrides);
+        let _ = self.documents.try_set(listed.documents);
+    }
 }
 
 /// What the component takes once, at mount.
 struct Setup {
     active: Option<String>,
-    styled: bool,
-    show_footer: bool,
-    show_diff: bool,
     class: String,
     label: Option<String>,
     /// `onClose` was given: tabs get close buttons.
@@ -176,9 +300,7 @@ fn view(state: State, setup: Setup) -> AnyView {
         })
     });
     let documents = Signal::derive(move || state.documents.get());
-    let theme = Signal::derive(move || state.theme.get());
-    let colors = Signal::derive(move || Some(state.colors.get()));
-    let save_shortcut = Signal::derive(move || state.saves.get() && state.save_shortcut.get());
+    let settings = saving_settings(state.settings, state.saves);
     view! {
         <DocumentsView
             documents=documents
@@ -188,12 +310,7 @@ fn view(state: State, setup: Setup) -> AnyView {
             on_change=changed
             on_save=saved
             on_dirty_change=dirty_changed
-            enable_save_shortcut=save_shortcut
-            theme=theme
-            colors=colors
-            styled=setup.styled
-            show_footer=setup.show_footer
-            show_diff=setup.show_diff
+            settings=settings
             class=setup.class
             nostrip:label=setup.label
             handle=state.handle
@@ -225,6 +342,8 @@ fn view(state: State, setup: Setup) -> AnyView {
 #[wasm_bindgen]
 pub struct ConfigDocuments {
     state: State,
+    /// The view's reactive owner, which a document's `secrets` check lives in.
+    owner: Owner,
     /// The view's entry in [`MOUNTED`] until `destroy`.
     id: Option<u32>,
 }
@@ -243,24 +362,16 @@ impl ConfigDocuments {
             )
         })?;
         let options: JsValue = options.into();
-        let documents = match field(&options, "documents") {
-            list if list.is_undefined() || list.is_null() => Vec::new(),
-            list => documents_from(&list)?,
+        let settings = settings_from(&options)?;
+        let owner = Owner::new();
+        let mut secrets = HashMap::new();
+        let listed = match field(&options, "documents") {
+            list if list.is_undefined() || list.is_null() => Listed {
+                documents: Vec::new(),
+                overrides: Vec::new(),
+            },
+            list => owner.with(|| documents_from(&list, &settings, &mut secrets))?,
         };
-        let theme = match string_option(&options, "theme")? {
-            Some(name) => theme_named(&name)?,
-            None => EditorTheme::default(),
-        };
-        let colors = colors_from(&field(&options, "colors"))?;
-        let flag = |name: &str, default: bool| {
-            Ok::<_, JsError>(bool_option(&options, name)?.unwrap_or(default))
-        };
-        let setup_flags = (
-            flag("styled", true)?,
-            flag("showFooter", false)?,
-            flag("showDiff", true)?,
-        );
-        let save_shortcut = flag("saveShortcut", true)?;
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
         let on_change = function_option(&options, "onChange")?;
@@ -268,23 +379,19 @@ impl ConfigDocuments {
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
         let setup = Setup {
             active: string_option(&options, "activeId")?,
-            styled: setup_flags.0,
-            show_footer: setup_flags.1,
-            show_diff: setup_flags.2,
             class: string_option(&options, "className")?.unwrap_or_default(),
             label: string_option(&options, "label")?,
             closable: on_close.is_some(),
         };
-        warn_unknown_keys(&options, &DOCUMENTS_OPTIONS, "option");
+        warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         replace_editors_in(&element);
         element.set_text_content(None);
 
-        let owner = Owner::new();
         let state = owner.with(|| State {
-            documents: RwSignal::new(documents),
-            theme: RwSignal::new(theme),
-            colors: RwSignal::new(colors),
-            save_shortcut: RwSignal::new(save_shortcut),
+            documents: RwSignal::new(listed.documents),
+            settings: RwSignal::new(settings),
+            overrides: StoredValue::new_local(listed.overrides),
+            secrets: StoredValue::new_local(secrets),
             saves: RwSignal::new(on_save.is_some()),
             on_select: StoredValue::new_local(on_select),
             on_close: StoredValue::new_local(on_close),
@@ -300,12 +407,13 @@ impl ConfigDocuments {
             next.set(id.wrapping_add(1));
             id
         });
-        let entry: Mounted = (Box::new(mounted), owner, mount_element);
+        let entry: Mounted = (Box::new(mounted), owner.clone(), mount_element);
         MOUNTED.with(|views| {
             views.borrow_mut().insert(id, entry);
         });
         Ok(ConfigDocuments {
             state,
+            owner,
             id: Some(id),
         })
     }
@@ -317,8 +425,8 @@ impl ConfigDocuments {
     #[wasm_bindgen(js_name = setDocuments)]
     pub fn set_documents(&self, documents: DocumentList) -> Result<(), JsError> {
         config_editor_leptos::flush_pending_input();
-        let documents = documents_from(&documents.into())?;
-        let _ = self.state.documents.try_set(documents);
+        let listed = self.owner.with(|| self.state.read(&documents.into()))?;
+        self.state.show(listed);
         Ok(())
     }
 
@@ -380,42 +488,67 @@ impl ConfigDocuments {
         self.state.handle.focus();
     }
 
-    /// Switches the theme; `null` returns to the default one.
-    #[wasm_bindgen(js_name = setTheme)]
-    pub fn set_theme(
+    /// The view's settings in effect: every key of `EditorSettings`, set.
+    #[wasm_bindgen(getter)]
+    pub fn settings(&self) -> SettingsResult {
+        settings_result(&self.state.settings.try_get_untracked().unwrap_or_default())
+    }
+
+    /// Replaces the view's settings, live: the tabs' theme and colors and
+    /// every editor's settings (a document's own `settings` stay over
+    /// them). Keys left out take their defaults, as in the constructor.
+    #[wasm_bindgen(js_name = setSettings)]
+    pub fn set_settings(&self, settings: Settings) -> Result<(), JsError> {
+        config_editor_leptos::flush_pending_input();
+        let settings: JsValue = settings.into();
+        if !settings.is_object() || Array::is_array(&settings) {
+            return Err(JsError::new(
+                "setSettings takes an object: { showFooter?, folding?, theme?, … }",
+            ));
+        }
+        let keys = setting_keys();
+        let known: Vec<&str> = keys.iter().map(String::as_str).collect();
+        warn_unknown_keys(&settings, &known, "setting");
+        let settings = settings_from(&settings)?;
+        // The documents' own settings, laid over the new ones (checked
+        // before anything changes).
+        let overrides = self.state.overrides.try_get_value().unwrap_or_default();
+        let mut own = Vec::with_capacity(overrides.len());
+        for (id, given) in &overrides {
+            own.push((id.clone(), settings_over(&settings, given)?));
+        }
+        let _ = self.state.settings.try_set(settings);
+        if !own.is_empty() {
+            let _ = self.state.documents.try_update(|documents| {
+                for document in documents.iter_mut() {
+                    if let Some((_, settings)) = own.iter().find(|(id, _)| *id == document.id) {
+                        document.settings = Some(settings.clone());
+                    }
+                }
+            });
+        }
+        Ok(())
+    }
+
+    /// The editor of the document `id`: paths, folds, focus and saving for
+    /// that document (`undefined` when no document has that id). Its
+    /// queries answer `null` (or `false`) until the document has been shown
+    /// once, which mounts its editor.
+    pub fn editor(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "ThemeName | null | undefined")] theme: JsValue,
-    ) -> Result<(), JsError> {
-        let theme = match optional_text(&theme, "theme")? {
-            Some(name) => theme_named(&name)?,
-            None => EditorTheme::default(),
-        };
-        let _ = self.state.theme.try_set(theme);
-        Ok(())
+        #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
+    ) -> Result<DocumentEditorResult, JsError> {
+        let id = text_arg(&id, "id")?;
+        let listed = self.state.value_of(&id).is_some();
+        Ok(if listed {
+            JsValue::from(DocumentEditor::new(self.state, id))
+        } else {
+            JsValue::UNDEFINED
+        }
+        .unchecked_into())
     }
 
-    /// Replaces the color overrides (the `tab-*` tokens included); `{}`
-    /// clears them.
-    #[wasm_bindgen(js_name = setColors)]
-    pub fn set_colors(&self, colors: ColorMap) -> Result<(), JsError> {
-        let _ = self.state.colors.try_set(colors_from(&colors.into())?);
-        Ok(())
-    }
-
-    /// Whether `Ctrl+S` / `Cmd+S` saves (with `onSave` set).
-    #[wasm_bindgen(js_name = setSaveShortcut)]
-    pub fn set_save_shortcut(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "boolean")] enabled: JsValue,
-    ) -> Result<(), JsError> {
-        let enabled = enabled
-            .as_bool()
-            .ok_or_else(|| JsError::new("saveShortcut must be a boolean"))?;
-        let _ = self.state.save_shortcut.try_set(enabled);
-        Ok(())
-    }
-
-    /// Replaces callbacks: a function replaces, `null` removes, absent
+    /// Replaces callbacks: a function replaces, `null` removes, absent    /// Replaces callbacks: a function replaces, `null` removes, absent
     /// keeps. Close buttons show only when `onClose` was given to the
     /// constructor.
     #[wasm_bindgen(js_name = setCallbacks)]

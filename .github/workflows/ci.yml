@@ -28,6 +28,8 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test -p config-editor-leptos
+      - name: The settings' TypeScript type and README tables match EditorSettings
+        run: cargo test -p config-editor-js
       - name: Each language feature on its own
         working-directory: crates/config-editor-leptos
         run: |

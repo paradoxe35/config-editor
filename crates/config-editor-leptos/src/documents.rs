@@ -23,15 +23,16 @@ mod texts;
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};
 
-use crate::{EditorTheme, PRESET_CSS, SaveRequest, ThemeColors};
+use crate::{EditorSettings, PRESET_CSS, SaveRequest};
 use components::{DocumentPanel, TabStrip};
-use entries::{Callbacks, Documents, EditorOptions, Entry};
+use entries::{Callbacks, Documents, Entry};
 
 /// Several documents in one view: a tab strip over one editor per document,
 /// for hosts with several files (a main config and its drop-ins).
 ///
-/// Each [`Document`] has its own language, text, baseline, read-only state
-/// and schema; documents with the same schema share one compiled
+/// Each [`Document`] has its own language, text, baseline, read-only state,
+/// schema, protected fields, host problems and, if it needs them, its own
+/// settings; documents with the same schema share one compiled
 /// [`Schema`](crate::Schema). The host owns the list: it adds, removes,
 /// renames and reorders documents by changing `documents`, and keeps each
 /// `value` up to date from `on_change`. The view reports what the user asks
@@ -107,26 +108,13 @@ pub fn ConfigDocuments(
     /// baseline: once when it is added, then each time that changes.
     #[prop(optional, into)]
     on_dirty_change: Option<Callback<(String, bool)>>,
-    /// Whether `Ctrl+S` / `Cmd+S` saves (with `on_save` set). May be a
-    /// signal.
-    #[prop(default = Signal::from(true), into)]
-    enable_save_shortcut: Signal<bool>,
-    /// Color theme of the tabs and every editor; may be a signal.
-    #[prop(default = EditorTheme::VsCodeDark.into(), into)]
-    theme: Signal<EditorTheme>,
-    /// Colors overriding the theme's (the `Tab*` tokens of
-    /// [`ThemeColor`](crate::ThemeColor) included); may be a signal.
+    /// The settings of every editor, and the theme and colors of the tabs
+    /// (the `Tab*` tokens of [`ThemeColor`](crate::ThemeColor) included); a
+    /// document's own [`Document::settings`] replace them for its editor.
+    /// May be a signal: every setting switches live. `styled` injects
+    /// [`PRESET_CSS`] once, for the whole view.
     #[prop(optional, into)]
-    colors: MaybeProp<ThemeColors>,
-    /// Inject [`PRESET_CSS`] (once, for every editor of the view).
-    #[prop(default = true)]
-    styled: bool,
-    /// Show each editor's status footer.
-    #[prop(default = false)]
-    show_footer: bool,
-    /// Show line changes against each document's baseline.
-    #[prop(default = true)]
-    show_diff: bool,
+    settings: Signal<EditorSettings>,
     /// Extra class on the view's root for host styles.
     #[prop(optional, into)]
     class: Option<String>,
@@ -146,13 +134,7 @@ pub fn ConfigDocuments(
             on_save,
             on_dirty_change,
         },
-        EditorOptions {
-            theme,
-            colors,
-            save_shortcut: enable_save_shortcut,
-            show_footer,
-            show_diff,
-        },
+        settings,
     );
     if let Some(id) = initial_active {
         documents_view.active.set(Some(id));
@@ -176,17 +158,22 @@ pub fn ConfigDocuments(
     let panel =
         move |entry: Entry| view! { <DocumentPanel documents=documents_view entry=entry /> };
     let empty = move || documents_view.entries.with(Vec::is_empty);
+    let theme = Memo::new(move |_| settings.with(|settings| settings.theme));
+    let style = move || {
+        settings.with(|settings| (!settings.colors.is_empty()).then(|| settings.colors.to_style()))
+    };
+    let styled = Memo::new(move |_| settings.with(|settings| settings.styled));
 
     view! {
         <div
             class=root_class
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=move || colors.get().map(|colors| colors.to_style())
+            style=style
             node_ref=documents_view.root
             on:keydown=keydown
         >
-            {styled.then(|| view! { <style>{PRESET_CSS}</style> })}
+            {move || styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
             <TabStrip documents=documents_view label=label />
             <div class="config-editor-documents__panels">
                 <For each=panels key=|entry| entry.serial children=panel />

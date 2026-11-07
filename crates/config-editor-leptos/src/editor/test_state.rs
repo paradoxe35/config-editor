@@ -8,7 +8,8 @@ use leptos::prelude::*;
 use super::languages::Language;
 use super::paths::{FieldPath, TextRange};
 use super::protect::{ProtectInit, SecretOptions};
-use super::state::{EditorState, Features, Init};
+use super::state::{EditorState, Init};
+use crate::EditorSettings;
 
 /// What a test editor is mounted with.
 pub(super) struct TestEditor {
@@ -19,6 +20,8 @@ pub(super) struct TestEditor {
     pub(super) read_only_ranges: Vec<TextRange>,
     pub(super) on_change: Option<Callback<String>>,
     pub(super) read_only: bool,
+    /// The `settings` prop; a signal the test may switch.
+    pub(super) settings: Signal<EditorSettings>,
 }
 
 impl TestEditor {
@@ -31,6 +34,7 @@ impl TestEditor {
             read_only_ranges: Vec::new(),
             on_change: None,
             read_only: false,
+            settings: Signal::default(),
         }
     }
 
@@ -47,18 +51,7 @@ impl TestEditor {
             host_text: self.text.clone(),
             baseline: self.text,
             read_only: Signal::from(self.read_only),
-            features: Features {
-                completions: true,
-                auto_trigger: true,
-                hover_docs: false,
-                highlighting: true,
-                auto_closing: true,
-                diagnostics: true,
-                diff: true,
-                search: true,
-                go_to_line: true,
-                folding: true,
-            },
+            settings: self.settings,
             host_on_change: self.on_change,
             host_diagnostics: Signal::default(),
             protect: ProtectInit {
@@ -67,7 +60,6 @@ impl TestEditor {
                 secrets: SecretOptions::default(),
             },
             on_save: None,
-            save_shortcut: Signal::from(true),
             on_baseline_conflict: None,
         });
         (owner, state)

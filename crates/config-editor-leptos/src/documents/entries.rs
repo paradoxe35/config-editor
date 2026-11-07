@@ -7,7 +7,10 @@ use leptos::prelude::*;
 
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
-use crate::{EditorHandle, EditorTheme, Language, SaveRequest, ThemeColors};
+use crate::{
+    EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, SecretOptions,
+    TextRange,
+};
 
 /// One open document: what its tab and editor read. The editor mounts the
 /// first time the document is shown (`visited`) and then stays mounted, so
@@ -24,6 +27,13 @@ pub(super) struct Entry {
     pub(super) baseline: RwSignal<String>,
     pub(super) read_only: RwSignal<bool>,
     pub(super) edit_as: RwSignal<Option<Language>>,
+    /// The document's own settings, else the view's.
+    pub(super) settings: RwSignal<Option<EditorSettings>>,
+    pub(super) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
+    pub(super) read_only_paths: RwSignal<Vec<FieldPath>>,
+    pub(super) read_only_ranges: RwSignal<Vec<TextRange>>,
+    /// Taken when the editor mounts.
+    pub(super) secrets: SecretOptions,
     /// The text differs from the baseline: from the editor once mounted,
     /// from the host's text before.
     pub(super) dirty: RwSignal<bool>,
@@ -51,6 +61,11 @@ impl Entry {
             baseline: RwSignal::new(baseline),
             read_only: RwSignal::new(document.read_only),
             edit_as: RwSignal::new(document.edit_as),
+            settings: RwSignal::new(document.settings.clone()),
+            host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
+            read_only_paths: RwSignal::new(document.read_only_paths.clone()),
+            read_only_ranges: RwSignal::new(document.read_only_ranges.clone()),
+            secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             visited: RwSignal::new(false),
             handle: EditorHandle::new(),
@@ -71,6 +86,10 @@ impl Entry {
         if self.edit_as.get_untracked() != document.edit_as {
             self.edit_as.set(document.edit_as);
         }
+        set_if_changed(self.settings, &document.settings);
+        set_if_changed(self.host_diagnostics, &document.host_diagnostics);
+        set_if_changed(self.read_only_paths, &document.read_only_paths);
+        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
         if !untrack(|| self.handle.is_mounted()) {
             let dirty = self
                 .value
@@ -104,9 +123,13 @@ fn differs(text: &str, baseline: &str) -> bool {
     text != baseline && text.replace("\r\n", "\n") != baseline.replace("\r\n", "\n")
 }
 
-fn set_if_changed(signal: RwSignal<String>, value: &str) {
-    if signal.with_untracked(|current| current != value) {
-        signal.set(value.to_string());
+fn set_if_changed<T, V>(signal: RwSignal<T>, value: &V)
+where
+    T: std::borrow::Borrow<V> + Send + Sync + 'static,
+    V: PartialEq + ToOwned<Owned = T> + ?Sized,
+{
+    if signal.with_untracked(|current| current.borrow() != value) {
+        signal.set(value.to_owned());
     }
 }
 
@@ -118,16 +141,6 @@ pub(super) struct Callbacks {
     pub(super) on_change: Option<Callback<(String, String)>>,
     pub(super) on_save: Option<Callback<(String, SaveRequest)>>,
     pub(super) on_dirty_change: Option<Callback<(String, bool)>>,
-}
-
-/// What every editor of the view is built with.
-#[derive(Clone, Copy)]
-pub(super) struct EditorOptions {
-    pub(super) theme: Signal<EditorTheme>,
-    pub(super) colors: MaybeProp<ThemeColors>,
-    pub(super) save_shortcut: Signal<bool>,
-    pub(super) show_footer: bool,
-    pub(super) show_diff: bool,
 }
 
 /// Where the focus goes when a document is selected.
@@ -151,7 +164,8 @@ pub(super) struct Documents {
     /// A document whose editor takes the focus as soon as it is mounted.
     pub(super) focus_editor: RwSignal<Option<String>>,
     pub(super) callbacks: Callbacks,
-    pub(super) options: EditorOptions,
+    /// The view's settings, for every document without its own.
+    pub(super) settings: Signal<EditorSettings>,
     pub(super) root: NodeRef<Div>,
     pub(super) strip: NodeRef<Div>,
     /// Unique per view, for DOM ids.
@@ -167,7 +181,7 @@ thread_local! {
 }
 
 impl Documents {
-    pub(super) fn new(callbacks: Callbacks, options: EditorOptions) -> Self {
+    pub(super) fn new(callbacks: Callbacks, settings: Signal<EditorSettings>) -> Self {
         let prefix = NEXT_PREFIX.with(|next| {
             let prefix = next.get();
             next.set(prefix.wrapping_add(1));
@@ -178,7 +192,7 @@ impl Documents {
             active: RwSignal::new(None),
             focus_editor: RwSignal::new(None),
             callbacks,
-            options,
+            settings,
             root: NodeRef::new(),
             strip: NodeRef::new(),
             prefix,

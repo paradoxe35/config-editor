@@ -14,7 +14,8 @@ export type ThemeName = string;
 /** Color overrides keyed by token (`bg`, `key`, `string`, `selection`, …; see `colorTokens()`). */
 export type ThemeColorMap = Record<string, string>;
 
-export interface EditorOptions {
+/** What `new ConfigEditor` takes: the document and its callbacks, and every setting of `EditorSettings`. */
+export interface EditorOptions extends EditorSettings {
   /** The document, in `language`. */
   value?: string;
   /** Language of the document. Default `"yaml"`. */
@@ -27,35 +28,8 @@ export interface EditorOptions {
   baseline?: string;
   /** File name shown in the toolbar. */
   fileName?: string;
-  theme?: ThemeName;
-  colors?: ThemeColorMap;
+  /** View mode; switches live with `setReadOnly`. */
   readOnly?: boolean;
-  showToolbar?: boolean;
-  showFooter?: boolean;
-  /** Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Default `true`; `false` leaves those keys to the browser. */
-  search?: boolean;
-  /** Go to line (`Ctrl+G`). Default `true`; `false` leaves the key to the browser. */
-  goToLine?: boolean;
-  /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only. Default `true`. */
-  folding?: boolean;
-  /** Show line changes against `baseline` in the gutter (and `Alt+F5` / `Alt+F3` between them). Default `true`. */
-  showDiff?: boolean;
-  /** Show syntax and schema problems inline, in the footer and on hover (`F8` between them). Default `true`. */
-  showDiagnostics?: boolean;
-  /** Schema completion (`Ctrl+Space`). Default `true`; `false` offers no suggestions. */
-  completions?: boolean;
-  /** Open suggestions while typing and after accepting a key. Default `true`; `false` opens them only with `Ctrl+Space`. */
-  autoTriggerCompletions?: boolean;
-  /** Schema docs (description, type, default, examples) when hovering a key. Default `true`. */
-  hoverDocs?: boolean;
-  /** Syntax colors. Default `true`. */
-  highlighting?: boolean;
-  /** Auto-close quotes and brackets, wrap selections, delete empty pairs on Backspace. Default `true`. */
-  autoClosing?: boolean;
-  /** Inject the preset stylesheet. Default `true`; `false` leaves the `config-editor__*` markup to your styles (see `presetCss()`). */
-  styled?: boolean;
-  /** Whether `Ctrl+S` / `Cmd+S` saves (with `onSave` set). Default `true`; `false` leaves the key to the browser and only `save()` saves. Switches live with `setSaveShortcut`. */
-  saveShortcut?: boolean;
   /** Extra class on the editor root. */
   className?: string;
   /** Called with the document, in `language`, after every edit. */
@@ -251,6 +225,16 @@ export interface DocumentSpec {
   schema?: string;
   /** Edit in another language than `language`; switches live. */
   editAs?: LanguageName;
+  /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `setSettings`). Switch live. The view's `styled` applies to every editor. */
+  settings?: EditorSettings;
+  /** Problems the host found in this document (see `HostDiagnostic`); a new list replaces the markers. */
+  hostDiagnostics?: HostDiagnostic[];
+  /** Fields of this document the user cannot change; update live. */
+  readOnlyPaths?: FieldPath[];
+  /** Stretches of this document (in its language) the user cannot change; update live. */
+  readOnlyRanges?: TextRangeInput[];
+  /** Secret placeholders, as `ConfigEditor`'s `secrets`. Read when the document's editor mounts (the first time it is shown). */
+  secrets?: SecretOptions;
 }
 
 /** What `onClose` receives: the user asked to close a document. Nothing closes by itself: remove it from the list (asking first when `dirty`). */
@@ -260,22 +244,12 @@ export interface CloseRequest {
   dirty: boolean;
 }
 
-export interface DocumentsOptions {
+/** What `new ConfigDocuments` takes: the documents and callbacks, and the settings (`EditorSettings`) of every editor and of the tabs (`theme`, `colors` with the `tab-*` tokens; `styled` injects the stylesheet once for the view). A document's own `settings` override them. */
+export interface DocumentsOptions extends EditorSettings {
   /** The open documents, in tab order. */
   documents: DocumentSpec[];
   /** The document shown first. Default: the first one. */
   activeId?: string;
-  theme?: ThemeName;
-  /** Color overrides, the `tab-*` tokens included (`tab-bar`, `tab-bg`, `tab-active-bg`, `tab-text`, `tab-active-text`, `tab-border`, `tab-active-border`, `tab-dirty`). */
-  colors?: ThemeColorMap;
-  /** Inject the preset stylesheet (once for the whole view). Default `true`. */
-  styled?: boolean;
-  /** Show each editor's status footer. Default `false`. */
-  showFooter?: boolean;
-  /** Line changes against each document's baseline. Default `true`. */
-  showDiff?: boolean;
-  /** Whether `Ctrl+S` / `Cmd+S` saves the document being edited (with `onSave`). Default `true`. */
-  saveShortcut?: boolean;
   /** Extra class on the view's root. */
   className?: string;
   /** The tab list's accessible name. Default `"Open files"`. */
@@ -302,10 +276,23 @@ export interface DocumentsCallbackUpdate {
 }
 "#;
 
+/// `EditorSettings`, generated from the crate's struct (see
+/// `tests/settings.rs`).
+#[wasm_bindgen(typescript_custom_section)]
+const SETTINGS_TYPES: &str = include_str!("settings.d.ts");
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "EditorOptions")]
     pub type EditorOptions;
+    #[wasm_bindgen(typescript_type = "EditorSettings")]
+    pub type Settings;
+    #[wasm_bindgen(typescript_type = "Required<EditorSettings>")]
+    pub type SettingsResult;
+    #[wasm_bindgen(typescript_type = "(keyof EditorSettings)[]")]
+    pub type SettingKeys;
+    #[wasm_bindgen(typescript_type = "DocumentEditor | undefined")]
+    pub type DocumentEditorResult;
     #[wasm_bindgen(typescript_type = "CallbackUpdate")]
     pub type EditorUpdate;
     #[wasm_bindgen(typescript_type = "DocumentsOptions")]
