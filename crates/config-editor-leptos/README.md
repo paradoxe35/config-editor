@@ -208,7 +208,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 - XML mixed content (text beside child elements, `<p>a <b>b</b> c</p>`) has
   no form in other languages: such a document is not shown in another
   language, and the switch waits with the reason on the element
-  (`mixedContent` of the `strings` setting); text typed beside child elements
+  (`mixed_content` of the `strings` setting); text typed beside child elements
   in an XML view is not saved. `Language::convert` refuses it too
   (`ConvertError::MixedContent`).
 - Switching the language is an undo step: `Ctrl+Z` goes back to the view and
@@ -261,7 +261,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (151 texts)</summary>
+<summary>Every text and its default (152 texts)</summary>
 
 | Field                           | Default                                                                                                    |                                                                                                                              |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -410,6 +410,7 @@ they come.
 | `no_non_finite`                 | `"{host} has no infinity or NaN (at {pointer})"`                                                           | An infinity or NaN the host's language has no number for (Edit-as).                                                          |
 | `cannot_edit_as`                | `"Cannot edit this {host} as {edit}: {error}"`                                                             | A host document that does not convert for editing.                                                                           |
 | `cannot_switch`                 | `"Cannot switch to {edit} yet: {error}"`                                                                   | An Edit-as switch waiting until the document converts.                                                                       |
+| `mixed_content`                 | `"{pointer}: text beside child elements cannot be shown in another language"`                              | XML text beside child elements, which no other language can show (Edit-as).                                                  |
 | `tab_list`                      | `"Open files"`                                                                                             | The tab list's accessible name, unless the host gives one.                                                                   |
 | `no_documents`                  | `"No open files"`                                                                                          | Shown in place of an editor while no document is open.                                                                       |
 | `close_tab`                     | `"Close {name}"`                                                                                           | A tab's close button.                                                                                                        |
@@ -462,6 +463,12 @@ is converted first (it reaches `on_change` before `on_save`); when it cannot
 be written in `language` (invalid, or a `null` for TOML), nothing is sent,
 `save` returns `false`, and the caret goes to the problem with its message
 shown.
+
+Line endings are kept: the editor works on LF text, and when the host's text
+ends its lines with CRLF (`value`, `initial_value`, or a new `value` later),
+`on_change` and `on_save` receive the text with CRLF line endings, in every
+language and while editing as another one. Dirty state and the diff compare
+line endings as LF.
 
 The text is dirty while it differs from `baseline` as shown (the document at
 mount when no `baseline` is given). `on_dirty_change` reports it once on

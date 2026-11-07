@@ -181,7 +181,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (151 texts)</summary>
+<summary>Every text and its default (152 texts)</summary>
 
 | Key                         | Default                                                                                                    |                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -330,6 +330,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `noNonFinite`               | `"{host} has no infinity or NaN (at {pointer})"`                                                           | An infinity or NaN the host's language has no number for (Edit-as).                                                          |
 | `cannotEditAs`              | `"Cannot edit this {host} as {edit}: {error}"`                                                             | A host document that does not convert for editing.                                                                           |
 | `cannotSwitch`              | `"Cannot switch to {edit} yet: {error}"`                                                                   | An Edit-as switch waiting until the document converts.                                                                       |
+| `mixedContent`              | `"{pointer}: text beside child elements cannot be shown in another language"`                              | XML text beside child elements, which no other language can show (Edit-as).                                                  |
 | `tabList`                   | `"Open files"`                                                                                             | The tab list's accessible name, unless the host gives one.                                                                   |
 | `noDocuments`               | `"No open files"`                                                                                          | Shown in place of an editor while no document is open.                                                                       |
 | `closeTab`                  | `"Close {name}"`                                                                                           | A tab's close button.                                                                                                        |

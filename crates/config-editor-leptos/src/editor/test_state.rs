@@ -19,6 +19,7 @@ pub(super) struct TestEditor {
     pub(super) read_only_paths: Vec<FieldPath>,
     pub(super) read_only_ranges: Vec<TextRange>,
     pub(super) on_change: Option<Callback<String>>,
+    pub(super) on_save: Option<Callback<super::host_editing::SaveRequest>>,
     pub(super) read_only: bool,
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
@@ -33,6 +34,7 @@ impl TestEditor {
             read_only_paths: Vec::new(),
             read_only_ranges: Vec::new(),
             on_change: None,
+            on_save: None,
             read_only: false,
             settings: Signal::default(),
         }
@@ -59,7 +61,7 @@ impl TestEditor {
                 ranges: Some(Signal::stored(self.read_only_ranges)),
                 secrets: None,
             },
-            on_save: None,
+            on_save: self.on_save,
             on_baseline_conflict: None,
         });
         (owner, state)

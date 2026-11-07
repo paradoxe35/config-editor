@@ -2,6 +2,7 @@
 //! debounced copy validation reads, and Edit-as (converting edits back to
 //! the host's language, and switching the language on screen).
 
+use super::line_endings::LineEndings;
 use leptos::prelude::*;
 
 use std::sync::Arc;
@@ -58,6 +59,8 @@ pub(super) struct SyncState {
     /// Edit-as problems of the last save (values the host cannot keep, a
     /// save refused).
     pub(super) conversion_problems: RwSignal<Vec<EditAsProblem>>,
+    /// The host's line endings, kept for what it hears (see `line_endings`).
+    pub(super) line_endings: LineEndings,
 }
 
 impl SyncState {
@@ -70,6 +73,7 @@ impl SyncState {
         schema: StoredValue<Option<Arc<SchemaBundle>>>,
         host_text: String,
         host_on_change: Option<Callback<String>>,
+        line_endings: LineEndings,
     ) -> (Self, String, Option<Language>) {
         let mut load_problems = Vec::new();
         let mut pending = None;
@@ -117,6 +121,7 @@ impl SyncState {
             pending_switch: RwSignal::new(None),
             load_problems: RwSignal::new(load_problems),
             conversion_problems: RwSignal::new(Vec::new()),
+            line_endings,
         };
         (sync, shown, pending)
     }
@@ -235,7 +240,9 @@ pub(super) fn connect(state: EditorState, host: Host) {
 /// new text, not on the old one the effect would replace later.
 fn follow_value(state: EditorState, value: Signal<String>) {
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
-        take_host_value(state, normalize_newlines(value.get()));
+        let value = value.get();
+        state.sync().line_endings.note(&value);
+        take_host_value(state, normalize_newlines(value));
     });
 }
 
@@ -579,12 +586,20 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                     }
                 }
             }
-            // The caret stays on the field it was on.
-            let caret = field_caret(state, (current, &text), (next, &converted));
+            // The caret stays on the field it was on; undo puts the
+            // selection back.
+            let selection = state.textarea().map_or_else(
+                || {
+                    let caret = state.doc().caret.get_untracked();
+                    (caret, caret)
+                },
+                |area| textarea_selection(&area),
+            );
+            let caret = field_caret(selection.0, (current, &text), (next, &converted));
             // Another language's lines: the folds do not carry over; the
             // switch is an undo step back to this text (see
             // `edit::Origin::Switch`).
-            state.commit(Edit::switching(text, converted, next, caret));
+            state.commit(Edit::switching(text, converted, next, selection, caret));
             state.sync().load_problems.set(view_warnings);
         }
         Err(error) => {
@@ -603,18 +618,41 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
 
 /// Where the field the caret is on in `before` (in its language) is written
 /// in `after`: the caret's place after a switch. `None` when it is not there.
+/// A caret inside the field's key keeps its place in the key.
 fn field_caret(
-    state: EditorState,
+    caret: usize,
     (from, before): (Language, &str),
     (to, after): (Language, &str),
 ) -> Option<usize> {
-    let caret = state.textarea().map_or_else(
-        || state.doc().caret.get_untracked(),
-        |area| textarea_selection(&area).0,
-    );
     let path = from.path_at(before, TextPosition::from_offset(before, caret))?;
-    let range = to.range_of(after, path)?;
-    Some(range.start.to_offset(after))
+    let start = to.range_of(after, path.clone())?.start.to_offset(after);
+    let in_key = || {
+        let pointer = path.to_pointer();
+        let key = pointer
+            .rsplit('/')
+            .next()?
+            .replace("~1", "/")
+            .replace("~0", "~");
+        if key.is_empty() || key.parse::<usize>().is_ok() {
+            return None;
+        }
+        let from_start = from.range_of(before, path.clone())?.start.to_offset(before);
+        let key_before = key_offset(before, from_start, &key)?;
+        let column = caret
+            .checked_sub(key_before)
+            .filter(|column| *column <= key.encode_utf16().count())?;
+        Some(key_offset(after, start, &key)? + column)
+    };
+    Some(in_key().unwrap_or(start))
+}
+
+/// The UTF-16 offset of `key` written on the line of UTF-16 offset `from`
+/// in `text`, at or after it.
+fn key_offset(text: &str, from: usize, key: &str) -> Option<usize> {
+    let byte = super::keyboard::utf16_to_byte_index(text, from);
+    let line = &text[byte..text[byte..].find('\n').map_or(text.len(), |end| byte + end)];
+    let at = byte + line.find(key)?;
+    Some(text[..at].encode_utf16().count())
 }
 
 /// Where UTF-16 `offset` in `old` lands in `new`, when one region between a

@@ -4,6 +4,7 @@
 
 use leptos::prelude::*;
 
+use super::super::edit::After;
 use super::super::languages::Language;
 use super::super::paths::TextPosition;
 use super::super::sync::switch_to;
@@ -80,6 +81,54 @@ fn a_switch_is_undone_and_redone_with_the_caret_on_its_field() {
                     "{case}: the host heard {:?}",
                     heard.get_untracked()
                 ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The caret inside the key `http` (after `ht`) in `text`.
+fn in_key(text: &str) -> usize {
+    let at = text.find("http").expect("the key");
+    text[..at].encode_utf16().count() + 2
+}
+
+/// Undoing a switch leaves a caret where it was, nothing selected (round 16
+/// selected the whole document, so the next key replaced it); the switch
+/// and its redo keep the caret's column in the key.
+#[test]
+fn undoing_a_switch_restores_the_caret_and_redo_keeps_its_column() {
+    let mut failures = Vec::new();
+    for &host in Language::ALL {
+        for &edit in Language::ALL.iter().filter(|edit| **edit != host) {
+            let text = sample(host);
+            let (_owner, state) = TestEditor::new(host, text).mount();
+            let caret = in_key(text);
+            state.doc().caret.set(caret);
+            switch_to(state, edit);
+            let case = format!("{host} host, switched to {edit}");
+            let shown = state.doc().text.get_untracked();
+            if state.doc().caret.get_untracked() != in_key(&shown) {
+                failures.push(format!(
+                    "{case}: the caret is at {} of {shown:?}",
+                    state.doc().caret.get_untracked()
+                ));
+            }
+            let undo = state.history_edit(false).expect("the switch is a step");
+            match undo.after {
+                After::Select {
+                    anchor, caret: at, ..
+                } if anchor == caret && at == caret => {}
+                other => failures.push(format!("{case}: undo leaves {other:?}, not {caret}")),
+            }
+            state.commit(undo);
+            let redo = state.history_edit(true).expect("the switch to redo");
+            let column = in_key(&shown);
+            match redo.after {
+                After::Select {
+                    anchor, caret: at, ..
+                } if anchor == column && at == column => {}
+                other => failures.push(format!("{case}: redo leaves {other:?}, not {column}")),
             }
         }
     }

@@ -20,10 +20,19 @@ fn edit_text(pointer: &'static str, edit: fn(&str) -> String) -> impl Fn(&mut Va
     }
 }
 
+/// A label, the string's pointer, the edit, and the text it makes of the
+/// host (before, after).
+type Case = (
+    &'static str,
+    &'static str,
+    fn(&str) -> String,
+    (&'static str, &'static str),
+);
+
 #[test]
 fn xml_text_keeps_cdata_and_references_around_an_edit() {
     let mut failures = Vec::new();
-    let cases: [(&str, &'static str, fn(&str) -> String, (&str, &str)); 9] = [
+    let cases: [Case; 9] = [
         (
             "text after CDATA",
             "/root/cd",
