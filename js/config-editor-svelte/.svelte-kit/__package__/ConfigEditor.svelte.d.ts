@@ -1,4 +1,4 @@
-import { type EditorPath, type EditorRange, type FieldPath, type LineRange } from "@pngwasi/config-editor";
+import type { EditorPath, EditorRange, FieldPath, LineRange } from "@pngwasi/config-editor";
 import type { ConfigEditorProps } from "./types.js";
 /**
  * A schema-aware config editor for YAML, JSON, TOML, HCL and XML.

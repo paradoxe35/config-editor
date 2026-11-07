@@ -1,15 +1,14 @@
-import {
-  type BaselineConflict,
-  type ChangeSummary,
-  type EditorBindingProps,
-  EditorBinding,
-  type EditorPath,
-  type FieldPath,
-  type HostDiagnostic,
-  type LanguageName,
-  type SecretOptions,
-  type TextRangeInput,
+import type {
+  BaselineConflict,
+  ChangeSummary,
+  EditorPath,
+  FieldPath,
+  HostDiagnostic,
+  LanguageName,
+  SecretOptions,
+  TextRangeInput,
 } from "@pngwasi/config-editor";
+import { type EditorBindingProps, EditorBinding } from "@pngwasi/config-editor/binding";
 import {
   type ExtractPublicPropTypes,
   type PropType,

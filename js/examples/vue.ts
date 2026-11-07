@@ -1,4 +1,7 @@
 import { createApp, defineComponent, h, nextTick, onMounted, ref, shallowRef } from "vue";
+import * as core from "@pngwasi/config-editor";
+import * as tools from "@pngwasi/config-editor/tools";
+import { loadConfigEditor, themes } from "@pngwasi/config-editor";
 import * as api from "@pngwasi/config-editor-vue";
 import {
   type BaselineConflict,
@@ -7,8 +10,6 @@ import {
   type ConfigEditorHandle,
   type EditorPath,
   type HostDiagnostic,
-  loadConfigEditor,
-  themes,
 } from "@pngwasi/config-editor-vue";
 
 // The same page as react.html, for the same tests: the same controls and ids,
@@ -36,6 +37,7 @@ const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address
 
 type Hooks = {
   packageApi: typeof api;
+  coreApi: typeof core;
   setExtraProps: (change: Record<string, unknown> | ((props: Record<string, unknown>) => Record<string, unknown>)) => void;
   editorHandle: { readonly current: ConfigEditorHandle | null };
   renameFile: () => void;
@@ -44,6 +46,8 @@ type Hooks = {
 };
 const hooks = window as unknown as Hooks;
 hooks.packageApi = api;
+hooks.coreApi = core;
+Object.assign(window, { toolsApi: tools });
 // For tests that mount components of their own.
 Object.assign(window, { Vue: { createApp, h, nextTick, ref } });
 
@@ -86,7 +90,7 @@ const App = defineComponent({
     hooks.renameFile = () => (fileName.value = `renamed-${fileName.value}`);
     hooks.setParentValue = (text) => (value.value = text);
     hooks.setShown = (next) => (shown.value = next);
-    void ready.then(() => (themeNames.value = themes() as unknown as string[]));
+    void ready.then(() => (themeNames.value = themes().map((theme) => theme.name)));
     onMounted(() => resetEarly && editor.value?.setValue("from-effect: 1\n"));
 
     const apply = (next: string) => {

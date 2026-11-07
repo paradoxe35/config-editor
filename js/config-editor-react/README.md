@@ -17,7 +17,7 @@ editing one language as another, and eleven themes.
   - [Saving](#saving)
   - [Several documents](#several-documents)
 - [Keyboard and screen readers](#keyboard-and-screen-readers)
-- [Other exports](#other-exports)
+- [Exports](#exports)
 - [License](#license)
 <!-- /toc -->
 
@@ -53,10 +53,10 @@ function Settings({ schema }: { schema: string }) {
 
 The component loads the WebAssembly itself on first mount. To start the
 download earlier, or when your bundler does not serve the `.wasm` next to
-the package's JavaScript, call `loadConfigEditor` first:
+the package's JavaScript, call `loadConfigEditor` (from `@pngwasi/config-editor`) first:
 
 ```ts
-import { loadConfigEditor } from "@pngwasi/config-editor-react";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 // Vite
 import wasmUrl from "@pngwasi/config-editor/config_editor_bg.wasm?url";
 
@@ -111,7 +111,8 @@ packages: the three behave the same.
 
 The theme, the colors and every on/off switch, each a prop with a default;
 the type (`EditorSettings`) is generated from the Rust crate's struct.
-Changing one applies live.
+Changing one applies live, and one no longer passed returns to its
+default.
 
 ```tsx
 // A plain viewer: no colors, no diff, no suggestions, no popups.
@@ -485,10 +486,11 @@ every [setting](#settings) (for all the editors and the tabs: `colors` takes
 the `tab-*` tokens too; live), `label`, `viewClassName`, `className`,
 `style`, `onError`. A document's own `settings` go over the view's for its
 editor; `hostDiagnostics`, `readOnlyPaths`, `readOnlyRanges` and `secrets`
-work per document as on `<ConfigEditor>`. `ref.current.editor(id)` returns
-that document's editor, `null` for an id not listed (`rangeOf`, `reveal`,
-`fold`, `currentPath`, …; its queries answer `null` until the document has
-been shown once):
+work per document as on `<ConfigEditor>`. A new `activeId` shows that
+document, leaving the focus where it is. `ref.current.editor(id)` returns
+that document's editor, an `EditorView` (`null` for an id not listed):
+`value`, `rangeOf`, `reveal`, `fold`, `currentPath`, `unifiedDiff`, …; its
+queries answer `null` until the document has been shown once:
 
 ```tsx
 <ConfigDocuments ref={tabs} documents={files} showFooter theme="nord" />;
@@ -514,39 +516,32 @@ placeholder's hint), and `F8` announces "Error 2 of 5: …". Nothing to set:
 <input id="after" /> {/* Ctrl+M, Tab (or Escape, Tab) lands here */}
 ```
 
-## Other exports
+## Exports
 
-Re-exported from `@pngwasi/config-editor`; call them after
-`loadConfigEditor()` has resolved:
+This package exports its components (`ConfigEditor`, `ConfigDocuments`),
+their props and handle types (`ConfigEditorProps`, `ConfigEditorHandle`,
+`ConfigDocumentsProps`, `ConfigDocumentsHandle`), and the types of what
+they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
+`ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
+`ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
+`EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
+`HostDiagnostic`, `Severity`, `SecretOptions`, `TextRangeInput`.
 
-| Export                                                           | Description                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `validate(language, text, schema?)`                              | Syntax and schema problems: `{ line?, column?, endColumn?, message, severity }[]`.                                                                                                                                                                                                                                     |
-| `convert(from, text, to, schema?)`                               | `{ text, losses }`.                                                                                                                                                                                                                                                                                                    |
-| `unifiedDiff(baseline, current, context?)`                       | The `diff -u` of two texts (`""` when they have the same lines).                                                                                                                                                                                                                                                       |
-| `changeSummary(baseline, current)`                               | `{ added, removed, modified, hunks }` between two texts, as `onChangeSummary` counts them.                                                                                                                                                                                                                             |
-| `parse(language, text)`, `serialize(language, value)`            | A document as plain data and back, as in [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor#functions): `Infinity` and `NaN` for YAML's `.inf` and TOML's `nan`, integers past 2^53 imprecise as in `JSON.parse`; `serialize` throws unless the document reads back as exactly the value. |
-| `rangeOf(language, text, path)`, `pathAt(language, text, index)` | Where a field is written / the path at a string index, as the ref's `rangeOf` and `pathAt` answer.                                                                                                                                                                                                                     |
-| `foldRanges(language, text)`                                     | The blocks that fold, one-based `{ startLine, endLine }`.                                                                                                                                                                                                                                                              |
-| `languageInfo(name)`, `languageForFile(path)`                    | `{ name, label, icon, extensions, defaultFileName }` of a language; the language of a file name.                                                                                                                                                                                                                       |
-| `themeInfo(name)`, `presetCss()`                                 | `{ name, label }` of a theme; the preset stylesheet, for `styled={false}`.                                                                                                                                                                                                                                             |
-| `schemaWarnings(schema)`                                         | What the editor cannot use in a schema, as `onSchemaWarning` reports it.                                                                                                                                                                                                                                               |
-| `registerLanguage(definition)`                                   | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript).                                                                                                                                                 |
-| `languages()`, `themes()`, `colorTokens()`, `settingKeys()`      | Accepted names; the keys of `EditorSettings`.                                                                                                                                                                                                                                                                          |
+The helpers come from `@pngwasi/config-editor`, a peer dependency:
+`loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
+`registerLanguage` from its main entry, and the tools (`validate`,
+`convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`,
+`pathAt`, `foldRanges`, `schemaWarnings`, `colorTokens`, `presetCss`) from
+`@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
+resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
 
-Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ConfigDocumentsProps`,
-`ConfigDocumentsHandle`, `DocumentSpec`, `DocumentEditor`, `DocumentsOptions`, `DocumentsCallbackUpdate`,
-`EditorSettings`,
-`CloseRequest`, `ChangeSummary`, `Diagnostic`, `Conversion`,
-`FieldPath`, `EditorPath`, `EditorRange`, `LineRange`, `HostDiagnostic`, `Severity`,
-`CustomLanguage`, `LanguageName`, `LanguageInfo`, `ThemeName`, `ThemeInfo`, `ThemeColorMap`,
-`BaselineConflict`.
-
-```tsx
-import { loadConfigEditor, validate } from "@pngwasi/config-editor-react";
+```ts
+import { loadConfigEditor, themes } from "@pngwasi/config-editor";
+import { validate } from "@pngwasi/config-editor/tools";
 
 await loadConfigEditor();
 const problems = validate("toml", text, schema);
+const names = themes().map((theme) => theme.label);
 ```
 
 ## License

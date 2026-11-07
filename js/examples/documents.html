@@ -18,9 +18,9 @@
     <div id="files"></div>
     <pre id="log"></pre>
     <script type="module">
-      import init, { ConfigDocuments } from "../config-editor/pkg/config_editor.js";
+      import { ConfigDocuments, loadConfigEditor } from "../config-editor/index.js";
 
-      await init();
+      await loadConfigEditor();
       const schema = await (await fetch("../../schema.json")).text();
       const log = (line) => (document.getElementById("log").textContent += `${line}\n`);
 
@@ -32,7 +32,7 @@
       ];
       const update = (id, change) => {
         files = files.map((file) => (file.id === id ? { ...file, ...change } : file));
-        view.setDocuments(files);
+        view.update({ documents: files });
       };
       const view = new ConfigDocuments(document.getElementById("files"), {
         documents: files,
@@ -48,7 +48,7 @@
         onClose: ({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           files = files.filter((file) => file.id !== id);
-          view.setDocuments(files);
+          view.update({ documents: files });
         },
       });
       document.getElementById("save-all").addEventListener("click", () => view.saveAll());

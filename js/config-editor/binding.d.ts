@@ -1,34 +1,32 @@
-import init, {
+// `@pngwasi/config-editor/binding`: what the React, Vue and Svelte packages
+// build on, for a package for another framework.
+import {
   type BaselineConflict,
   type ChangeSummary,
   type CloseRequest,
   ConfigDocuments,
   ConfigEditor,
-  type DocumentEditor,
   type DocumentSpec,
   type EditorPath,
   type EditorRange,
   type EditorSettings,
+  type EditorView,
   type FieldPath,
   type HostDiagnostic,
-  type InitOutput,
   type LanguageName,
   type LineRange,
   type SecretOptions,
   type TextRangeInput,
 } from "./pkg/config_editor.js";
 
-/**
- * Loads the WebAssembly module once, for every editor and binding on the
- * page (the framework components call it themselves). Call it earlier to
- * start the download sooner, or to pass the `.wasm` URL when a bundler does
- * not serve it next to the package's JavaScript. A failed load is not kept:
- * calling again (with the right URL) retries, and components whose own load
- * failed mount then.
- */
-export function loadConfigEditor(input?: Parameters<typeof init>[0]): Promise<InitOutput>;
+export { ValueSync } from "./sync.js";
 
-/** Each key of `EditorSettings` and the JavaScript type of its values (generated from the Rust struct). */
+/**
+ * Each key of `EditorSettings` and the JavaScript type of its values
+ * (generated from the Rust struct): the settings among a component's props,
+ * and how a framework declares them (Vue's runtime prop types). Plain data,
+ * usable before the WebAssembly module loads.
+ */
 export const SETTING_TYPES: Readonly<Record<keyof EditorSettings, "boolean" | "string" | "object">>;
 
 /**
@@ -143,7 +141,7 @@ export interface ConfigDocumentsHandle {
    * when there is no such document or the view has not mounted. Its queries
    * answer `null` / `false` until the document has been shown once.
    */
-  editor(id: string): DocumentEditor | null;
+  editor(id: string): EditorView | null;
 }
 
 /**

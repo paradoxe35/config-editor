@@ -356,7 +356,7 @@ test.describe('saving with a read-only value changed in Edit-as (vanilla.html)',
       element.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'Q', bubbles: true, cancelable: true }));
       element.setRangeText('Q', element.selectionStart, element.selectionStart, 'end');
       element.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: 'Q', bubbles: true }));
-      window.editor.setReadOnlyPaths(['/public_address']);
+      window.editor.update({ readOnlyPaths: ['/public_address'] });
       const before = window.saves.length;
       window.editor.save();
       return window.saves.length - before;

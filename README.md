@@ -111,16 +111,20 @@ npm install @pngwasi/config-editor
 ```
 
 ```ts
-import init, { ConfigEditor } from "@pngwasi/config-editor";
+import { ConfigEditor, loadConfigEditor } from "@pngwasi/config-editor";
 
-await init();
+await loadConfigEditor();
 const editor = new ConfigEditor(document.getElementById("config")!, {
   language: "yaml",
   value: "listen: 7835\n",
   schema: schemaJsonText,
   onChange: (text) => save(text),
 });
+editor.update({ readOnly: true, theme: "nord" }); // live; the rest stays
 ```
+
+Text without an editor (a server's check, a build step) is
+`@pngwasi/config-editor/tools` (`validate`, `convert`, `parse`, …).
 
 ### React
 

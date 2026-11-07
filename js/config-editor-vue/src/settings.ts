@@ -1,4 +1,5 @@
-import { type EditorSettings, SETTING_TYPES } from "@pngwasi/config-editor";
+import type { EditorSettings } from "@pngwasi/config-editor";
+import { SETTING_TYPES } from "@pngwasi/config-editor/binding";
 import type { PropType } from "vue";
 
 /** A setting's prop: typed, and `undefined` when not passed (its default then applies, not `false`). */

@@ -18,7 +18,7 @@ editing one language as another, and eleven themes.
   - [Saving](#saving)
   - [Several documents](#several-documents)
 - [Keyboard and screen readers](#keyboard-and-screen-readers)
-- [Other exports](#other-exports)
+- [Exports](#exports)
 - [License](#license)
 <!-- /toc -->
 
@@ -48,10 +48,10 @@ Svelte, as any Svelte library.
 
 The component loads the WebAssembly itself on first mount. To start the
 download earlier, or when your bundler does not serve the `.wasm` next to
-the package's JavaScript, call `loadConfigEditor` first:
+the package's JavaScript, call `loadConfigEditor` (from `@pngwasi/config-editor`) first:
 
 ```ts
-import { loadConfigEditor } from "@pngwasi/config-editor-svelte";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 // Vite
 import wasmUrl from "@pngwasi/config-editor/config_editor_bg.wasm?url";
 
@@ -107,7 +107,8 @@ over.
 ### Settings
 
 The theme, the colors and every on/off switch, each a prop with a default.
-Changing one applies live.
+Changing one applies live, and one no longer passed returns to its
+default.
 
 ```svelte
 <!-- A plain viewer: no colors, no diff, no suggestions, no popups. -->
@@ -443,12 +444,14 @@ Tabs over one editor per document, each with its own language, baseline,
 read-only state, schema and, optionally, settings; switching keeps each
 document's caret, undo history, scroll and folds. The parent owns the list,
 changed in place or replaced (a late parent never rolls a document back);
-nothing closes by itself. Props: `documents`, `activeId`, `onSelect`,
+nothing closes by itself. A new `activeId` shows that document, leaving the
+focus where it is. Props: `documents`, `activeId`, `onSelect`,
 `onClose` (without it, tabs have no close button), `onChange`, `onSave`,
 `onDirtyChange`, `label`, `viewClass`, `class`, `style`, `onError` and
 every [setting](#settings). Exported functions: `select(id)`, `isDirty(id)`,
 `save(id)`, `saveAll()`, `focus()`, `getActiveId()`, `getInstance()`, and
-`editor(id)`, the editor of a document (`reveal`, `rangeOf`, `fold`, …). See
+`editor(id)`, the editor of a document, an `EditorView` (`value`, `reveal`,
+`rangeOf`, `fold`, `unifiedDiff`, …). See
 the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
 
 ## Keyboard and screen readers
@@ -457,22 +460,33 @@ The keys are those of [`@pngwasi/config-editor`](../config-editor/README.md#keyb
 `Tab` indents while editing; `Ctrl+M` switches `Tab` to moving the focus,
 and right after an `Escape` that had nothing to close one `Tab` leaves.
 
-## Other exports
+## Exports
 
-Re-exported from `@pngwasi/config-editor` (call them after
-`loadConfigEditor()` has resolved): `validate`, `convert`, `unifiedDiff`,
-`changeSummary`, `parse`, `serialize`, `rangeOf`, `pathAt`, `foldRanges`,
-`languageInfo`, `languageForFile`, `themeInfo`, `presetCss`,
-`schemaWarnings`, `registerLanguage`, `languages`, `themes`, `colorTokens`,
-`settingKeys`; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#functions).
+This package exports its components (`ConfigEditor`, `ConfigDocuments`),
+their props and handle types (`ConfigEditorProps`, `ConfigEditorHandle`,
+`ConfigDocumentsProps`, `ConfigDocumentsHandle`), and the types of what
+they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
+`ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
+`ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
+`EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
+`HostDiagnostic`, `Severity`, `SecretOptions`, `TextRangeInput`.
 
-Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ConfigDocumentsProps`,
-`ConfigDocumentsHandle`, `DocumentSpec`, `DocumentEditor`, `EditorSettings`,
-`EditorStrings`, `CloseRequest`, `ChangeSummary`, `Diagnostic`, `Conversion`,
-`FieldPath`, `EditorPath`, `EditorRange`, `LineRange`, `HostDiagnostic`,
-`Severity`, `SecretOptions`, `TextRangeInput`, `CustomLanguage`,
-`LanguageName`, `LanguageInfo`, `ThemeName`, `ThemeInfo`, `ThemeColorMap`,
-`BaselineConflict`.
+The helpers come from `@pngwasi/config-editor`, a peer dependency:
+`loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
+`registerLanguage` from its main entry, and the tools (`validate`,
+`convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`,
+`pathAt`, `foldRanges`, `schemaWarnings`, `colorTokens`, `presetCss`) from
+`@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
+resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
+
+```ts
+import { loadConfigEditor, themes } from "@pngwasi/config-editor";
+import { validate } from "@pngwasi/config-editor/tools";
+
+await loadConfigEditor();
+const problems = validate("toml", text, schema);
+const names = themes().map((theme) => theme.label);
+```
 
 ## License
 

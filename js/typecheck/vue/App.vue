@@ -13,10 +13,9 @@ import {
   type EditorPath,
   type HostDiagnostic,
   type LanguageName,
-  loadConfigEditor,
-  unifiedDiff,
-  validate,
 } from "@pngwasi/config-editor-vue";
+import { loadConfigEditor } from "@pngwasi/config-editor";
+import { unifiedDiff, validate } from "@pngwasi/config-editor/tools";
 
 const props = defineProps<{ schema: string; wasmUrl: string }>();
 loadConfigEditor({ module_or_path: props.wasmUrl });

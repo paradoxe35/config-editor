@@ -218,12 +218,6 @@ mod tests;
 
 /// Whether `url` is an `http:` or `https:` URL: the only links a host
 /// diagnostic's documentation may open.
-///
-/// ```
-/// use config_editor_leptos::is_web_url;
-/// assert!(is_web_url("https://example.com/docs"));
-/// assert!(!is_web_url("javascript:alert(1)"));
-/// ```
 #[must_use]
 pub fn is_web_url(url: &str) -> bool {
     let lower = url.trim_start().to_ascii_lowercase();

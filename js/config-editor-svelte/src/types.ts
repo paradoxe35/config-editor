@@ -76,7 +76,7 @@ export interface ConfigEditorProps extends EditorSettings {
 export interface ConfigDocumentsProps extends EditorSettings {
   /** The open documents, in tab order (keep each `value` up to date from `onChange`). */
   documents: DocumentSpec[];
-  /** The document shown first. Default: the first one. */
+  /** The document shown first (default: the first one); a new id shows that document, leaving the focus where it is. */
   activeId?: string;
   /** Called with a document's id when it becomes the active one. */
   onSelect?: (id: string) => void;

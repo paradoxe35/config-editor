@@ -3,22 +3,38 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The Rust API and the JS packages stay in step: every public prop of
+// Every feature of the Rust crate is reachable from JavaScript and from
+// each framework package (React, Vue, Svelte). Each public prop of
 // `ConfigEditor` and `ConfigDocuments`, method of `EditorHandle`,
 // `DocumentsHandle`, `Document`, `Language`, `ChangeSummary`, `Schema` and
-// `EditorTheme`, and item re-exported from the crate root has a
-// JavaScript counterpart (an option, a method, a function or a type) and one
-// in each framework package, React, Vue and Svelte (a prop or event, an
-// instance member or a re-export), or an exemption saying why not. The
-// framework components are thin wrappers around the bindings of
-// `@pngwasi/config-editor` (js/config-editor/binding.js): every JS option
-// must reach the editor through the binding's props, and every binding prop
-// must be a prop of each component (under its framework's name: Vue's
-// `modelValue`, …). `EditorSettings` is not mapped by hand: its TypeScript
-// type is generated from the struct (js/config-editor/tests/settings.rs
-// checks it is current); here every field must be in it, and the JS options
-// and each component's props must extend it. Reads the sources only: no
-// build, no browser.
+// `EditorTheme`, and item re-exported from the crate root is mapped below to
+// the JS member that reaches it, or exempted with the reason it is Rust-only:
+//
+// - `option`: a key of the constructor's options (`EditorOptions`,
+//   `DocumentsOptions`), which a binding prop passes and every component
+//   has as a prop (under its framework's name). Each option either changes
+//   live (`update`: a key of `EditorUpdate` / `DocumentsUpdate`) or is one
+//   the instance is built from (`fixed`, with the reason: `update` refuses
+//   it and the components re-mount for it).
+// - `member`: an instance member of `ConfigEditor` (and of `EditorView`,
+//   which a document's editor implements), or of `ConfigDocuments`; each is
+//   a member of the binding's handle and of every component's instance API.
+// - `main` / `tool`: a function of `@pngwasi/config-editor` (index.js) or
+//   of `@pngwasi/config-editor/tools` (tools.js). The framework packages
+//   re-export none: their apps import them from `@pngwasi/config-editor`, a
+//   peer dependency of each.
+// - `type`: a TypeScript type of the package; `setting`: a key of
+//   `EditorSettings`; `extends`: the options (and `update`) take every
+//   setting.
+//
+// `EditorSettings` is not mapped by hand: its TypeScript type is generated
+// from the struct (js/config-editor/tests/settings.rs checks it is current);
+// here every field must be in it. The components are thin wrappers around
+// the bindings of `@pngwasi/config-editor/binding`: every option reaches the
+// editor through the binding's props, every binding prop is a prop of each
+// component, and every type a component's props or handle take is exported
+// by its package. The last test proves the checks fail when a counterpart is
+// missing. Reads the sources only: no build, no browser.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...path) => readFileSync(join(root, ...path), 'utf8');
@@ -31,37 +47,32 @@ const jsSources = readdirSync(join(root, 'js', 'config-editor', 'src'))
 const bindingJs = read('js', 'config-editor', 'binding.js');
 const bindingTypes = read('js', 'config-editor', 'binding.d.ts');
 
-// --- The mapping: Rust name → JS name → binding prop, or an exemption. -----
-//
-// `js` names an option (props), a method of the `ConfigEditor` class
-// (handle), or an exported function or type (everything else, as `kind`
-// says). `prop` is the binding's (and React's) name for an option, by
-// default the same; each framework renames a few (FRAMEWORKS below).
+// --- The mapping: Rust name → JS member, or an exemption. -------------------
 
 const PROPS = {
-  language: { js: 'language' },
-  edit_as: { js: 'editAs' },
-  initial_value: { exempt: '`value` is both the initial and the live document in JS; React has `defaultValue`' },
-  value: { js: 'value' },
-  baseline: { js: 'baseline' },
-  schema: { js: 'schema' },
-  file_name: { js: 'fileName' },
-  class: { js: 'className', prop: 'editorClassName' },
-  settings: { js: 'EditorSettings', kind: 'extends' },
-  on_change: { js: 'onChange' },
-  on_edit_as_change: { js: 'onEditAsChange' },
-  on_change_summary: { js: 'onChangeSummary' },
-  on_schema_warning: { js: 'onSchemaWarning' },
-  read_only: { js: 'readOnly' },
+  language: { option: 'language', fixed: 'the editor is built for its language' },
+  edit_as: { option: 'editAs', update: 'editAs' },
+  initial_value: { exempt: '`value` is both the initial and the live document in JS; the components have `defaultValue`' },
+  value: { option: 'value', update: 'value' },
+  baseline: { option: 'baseline', update: 'baseline' },
+  schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
+  file_name: { option: 'fileName', fixed: 'a toolbar label, read once' },
+  class: { option: 'className', prop: 'editorClassName', fixed: 'a class of the editor\'s root, read once' },
+  settings: { extends: 'EditorSettings' },
+  on_change: { option: 'onChange', update: 'onChange' },
+  on_edit_as_change: { option: 'onEditAsChange', update: 'onEditAsChange' },
+  on_change_summary: { option: 'onChangeSummary', update: 'onChangeSummary' },
+  on_schema_warning: { option: 'onSchemaWarning', update: 'onSchemaWarning' },
+  read_only: { option: 'readOnly', update: 'readOnly' },
   handle: { exempt: 'the `ConfigEditor` instance (a component: its instance API) is the handle' },
-  host_diagnostics: { js: 'hostDiagnostics' },
-  on_path_change: { js: 'onPathChange' },
-  on_save: { js: 'onSave' },
-  on_dirty_change: { js: 'onDirtyChange' },
-  on_baseline_conflict: { js: 'onBaselineConflict' },
-  read_only_paths: { js: 'readOnlyPaths' },
-  read_only_ranges: { js: 'readOnlyRanges' },
-  secrets: { js: 'secrets' },
+  host_diagnostics: { option: 'hostDiagnostics', update: 'hostDiagnostics' },
+  on_path_change: { option: 'onPathChange', update: 'onPathChange' },
+  on_save: { option: 'onSave', update: 'onSave' },
+  on_dirty_change: { option: 'onDirtyChange', update: 'onDirtyChange' },
+  on_baseline_conflict: { option: 'onBaselineConflict', update: 'onBaselineConflict' },
+  read_only_paths: { option: 'readOnlyPaths', update: 'readOnlyPaths' },
+  read_only_ranges: { option: 'readOnlyRanges', update: 'readOnlyRanges' },
+  secrets: { option: 'secrets', fixed: 'the placeholder patterns build the editor (`isPlaceholder` is called live)' },
 };
 
 // Binding props (so every component's) with no JS option of their own.
@@ -71,70 +82,68 @@ const BINDING_ONLY_PROPS = {
 };
 
 const HANDLE = {
-  new: { exempt: '`new ConfigEditor(element, options)` mounts and returns the handle' },
+  new: { exempt: '`new ConfigEditor(element, options)` mounts and returns the instance' },
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
-  text: { js: 'text' },
-  range_of: { js: 'rangeOf' },
-  path_at: { js: 'pathAt' },
-  current_path: { js: 'currentPath' },
-  reveal: { js: 'reveal' },
-  save: { js: 'save' },
-  is_dirty: { js: 'isDirty' },
-  fold: { js: 'fold' },
-  unfold: { js: 'unfold' },
-  fold_all: { js: 'foldAll' },
-  unfold_all: { js: 'unfoldAll' },
-  folded_lines: { js: 'foldedLines' },
-  focus: { js: 'focus' },
+  text: { member: 'text' },
+  range_of: { member: 'rangeOf' },
+  path_at: { member: 'pathAt' },
+  current_path: { member: 'currentPath' },
+  reveal: { member: 'reveal' },
+  save: { member: 'save' },
+  is_dirty: { member: 'isDirty' },
+  fold: { member: 'fold' },
+  unfold: { member: 'unfold' },
+  fold_all: { member: 'foldAll' },
+  unfold_all: { member: 'unfoldAll' },
+  folded_lines: { member: 'foldedLines' },
+  focus: { member: 'focus' },
 };
 
 const LANGUAGE = {
-  new: { js: 'registerLanguage', kind: 'function' },
-  info: { js: 'languageInfo', kind: 'function' },
-  label: { js: 'languageInfo', kind: 'function' },
-  file_icon: { js: 'languageInfo', kind: 'function' },
-  extensions: { js: 'languageInfo', kind: 'function' },
-  default_file_name: { js: 'languageInfo', kind: 'function' },
-  from_path: { js: 'languageForFile', kind: 'function' },
-  parse: { js: 'parse', kind: 'function' },
-  serialize: { js: 'serialize', kind: 'function' },
-  convert: { js: 'convert', kind: 'function' },
-  range_of: { js: 'rangeOf', kind: 'function' },
-  fold_ranges: { js: 'foldRanges', kind: 'function' },
-  path_at: { js: 'pathAt', kind: 'function' },
+  new: { main: 'registerLanguage' },
+  info: { main: 'languages' },
+  label: { main: 'languages' },
+  file_icon: { main: 'languages' },
+  extensions: { main: 'languages' },
+  default_file_name: { main: 'languages' },
+  from_path: { main: 'languageForFile' },
+  parse: { tool: 'parse' },
+  serialize: { tool: 'serialize' },
+  convert: { tool: 'convert' },
+  range_of: { tool: 'rangeOf' },
+  fold_ranges: { tool: 'foldRanges' },
+  path_at: { tool: 'pathAt' },
 };
 
 const CHANGE_SUMMARY = {
-  between: { js: 'changeSummary', kind: 'function' },
+  between: { tool: 'changeSummary' },
   is_empty: { exempt: 'a summary is a plain object in JS: `summary.hunks === 0`' },
 };
 
 const SCHEMA = {
   compile: { exempt: 'JS takes the schema as JSON text wherever one is used, and throws there when it is invalid' },
-  warnings: { js: 'schemaWarnings', kind: 'function' },
-  validate: { js: 'validate', kind: 'function' },
-  convert: { js: 'convert', kind: 'function' },
+  warnings: { tool: 'schemaWarnings' },
+  validate: { tool: 'validate' },
+  convert: { tool: 'convert' },
 };
 
 const THEME = {
-  as_str: { js: 'themes', kind: 'function' },
-  label: { js: 'themeInfo', kind: 'function' },
-  css_family: { exempt: 'a layout detail, shown as the root\'s `data-theme` attribute' },
+  as_str: { main: 'themes' },
+  label: { main: 'themes' },
+  css_family: { exempt: 'a stylesheet detail, shown as the root\'s `data-theme` attribute (`themes()` gives each theme\'s `dark` from it)' },
 };
 
-// `ConfigDocuments`: props → options of the `ConfigDocuments` class (React:
-// props of its component), handle → its methods (React: ref members).
 const DOCUMENTS_PROPS = {
-  documents: { js: 'documents' },
-  initial_active: { js: 'activeId' },
-  on_select: { js: 'onSelect' },
-  on_close: { js: 'onClose' },
-  on_change: { js: 'onChange' },
-  on_save: { js: 'onSave' },
-  on_dirty_change: { js: 'onDirtyChange' },
-  settings: { js: 'EditorSettings', kind: 'extends' },
-  class: { js: 'className', prop: 'viewClassName' },
-  label: { js: 'label' },
+  documents: { option: 'documents', update: 'documents' },
+  initial_active: { option: 'activeId', update: 'activeId' },
+  on_select: { option: 'onSelect', update: 'onSelect' },
+  on_close: { option: 'onClose', update: 'onClose' },
+  on_change: { option: 'onChange', update: 'onChange' },
+  on_save: { option: 'onSave', update: 'onSave' },
+  on_dirty_change: { option: 'onDirtyChange', update: 'onDirtyChange' },
+  settings: { extends: 'EditorSettings' },
+  class: { option: 'className', prop: 'viewClassName', fixed: 'a class of the view\'s root, read once' },
+  label: { option: 'label', fixed: 'the tab list\'s name, read once' },
   handle: { exempt: 'the `ConfigDocuments` instance (a component: its instance API) is the handle' },
 };
 
@@ -143,82 +152,98 @@ const DOCUMENTS_BINDING_ONLY_PROPS = {
 };
 
 const DOCUMENTS_HANDLE = {
-  new: { exempt: '`new ConfigDocuments(element, options)` mounts and returns the handle' },
+  new: { exempt: '`new ConfigDocuments(element, options)` mounts and returns the instance' },
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `instance`)' },
-  active: { js: 'activeId' },
-  select: { js: 'select' },
-  editor: { js: 'editor' },
+  active: { member: 'activeId' },
+  select: { member: 'select' },
+  show: { option: 'activeId', update: 'activeId' },
+  editor: { member: 'editor' },
   active_editor: { exempt: '`editor(activeId)`' },
-  is_dirty: { js: 'isDirty' },
-  save: { js: 'save' },
-  save_all: { js: 'saveAll' },
-  focus: { js: 'focus' },
+  is_dirty: { member: 'isDirty' },
+  save: { member: 'save' },
+  save_all: { member: 'saveAll' },
+  focus: { member: 'focus' },
 };
 
 // `Document`'s builder methods are the fields of a `DocumentSpec`.
 const DOCUMENT = {
-  new: { js: 'DocumentSpec', kind: 'type' },
-  language: { js: 'DocumentSpec', kind: 'type' },
-  baseline: { js: 'DocumentSpec', kind: 'type' },
-  read_only: { js: 'DocumentSpec', kind: 'type' },
-  schema: { js: 'DocumentSpec', kind: 'type' },
-  edit_as: { js: 'DocumentSpec', kind: 'type' },
-  settings: { js: 'DocumentSpec', kind: 'type' },
-  host_diagnostics: { js: 'DocumentSpec', kind: 'type' },
-  read_only_paths: { js: 'DocumentSpec', kind: 'type' },
-  read_only_ranges: { js: 'DocumentSpec', kind: 'type' },
-  secrets: { js: 'DocumentSpec', kind: 'type' },
-  resolved_language: { js: 'languageForFile', kind: 'function' },
+  new: { type: 'DocumentSpec' },
+  language: { type: 'DocumentSpec' },
+  baseline: { type: 'DocumentSpec' },
+  read_only: { type: 'DocumentSpec' },
+  schema: { type: 'DocumentSpec' },
+  edit_as: { type: 'DocumentSpec' },
+  settings: { type: 'DocumentSpec' },
+  host_diagnostics: { type: 'DocumentSpec' },
+  read_only_paths: { type: 'DocumentSpec' },
+  read_only_ranges: { type: 'DocumentSpec' },
+  secrets: { type: 'DocumentSpec' },
+  resolved_language: { main: 'languageForFile' },
 };
 
 const CRATE_EXPORTS = {
-  language: { js: 'registerLanguage', kind: 'function' },
-  BaselineConflict: { js: 'BaselineConflict', kind: 'type' },
-  ChangeSummary: { js: 'ChangeSummary', kind: 'type' },
-  CloseRequest: { js: 'CloseRequest', kind: 'type' },
-  ConfigDocuments: { js: 'ConfigDocuments', kind: 'class' },
-  Document: { js: 'DocumentSpec', kind: 'type' },
-  DocumentsHandle: { js: 'ConfigDocuments', kind: 'class' },
-  ConfigEditor: { js: 'ConfigEditor', kind: 'class' },
-  ConfigEditorFooter: { js: 'showFooter', kind: 'setting' },
-  ConfigEditorToolbar: { js: 'showToolbar', kind: 'setting' },
-  Conversion: { js: 'Conversion', kind: 'type' },
+  language: { main: 'registerLanguage' },
+  BaselineConflict: { type: 'BaselineConflict' },
+  ChangeSummary: { type: 'ChangeSummary' },
+  CloseRequest: { type: 'CloseRequest' },
+  ConfigDocuments: { main: 'ConfigDocuments' },
+  Document: { type: 'DocumentSpec' },
+  DocumentsHandle: { main: 'ConfigDocuments' },
+  ConfigEditor: { main: 'ConfigEditor' },
+  ConfigEditorFooter: { setting: 'showFooter' },
+  ConfigEditorToolbar: { setting: 'showToolbar' },
+  Conversion: { type: 'Conversion' },
   ConvertError: { exempt: 'thrown as an `Error` with its message' },
-  Diagnostic: { js: 'Diagnostic', kind: 'type' },
+  Diagnostic: { type: 'Diagnostic' },
   DiagnosticOrigin: { exempt: 'host problems are marked by their `source`; `validate` reports only the editor\'s own' },
-  DiagnosticTarget: { js: 'HostDiagnostic', kind: 'type' },
-  EditorHandle: { js: 'ConfigEditor', kind: 'class' },
-  EditorSettings: { js: 'EditorSettings', kind: 'type' },
-  EditorStrings: { js: 'EditorStrings', kind: 'type' },
-  EditorTheme: { js: 'ThemeName', kind: 'type' },
-  FieldPath: { js: 'FieldPath', kind: 'type' },
-  HostDiagnostic: { js: 'HostDiagnostic', kind: 'type' },
-  Language: { js: 'LanguageName', kind: 'type' },
-  PRESET_CSS: { js: 'presetCss', kind: 'function' },
+  DiagnosticTarget: { type: 'HostDiagnostic' },
+  EditorHandle: { main: 'ConfigEditor' },
+  EditorSettings: { type: 'EditorSettings' },
+  EditorStrings: { type: 'EditorStrings' },
+  EditorTheme: { type: 'ThemeName' },
+  FieldPath: { type: 'FieldPath' },
+  HostDiagnostic: { type: 'HostDiagnostic' },
+  Language: { type: 'LanguageName' },
+  PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
   SaveRequest: { exempt: 'its fields are `onSave`\'s arguments, `(value, language)`' },
-  Schema: { js: 'schema', kind: 'option' },
+  Schema: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
   SchemaError: { exempt: 'thrown as an `Error` with its message' },
-  SchemaSource: { js: 'schema', kind: 'option' },
-  SecretOptions: { js: 'SecretOptions', kind: 'type' },
+  SchemaSource: { option: 'schema', fixed: 'the schema is compiled once, when the editor is built' },
+  SecretOptions: { type: 'SecretOptions' },
   StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
-  Severity: { js: 'Severity', kind: 'type' },
-  TextPosition: { js: 'EditorRange', kind: 'type' },
-  TextRange: { js: 'EditorRange', kind: 'type' },
-  ThemeColor: { js: 'colorTokens', kind: 'function' },
-  ThemeColors: { js: 'ThemeColorMap', kind: 'type' },
+  Severity: { type: 'Severity' },
+  TextPosition: { type: 'EditorRange' },
+  TextRange: { type: 'EditorRange' },
+  ThemeColor: { tool: 'colorTokens' },
+  ThemeColors: { type: 'ThemeColorMap' },
   UnknownLanguage: { exempt: 'thrown as an `Error` with its message' },
   UnknownTheme: { exempt: 'thrown as an `Error` with its message' },
-  check_syntax: { js: 'validate', kind: 'function' },
+  check_syntax: { tool: 'validate' },
   float_of: { exempt: 'JS data holds `Infinity` and `NaN` as numbers: `parse` gives them as they are' },
   float_value: { exempt: 'JS data holds `Infinity` and `NaN` as numbers: `serialize` takes them as they are' },
-  is_web_url: { exempt: 'a host diagnostic\'s `docsUrl` is checked where it is given (`setHostDiagnostics` throws on another)' },
-  flush_pending_edits: { exempt: 'every JS method that reads or replaces the document flushes first' },
-  flush_pending_input: { exempt: 'every JS method flushes the browser\'s pending input first' },
-  unified_diff: { js: 'unifiedDiff', kind: 'function' },
+  flush_pending_edits: { exempt: 'every JS member that reads or replaces the document flushes first' },
+  unified_diff: { tool: 'unifiedDiff' },
 };
 
-// --- Reading the Rust side. ------------------------------------------------
+// Instance members of `ConfigEditor` / `ConfigDocuments` that a component
+// does not expose, and why.
+const EDITOR_JS_ONLY = {
+  update: 'the props: a component applies each change itself',
+  destroy: 'the component unmounts the editor itself',
+  settings: 'the setting props',
+};
+const DOCUMENTS_JS_ONLY = {
+  update: 'the props: a component applies each change itself',
+  destroy: 'the component unmounts the view itself',
+  settings: 'the setting props',
+};
+
+// Exports of the entries that no Rust item maps to.
+const MAIN_ONLY = { loadConfigEditor: 'loads the WebAssembly module (Rust compiles it in)' };
+const TOOLS_ONLY = { loadConfigEditor: 'the same load, for code that imports only the tools' };
+
+// --- Reading the Rust side. --------------------------------------------------
 
 /** The text of the block that opens at the first `{` at or after `from`. */
 function block(source, from) {
@@ -256,6 +281,7 @@ function structFields(source, type) {
 
 const camelCase = (name) => name.replace(/_(\w)/g, (_, letter) => letter.toUpperCase());
 
+/** The crate root's re-exports (the doc-hidden `js_support` module is not the API). */
 function crateExports() {
   const source = crate('lib.rs');
   const names = [];
@@ -281,7 +307,7 @@ const rust = {
   settings: structFields(crate('settings.rs'), 'EditorSettings'),
 };
 
-// --- Reading the JS package. -----------------------------------------------
+// --- Reading the JS package. ---------------------------------------------------
 
 /**
  * The JS names `#[wasm_bindgen]` gives the `pub fn`s in `source` (`js_name`,
@@ -305,45 +331,14 @@ function bindgenNames(source, inImpl) {
   return names;
 }
 
-function jsPackage() {
-  const classStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl ConfigEditor \{/m);
-  const classBody = block(jsSources, classStart);
-  const documentsStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl ConfigDocuments \{/m);
-  const documentsBody = block(jsSources, documentsStart);
-  const documentEditorStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl DocumentEditor \{/m);
-  const documentEditorBody = block(jsSources, documentEditorStart);
-  const outside = jsSources.replace(classBody, '').replace(documentsBody, '').replace(documentEditorBody, '');
-  const optionsList = jsSources.match(/const EDITOR_OPTIONS: &\[&str\] = &\[([^\]]*)\]/);
-  const documentsList = jsSources.match(/const DOCUMENTS_OPTIONS: &\[&str\] = &\[([^\]]*)\]/);
-  const generated = read('js', 'config-editor', 'src', 'settings.d.ts');
-  const typings = [...jsSources.matchAll(/typescript_custom_section\)\]\nconst \w+: &str = r#"([\s\S]*?)"#;/g)]
-    .map(([, text]) => text)
-    .concat(generated)
-    .join('\n');
-  const optionsInterface = block(typings, typings.indexOf('export interface EditorOptions'));
-  const documentsInterface = block(typings, typings.indexOf('export interface DocumentsOptions'));
-  const names = (list) => new Set([...(list?.[1] ?? '').matchAll(/"(\w+)"/g)].map(([, name]) => name));
-  const typed = (body) => new Set([...body.matchAll(/^  (\w+)\??:/gm)].map(([, name]) => name));
-  const classNames = [...jsSources.matchAll(/^#\[wasm_bindgen\]\npub struct (\w+)/gm)].map(([, name]) => name);
-  return {
-    options: names(optionsList),
-    typedOptions: typed(optionsInterface),
-    methods: new Set(bindgenNames(classBody, true)),
-    documentsOptions: names(documentsList),
-    typedDocumentsOptions: typed(documentsInterface),
-    documentsMethods: new Set(bindgenNames(documentsBody, true)),
-    documentEditorMethods: new Set(bindgenNames(documentEditorBody, true)),
-    typedSettings: typed(block(typings, typings.indexOf('export interface EditorSettings'))),
-    extendsSettings: {
-      options: /export interface EditorOptions extends EditorSettings \{/.test(typings),
-      documents: /export interface DocumentsOptions extends EditorSettings \{/.test(typings),
-    },
-    functions: new Set([...bindgenNames(outside, false), ...classNames]),
-    types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
-  };
+/** The names an entry file lists in its `export { … } from "…";` statements. */
+function entryExports(source) {
+  const names = new Set();
+  for (const [, list] of source.matchAll(/^export \{([^}]*)\} from "[^"]+";/gm)) {
+    for (const item of list.split(',')) if (item.trim()) names.add(item.trim().split(/\s+/).at(-1));
+  }
+  return names;
 }
-
-// --- Reading the bindings (js/config-editor/binding.js, binding.d.ts). -----
 
 /** Members of `export interface <name>` in `source` (quoted names unquoted). */
 function members(source, name) {
@@ -351,11 +346,73 @@ function members(source, name) {
   return new Set([...body.matchAll(/^  (?:readonly )?(\w+|"[^"]+")\??[:(]/gm)].map(([, member]) => member.replaceAll('"', '')));
 }
 
+/** The members of `export interface <name>` typed `never`: keys it refuses. */
+function refused(source, name) {
+  const body = block(source, source.search(new RegExp(`export interface ${name}\\b`)));
+  return new Set([...body.matchAll(/^  (\w+)\?: never;/gm)].map(([, member]) => member));
+}
+
 /** The `readonly` members (getters) of `export interface <name>`. */
 function getters(source, name) {
   const body = block(source, source.search(new RegExp(`export interface ${name}\\b`)));
   return new Set([...body.matchAll(/^  readonly (\w+)\??:/gm)].map(([, member]) => member));
 }
+
+/** The JS crate's sources without the bodies of its `#[wasm_bindgen] impl` blocks. */
+function outsideClasses() {
+  let outside = jsSources;
+  for (const match of jsSources.matchAll(/^#\[wasm_bindgen\]\nimpl \w+ \{/gm)) outside = outside.replace(block(jsSources, match.index), '');
+  return outside;
+}
+
+function jsPackage() {
+  const impl = (type) => block(jsSources, jsSources.search(new RegExp(`^#\\[wasm_bindgen\\]\\nimpl ${type} \\{`, 'm')));
+  const list = (name) => new Set([...(jsSources.match(new RegExp(`const ${name}: &\\[&str\\] =\\s*&\\[([^\\]]*)\\]`))?.[1] ?? '').matchAll(/"(\w+)"/g)].map(([, key]) => key));
+  const generated = read('js', 'config-editor', 'src', 'settings.d.ts');
+  const typings = [...jsSources.matchAll(/typescript_custom_section\)\]\nconst \w+: &str = r#"([\s\S]*?)"#;/g)]
+    .map(([, text]) => text)
+    .concat(generated)
+    .join('\n');
+  const typed = (name) => new Set([...block(typings, typings.indexOf(`export interface ${name}`)).matchAll(/^  (\w+)\??:/gm)].map(([, key]) => key));
+  const live = (name) => new Set([...typed(name)].filter((key) => !refused(typings, name).has(key)));
+  return {
+    typings,
+    options: list('EDITOR_OPTIONS'),
+    remount: list('EDITOR_REMOUNT_OPTIONS'),
+    typedOptions: typed('EditorOptions'),
+    updateKeys: live('EditorUpdate'),
+    refusedKeys: refused(typings, 'EditorUpdate'),
+    members: new Set(bindgenNames(impl('ConfigEditor'), true)),
+    viewMembers: members(typings, 'EditorView'),
+    documentEditorMembers: new Set(bindgenNames(impl('DocumentEditorView'), true)),
+    documentsOptions: list('DOCUMENTS_OPTIONS'),
+    documentsRemount: list('DOCUMENTS_REMOUNT_OPTIONS'),
+    typedDocumentsOptions: typed('DocumentsOptions'),
+    documentsUpdateKeys: live('DocumentsUpdate'),
+    documentsRefusedKeys: refused(typings, 'DocumentsUpdate'),
+    documentsMembers: new Set(bindgenNames(impl('ConfigDocuments'), true)),
+    typedSettings: typed('EditorSettings'),
+    extendsSettings: {
+      options:
+        /export interface EditorOptions extends EditorSettings \{/.test(typings) && /export interface EditorUpdate extends SettingsUpdate \{/.test(typings),
+      documents:
+        /export interface DocumentsOptions extends EditorSettings \{/.test(typings) &&
+        /export interface DocumentsUpdate extends SettingsUpdate \{/.test(typings),
+    },
+    main: entryExports(read('js', 'config-editor', 'index.js')),
+    tools: entryExports(read('js', 'config-editor', 'tools.js')),
+    mainTypes: entryExports(read('js', 'config-editor', 'index.d.ts')),
+    toolsTypes: entryExports(read('js', 'config-editor', 'tools.d.ts')),
+    // What wasm-bindgen exports: the functions outside the classes, and the classes.
+    bindgen: new Set([
+      ...bindgenNames(outsideClasses(), false),
+      ...[...jsSources.matchAll(/^#\[wasm_bindgen\]\npub struct (\w+)/gm)].map(([, name]) => name),
+    ]),
+    types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
+  };
+}
+
+// --- Reading the bindings (js/config-editor/binding.js, binding.d.ts). -------
 
 function bindingPackage() {
   const classBody = (name) => block(bindingJs, bindingJs.indexOf(`export class ${name} `));
@@ -388,12 +445,11 @@ function bindingPackage() {
     documentsHandleGetters: getters(bindingTypes, 'ConfigDocumentsHandle'),
     handleImplemented: names(handle(editor)),
     documentsHandleImplemented: names(handle(documents)),
+    exports: entryExports(read('js', 'config-editor', 'binding.d.ts')),
   };
 }
 
-const binding = bindingPackage();
-
-// --- Reading the framework packages. ---------------------------------------
+// --- Reading the framework packages. -------------------------------------------
 
 /** Every name an entry file exports (re-exports, `default as`, declarations). */
 function exportsOf(source) {
@@ -411,15 +467,19 @@ function objectKeys(source, name) {
   return new Set([...body.matchAll(/^  (\w+): /gm)].map(([, key]) => key));
 }
 
+/** The package's type names (`EditorPath`, …) that `text` mentions. */
+const typeNames = (text, known) => new Set([...text.matchAll(/\b([A-Z]\w+)\b/g)].map(([, name]) => name).filter((name) => known.has(name)));
+
 const capitalized = (name) => name[0].toUpperCase() + name.slice(1);
 
 // Each framework: where its sources are, how it names a binding prop
 // (`rename`: binding name → its own), its props with no binding counterpart
 // (`only`, with the reason), and how it reads (props, instance API, exports,
-// and how it hands its props to the binding).
+// the text of its props' types, and how it hands its props to the binding).
 const FRAMEWORKS = {
   React: {
     path: 'js/config-editor-react/src/index.tsx',
+    packageJson: 'js/config-editor-react/package.json',
     rename: {},
     documentsRename: {},
     only: {
@@ -440,6 +500,7 @@ const FRAMEWORKS = {
       return {
         props: members(source, 'ConfigEditorProps'),
         documentsProps: members(source, 'ConfigDocumentsProps'),
+        propTypes: block(source, source.indexOf('export interface ConfigEditorProps')) + block(source, source.indexOf('export interface ConfigDocumentsProps')),
         handle: wired('EditorBinding') ? binding.handle : new Set(),
         documentsHandle: wired('DocumentsBinding') ? binding.documentsHandle : new Set(),
         exported: exportsOf(source),
@@ -456,6 +517,7 @@ const FRAMEWORKS = {
   },
   Vue: {
     path: 'js/config-editor-vue/src',
+    packageJson: 'js/config-editor-vue/package.json',
     rename: { value: 'modelValue', onChange: 'update:modelValue', editorClassName: 'editorClass' },
     documentsRename: { viewClassName: 'viewClass' },
     // `class`, `style` and other attributes fall through to the component's
@@ -478,6 +540,7 @@ const FRAMEWORKS = {
       return {
         props: new Set([...objectKeys(editor, 'editorProps'), ...emits]),
         documentsProps: objectKeys(documents, 'documentsProps'),
+        propTypes: block(editor, editor.indexOf('const editorProps = {')) + block(editor, editor.indexOf('emits: {')) + block(documents, documents.indexOf('const documentsProps = {')),
         handle: editor.includes('expose(binding.handle)') ? binding.handle : new Set(),
         documentsHandle: documents.includes('expose(binding.handle)') ? binding.documentsHandle : new Set(),
         exported: exportsOf(read('js', 'config-editor-vue', 'src', 'index.ts')),
@@ -491,6 +554,7 @@ const FRAMEWORKS = {
   },
   Svelte: {
     path: 'js/config-editor-svelte/src',
+    packageJson: 'js/config-editor-svelte/package.json',
     rename: { editorClassName: 'editorClass' },
     documentsRename: { viewClassName: 'viewClass' },
     only: {
@@ -523,6 +587,7 @@ const FRAMEWORKS = {
       return {
         props: members(types, 'ConfigEditorProps'),
         documentsProps: members(types, 'ConfigDocumentsProps'),
+        propTypes: types,
         handle: instance(editor, binding.handle, binding.handleGetters),
         documentsHandle: instance(documents, binding.documentsHandle, binding.documentsHandleGetters),
         exported: exportsOf(read('js', 'config-editor-svelte', 'src', 'index.ts')),
@@ -536,41 +601,105 @@ const FRAMEWORKS = {
   },
 };
 
-const frameworks = Object.entries(FRAMEWORKS).map(([name, framework]) => ({ name, ...framework, ...framework.read() }));
-
-// --- The checks. -----------------------------------------------------------
+// --- The checks. ----------------------------------------------------------------
+//
+// Each takes what was read (`js`, `binding`, `frameworks`) as arguments, so
+// the last test can run them on copies with something taken out.
 
 const js = jsPackage();
+const binding = bindingPackage();
+const frameworks = Object.entries(FRAMEWORKS).map(([name, framework]) => ({ name, ...framework, ...framework.read() }));
 
-// Where options and methods are looked up: the editor's, or the documents
-// view's.
+// Where options and members are looked up: the editor's, or the view's.
 const EDITOR_SIDE = {
-  options: () => js.options,
-  typedOptions: () => js.typedOptions,
-  methods: () => js.methods,
-  bindingProps: () => binding.props,
-  bindingHandle: () => binding.handle,
+  what: 'ConfigEditor',
+  options: (js) => js.options,
+  remount: (js) => js.remount,
+  typedOptions: (js) => js.typedOptions,
+  updateKeys: (js) => js.updateKeys,
+  refusedKeys: (js) => js.refusedKeys,
+  members: (js) => js.members,
+  bindingProps: (binding) => binding.props,
+  bindingHandle: (binding) => binding.handle,
   props: (framework) => framework.props,
   handle: (framework) => framework.handle,
   rename: (framework, prop) => framework.rename[prop] ?? prop,
-  extends: () => js.extendsSettings.options && binding.extendsSettings.options && frameworks.every((framework) => framework.extendsSettings.options),
-  optionsWhere: 'EDITOR_OPTIONS and the EditorOptions typings',
+  extends: (js, binding, frameworks) => js.extendsSettings.options && binding.extendsSettings.options && frameworks.every((framework) => framework.extendsSettings.options),
 };
 const DOCUMENTS_SIDE = {
-  options: () => js.documentsOptions,
-  typedOptions: () => js.typedDocumentsOptions,
-  methods: () => js.documentsMethods,
-  bindingProps: () => binding.documentsProps,
-  bindingHandle: () => binding.documentsHandle,
+  what: 'ConfigDocuments',
+  options: (js) => js.documentsOptions,
+  remount: (js) => js.documentsRemount,
+  typedOptions: (js) => js.typedDocumentsOptions,
+  updateKeys: (js) => js.documentsUpdateKeys,
+  refusedKeys: (js) => js.documentsRefusedKeys,
+  members: (js) => js.documentsMembers,
+  bindingProps: (binding) => binding.documentsProps,
+  bindingHandle: (binding) => binding.documentsHandle,
   props: (framework) => framework.documentsProps,
   handle: (framework) => framework.documentsHandle,
   rename: (framework, prop) => framework.documentsRename[prop] ?? prop,
-  extends: () =>
+  extends: (js, binding, frameworks) =>
     js.extendsSettings.documents && binding.extendsSettings.documents && frameworks.every((framework) => framework.extendsSettings.documents),
-  optionsWhere: 'DOCUMENTS_OPTIONS and the DocumentsOptions typings',
 };
 
-function check(table, items, what, kindOf, side = EDITOR_SIDE) {
+const KINDS = ['option', 'member', 'main', 'tool', 'type', 'setting', 'extends'];
+
+/** Problems with one mapped Rust item `item` (entry `entry`), reached through `side`. */
+function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
+  const problems = [];
+  const kind = KINDS.find((name) => name in entry);
+  const name = entry[kind];
+  const missing = (where) => problems.push(`${what} \`${item}\`: ${where}`);
+  if (kind === 'setting') {
+    if (!js.typedSettings.has(name)) missing(`setting \`${name}\` is missing from EditorSettings`);
+    if (!EDITOR_SIDE.extends(js, binding, frameworks)) missing('the JS options, the binding\'s props and every component\'s props must extend `EditorSettings`');
+  } else if (kind === 'extends') {
+    if (!side.extends(js, binding, frameworks)) {
+      missing(`the JS options (and \`update\`), the binding's props and every component's props must take every setting (\`extends ${name}\`; the binding spreading \`...settings\` into the options)`);
+    }
+    if (!js.types.has(name)) missing(`type \`${name}\` is missing from the typings`);
+  } else if (kind === 'option') {
+    if (!side.options(js).has(name) || !side.typedOptions(js).has(name)) missing(`option \`${name}\` is missing from the ${side.what} options (the options list and its typings)`);
+    if (entry.update) {
+      if (!side.updateKeys(js).has(entry.update)) missing(`\`update\` key \`${entry.update}\` is missing from the ${side.what} update typings`);
+    } else if (entry.fixed) {
+      if (!side.remount(js).has(name)) missing(`\`${name}\` is fixed: it must be in the ${side.what} re-mount list, which \`update\` refuses`);
+      if (!side.refusedKeys(js).has(name)) missing(`\`${name}\` is fixed: the ${side.what} update typings must type it \`never\``);
+    } else {
+      missing('an option needs `update` (its key) or `fixed` (why it cannot change live)');
+    }
+    const prop = entry.prop ?? name;
+    if (!side.bindingProps(binding).has(prop)) missing(`binding prop \`${prop}\` is missing from js/config-editor/binding.d.ts`);
+    for (const framework of frameworks) {
+      const own = side.rename(framework, prop);
+      if (!side.props(framework).has(own)) missing(`${framework.name} prop \`${own}\` is missing from ${framework.path}`);
+    }
+  } else if (kind === 'member') {
+    if (!side.members(js).has(name)) missing(`member \`${name}\` is missing from the ${side.what} class`);
+    if (side === EDITOR_SIDE) {
+      if (!js.viewMembers.has(name)) missing(`member \`${name}\` is missing from the EditorView interface`);
+      if (!js.documentEditorMembers.has(name)) missing(`member \`${name}\` is missing from a document's editor (DocumentEditorView)`);
+    }
+    if (!side.bindingHandle(binding).has(name)) missing(`handle member \`${name}\` is missing from js/config-editor/binding.d.ts`);
+    for (const framework of frameworks) {
+      if (!side.handle(framework).has(name)) missing(`${framework.name} instance member \`${name}\` is missing from ${framework.path}`);
+    }
+  } else if (kind === 'main' || kind === 'tool') {
+    const entryNames = kind === 'main' ? js.main : js.tools;
+    const file = kind === 'main' ? 'js/config-editor/index.js' : 'js/config-editor/tools.js';
+    if (!entryNames.has(name)) missing(`\`${name}\` is not exported by ${file}`);
+    if (!js.bindgen.has(name)) missing(`\`${name}\` is not a wasm_bindgen export of js/config-editor/src`);
+  } else if (kind === 'type') {
+    if (!js.types.has(name)) missing(`type \`${name}\` is missing from the TypeScript typings`);
+    if (!js.mainTypes.has(name) && !js.toolsTypes.has(name)) missing(`type \`${name}\` is exported by neither js/config-editor/index.d.ts nor tools.d.ts`);
+  } else if (!entry.exempt) {
+    missing(`the mapping names no JS member (one of ${KINDS.join(', ')}) and no exemption`);
+  }
+  return problems;
+}
+
+function check(table, items, what, side, read) {
   const problems = [];
   for (const item of items) {
     const entry = table[item];
@@ -578,56 +707,7 @@ function check(table, items, what, kindOf, side = EDITOR_SIDE) {
       problems.push(`${what} \`${item}\` has no JS counterpart: map it in api-parity.spec.mjs or exempt it with a reason`);
       continue;
     }
-    if (entry.exempt) continue;
-    const kind = entry.kind ?? kindOf;
-    if (kind === 'setting') {
-      if (!js.typedSettings.has(entry.js)) problems.push(`${what} \`${item}\`: setting \`${entry.js}\` is missing from EditorSettings`);
-      for (const framework of frameworks) {
-        if (!framework.extendsSettings.options) problems.push(`${what} \`${item}\`: the ${framework.name} props must extend \`EditorSettings\``);
-      }
-      continue;
-    }
-    if (kind === 'extends') {
-      if (!side.extends()) {
-        problems.push(
-          `${what} \`${item}\`: the JS options, the binding's props and every component's props must extend \`${entry.js}\` (the binding spreading \`...settings\` into the options)`,
-        );
-      }
-      if (!js.types.has(entry.js)) problems.push(`${what} \`${item}\`: type \`${entry.js}\` is missing from the typings`);
-      continue;
-    }
-    const present = {
-      option: side.options().has(entry.js) && side.typedOptions().has(entry.js),
-      method: side.methods().has(entry.js),
-      function: js.functions.has(entry.js),
-      class: js.functions.has(entry.js),
-      type: js.types.has(entry.js),
-    }[kind];
-    if (!present) {
-      const where = kind === 'option' ? side.optionsWhere : kind === 'type' ? 'the TypeScript typings' : 'the wasm_bindgen exports';
-      problems.push(`${what} \`${item}\`: JS ${kind} \`${entry.js}\` is missing from ${where} of js/config-editor/src`);
-    }
-    const prop = entry.prop ?? entry.js;
-    if (kind === 'option' && !side.bindingProps().has(prop)) {
-      problems.push(`${what} \`${item}\`: binding prop \`${prop}\` is missing from js/config-editor/binding.d.ts`);
-    }
-    if (kind === 'method' && !side.bindingHandle().has(entry.js)) {
-      problems.push(`${what} \`${item}\`: handle member \`${entry.js}\` is missing from js/config-editor/binding.d.ts`);
-    }
-    for (const framework of frameworks) {
-      const name = kind === 'option' ? side.rename(framework, prop) : entry.js;
-      const has = {
-        option: side.props(framework).has(name),
-        method: side.handle(framework).has(name),
-        function: framework.exported.has(name),
-        class: framework.exported.has(name),
-        type: framework.exported.has(name),
-      }[kind];
-      if (!has) {
-        const where = { option: 'prop', method: 'instance member' }[kind] ?? 'export';
-        problems.push(`${what} \`${item}\`: ${framework.name} ${where} \`${name}\` is missing from ${framework.path}`);
-      }
-    }
+    problems.push(...entryProblems(what, item, entry, side, read));
   }
   for (const item of Object.keys(table)) {
     if (!items.includes(item)) problems.push(`${what} \`${item}\` is in the mapping but no longer in the Rust API: remove it`);
@@ -636,28 +716,53 @@ function check(table, items, what, kindOf, side = EDITOR_SIDE) {
 }
 
 const groups = [
-  ['ConfigEditor prop', PROPS, rust.props, 'option'],
-  ['EditorHandle method', HANDLE, rust.handle, 'method'],
-  ['Language method', LANGUAGE, rust.language, 'function'],
-  ['ChangeSummary method', CHANGE_SUMMARY, rust.changeSummary, 'function'],
-  ['Schema method', SCHEMA, rust.schema, 'function'],
-  ['EditorTheme method', THEME, rust.theme, 'function'],
-  ['crate export', CRATE_EXPORTS, rust.exports, 'type'],
-  ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, 'option', DOCUMENTS_SIDE],
-  ['DocumentsHandle method', DOCUMENTS_HANDLE, rust.documentsHandle, 'method', DOCUMENTS_SIDE],
-  ['Document method', DOCUMENT, rust.document, 'type'],
+  ['ConfigEditor prop', PROPS, rust.props, EDITOR_SIDE],
+  ['EditorHandle method', HANDLE, rust.handle, EDITOR_SIDE],
+  ['Language method', LANGUAGE, rust.language, EDITOR_SIDE],
+  ['ChangeSummary method', CHANGE_SUMMARY, rust.changeSummary, EDITOR_SIDE],
+  ['Schema method', SCHEMA, rust.schema, EDITOR_SIDE],
+  ['EditorTheme method', THEME, rust.theme, EDITOR_SIDE],
+  ['crate export', CRATE_EXPORTS, rust.exports, EDITOR_SIDE],
+  ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, DOCUMENTS_SIDE],
+  ['DocumentsHandle method', DOCUMENTS_HANDLE, rust.documentsHandle, DOCUMENTS_SIDE],
+  ['Document method', DOCUMENT, rust.document, DOCUMENTS_SIDE],
 ];
+
+/**
+ * The options list, its typings and the `update` typings agree: every
+ * option is typed, and either an `update` key or refused (re-mount list and
+ * `never`); every `update` key is an option.
+ */
+function optionListProblems(side, { js }) {
+  const problems = [];
+  const options = side.options(js);
+  const typed = side.typedOptions(js);
+  const update = side.updateKeys(js);
+  const refusedKeys = side.refusedKeys(js);
+  const remount = side.remount(js);
+  for (const name of options) {
+    if (!typed.has(name)) problems.push(`${side.what} option \`${name}\` is in the options list but not typed`);
+    if (update.has(name) === remount.has(name)) problems.push(`${side.what} option \`${name}\` must be either an \`update\` key or in the re-mount list (not both)`);
+    if (remount.has(name) !== refusedKeys.has(name)) problems.push(`${side.what} option \`${name}\`: the re-mount list and the \`never\` keys of the update typings disagree`);
+  }
+  for (const name of typed) if (!options.has(name)) problems.push(`${side.what} option \`${name}\` is typed but not in the options list`);
+  for (const name of [...update, ...refusedKeys]) {
+    if (!options.has(name) && !js.typedSettings.has(name)) problems.push(`${side.what} \`update\` key \`${name}\` is no option`);
+  }
+  return problems;
+}
 
 /**
  * Every JS option (`options`) is passed by the binding (`forwarded`) under
  * its binding prop, which every component has under its own name; every
  * binding prop and component prop maps back to an option or is exempted.
  */
-function optionProblems({ table, options, forwarded, bindingProps, bindingOnly, frameworkProps, rename, only, where }) {
+function optionProblems({ tables, options, forwarded, bindingProps, bindingOnly, frameworks, frameworkProps, rename, only, where }) {
   const toProp = new Map(
-    Object.values(table)
-      .filter((entry) => !entry.exempt)
-      .map((entry) => [entry.js, entry.prop ?? entry.js]),
+    tables
+      .flatMap((table) => Object.values(table))
+      .filter((entry) => entry.option)
+      .map((entry) => [entry.option, entry.prop ?? entry.option]),
   );
   const problems = [];
   for (const option of options) {
@@ -691,12 +796,12 @@ function optionProblems({ table, options, forwarded, bindingProps, bindingOnly, 
   return problems;
 }
 
-/** Every JS method (but `jsOnly`) is a handle member, implemented by the binding and in every component's instance API. */
-function methodProblems({ methods, jsOnly, handle, implemented, frameworkHandle }) {
+/** Every JS member (but `jsOnly`) is a handle member, implemented by the binding and in every component's instance API. */
+function memberProblems({ members, jsOnly, handle, implemented, frameworks, frameworkHandle }) {
   const problems = [];
-  for (const name of methods) {
+  for (const name of members) {
     if (name in jsOnly) continue;
-    if (!handle.has(name)) problems.push(`JS method \`${name}\` has no handle member (js/config-editor/binding.d.ts)`);
+    if (!handle.has(name)) problems.push(`JS member \`${name}\` has no handle member (js/config-editor/binding.d.ts)`);
   }
   for (const name of handle) {
     if (!implemented.has(name)) problems.push(`handle member \`${name}\` is not implemented by the binding's \`#handle()\``);
@@ -707,6 +812,103 @@ function methodProblems({ methods, jsOnly, handle, implemented, frameworkHandle 
   return problems;
 }
 
+/** Every export of the main and tools entries is mapped from a Rust item, or listed with its reason. */
+function entryListProblems({ js }) {
+  const tables = groups.map(([, table]) => table);
+  const named = (kind) => new Set(tables.flatMap((table) => Object.values(table)).filter((entry) => entry[kind]).map((entry) => entry[kind]));
+  const problems = [];
+  for (const name of js.main) if (!named('main').has(name) && !(name in MAIN_ONLY)) problems.push(`js/config-editor/index.js exports \`${name}\`, which no Rust item maps to`);
+  for (const name of js.tools) if (!named('tool').has(name) && !(name in TOOLS_ONLY)) problems.push(`js/config-editor/tools.js exports \`${name}\`, which no Rust item maps to`);
+  for (const name of js.bindgen) {
+    if (!js.main.has(name) && !js.tools.has(name)) problems.push(`wasm_bindgen export \`${name}\` is in neither entry (index.js, tools.js)`);
+  }
+  return problems;
+}
+
+/**
+ * A framework package exports its components, their props and handle
+ * types, and every type of the package its props and handle take; no
+ * function of `@pngwasi/config-editor` (its apps import them from there).
+ */
+function frameworkExportProblems({ js, frameworks }) {
+  const problems = [];
+  const handleTypes = block(bindingTypes, bindingTypes.indexOf('export interface ConfigEditorHandle')) + block(bindingTypes, bindingTypes.indexOf('export interface ConfigDocumentsHandle'));
+  for (const framework of frameworks) {
+    for (const name of ['ConfigEditor', 'ConfigDocuments', 'ConfigEditorProps', 'ConfigDocumentsProps', 'ConfigEditorHandle', 'ConfigDocumentsHandle']) {
+      if (!framework.exported.has(name)) problems.push(`\`${name}\` is not exported by ${framework.path}`);
+    }
+    for (const name of typeNames(framework.propTypes + handleTypes, js.types)) {
+      if (!framework.exported.has(name)) problems.push(`${framework.name}: type \`${name}\`, which its props or handle take, is not exported by ${framework.path}`);
+    }
+    for (const name of [...js.main, ...js.tools]) {
+      if (['ConfigEditor', 'ConfigDocuments'].includes(name)) continue;
+      if (framework.exported.has(name)) problems.push(`${framework.name} re-exports \`${name}\`: apps import it from \`@pngwasi/config-editor\``);
+    }
+    const peers = JSON.parse(read(...framework.packageJson.split('/'))).peerDependencies ?? {};
+    if (!('@pngwasi/config-editor' in peers)) problems.push(`${framework.packageJson}: \`@pngwasi/config-editor\` must be a peer dependency (its apps import the helpers from it)`);
+  }
+  return problems;
+}
+
+/** Every problem the checks find in `read` (what was read, or a copy). */
+function allProblems(read) {
+  return [
+    ...groups.flatMap(([what, table, items, side]) => check(table, items, what, side, read)),
+    ...optionListProblems(EDITOR_SIDE, read),
+    ...optionListProblems(DOCUMENTS_SIDE, read),
+    ...optionProblems({
+      tables: [PROPS],
+      options: read.js.options,
+      forwarded: read.binding.forwarded,
+      bindingProps: read.binding.props,
+      bindingOnly: BINDING_ONLY_PROPS,
+      frameworks: read.frameworks,
+      frameworkProps: (framework) => framework.props,
+      rename: EDITOR_SIDE.rename,
+      only: (framework) => framework.only,
+      where: 'PROPS',
+    }),
+    ...optionProblems({
+      tables: [DOCUMENTS_PROPS],
+      options: read.js.documentsOptions,
+      forwarded: read.binding.documentsForwarded,
+      bindingProps: read.binding.documentsProps,
+      bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
+      frameworks: read.frameworks,
+      frameworkProps: (framework) => framework.documentsProps,
+      rename: DOCUMENTS_SIDE.rename,
+      only: (framework) => framework.documentsOnly,
+      where: 'DOCUMENTS_PROPS',
+    }),
+    ...memberProblems({
+      members: read.js.members,
+      jsOnly: EDITOR_JS_ONLY,
+      handle: read.binding.handle,
+      implemented: read.binding.handleImplemented,
+      frameworks: read.frameworks,
+      frameworkHandle: (framework) => framework.handle,
+    }),
+    ...memberProblems({
+      members: read.js.documentsMembers,
+      jsOnly: DOCUMENTS_JS_ONLY,
+      handle: read.binding.documentsHandle,
+      implemented: read.binding.documentsHandleImplemented,
+      frameworks: read.frameworks,
+      frameworkHandle: (framework) => framework.documentsHandle,
+    }),
+    ...entryListProblems(read),
+    ...frameworkExportProblems(read),
+  ];
+}
+
+/** A deep copy of what was read (sets copied), to take things out of. */
+function copy(value) {
+  if (value instanceof Set) return new Set(value);
+  if (Array.isArray(value)) return value.map(copy);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeof item === 'function' ? item : copy(item)]));
+  return value;
+}
+
 test.describe('API parity between the Rust crate and the JS packages', () => {
   test('every EditorSettings field is in the generated TypeScript type', () => {
     expect(rust.settings).toContain('folding');
@@ -715,16 +917,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect({ missing, extra }).toEqual({ missing: [], extra: [] });
   });
 
-  test('a document\'s editor (DocumentEditor) answers what a ConfigEditor does about its text', () => {
-    const problems = Object.entries(HANDLE)
-      .filter(([, entry]) => !entry.exempt)
-      .map(([, entry]) => entry.js)
-      .filter((name) => !js.documentEditorMethods.has(name))
-      .map((name) => `DocumentEditor has no \`${name}\``);
-    expect(problems).toEqual([]);
-  });
-
-  test('the Rust side, the bindings and every framework were read', () => {
+  test('the Rust side, the JS package, the bindings and every framework were read', () => {
     // A parser that silently finds nothing would pass everything.
     expect(rust.props).toContain('settings');
     expect(rust.handle).toContain('reveal');
@@ -733,10 +926,24 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(rust.schema).toContain('validate');
     expect(rust.theme).toContain('label');
     expect(rust.exports).toContain('unified_diff');
+    expect(rust.documentsProps).toContain('on_close');
+    expect(rust.documentsHandle).toContain('save_all');
+    expect(rust.document).toContain('read_only');
     expect(js.options.has('readOnly')).toBe(true);
-    expect(js.methods.has('reveal')).toBe(true);
-    expect(js.functions.has('validate')).toBe(true);
+    expect(js.remount.has('language')).toBe(true);
+    expect(js.updateKeys.has('readOnly')).toBe(true);
+    expect(js.refusedKeys.has('schema')).toBe(true);
+    expect(js.members.has('update')).toBe(true);
+    expect(js.viewMembers.has('unifiedDiff')).toBe(true);
+    expect(js.documentEditorMembers.has('value')).toBe(true);
+    expect(js.documentsOptions.has('onClose')).toBe(true);
+    expect(js.documentsUpdateKeys.has('activeId')).toBe(true);
+    expect(js.documentsMembers.has('saveAll')).toBe(true);
+    expect(js.main.has('languages')).toBe(true);
+    expect(js.tools.has('validate')).toBe(true);
+    expect(js.bindgen.has('validate')).toBe(true);
     expect(js.types.has('EditorOptions')).toBe(true);
+    expect(js.mainTypes.has('EditorView')).toBe(true);
     expect(binding.props.has('readOnly')).toBe(true);
     expect(binding.forwarded.has('readOnly')).toBe(true);
     expect(binding.handle.has('reveal')).toBe(true);
@@ -748,85 +955,50 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       expect(framework.props.has('readOnly'), framework.name).toBe(true);
       expect(framework.handle.has('reveal'), framework.name).toBe(true);
       expect(framework.handle.has('isDirty'), framework.name).toBe(true);
-      expect(framework.exported.has('validate'), framework.name).toBe(true);
       expect(framework.exported.has('ConfigEditor'), framework.name).toBe(true);
+      expect(framework.exported.has('EditorPath'), framework.name).toBe(true);
       expect(framework.documentsProps.has('onClose'), framework.name).toBe(true);
       expect(framework.documentsHandle.has('saveAll'), framework.name).toBe(true);
+      expect(typeNames(framework.propTypes, js.types).has('HostDiagnostic'), framework.name).toBe(true);
     }
   });
 
-  for (const [what, table, items, kind, side] of groups) {
-    test(`every ${what} is mapped to JS and every framework, or exempted`, () => {
-      expect(check(table, items, what, kind, side)).toEqual([]);
+  const read = { js, binding, frameworks };
+
+  for (const [what, table, items, side] of groups) {
+    test(`every ${what} is reachable from JS and every framework, or exempted`, () => {
+      expect(check(table, items, what, side, read)).toEqual([]);
     });
   }
 
-  test('the documents view was read', () => {
-    expect(rust.documentsProps).toContain('on_close');
-    expect(rust.documentsHandle).toContain('save_all');
-    expect(rust.document).toContain('read_only');
-    expect(js.documentsOptions.has('onClose')).toBe(true);
-    expect(js.documentsMethods.has('saveAll')).toBe(true);
+  test('a ConfigEditor and a document\'s editor are both an EditorView', () => {
+    const problems = [];
+    for (const name of js.viewMembers) {
+      if (!js.members.has(name)) problems.push(`ConfigEditor has no \`${name}\` (EditorView)`);
+      if (!js.documentEditorMembers.has(name)) problems.push(`DocumentEditorView has no \`${name}\` (EditorView)`);
+    }
+    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
+    for (const name of js.documentEditorMembers) if (!js.viewMembers.has(name)) problems.push(`DocumentEditorView member \`${name}\` is not in EditorView`);
+    expect(problems).toEqual([]);
+  });
+
+  test('the options lists, their typings and the update typings agree', () => {
+    expect([...optionListProblems(EDITOR_SIDE, read), ...optionListProblems(DOCUMENTS_SIDE, read)]).toEqual([]);
   });
 
   test('every component hands its props to its binding and exposes its handle', () => {
     expect(frameworks.flatMap((framework) => framework.wiring.map((problem) => `${framework.name}: ${problem}`))).toEqual([]);
   });
 
-  test('the documents options: list, typings, binding, and every component\'s props agree', () => {
-    const problems = [
-      ...[...js.documentsOptions].filter((name) => !js.typedDocumentsOptions.has(name)).map((name) => `option \`${name}\` is in DOCUMENTS_OPTIONS but not typed in DocumentsOptions`),
-      ...[...js.typedDocumentsOptions].filter((name) => !js.documentsOptions.has(name)).map((name) => `option \`${name}\` is typed in DocumentsOptions but not in DOCUMENTS_OPTIONS`),
-      ...optionProblems({
-        table: DOCUMENTS_PROPS,
-        options: js.documentsOptions,
-        forwarded: binding.documentsForwarded,
-        bindingProps: binding.documentsProps,
-        bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
-        frameworkProps: (framework) => framework.documentsProps,
-        rename: DOCUMENTS_SIDE.rename,
-        only: (framework) => framework.documentsOnly,
-        where: 'DOCUMENTS_PROPS',
-      }),
-    ];
-    expect(problems).toEqual([]);
-  });
-
-  test('every JS documents method is in every component\'s instance API', () => {
-    const jsOnly = {
-      destroy: 'the component unmounts the view itself',
-      setDocuments: 'the `documents` prop',
-      settings: 'the setting props',
-      setSettings: 'the setting props',
-      setCallbacks: 'callback props',
-    };
-    expect(
-      methodProblems({
-        methods: js.documentsMethods,
-        jsOnly,
-        handle: binding.documentsHandle,
-        implemented: binding.documentsHandleImplemented,
-        frameworkHandle: (framework) => framework.documentsHandle,
-      }),
-    ).toEqual([]);
-  });
-
-  test('the option list and the EditorOptions typings name the same options', () => {
-    const problems = [
-      ...[...js.options].filter((name) => !js.typedOptions.has(name)).map((name) => `option \`${name}\` is in EDITOR_OPTIONS but not typed in EditorOptions`),
-      ...[...js.typedOptions].filter((name) => !js.options.has(name)).map((name) => `option \`${name}\` is typed in EditorOptions but not in EDITOR_OPTIONS`),
-    ];
-    expect(problems).toEqual([]);
-  });
-
   test('every JS option reaches the editor through the binding and is a prop of every component, and back', () => {
     expect(
       optionProblems({
-        table: PROPS,
+        tables: [PROPS],
         options: js.options,
         forwarded: binding.forwarded,
         bindingProps: binding.props,
         bindingOnly: BINDING_ONLY_PROPS,
+        frameworks,
         frameworkProps: (framework) => framework.props,
         rename: EDITOR_SIDE.rename,
         only: (framework) => framework.only,
@@ -835,41 +1007,86 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     ).toEqual([]);
   });
 
-  test('every JS instance member is in every component\'s instance API', () => {
-    const jsOnly = {
-      destroy: 'the component unmounts the editor itself',
-      setBaseline: 'the `baseline` prop',
-      setEditAs: 'the `editAs` prop',
-      settings: 'the setting props',
-      setSettings: 'the setting props',
-      setReadOnly: 'the `readOnly` prop',
-      setCallbacks: 'callback props',
-      setHostDiagnostics: 'the `hostDiagnostics` prop',
-      setReadOnlyPaths: 'the `readOnlyPaths` prop',
-      setReadOnlyRanges: 'the `readOnlyRanges` prop',
-    };
+  test('the documents options: binding, and every component\'s props agree', () => {
     expect(
-      methodProblems({
-        methods: js.methods,
-        jsOnly,
-        handle: binding.handle,
-        implemented: binding.handleImplemented,
-        frameworkHandle: (framework) => framework.handle,
+      optionProblems({
+        tables: [DOCUMENTS_PROPS],
+        options: js.documentsOptions,
+        forwarded: binding.documentsForwarded,
+        bindingProps: binding.documentsProps,
+        bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
+        frameworks,
+        frameworkProps: (framework) => framework.documentsProps,
+        rename: DOCUMENTS_SIDE.rename,
+        only: (framework) => framework.documentsOnly,
+        where: 'DOCUMENTS_PROPS',
       }),
     ).toEqual([]);
   });
 
-  test('every JS function and public type is re-exported by every framework package', () => {
-    const problems = [];
-    for (const framework of frameworks) {
-      for (const name of [...js.functions, ...js.types, 'loadConfigEditor', 'ConfigEditorHandle', 'ConfigDocumentsHandle']) {
-        if (['ConfigEditor', 'ConfigDocuments', 'EditorOptions', 'CallbackUpdate'].includes(name)) continue;
-        if (!framework.exported.has(name)) problems.push(`\`${name}\` is not re-exported by ${framework.path}`);
-      }
-      for (const name of ['ConfigEditor', 'ConfigDocuments', 'ConfigEditorProps', 'ConfigDocumentsProps']) {
-        if (!framework.exported.has(name)) problems.push(`\`${name}\` (the component or its props) is not exported by ${framework.path}`);
-      }
+  test('every JS instance member is in every component\'s instance API', () => {
+    expect([
+      ...memberProblems({
+        members: js.members,
+        jsOnly: EDITOR_JS_ONLY,
+        handle: binding.handle,
+        implemented: binding.handleImplemented,
+        frameworks,
+        frameworkHandle: (framework) => framework.handle,
+      }),
+      ...memberProblems({
+        members: js.documentsMembers,
+        jsOnly: DOCUMENTS_JS_ONLY,
+        handle: binding.documentsHandle,
+        implemented: binding.documentsHandleImplemented,
+        frameworks,
+        frameworkHandle: (framework) => framework.documentsHandle,
+      }),
+    ]).toEqual([]);
+  });
+
+  test('every export of the entries maps to the Rust API', () => {
+    expect(entryListProblems(read)).toEqual([]);
+  });
+
+  test('each framework exports its components and the types they take, and no helper functions', () => {
+    expect(frameworkExportProblems(read)).toEqual([]);
+  });
+
+  test('the checks fail when a counterpart is missing', () => {
+    // Each change takes one counterpart out of a copy of what was read; the
+    // checks must name it.
+    const cases = [
+      ['an option', (read) => read.js.options.delete('readOnly'), 'readOnly'],
+      ['an update key', (read) => read.js.updateKeys.delete('baseline'), '`update` key `baseline`'],
+      ['a refused key', (read) => read.js.refusedKeys.delete('schema'), 'schema'],
+      ['a documents update key', (read) => read.js.documentsUpdateKeys.delete('activeId'), 'activeId'],
+      ['an instance member', (read) => read.js.members.delete('fold'), 'fold'],
+      ['an EditorView member', (read) => read.js.viewMembers.delete('reveal'), 'EditorView'],
+      ['a document editor member', (read) => read.js.documentEditorMembers.delete('foldAll'), 'DocumentEditorView'],
+      ['a documents member', (read) => read.js.documentsMembers.delete('saveAll'), 'saveAll'],
+      ['a main export', (read) => read.js.main.delete('languages'), 'languages'],
+      ['a tools export', (read) => read.js.tools.delete('validate'), 'validate'],
+      ['a type', (read) => read.js.types.delete('HostDiagnostic'), 'HostDiagnostic'],
+      ['a setting', (read) => read.js.typedSettings.delete('showFooter'), 'showFooter'],
+      ['a binding prop', (read) => read.binding.props.delete('hostDiagnostics'), 'hostDiagnostics'],
+      ['a forwarded option', (read) => read.binding.forwarded.delete('secrets'), 'secrets'],
+      ['a binding handle member', (read) => read.binding.handle.delete('unfold'), 'unfold'],
+      ['a React prop', (read) => read.frameworks[0].props.delete('baseline'), 'React prop `baseline`'],
+      ['a Vue documents prop', (read) => read.frameworks[1].documentsProps.delete('onClose'), 'Vue prop `onClose`'],
+      ['a Svelte instance member', (read) => read.frameworks[2].handle.delete('save'), 'Svelte'],
+      ['a framework type export', (read) => read.frameworks[0].exported.delete('FieldPath'), 'FieldPath'],
+      ['a re-exported helper', (read) => read.frameworks[1].exported.add('validate'), 'Vue re-exports `validate`'],
+    ];
+    const silent = [];
+    for (const [what, takeOut, mentioned] of cases) {
+      const changed = copy(read);
+      takeOut(changed);
+      const problems = allProblems(changed);
+      if (!problems.some((problem) => problem.includes(mentioned))) silent.push(`${what}: no problem mentions ${mentioned}`);
     }
-    expect(problems).toEqual([]);
+    expect(silent).toEqual([]);
+    // And nothing is missing as it is.
+    expect(allProblems(read)).toEqual([]);
   });
 });

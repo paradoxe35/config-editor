@@ -11,14 +11,8 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import {
-    type EditorBindingProps,
-    EditorBinding,
-    type EditorPath,
-    type EditorRange,
-    type FieldPath,
-    type LineRange,
-  } from "@pngwasi/config-editor";
+  import type { EditorPath, EditorRange, FieldPath, LineRange } from "@pngwasi/config-editor";
+  import { type EditorBindingProps, EditorBinding } from "@pngwasi/config-editor/binding";
   import type { ConfigEditorProps } from "./types.js";
   import { readAll } from "./track.js";
 

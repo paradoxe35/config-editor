@@ -60,7 +60,7 @@ test.describe('vanilla.html', () => {
   test('reveal scrolls a field far down into view', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const long = Array.from({ length: 300 }, (_, index) => `key_${index}: ${index}`).join('\n') + '\n';
-    await browserPage.evaluate((text) => window.editor.setValue(text), long);
+    await browserPage.evaluate((text) => window.editor.update({ value: text }), long);
     expect(await browserPage.evaluate(() => window.editor.reveal('/key_280'))).toBe(true);
     await expect.poll(() => selection(browserPage)).toEqual({ text: 'key_280: 280', focused: true });
     const view = await input(browserPage).evaluate((element) => {
@@ -124,12 +124,12 @@ test.describe('vanilla.html', () => {
 
   test('a removed onPathChange stops, and a new one starts', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
-    await browserPage.evaluate(() => window.editor.setCallbacks({ onPathChange: null }));
+    await browserPage.evaluate(() => window.editor.update({ onPathChange: null }));
     await caretAt(browserPage, 'tunnel.example.com', 4);
     await browserPage.waitForTimeout(100);
     await expect(breadcrumb(browserPage)).not.toHaveText('/public_address');
     await browserPage.evaluate(() =>
-      window.editor.setCallbacks({ onPathChange: (path) => (document.getElementById('breadcrumb').textContent = `new ${path.pointer}`) }),
+      window.editor.update({ onPathChange: (path) => (document.getElementById('breadcrumb').textContent = `new ${path.pointer}`) }),
     );
     await expect(breadcrumb(browserPage)).toHaveText('new /public_address');
   });

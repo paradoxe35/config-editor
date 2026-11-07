@@ -1,5 +1,5 @@
 //! Mounting the crate's component for a `ConfigEditor`: the live state its
-//! setters write, and the props and callbacks wired to JavaScript.
+//! `update` writes, and the props and callbacks wired to JavaScript.
 
 use config_editor_leptos::{
     BaselineConflict, ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorSettings,
@@ -42,7 +42,7 @@ pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
     }
 }
 
-/// The live state a mounted editor reads; setters write it.
+/// The live state a mounted editor reads; `update` writes it.
 #[derive(Clone, Copy)]
 pub(crate) struct State {
     pub(crate) value: RwSignal<String>,
@@ -60,6 +60,7 @@ pub(crate) struct State {
     pub(crate) saves: RwSignal<bool>,
     pub(crate) on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_baseline_conflict: StoredValue<Option<Function>, LocalStorage>,
+    pub(crate) on_schema_warning: StoredValue<Option<Function>, LocalStorage>,
     /// Whether `onPathChange` is set: only then is the caret's path computed.
     pub(crate) follows_path: RwSignal<bool>,
     pub(crate) handle: EditorHandle,
@@ -79,7 +80,6 @@ pub(crate) struct Setup {
     pub(crate) schema: Option<Schema>,
     pub(crate) file_name: String,
     pub(crate) class: String,
-    pub(crate) on_schema_warning: Option<Function>,
     pub(crate) secrets: SecretOptions,
 }
 
@@ -131,11 +131,11 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
     let read_only_paths = Signal::derive(move || state.read_only_paths.get());
     let read_only_ranges = Signal::derive(move || state.read_only_ranges.get());
-    let warn_with = StoredValue::new_local(setup.on_schema_warning);
-    let schema_warning = move |message: String| match warn_with.try_get_value().flatten() {
-        Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
-        None => web_sys::console::warn_1(&format!("config-editor: {message}").into()),
-    };
+    let schema_warning =
+        move |message: String| match state.on_schema_warning.try_get_value().flatten() {
+            Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
+            None => web_sys::console::warn_1(&format!("config-editor: {message}").into()),
+        };
     let edit_as = Signal::derive(move || state.edit_as.get());
     let value_signal = Signal::derive(move || state.value.get());
     let baseline = Signal::derive(move || state.baseline.get());

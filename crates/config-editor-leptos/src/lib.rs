@@ -112,5 +112,30 @@ pub use editor::{
     EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
     SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
     ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, float_of, float_value,
-    flush_pending_edits, flush_pending_input, is_web_url, string_of, string_value,
+    flush_pending_edits, string_of, string_value,
 };
+
+/// What the browser bindings (`config-editor-js`, published to npm as
+/// `@pngwasi/config-editor`) need from the editor that is not part of its
+/// Rust API: no stability promise, and not for other crates.
+#[doc(hidden)]
+pub mod js_support {
+    pub use crate::editor::{flush_pending_input, is_web_url};
+
+    /// Whether the secret placeholder pattern of `options` can be used: it
+    /// compiles, and it matches no empty text (`.*` would make every value
+    /// a placeholder). The error says what is wrong with it.
+    ///
+    /// ```
+    /// use config_editor_leptos::SecretOptions;
+    /// use config_editor_leptos::js_support::check_placeholder;
+    /// assert!(check_placeholder(&SecretOptions::default()).is_ok());
+    /// assert!(check_placeholder(&SecretOptions::default().with_placeholder("(")).is_err());
+    /// assert!(check_placeholder(&SecretOptions::default().with_placeholder(".*")).is_err());
+    /// assert!(config_editor_leptos::js_support::is_web_url("https://example.com/docs"));
+    /// assert!(!config_editor_leptos::js_support::is_web_url("javascript:alert(1)"));
+    /// ```
+    pub fn check_placeholder(options: &crate::SecretOptions) -> Result<(), String> {
+        options.check_placeholder()
+    }
+}

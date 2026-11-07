@@ -1,5 +1,5 @@
 import { mount } from "svelte";
-import { loadConfigEditor } from "@pngwasi/config-editor-svelte";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 import Documents from "./svelte/Documents.svelte";
 
 // The bundle does not sit next to the package's wasm, so say where it is.

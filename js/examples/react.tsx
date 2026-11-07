@@ -1,13 +1,14 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import * as core from "@pngwasi/config-editor";
+import * as tools from "@pngwasi/config-editor/tools";
+import { loadConfigEditor, themes } from "@pngwasi/config-editor";
 import * as api from "@pngwasi/config-editor-react";
 import {
   ConfigEditor,
   type ConfigEditorHandle,
   type ConfigEditorProps,
   type HostDiagnostic,
-  loadConfigEditor,
-  themes,
 } from "@pngwasi/config-editor-react";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
@@ -35,9 +36,10 @@ const slow = new URLSearchParams(location.search).has("slow");
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
 // For tests: `?props={...}` adds or overrides props, and `setExtraProps`
-// changes them later; `packageApi` is the package's exports.
+// changes them later; `packageApi` is the package's exports, `coreApi`
+// and `toolsApi` those of `@pngwasi/config-editor` and its `/tools`.
 const initialExtra = JSON.parse(new URLSearchParams(location.search).get("props") ?? "{}") as ConfigEditorProps;
-(window as unknown as { packageApi: typeof api }).packageApi = api;
+Object.assign(window, { packageApi: api, coreApi: core, toolsApi: tools });
 const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -74,7 +76,7 @@ function App({ schema }: { schema: string }) {
   const [shown, setShown] = useState(true);
   (window as unknown as { setShown: typeof setShown }).setShown = setShown;
   useEffect(() => {
-    void ready.then(() => setThemeNames(themes() as unknown as string[]));
+    void ready.then(() => setThemeNames(themes().map((theme) => theme.name)));
   }, []);
   useEffect(() => {
     if (resetEarly) handle.current?.setValue("from-effect: 1\n");

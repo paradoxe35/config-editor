@@ -87,14 +87,7 @@ impl SecretOptions {
     /// # Errors
     ///
     /// What is wrong with the pattern.
-    ///
-    /// ```
-    /// use config_editor_leptos::SecretOptions;
-    /// assert!(SecretOptions::default().check_placeholder().is_ok());
-    /// assert!(SecretOptions::default().with_placeholder("(").check_placeholder().is_err());
-    /// assert!(SecretOptions::default().with_placeholder(".*").check_placeholder().is_err());
-    /// ```
-    pub fn check_placeholder(&self) -> Result<(), String> {
+    pub(crate) fn check_placeholder(&self) -> Result<(), String> {
         let pattern = regex_lite::Regex::new(&self.placeholder).map_err(|error| {
             format!(
                 "{:?} is not a regular expression: {error}",
