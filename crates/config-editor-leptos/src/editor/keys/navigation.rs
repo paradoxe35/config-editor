@@ -183,9 +183,8 @@ pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
         state.close_suggestions();
         return;
     }
-    if state.search.open.get_untracked() {
+    if super::super::search::close_on_escape(state) {
         event.prevent_default();
-        super::super::search::close(state);
         return;
     }
     if let Some(element) = state.textarea() {

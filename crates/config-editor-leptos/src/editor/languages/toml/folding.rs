@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use super::super::super::folding::scan_brackets;
+use super::super::super::fold_ranges::scan_brackets;
 use super::super::super::language::{
     FoldRange, LanguageConfig, comment_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
 };

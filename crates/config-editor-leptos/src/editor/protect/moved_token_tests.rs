@@ -7,11 +7,12 @@ use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::edit::Edit;
+use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::problems::unknown_placeholders;
 use super::secret_tests::{PIN, SECRET, documents, schema};
-use super::tokens::{SecretMatcher, SecretOptions};
+use super::tokens::SecretMatcher;
 
 fn utf16(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()

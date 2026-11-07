@@ -155,7 +155,9 @@ pub(super) struct HostEditing {
     /// language. It follows the `baseline` prop, except while a conflict
     /// waits for the user.
     pub(super) baseline: RwSignal<String>,
-    /// `baseline` as shown, in the language on screen.
+    /// `baseline` as shown, in the language on screen (the diff reads it
+    /// too).
+    #[cfg_attr(not(feature = "diff"), allow(dead_code))]
     pub(super) shown_baseline: Memo<String>,
     /// A new baseline waiting for the user's choice (the notice is open).
     pub(super) conflict: RwSignal<Option<PendingBaseline>>,

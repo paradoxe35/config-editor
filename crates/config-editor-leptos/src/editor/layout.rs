@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::folding::Projection;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
+use super::projection::Projection;
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -38,6 +38,11 @@ pub(super) struct ViewState {
     pub(super) visible_rows: Memo<Range<usize>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
+    /// The textarea's text: the document with the closed folds cut out
+    /// (see `projection`; the document itself without folding).
+    pub(super) projection: RwSignal<Arc<Projection>>,
+    /// The document lines (0-based) on the textarea rows in view.
+    pub(super) visible_lines: Memo<Vec<usize>>,
 }
 
 impl ViewState {
@@ -74,6 +79,10 @@ impl ViewState {
                 (first + (height / line_height).ceil() as usize + 2 * OVERSCAN_ROWS).min(count);
             first..last
         });
+        let visible_lines = Memo::new(move |_| {
+            let rows = visible_rows.get();
+            projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
+        });
         Self {
             textarea_ref,
             completion_ref: NodeRef::new(),
@@ -84,6 +93,8 @@ impl ViewState {
             lines,
             visible_rows,
             string_bodies,
+            projection,
+            visible_lines,
         }
     }
 }

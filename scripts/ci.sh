@@ -41,8 +41,9 @@ step_test() {
   run_tests test -p config-editor-js
 }
 
-# Each language (and schema validation) built and tested on its own, so a
-# test or helper that needs another feature is gated by it.
+# Each language (and schema validation) built and tested on its own, with no
+# optional feature, so a test or helper that needs another feature is gated
+# by it.
 step_languages() {
   (cd crates/config-editor-leptos &&
     for features in yaml json toml hcl xml schema-validation; do
@@ -56,6 +57,31 @@ step_languages() {
 # schema alone).
 step_minimal() {
   (cd crates/config-editor-leptos && run_tests test --no-default-features --features yaml,json,toml,hcl,xml)
+}
+
+# The optional features (search, diff, folding, protect): each one off with
+# everything else on, then all of them off together (YAML and JSON), so
+# shared code never needs one and a test that does is gated by it. The
+# end-to-end suite runs only with the defaults (`browser`). Without debug
+# info: five configurations of test binaries are otherwise several GB.
+OPTIONAL=(search diff folding protect)
+step_optional() {
+  (cd crates/config-editor-leptos &&
+    export CARGO_PROFILE_DEV_DEBUG=0 &&
+    for off in "${OPTIONAL[@]}"; do
+      local on=(schema-validation yaml json toml hcl xml)
+      for feature in "${OPTIONAL[@]}"; do
+        [[ "$feature" != "$off" ]] && on+=("$feature")
+      done
+      local features
+      features=$(IFS=,; echo "${on[*]}")
+      echo "== without $off"
+      cargo clippy --all-targets --no-default-features --features "$features" -- -D warnings
+      run_tests test --no-default-features --features "$features"
+    done
+    echo "== without any (yaml, json)"
+    cargo clippy --all-targets --no-default-features --features yaml,json -- -D warnings
+    run_tests test --no-default-features --features yaml,json)
 }
 
 # Generated docs are up to date (no build needed).
@@ -73,10 +99,10 @@ step_browser() {
   (cd e2e && npm ci && npx playwright test)
 }
 
-STEPS=(fmt clippy test languages minimal docs)
+STEPS=(fmt clippy test languages minimal optional docs)
 case "${1:-all}" in
   all) set -- "${STEPS[@]}" ;;
-  rust) set -- fmt clippy test languages minimal ;;
+  rust) set -- fmt clippy test languages minimal optional ;;
 esac
 for step in "$@"; do
   echo "### $step"

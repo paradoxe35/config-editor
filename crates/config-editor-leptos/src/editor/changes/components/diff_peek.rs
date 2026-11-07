@@ -4,17 +4,17 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::changes::hunk_for_peek;
-use super::super::diff::{DiffPeek, peek_popup_style, peek_survives_edit};
-use super::super::keys::changes::go_to_change;
-use super::super::state::EditorState;
+use super::super::super::state::EditorState;
+use super::super::hunk_for_peek;
+use super::super::keys::go_to_change;
+use super::super::line_diff::{DiffPeek, peek_popup_style, peek_survives_edit};
 use crate::EditorStrings;
 use crate::reactive::Relay;
 use crate::strings::fill;
 use std::ops::Range;
 
 #[component]
-pub(crate) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
+pub(in crate::editor) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
     close_when_edited(state);
     // Each preview is a view of its own, so it reads what it follows
     // through relays (see `reactive`).
@@ -54,7 +54,7 @@ fn peek_style(state: EditorState) -> String {
         (Some(editor), Some(root)) => {
             // The row the line is on, folded lines skipped.
             let row = state
-                .fold
+                .view
                 .projection
                 .with(|projection| projection.row_of_line(line.saturating_sub(1)));
             peek_popup_style(&editor, &root, row + 1, old_count, new_count)

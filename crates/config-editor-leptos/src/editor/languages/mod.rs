@@ -49,7 +49,8 @@ mod editing_matrix;
     feature = "json",
     feature = "toml",
     feature = "hcl",
-    feature = "xml"
+    feature = "xml",
+    feature = "folding"
 ))]
 mod fold_matrix;
 #[cfg(all(
@@ -291,10 +292,10 @@ impl Language {
 
     /// The line ranges of `source` that fold (see
     /// [`ConfigLanguage::fold_ranges`]): 0-based, the first line staying
-    /// visible.
+    /// visible. Needs the `folding` feature.
     ///
     /// ```
-    /// # #[cfg(feature = "json")] {
+    /// # #[cfg(all(feature = "json", feature = "folding"))] {
     /// use config_editor_leptos::{Language, language::FoldRange};
     /// let text = "{\n  \"web\": {\n    \"http\": 80\n  }\n}";
     /// assert_eq!(
@@ -303,6 +304,7 @@ impl Language {
     /// );
     /// # }
     /// ```
+    #[cfg(feature = "folding")]
     pub fn fold_ranges(self, source: &str) -> Vec<super::language::FoldRange> {
         self.0.fold_ranges(source)
     }

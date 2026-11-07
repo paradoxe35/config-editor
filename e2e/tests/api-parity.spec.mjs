@@ -261,9 +261,10 @@ function crateExports() {
 
 const rust = {
   props: componentProps(),
-  handle: implMethods(crate('editor/handle.rs'), 'EditorHandle'),
+  // The folding methods live with folding (an optional feature).
+  handle: implMethods(crate('editor/handle.rs') + crate('editor/folding/handle.rs'), 'EditorHandle'),
   language: implMethods(crate('editor/languages/mod.rs'), 'Language'),
-  changeSummary: implMethods(crate('editor/changes/mod.rs'), 'ChangeSummary'),
+  changeSummary: implMethods(crate('editor/change_summary.rs') + crate('editor/changes/mod.rs'), 'ChangeSummary'),
   schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),

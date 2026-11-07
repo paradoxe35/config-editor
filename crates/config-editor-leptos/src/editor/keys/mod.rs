@@ -2,11 +2,8 @@
 //! returns `true` when it took the key, and [`on_keydown`] stops there; the
 //! order below is the order keys are matched in.
 
-pub(super) mod changes;
 mod enter;
-mod folding;
 mod navigation;
-mod search;
 mod suggestions;
 mod tab;
 mod typing;
@@ -32,13 +29,13 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.hide_shown_problem();
     }
-    if folding::shortcuts(state, event) {
+    if super::folding::shortcuts(state, event) {
         return;
     }
     if state.step_over_token(event)
         || navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
-        || changes::go_to_change(state, event)
+        || super::changes::go_to_change(state, event)
     {
         return;
     }
@@ -53,7 +50,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         }
         return;
     }
-    folding::unfold_before_edit(state, event);
+    super::folding::unfold_before_edit(state, event);
     let handled = navigation::undo_redo(state, event)
         || suggestions::request(state, event)
         || navigation::next_problem(state, event)
@@ -82,30 +79,16 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
 /// Keys on the editor root, from the text or a widget: find and replace
 /// shortcuts; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
-    if search::shortcuts(state, event) || go_to_line_key(state, event) || save_key(state, event) {
+    if super::search::shortcuts(state, event) || save_key(state, event) {
         return;
     }
     if event.key() == "Escape" {
         event.prevent_default();
         state.close_suggestions();
         state.completion.explicit.set(false);
-        state.changes.peek.set(None);
+        super::changes::close_preview(state);
         state.hide_hover();
     }
-}
-
-/// `Ctrl+G` opens the go-to-line field.
-fn go_to_line_key(state: EditorState, event: &KeyboardEvent) -> bool {
-    let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
-    if !state.config.settings.go_to_line.get_untracked()
-        || !command
-        || !event.key().eq_ignore_ascii_case("g")
-    {
-        return false;
-    }
-    event.prevent_default();
-    super::go_to_line::open(state);
-    true
 }
 
 /// `Ctrl+S` / `Cmd+S` saves through `on_save`, instead of the browser's
@@ -127,12 +110,12 @@ fn modified(event: &KeyboardEvent) -> bool {
 }
 
 /// No Ctrl, Cmd or Alt held.
-fn unmodified(event: &KeyboardEvent) -> bool {
+pub(super) fn unmodified(event: &KeyboardEvent) -> bool {
     !event.ctrl_key() && !event.meta_key() && !event.alt_key()
 }
 
 /// The single character a key types, if it types one.
-fn typed_character(event: &KeyboardEvent) -> Option<char> {
+pub(super) fn typed_character(event: &KeyboardEvent) -> Option<char> {
     let key = event.key();
     let mut characters = key.chars();
     let character = characters.next()?;

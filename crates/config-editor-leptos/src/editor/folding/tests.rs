@@ -1,9 +1,9 @@
 //! The projection, folds through edits, and the language-free building
 //! blocks. The per-language ranges are in `languages/fold_matrix.rs`.
 
+use super::super::fold_ranges::*;
+use super::super::projection::{Projection, Side};
 use super::follow::{follow_edit, keep_valid};
-use super::projection::{Projection, Side};
-use super::*;
 use crate::language::LanguageConfig;
 
 fn fold(start: usize, end: usize) -> FoldRange {

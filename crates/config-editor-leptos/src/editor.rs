@@ -13,6 +13,8 @@ use crate::reactive::Kept;
 
 mod a11y;
 mod bridge;
+mod change_summary;
+#[cfg_attr(not(feature = "diff"), path = "editor/off/changes.rs")]
 mod changes;
 mod codec;
 mod commands;
@@ -24,8 +26,9 @@ mod diff;
 mod document;
 mod edit;
 mod edit_as;
+mod fold_ranges;
+#[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
 mod folding;
-mod go_to_line;
 mod handle;
 mod highlight;
 mod history;
@@ -43,14 +46,27 @@ mod languages;
 mod layout;
 mod line_rows;
 mod live_settings;
-#[cfg(all(test, feature = "yaml"))]
+// Observes what every setting switches, so it needs every optional feature.
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "diff",
+    feature = "search",
+    feature = "folding",
+    feature = "protect"
+))]
 mod live_settings_tests;
 mod metrics;
 mod paths;
 mod positioning;
 mod problems;
+mod projection;
+#[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
+#[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
+mod secret_options;
+mod source_area;
 mod state;
 mod sync;
 // Used by the tests that mount a YAML editor (all of them need YAML).
@@ -59,7 +75,9 @@ mod test_state;
 mod theme;
 mod typing;
 
-pub use changes::{ChangeSummary, unified_diff};
+pub use change_summary::ChangeSummary;
+#[cfg(feature = "diff")]
+pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{
@@ -71,15 +89,17 @@ pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
-pub use protect::SecretOptions;
+pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use crate::EditorSettings;
+use changes::DiffPeekPopup;
 use components::{
-    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup,
-    EditAsNotice, FindWidget, GoToLineWidget, Gutter, HoverCardView, ProtectTipView,
-    SearchHighlights, SourceInput, StatusBar, Toolbar,
+    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
+    HoverCardView, SourceInput, StatusBar, Toolbar,
 };
+use protect::ProtectTipView;
+use search::{FindWidget, GoToLineWidget, SearchHighlights};
 use state::{EditorState, Init, normalize_newlines};
 
 /// The preset stylesheet: layout plus every bundled theme, and the tabs of
@@ -158,7 +178,7 @@ pub fn ConfigEditor(
     /// removed and modified, and the number of separate changes): once on
     /// mount and after each edit or baseline update that changes it. Counts
     /// what the diff gutter shows, so it stays at zero with the `show_diff`
-    /// setting off.
+    /// setting off. Needs the `diff` feature: without it, never called.
     #[prop(optional, into)]
     on_change_summary: Option<Callback<ChangeSummary>>,
     /// Called once per problem with something in `schema` the editor cannot
@@ -189,17 +209,22 @@ pub fn ConfigEditor(
     /// Fields the user cannot change, each with everything inside it, on
     /// top of those the schema marks `readOnly`; may be a signal to change
     /// them at runtime. They are found by path in the language on screen,
-    /// so they hold while editing as another language too.
+    /// so they hold while editing as another language too. Needs the
+    /// `protect` feature: without it, nothing is locked (the console says
+    /// so).
     #[prop(optional, into)]
     read_only_paths: Option<Signal<Vec<FieldPath>>>,
     /// Stretches of the host's text the user cannot change; may be a
     /// signal. They follow the text through edits; while editing as another
-    /// language, the fields they cover are locked instead.
+    /// language, the fields they cover are locked instead. Needs the
+    /// `protect` feature: without it, nothing is locked (the console says
+    /// so).
     #[prop(optional, into)]
     read_only_ranges: Option<Signal<Vec<TextRange>>>,
     /// How secret placeholders are matched, described and completed; see
     /// [`SecretOptions`]. Fields the schema marks `writeOnly` or `x-secret`
-    /// are secrets.
+    /// are secrets. Needs the `protect` feature: without it, placeholders
+    /// are plain text.
     #[prop(optional, into)]
     secrets: Option<SecretOptions>,
     /// Called when the user saves (`Ctrl+S` / `Cmd+S`, the browser's save
@@ -245,9 +270,9 @@ pub fn ConfigEditor(
         host_on_change: on_change,
         host_diagnostics: host_diagnostics.unwrap_or_default(),
         protect: protect::ProtectInit {
-            paths: read_only_paths.unwrap_or_default(),
-            ranges: read_only_ranges.unwrap_or_default(),
-            secrets: secrets.unwrap_or_default(),
+            paths: read_only_paths,
+            ranges: read_only_ranges,
+            secrets,
         },
         on_save,
         on_baseline_conflict,
@@ -283,7 +308,7 @@ pub fn ConfigEditor(
     remeasure_on_window_changes(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
-    components::mount_fold_layers(state);
+    folding::mount_fold_layers(state);
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());

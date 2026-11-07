@@ -514,7 +514,7 @@ pub(super) fn validate_with(
     if let Some(schema) = schema {
         let placeholders = accepted_pointers(&document, accepted);
         let secrets = if schema.has_marks {
-            super::protect::schema_marks(&document, &schema.schema).secret
+            super::protect::secret_pointers(&document, &schema.schema)
         } else {
             Vec::new()
         };
@@ -682,7 +682,7 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
         match value {
             Value::String(text)
                 if accepted.iter().any(|(token, field)| {
-                    token == text && super::protect::same_field(field, &pointer)
+                    token == text && super::paths::same_field(field, &pointer)
                 }) =>
             {
                 found.push(pointer)

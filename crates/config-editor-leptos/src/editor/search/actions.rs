@@ -7,13 +7,19 @@ use leptos::prelude::*;
 use super::super::edit::Edit;
 use super::super::input::flush_input;
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::positioning::reveal_centered;
 use super::super::state::{EditorState, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
+use super::reveal::reveal_centered;
 use super::{SearchOptions, SearchResults};
 use crate::EditorStrings;
 use crate::strings::{counted, fill};
+
+/// What Replace All adds when it left `count` matches in protected text
+/// alone.
+fn skipped_matches(strings: &EditorStrings, count: usize) -> String {
+    fill(&strings.replace_skipped, &[("count", &count)])
+}
 
 /// Longest selection taken as the query when the widget opens.
 const SEED_MAX_CHARS: usize = 200;
@@ -279,7 +285,7 @@ impl SearchNotice {
             SearchNotice::Replaced { count, skipped } => {
                 let mut text = counted(&strings.replaced_one, &strings.replaced_other, *count);
                 if *skipped > 0 {
-                    text.push_str(&super::super::protect::skipped_matches(strings, *skipped));
+                    text.push_str(&skipped_matches(strings, *skipped));
                 }
                 text
             }

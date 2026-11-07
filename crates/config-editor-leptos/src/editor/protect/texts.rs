@@ -56,18 +56,6 @@ pub(crate) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.save_refused, &[("pointer", &place)])
 }
 
-/// What Replace All adds when it left `count` matches in protected text
-/// alone.
-pub(crate) fn skipped_matches(strings: &EditorStrings, count: usize) -> String {
-    fill(&strings.replace_skipped, &[("count", &count)])
-}
-
-/// The default placeholder pattern.
-pub(crate) const SECRET_PATTERN: &str = "«secret [0-9a-f]+»";
-
-/// The default reference forms offered in a secret field.
-pub(crate) const REFERENCE_PREFIXES: [&str; 2] = ["${", "file:"];
-
 /// A placeholder the host did not give, in a secret field.
 pub(crate) fn unknown_placeholder(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.unknown_placeholder, &[("pointer", &pointer)])

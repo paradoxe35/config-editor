@@ -11,7 +11,7 @@ use super::diagnostics::{Diagnostic, SchemaBundle, shift_diagnostics, validate_w
 use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::languages::Language;
-use super::protect::{ProtectState, unknown_placeholders};
+use super::protect::ProtectState;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;
@@ -60,7 +60,7 @@ impl ProblemsState {
         let validated = Memo::new(move |_| {
             let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
-            let accepted = protect.secrets.known_tokens();
+            let accepted = protect.accepted_tokens();
             let behavior = edit_language.get().behavior();
             strings.with(|strings| {
                 let mut found = diagnosed_text.with(|text| {
@@ -87,19 +87,9 @@ impl ProblemsState {
                         .as_deref()
                         .filter(|bundle| bundle.has_marks)
                         .map(|bundle| &bundle.schema);
-                    let secrets = protect.secrets;
-                    if marking.is_some() || secrets.known.with(|known| !known.is_empty()) {
+                    if marking.is_some() || protect.has_placeholders() {
                         found.extend(diagnosed_text.with(|text| {
-                            secrets.matcher.with_value(|matcher| {
-                                secrets.known.with(|known| {
-                                    secrets.tokens.with(|tokens| {
-                                        unknown_placeholders(
-                                            behavior, text, matcher, known, tokens, marking,
-                                            strings,
-                                        )
-                                    })
-                                })
-                            })
+                            protect.placeholder_problems(behavior, text, marking, strings)
                         }));
                     }
                 }

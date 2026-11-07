@@ -5,39 +5,11 @@
 use std::ops::Range;
 
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::line_rows::LineMarks;
 use super::locate::LineIndex;
 use super::locks::Protected;
 use super::texts;
 use crate::EditorStrings;
-
-/// What one line shows of protected text.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct LineMarks {
-    /// Byte ranges of the line drawn muted.
-    pub(crate) muted: Vec<Range<usize>>,
-    /// The gutter lock's label, with the reason.
-    pub(crate) lock: Option<String>,
-    /// Byte ranges of the line's secret placeholders.
-    pub(crate) secret: Vec<Range<usize>>,
-    /// The gutter key's label, on a line with a placeholder.
-    pub(crate) key: Option<String>,
-}
-
-impl LineMarks {
-    /// The byte ranges drawn specially, each with its class.
-    pub(crate) fn classes(&self) -> Vec<(Range<usize>, &'static str)> {
-        // A placeholder in a read-only value is drawn as a placeholder.
-        self.secret
-            .iter()
-            .map(|range| (range.clone(), "config-editor__secret"))
-            .chain(
-                self.muted
-                    .iter()
-                    .map(|range| (range.clone(), "config-editor__locked")),
-            )
-            .collect()
-    }
-}
 
 /// The marks of every line of `text` (empty when nothing is protected),
 /// with its secret placeholders at `tokens` (UTF-16) and their `hint`.

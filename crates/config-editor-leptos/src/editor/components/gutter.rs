@@ -1,16 +1,14 @@
-//! Line numbers with error and diff markers; a modified or deleted marker
-//! opens the change preview.
+//! Line numbers with their error, lock and change markers.
 
 use leptos::prelude::*;
 
+use super::super::changes::ChangeMarkers;
 use super::super::commands::line_range;
-use super::super::diff::{DiffKind, DiffPeek};
+use super::super::diff::DiffKind;
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
 use super::{RowSpacer, row_state_for};
-use crate::EditorStrings;
 use crate::reactive::KeyedList;
-use crate::strings::fill;
 
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -30,7 +28,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             >
                 <RowSpacer state=state />
                 <KeyedList
-                    each=move || state.fold.visible_lines.get()
+                    each=move || state.view.visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <LineNumber state=state rows=rows index=index /> }
                 />
@@ -78,54 +76,7 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
                     <span class=class role="img" aria-label=label.clone() title=label></span>
                 })
             }}
-            {move || {
-                row.with(|row| row.added_peek.clone()).map(|peek| view! {
-                    <PeekTrigger
-                        state=state
-                        peek=peek
-                        class="config-editor__diff-marker config-editor__diff-marker-added config-editor__diff-change-trigger"
-                        label=|strings| &strings.show_added
-                        title=|strings| &strings.show_added_title
-                        line=line
-                    />
-                })
-            }}
-            {move || {
-                row.with(|row| row.modified_peek.clone()).map(|peek| view! {
-                    <PeekTrigger
-                        state=state
-                        peek=peek
-                        class="config-editor__diff-marker config-editor__diff-marker-modified config-editor__diff-change-trigger"
-                        label=|strings| &strings.show_modified
-                        title=|strings| &strings.show_modified_title
-                        line=line
-                    />
-                })
-            }}
-            {move || {
-                row.with(|row| row.deleted_peek.clone()).map(|peek| view! {
-                    <PeekTrigger
-                        state=state
-                        peek=peek
-                        class="config-editor__diff-deleted"
-                        label=|strings| &strings.show_removed
-                        title=|strings| &strings.show_removed_title
-                        line=line
-                    />
-                })
-            }}
-            {move || {
-                row.with(|row| row.deleted_after_peek.clone()).map(|peek| view! {
-                    <PeekTrigger
-                        state=state
-                        peek=peek
-                        class="config-editor__diff-deleted config-editor__diff-deleted-after"
-                        label=|strings| &strings.show_removed_at_end
-                        title=|strings| &strings.show_removed_title
-                        line=line
-                    />
-                })
-            }}
+            <ChangeMarkers state=state row=row line=line />
         </div>
     }
 }
@@ -159,44 +110,5 @@ fn line_number_class(row: &RowUiState) -> &'static str {
         (true, true, DiffKind::Modified) => {
             "config-editor__line-number-active config-editor__line-number-error config-editor__line-number-modified"
         }
-    }
-}
-
-/// A gutter marker that toggles the change preview for `peek`.
-#[component]
-fn PeekTrigger(
-    state: EditorState,
-    peek: DiffPeek,
-    class: &'static str,
-    /// Its accessible name, a text naming the `{line}`.
-    label: fn(&EditorStrings) -> &String,
-    title: fn(&EditorStrings) -> &String,
-    line: usize,
-) -> impl IntoView {
-    let strings = state.strings_signal();
-    let label = move || strings.with(|strings| fill(label(strings), &[("line", &line)]));
-    let toggle = move |_| {
-        state.changes.peek.update(|selected| {
-            *selected = if selected.as_ref() == Some(&peek) {
-                None
-            } else {
-                Some(peek.clone())
-            };
-        });
-    };
-    let keydown = move |event: web_sys::KeyboardEvent| {
-        if event.key() == "Escape" {
-            state.changes.peek.set(None);
-        }
-    };
-    view! {
-        <button
-            type="button"
-            class=class
-            aria-label=label
-            title=state.text(title)
-            on:click=toggle
-            on:keydown=keydown
-        ></button>
     }
 }

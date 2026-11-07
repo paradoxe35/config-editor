@@ -1,25 +1,63 @@
 //! Find and replace, as in VS Code: `Ctrl+F` opens the find widget,
-//! `Ctrl+H` the replace row too.
+//! `Ctrl+H` the replace row too; and go to line (`Ctrl+G`). The `search`
+//! feature: without it, `off/search.rs` stands in with the same hooks.
 //!
 //! - `matcher`, `replace`: the pure part, finding and replacing text.
 //! - `actions`: what the widget's keys and buttons do to the editor.
+//! - `go_to_line`: the go-to-line field.
+//! - `keys`: the shortcuts; `components`: the widgets and match boxes.
 //!
 //! Matches are only searched while the widget is open, and only those in
 //! view are drawn (see `components::SearchHighlights`).
+//!
+//! The rest of the editor sees only the hooks re-exported here.
 
 mod actions;
+mod components;
+mod go_to_line;
+mod keys;
 mod matcher;
 mod replace;
+mod reveal;
 
-pub(super) use actions::{
-    SearchNotice, close, count_label, dismiss, open, replace_all, replace_current, select_nearest,
-    step, toggle_option,
+pub(super) use components::{FindWidget, GoToLineWidget, SearchHighlights};
+pub(super) use go_to_line::GoToLine;
+pub(super) use keys::shortcuts;
+
+use actions::{
+    SearchNotice, close, count_label, dismiss, replace_all, replace_current, select_nearest, step,
+    toggle_option,
 };
-pub(super) use matcher::{SearchMatch, SearchOptions};
+use matcher::{SearchMatch, SearchOptions};
 
 use leptos::prelude::*;
 
+use super::live_settings::on_switch_off;
+use super::state::EditorState;
 use matcher::{Matcher, find_matches};
+
+/// Switching the `search` or `go_to_line` setting off closes its widget.
+pub(super) fn follow_settings(state: EditorState) {
+    let settings = state.config.settings;
+    on_switch_off(settings.search, move || dismiss(state));
+    on_switch_off(settings.go_to_line, move || {
+        go_to_line::cancel_on_blur(state)
+    });
+}
+
+/// Escape in the text closes the find widget: `true` when it was open.
+pub(super) fn close_on_escape(state: EditorState) -> bool {
+    let open = state.search.open.get_untracked();
+    if open {
+        close(state);
+    }
+    open
+}
+
+/// Whether the find widget or the go-to-line field is open.
+pub(super) fn is_open(state: EditorState) -> bool {
+    state.search.open.get_untracked() || state.go_to_line.open.get_untracked()
+}
 
 /// What the open widget found in the document.
 #[derive(Clone, Debug, Default, PartialEq)]

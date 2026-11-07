@@ -35,6 +35,8 @@ jobs:
         run: scripts/ci.sh languages
       - name: Every language without schema validation (completions and hover from the schema alone)
         run: scripts/ci.sh minimal
+      - name: Each optional feature off, then all of them (search, diff, folding, protect)
+        run: scripts/ci.sh optional
 
   browser:
     name: npm packages and end-to-end tests

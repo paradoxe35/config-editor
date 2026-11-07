@@ -16,7 +16,7 @@ pub(crate) use accept::*;
 pub(crate) use candidates::*;
 pub(crate) use docs::*;
 pub(crate) use hover::*;
-pub(crate) use live::{CompletionState, Sources};
+pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
 pub(crate) use patterns::unsupported_patterns;
 pub(crate) use popup::*;

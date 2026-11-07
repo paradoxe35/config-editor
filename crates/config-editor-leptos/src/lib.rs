@@ -78,6 +78,17 @@
 //! - `yaml`, `json`, `toml`, `hcl`, `xml`: the built-in languages
 //!   ([`Language::YAML`], …). Without any, use your own through
 //!   [`Language::new`].
+//! - `search`: find and replace, go to line.
+//! - `diff`: changes against the baseline (gutter markers, preview, revert,
+//!   the change count, `unified_diff`).
+//! - `folding`: folding by structure, and the handle's folding methods.
+//! - `protect`: read-only fields and secrets.
+//!
+//! Without a feature, what it adds is gone, except what keeps a host's code
+//! the same in every build: the `ConfigEditor` props and the
+//! [`EditorSettings`] fields stay and do nothing (each names its feature),
+//! as do the [`language::ConfigLanguage`] hooks. The README's "Cargo
+//! features" section lists the sizes.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
@@ -93,11 +104,13 @@ pub use editor::language;
 pub use settings::EditorSettings;
 pub use strings::{EditorStrings, StringsProblem};
 
+#[cfg(feature = "diff")]
+pub use editor::unified_diff;
 pub use editor::{
     BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,
     Conversion, ConvertError, Diagnostic, DiagnosticOrigin, DiagnosticTarget, EditorHandle,
     EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
     SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
     ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, float_of, float_value,
-    flush_pending_edits, flush_pending_input, is_web_url, unified_diff,
+    flush_pending_edits, flush_pending_input, is_web_url,
 };

@@ -12,8 +12,9 @@ use web_sys::KeyboardEvent;
 use super::super::edit::Edit;
 use super::super::input::edit_range;
 use super::super::language::ConfigLanguage;
+use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection};
-use super::tokens::{Known, SecretMatcher, SecretOptions, locate, snap, snap_selection, widen};
+use super::tokens::{Known, SecretMatcher, locate, snap, snap_selection, widen};
 
 /// A text and the language it is written in.
 type Written<'a> = (&'static dyn ConfigLanguage, &'a str);

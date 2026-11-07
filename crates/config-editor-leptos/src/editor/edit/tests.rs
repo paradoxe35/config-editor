@@ -77,6 +77,7 @@ fn can_undo(state: EditorState) -> bool {
         .with_untracked(|history| history.can_undo())
 }
 
+#[cfg(any(feature = "folding", feature = "protect"))]
 fn can_redo(state: EditorState) -> bool {
     state
         .doc
@@ -92,6 +93,7 @@ fn typed_after_b(insert: &str) -> (String, usize) {
 }
 
 /// `TEXT` with the read-only `a: 1` changed.
+#[cfg(feature = "protect")]
 fn read_only_changed() -> String {
     TEXT.replacen("a: 1", "a: 2", 1)
 }
@@ -122,14 +124,10 @@ fn an_edit_passes_the_stages_in_order_and_on_change_sees_it_whole() {
     );
 }
 
+#[cfg(feature = "protect")]
 #[test]
 fn a_refused_edit_changes_nothing() {
     let (_owner, state) = editor();
-    // A key about to edit at the end of a folded line opens the fold.
-    assert!(state.fold_line(1));
-    let closed = state.fold.folded.get_untracked();
-    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
-    assert!(state.fold.folded.with_untracked(Vec::is_empty));
     let dirty = state.editing.dirty.get_untracked();
 
     let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
@@ -137,11 +135,6 @@ fn a_refused_edit_changes_nothing() {
 
     assert_eq!(take_trace(), [Stage::Prepare, Stage::Check, Stage::Refused]);
     assert_eq!(text(state), TEXT);
-    assert_eq!(
-        state.fold.folded.get_untracked(),
-        closed,
-        "folds closed again"
-    );
     assert!(!can_undo(state), "nothing recorded");
     assert_eq!(state.editing.dirty.get_untracked(), dirty);
     assert_eq!(seen(), [], "no on_change");
@@ -151,7 +144,28 @@ fn a_refused_edit_changes_nothing() {
         "the selection it started from"
     );
     // The reason shows at the caret.
-    assert!(state.protect.tip.with_untracked(Option::is_some));
+    assert!(state.protect.tip_open());
+}
+
+#[cfg(all(feature = "folding", feature = "protect"))]
+#[test]
+fn a_refused_edit_closes_the_folds_it_opened_again() {
+    let (_owner, state) = editor();
+    // A key about to edit at the end of a folded line opens the fold.
+    assert!(state.fold_line(1));
+    let closed = state.fold.folded.get_untracked();
+    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
+    assert!(state.fold.folded.with_untracked(Vec::is_empty));
+
+    let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+    assert!(!state.commit(refused));
+
+    assert_eq!(text(state), TEXT);
+    assert_eq!(
+        state.fold.folded.get_untracked(),
+        closed,
+        "folds closed again"
+    );
 }
 
 #[test]
@@ -165,9 +179,10 @@ fn read_only_refuses_every_edit_of_the_user() {
     assert!(!state.commit(Edit::new(TEXT.into(), (7, 7), after, caret)));
     assert_eq!(text(state), TEXT);
     // Silently: there is no field to blame.
-    assert!(state.protect.tip.with_untracked(Option::is_none));
+    assert!(!state.protect.tip_open());
 }
 
+#[cfg(feature = "folding")]
 #[test]
 fn undo_of_an_edit_that_opened_a_fold_restores_the_text_and_leaves_it_open() {
     let (_owner, state) = editor();
@@ -202,6 +217,7 @@ fn undo_of_an_edit_that_opened_a_fold_restores_the_text_and_leaves_it_open() {
     assert!(can_undo(state) && !can_redo(state));
 }
 
+#[cfg(feature = "protect")]
 #[test]
 fn the_hosts_own_text_passes_the_read_only_check() {
     let (_owner, state) = editor();
@@ -213,6 +229,7 @@ fn the_hosts_own_text_passes_the_read_only_check() {
     assert_eq!(seen().len(), 1, "sent through on_change");
 }
 
+#[cfg(feature = "protect")]
 #[test]
 fn a_refused_undo_keeps_the_history() {
     let (_owner, state) = editor();

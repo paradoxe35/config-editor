@@ -257,6 +257,7 @@ fn a_language_described_by_config_gets_editing_without_code() {
 
 /// Folding comes with the default: indentation, `config`'s brackets and
 /// comment runs, for a language with no folding code.
+#[cfg(feature = "folding")]
 #[test]
 fn a_language_without_folding_code_folds_by_its_config() {
     use config_editor_leptos::language::FoldRange;

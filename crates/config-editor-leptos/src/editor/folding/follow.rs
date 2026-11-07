@@ -1,8 +1,8 @@
 //! Closed folds through edits: they move with the lines around them, an
 //! edit that touches one opens it, and one whose structure is gone goes.
 
-use super::FoldRange;
-use super::projection::{common_prefix, common_suffix};
+use super::super::fold_ranges::FoldRange;
+use super::super::projection::{common_prefix, common_suffix};
 
 /// `folds` (closed in `old`) moved to `new`. An edit at or inside a fold's
 /// hidden text, from its first line's end through its last line's end,

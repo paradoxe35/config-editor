@@ -81,7 +81,9 @@ pub(crate) fn field_range(
 }
 
 /// Where the key of the field at `pointer` is written, in any spelling of
-/// the pointer; `None` for an array item or a field not written.
+/// the pointer; `None` for an array item or a field not written. (Locks
+/// cover keys with it.)
+#[cfg(feature = "protect")]
 pub(crate) fn key_range(
     behavior: &dyn ConfigLanguage,
     source: &str,
@@ -175,6 +177,16 @@ pub(crate) fn problem_span(
     spellings(behavior, pointer)
         .iter()
         .find_map(|pointer| locate(pointer))
+}
+
+/// Whether two pointers name the same field, in languages that write a
+/// lone list item without its `/0` (XML, HCL blocks) or with it.
+pub(crate) fn same_field(one: &str, other: &str) -> bool {
+    let plain = |pointer: &str| {
+        let lone = format!("{pointer}/").replace("/0/", "/");
+        lone.trim_end_matches('/').to_string()
+    };
+    one == other || plain(one) == plain(other)
 }
 
 /// The path of what the caret at UTF-16 `cursor` is on: the key under or just

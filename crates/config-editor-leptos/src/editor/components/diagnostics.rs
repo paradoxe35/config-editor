@@ -57,7 +57,7 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
         >
             {move || {
                 let text = state.doc.text.get();
-                let projection = state.fold.projection.get();
+                let projection = state.view.projection.get();
                 let followed = follows.read();
                 // New texts redraw the underlines' names and details.
                 state.config.settings.strings.track();

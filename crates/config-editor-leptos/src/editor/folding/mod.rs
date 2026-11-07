@@ -1,14 +1,16 @@
 //! Folding by structure. View only: the document, `on_change`, undo and the
-//! clipboard always see the whole text.
+//! clipboard always see the whole text. The `folding` feature: without it,
+//! `off/folding.rs` stands in with the same hooks, and nothing folds.
 //!
-//! - `ranges`: what can fold, the building blocks languages combine in
-//!   [`ConfigLanguage::fold_ranges`](super::language::ConfigLanguage::fold_ranges).
-//! - `projection`: the textarea holds the document with the folded lines cut
-//!   out; [`Projection`] maps offsets and rows between the two.
-//! - `area`: [`SourceArea`], the textarea through that mapping. Moving the
-//!   selection into a fold opens it.
+//! What it builds on stays in every build: the fold ranges' building blocks
+//! languages combine in
+//! [`ConfigLanguage::fold_ranges`](super::language::ConfigLanguage::fold_ranges)
+//! (`fold_ranges`), and the textarea showing the document with the folded
+//! lines cut out (`projection`, `source_area`).
+//!
 //! - `follow`: folds move with edits; an edit touching one opens it.
-//! - `actions`: folding commands and writing the document.
+//! - `actions`: folding commands, and the folds through edits.
+//! - `keys`: the shortcuts; `components`: the chevrons and `…` chips.
 //!
 //! How edits meet folds, as in VS Code: typing at the end of a folded line,
 //! Backspace at the start of the line after a fold, Delete at the end of a
@@ -18,30 +20,29 @@
 //! hidden lines too.
 
 mod actions;
-mod area;
+mod components;
 mod follow;
-mod projection;
-mod ranges;
+mod handle;
+mod keys;
 pub(crate) mod texts;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use area::SourceArea;
-
-use std::sync::Arc;
+pub(super) use components::mount_fold_layers;
+pub(super) use keys::{shortcuts, unfold_before_edit};
 
 use leptos::prelude::*;
+
+use super::fold_ranges::FoldRange;
+use super::live_settings::on_switch_off;
+use super::state::EditorState;
 
 /// The editor's folding state, one `Copy` group of handles.
 #[derive(Clone, Copy)]
 pub(crate) struct FoldState {
-    /// The document lines (0-based) on the textarea rows in view.
-    pub(crate) visible_lines: Memo<Vec<usize>>,
     /// Closed folds, sorted.
     pub(crate) folded: RwSignal<Vec<FoldRange>>,
-    /// The textarea's text: the document with the closed folds cut out.
-    pub(crate) projection: RwSignal<Arc<Projection>>,
     /// What can fold in the document. Lazy: only read with folding on.
     pub(crate) fold_ranges: Memo<Vec<FoldRange>>,
     /// `Ctrl+K` was pressed: the next key may finish a folding chord.
@@ -52,20 +53,13 @@ pub(crate) struct FoldState {
 }
 
 impl FoldState {
-    /// Folding for `text` (in `edit_language`), nothing folded: the
-    /// textarea shows `projection`, and `visible_rows` of it are rendered.
-    /// With `enabled` off (the `folding` setting) nothing can fold.
+    /// Folding for `text` (in `edit_language`), nothing folded. With
+    /// `enabled` off (the `folding` setting) nothing can fold.
     pub(crate) fn new(
-        projection: RwSignal<Arc<Projection>>,
-        visible_rows: Memo<std::ops::Range<usize>>,
         text: RwSignal<String>,
         edit_language: RwSignal<super::languages::Language>,
         enabled: Memo<bool>,
     ) -> Self {
-        let visible_lines = Memo::new(move |_| {
-            let rows = visible_rows.get();
-            projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
-        });
         let fold_ranges = Memo::new(move |_| {
             if !enabled.get() {
                 return Vec::new();
@@ -73,19 +67,27 @@ impl FoldState {
             text.with(|text| edit_language.get().behavior().fold_ranges(text))
         });
         Self {
-            visible_lines,
             folded: RwSignal::new(Vec::new()),
-            projection,
             fold_ranges,
             fold_chord: StoredValue::new(false),
             before_edit: StoredValue::new(None),
         }
     }
 }
-pub(crate) use projection::Projection;
-#[cfg(feature = "toml")]
-pub(crate) use ranges::scan_brackets;
-pub use ranges::{
-    FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
-    indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
-};
+
+impl EditorState {
+    /// Calls `f` with the closed folds, sorted (tracked).
+    pub(super) fn with_closed_folds<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
+        self.fold.folded.with(|folds| f(folds))
+    }
+
+    /// Calls `f` with the closed folds, sorted (untracked).
+    pub(super) fn with_closed_folds_untracked<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
+        self.fold.folded.with_untracked(|folds| f(folds))
+    }
+}
+
+/// Switching the `folding` setting off opens every fold.
+pub(super) fn follow_settings(state: EditorState) {
+    on_switch_off(state.config.settings.folding, move || state.unfold_all());
+}

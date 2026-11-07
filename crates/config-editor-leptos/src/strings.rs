@@ -54,6 +54,9 @@ use serde::{Deserialize, Serialize};
 /// assert!(settings.strings.check().is_empty());
 /// ```
 ///
+/// Every key exists in every build: the texts of a Cargo feature that is
+/// off (`search`, `diff`, `folding`, `protect`) are simply never shown.
+///
 /// From JSON (and the npm package) any subset of keys may be given, the
 /// others keeping their English defaults:
 /// `{"strings": {"noProblems": "Keine Fehler"}}`.

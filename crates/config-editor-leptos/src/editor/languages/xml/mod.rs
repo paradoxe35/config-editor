@@ -21,6 +21,8 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+// The fold ranges (the `folding` feature).
+#[cfg(feature = "folding")]
 mod folding;
 
 use tokens::*;
@@ -106,6 +108,7 @@ impl ConfigLanguage for XmlBehavior {
         if rest.trim_start().starts_with("</") { end + rest.len() - rest.trim_start().len() } else { end }
     }
 
+    #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
         folding::xml_fold_ranges(source)
     }

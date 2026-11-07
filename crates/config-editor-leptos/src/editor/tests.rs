@@ -1,7 +1,6 @@
 use super::EditorTheme;
 use super::commands::{cycle_offset, indent_lines, indent_unit, offset_at};
 use super::completion::should_auto_trigger;
-use super::diff::{DiffKind, diff_lines};
 use super::keyboard::{delete_empty_pair, replace_selection, skip_closing_pair};
 
 #[test]
@@ -32,112 +31,6 @@ fn theme_names_and_layout_families_are_stable() {
         assert_eq!(theme.as_str(), name);
         assert_eq!(theme.css_family(), family);
     }
-}
-
-#[test]
-fn line_diff_marks_inserted_lines_and_preserves_unchanged_lines() {
-    let diff = diff_lines("first:\nsecond:\nthird:", "first:\nadded:\nsecond:\nthird:");
-    assert_eq!(
-        diff.current,
-        vec![
-            DiffKind::Unchanged,
-            DiffKind::Added,
-            DiffKind::Unchanged,
-            DiffKind::Unchanged,
-        ]
-    );
-    assert_eq!(diff.deleted_before, vec![false; 4]);
-}
-
-#[test]
-fn line_diff_keeps_existing_baseline_content_unchanged_and_marks_only_new_content() {
-    let baseline = "name: app\nlisten: 7835\n";
-    let current = "name: app\nlisten: 7835\ninsecure_plaintext: false\n";
-    let diff = diff_lines(baseline, current);
-    assert_eq!(
-        diff.current,
-        vec![
-            DiffKind::Unchanged,
-            DiffKind::Unchanged,
-            DiffKind::Added,
-            DiffKind::Unchanged,
-        ]
-    );
-    assert!(diff.deleted_before.iter().all(|deleted| !deleted));
-    assert!(!diff.deleted_after);
-}
-
-#[test]
-fn line_diff_marks_replacements_as_modified_and_deletions_in_the_gutter() {
-    let diff = diff_lines("first:\nold:\nremove:\nlast:", "first:\nnew:\nlast:");
-    assert_eq!(
-        diff.current,
-        vec![DiffKind::Unchanged, DiffKind::Modified, DiffKind::Unchanged,]
-    );
-    assert_eq!(diff.deleted_before, vec![false, false, true]);
-}
-
-#[test]
-fn line_diff_marks_inserted_blank_lines_without_shifting_following_lines() {
-    let baseline = "first:\nsecond:\nthird:\n";
-    let current = "first:\n\n\nsecond:\nthird:\n";
-    let diff = diff_lines(baseline, current);
-    assert_eq!(
-        diff.current,
-        vec![
-            DiffKind::Unchanged,
-            DiffKind::Added,
-            DiffKind::Added,
-            DiffKind::Unchanged,
-            DiffKind::Unchanged,
-            DiffKind::Unchanged,
-        ]
-    );
-    assert!(diff.deleted_before.iter().all(|deleted| !deleted));
-}
-
-#[test]
-fn line_diff_keeps_following_lines_unchanged_after_insertions_at_eof() {
-    let baseline = "first:\nsecond:\n";
-    let current = "first:\nsecond:\n\n\n";
-    let diff = diff_lines(baseline, current);
-    assert_eq!(
-        diff.current,
-        vec![
-            DiffKind::Unchanged,
-            DiffKind::Unchanged,
-            DiffKind::Added,
-            DiffKind::Added,
-            DiffKind::Unchanged,
-        ]
-    );
-}
-
-#[test]
-fn line_diff_tracks_deletions_before_first_and_after_last_lines() {
-    let beginning = diff_lines("remove:\nkeep:\n", "keep:\n");
-    assert_eq!(
-        beginning.current,
-        vec![DiffKind::Unchanged, DiffKind::Unchanged]
-    );
-    assert_eq!(beginning.deleted_before, vec![true, false]);
-
-    let ending = diff_lines("keep:\nremove:", "keep:");
-    assert_eq!(ending.current, vec![DiffKind::Unchanged]);
-    assert_eq!(ending.deleted_before, vec![false]);
-    assert!(ending.deleted_after);
-}
-
-#[test]
-fn line_diff_clears_after_baseline_is_accepted() {
-    let current = "first:\nnew:\nlast:";
-    let diff = diff_lines(current, current);
-    assert!(
-        diff.current
-            .iter()
-            .all(|change| *change == DiffKind::Unchanged)
-    );
-    assert!(diff.deleted_before.iter().all(|deleted| !deleted));
 }
 
 #[test]

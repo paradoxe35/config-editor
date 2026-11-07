@@ -218,6 +218,7 @@ impl Edit {
 
     /// Puts the caret at `caret` with nothing selected (an edit widened
     /// over a placeholder).
+    #[cfg(feature = "protect")]
     pub(super) fn collapse_to(&mut self, caret: usize) {
         match &mut self.after {
             After::Select {

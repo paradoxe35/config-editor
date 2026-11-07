@@ -26,7 +26,8 @@ editing one language as another, and eleven themes.
 npm install @pngwasi/config-editor-react @pngwasi/config-editor
 ```
 
-`@pngwasi/config-editor` is a peer dependency. React 18 or 19.
+`@pngwasi/config-editor` is a peer dependency. React 18 or 19. Its
+WebAssembly is built with every feature of the Rust crate.
 
 ## Quick start
 
@@ -124,15 +125,15 @@ Changing one applies live.
 | `showToolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
 | `showFooter` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
 | `showDiagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
-| `showDiff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. |
+| `showDiff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature. |
 | `completions` | `true` | Schema completions (`Ctrl+Space`). |
 | `autoTriggerCompletions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
 | `hoverDocs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
 | `highlighting` | `true` | Syntax colors. |
 | `autoClosing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
-| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. |
-| `goToLine` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
-| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
+| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature. |
+| `goToLine` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature. |
+| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
 | `saveShortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
 | `strings` | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`. |
 
@@ -158,6 +159,9 @@ keeps them) and that comments typed there are not saved.
 <!-- strings:start -->
 
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
+
+<details>
+<summary>Every text and its default (146 texts)</summary>
 
 | Key | Default | |
 |---|---|---|
@@ -307,6 +311,8 @@ keeps them) and that comments typed there are not saved.
 | `closeTabTitle` | `"Close (Delete)"` | Its tooltip. |
 | `unsaved` | `"unsaved changes"` | The dirty dot's tooltip, and what a tab's accessible name adds for it. |
 | `readOnlyTab` | `"read-only"` | What a read-only document's tab adds to its accessible name. |
+
+</details>
 
 <!-- strings:end -->
 

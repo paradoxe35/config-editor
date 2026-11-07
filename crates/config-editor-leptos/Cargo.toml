@@ -17,7 +17,7 @@ include = ["src/**/*", "tests/**/*", "README.md", "LICENSE", "Cargo.toml"]
 all-features = true
 
 [features]
-default = ["schema-validation", "yaml", "json", "toml", "hcl", "xml"]
+default = ["schema-validation", "yaml", "json", "toml", "hcl", "xml", "search", "diff", "folding", "protect"]
 # Live JSON Schema diagnostics (the `jsonschema` dependency, the heaviest
 # part). Completions, hover docs and schema-shaped reading work without it;
 # leave it out when the schema is checked elsewhere (on a server).
@@ -29,6 +29,19 @@ json = []
 toml = ["dep:toml"]
 hcl = ["dep:hcl-rs"]
 xml = ["dep:quick-xml"]
+# Find and replace (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).
+search = []
+# Read-only fields and secrets: the schema's `readOnly`, `writeOnly` and
+# `x-secret`, and the `read_only_paths`, `read_only_ranges` and `secrets`
+# props. The whole-document `read_only` works without it.
+protect = []
+# Changes against the baseline: the gutter markers and their before/after
+# preview, revert, moving between changes, the change count
+# (`on_change_summary`, `ChangeSummary`) and `unified_diff`.
+diff = []
+# Folding by structure: the gutter chevrons, the folding keys and the
+# handle's `fold`, `unfold`, `fold_all`, `unfold_all` and `folded_lines`.
+folding = []
 
 [dependencies]
 jsonschema = { version = "0.60", default-features = false, optional = true }

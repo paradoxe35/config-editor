@@ -8,8 +8,8 @@ when it is broken.
 
 `scripts/ci.sh` runs every check CI runs (CI calls its steps one by one):
 formatting, clippy in every configuration, the tests, each language feature
-on its own, every language without schema validation, and the generated
-docs. Run `cargo fmt --all` (and `cd js/config-editor && cargo fmt`)
+on its own, every language without schema validation, each optional feature
+off, and the generated docs. Run `cargo fmt --all` (and `cd js/config-editor && cargo fmt`)
 first, then the checks, before every commit:
 
 ```sh
@@ -68,6 +68,29 @@ once Leptos prunes disposed subscribers (then the relays can go).
 Shared code never names YAML, JSON, TOML, HCL or XML: what differs between
 languages is a `ConfigLanguage` hook with a default (`src/editor/language.rs`),
 so a language of your own gets every feature.
+
+### An optional feature is a module with an inert stand-in
+
+`search`, `diff`, `folding` and `protect` are Cargo features (all on by
+default). Each is one module (`src/editor/search/`, `changes/`,
+`folding/`, `protect/`) holding everything it adds, its state, keys and
+components included; the rest of the editor reaches it only through the
+hooks that module exports. With the feature off,
+`#[cfg_attr(not(feature = "…"), path = "editor/off/….rs")]` compiles
+`src/editor/off/<module>.rs` in its place: the same hooks doing nothing.
+Shared code calls the hooks and never names the feature; the few `cfg`s
+outside are at hook points (a field of `EditorFields`, a language's
+`fold_ranges`), never inside a function's logic. What a feature builds on
+stays shared (the textarea's projection, `fold_ranges`, the Myers diff).
+
+Without a feature, what it adds to the API is gone (handle methods,
+headless functions), except the `ConfigEditor` props (a component's props
+cannot be compiled out) and the `EditorSettings` fields (one settings value
+fits every build): they stay and do nothing, and their docs name the
+feature. `scripts/ci.sh optional` builds and tests each feature off and all
+of them off; a test that needs one is gated by it. A new heavy part of the
+editor that a host could do without becomes such a feature, and
+`scripts/wasm-sizes.sh` prices it.
 
 ### One definition per setting
 

@@ -13,13 +13,13 @@ use super::super::edit::{Edit, Origin};
 use super::super::input::edit_range;
 use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
+use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::tokens::SecretOptions;
 
 /// How long a refused edit's tooltip stays, in milliseconds.
 #[cfg(target_arch = "wasm32")]
@@ -36,11 +36,11 @@ pub(crate) struct Tip {
     pub(crate) hover: bool,
 }
 
-/// The host's side of protection (from the component's props).
+/// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
-    pub(crate) paths: Signal<Vec<FieldPath>>,
-    pub(crate) ranges: Signal<Vec<TextRange>>,
-    pub(crate) secrets: SecretOptions,
+    pub(crate) paths: Option<Signal<Vec<FieldPath>>>,
+    pub(crate) ranges: Option<Signal<Vec<TextRange>>>,
+    pub(crate) secrets: Option<SecretOptions>,
 }
 
 /// The protection signals of one editor.
@@ -73,11 +73,9 @@ pub(crate) struct Inputs {
 
 impl ProtectState {
     pub(crate) fn new(init: ProtectInit, inputs: Inputs) -> Self {
-        let ProtectInit {
-            paths,
-            ranges,
-            secrets,
-        } = init;
+        let paths = init.paths.unwrap_or_default();
+        let ranges = init.ranges.unwrap_or_default();
+        let secrets = init.secrets.unwrap_or_default();
         let Inputs {
             source,
             edit_language,
@@ -351,7 +349,9 @@ impl EditorState {
         })
     }
 
-    /// Byte ranges of `text` (the text on screen) no replace may touch.
+    /// Byte ranges of `text` (the text on screen) no replace may touch
+    /// (find and replace's Replace All).
+    #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
         self.protect.protected.with_untracked(|protected| {
