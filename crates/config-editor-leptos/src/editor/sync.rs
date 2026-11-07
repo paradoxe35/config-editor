@@ -3,7 +3,6 @@
 //! the host's language, and switching the language on screen).
 
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 use std::sync::Arc;
 
@@ -17,6 +16,7 @@ use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::paths::TextPosition;
 use super::state::{EditorState, normalize_newlines, textarea_selection};
+use crate::reactive::later;
 
 /// The host's side of the connection (from the component's props).
 pub(super) struct Host {
@@ -264,23 +264,13 @@ fn debounce_validation(state: EditorState) {
         let text = state.doc.text.get();
         token.update_value(|token| *token += 1);
         let current = token.get_value();
-        let diagnosed = state.problems.diagnosed_text;
-        if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                wasm_bindgen::closure::Closure::once_into_js(move || {
-                    // The editor may have been unmounted while this waited.
-                    if token.try_get_value() == Some(current) {
-                        let _ = diagnosed.try_set(text);
-                        // The pause in typing: the placeholders' fields too.
-                        state.recheck_tokens();
-                    }
-                })
-                .unchecked_ref(),
-                DIAGNOSTICS_DEBOUNCE_MS,
-            );
-        } else {
-            diagnosed.set(text);
-        }
+        later::after(state, DIAGNOSTICS_DEBOUNCE_MS, move |state| {
+            if token.get_value() == current {
+                state.problems.diagnosed_text.set(text);
+                // The pause in typing: the placeholders' fields too.
+                state.recheck_tokens();
+            }
+        });
     });
 }
 

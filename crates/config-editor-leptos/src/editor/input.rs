@@ -13,6 +13,7 @@ use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
 use super::source_area::SourceArea;
 use super::state::{EditorState, textarea_selection};
+use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
 fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceArea> {
@@ -174,12 +175,14 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         latest,
         latest_selection,
     }));
+    // Skipped if the editor unmounts first; a flush another editor or the
+    // host starts drops it then.
     PENDING.with(|pending| {
         pending
             .borrow_mut()
-            .push(Box::new(move || flush_input(state)))
+            .push(later::guarded(state, flush_input))
     });
-    queue_microtask(flush_pending_input);
+    later::soon(state, |_| flush_pending_input());
 }
 
 thread_local! {
@@ -320,14 +323,10 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     state.hover.pending.set_value(Some(identity));
     let token = state.hover.token.get_value();
     let style = hover_card_style(&element, line, info.start_column);
-    schedule_hover(move || {
-        // The editor may have been unmounted while this waited.
-        if state.hover.token.try_get_value() == Some(token) {
-            let _ = state.hover.pending.try_set_value(None);
-            let _ = state
-                .hover
-                .card
-                .try_set(Some(HoverCard { info, line, style }));
+    schedule_hover(state, move |state| {
+        if state.hover.token.get_value() == token {
+            state.hover.pending.set_value(None);
+            state.hover.card.set(Some(HoverCard { info, line, style }));
         }
     });
 }

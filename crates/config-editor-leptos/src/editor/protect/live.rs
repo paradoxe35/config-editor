@@ -20,9 +20,9 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use crate::reactive::later::{self, Timeout};
 
 /// How long a refused edit's tooltip stays, in milliseconds.
-#[cfg(target_arch = "wasm32")]
 const TIP_MS: i32 = 2500;
 
 /// A short message at a place in the text: why an edit was refused, or
@@ -46,8 +46,9 @@ pub(crate) struct ProtectInit {
 /// The bookkeeping of one editor's protection.
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    /// Which tooltip is shown, so a timer hides only its own.
-    tip_token: u64,
+    /// The timer hiding the refusal tooltip: one per editor, which a new
+    /// refusal replaces.
+    tip_timer: Timeout,
     /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
@@ -191,28 +192,22 @@ impl ProtectState {
             offset,
             hover: false,
         }));
-        self.marks.update_value(|marks| marks.tip_token += 1);
-        // Native unit tests have no window to time it with.
-        #[cfg(target_arch = "wasm32")]
-        self.hide_tip_later();
+        // Native unit tests have no clock: there it stays (unless a test
+        // holds the timers).
+        if later::defers() {
+            self.cancel_tip_timer();
+            let timer = later::after(self.tip, TIP_MS, |tip| tip.set(None));
+            self.marks.update_value(|marks| marks.tip_timer = timer);
+        }
     }
 
-    /// Hides the tooltip after a moment, unless another took its place.
-    #[cfg(target_arch = "wasm32")]
-    fn hide_tip_later(&self) {
-        let token = self.marks.with_value(|marks| marks.tip_token);
-        let state = *self;
-        if let Some(window) = web_sys::window() {
-            use wasm_bindgen::JsCast;
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                wasm_bindgen::closure::Closure::once_into_js(move || {
-                    if state.marks.try_with_value(|marks| marks.tip_token) == Some(token) {
-                        let _ = state.tip.try_set(None);
-                    }
-                })
-                .unchecked_ref(),
-                TIP_MS,
-            );
+    /// Drops the pending timer that would hide the tooltip.
+    fn cancel_tip_timer(&self) {
+        let timer = self
+            .marks
+            .try_update_value(|marks| std::mem::take(&mut marks.tip_timer));
+        if let Some(timer) = timer {
+            timer.cancel();
         }
     }
 
@@ -223,6 +218,7 @@ impl ProtectState {
             .with_untracked(|tip| tip.as_ref().map(|tip| tip.hover));
         if shown.is_some_and(|hover| hover || !hover_only) {
             self.tip.set(None);
+            self.cancel_tip_timer();
         }
     }
 }

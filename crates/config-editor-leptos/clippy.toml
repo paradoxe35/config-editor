@@ -1,0 +1,19 @@
+# Deferred work goes through one door, `reactive::later`, which runs it only
+# if the editor (or documents view) it needs is still mounted. The paths are
+# the defining items: the code reaches most of them through `leptos::prelude`,
+# and clippy matches the definition (`Closure` is an alias of
+# `ScopedClosure`).
+disallowed-methods = [
+  { path = "leptos_dom::helpers::set_timeout", reason = "use reactive::later::after, which skips work whose editor has gone" },
+  { path = "leptos_dom::helpers::set_timeout_with_handle", reason = "use reactive::later::after, which skips work whose editor has gone" },
+  { path = "leptos_dom::helpers::request_animation_frame", reason = "use reactive::later::next_frame, which skips work whose editor has gone" },
+  { path = "leptos_dom::helpers::request_animation_frame_with_handle", reason = "use reactive::later::next_frame, which skips work whose editor has gone" },
+  { path = "leptos_dom::helpers::queue_microtask", reason = "use reactive::later::soon, which skips work whose editor has gone" },
+  { path = "any_spawner::Executor::spawn_local", reason = "deferred work goes through reactive::later (after, next_frame, soon)" },
+  { path = "leptos::task::spawn_local", reason = "deferred work goes through reactive::later (after, next_frame, soon)" },
+  { path = "web_sys::Window::set_timeout_with_callback_and_timeout_and_arguments_0", reason = "use reactive::later::after, which skips work whose editor has gone" },
+  { path = "web_sys::Window::set_timeout_with_callback_and_timeout_and_arguments_1", reason = "use reactive::later::after, which skips work whose editor has gone" },
+  { path = "web_sys::Window::request_animation_frame", reason = "use reactive::later::next_frame, which skips work whose editor has gone" },
+  { path = "wasm_bindgen::closure::ScopedClosure::once_into_js", reason = "deferred work goes through reactive::later (after, next_frame, soon)" },
+  { path = "wasm_bindgen::closure::ScopedClosure::forget", reason = "a forgotten closure outlives the editor: keep it and drop it on cleanup, or use reactive::later" },
+]

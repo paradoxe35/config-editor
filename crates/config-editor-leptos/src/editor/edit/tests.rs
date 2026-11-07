@@ -147,6 +147,26 @@ fn a_refused_edit_changes_nothing() {
     assert!(state.protect.tip_open());
 }
 
+/// Each refusal shows the tip again for a moment: one timer hides it, the
+/// last refusal's, however many came before.
+#[cfg(feature = "protect")]
+#[test]
+fn refusals_keep_one_timer_hiding_the_tip() {
+    use crate::reactive::later::testing::{hold, run_held, waiting_timers};
+    let (_owner, state) = editor();
+    hold(|| {
+        for _ in 0..3 {
+            let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+            assert!(!state.commit(refused));
+            assert!(state.protect.tip_open());
+        }
+        assert_eq!(waiting_timers(), 1, "one timer, the last refusal's");
+        run_held();
+        assert!(!state.protect.tip_open(), "hidden when it fires");
+        assert_eq!(waiting_timers(), 0);
+    });
+}
+
 #[cfg(all(feature = "folding", feature = "protect"))]
 #[test]
 fn a_refused_edit_closes_the_folds_it_opened_again() {

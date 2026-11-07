@@ -12,10 +12,10 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 use super::texts::problem_text;
 use crate::EditorStrings;
+use crate::reactive::later;
 use crate::strings::fill;
 
 /// How long the caret rests before the note follows it, in milliseconds.
-#[cfg(target_arch = "wasm32")]
 const NOTE_DELAY_MS: i32 = 150;
 
 /// The one-based line and character column of UTF-16 `caret` in `text`.
@@ -76,8 +76,8 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
         state.config.settings.strings.track();
         state.a11y.note_token.update_value(|token| *token += 1);
         let token = state.a11y.note_token.get_value();
-        later(move || {
-            if state.a11y.note_token.try_get_value() == Some(token) {
+        later::after(state, NOTE_DELAY_MS, move |state| {
+            if state.a11y.note_token.get_value() == token {
                 update_note(state);
             }
         });
@@ -103,21 +103,6 @@ pub(super) fn update_note(state: EditorState) {
     if state.a11y.caret_note.with_untracked(|shown| *shown != note) {
         state.a11y.caret_note.set(note);
     }
-}
-
-/// Runs `run` once the caret has rested; native unit tests have no window
-/// to time it with, so there it runs now.
-fn later(run: impl FnOnce() + 'static) {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(window) = web_sys::window() {
-        use wasm_bindgen::JsCast;
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            wasm_bindgen::closure::Closure::once_into_js(run).unchecked_ref(),
-            NOTE_DELAY_MS,
-        );
-        return;
-    }
-    run();
 }
 
 /// `Alt+Enter` on a problem with a docs link opens it in a new tab: the

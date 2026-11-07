@@ -115,6 +115,14 @@ impl std::ops::Deref for EditorState {
     }
 }
 
+/// Gone with the editor's owner: deferred work skips it then (see
+/// `reactive::later`).
+impl IsDisposed for EditorState {
+    fn is_disposed(&self) -> bool {
+        self.doc.text.is_disposed()
+    }
+}
+
 /// What an [`EditorState`] points to: its parts (see the module docs).
 pub(super) struct EditorFields {
     pub(super) config: Config,
@@ -373,7 +381,7 @@ pub(super) fn directed_selection(element: &SourceArea) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod size_tests {
+mod tests {
     use super::EditorState;
 
     /// Every handler copies the state; a larger copy overflowed the stack of
@@ -384,5 +392,19 @@ mod size_tests {
             std::mem::size_of::<EditorState>(),
             std::mem::size_of::<usize>()
         );
+    }
+
+    /// Deferred work checks the state before it runs (see
+    /// `reactive::later`): it must read as gone once the editor's owner is.
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn the_state_is_not_alive_once_its_owner_is_disposed() {
+        use super::super::languages::Language;
+        use super::super::test_state::TestEditor;
+        use crate::reactive::later::Alive;
+        let (owner, state) = TestEditor::new(Language::YAML, "a: 1\n").mount();
+        assert!(state.is_alive());
+        owner.cleanup();
+        assert!(!state.is_alive());
     }
 }

@@ -21,9 +21,12 @@
 //! - [`detached_owner`]: an owner no parent keeps a record of.
 //! - [`Kept`]: a part a setting switches on and off, built once and then
 //!   taken off the page and put back.
+//! - [`later`]: the one door for deferred work (timers, frames,
+//!   microtasks), which skips work whose editor has gone.
 
 mod kept;
 mod keyed;
+pub(crate) mod later;
 mod relay;
 #[cfg(test)]
 mod tests;

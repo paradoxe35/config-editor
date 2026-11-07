@@ -41,12 +41,9 @@ impl EditorState {
             self.hide_hover();
             return;
         }
-        let state = *self;
         let token = self.hover.token.get_value();
-        super::positioning::schedule_hover(move || {
-            if state.hover.token.try_get_value() == Some(token)
-                && state.hover.card_entered.try_get_value() == Some(false)
-            {
+        super::positioning::schedule_hover(*self, move |state| {
+            if state.hover.token.get_value() == token && !state.hover.card_entered.get_value() {
                 state.hide_hover();
             }
         });

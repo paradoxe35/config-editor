@@ -7,6 +7,8 @@ use std::sync::{Arc, Weak};
 use leptos::prelude::*;
 use leptos::reactive::graph::{AnySource, AnySubscriber, ReactiveNode, Subscriber, WithObserver};
 
+use super::later::testing::{hold, run_held, waiting_timers};
+use super::later::{self, Alive};
 use super::{Fanout, Relay, detached_owner};
 
 /// Stands in for a view's effect: it subscribes to whatever it reads.
@@ -129,4 +131,64 @@ fn a_detached_owner_is_cleaned_up_when_dropped_not_with_its_creator() {
     assert_eq!(cleaned.load(std::sync::atomic::Ordering::SeqCst), 0);
     drop(owner);
     assert_eq!(cleaned.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// Deferred work runs only while its target lives: a timer, a frame and a
+/// microtask scheduled for a signal whose owner is gone are skipped.
+#[test]
+fn deferred_work_skips_a_disposed_target_and_runs_a_live_one() {
+    hold(|| {
+        let ran = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let live_owner = Owner::new();
+        let live = live_owner.with(|| RwSignal::new(0));
+        let gone_owner = Owner::new();
+        let gone = gone_owner.with(|| RwSignal::new(0));
+        for (name, target) in [("live", live), ("gone", gone)] {
+            let log = ran.clone();
+            later::after(target, 10, move |_| {
+                log.borrow_mut().push(format!("{name} timer"))
+            });
+            let log = ran.clone();
+            later::next_frame(target, move |_| {
+                log.borrow_mut().push(format!("{name} frame"))
+            });
+            let log = ran.clone();
+            later::soon(target, move |_| {
+                log.borrow_mut().push(format!("{name} soon"))
+            });
+        }
+        assert!(ran.borrow().is_empty(), "held until run");
+        gone_owner.cleanup();
+        assert!(live.is_alive());
+        assert!(!gone.is_alive());
+        run_held();
+        assert_eq!(*ran.borrow(), ["live timer", "live frame", "live soon"]);
+        drop(live_owner);
+    });
+}
+
+/// A cancelled timer's work is dropped then, not when it would have fired.
+#[test]
+fn a_cancelled_timer_drops_its_work() {
+    hold(|| {
+        let owner = Owner::new();
+        let target = owner.with(|| RwSignal::new(0));
+        let timer = later::after(target, 10, move |target| target.set(1));
+        assert_eq!(waiting_timers(), 1);
+        timer.cancel();
+        assert_eq!(waiting_timers(), 0);
+        run_held();
+        assert_eq!(target.get_untracked(), 0);
+    });
+}
+
+/// Without a clock (native builds), deferred work runs at once.
+#[test]
+fn natively_deferred_work_runs_at_once() {
+    let owner = Owner::new();
+    let target = owner.with(|| RwSignal::new(0));
+    later::after(target, 10, |target| target.update(|value| *value += 1));
+    later::next_frame(target, |target| target.update(|value| *value += 1));
+    later::soon(target, |target| target.update(|value| *value += 1));
+    assert_eq!(target.get_untracked(), 3);
 }
