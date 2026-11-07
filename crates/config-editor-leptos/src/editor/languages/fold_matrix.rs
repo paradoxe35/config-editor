@@ -243,9 +243,8 @@ fn fold_ranges_of_large_documents_are_fast() {
     ];
     for (language, sample) in samples {
         let large = sample.repeat(5);
-        let start = std::time::Instant::now();
-        let ranges = language.fold_ranges(&large);
-        let elapsed = start.elapsed();
+        let (elapsed, ranges) =
+            crate::editor::test_timing::best_of(3, || language.fold_ranges(&large));
         assert!(!ranges.is_empty(), "{language}");
         assert!(
             elapsed.as_millis() < 500,

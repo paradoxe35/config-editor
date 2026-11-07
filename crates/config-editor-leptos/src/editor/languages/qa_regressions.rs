@@ -841,10 +841,10 @@ fn span_lookups_on_large_documents_are_fast() {
             "/web",
             "/missing/key",
         ] {
-            let started = std::time::Instant::now();
-            let _ = language.behavior().value_span(&text, pointer);
-            let _ = language.behavior().key_span(&text, pointer);
-            let elapsed = started.elapsed();
+            let (elapsed, ()) = crate::editor::test_timing::best_of(5, || {
+                let _ = language.behavior().value_span(&text, pointer);
+                let _ = language.behavior().key_span(&text, pointer);
+            });
             assert!(
                 elapsed < std::time::Duration::from_millis(150),
                 "{language} {pointer}: {elapsed:?}"

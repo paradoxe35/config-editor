@@ -72,6 +72,8 @@ mod sync;
 // Used by the tests that mount a YAML editor (all of them need YAML).
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
+#[cfg(test)]
+mod test_timing;
 mod theme;
 mod typing;
 
