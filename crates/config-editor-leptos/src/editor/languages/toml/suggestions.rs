@@ -443,7 +443,7 @@ pub(super) fn property_insert(
             }
             match schema_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                None if !takes_caret => insert.push_str(&toml_text(&fill_value(child, root))),
                 // The caret's own child: a string starts quoted, caret inside.
                 None if placeholder(child, root).is_string() => {
                     insert.push_str("\"\"");
@@ -482,7 +482,7 @@ pub(super) fn property_insert(
                     let Some(child_key) = toml_key_for_completion(name) else {
                         continue;
                     };
-                    insert.push_str(&format!("{child_key} = {}\n", toml_text(&placeholder(child, root))));
+                    insert.push_str(&format!("{child_key} = {}\n", toml_text(&fill_value(child, root))));
                     continue;
                 }
                 let inline = InsertContext {
@@ -548,7 +548,7 @@ pub(super) fn property_insert(
             }
             match schema_default(child, root) {
                 Some(default) => insert.push_str(&toml_text(default)),
-                None if !takes_caret => insert.push_str(&toml_text(&placeholder(child, root))),
+                None if !takes_caret => insert.push_str(&toml_text(&fill_value(child, root))),
                 // The caret's own child: a string starts quoted, caret inside.
                 None if placeholder(child, root).is_string() => {
                     insert.push_str("\"\"");

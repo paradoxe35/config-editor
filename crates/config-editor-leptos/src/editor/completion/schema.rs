@@ -67,9 +67,8 @@ pub fn schema_default<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Valu
 }
 
 /// A valid value for a property the user has not filled yet: its default,
-/// const, first example ([`schema_example`]) or first enum value, else an
-/// empty value of its first type (`""`, `0`, `false`, `[]`, `{}`, `null`).
-/// Inserting it keeps the document valid.
+/// const, or first enum value, else an empty value of its first type (`""`,
+/// `0`, `false`, `[]`, `{}`, `null`). Inserting it keeps the document valid.
 pub fn placeholder(schema: &Value, root: &Value) -> Value {
     let branches = resolve_branches(schema, root, 0);
     if let Some(value) = branches
@@ -77,9 +76,6 @@ pub fn placeholder(schema: &Value, root: &Value) -> Value {
         .find_map(|branch| branch.get("default").or_else(|| branch.get("const")))
     {
         return value.clone();
-    }
-    if let Some(example) = schema_example(schema, root) {
-        return example;
     }
     if let Some(first) = branches
         .iter()

@@ -58,7 +58,8 @@
 pub use super::codec::first_pointer;
 pub use super::commands::indent_unit;
 pub use super::completion::{
-    array_branch, object_branch, placeholder, schema_const, schema_default, schema_example,
+    array_branch, fill_value, object_branch, placeholder, schema_const, schema_default,
+    schema_example,
 };
 pub use super::highlight::{Token, TokenKind, Tokens};
 pub use super::inline::{

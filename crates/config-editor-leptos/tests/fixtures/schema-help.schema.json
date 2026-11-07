@@ -38,6 +38,17 @@
         "scheme": { "type": "string", "default": "https" }
       }
     },
+    "bind": {
+      "description": "A port, or ip:port.",
+      "type": ["integer", "string"],
+      "examples": ["0.0.0.0:7835"]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bind"],
+      "properties": { "bind": { "$ref": "#/properties/bind" } }
+    },
     "env": {
       "type": "object",
       "description": "Environment variables.",

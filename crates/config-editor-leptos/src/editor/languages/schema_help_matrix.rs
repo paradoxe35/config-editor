@@ -254,6 +254,30 @@ fn required_children_take_examples_and_tab_selects_each_written_value() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// An example fills only children the caret does not go to, and never
+/// decides a key's own insert: `bind` (a number or a string, with a string
+/// example) is not written as an empty string, and `metrics`, whose one
+/// required child is `bind`, leaves it empty for the caret.
+#[test]
+fn examples_never_take_the_caret_or_shape_a_keys_own_value() {
+    let mut failures = Vec::new();
+    for (language, marked) in ROOT {
+        let options = offered(language, marked);
+        let source = marked.replacen('|', "", 1);
+        for label in ["bind", "metrics"] {
+            let Some(option) = options.iter().find(|option| option.label == label) else {
+                failures.push(format!("{language:?}: {label} not offered"));
+                continue;
+            };
+            let (updated, _, _) = apply_completion(&source, option);
+            if updated.contains("0.0.0.0:7835") || updated.contains("\"\"") {
+                failures.push(format!("{language:?} {label}: {updated:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 #[test]
 fn keys_matching_a_supported_pattern_get_docs_and_unsupported_ones_are_reported() {
     let bundle = help();

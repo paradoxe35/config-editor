@@ -140,9 +140,10 @@ Completions and hover read these keywords, with or without the
 }
 ```
 
-Accepting an object key writes its required children: each takes its
-`default`, else its first `examples` entry, else a typed placeholder, and
-`Tab` walks the block like a snippet, selecting each written value (typing
+Accepting an object key writes its required children. The caret goes to
+the first one (left empty unless it has a `default`); each other takes its
+`default`, else its first `examples` entry, else a typed placeholder. `Tab`
+then walks the block like a snippet, selecting each written value (typing
 replaces it) and stopping at each empty one.
 
 `patternProperties` regexes are compiled once per pattern, when the schema

@@ -22,7 +22,7 @@ pub(crate) use schema::*;
 pub(crate) use stops::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
-pub use stops::schema_example;
+pub use stops::{fill_value, schema_example};
 
 use super::commands::indent_unit;
 use super::diagnostics::SchemaBundle;

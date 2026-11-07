@@ -21,7 +21,7 @@ use editing::*;
 
 use super::super::commands::indent_unit;
 use super::super::completion::{
-    array_branch, object_branch, placeholder, schema_const, schema_default,
+    array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };
 use super::super::highlight::{self, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
