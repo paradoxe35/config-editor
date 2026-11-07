@@ -5,6 +5,8 @@
 //! this package.
 //!
 //! - `editor`: the `ConfigEditor` class; `mount` wires the component to it.
+//! - `documents_view`: the `ConfigDocuments` class (several documents as
+//!   tabs).
 //! - `headless`, `documents`, `catalog`: the functions that need no editor
 //!   (checks and diffs; parsing, paths and folds; accepted names).
 //! - `languages`: language names and `registerLanguage`.
@@ -15,6 +17,7 @@
 
 mod catalog;
 mod documents;
+mod documents_view;
 mod editor;
 mod headless;
 mod host_diagnostics;

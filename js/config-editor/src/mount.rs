@@ -21,14 +21,15 @@ thread_local! {
 }
 
 /// Calls a host callback; an exception it throws is logged, not swallowed.
-fn call_host(callback: &Function, argument: &JsValue) {
+pub(crate) fn call_host(callback: &Function, argument: &JsValue) {
     call_host_with(callback, std::slice::from_ref(argument));
 }
 
 /// [`call_host`] with several arguments.
-fn call_host_with(callback: &Function, arguments: &[JsValue]) {
+pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
     IN_CALLBACK.with(|depth| depth.set(depth.get() + 1));
     let result = match arguments {
+        [first, second, third] => callback.call3(&JsValue::NULL, first, second, third),
         [first, second] => callback.call2(&JsValue::NULL, first, second),
         [first] => callback.call1(&JsValue::NULL, first),
         _ => callback.call0(&JsValue::NULL),

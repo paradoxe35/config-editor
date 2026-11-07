@@ -1,4 +1,4 @@
-:where(.config-editor[data-color-theme="dracula"]) {
+:where(.config-editor[data-color-theme="dracula"], .config-editor-documents[data-color-theme="dracula"]) {
   --config-editor-bg: #282a36;
   --config-editor-panel: #21222c;
   --config-editor-border: #44475a;
@@ -32,7 +32,7 @@
   --config-editor-caret: #f8f8f2;
 }
 
-:where(.config-editor[data-color-theme="nord"]) {
+:where(.config-editor[data-color-theme="nord"], .config-editor-documents[data-color-theme="nord"]) {
   --config-editor-bg: #2e3440;
   --config-editor-panel: #3b4252;
   --config-editor-border: #434c5e;
@@ -66,7 +66,7 @@
   --config-editor-caret: #eceff4;
 }
 
-:where(.config-editor[data-color-theme="github-light"]) {
+:where(.config-editor[data-color-theme="github-light"], .config-editor-documents[data-color-theme="github-light"]) {
   --config-editor-status-error: #cf222e;
   --config-editor-bg: #ffffff;
   --config-editor-panel: #f6f8fa;
@@ -101,7 +101,7 @@
   --config-editor-caret: #1f2328;
 }
 
-:where(.config-editor[data-color-theme="solarized-light"]) {
+:where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"]) {
   --config-editor-status-error: #b8281f;
   --config-editor-bg: #fdf6e3;
   --config-editor-panel: #eee8d5;
@@ -136,7 +136,7 @@
   --config-editor-caret: #586e75;
 }
 
-:where(.config-editor[data-color-theme="atom-one-dark"]) {
+:where(.config-editor[data-color-theme="atom-one-dark"], .config-editor-documents[data-color-theme="atom-one-dark"]) {
   --config-editor-bg: #282c34;
   --config-editor-panel: #21252b;
   --config-editor-border: #3e4451;
@@ -170,7 +170,7 @@
   --config-editor-caret: #abb2bf;
 }
 
-:where(.config-editor[data-color-theme="github-dark"]) {
+:where(.config-editor[data-color-theme="github-dark"], .config-editor-documents[data-color-theme="github-dark"]) {
   --config-editor-bg: #0d1117;
   --config-editor-panel: #161b22;
   --config-editor-border: #30363d;
@@ -204,7 +204,7 @@
   --config-editor-caret: #e6edf3;
 }
 
-:where(.config-editor[data-color-theme="vira-inspired"]) {
+:where(.config-editor[data-color-theme="vira-inspired"], .config-editor-documents[data-color-theme="vira-inspired"]) {
   --config-editor-bg: #171b24;
   --config-editor-panel: #1e2430;
   --config-editor-border: #343c4b;

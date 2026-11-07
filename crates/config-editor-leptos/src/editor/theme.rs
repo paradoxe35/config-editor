@@ -245,6 +245,22 @@ pub enum ThemeColor {
     FoldChip,
     /// The chip's text.
     FoldChipText,
+    /// The documents view's tab strip.
+    TabBar,
+    /// An inactive tab.
+    TabBackground,
+    /// The active tab.
+    TabActiveBackground,
+    /// An inactive tab's name.
+    TabText,
+    /// The active tab's name.
+    TabActiveText,
+    /// Borders between tabs and under the strip.
+    TabBorder,
+    /// The line over the active tab.
+    TabActiveBorder,
+    /// A tab's unsaved-changes dot.
+    TabDirty,
 }
 
 impl ThemeColor {
@@ -320,6 +336,14 @@ impl ThemeColor {
         Self::FoldToggle,
         Self::FoldChip,
         Self::FoldChipText,
+        Self::TabBar,
+        Self::TabBackground,
+        Self::TabActiveBackground,
+        Self::TabText,
+        Self::TabActiveText,
+        Self::TabBorder,
+        Self::TabActiveBorder,
+        Self::TabDirty,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -395,6 +419,14 @@ impl ThemeColor {
             Self::FoldToggle => "--config-editor-fold-toggle",
             Self::FoldChip => "--config-editor-fold-chip",
             Self::FoldChipText => "--config-editor-fold-chip-text",
+            Self::TabBar => "--config-editor-tab-bar",
+            Self::TabBackground => "--config-editor-tab-bg",
+            Self::TabActiveBackground => "--config-editor-tab-active-bg",
+            Self::TabText => "--config-editor-tab-text",
+            Self::TabActiveText => "--config-editor-tab-active-text",
+            Self::TabBorder => "--config-editor-tab-border",
+            Self::TabActiveBorder => "--config-editor-tab-active-border",
+            Self::TabDirty => "--config-editor-tab-dirty",
         }
     }
 }

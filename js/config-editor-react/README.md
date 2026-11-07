@@ -13,6 +13,7 @@ editing one language as another, and eleven themes.
 - [`<ConfigEditor>` props](#configeditor-props)
 - [Ref](#ref)
   - [Saving](#saving)
+  - [Several documents](#several-documents)
 - [Other exports](#other-exports)
 - [License](#license)
 <!-- /toc -->
@@ -195,6 +196,48 @@ editing as another one). `reveal` selects the key and its value when they
 share a line, the key alone when the value is a block below it, and the
 value alone for a list item.
 
+### Several documents
+
+```tsx
+import { useRef, useState } from "react";
+import { ConfigDocuments, type ConfigDocumentsHandle, type DocumentSpec } from "@pngwasi/config-editor-react";
+
+const [files, setFiles] = useState<DocumentSpec[]>([
+  { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+  { id: "tls", fileName: "conf.d/tls.toml", value: tlsText, schema, readOnly: true },
+]);
+const update = (id: string, change: Partial<DocumentSpec>) =>
+  setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
+const tabs = useRef<ConfigDocumentsHandle>(null);
+<ConfigDocuments
+  ref={tabs}
+  documents={files}
+  onChange={(id, value) => update(id, { value })}
+  onSave={async (id, value) => {
+    await putFile(id, value);
+    update(id, { baseline: value });
+  }}
+  onClose={({ id, dirty }) => {
+    if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
+    setFiles((list) => list.filter((file) => file.id !== id));
+  }}
+/>;
+tabs.current?.saveAll(); // the dirty documents; returns their ids
+tabs.current?.select("tls");
+tabs.current?.activeId;
+```
+
+Tabs over one editor per document, each with its own language, baseline,
+read-only state and schema; switching keeps each document's caret, undo
+history, scroll and folds. The parent owns the list (a late parent never
+rolls a document back); nothing closes by itself (`onClose` gets
+`{ id, dirty }`). `Alt+PageDown` / `Alt+PageUp` switch documents; the tab list
+takes arrows, `Home`, `End`, `Enter` and `Delete`. Props: `documents`,
+`activeId`, `onSelect`, `onClose`, `onChange`, `onSave`, `onDirtyChange`,
+`theme`, `colors` (the `tab-*` tokens), `styled`, `showFooter`, `showDiff`,
+`saveShortcut`, `label`, `viewClassName`, `className`, `style`, `onError`.
+See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+
 ## Other exports
 
 Re-exported from `@pngwasi/config-editor`; call them after
@@ -215,7 +258,9 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `registerLanguage(definition)` | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript). |
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
-Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ChangeSummary`, `Diagnostic`, `Conversion`,
+Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ConfigDocumentsProps`,
+`ConfigDocumentsHandle`, `DocumentSpec`, `DocumentsOptions`, `DocumentsCallbackUpdate`,
+`CloseRequest`, `ChangeSummary`, `Diagnostic`, `Conversion`,
 `FieldPath`, `EditorPath`, `EditorRange`, `LineRange`, `HostDiagnostic`, `Severity`,
 `CustomLanguage`, `LanguageName`, `LanguageInfo`, `ThemeName`, `ThemeInfo`, `ThemeColorMap`,
 `BaselineConflict`.
