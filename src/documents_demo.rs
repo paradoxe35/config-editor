@@ -13,6 +13,7 @@ use config_editor_leptos::{
 use leptos::prelude::*;
 
 use crate::settings_panel::SettingsPanel;
+use crate::theme_picker::ThemePicker;
 
 const SCHEMA: &str = include_str!("../schema.json");
 const MAIN: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\nlimits:\n  handshake_timeout_secs: 5\n  max_handshakes: 4096\n  max_pending: 512\nheartbeat:\n  interval_secs: 15\n";
@@ -181,10 +182,18 @@ pub fn view(many: bool) -> impl IntoView {
         tabs.save_all();
     };
     let selected = move |id: String| selects.update(|all| all.push(id));
+    let theme = move || settings.with(|settings| settings.theme);
 
+    // The page takes the editor's theme (its variables) for its own controls.
     view! {
-        <div class="demo demo-documents">
+        <div
+            class="config-editor demo demo-documents"
+            data-theme=move || theme().css_family()
+            data-color-theme=move || theme().as_str()
+        >
             <div class="demo__documents-actions">
+                <ThemePicker settings=settings />
+                <SettingsPanel settings=settings />
                 <button class="demo__button demo__save-all" type="button" on:click=save_all>"Save all"</button>
                 <button class="demo__button demo__add" type="button" on:click=add>"Add drop-in"</button>
                 <button class="demo__button demo__server-change" type="button" on:click=server_change>"Server change (main)"</button>
@@ -209,7 +218,6 @@ pub fn view(many: bool) -> impl IntoView {
                 on_select=selected
                 settings=settings
             />
-            <SettingsPanel settings=settings />
             <p
                 class="demo__documents-status"
                 data-saves=move || saves.get().join(",")

@@ -185,6 +185,8 @@ pub enum ThemeColor {
     CompletionIconBorder,
     /// Suggestion icon.
     CompletionIconText,
+    /// Matched letters on the highlighted suggestion.
+    CompletionMatchActive,
     /// Problem tooltip text.
     TooltipText,
     /// Buttons and keys.
@@ -307,6 +309,7 @@ impl ThemeColor {
         Self::CompletionDetail,
         Self::CompletionIconBorder,
         Self::CompletionIconText,
+        Self::CompletionMatchActive,
         Self::TooltipText,
         Self::ControlBackground,
         Self::ControlText,
@@ -398,6 +401,7 @@ impl ThemeColor {
             Self::CompletionDetail => "--config-editor-completion-detail",
             Self::CompletionIconBorder => "--config-editor-completion-icon-border",
             Self::CompletionIconText => "--config-editor-completion-icon-text",
+            Self::CompletionMatchActive => "--config-editor-completion-match-active",
             Self::TooltipText => "--config-editor-tooltip-text",
             Self::ControlBackground => "--config-editor-control-bg",
             Self::ControlText => "--config-editor-control-text",

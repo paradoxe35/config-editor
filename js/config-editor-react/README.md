@@ -200,6 +200,7 @@ keeps them) and that comments typed there are not saved.
 | `reloadTitle` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
 | `keepMine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
 | `keepMineTitle` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
+| `baselineChangedKeys` | `"F6 moves to the choices and back."` | How to reach the notice's choices from the keyboard, shown on it (and announced with it). |
 | `findWidget` | `"Find and replace"` | The find widget's accessible name. |
 | `toggleReplace` | `"Toggle replace"` | The button showing the replace row. |
 | `toggleReplaceTitle` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
@@ -260,7 +261,7 @@ keeps them) and that comments typed there are not saved.
 | `defaultValue` | `"Default"` | The hover card's default row. |
 | `examples` | `"Examples"` | The hover card's examples row. |
 | `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
-| `openDocs` | `"Open docs ↗"` | The link under a host problem's message. |
+| `openDocs` | `"Open docs ↗ (Alt+Enter)"` | The link under a host problem's message. |
 | `error` | `"Error"` | An error, as a screen reader hears it. |
 | `warning` | `"Warning"` | A warning, as a screen reader hears it. |
 | `info` | `"Info"` | An info, as a screen reader hears it. |
@@ -268,6 +269,8 @@ keeps them) and that comments typed there are not saved.
 | `problemSource` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
 | `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
 | `problemPosition` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
+| `problemCode` | `" Code {code}."` | After a problem's text for screen readers: its `{code}` (from the host). |
+| `problemDocs` | `" Documentation: {url} (Alt+Enter opens it)."` | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it. |
 | `problemMarker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
 | `protectedNote` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
 | `sourceLabel` | `"{language} source"` | The text area. |
@@ -379,7 +382,8 @@ const [dirty, setDirty] = useState(false);
 ```
 
 When `baseline` changes while the user has unsaved edits (another client
-saved), the editor shows "The file changed on the server." with **Reload**
+saved), the editor shows "The file changed on the server." (announced; the
+focus stays in the text, `F6` moves it to the notice and back) with **Reload**
 (the document becomes the new baseline, reported through `onChange`) and
 **Keep mine** (or `Escape`: the document stays, diffed against the new
 baseline). A baseline equal to the document, or to a text the editor sent

@@ -120,6 +120,34 @@ fn later(run: impl FnOnce() + 'static) {
     run();
 }
 
+/// `Alt+Enter` on a problem with a docs link opens it in a new tab: the
+/// keyboard's way to the link the pointer clicks under the message.
+pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
+    let plain_alt = event.alt_key() && !event.ctrl_key() && !event.meta_key() && !event.shift_key();
+    if event.key() != "Enter" || !plain_alt {
+        return false;
+    }
+    let caret = state.doc.caret.get_untracked();
+    let (line, column) = state
+        .doc
+        .text
+        .with_untracked(|text| caret_position(text, caret));
+    let url = state.problems.diagnostics.with_untracked(|problems| {
+        problems
+            .iter()
+            .filter(|problem| covers(problem, line, column))
+            .find_map(|problem| problem.docs_url.clone())
+    });
+    let Some(url) = url else {
+        return false;
+    };
+    event.prevent_default();
+    if let Some(window) = web_sys::window() {
+        let _ = window.open_with_url_and_target_and_features(&url, "_blank", "noopener");
+    }
+    true
+}
+
 /// Shows what is at the caret as the pointer would: the message of the
 /// problem there, or what the protected text there is. A tap on a phone
 /// has no hover to show them with.

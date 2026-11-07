@@ -85,6 +85,15 @@
   font: 14px/1 ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Touch screens: at least 24×24px to a finger. */
+@media (pointer: coarse) {
+  .config-editor-documents__close,
+  .config-editor-documents__marker {
+    width: 24px;
+    height: 24px;
+  }
+}
+
 .config-editor-documents__close { cursor: pointer; }
 .config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
 .config-editor-documents__close > span,
