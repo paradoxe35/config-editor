@@ -1021,6 +1021,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             })
     }
 
+    /// `previous` with what it writes once and reads in several places (YAML
+    /// aliases and merge keys) written out in place wherever `new` gives that
+    /// place a value of its own, so a save can patch the rest; `None` when
+    /// nothing needs it. The text must read as `old` still.
+    fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
+        let _ = (previous, old, new);
+        None
+    }
+
     /// The UTF-16 selection Ctrl+/ comments, widened over what the selected
     /// lines own that would be left broken (a YAML key's indented children).
     /// The default keeps it.

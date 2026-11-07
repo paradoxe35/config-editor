@@ -105,6 +105,20 @@ impl ConfigLanguage for TomlBehavior {
         toml_text(value)
     }
 
+    /// A date or time the host wrote bare (`1979-05-27T07:32:00Z`) stays
+    /// bare, a datetime, while the new text still is one.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        let is_datetime = |text: &str| text.parse::<toml::value::Datetime>().is_ok();
+        if let Value::String(text) = value
+            && !written.starts_with(['"', '\''])
+            && is_datetime(written.trim())
+            && is_datetime(text)
+        {
+            return text.clone();
+        }
+        self.format_value(value)
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         key_at_column(line, column)
     }

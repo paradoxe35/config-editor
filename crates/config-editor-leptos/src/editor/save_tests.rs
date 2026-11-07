@@ -740,3 +740,62 @@ fn a_raw_less_than_in_an_xml_attribute_is_a_syntax_error() {
     assert!(Language::XML.parse("<beta secret=\"a<b\"/>\n").is_err());
     assert!(Language::XML.parse("<beta secret=\"a&lt;b\"/>\n").is_ok());
 }
+
+#[test]
+fn round_12_saves_change_only_the_edit() {
+    use serde_json::{Value, json};
+    let mut failures = Vec::new();
+    let mut check = |name: &str, host: Language, edit: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let mut value: Value = edit.parse(&shown).unwrap();
+        change(&mut value);
+        let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
+        match bridge.to_host(&changed, text) {
+            Ok(saved) if saved.text == expected => {}
+            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    };
+    // H1: anchors and aliases; an alias whose value parts from its anchor's
+    // is written out, everything else stays.
+    let yaml = "pool: &p\n  min_idle: 1\nudp: *p\nlisten: 1 # keep\n";
+    check("H1 anchor edited", Language::YAML, Language::JSON, yaml, &|v| v["pool"]["min_idle"] = json!(5),
+        "pool: &p\n  min_idle: 5\nudp: {min_idle: 1}\nlisten: 1 # keep\n");
+    check("H1 alias edited", Language::YAML, Language::JSON, yaml, &|v| v["udp"]["min_idle"] = json!(7),
+        "pool: &p\n  min_idle: 1\nudp: {min_idle: 7}\nlisten: 1 # keep\n");
+    let yaml = "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 2\n  gamma:\n    <<: *client\n    secret: s3\n";
+    check("H1 merge, anchor edited", Language::YAML, Language::JSON, yaml, &|v| v["clients"]["acme"]["max_connections"] = json!(5),
+        "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 5\n  gamma:\n    max_connections: 2\n    secret: s3\n");
+    check("H1 merge, other edit", Language::YAML, Language::JSON, &format!("{yaml}listen: 1\n"), &|v| v["listen"] = json!(2),
+        &format!("{yaml}listen: 2\n"));
+    // H2: a YAML empty value filled.
+    check("H2 filled", Language::YAML, Language::JSON, "listen: 1 # l\nservices:\n", &|v| v["services"] = json!({"web": {"target": 80}}),
+        "listen: 1 # l\nservices:\n  web:\n    target: 80\n");
+    check("H2 next comment", Language::YAML, Language::JSON, "services:\nvisitors: {} # none yet\n", &|v| v["services"] = json!({"web": 1}),
+        "services:\n  web: 1\nvisitors: {} # none yet\n");
+    // H3: values the edit language cannot show exactly stay as written.
+    let yaml = "listen: 0x10\nudp: {max_peers: 1}\nheartbeat:\n  interval_secs: 1.5e1\n";
+    for edit in [Language::XML, Language::HCL] {
+        check(&format!("H3 {edit:?}"), Language::YAML, edit, yaml, &|v| v["pool"] = json!({"min_idle": 1}),
+            &format!("{yaml}pool:\n  min_idle: 1\n"));
+    }
+    // H4: a TOML datetime stays a datetime.
+    check("H4", Language::TOML, Language::JSON, "started = 1979-05-27T07:32:00Z # when\n", &|v| v["started"] = json!("1980-01-01T00:00:00Z"),
+        "started = 1980-01-01T00:00:00Z # when\n");
+    // H5, M6: a YAML flow map over lines keeps its form and comments.
+    let yaml = "tcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30 # b\n}\nlisten: 1\n";
+    check("H5 add", Language::YAML, Language::JSON, yaml, &|v| v["tcp"]["nodelay_x"] = json!(1),
+        "tcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30, # b\n  nodelay_x: 1\n}\nlisten: 1\n");
+    check("M6 edit", Language::YAML, Language::JSON, yaml, &|v| v["tcp"]["keepalive_secs"] = json!(31),
+        &yaml.replace("keepalive_secs: 30", "keepalive_secs: 31"));
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Round 12: YAML merge keys (`<<: *defaults`) merge the anchored map in,
+/// keys written beside them winning.
+#[test]
+fn yaml_merge_keys_merge_the_anchored_map() {
+    let value = Language::YAML.parse("base: &b\n  a: 1\n  b: 2\nmine:\n  <<: *b\n  b: 3\n").unwrap();
+    assert_eq!(value["mine"], serde_json::json!({"a": 1, "b": 3}));
+}

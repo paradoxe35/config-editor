@@ -12,6 +12,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod style;
+mod aliases;
 
 use parse::*;
 use suggestions::*;
@@ -67,7 +68,7 @@ impl ConfigLanguage for YamlBehavior {
         if !has_content {
             return Ok(Value::Object(serde_json::Map::new()));
         }
-        yaml_parse(source).map_err(|mut error| {
+        yaml_parse(source).map(with_merge_keys).map_err(|mut error| {
             // A second document has no line from the parser: mark its `---`.
             if error.line.is_none()
                 && let Some(index) = source
@@ -131,6 +132,10 @@ impl ConfigLanguage for YamlBehavior {
     /// commented alone, they would be left without their parent.
     fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
         children_of_selected_keys(source, start, end)
+    }
+
+    fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
+        aliases::detach_shared(previous, old, new)
     }
 
     fn format_value_like(&self, value: &Value, written: &str) -> String {

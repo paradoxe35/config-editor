@@ -274,3 +274,43 @@ pub(super) fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {
         ))
     })
 }
+
+/// `value` with YAML merge keys applied (`<<: *defaults`, or a list of
+/// them): the merged maps' keys added where the map does not write its own,
+/// the `<<` entry gone.
+pub(super) fn with_merge_keys(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let own: Vec<String> = map.keys().filter(|key| *key != "<<").cloned().collect();
+            let mut merged = serde_json::Map::new();
+            for (key, child) in map {
+                if key != "<<" {
+                    merged.insert(key, with_merge_keys(child));
+                    continue;
+                }
+                // The merged keys go where `<<` is, so the map reads in the
+                // order it is written.
+                let sources = match child {
+                    Value::Object(source) => vec![Value::Object(source)],
+                    Value::Array(items) => items,
+                    other => {
+                        merged.insert(key, other);
+                        continue;
+                    }
+                };
+                for source in sources {
+                    if let Value::Object(source) = with_merge_keys(source) {
+                        for (name, value) in source {
+                            if !own.contains(&name) && !merged.contains_key(&name) {
+                                merged.insert(name, value);
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Object(merged)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(with_merge_keys).collect()),
+        other => other,
+    }
+}

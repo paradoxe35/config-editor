@@ -347,7 +347,13 @@ pub fn inline_value_len(text: &str) -> usize {
     if text.starts_with(['"', '\'']) {
         return skip_quoted(text, 0);
     }
-    let end = text.find([',', '}', ']']).unwrap_or(text.len());
+    let mut end = text.find([',', '}', ']', '\n']).unwrap_or(text.len());
+    // A comment after the value (`30 # b` in a flow map over lines) ends it.
+    for marker in [" #", "\t#", " //"] {
+        if let Some(at) = text[..end].find(marker) {
+            end = end.min(at);
+        }
+    }
     text[..end].trim_end().len()
 }
 
@@ -491,6 +497,8 @@ fn value_end(code: &str, at: usize) -> usize {
             b'}' | b']' if depth == 0 => break,
             b'}' | b']' => depth -= 1,
             b',' | b'\n' if depth == 0 => break,
+            // A comment after the value (`30 # b` in a flow map over lines).
+            b'#' if depth == 0 && index > at && matches!(bytes[index - 1], b' ' | b'\t') => break,
             b' ' | b'\t' | b'\r' => {
                 index += 1;
                 continue;

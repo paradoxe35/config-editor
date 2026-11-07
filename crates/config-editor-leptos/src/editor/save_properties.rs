@@ -137,6 +137,24 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "listen = 1\nservices.web.target = 80\n\n[services.db]\nhealth_check.path = '''\n/lit\n'''\nclient = \"acme\"\n",
         ),
+        // Round 12 shapes: anchors, aliases and merge keys, empty values,
+        // numbers written their own way, datetimes, flow maps over lines.
+        (
+            Language::YAML,
+            "# shared\npool: &p\n  min_idle: 1\nudp: *p\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 2\n  gamma:\n    <<: *client\n    secret: s3\nlisten: 1 # keep\n",
+        ),
+        (
+            Language::YAML,
+            "listen: 0x10 # l\nservices:\nheartbeat:\n  interval_secs: 1.5e1\ntcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30 # b\n}\n",
+        ),
+        (
+            Language::TOML,
+            "started = 1979-05-27T07:32:00Z # when\nlisten = 1_000 # l\n\n[limits]\nmax_pending = 0x10\n",
+        ),
+        (
+            Language::HCL,
+            "# h\ntcp = {\n  nodelay = true # a\n  keepalive_secs = 30\n}\nlisten = 1\n",
+        ),
     ]
 }
 

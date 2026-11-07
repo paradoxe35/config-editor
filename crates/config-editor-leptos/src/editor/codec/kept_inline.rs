@@ -74,6 +74,12 @@ pub(super) fn hide(
             .trim_end()
             .ends_with('[')
     });
+    // A flow map opened at a line's end after a bare key (YAML's `tcp: {`;
+    // not a JSON object, which the serializer writes the same way).
+    let multi_line_maps = previous.lines().any(|line| {
+        let code = line[..super::comment_start(language, line)].trim();
+        code.ends_with('{') && code.contains(": ") && !code.starts_with(['"', '\''])
+    });
     // Strings written over lines (a YAML block, a TOML `"""`, a heredoc):
     // the serializer writes them on one.
     let host_lines: Vec<&str> = previous.split('\n').collect();
@@ -83,14 +89,14 @@ pub(super) fn hide(
         .filter_map(|range| host_lines.get(range).map(|lines| lines.join("\n")))
         .collect();
     let string_bodies = !bodies.is_empty();
-    if lines.is_empty() && !multi_line_lists && !string_bodies {
+    if lines.is_empty() && !multi_line_lists && !multi_line_maps && !string_bodies {
         return None;
     }
     let mut candidates = Vec::new();
     collect(
         old,
         &lines,
-        multi_line_lists,
+        (multi_line_lists, multi_line_maps),
         String::new(),
         &mut candidates,
     );
@@ -111,7 +117,9 @@ pub(super) fn hide(
                     // edited in place (see `lists`); kept, deleted or
                     // replaced by a value, it is hidden like the others.
                     let now = new.pointer(&pointer);
-                    (now == old.pointer(&pointer) || !now.is_some_and(Value::is_array))
+                    let was = old.pointer(&pointer);
+                    let same_kind = now.is_some_and(|now| now.is_array() && was.is_some_and(Value::is_array) || now.is_object() && was.is_some_and(Value::is_object));
+                    (now == was || !same_kind)
                         .then(|| multi_line_list(language, previous, span))
                         .flatten()
                 })
@@ -256,13 +264,13 @@ fn same_place(value: &Value, segments: &[String], pointer: String, out: &mut Vec
 fn collect(
     old: &Value,
     lines: &[&str],
-    multi_line_lists: bool,
+    (multi_line_lists, multi_line_maps): (bool, bool),
     pointer: String,
     out: &mut Vec<String>,
 ) {
     if !pointer.is_empty()
         && (old.is_object() || old.is_array())
-        && ((multi_line_lists && old.is_array()) || on_one_line(&pointer, old, lines))
+        && ((multi_line_lists && old.is_array()) || (multi_line_maps && old.is_object()) || on_one_line(&pointer, old, lines))
     {
         out.push(pointer.clone());
     }
@@ -272,7 +280,7 @@ fn collect(
                 collect(
                     value,
                     lines,
-                    multi_line_lists,
+                    (multi_line_lists, multi_line_maps),
                     format!("{pointer}/{}", escape(key)),
                     out,
                 );
@@ -283,7 +291,7 @@ fn collect(
                 collect(
                     value,
                     lines,
-                    multi_line_lists,
+                    (multi_line_lists, multi_line_maps),
                     format!("{pointer}/{index}"),
                     out,
                 );
@@ -389,7 +397,7 @@ pub(super) fn multi_line_list(
             .char_indices()
             .nth(span.start_column.saturating_sub(1))
             .map_or(line.len(), |(index, _)| index);
-    if !previous[start..].starts_with('[') {
+    if !previous[start..].starts_with(['[', '{']) {
         return None;
     }
     let mut depth = 0usize;

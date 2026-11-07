@@ -125,6 +125,11 @@ impl EditHistory {
     }
 
     /// The state after the newest undone step, given the current text.
+    /// Whether an undone step can be redone.
+    pub(super) fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+
     pub(super) fn redo(&mut self, current: String) -> Option<Snapshot> {
         let step = self.redo.pop()?;
         self.undo.push(Step {

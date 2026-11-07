@@ -101,6 +101,12 @@ impl Bridge {
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
         let shape = self.shape();
+        // What the host writes once and reads in several places (a YAML
+        // alias) is written out where the edit parts it from the rest.
+        let detached = host
+            .detach_shared(previous_host, &old, &target)
+            .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(&old));
+        let previous_host = detached.as_deref().unwrap_or(previous_host);
         // The patches that change only what one edit touched.
         let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
             codec::patch_reorder(host, previous, old, target, shape)

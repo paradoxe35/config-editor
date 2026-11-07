@@ -276,6 +276,12 @@ fn switch_languages(state: EditorState, host: Host) {
     });
     Effect::new(move |_| {
         state.diagnosed_text.track();
+        // Not on a step back through undo: the switch starts the history
+        // over, and the steps the user may redo would be lost. The next edit
+        // (which ends redo anyway) makes it.
+        if state.history.with_untracked(EditHistory::can_redo) {
+            return;
+        }
         if let Some(next) = state.pending_switch.get_untracked() {
             try_switch(next);
         }

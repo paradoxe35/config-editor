@@ -59,25 +59,35 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     }
 }
 
+/// The note `validate` adds when it cut the list.
+fn is_more_note(problem: &Diagnostic) -> bool {
+    problem.line.is_none() && problem.message.ends_with("more follow.")
+}
+
 /// "2 errors, 1 warning · …": the counts, then an unplaced problem's
 /// message or a hint.
 fn summary(problems: &[Diagnostic]) -> String {
     let plural = |count: usize| if count == 1 { "" } else { "s" };
-    let warnings = problems
-        .iter()
-        .filter(|problem| problem.severity == Severity::Warning)
-        .count();
-    let errors = problems.len() - warnings;
+    // The note that more problems follow is not one of them: the counts say
+    // "20+" instead.
+    let more = problems.iter().any(is_more_note);
+    let counted: Vec<&Diagnostic> = problems.iter().filter(|problem| !is_more_note(problem)).collect();
+    let warnings = counted.iter().filter(|problem| problem.severity == Severity::Warning).count();
+    let errors = counted.len() - warnings;
+    let plus = if more { "+" } else { "" };
     let count = match (errors, warnings) {
         (0, 0) => return "No errors".to_string(),
-        (errors, 0) => format!("{errors} error{}", plural(errors)),
-        (0, warnings) => format!("{warnings} warning{}", plural(warnings)),
+        (errors, 0) => format!("{errors}{plus} error{}", plural(errors)),
+        (0, warnings) => format!("{warnings}{plus} warning{}", plural(warnings)),
         (errors, warnings) => format!(
-            "{errors} error{}, {warnings} warning{}",
+            "{errors} error{}, {warnings} warning{}{plus}",
             plural(errors),
             plural(warnings)
         ),
     };
+    if more {
+        return format!("{count} · only the first {} are shown", counted.len());
+    }
     match problems.iter().find(|problem| problem.line.is_none()) {
         Some(unplaced) => format!("{count} · {}", unplaced.message),
         None => format!("{count} · hover or focus underlined text"),

@@ -252,6 +252,19 @@ pub(super) fn patch_inline(
                 return Some(patched);
             }
         }
+        // A flow map or object written one entry per line (`tcp: {` … `}`).
+        if let Some(span) = span
+            && let Some(range) = kept_inline::multi_line_list(language, previous, span)
+            && let Some(Value::Object(entries)) = new.pointer(&pointer)
+            && let Some(Value::Object(before)) = old.pointer(&pointer)
+            && let Some(text) = lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
+        {
+            let mut patched = previous.to_string();
+            patched.replace_range(range, &text);
+            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                return Some(patched);
+            }
+        }
         // A one-line block or element (`tcp { nodelay = true }`).
         if let Some(one_line) = language.one_line_container(previous, &pointer)
             && let Some(body) = new.pointer(&pointer).and_then(|value| {
@@ -777,6 +790,38 @@ fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
         }
         None => code,
     };
+    // A YAML anchor (`pool: &p`) names the value; the line is the same.
+    let anchorless;
+    let code = match [": &", "- &"].iter().find_map(|marker| code.find(marker).map(|at| (at, marker.len()))) {
+        Some((at, length)) => {
+            let name_end = code[at + length..]
+                .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-')))
+                .map_or(code.len(), |offset| at + length + offset);
+            if name_end > at + length {
+                anchorless = format!("{}{}", &code[..at + length - 1], code[name_end..].trim_start());
+                anchorless.trim_end().to_string()
+            } else {
+                code.to_string()
+            }
+        }
+        None => code.to_string(),
+    };
+    let code = code.as_str();
+    // An empty value (`services:`) is the same line as its null written out.
+    let code = [": null", ": ~"].iter().find_map(|null| code.strip_suffix(null).map(|key| &code[..key.len() + 1])).unwrap_or(code);
+    // A number however it is written (`0x10`, `1.5e1`, `1_000`) is the same
+    // line as the serializer's `16`, `15.0`, `1000`.
+    let numbered;
+    let code = match [": ", " = "].iter().find_map(|separator| code.split_once(separator).map(|(key, value)| (key, *separator, value))) {
+        Some((key, separator, value)) => match canonical_number(value.trim_end_matches(',').trim()) {
+            Some(number) => {
+                numbered = format!("{key}{separator}{number}{}", if value.trim_end().ends_with(',') { "," } else { "" });
+                numbered.as_str()
+            }
+            None => code,
+        },
+        None => code,
+    };
     let unquoted = code.replace(['"', '\''], "");
     // A line of quotes alone (a multi-line string's `"""`) still is a line.
     if unquoted.is_empty() {
@@ -784,6 +829,28 @@ fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
     } else {
         unquoted
     }
+}
+
+/// `text` as one spelling of the number it writes, or `None` when it writes
+/// none (`16` for `0x10` and `16`, `15` for `1.5e1` and `15.0`).
+fn canonical_number(text: &str) -> Option<String> {
+    let text = text.replace('_', "");
+    let (sign, digits) = match text.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, text.strip_prefix('+').unwrap_or(&text)),
+    };
+    let radix = [("0x", 16), ("0o", 8), ("0b", 2)].iter().find_map(|(prefix, radix)| digits.strip_prefix(prefix).map(|rest| (rest, *radix)));
+    let value = match radix {
+        Some((rest, radix)) => i64::from_str_radix(rest, radix).ok()? as f64,
+        None if !digits.is_empty()
+            && digits.chars().all(|character| character.is_ascii_digit() || matches!(character, '.' | 'e' | 'E' | '+' | '-'))
+            && digits.starts_with(|character: char| character.is_ascii_digit() || character == '.') =>
+        {
+            digits.parse::<f64>().ok()?
+        }
+        None => return None,
+    } * sign;
+    Some(if value.fract() == 0.0 && value.abs() < 1e15 { format!("{}", value as i64) } else { value.to_string() })
 }
 
 /// The trailing comment of `line`, or `""`.
