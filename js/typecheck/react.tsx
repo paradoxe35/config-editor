@@ -38,3 +38,18 @@ export function Viewer({ text }: { text: string }) {
   return (<ConfigEditor ref={ref} value={text} readOnly highlighting={false} showDiff={false} completions={false}
     autoTriggerCompletions={false} hoverDocs={false} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
 }
+// Several documents.
+import { ConfigDocuments, type ConfigDocumentsHandle, type DocumentSpec } from "@pngwasi/config-editor-react";
+declare function putFile(id: string, text: string): Promise<void>;
+export function Files({ schema }: { schema: string }) {
+  const [files, setFiles] = useState<DocumentSpec[]>([{ id: "main", fileName: "burrow.yaml", value: "", schema }]);
+  const update = (id: string, change: Partial<DocumentSpec>) =>
+    setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
+  const tabs = useRef<ConfigDocumentsHandle>(null);
+  const sent: string[] | undefined = tabs.current?.saveAll(); tabs.current?.select("tls"); tabs.current?.activeId; void sent;
+  return (
+    <ConfigDocuments ref={tabs} documents={files} onChange={(id, value) => update(id, { value })}
+      onSave={async (id, value) => { await putFile(id, value); update(id, { baseline: value }); }}
+      onClose={({ id, dirty }) => { if (!dirty) setFiles((list) => list.filter((file) => file.id !== id)); }} />
+  );
+}

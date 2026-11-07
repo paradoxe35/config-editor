@@ -69,3 +69,18 @@
   .demo__picker { gap: 0; font-size: 0; }
   .demo__select { max-width: 112px; font-size: 11px; }
 }
+
+/* `?documents`: the host's buttons and its "discard unsaved changes?" question. */
+.demo-documents { padding: 8px; background: #181818; min-height: 100vh; box-sizing: border-box; }
+.demo__documents-actions,
+.demo__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #ccc;
+  font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.demo__documents-status { color: #999; font: 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.demo__documents-values { max-height: 30vh; overflow: auto; color: #bbb; font: 11px/1.4 monospace; white-space: pre-wrap; overflow-wrap: anywhere; }

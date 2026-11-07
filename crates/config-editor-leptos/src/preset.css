@@ -1,4 +1,4 @@
-:where(.config-editor) {
+:where(.config-editor, .config-editor-documents) {
   --config-editor-bg: #1e1e1e;
   --config-editor-panel: #252526;
   --config-editor-border: #3c3c3c;
@@ -66,6 +66,14 @@
   --config-editor-fold-toggle: var(--config-editor-line-number);
   --config-editor-fold-chip: color-mix(in srgb, var(--config-editor-muted) 24%, transparent);
   --config-editor-fold-chip-text: var(--config-editor-muted);
+  --config-editor-tab-bar: var(--config-editor-panel);
+  --config-editor-tab-bg: var(--config-editor-panel);
+  --config-editor-tab-active-bg: var(--config-editor-bg);
+  --config-editor-tab-text: var(--config-editor-muted);
+  --config-editor-tab-active-text: var(--config-editor-text);
+  --config-editor-tab-border: var(--config-editor-border);
+  --config-editor-tab-active-border: var(--config-editor-accent);
+  --config-editor-tab-dirty: var(--config-editor-text);
   --config-editor-font-size: 12px;
   --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
   --config-editor-padding-top: 15px;
@@ -1190,7 +1198,7 @@
   outline-offset: 1px;
 }
 
-:where(.config-editor[data-theme="vscode-light"]) {
+:where(.config-editor[data-theme="vscode-light"], .config-editor-documents[data-theme="vscode-light"]) {
   --config-editor-bg: #ffffff;
   --config-editor-status-error: #c72e0f;
   --config-editor-panel: #f3f3f3;
@@ -1225,7 +1233,7 @@
   --config-editor-caret: #333333;
 }
 
-:where(.config-editor[data-theme="obsidian"]) {
+:where(.config-editor[data-theme="obsidian"], .config-editor-documents[data-theme="obsidian"]) {
   --config-editor-bg: #090b0c;
   --config-editor-panel: #0c0f10;
   --config-editor-border: #24292c;
@@ -1259,7 +1267,7 @@
   --config-editor-caret: #e6edf2;
 }
 
-:where(.config-editor[data-theme="obsidian-light"]) {
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
   --config-editor-bg: #f8faf8;
   --config-editor-status-error: #b42318;
   --config-editor-panel: #f0f3f1;
@@ -1297,8 +1305,10 @@
 /* Tokens that VS Code Dark tunes by hand; the other families derive them
    from their palette, so every data-color-theme on top of them follows. */
 .config-editor[data-theme="vscode-light"],
+.config-editor-documents[data-theme="vscode-light"],
 .config-editor[data-theme="obsidian"],
-:where(.config-editor[data-theme="obsidian-light"]) {
+.config-editor-documents[data-theme="obsidian"],
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
   --config-editor-control-disabled-text: var(--config-editor-control-text);
   --config-editor-diff-removed-bg: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
   --config-editor-diff-removed-text: var(--config-editor-text);

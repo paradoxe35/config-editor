@@ -1,7 +1,11 @@
 import init, {
   type BaselineConflict,
   type ChangeSummary,
+  type CloseRequest,
+  ConfigDocuments as Documents,
   ConfigEditor as Editor,
+  type DocumentSpec,
+  type DocumentsOptions,
   type EditorOptions,
   type EditorPath,
   type EditorRange,
@@ -46,6 +50,10 @@ export {
 export type {
   BaselineConflict,
   ChangeSummary,
+  CloseRequest,
+  DocumentsCallbackUpdate,
+  DocumentsOptions,
+  DocumentSpec,
   Conversion,
   CustomLanguage,
   Diagnostic,
@@ -569,6 +577,241 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             return "";
           }
         },
+      }),
+      [],
+    );
+
+    return <div ref={host} className={props.className} style={props.style} />;
+  },
+);
+
+export interface ConfigDocumentsProps {
+  /** The open documents, in tab order (controlled: keep each `value` up to date from `onChange`). */
+  documents: DocumentSpec[];
+  /** The document shown first. Default: the first one. */
+  activeId?: string;
+  /** Called with a document's id when it becomes the active one. */
+  onSelect?: (id: string) => void;
+  /**
+   * Called when the user asks to close a document (close button, middle
+   * click, `Delete` on its tab). Nothing closes by itself: remove it from
+   * `documents`, asking first when `request.dirty`. Without it, tabs have no
+   * close button. Changing whether it is set re-mounts.
+   */
+  onClose?: (request: CloseRequest) => void;
+  /** Called with a document's id and text after every edit. */
+  onChange?: (id: string, value: string) => void;
+  /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `ref.save(id)` / `ref.saveAll()`. */
+  onSave?: (id: string, value: string, language: LanguageName) => void;
+  /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
+  onDirtyChange?: (id: string, dirty: boolean) => void;
+  theme?: ThemeName;
+  /** Color overrides, the `tab-*` tokens included. */
+  colors?: ThemeColorMap;
+  /** Inject the preset stylesheet (once for the view). Default `true`. Changing it re-mounts. */
+  styled?: boolean;
+  /** Each editor's status footer. Default `false`. Changing it re-mounts. */
+  showFooter?: boolean;
+  /** Line changes against each document's baseline. Default `true`. Changing it re-mounts. */
+  showDiff?: boolean;
+  /** Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`). Default `true`. Updates live. */
+  saveShortcut?: boolean;
+  /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
+  label?: string;
+  /** Class on the view's root (inside the container). */
+  viewClassName?: string;
+  /** Class and style of the container element. */
+  className?: string;
+  style?: CSSProperties;
+  /** Called with an error from mounting or from a prop the view rejects. Without it errors are logged. */
+  onError?: (error: unknown) => void;
+}
+
+/** Imperative access to a `ConfigDocuments`, through `ref`. */
+export interface ConfigDocumentsHandle {
+  /** The underlying `@pngwasi/config-editor` instance, once mounted. */
+  readonly instance: Documents | null;
+  /** The active document's id, or `null`. */
+  readonly activeId: string | null;
+  /** Shows the document `id` and focuses its editor; `false` when there is no such document. */
+  select(id: string): boolean;
+  /** Whether the document `id` differs from its baseline. */
+  isDirty(id: string): boolean;
+  /** Saves the document `id` as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent. */
+  save(id: string): boolean;
+  /** Saves every document with unsaved edits; returns the ids sent. */
+  saveAll(): string[];
+  /** Focuses the active document's editor. */
+  focus(): void;
+}
+
+/**
+ * Several documents as tabs, one editor per document (each keeps its caret,
+ * undo history, scroll and folds across switches).
+ *
+ * ```tsx
+ * <ConfigDocuments documents={files} onChange={(id, value) => update(id, value)} onSave={upload} onClose={close} />
+ * ```
+ */
+export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocumentsProps>(
+  function ConfigDocuments(props, ref) {
+    const host = useRef<HTMLDivElement>(null);
+    const instance = useRef<Documents | null>(null);
+    const latest = useRef(props);
+    latest.current = props;
+    const [mounted, setMounted] = useState(0);
+    const [retry, setRetry] = useState(0);
+    // Per document: what its editor holds now, and the echoes of its edits
+    // still on their way through the parent (see `ValueSync`).
+    const texts = useRef(new Map<string, string>());
+    const syncs = useRef(new Map<string, ValueSync>());
+    const report = (error: unknown) => {
+      if (latest.current.onError) latest.current.onError(error);
+      else console.error("config-editor-react:", error);
+    };
+    const guard = (apply: (view: Documents) => void) => {
+      const view = instance.current;
+      if (!view) return;
+      try {
+        apply(view);
+      } catch (error) {
+        report(error);
+      }
+    };
+    // The parent's list with late echoes of the user's own edits replaced by
+    // what the editors hold, so a slow parent never rolls a document back.
+    const reconcile = (documents: DocumentSpec[]): DocumentSpec[] => {
+      const listed = new Set(documents.map((document) => document.id));
+      for (const id of [...texts.current.keys()]) {
+        if (!listed.has(id)) {
+          texts.current.delete(id);
+          syncs.current.delete(id);
+        }
+      }
+      return documents.map((document) => {
+        const current = texts.current.get(document.id);
+        if (current === undefined) {
+          texts.current.set(document.id, document.value);
+          return document;
+        }
+        let sync = syncs.current.get(document.id);
+        if (!sync) syncs.current.set(document.id, (sync = new ValueSync()));
+        const { apply, report: resend } = sync.received(document.value, current);
+        if (resend !== null) latest.current.onChange?.(document.id, resend);
+        if (apply !== null) {
+          texts.current.set(document.id, apply);
+          return document;
+        }
+        return current === document.value ? document : { ...document, value: current };
+      });
+    };
+    const closable = props.onClose !== undefined;
+
+    useEffect(() => {
+      let cancelled = false;
+      const retryOnLoad = () => {
+        onLoaded.delete(retryOnLoad);
+        if (!cancelled) setRetry((count) => count + 1);
+      };
+      void loadConfigEditor().then(() => {
+        if (cancelled || !host.current) return;
+        const current = latest.current;
+        texts.current.clear();
+        syncs.current.clear();
+        const options: DocumentsOptions = {
+          documents: reconcile(current.documents),
+          activeId: current.activeId,
+          theme: current.theme,
+          colors: current.colors,
+          styled: current.styled,
+          showFooter: current.showFooter,
+          showDiff: current.showDiff,
+          saveShortcut: current.saveShortcut,
+          className: current.viewClassName,
+          label: current.label,
+          onSelect: (id) => latest.current.onSelect?.(id),
+          onClose: closable ? (request) => latest.current.onClose?.(request) : undefined,
+          onChange: (id, value) => {
+            texts.current.set(id, value);
+            let sync = syncs.current.get(id);
+            if (!sync) syncs.current.set(id, (sync = new ValueSync()));
+            sync.sent(value);
+            latest.current.onChange?.(id, value);
+          },
+          onSave: (id, value, language) => latest.current.onSave?.(id, value, language),
+          onDirtyChange: (id, dirty) => latest.current.onDirtyChange?.(id, dirty),
+        };
+        try {
+          instance.current = new Documents(host.current, options);
+          setMounted((count) => count + 1);
+        } catch (error) {
+          report(error);
+        }
+      }, (error: unknown) => {
+        onLoaded.add(retryOnLoad);
+        report(error);
+      });
+      return () => {
+        cancelled = true;
+        onLoaded.delete(retryOnLoad);
+        instance.current?.destroy();
+        instance.current?.free();
+        instance.current = null;
+      };
+    }, [props.styled, props.showFooter, props.showDiff, props.label, props.viewClassName, closable, retry]);
+
+    useEffect(() => {
+      guard((view) => view.setDocuments(reconcile(props.documents)));
+    }, [mounted, props.documents]);
+
+    useEffect(() => {
+      guard((view) => view.setTheme(props.theme ?? null));
+    }, [mounted, props.theme]);
+
+    const colors = JSON.stringify(props.colors ?? {});
+    useEffect(() => {
+      guard((view) => view.setColors(JSON.parse(colors) as ThemeColorMap));
+    }, [mounted, colors]);
+
+    useEffect(() => {
+      guard((view) => view.setSaveShortcut(props.saveShortcut ?? true));
+    }, [mounted, props.saveShortcut]);
+
+    // `Ctrl+S` is the view's only while `onSave` is set.
+    const saves = props.onSave !== undefined;
+    useEffect(() => {
+      guard((view) =>
+        view.setCallbacks({
+          onSave: saves ? (id, value, language) => latest.current.onSave?.(id, value, language) : null,
+        }),
+      );
+    }, [mounted, saves]);
+
+    const ask = <T,>(query: (view: Documents) => T, fallback: T): T => {
+      const view = instance.current;
+      if (!view) return fallback;
+      try {
+        return query(view);
+      } catch (error) {
+        report(error);
+        return fallback;
+      }
+    };
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        get instance() {
+          return instance.current;
+        },
+        get activeId() {
+          return ask((view) => view.activeId ?? null, null);
+        },
+        select: (id: string) => ask((view) => view.select(id), false),
+        isDirty: (id: string) => ask((view) => view.isDirty(id), false),
+        save: (id: string) => ask((view) => view.save(id), false),
+        saveAll: () => ask((view) => view.saveAll(), [] as string[]),
+        focus: () => guard((view) => view.focus()),
       }),
       [],
     );

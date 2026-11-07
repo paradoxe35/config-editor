@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>config-editor documents (vanilla)</title>
+    <style>
+      body { margin: 0; padding: 8px; font: 13px system-ui, sans-serif; background: #1e1e1e; color: #ddd; }
+      header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 0 0 8px; }
+      pre { margin: 8px 0 0; white-space: pre-wrap; max-height: 25vh; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>ConfigDocuments</strong>
+      <button id="save-all" type="button">Save all</button>
+    </header>
+    <div id="files"></div>
+    <pre id="log"></pre>
+    <script type="module">
+      import init, { ConfigDocuments } from "../config-editor/pkg/config_editor.js";
+
+      await init();
+      const schema = await (await fetch("../../schema.json")).text();
+      const log = (line) => (document.getElementById("log").textContent += `${line}\n`);
+
+      // The host owns the list: edits, saves and closes come back as calls.
+      let files = [
+        { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema },
+        { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
+        { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
+      ];
+      const update = (id, change) => {
+        files = files.map((file) => (file.id === id ? { ...file, ...change } : file));
+        view.setDocuments(files);
+      };
+      const view = new ConfigDocuments(document.getElementById("files"), {
+        documents: files,
+        onChange: (id, value) => {
+          log(`change ${id}`);
+          update(id, { value });
+        },
+        onSave: (id, value, language) => {
+          log(`save ${id} ${language}`);
+          update(id, { baseline: value });
+        },
+        onSelect: (id) => log(`select ${id}`),
+        onClose: ({ id, dirty }) => {
+          if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
+          files = files.filter((file) => file.id !== id);
+          view.setDocuments(files);
+        },
+      });
+      document.getElementById("save-all").addEventListener("click", () => view.saveAll());
+      window.documentsView = view;
+      document.body.dataset.ready = "true";
+    </script>
+  </body>
+</html>

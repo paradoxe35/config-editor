@@ -35,6 +35,9 @@
 //! - `host_diagnostics` shows problems the host found (a server's
 //!   validation, as [`HostDiagnostic`]s by path or range) next to the
 //!   editor's own.
+//! - [`ConfigDocuments`] shows several [`Document`]s (a main file and its
+//!   drop-ins) as tabs, each with its own language, baseline and read-only
+//!   state, one editor per document kept across switches.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
 //!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or set
@@ -76,8 +79,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+mod documents;
 mod editor;
 
+pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};
 pub use editor::language;
 
 pub use editor::{

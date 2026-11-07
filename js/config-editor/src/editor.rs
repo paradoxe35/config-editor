@@ -23,7 +23,7 @@ use crate::values::{
     path_to_js, range_to_js, text_arg,
 };
 
-fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
+pub(crate) fn colors_from(value: &JsValue) -> Result<ThemeColors, JsError> {
     let mut colors = ThemeColors::new();
     if value.is_undefined() || value.is_null() {
         return Ok(colors);
@@ -80,12 +80,12 @@ pub struct ConfigEditor {
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
-type Mounted = (Box<dyn std::any::Any>, Owner, web_sys::HtmlElement);
+pub(crate) type Mounted = (Box<dyn std::any::Any>, Owner, web_sys::HtmlElement);
 
 /// Unmounts the editors mounted in `element` or inside it: mounting a new one
 /// there replaces them (as the element's content), and they would otherwise
 /// stay alive, unseen, until the page closes.
-fn replace_editors_in(element: &web_sys::HtmlElement) {
+pub(crate) fn replace_editors_in(element: &web_sys::HtmlElement) {
     let replaced: Vec<Mounted> = MOUNTED.with(|editors| {
         let mut editors = editors.borrow_mut();
         let ids: Vec<u32> = editors
@@ -107,8 +107,8 @@ thread_local! {
     /// Mounted editors, kept here rather than in the JavaScript object: an
     /// instance the page no longer references is garbage-collected (and its
     /// Rust side dropped), but the editor stays on the page until `destroy`.
-    static MOUNTED: RefCell<HashMap<u32, Mounted>> = RefCell::new(HashMap::new());
-    static NEXT_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    pub(crate) static MOUNTED: RefCell<HashMap<u32, Mounted>> = RefCell::new(HashMap::new());
+    pub(crate) static NEXT_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 #[wasm_bindgen]

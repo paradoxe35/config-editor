@@ -1,0 +1,143 @@
+
+/* The documents view (`ConfigDocuments`): a tab strip over one editor per
+   document. Colors come from the `--config-editor-tab-*` tokens. */
+.config-editor-documents {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--config-editor-text);
+}
+
+.config-editor-documents__tabs {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--config-editor-tab-border);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: var(--config-editor-tab-bar);
+  font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  scrollbar-width: thin;
+  scrollbar-color: var(--config-editor-scrollbar-thumb) transparent;
+}
+
+.config-editor-documents__tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 35px;
+  padding: 0 6px 0 10px;
+  border-right: 1px solid var(--config-editor-tab-border);
+  background: var(--config-editor-tab-bg);
+  color: var(--config-editor-tab-text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.config-editor-documents__tab-active {
+  background: var(--config-editor-tab-active-bg);
+  color: var(--config-editor-tab-active-text);
+}
+
+.config-editor-documents__tab-active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--config-editor-tab-active-border);
+}
+
+.config-editor-documents__tab:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: -1px;
+}
+
+.config-editor-documents__icon { flex: none; }
+
+.config-editor-documents__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+
+.config-editor-documents__close,
+.config-editor-documents__marker {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: 14px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor-documents__close { cursor: pointer; }
+.config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
+.config-editor-documents__close > span,
+.config-editor-documents__marker > span { grid-area: 1 / 1; }
+
+/* A dirty tab shows its dot; hovering a closable tab (or a clean active
+   one) shows the close button instead. */
+.config-editor-documents__dirty-dot {
+  color: var(--config-editor-tab-dirty);
+  font-size: 11px;
+  visibility: hidden;
+}
+.config-editor-documents__close-icon { visibility: hidden; }
+.config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
+.config-editor-documents__tab:hover .config-editor-documents__close-icon,
+.config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
+  visibility: visible;
+}
+.config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
+  visibility: hidden;
+}
+
+.config-editor-documents__panels {
+  position: relative;
+  min-width: 0;
+}
+
+.config-editor-documents__panels .config-editor__frame {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Hidden panels keep their editor laid out (so its scroll position and
+   measurements stay), out of sight and out of the page's height. */
+.config-editor-documents__panel-hidden {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.config-editor-documents__empty {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--config-editor-tab-border);
+  border-radius: 0 0 6px 6px;
+  background: var(--config-editor-bg);
+  color: var(--config-editor-muted);
+  font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (max-width: 600px) {
+  .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
+}

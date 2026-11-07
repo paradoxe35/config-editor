@@ -62,11 +62,16 @@ use components::{
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
-/// The preset stylesheet: layout plus every bundled theme.
+/// The preset stylesheet: layout plus every bundled theme, and the tabs of
+/// [`ConfigDocuments`](crate::ConfigDocuments).
 ///
 /// The editor injects it unless `styled=false`, in which case a host can serve
 /// it itself.
-pub const PRESET_CSS: &str = concat!(include_str!("preset.css"), include_str!("themes.css"));
+pub const PRESET_CSS: &str = concat!(
+    include_str!("preset.css"),
+    include_str!("themes.css"),
+    include_str!("documents.css")
+);
 
 /// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
 ///

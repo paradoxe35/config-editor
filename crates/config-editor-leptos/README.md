@@ -32,6 +32,7 @@ method and headless function here has a JS option, method or function there
   - [Editing in another language](#editing-in-another-language)
   - [Changes against the baseline](#changes-against-the-baseline)
   - [Saving and unsaved edits](#saving-and-unsaved-edits)
+- [Several documents](#several-documents)
 - [Paths and positions](#paths-and-positions)
 - [Host diagnostics](#host-diagnostics)
 - [Schema help](#schema-help)
@@ -239,6 +240,100 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
 `raised-border`, `raised-text`, `raised-muted`, `warning`, `control-bg` and
 `control-text`.
 
+## Several documents
+
+`<ConfigDocuments>` shows several files in one view, a main config and its
+drop-ins, as VS Code-style tabs over one editor per document. Each
+`Document` has its own language (from its file name unless given), text,
+baseline, read-only state, `edit_as` language and schema; documents with
+the same schema JSON share one compiled `Schema` (pass a compiled `Schema`
+to share it with editors elsewhere).
+
+```rust
+use config_editor_leptos::{CloseRequest, ConfigDocuments, Document, DocumentsHandle, SaveRequest};
+
+const SCHEMA: &str = include_str!("schema.json");
+let documents = RwSignal::new(vec![
+    Document::new("main", "burrow.yaml", load("burrow.yaml")).schema(SCHEMA),
+    Document::new("limits", "conf.d/limits.toml", load("conf.d/limits.toml")).schema(SCHEMA),
+    Document::new("clients", "conf.d/clients.json", load("conf.d/clients.json"))
+        .schema(SCHEMA)
+        .read_only(true),
+]);
+let edit = move |id: &str, change: &dyn Fn(&mut Document)| {
+    documents.update(|list| list.iter_mut().filter(|d| d.id == id).for_each(change))
+};
+let tabs = DocumentsHandle::new();
+view! {
+    <button on:click=move |_| { tabs.save_all(); }>"Save all"</button>
+    <ConfigDocuments
+        documents=documents
+        handle=tabs
+        on_change=move |(id, text): (String, String)| edit(&id, &|d| d.value = text.clone())
+        on_save=move |(id, request): (String, SaveRequest)| {
+            store(&id, &request.text);
+            edit(&id, &|d| d.baseline = Some(request.text.clone()));
+        }
+        on_close=move |request: CloseRequest| {
+            if !request.dirty || confirm_discard(&request.id) {
+                documents.update(|list| list.retain(|d| d.id != request.id));
+            }
+        }
+    />
+}
+```
+
+- **The host owns the list.** It adds, removes, renames and reorders
+  documents by changing `documents`. A document keeps its editor while its
+  `id` stays listed: a new `value`, `baseline`, `file_name`, `read_only` or
+  `edit_as` updates it in place; a new `language` or schema mounts a new
+  editor for it.
+- **The view reports intents.** `on_select(id)` when a document becomes the
+  active one (a tab, a key, `DocumentsHandle::select`, or the active one
+  closing: the next tab takes its place, else the previous one).
+  `on_close(CloseRequest { id, dirty })` when the user asks to close one
+  (its close button, a middle click, `Delete` on its tab): nothing closes by
+  itself, and `dirty` tells the host to ask first. Without `on_close`, tabs
+  have no close button.
+- **Per-document callbacks carry the id:** `on_change((id, text))`,
+  `on_save((id, SaveRequest))` (`Ctrl+S` / `Cmd+S` saves the document being
+  edited), `on_dirty_change((id, dirty))` (when a document is added, then on
+  every change). Each tab shows a dot while its document is dirty.
+- **Switching keeps each document's state.** An editor mounts the first time
+  its document is shown and then stays, hidden (`visibility: hidden`,
+  `inert`) while another is active, so its caret, selection, scroll
+  position, undo history, folds, find widget and Edit-as language are where
+  they were. Mounting lazily keeps the start cheap; keeping editors avoids
+  re-parsing on every switch (and the memory that unmounting editors does
+  not give back yet). Measured on the release build with ten ~2000-line
+  documents: about 1.5 to 1.9 MB of wasm memory per editor once shown (21 MB
+  with all ten, against 8 MB with one shown and 26 MB for ten separate
+  `ConfigEditor`s), about 1,000 DOM nodes per editor; 50 switches between
+  shown documents add nothing (a switch, from the click to the panel shown
+  as a test driver sees it, took 49 ms at the median).
+- **`DocumentsHandle`:** `select(id)` (shows it and focuses its editor),
+  `active()`, `editor(id)` / `active_editor()` (the document's
+  `EditorHandle`, attached once it has been shown), `is_dirty(id)`,
+  `save(id)`, `save_all()` (the dirty documents; returns the ids sent),
+  `focus()`.
+- **Shared settings:** `theme`, `colors`, `show_footer`, `show_diff`,
+  `enable_save_shortcut`, `styled` (the preset stylesheet is injected once
+  for the whole view), `class`, `label` (the tab list's accessible name,
+  default "Open files"), `initial_active`.
+
+Keyboard: the tab strip is a WAI-ARIA `tablist` (each tab a `tab` with its
+`tabpanel`; one tab in the `Tab` order). `←` / `→` select the previous /
+next tab (wrapping), `Home` / `End` the first / last, `Enter` moves into the
+editor, `Delete` asks to close. From anywhere in the view, the editor
+included, `Alt+PageDown` / `Alt+PageUp` switch to the next / previous
+document, the focus going along. Browsers keep `Ctrl+Tab` and
+`Ctrl+PageDown` for their own tabs; `Alt+PageDown` is free in browsers and
+in the editor's keys, and is not an AltGr combination (AltGr is `Ctrl+Alt`
+on Windows layouts). The strip scrolls sideways when the tabs overflow (a
+mouse wheel scrolls it too) and keeps the active tab in view, at phone
+widths included. Colors: the `Tab*` tokens, see
+[Themes and colors](#themes-and-colors).
+
 ## Paths and positions
 
 A [`FieldPath`] names a field the same way in every language: a JSON pointer
@@ -393,6 +488,7 @@ schema whose regex it cannot compile.
 | `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                     |
 | `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                          |
 | `Escape`                                     | Close popups and the find widget, then collapse the selection                    |
+| `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                             |
 
 `Cmd` works in place of `Ctrl` on macOS.
 
@@ -622,6 +718,17 @@ and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
 option buttons. Folding uses `FoldToggle` for the gutter chevrons (following
 the line numbers' color unless set) and `FoldChip` / `FoldChipText` for the
 `…` after a folded line.
+
+The tabs of `ConfigDocuments` use `TabBar` (the strip, following `Panel`),
+`TabBackground` / `TabActiveBackground` (following `Panel` / `Background`),
+`TabText` / `TabActiveText` (following `Muted` / `Text`), `TabBorder`
+(following `Border`), `TabActiveBorder` (the line over the active tab,
+following `Accent`) and `TabDirty` (the unsaved-changes dot, following
+`Text`): `--config-editor-tab-bar`, `--config-editor-tab-bg`,
+`--config-editor-tab-active-bg`, `--config-editor-tab-text`,
+`--config-editor-tab-active-text`, `--config-editor-tab-border`,
+`--config-editor-tab-active-border`, `--config-editor-tab-dirty`. The view's
+root carries the theme too (`data-color-theme`), so they follow the theme.
 
 ## Cargo features
 

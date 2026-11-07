@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The Rust API and the JS packages stay in step: every public prop of
-// `ConfigEditor`, method of `EditorHandle`, `Language`, `ChangeSummary`,
-// `Schema` and `EditorTheme`, and item re-exported from the crate root has a
+// `ConfigEditor` and `ConfigDocuments`, method of `EditorHandle`,
+// `DocumentsHandle`, `Document`, `Language`, `ChangeSummary`, `Schema` and
+// `EditorTheme`, and item re-exported from the crate root has a
 // JavaScript counterpart (an option, a method, a function or a type) and a
 // React one (a prop, a ref member or a re-export), or an exemption saying
 // why not. Reads the sources only: no build, no browser.
@@ -123,10 +124,65 @@ const THEME = {
   css_family: { exempt: 'a layout detail, shown as the root\'s `data-theme` attribute' },
 };
 
+// `ConfigDocuments`: props → options of the `ConfigDocuments` class (React:
+// props of its component), handle → its methods (React: ref members).
+const DOCUMENTS_PROPS = {
+  documents: { js: 'documents' },
+  initial_active: { js: 'activeId' },
+  on_select: { js: 'onSelect' },
+  on_close: { js: 'onClose' },
+  on_change: { js: 'onChange' },
+  on_save: { js: 'onSave' },
+  on_dirty_change: { js: 'onDirtyChange' },
+  enable_save_shortcut: { js: 'saveShortcut' },
+  theme: { js: 'theme' },
+  colors: { js: 'colors' },
+  styled: { js: 'styled' },
+  show_footer: { js: 'showFooter' },
+  show_diff: { js: 'showDiff' },
+  class: { js: 'className', react: 'viewClassName' },
+  label: { js: 'label' },
+  handle: { exempt: 'the `ConfigDocuments` instance (React: its ref) is the handle' },
+};
+
+const DOCUMENTS_REACT_ONLY_PROPS = {
+  className: 'the class of the container `<div>` the component renders',
+  style: 'the style of that container',
+  onError: 'mount and prop errors, which JS throws instead',
+};
+
+const DOCUMENTS_HANDLE = {
+  new: { exempt: '`new ConfigDocuments(element, options)` mounts and returns the handle' },
+  is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (React: `ref.current.instance`)' },
+  active: { js: 'activeId' },
+  select: { js: 'select' },
+  editor: { exempt: 'JS answers per document by id (`isDirty`, `save`); a document\'s own editor is not exposed to JS' },
+  active_editor: { exempt: 'as `editor`: JS acts on the active document through `focus`, `save(activeId)`' },
+  is_dirty: { js: 'isDirty' },
+  save: { js: 'save' },
+  save_all: { js: 'saveAll' },
+  focus: { js: 'focus' },
+};
+
+// `Document`'s builder methods are the fields of a `DocumentSpec`.
+const DOCUMENT = {
+  new: { js: 'DocumentSpec', kind: 'type' },
+  language: { js: 'DocumentSpec', kind: 'type' },
+  baseline: { js: 'DocumentSpec', kind: 'type' },
+  read_only: { js: 'DocumentSpec', kind: 'type' },
+  schema: { js: 'DocumentSpec', kind: 'type' },
+  edit_as: { js: 'DocumentSpec', kind: 'type' },
+  resolved_language: { js: 'languageForFile', kind: 'function' },
+};
+
 const CRATE_EXPORTS = {
   language: { js: 'registerLanguage', kind: 'function' },
   BaselineConflict: { js: 'BaselineConflict', kind: 'type' },
   ChangeSummary: { js: 'ChangeSummary', kind: 'type' },
+  CloseRequest: { js: 'CloseRequest', kind: 'type' },
+  ConfigDocuments: { js: 'ConfigDocuments', kind: 'class' },
+  Document: { js: 'DocumentSpec', kind: 'type' },
+  DocumentsHandle: { js: 'ConfigDocuments', kind: 'class' },
   ConfigEditor: { js: 'ConfigEditor', kind: 'class' },
   ConfigEditorFooter: { js: 'showFooter', kind: 'option' },
   ConfigEditorToolbar: { js: 'showToolbar', kind: 'option' },
@@ -182,9 +238,9 @@ function implMethods(source, type) {
   return [...names];
 }
 
-function componentProps() {
-  const source = crate('editor.rs');
-  const start = source.indexOf('pub fn ConfigEditor(');
+function componentProps(file = 'editor.rs', component = 'ConfigEditor') {
+  const source = crate(file);
+  const start = source.indexOf(`pub fn ${component}(`);
   const params = source.slice(start, source.indexOf(') -> impl IntoView', start));
   return [...params.matchAll(/^    (\w+): /gm)].map(([, name]) => name);
 }
@@ -192,10 +248,10 @@ function componentProps() {
 function crateExports() {
   const source = crate('lib.rs');
   const names = [];
-  for (const [, list] of source.matchAll(/^pub use editor::\{([^}]*)\};/gm)) {
+  for (const [, list] of source.matchAll(/^pub use (?:editor|documents)::\{([^}]*)\};/gm)) {
     names.push(...list.split(',').map((name) => name.trim()).filter(Boolean));
   }
-  for (const [, name] of source.matchAll(/^pub use editor::(\w+);/gm)) names.push(name);
+  for (const [, name] of source.matchAll(/^pub use (?:editor|documents)::(\w+);/gm)) names.push(name);
   return names;
 }
 
@@ -207,6 +263,9 @@ const rust = {
   schema: implMethods(crate('editor/diagnostics.rs'), 'Schema'),
   theme: implMethods(crate('editor/theme.rs'), 'EditorTheme'),
   exports: crateExports(),
+  documentsProps: componentProps('documents.rs', 'ConfigDocuments'),
+  documentsHandle: implMethods(crate('documents/handle.rs'), 'DocumentsHandle'),
+  document: implMethods(crate('documents/model.rs'), 'Document'),
 };
 
 // --- Reading the JS package. -----------------------------------------------
@@ -236,17 +295,26 @@ function bindgenNames(source, inImpl) {
 function jsPackage() {
   const classStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl ConfigEditor \{/m);
   const classBody = block(jsSources, classStart);
-  const outside = jsSources.slice(0, classStart) + jsSources.slice(classStart + classBody.length);
+  const documentsStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl ConfigDocuments \{/m);
+  const documentsBody = block(jsSources, documentsStart);
+  const outside = jsSources.replace(classBody, '').replace(documentsBody, '');
   const optionsList = jsSources.match(/const OPTIONS: \[&str; \d+\] = \[([^\]]*)\]/);
+  const documentsList = jsSources.match(/const DOCUMENTS_OPTIONS: \[&str; \d+\] = \[([^\]]*)\]/);
   const typings = [...jsSources.matchAll(/typescript_custom_section\)\]\nconst \w+: &str = r#"([\s\S]*?)"#;/g)]
     .map(([, text]) => text)
     .join('\n');
   const optionsInterface = block(typings, typings.indexOf('export interface EditorOptions'));
+  const documentsInterface = block(typings, typings.indexOf('export interface DocumentsOptions'));
+  const names = (list) => new Set([...(list?.[1] ?? '').matchAll(/"(\w+)"/g)].map(([, name]) => name));
+  const typed = (body) => new Set([...body.matchAll(/^  (\w+)\??:/gm)].map(([, name]) => name));
   const classNames = [...jsSources.matchAll(/^#\[wasm_bindgen\]\npub struct (\w+)/gm)].map(([, name]) => name);
   return {
-    options: new Set([...(optionsList?.[1] ?? '').matchAll(/"(\w+)"/g)].map(([, name]) => name)),
-    typedOptions: new Set([...optionsInterface.matchAll(/^  (\w+)\??:/gm)].map(([, name]) => name)),
+    options: names(optionsList),
+    typedOptions: typed(optionsInterface),
     methods: new Set(bindgenNames(classBody, true)),
+    documentsOptions: names(documentsList),
+    typedDocumentsOptions: typed(documentsInterface),
+    documentsMethods: new Set(bindgenNames(documentsBody, true)),
     functions: new Set([...bindgenNames(outside, false), ...classNames]),
     types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
   };
@@ -265,9 +333,17 @@ function reactPackage() {
     for (const name of list.split(',')) if (name.trim()) exported.add(name.trim());
   }
   for (const [, name] of react.matchAll(/^export (?:const|function|interface|type) (\w+)/gm)) exported.add(name);
-  const optionsStart = react.indexOf('const options: EditorOptions = {');
-  const forwarded = new Set([...block(react, optionsStart).matchAll(/^ {10}(\w+)[:,]/gm)].map(([, name]) => name));
-  return { props: members(react, 'ConfigEditorProps'), handle: members(react, 'ConfigEditorHandle'), exported, forwarded };
+  const forwardedIn = (type) =>
+    new Set([...block(react, react.indexOf(`const options: ${type} = {`)).matchAll(/^ {10}(\w+)[:,]/gm)].map(([, name]) => name));
+  return {
+    props: members(react, 'ConfigEditorProps'),
+    handle: members(react, 'ConfigEditorHandle'),
+    exported,
+    forwarded: forwardedIn('EditorOptions'),
+    documentsProps: members(react, 'ConfigDocumentsProps'),
+    documentsHandle: members(react, 'ConfigDocumentsHandle'),
+    documentsForwarded: forwardedIn('DocumentsOptions'),
+  };
 }
 
 // --- The checks. -----------------------------------------------------------
@@ -275,7 +351,26 @@ function reactPackage() {
 const js = jsPackage();
 const reactSide = reactPackage();
 
-function check(table, items, what, kindOf) {
+// Where options and methods are looked up: the editor's, or the documents
+// view's.
+const EDITOR_SIDE = {
+  options: () => js.options,
+  typedOptions: () => js.typedOptions,
+  methods: () => js.methods,
+  props: () => reactSide.props,
+  handle: () => reactSide.handle,
+  optionsWhere: 'OPTIONS and the EditorOptions typings',
+};
+const DOCUMENTS_SIDE = {
+  options: () => js.documentsOptions,
+  typedOptions: () => js.typedDocumentsOptions,
+  methods: () => js.documentsMethods,
+  props: () => reactSide.documentsProps,
+  handle: () => reactSide.documentsHandle,
+  optionsWhere: 'DOCUMENTS_OPTIONS and the DocumentsOptions typings',
+};
+
+function check(table, items, what, kindOf, side = EDITOR_SIDE) {
   const problems = [];
   for (const item of items) {
     const entry = table[item];
@@ -286,14 +381,14 @@ function check(table, items, what, kindOf) {
     if (entry.exempt) continue;
     const kind = entry.kind ?? kindOf;
     const present = {
-      option: js.options.has(entry.js) && js.typedOptions.has(entry.js),
-      method: js.methods.has(entry.js),
+      option: side.options().has(entry.js) && side.typedOptions().has(entry.js),
+      method: side.methods().has(entry.js),
       function: js.functions.has(entry.js),
       class: js.functions.has(entry.js),
       type: js.types.has(entry.js),
     }[kind];
     if (!present) {
-      const where = kind === 'option' ? 'OPTIONS and the EditorOptions typings' : kind === 'type' ? 'the TypeScript typings' : 'the wasm_bindgen exports';
+      const where = kind === 'option' ? side.optionsWhere : kind === 'type' ? 'the TypeScript typings' : 'the wasm_bindgen exports';
       problems.push(`${what} \`${item}\`: JS ${kind} \`${entry.js}\` is missing from ${where} of js/config-editor/src`);
     }
     if (entry.react === null) {
@@ -302,8 +397,8 @@ function check(table, items, what, kindOf) {
     }
     const reactName = entry.react ?? entry.js;
     const inReact = {
-      option: reactSide.props.has(reactName),
-      method: reactSide.handle.has(reactName),
+      option: side.props().has(reactName),
+      method: side.handle().has(reactName),
       function: reactSide.exported.has(reactName),
       class: reactSide.exported.has(reactName),
       type: reactSide.exported.has(reactName),
@@ -327,6 +422,9 @@ const groups = [
   ['Schema method', SCHEMA, rust.schema, 'function'],
   ['EditorTheme method', THEME, rust.theme, 'function'],
   ['crate export', CRATE_EXPORTS, rust.exports, 'type'],
+  ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, 'option', DOCUMENTS_SIDE],
+  ['DocumentsHandle method', DOCUMENTS_HANDLE, rust.documentsHandle, 'method', DOCUMENTS_SIDE],
+  ['Document method', DOCUMENT, rust.document, 'type'],
 ];
 
 test.describe('API parity between the Rust crate and the JS packages', () => {
@@ -348,11 +446,57 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(reactSide.exported.has('validate')).toBe(true);
   });
 
-  for (const [what, table, items, kind] of groups) {
+  for (const [what, table, items, kind, side] of groups) {
     test(`every ${what} is mapped to JS and React, or exempted`, () => {
-      expect(check(table, items, what, kind)).toEqual([]);
+      expect(check(table, items, what, kind, side)).toEqual([]);
     });
   }
+
+  test('the documents view was read', () => {
+    expect(rust.documentsProps).toContain('on_close');
+    expect(rust.documentsHandle).toContain('save_all');
+    expect(rust.document).toContain('read_only');
+    expect(js.documentsOptions.has('onClose')).toBe(true);
+    expect(js.documentsMethods.has('saveAll')).toBe(true);
+    expect(reactSide.documentsProps.has('onClose')).toBe(true);
+    expect(reactSide.documentsHandle.has('saveAll')).toBe(true);
+  });
+
+  test('the documents options: list, typings, React props and forwarding agree', () => {
+    const toReact = new Map(
+      Object.values(DOCUMENTS_PROPS)
+        .filter((entry) => !entry.exempt)
+        .map((entry) => [entry.js, entry.react ?? entry.js]),
+    );
+    const problems = [
+      ...[...js.documentsOptions].filter((name) => !js.typedDocumentsOptions.has(name)).map((name) => `option \`${name}\` is in DOCUMENTS_OPTIONS but not typed in DocumentsOptions`),
+      ...[...js.typedDocumentsOptions].filter((name) => !js.documentsOptions.has(name)).map((name) => `option \`${name}\` is typed in DocumentsOptions but not in DOCUMENTS_OPTIONS`),
+    ];
+    for (const option of js.documentsOptions) {
+      const prop = toReact.get(option);
+      if (!prop) problems.push(`JS option \`${option}\` has no Rust prop in the mapping (DOCUMENTS_PROPS)`);
+      else if (!reactSide.documentsProps.has(prop)) problems.push(`JS option \`${option}\` has no React prop \`${prop}\``);
+      if (!reactSide.documentsForwarded.has(option)) problems.push(`JS option \`${option}\` is not passed by the React component's \`options\``);
+    }
+    const mapped = new Set(toReact.values());
+    for (const prop of reactSide.documentsProps) {
+      if (!mapped.has(prop) && !(prop in DOCUMENTS_REACT_ONLY_PROPS)) {
+        problems.push(`React prop \`${prop}\` maps to no documents option: add it to DOCUMENTS_PROPS or DOCUMENTS_REACT_ONLY_PROPS`);
+      }
+    }
+    const jsOnly = {
+      destroy: 'the component unmounts the view itself',
+      setDocuments: 'the `documents` prop',
+      setTheme: 'the `theme` prop',
+      setColors: 'the `colors` prop',
+      setSaveShortcut: 'the `saveShortcut` prop',
+      setCallbacks: 'callback props',
+    };
+    for (const name of js.documentsMethods) {
+      if (!reactSide.documentsHandle.has(name) && !(name in jsOnly)) problems.push(`JS method \`${name}\` has no React ref member`);
+    }
+    expect(problems).toEqual([]);
+  });
 
   test('the option list and the EditorOptions typings name the same options', () => {
     const problems = [
