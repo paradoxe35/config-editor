@@ -19,6 +19,7 @@ mod keys;
 mod matcher;
 mod replace;
 mod reveal;
+mod template;
 
 pub(super) use components::{FindWidget, GoToLineWidget, SearchHighlights};
 pub(super) use go_to_line::GoToLine;
