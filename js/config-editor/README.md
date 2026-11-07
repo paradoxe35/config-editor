@@ -173,6 +173,113 @@ still on their way is taken as a late echo (`new ValueSync({ echoWindowMs })`
 changes the window). Read `editor.value` right before `received`: it sends an
 edit made in `editAs` that is still waiting out the typing pause first.
 
+<details>
+<summary><strong>Vue 3</strong>: a component for <code>v-model</code></summary>
+
+```vue
+<!-- ConfigField.vue: <ConfigField v-model="text" /> -->
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import init, { ConfigEditor } from "@pngwasi/config-editor";
+import { ValueSync } from "@pngwasi/config-editor/sync";
+
+const model = defineModel<string>({ required: true });
+const host = ref<HTMLElement>();
+const sync = new ValueSync();
+let editor: ConfigEditor | undefined;
+let unmounted = false;
+
+onMounted(async () => {
+  await init();
+  if (unmounted || !host.value) return;
+  editor = new ConfigEditor(host.value, {
+    language: "yaml",
+    value: model.value,
+    onChange: (text) => {
+      sync.sent(text);
+      model.value = text;
+    },
+  });
+});
+
+// The bound value changed: an echo of an edit, or the parent's own value.
+watch(model, (value) => {
+  if (!editor) return;
+  const { apply, report } = sync.received(value, editor.value);
+  if (apply !== null) editor.setValue(apply);
+  if (report !== null) model.value = report;
+});
+
+onBeforeUnmount(() => {
+  unmounted = true;
+  editor?.destroy(); // sends an edit still waiting to the parent first
+  editor?.free();
+});
+</script>
+
+<template>
+  <div ref="host" />
+</template>
+```
+
+</details>
+
+<details>
+<summary><strong>Svelte 5</strong>: a component for <code>bind:value</code></summary>
+
+```svelte
+<!-- ConfigField.svelte: <ConfigField bind:value={text} /> -->
+<script lang="ts">
+  import { onMount } from "svelte";
+  import init, { ConfigEditor } from "@pngwasi/config-editor";
+  import { ValueSync } from "@pngwasi/config-editor/sync";
+
+  let { value = $bindable("") }: { value?: string } = $props();
+  let host: HTMLDivElement;
+  let editor: ConfigEditor | undefined = $state();
+  const sync = new ValueSync();
+
+  onMount(() => {
+    let unmounted = false;
+    init().then(() => {
+      if (unmounted) return;
+      editor = new ConfigEditor(host, {
+        language: "yaml",
+        value,
+        onChange: (text) => {
+          sync.sent(text);
+          value = text;
+        },
+      });
+    });
+    return () => {
+      unmounted = true;
+      editor?.destroy();
+      editor?.free();
+    };
+  });
+
+  // The bound value changed: an echo of an edit, or the parent's own value.
+  $effect(() => {
+    const next = value;
+    if (!editor) return;
+    const { apply, report } = sync.received(next, editor.value);
+    if (apply !== null) editor.setValue(apply);
+    if (report !== null) value = report;
+  });
+</script>
+
+<div bind:this={host}></div>
+```
+
+</details>
+
+Angular (a `ControlValueAccessor`: `writeValue` is `received`, the
+registered change function is called after `sent`) and Solid (an effect on
+the value signal) follow the same three calls. Pass the other options
+(`schema`, `theme`, `editAs`, …) as you would without a framework, and
+update them with the setters when they change.
+
 ## Keyboard
 
 `Ctrl+Space` suggestions · `Enter`/`Tab` accept · `Tab`/`Shift+Tab` indent ·
