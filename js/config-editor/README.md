@@ -201,6 +201,9 @@ and `editAsTypedCommentsNone`.
 
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
+<details>
+<summary>Every text and its default (149 texts)</summary>
+
 | Key | Default | |
 |---|---|---|
 | `suggestionsHint` | `"{key} for suggestions"` | The footer's suggestions hint; `{key}` is where the chord goes. |
@@ -352,6 +355,8 @@ and `editAsTypedCommentsNone`.
 | `closeTabTitle` | `"Close (Delete)"` | Its tooltip. |
 | `unsaved` | `"unsaved changes"` | The dirty dot's tooltip, and what a tab's accessible name adds for it. |
 | `readOnlyTab` | `"read-only"` | What a read-only document's tab adds to its accessible name. |
+
+</details>
 
 <!-- strings:end -->
 
@@ -699,17 +704,37 @@ update them with the setters when they change.
 
 ## Keyboard
 
-`Ctrl+Space` suggestions · `Enter`/`Tab` accept · `Tab`/`Shift+Tab` indent ·
-`Ctrl+/` comment · `Ctrl+Z`/`Ctrl+Y` undo/redo · `F8` next problem ·
-`Alt+Enter` a problem's docs ·
-`Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
-`F6` to the baseline notice and back ·
-`Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
-`Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
-reverts the change · `Ctrl+S` save (with `onSave`) · `Ctrl+Shift+[`/`Ctrl+Shift+]`
-fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything ·
-`Alt+PageDown`/`Alt+PageUp` next/previous document in a `ConfigDocuments` view ·
-`Ctrl+M` toggle Tab moves focus · `Escape` then `Tab`/`Shift+Tab` leave the editor once.
+**Writing**
+- `Ctrl+Space`: suggestions; `Enter` or `Tab` accepts one
+- `Tab` / `Shift+Tab`: indent / outdent
+- `Ctrl+/`: comment or uncomment the lines
+- `Ctrl+Enter` / `Ctrl+Shift+Enter`: new line below / above
+- `Ctrl+Z` / `Ctrl+Y`: undo / redo
+- `Ctrl+S`: save (with `onSave`)
+- `Escape`: close what is open (suggestions, a preview, a widget)
+
+**Finding your way**
+- `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
+- `Ctrl+G`: go to a line (`line` or `line:column`)
+- `F8` / `Shift+F8`: next / previous problem
+- `Alt+Enter` on a problem with a docs link: open its documentation
+- `F6` while the baseline notice is open: to its Keep mine button and back to the text
+
+**Changes against the baseline**
+- `Alt+F5` / `Shift+Alt+F5`: next / previous change
+- `Alt+F3` / `Shift+Alt+F3`: the same, opening its preview, where `Enter` or `R` reverts the change
+
+**Folding**
+- `Ctrl+Shift+[` / `Ctrl+Shift+]`: fold / unfold at the caret
+- `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`: fold / unfold everything
+
+**Documents** (a `ConfigDocuments` view)
+- `Alt+PageDown` / `Alt+PageUp`: next / previous document
+
+**Leaving the editor**
+- `Ctrl+M`: toggle "Tab moves focus"
+- `Escape`, then `Tab` / `Shift+Tab`: leave the editor once
+
 `Cmd` works in place of `Ctrl` on macOS.
 
 ### Leaving the editor and screen readers

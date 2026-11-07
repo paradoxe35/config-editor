@@ -281,8 +281,17 @@ fn table(described: &Described, rust: bool) -> String {
         (_, true) => "Field",
         _ => "Setting",
     };
+    // The strings are many: their table is folded, so a README reads past it.
+    let folded = described.marker == "strings";
+    let rows = described.described();
+    if folded {
+        out.push_str(&format!(
+            "<details>\n<summary>Every text and its default ({} texts)</summary>\n\n",
+            rows.len()
+        ));
+    }
     out.push_str(&format!("| {column} | Default | |\n|---|---|---|\n"));
-    for (field, key, default) in described.described() {
+    for (field, key, default) in rows {
         let (name, default) = if rust {
             (field.name.clone(), rust_default(&field.rust_type, &default))
         } else {
@@ -290,6 +299,9 @@ fn table(described: &Described, rust: bool) -> String {
         };
         let text = field.docs.join(" ").replace('|', "\\|");
         out.push_str(&format!("| `{name}` | {default} | {text} |\n"));
+    }
+    if folded {
+        out.push_str("\n</details>\n");
     }
     out
 }
