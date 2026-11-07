@@ -35,6 +35,7 @@ impl SaveError {
     /// conversion error's `… (at /pointer)`).
     pub(in crate::editor) fn pointer(&self) -> String {
         match self {
+            SaveError::Convert(ConvertError::MixedContent { pointer }) => pointer.clone(),
             SaveError::Convert(error) => {
                 let text = error.to_string();
                 text.rsplit_once("(at ")
@@ -50,7 +51,7 @@ impl SaveError {
     /// What went wrong, for a `host` document.
     pub(in crate::editor) fn text(&self, strings: &EditorStrings, host: Language) -> String {
         match self {
-            SaveError::Convert(error) => error.to_string(),
+            SaveError::Convert(error) => convert_text(error, strings),
             SaveError::NoNull { pointer } => fill(
                 &strings.no_null,
                 &[("host", &host.label()), ("pointer", pointer)],
@@ -63,6 +64,16 @@ impl SaveError {
                 super::super::protect::save_refused(strings, &change.pointer)
             }
         }
+    }
+}
+
+/// What a conversion error says, worded by `strings` where it has a text.
+fn convert_text(error: &ConvertError, strings: &EditorStrings) -> String {
+    match error {
+        ConvertError::MixedContent { pointer } => {
+            fill(&strings.mixed_content, &[("pointer", pointer)])
+        }
+        other => other.to_string(),
     }
 }
 
@@ -112,7 +123,7 @@ impl EditAsText {
                 &[
                     ("host", &host.label()),
                     ("edit", &edit.label()),
-                    ("error", error),
+                    ("error", &convert_text(error, strings)),
                 ],
             ),
             EditAsText::CannotSwitch { edit, host, error } => fill(

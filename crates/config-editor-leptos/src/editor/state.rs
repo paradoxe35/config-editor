@@ -24,6 +24,7 @@
 //! | `a11y()`       | `A11yState`         | `a11y`          |
 //! | `edit_as()`    | `EditAsState`       | `edit_as`       |
 
+use super::line_endings::LineEndings;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -75,7 +76,8 @@ pub(super) struct Init {
     pub(super) edit_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) schema_error: Option<String>,
-    /// The host's text (controlled value or initial value).
+    /// The host's text (controlled value or initial value), its line
+    /// endings as the host wrote them.
     pub(super) host_text: String,
     /// The host's diff baseline at mount, in the host language (see
     /// `host_editing` for later ones).
@@ -222,13 +224,19 @@ impl EditorState {
         // What reaches the host is remembered: a baseline equal to it is the
         // user's own work coming back (see `host_editing`).
         let sent = StoredValue::new(SentTexts::default());
-        let host_on_change = host_on_change.map(|callback| noting_sent(sent, callback));
+        // The editor works on LF text; the host hears its own line endings.
+        let line_endings = LineEndings::of(&host_text);
+        let host_text = normalize_newlines(host_text);
+        let host_on_change =
+            host_on_change.map(|callback| noting_sent(sent, line_endings.on_change(callback)));
+        let on_save = on_save.map(|callback| line_endings.on_save(callback));
         let (sync, shown, pending) = SyncState::load(
             host_language,
             edit_language,
             config.schema,
             host_text,
             host_on_change,
+            line_endings,
         );
         let doc = DocState::new(&shown, sync.edit_language);
         let protect = ProtectState::new(

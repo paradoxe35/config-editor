@@ -131,6 +131,20 @@ impl ConfigLanguage for TomlBehavior {
                 format!("\"\"\"\n{}\"\"\"", body.replace('\\', "\\\\").replace("\"\"\"", "\"\"\\\""))
             };
         }
+        // A literal string (`'…'`, `'''…'''`) stays literal where the text
+        // needs no escape.
+        if let Value::String(body) = value
+            && written.starts_with('\'')
+            && !body.chars().any(|character| character.is_control() && !matches!(character, '\t' | '\n'))
+        {
+            if written.starts_with("'''") && !body.contains("'''") && !body.ends_with('\'') {
+                let open = if written.starts_with("'''\n") { "'''\n" } else { "'''" };
+                return format!("{open}{body}'''");
+            }
+            if !written.starts_with("'''") && !body.contains(['\'', '\n']) {
+                return format!("'{body}'");
+            }
+        }
         let text = self.format_value(value);
         if value.is_string() { super::escapes::like_written(text, written, super::escapes::Astral::Long) } else { text }
     }

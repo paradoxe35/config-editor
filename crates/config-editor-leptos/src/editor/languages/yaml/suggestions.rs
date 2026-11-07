@@ -27,7 +27,7 @@ pub(super) fn yaml_value(value: &Value) -> String {
     }
     match value {
         Value::String(value) if is_plain_identifier(non_finite::written(value)) => non_finite::written(value).to_string(),
-        Value::String(value) => serde_json::to_string(non_finite::written(value)).unwrap_or_else(|_| value.clone()),
+        Value::String(value) => escaped_breaks(serde_json::to_string(non_finite::written(value)).unwrap_or_else(|_| value.clone())),
         // Flow style, as people write it: `{a: 1, b: x}`, `[a, b]`.
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(yaml_value).collect();
@@ -49,6 +49,16 @@ pub(super) fn yaml_value(value: &Value) -> String {
         }
         _ => value.to_string(),
     }
+}
+
+/// A double-quoted string with the characters YAML 1.1 reads as line
+/// breaks (U+0085, U+2028, U+2029) escaped, as YAML writes them (`\N`,
+/// `\L`, `\P`).
+pub(super) fn escaped_breaks(quoted: String) -> String {
+    if !quoted.contains(['\u{85}', '\u{2028}', '\u{2029}']) {
+        return quoted;
+    }
+    quoted.replace('\u{85}', "\\N").replace('\u{2028}', "\\L").replace('\u{2029}', "\\P")
 }
 
 /// Enum-style words (`udp`, `least_connections`) read as plain YAML scalars, the way

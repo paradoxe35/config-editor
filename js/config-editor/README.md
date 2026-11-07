@@ -231,7 +231,7 @@ and `editAsTypedCommentsNone`.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (151 texts)</summary>
+<summary>Every text and its default (152 texts)</summary>
 
 | Key                         | Default                                                                                                    |                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -380,6 +380,7 @@ and `editAsTypedCommentsNone`.
 | `noNonFinite`               | `"{host} has no infinity or NaN (at {pointer})"`                                                           | An infinity or NaN the host's language has no number for (Edit-as).                                                          |
 | `cannotEditAs`              | `"Cannot edit this {host} as {edit}: {error}"`                                                             | A host document that does not convert for editing.                                                                           |
 | `cannotSwitch`              | `"Cannot switch to {edit} yet: {error}"`                                                                   | An Edit-as switch waiting until the document converts.                                                                       |
+| `mixedContent`              | `"{pointer}: text beside child elements cannot be shown in another language"`                              | XML text beside child elements, which no other language can show (Edit-as).                                                  |
 | `tabList`                   | `"Open files"`                                                                                             | The tab list's accessible name, unless the host gives one.                                                                   |
 | `noDocuments`               | `"No open files"`                                                                                          | Shown in place of an editor while no document is open.                                                                       |
 | `closeTab`                  | `"Close {name}"`                                                                                           | A tab's close button.                                                                                                        |
@@ -870,6 +871,10 @@ button) are in the crate's
 [Embedding](https://crates.io/crates/config-editor-leptos#embedding)
 section: `editor.value` is the document in `language`, `editor.text` the
 text on screen.
+
+Line endings are kept: when the host's text ends its lines with CRLF,
+`onChange` and `onSave` receive CRLF too (the editor works on LF text inside,
+and dirty state and the diff compare line endings as LF).
 
 ```js
 const editor = new ConfigEditor(element, {

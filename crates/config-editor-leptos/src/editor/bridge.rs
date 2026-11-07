@@ -64,6 +64,7 @@ impl Bridge {
         }
         let edited = codec::read(self.edit.behavior(), edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
+        codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
         let Ok(old) = codec::read(host, previous_host, self.shape()) else {
             return Ok(codec::render(
@@ -779,7 +780,7 @@ mod structural_saves {
         let saved = save(Language::TOML, Language::YAML, toml, |shown| {
             shown.replace("public_address: ab", "public_address: cd")
         });
-        assert_eq!(saved, "public_address = \"cd\" # real\nlisten = 1\n");
+        assert_eq!(saved, "public_address = '''cd''' # real\nlisten = 1\n");
         let hcl = "public_address = <<EOT\nab\nEOT\n\n# after\nlisten = 1\n";
         let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
             shown.replace("public_address: |\n  ab", "public_address: |\n  cd")

@@ -168,7 +168,17 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn format_value_like(&self, value: &Value, written: &str) -> String {
-        style::yaml_value_like(self, value, written)
+        style::yaml_value_like(self, value, written, "")
+    }
+
+    /// A block scalar kept with `+` holds the blank lines after its text.
+    fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        block_scalar::with_kept_blank_lines(source, range)
+    }
+
+    fn format_value_at(&self, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
+        let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
+        style::yaml_value_like(self, value, &source[range.clone()], &source[line_start..range.start])
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

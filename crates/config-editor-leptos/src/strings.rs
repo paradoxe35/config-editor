@@ -390,6 +390,9 @@ pub struct EditorStrings {
     pub cannot_edit_as: String,
     /// An Edit-as switch waiting until the document converts.
     pub cannot_switch: String,
+    /// XML text beside child elements, which no other language can show
+    /// (Edit-as).
+    pub mixed_content: String,
 
     // Documents.
     /// The tab list's accessible name, unless the host gives one.
@@ -580,6 +583,9 @@ impl Default for EditorStrings {
             no_non_finite: text("{host} has no infinity or NaN (at {pointer})"),
             cannot_edit_as: text("Cannot edit this {host} as {edit}: {error}"),
             cannot_switch: text("Cannot switch to {edit} yet: {error}"),
+            mixed_content: text(
+                "{pointer}: text beside child elements cannot be shown in another language",
+            ),
             tab_list: text("Open files"),
             no_documents: text("No open files"),
             close_tab: text("Close {name}"),

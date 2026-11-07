@@ -988,6 +988,12 @@ export interface EditorStrings {
    */
   cannotSwitch?: string;
   /**
+   * XML text beside child elements, which no other language can show (Edit-as).
+   *
+   * @default "{pointer}: text beside child elements cannot be shown in another language"
+   */
+  mixedContent?: string;
+  /**
    * The tab list's accessible name, unless the host gives one.
    *
    * @default "Open files"

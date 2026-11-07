@@ -216,16 +216,19 @@ impl Edit {
         }
     }
 
-    /// The document converted by an Edit-as switch to `language`, the caret
-    /// at `caret` (on the field it was on), else where the textarea has it.
+    /// The document converted by an Edit-as switch to `language`, made with
+    /// `selection` (in `before`, where undo puts it back), the caret at
+    /// `caret` (on the field it was on), else where the textarea has it.
     pub(super) fn switching(
         before: String,
         text: String,
         language: Language,
+        selection: Selection,
         caret: Option<usize>,
     ) -> Self {
         let mut edit = Self::replacing(before, text, Origin::Switch);
         edit.language = Some(language);
+        edit.selection = selection;
         if let Some(caret) = caret {
             edit.after = After::Select {
                 anchor: caret,

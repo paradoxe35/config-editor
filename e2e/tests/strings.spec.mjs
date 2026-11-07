@@ -87,6 +87,7 @@ const ELSEWHERE = {
   noNonFinite: 'non_finite_matrix tests',
   cannotEditAs: 'bridge tests',
   cannotSwitch: 'edit_as tests',
+  mixedContent: 'save_xml_tests (XML mixed content refuses to convert)',
   tabList: 'the documents view: the last test here',
   noDocuments: 'as tabList',
   closeTab: 'as tabList',

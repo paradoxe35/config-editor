@@ -44,6 +44,7 @@ mod keys;
 pub mod language;
 mod languages;
 mod layout;
+mod line_endings;
 mod line_rows;
 mod live_settings;
 // Observes what every setting switches, so it needs every optional feature.
@@ -100,7 +101,7 @@ use components::{
 };
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
-use state::{EditorState, Init, normalize_newlines};
+use state::{EditorState, Init};
 
 /// The preset stylesheet: layout plus every bundled theme, and the tabs of
 /// [`ConfigDocuments`](crate::ConfigDocuments).
@@ -254,11 +255,12 @@ pub fn ConfigEditor(
     if let Some(schema) = &schema {
         report_schema_warnings(&schema.warnings, on_schema_warning);
     }
-    let initial_value = normalize_newlines(initial_value.unwrap_or_default());
+    // As the host wrote it: the state keeps its line endings for what it
+    // hands back (see `line_endings`).
+    let initial_value = initial_value.unwrap_or_default();
     let host_text = value
         .as_ref()
-        .map(Signal::get_untracked)
-        .map_or_else(|| initial_value.clone(), normalize_newlines);
+        .map_or_else(|| initial_value.clone(), Signal::get_untracked);
     let baseline = baseline.unwrap_or_else(|| Signal::stored(host_text.clone()));
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
@@ -389,7 +391,25 @@ mod handle_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_blocks_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_forms_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -407,7 +427,25 @@ mod save_properties;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_splice_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_tests;
 #[cfg(test)]
 mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`
