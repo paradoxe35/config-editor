@@ -1194,3 +1194,14 @@ test.describe('ValueSync without a framework', () => {
     expect(result.reset).toBe('reset: 1\n');
   });
 });
+
+test.describe('package entry', () => {
+  test('exports init, the editor, the functions and ValueSync together', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const names = await browserPage.evaluate(async () => {
+      const entry = await import('../config-editor/index.js');
+      return ['default', 'initSync', 'ConfigEditor', 'convert', 'validate', 'registerLanguage', 'ValueSync'].filter((name) => typeof entry[name] === 'function');
+    });
+    expect(names).toEqual(['default', 'initSync', 'ConfigEditor', 'convert', 'validate', 'registerLanguage', 'ValueSync']);
+  });
+});

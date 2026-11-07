@@ -4,8 +4,8 @@ import init, {
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
+  ValueSync,
 } from "@pngwasi/config-editor";
-import { ValueSync } from "@pngwasi/config-editor/sync";
 import {
   forwardRef,
   useEffect,
@@ -150,7 +150,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     const failed = useRef(false);
     // Tells the parent's own values (applied) from late echoes of what the
     // editor sent (skipped, so the document never rolls back); shared with
-    // every framework wrapper (`@pngwasi/config-editor/sync`).
+    // every framework wrapper (`ValueSync` from `@pngwasi/config-editor`).
     const sync = useRef(new ValueSync());
     // The `value` prop as last handled: a re-mount re-runs the value effect,
     // and an unchanged prop is not a new value from the parent.

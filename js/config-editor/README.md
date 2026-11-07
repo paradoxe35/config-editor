@@ -139,13 +139,12 @@ convert("yaml", "listen: 7835\n", "toml");
 A framework that binds the document two ways (Vue's `v-model`, Svelte's
 `bind:value`, Angular's `ControlValueAccessor`, Solid signals) passes every
 edit back in as its value, sometimes late and several at a time. Applying
-such an echo with `setValue` would roll the document back. `ValueSync`, from
-`@pngwasi/config-editor/sync`, tells the host's own values (a reset, a loaded
-file: applied) from echoes (skipped). The React package is built on it.
+such an echo with `setValue` would roll the document back. `ValueSync` tells
+the host's own values (a reset, a loaded file: applied) from echoes
+(skipped). The React package is built on it.
 
 ```ts
-import { ConfigEditor } from "@pngwasi/config-editor";
-import { ValueSync } from "@pngwasi/config-editor/sync";
+import { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
 
 const sync = new ValueSync();
 const editor = new ConfigEditor(element, {
@@ -170,7 +169,9 @@ emit(text);
 
 A value sent within the last 10 seconds that comes back while newer ones are
 still on their way is taken as a late echo (`new ValueSync({ echoWindowMs })`
-changes the window). Read `editor.value` right before `received`: it sends an
+changes the window). It is also available on its own, without the
+WebAssembly glue, from `@pngwasi/config-editor/sync`. Read `editor.value`
+right before `received`: it sends an
 edit made in `editAs` that is still waiting out the typing pause first.
 
 <details>
@@ -180,8 +181,7 @@ edit made in `editAs` that is still waiting out the typing pause first.
 <!-- ConfigField.vue: <ConfigField v-model="text" /> -->
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import init, { ConfigEditor } from "@pngwasi/config-editor";
-import { ValueSync } from "@pngwasi/config-editor/sync";
+import init, { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
 
 const model = defineModel<string>({ required: true });
 const host = ref<HTMLElement>();
@@ -231,8 +231,7 @@ onBeforeUnmount(() => {
 <!-- ConfigField.svelte: <ConfigField bind:value={text} /> -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import init, { ConfigEditor } from "@pngwasi/config-editor";
-  import { ValueSync } from "@pngwasi/config-editor/sync";
+  import init, { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
 
   let { value = $bindable("") }: { value?: string } = $props();
   let host: HTMLDivElement;

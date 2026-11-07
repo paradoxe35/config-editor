@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "description": "Schema-aware config editor for YAML, JSON, TOML, HCL and XML in the browser (Rust/WebAssembly)",
   "type": "module",
-  "main": "pkg/config_editor.js",
-  "module": "pkg/config_editor.js",
-  "types": "pkg/config_editor.d.ts",
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
   "exports": {
     ".": {
-      "types": "./pkg/config_editor.d.ts",
-      "default": "./pkg/config_editor.js"
+      "types": "./index.d.ts",
+      "default": "./index.js"
     },
     "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm",
     "./sync": {
@@ -18,6 +18,8 @@
     }
   },
   "files": [
+    "index.js",
+    "index.d.ts",
     "pkg/config_editor.js",
     "pkg/config_editor.d.ts",
     "pkg/config_editor_bg.wasm",
