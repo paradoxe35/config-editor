@@ -246,10 +246,27 @@ detection). `tests/custom_language.rs` is a complete example.
 
 ## Themes and colors
 
-Eleven themes ship as `EditorTheme`: `VsCodeDark`, `VsCodeLight`,
-`Obsidian`, `ObsidianLight`, `Dracula`, `Nord`, `AtomOneDark`,
-`GitHubLight`, `GitHubDark`, `SolarizedLight`, `ViraInspired`
-(`EditorTheme::ALL`; slugs such as `"vscode-dark"` parse with `FromStr`).
+Eleven themes ship as `EditorTheme` (all of them in `EditorTheme::ALL`;
+their slugs parse with `FromStr`, as the JS package names them).
+
+<details>
+<summary>The eleven themes</summary>
+
+| `EditorTheme` | Slug | Name | Look |
+|---|---|---|---|
+| `VsCodeDark` | `vscode-dark` | VS Code Dark (the default) | dark |
+| `VsCodeLight` | `vscode-light` | VS Code Light | light |
+| `Obsidian` | `obsidian` | Obsidian Dark | dark |
+| `ObsidianLight` | `obsidian-light` | Obsidian Light | light |
+| `Dracula` | `dracula` | Dracula | dark |
+| `Nord` | `nord` | Nord | dark |
+| `AtomOneDark` | `atom-one-dark` | Atom One Dark | dark |
+| `GitHubLight` | `github-light` | GitHub Light | light |
+| `GitHubDark` | `github-dark` | GitHub Dark | dark |
+| `SolarizedLight` | `solarized-light` | Solarized Light | light |
+| `ViraInspired` | `vira-inspired` | Vira-inspired (original) | dark |
+
+</details>
 
 Override any color for a brand palette; every token is a `ThemeColor`:
 

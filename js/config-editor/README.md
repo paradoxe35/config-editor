@@ -349,6 +349,29 @@ registered language cannot take another's name or extension (`registerLanguage`
 throws); registering the same label again replaces it for new editors. Its name is
 the label lowercased (`"Énv"` → `"énv"`).
 
+## Themes
+
+`theme` and `setTheme` take a slug; `themes()` returns them all.
+
+<details>
+<summary>The eleven themes</summary>
+
+| Slug | Name | Look |
+|---|---|---|
+| `vscode-dark` | VS Code Dark (the default) | dark |
+| `vscode-light` | VS Code Light | light |
+| `obsidian` | Obsidian Dark | dark |
+| `obsidian-light` | Obsidian Light | light |
+| `dracula` | Dracula | dark |
+| `nord` | Nord | dark |
+| `atom-one-dark` | Atom One Dark | dark |
+| `github-light` | GitHub Light | light |
+| `github-dark` | GitHub Dark | dark |
+| `solarized-light` | Solarized Light | light |
+| `vira-inspired` | Vira-inspired (original) | dark |
+
+</details>
+
 ## Styling
 
 The editor injects its own stylesheet. Every theme color is a CSS variable

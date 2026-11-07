@@ -58,7 +58,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `onEditAsChange` | `(language: string) => void` | — | Called when an `editAs` switch completes (a switch waits while the document cannot convert, e.g. a `null` to TOML). |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
-| `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()`. |
+| `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
 | `colors` | `Record<string, string>` | — | Colors overriding the theme's by token (`bg`, `key`, …); see `colorTokens()`. |
 | `readOnly` | `boolean` | `false` | View mode. |
 | `fileName` | `string` | `untitled.<ext>` | Shown in the toolbar. |
