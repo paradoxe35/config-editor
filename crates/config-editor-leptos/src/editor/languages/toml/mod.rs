@@ -160,6 +160,12 @@ impl ConfigLanguage for TomlBehavior {
         opens.then(|| [typed; 3].iter().collect())
     }
 
+    /// A `[table]` header takes its keys along: commented alone, they would
+    /// move into the table above.
+    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        table_of_selected_header(source, start, end)
+    }
+
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
         let (quote, in_comment) = toml_lexical_state(source, cursor);
         Lexical { quote, in_comment }

@@ -159,12 +159,12 @@ pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Opti
         let Some((open, close)) = element_from(source, &tokens, index) else {
             continue;
         };
-        let start = tokens[open].start + 1;
+        let start = local_name_start(source, &tokens[open]);
         names.push((start, start + token_name(source, &tokens[open]).len()));
         if let Some(close) = close {
             let token = &tokens[close];
             let name = token_name(source, token);
-            let at = token.start + source[token.start..token.end].find(name.as_str())?;
+            let at = local_name_start(source, token);
             names.push((at, at + name.len()));
         }
     }

@@ -230,18 +230,27 @@ pub(super) fn open_one_line_block(source: &str, cursor: usize) -> Option<Newline
     let line_end = source[byte..].find('\n').map_or(source.len(), |at| byte + at);
     let before = &source[line_start..byte];
     let after = &source[byte..line_end];
-    if after.trim() != "}" {
-        return None;
-    }
+    // Anywhere in a block's body written on one line (`websocket {| a = 1 }`,
+    // `{ a = 1 |}`): the block opens over lines, the caret on its own line
+    // in it with what followed it.
+    let body_after = after.trim_end().strip_suffix('}')?.trim();
     let open = before.find('{')?;
-    let body = before[open + 1..].trim();
-    if body.is_empty() || before[open + 1..].contains(['{', '}']) || before[..open].contains('=') {
+    let body_before = before[open + 1..].trim();
+    if before[open + 1..].contains(['{', '}'])
+        || body_after.contains(['{', '}'])
+        || before[..open].contains('=')
+        || body_before.is_empty() && body_after.is_empty()
+    {
         return None;
     }
     let indent: String = before.chars().take_while(|character| matches!(character, ' ' | '\t')).collect();
     let unit = indent_unit(source);
-    let opening = format!("\n{indent}{unit}{body}\n{indent}{unit}");
-    let text = format!("{opening}\n{indent}}}");
+    let mut opening = format!("\n{indent}{unit}");
+    if !body_before.is_empty() {
+        opening.push_str(body_before);
+        opening.push_str(&format!("\n{indent}{unit}"));
+    }
+    let text = format!("{opening}{body_after}\n{indent}}}");
     Some(Newline {
         caret: opening.len(),
         text,

@@ -77,7 +77,27 @@ pub(super) struct PlannedNode {
 /// Elements deeper than this get no path (the parser refuses past 128).
 const MAX_PLANNED_DEPTH: usize = 256;
 
-pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
+/// [`plan_text`] of `source` (whose tokens are `tokens`), remembered for
+/// the last text.
+pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> std::rc::Rc<PathPlan> {
+    use std::hash::{Hash, Hasher};
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(u64, usize, std::rc::Rc<PathPlan>)>> = const { std::cell::RefCell::new(None) };
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = (hasher.finish(), source.len());
+    if let Some(plan) = LAST.with(|last| {
+        last.borrow().as_ref().filter(|(hash, len, _)| (*hash, *len) == key).map(|(_, _, plan)| plan.clone())
+    }) {
+        return plan;
+    }
+    let plan = std::rc::Rc::new(plan_text(source, tokens));
+    LAST.with(|last| *last.borrow_mut() = Some((key.0, key.1, plan.clone())));
+    plan
+}
+
+pub(super) fn plan_text(source: &str, tokens: &[Token]) -> PathPlan {
     let mut nodes: Vec<PlannedNode> = Vec::new();
     let mut stack: Vec<usize> = Vec::new();
     for token in tokens {
@@ -216,8 +236,8 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
             if !path.is_empty() {
                 scan.key_spans.push((
                     strings(&path),
-                    tag.start + 1,
-                    tag.start + 1 + name_len(source, tag),
+                    local_name_start(source, tag),
+                    local_name_start(source, tag) + name_len(source, tag),
                 ));
             }
             if !empty {

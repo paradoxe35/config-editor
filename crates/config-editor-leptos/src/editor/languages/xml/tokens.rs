@@ -27,7 +27,30 @@ pub(super) struct Token {
 /// comment ends at the input end. Comments stay whole so `<!-- <a> -->` never
 /// feeds markup to the scan; other `<!...>`/`<?...?>` markup is a `Special`
 /// the scan ignores.
+/// A text's hash and length with its tokens.
+type Remembered = (u64, usize, std::rc::Rc<Vec<Token>>);
+
+/// [`tokenize_text`] of `source`, remembered for the last text: one
+/// keystroke's completion, hover and spans each tokenize the same document.
 pub(super) fn tokenize(source: &str) -> Vec<Token> {
+    use std::hash::{Hash, Hasher};
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<Remembered>> = const { std::cell::RefCell::new(None) };
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = (hasher.finish(), source.len());
+    if let Some(tokens) = LAST.with(|last| {
+        last.borrow().as_ref().filter(|(hash, len, _)| (*hash, *len) == key).map(|(_, _, tokens)| tokens.clone())
+    }) {
+        return tokens.to_vec();
+    }
+    let tokens = std::rc::Rc::new(tokenize_text(source));
+    LAST.with(|last| *last.borrow_mut() = Some((key.0, key.1, tokens.clone())));
+    tokens.to_vec()
+}
+
+pub(super) fn tokenize_text(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let bytes = source.as_bytes();
     let mut index = 0;
@@ -163,6 +186,19 @@ pub(super) fn find_markup_end(source: &str, from: usize) -> usize {
 /// new line with `<tls>`) ends before the next `<`, which can only start
 /// the next tag, so the elements after it keep their places.
 pub(super) fn open_tag_end(source: &str, from: usize) -> usize {
+    // Outside quoted values: `a="x/>y"` holds no tag end.
+    let mut quote: Option<char> = None;
+    for (offset, character) in source[from..].char_indices() {
+        match (quote, character) {
+            (Some(open), _) if character == open => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(character),
+            (None, '>') => return from + offset + 1,
+            (None, '<') => return from + offset,
+            _ => {}
+        }
+    }
+    // A quote still open (mid-typing): the first `>` or `<` ends the tag.
     match source[from..].find(['>', '<']) {
         Some(relative) if source.as_bytes()[from + relative] == b'>' => from + relative + 1,
         Some(relative) => from + relative,
@@ -235,6 +271,21 @@ pub(super) fn tokenize_tag_inside(source: &str, open: &Token) -> Vec<Token> {
 
 /// The local name of the tag opened or closed at `token` (`<a:b>` yields
 /// `b`). Attribute tokens and comments yield an empty name.
+/// Where a tag's local name starts: after `<` or `</` and any prefix
+/// (`ns:` of `<ns:websocket>`), so renames keep the prefix.
+pub(super) fn local_name_start(source: &str, token: &Token) -> usize {
+    let start = match token.kind {
+        Kind::EndTag => token.start + 2,
+        _ => token.start + 1,
+    };
+    let start = start.min(source.len());
+    let name: &str = source[start..]
+        .split(['>', '/', '"', '\'', '=', '\t', '\n', '\r', ' '])
+        .next()
+        .unwrap_or("");
+    start + name.rfind(':').map_or(0, |colon| colon + 1)
+}
+
 pub(super) fn token_name(source: &str, token: &Token) -> String {
     match token.kind {
         Kind::OpenTag { name_end, .. } => {

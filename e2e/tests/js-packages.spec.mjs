@@ -1110,3 +1110,41 @@ test.describe('round 12', () => {
     expect(result.slice(5)).toEqual(['ok', 'ok', 'ok']);
   });
 });
+
+test.describe('round 13', () => {
+  for (const [query, delay] of [['', 250], ['?late', 500], ['?late', 650]]) {
+    test(`react${query}: typing while editing as JSON every ${delay} ms keeps every letter in order`, async ({ page: browserPage }) => {
+      await browserPage.goto(page('react.html') + query);
+      await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await browserPage.locator('#edit-as').selectOption('json');
+      await expect(input(browserPage)).toHaveValue(/"public_address"/);
+      const at = (await input(browserPage).inputValue()).indexOf('tunnel.example.com') + 'tunnel.example.com'.length;
+      await input(browserPage).evaluate((element, offset) => {
+        element.focus();
+        element.setSelectionRange(offset, offset);
+      }, at);
+      await browserPage.keyboard.type('abcdefgh', { delay });
+      await browserPage.waitForTimeout(2000);
+      await expect(input(browserPage)).toHaveValue(/tunnel\.example\.comabcdefgh"/);
+      await expect(saved(browserPage)).toContainText('tunnel.example.comabcdefgh');
+    });
+  }
+
+  test('react: a parent value set while an Edit-as edit waits is applied', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html'));
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await browserPage.locator('#edit-as').selectOption('json');
+    await expect(input(browserPage)).toHaveValue(/"listen"/);
+    const at = (await input(browserPage).inputValue()).indexOf('7835') + 4;
+    await input(browserPage).evaluate((element, offset) => {
+      element.focus();
+      element.setSelectionRange(offset, offset);
+    }, at);
+    await browserPage.keyboard.type('9');
+    await browserPage.locator('#replace').click();
+    await browserPage.waitForTimeout(1500);
+    await expect(saved(browserPage)).toHaveText('listen: 9000\n');
+    await expect(input(browserPage)).toHaveValue(/9000/);
+    await expect(input(browserPage)).not.toHaveValue(/78359/);
+  });
+});

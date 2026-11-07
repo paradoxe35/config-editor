@@ -48,6 +48,8 @@ function fingerprint(text: string): string {
   return `${text.length}:${hash >>> 0}`;
 }
 let loading: Promise<unknown> | undefined;
+// Whether the load running was given a URL.
+let loadingWithInput = false;
 // Editors whose own load failed, retried when a later load succeeds.
 const onLoaded = new Set<() => void>();
 
@@ -58,6 +60,24 @@ const onLoaded = new Set<() => void>();
  */
 export function loadConfigEditor(input?: InitInput): Promise<unknown> {
   // A failed load is not kept: calling again (with the right URL) retries.
+  // A URL given while a load without one runs: tried when that one fails.
+  if (loading && input !== undefined && !loadingWithInput) {
+    loadingWithInput = true;
+    const previous = loading;
+    loading = previous.catch(() => init(input)).then(
+      (value) => {
+        for (const retry of [...onLoaded]) retry();
+        return value;
+      },
+      (error: unknown) => {
+        loading = undefined;
+        loadingWithInput = false;
+        throw error;
+      },
+    );
+    return loading;
+  }
+  loadingWithInput ||= input !== undefined;
   loading ??= init(input).then(
     (value) => {
       for (const retry of [...onLoaded]) retry();
@@ -65,6 +85,7 @@ export function loadConfigEditor(input?: InitInput): Promise<unknown> {
     },
     (error: unknown) => {
       loading = undefined;
+      loadingWithInput = false;
       throw error;
     },
   );
@@ -265,6 +286,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         if (value === undefined) return;
         if (value === handledValue.current) return;
         handledValue.current = value;
+        // First: an Edit-as edit still waiting out the typing pause is sent
+        // now (reading `value` does), so its echo is told apart like any.
+        const current = instance.value;
         const now = Date.now();
         pending.current = pending.current.filter((echo) => now - echo.sent < ECHO_WINDOW_MS);
         const print = fingerprint(value);
@@ -275,8 +299,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           superseded.current.splice(0, replaced + 1);
           // The parent's state took that old value: tell it the document
           // again, so both end on the reset.
-          if (superseded.current.length === 0 && instance.value !== value) {
-            const current = instance.value;
+          if (superseded.current.length === 0 && current !== value) {
             pending.current.push({ print: fingerprint(current), sent: now });
             latest.current.onChange?.(current);
           }
@@ -298,7 +321,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           superseded.current = [...superseded.current, ...pending.current];
           pending.current = [];
         }
-        if (instance.value !== value) instance.setValue(value);
+        if (current !== value) instance.setValue(value);
       });
     }, [mounted, props.value]);
 
@@ -343,6 +366,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           return editor.current;
         },
         setValue(value: string) {
+          if (typeof value !== "string") {
+            report(new TypeError("setValue needs a string"));
+            return;
+          }
+          // An Edit-as edit still waiting is sent first, so it is superseded
+          // with the others below.
+          void editor.current?.value;
           superseded.current = [...superseded.current, ...pending.current];
           pending.current = [];
           if (carried.current) carried.current.value = value;

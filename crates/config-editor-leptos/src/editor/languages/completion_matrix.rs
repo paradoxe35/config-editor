@@ -1152,3 +1152,41 @@ fn a_repeated_block_or_element_offers_its_keys() {
     }
     report(failures);
 }
+
+/// Round 13: a table key after a dotted head is written inline; a prefixed
+/// XML name is renamed keeping its prefix, in both tags; a TOML header with
+/// keys is not renamed onto a table other headers make.
+#[test]
+fn dotted_heads_prefixed_names_and_header_renames_stay_valid() {
+    use super::super::completion::{apply_completion, completions_for};
+    let mut failures = Vec::new();
+    match accepted(Language::TOML, "websocket.t|", "tls") {
+        Ok(text) if parsed(Language::TOML, &text).is_ok_and(|value| value.pointer("/websocket/tls").is_some()) => {}
+        other => failures.push(format!("TOML dotted head: {other:?}")),
+    }
+    for (marked, label, expected) in [
+        ("<ns:websocket>\n  <ns:path>/x</ns:path>\n</ns:websocket|>\n", "heartbeat", "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n"),
+        ("<ns:websocket|>\n  <ns:path>/x</ns:path>\n</ns:websocket>\n", "heartbeat", "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let options = completions_for(&text, at, true, Some(&burrow()), true, Language::XML.behavior(), true);
+        match options.iter().find(|option| option.label == label) {
+            Some(option) if apply_completion(&text, option).0 == expected => {}
+            Some(option) => failures.push(format!("XML {marked:?} became {:?}", apply_completion(&text, option).0)),
+            None => failures.push(format!("XML {marked:?}: {label} not offered")),
+        }
+    }
+    let labels = offered(Language::TOML, "[web|socket]\npath = \"/x\"\n\n[clients.acme]\nsecret = \"s\"\n");
+    if labels.contains(&"clients".to_string()) {
+        failures.push(format!("TOML rename offers clients: {labels:?}"));
+    }
+    report(failures);
+}
+
+/// Round 13: `/>` inside a quoted attribute value does not end the tag.
+#[test]
+fn a_tag_end_inside_a_quoted_attribute_value_is_text() {
+    let labels = offered(Language::XML, "<websocket path=\"a/>b\">\n  |\n</websocket>\n");
+    assert!(labels.contains(&"host".to_string()), "{labels:?}");
+}

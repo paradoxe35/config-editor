@@ -430,7 +430,17 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
     let line = &source[line_start..line_end];
     let code = line[..line_comment_start(line).unwrap_or(line.len())].trim_end();
     let indent = |text: &str| text.len() - text.trim_start_matches([' ', '\t']).len();
-    let opens_block = code.ends_with(':') && !code.trim_start().starts_with('#');
+    // A key opening a block, also behind an anchor or a tag (`a: &x`,
+    // `a: !!map`), or a list item whose map goes on below (`- a: 1`).
+    let mut bare = code.trim_end();
+    while let Some((before, last)) = bare.rsplit_once(' ')
+        && (last.starts_with('&') || last.starts_with('!'))
+        && last.len() > 1
+    {
+        bare = before.trim_end();
+    }
+    let item = code.trim_start().starts_with("- ") || code.trim() == "-";
+    let opens_block = (bare.ends_with(':') || item) && !code.trim_start().starts_with('#');
     if !opens_block {
         return (start, end);
     }
@@ -440,11 +450,12 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
     for next in source[line_end..].split('\n').skip(1) {
         let begin = offset + 1;
         offset = begin + next.len();
-        if next.trim().is_empty() {
+        // Blank and comment lines go along when children follow them.
+        if next.trim().is_empty() || next.trim_start().starts_with('#') {
             continue;
         }
         // A list may sit at its key's column (`key:\n- a`).
-        let child = indent(next) > own || (indent(next) == own && next.trim_start().starts_with("- "));
+        let child = indent(next) > own || (!item && indent(next) == own && next.trim_start().starts_with("- "));
         if !child {
             break;
         }

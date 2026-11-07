@@ -166,7 +166,9 @@ pub(super) fn tag_completion_context(
         .open_tag
         .filter(|tag| is_element_name_position(tag, cursor))
     {
-        let name_start = (tag.start + 1).min(cursor);
+        // After any prefix (`ns:`): a rename keeps it.
+        let prefixed = local_name_start(source, &tag) > tag.start + 1;
+        let name_start = local_name_start(source, &tag).min(cursor);
         // Typed in front of, or inside, an existing name (`<pu|tcp/>`): a
         // suggestion completing it renames the tag; any other is its own
         // element before it, the `<` it replaced written back.
@@ -187,7 +189,7 @@ pub(super) fn tag_completion_context(
             block: xml_block(source, tag.start.min(cursor), cursor).filter(|_| name_after.is_none()),
             path,
             typed: source[name_start..cursor].to_string(),
-            replace_start: cursor_bytes(source, tag.start.min(cursor)),
+            replace_start: cursor_bytes(source, if prefixed { name_start } else { tag.start.min(cursor) }),
             replace_end,
             value_key: None,
             value_needs_space: false,
@@ -574,7 +576,7 @@ pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usi
         match token.kind {
             Kind::OpenTag { .. } if !source[..token.end].ends_with("/>") => depth += 1,
             Kind::EndTag if depth == 0 => {
-                let start = token.start + 2;
+                let start = local_name_start(source, token);
                 let name = token_name(source, token);
                 return Some((start, start + name.len()));
             }
@@ -590,10 +592,12 @@ pub(super) fn end_tag_name(source: &str, tag_start: usize) -> Option<(usize, usi
 fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext> {
     let tokens = tokenize(source);
     let index = tokens.iter().position(|token| {
-        matches!(token.kind, Kind::EndTag) && token.start + 2 <= cursor && cursor <= token.start + 2 + token_name(source, token).len()
+        matches!(token.kind, Kind::EndTag)
+            && token.start + 2 <= cursor
+            && cursor <= local_name_start(source, token) + token_name(source, token).len()
     })?;
     let end = &tokens[index];
-    let name_start = end.start + 2;
+    let name_start = local_name_start(source, end).min(cursor.max(end.start + 2));
     let name_end = name_start + token_name(source, end).len();
     // Its start tag: the last one before it left open.
     let mut depth = 0usize;
@@ -624,7 +628,7 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
         path.pop();
     }
     path.pop();
-    let open_name_start = open.start + 1;
+    let open_name_start = local_name_start(source, open);
     let open_name_end = open_name_start + token_name(source, open).len();
     // Not ended by `>`: a closing tag being typed closes its element.
     let after_name = source[name_end..].trim_start_matches([' ', '\t']);

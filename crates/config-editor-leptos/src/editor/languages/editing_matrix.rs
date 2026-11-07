@@ -373,3 +373,35 @@ fn enter_inside_a_toml_inline_table_keeps_it_on_one_line() {
     assert_eq!(newline.replaces, rest.len());
     assert_eq!(newline.text, format!("{rest}\n"));
 }
+
+/// Round 13: Ctrl+/ on a parent takes what belongs to it (YAML parents with
+/// anchors, tags, list items with maps, comments among the children; TOML
+/// tables), and Enter anywhere in a one-line HCL block opens it validly.
+#[test]
+fn ctrl_slash_takes_parents_and_enter_opens_one_line_blocks() {
+    let mut failures = Vec::new();
+    for (language, marked, expected) in [
+        (Language::YAML, "- a: 1|\n  b: 2\n- c: 3\n", "# - a: 1\n#   b: 2\n- c: 3\n"),
+        (Language::YAML, "a: &x|\n  b: 1\nc: 2\n", "# a: &x\n#   b: 1\nc: 2\n"),
+        (Language::YAML, "a: !!map|\n  b: 1\nc: 2\n", "# a: !!map\n#   b: 1\nc: 2\n"),
+        (Language::YAML, "ws:|\n  path: 1\n# comment\n  host: 2\nl: 1\n", "# ws:\n#   path: 1\n# # comment\n#   host: 2\nl: 1\n"),
+        (Language::TOML, "[webs|ocket]\npath = \"/x\"\nhost = \"h\"\n\n[x]\na = 1\n", "# [websocket]\n# path = \"/x\"\n# host = \"h\"\n\n[x]\na = 1\n"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let caret = text[..at].encode_utf16().count();
+        match language.behavior().toggle_comments(&text, caret, caret) {
+            Some((once, _, _)) if once == expected && language.parse(&once).is_ok() => {}
+            other => failures.push(format!("{}: {text:?} became {:?}", language.label(), other.map(|o| o.0))),
+        }
+    }
+    let source = "websocket { path = \"/x\" }\n";
+    let caret = source.find('{').unwrap() + 1;
+    let newline = Language::HCL.behavior().newline(source, caret);
+    let mut after = source.to_string();
+    after.replace_range(caret - newline.replaces_before..caret + newline.replaces, &newline.text);
+    if Language::HCL.parse(&after).is_err() {
+        failures.push(format!("HCL Enter after brace: {after:?}"));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -254,7 +254,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
         suffix_head: if splits { source[typed_start..query_start].to_string() } else { String::new() },
         entry_after: splits.then_some(word_after),
-        position: if keys_follow && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
+        // After a dotted head (`websocket.t|`) a table is written inline: a
+        // `[websocket.tls]` header cannot follow the head on its line.
+        position: if (keys_follow || query_start > typed_start) && !before_header { EntryPosition::Inline } else { EntryPosition::Block },
         // The head of a dotted key (`ud|.nodelay = true`): its rest and value
         // follow, so only the name is written.
         names_only: source[cursor..].starts_with('.'),
@@ -322,6 +324,16 @@ pub(super) fn existing_table_keys(
         Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
         _ => None,
     };
+    // A header naming a table that has keys of its own is a rename: a table
+    // other headers only make (`[clients.acme]` making `clients`) is taken,
+    // or the keys would join it. A header still being named may name one.
+    let current_has_keys = in_header
+        && lines
+            .iter()
+            .skip(line_index + 1)
+            .map(|line| split_toml_comment(line).0)
+            .take_while(|code| parse_header(code).is_none())
+            .any(|code| key_assignment(code).is_some());
     let mut keys = HashSet::new();
     let mut section: Vec<SchemaPathSegment> = Vec::new();
     let mut array_tables: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -342,7 +354,7 @@ pub(super) fn existing_table_keys(
             // A header being named may still name a table that only its
             // sub-tables made (`[websocket]` with `[websocket.tls]` below),
             // and never counts itself.
-            if index != line_index && (!in_header || header.len() == path.len() + 1) {
+            if index != line_index && (!in_header || current_has_keys || header.len() == path.len() + 1) {
                 keys.extend(child_of(&header));
             }
             section = header;
@@ -365,7 +377,7 @@ pub(super) fn existing_table_keys(
                     .map(SchemaPathSegment::Key),
             );
             // Keys of a deeper table make its parents only implicitly.
-            if !in_header || section.len() <= path.len() {
+            if !in_header || current_has_keys || section.len() <= path.len() {
                 keys.extend(child_of(&full));
             }
         }
