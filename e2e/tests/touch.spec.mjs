@@ -35,8 +35,11 @@ test.describe('touch on a phone', () => {
 
   test('a tap places the caret where it lands', async ({ page }) => {
     const e = editor(page);
-    // `listen: 7835` is line 2: tap between `li` and `sten`.
-    await tap(page, 1, 2);
+    // `listen: 7835` is line 2: tap between `li` and `sten`, on the
+    // boundary itself (`pointAt` aims at a character's middle, where a tap
+    // is as close to the boundary before it as to the one after it, so the
+    // caret could land on either side).
+    await tap(page, 1, 1.5);
     await expect(e.input).toBeFocused();
     expect(await e.caret()).toEqual({ line: 2, column: 3, collapsed: true });
     await expect.poll(() => activeLine(page)).toBe('2');

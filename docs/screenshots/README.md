@@ -107,6 +107,14 @@ Problems from the host (a server's validation), by path or range, with their sou
 
 ![Three documents as tabs](documents.png)
 
+## Accessibility
+
+### Leaving the editor with the keyboard
+
+`Tab` indents while editing; `Ctrl+M` makes `Tab` move the focus instead (the footer says so until it is turned off), and `Escape` then `Tab` leaves once. Screen readers hear the problem at the caret and each `F8` stop.
+
+![Tab moves focus, shown in the footer](tab-focus.png)
+
 ## Looks
 
 ### Themes

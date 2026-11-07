@@ -212,8 +212,11 @@ test.describe('the baseline changing under unsaved edits', () => {
     await page.keyboard.type('.org');
     await pushFromServer(page);
     await expect(notice(page)).toBeVisible();
-    await page.locator('.config-editor__input').evaluate((element) => element.focus());
-    await page.keyboard.press('Control+z');
+    // Take `.org` back out with Backspace, not Ctrl+Z: one undo step only
+    // covers it when the four keys came within the grouping window, which a
+    // loaded machine does not always keep (undo grouping has its own tests).
+    await caretAtEnd(page, 3);
+    for (let key = 0; key < '.org'.length; key += 1) await page.keyboard.press('Backspace');
     await caretAtEnd(page, 2);
     await page.keyboard.press('Backspace');
     await page.keyboard.type('6');

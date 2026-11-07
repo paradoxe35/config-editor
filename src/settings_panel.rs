@@ -56,7 +56,7 @@ pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
     };
     view! {
         <details class="demo__settings">
-            <summary class="demo__summary">"Settings"</summary>
+            <summary class="demo__settings-toggle">"Settings"</summary>
             <div class="demo__settings-list">{keys.into_iter().map(switch).collect_view()}</div>
         </details>
     }

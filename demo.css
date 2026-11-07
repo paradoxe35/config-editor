@@ -24,11 +24,25 @@
    documents demo), so the page keeps its height. */
 .demo__settings {
   position: relative;
+  align-self: center;
   color: var(--config-editor-muted);
   font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
-.demo__settings > summary {
+/* Looks like the toolbar's selects beside it. */
+.demo__settings-toggle {
+  padding: 4px 7px;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 4px;
+  background: var(--config-editor-panel);
+  color: var(--config-editor-text);
   cursor: pointer;
+  list-style: none;
+}
+.demo__settings-toggle::-webkit-details-marker { display: none; }
+.demo__settings-toggle::after { content: " ▾"; color: var(--config-editor-muted); }
+.demo__settings-toggle:focus-visible {
+  outline: 2px solid var(--config-editor-accent);
+  outline-offset: 1px;
 }
 .config-editor__toolbar .demo__settings-list {
   position: absolute;

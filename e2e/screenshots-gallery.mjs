@@ -59,6 +59,12 @@ export const GALLERY = [
     ],
   },
   {
+    section: 'Accessibility',
+    items: [
+      { title: 'Leaving the editor with the keyboard', caption: '`Tab` indents while editing; `Ctrl+M` makes `Tab` move the focus instead (the footer says so until it is turned off), and `Escape` then `Tab` leaves once. Screen readers hear the problem at the caret and each `F8` stop.', images: [['tab-focus.png', 'Tab moves focus, shown in the footer']] },
+    ],
+  },
+  {
     section: 'Looks',
     items: [
       {

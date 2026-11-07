@@ -116,12 +116,15 @@ async function shot(page, name, selector = '.demo', from = null) {
   const box = await page.locator(selector).first().boundingBox();
   const top = from ? Math.floor((await page.locator(from).first().boundingBox()).y) : 0;
   const height = Math.ceil(box.y + box.height) - top;
+  // A crop to the wrong element (a selector that matches something else
+  // first) leaves a strip: fail instead of saving it.
+  if (height < 150) throw new Error(`${name}: ${selector} gives a ${height}px tall image`);
   await page.screenshot({ path: join(out, `${name}.png`), clip: { x: 0, y: top, width: 1200, height } });
   console.log(`docs/screenshots/${name}.png`);
 }
 
 /** The demo with its "Saved value" row, as the README shows it. */
-const demoShot = (page, name) => shot(page, name, '.demo__summary');
+const demoShot = (page, name) => shot(page, name, '.demo__output > .demo__summary');
 
 const scenes = {
   // The README's six.
@@ -299,6 +302,13 @@ const scenes = {
     await hoverText(page, 'fast');
     await demoShot(page, 'schema-docs');
   },
+  async 'tab-focus'(page) {
+    await open(page);
+    await page.locator('.config-editor__input').first().click();
+    await page.keyboard.press('Control+m');
+    await pause(page, 400);
+    await demoShot(page, 'tab-focus');
+  },
   async phone(page) {
     await page.setViewportSize({ width: 390, height: 640 });
     await open(page);
@@ -306,7 +316,7 @@ const scenes = {
     await page.keyboard.type('li');
     await page.locator('.config-editor__completion').first().waitFor();
     await pause(page);
-    const box = await page.locator('.demo__summary').first().boundingBox();
+    const box = await page.locator('.demo__output > .demo__summary').first().boundingBox();
     await page.screenshot({ path: join(out, 'phone.png'), clip: { x: 0, y: 0, width: 390, height: Math.ceil(box.y + box.height) } });
     console.log('docs/screenshots/phone.png');
   },
