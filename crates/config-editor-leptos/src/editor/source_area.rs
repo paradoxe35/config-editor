@@ -1,12 +1,15 @@
-//! [`SourceArea`]: the textarea seen through the folds. Every part of the
+//! [`SourceArea`]: the textarea seen through the folds (see `projection`),
+//! and writing the document into it. Every part of the
 //! editor reads and moves the selection through it in document offsets;
 //! only it knows the textarea holds the document with folded lines cut out.
 
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 
-use super::super::state::EditorState;
-use super::projection::Side;
+use std::sync::Arc;
+
+use super::projection::{Projection, Side};
+use super::state::EditorState;
 
 /// The textarea, with offsets and lines in the document's terms.
 #[derive(Clone)]
@@ -30,7 +33,7 @@ impl SourceArea {
     /// made to the textarea's text, mapped into the document.
     pub(crate) fn value(&self) -> String {
         let current = self.element.value();
-        self.state.fold.projection.with_untracked(|projection| {
+        self.state.view.projection.with_untracked(|projection| {
             self.state.doc.text.with_untracked(|doc| {
                 if projection.view(doc) == current {
                     doc.clone()
@@ -51,7 +54,7 @@ impl SourceArea {
         let offset = offset?;
         Ok(offset.map(|offset| {
             self.state
-                .fold
+                .view
                 .projection
                 .with_untracked(|projection| projection.to_doc(offset as usize, Side::Before))
                 as u32
@@ -60,7 +63,7 @@ impl SourceArea {
 
     fn to_view(&self, offset: u32) -> u32 {
         self.state
-            .fold
+            .view
             .projection
             .with_untracked(|projection| projection.to_view(offset as usize)) as u32
     }
@@ -144,7 +147,7 @@ impl SourceArea {
     /// on its fold's row.
     pub(crate) fn row_of_line(&self, line: usize) -> usize {
         self.state
-            .fold
+            .view
             .projection
             .with_untracked(|projection| projection.row_of_line(line))
     }
@@ -152,8 +155,42 @@ impl SourceArea {
     /// The document line (0-based) on textarea row `row`.
     pub(crate) fn line_of_row(&self, row: usize) -> usize {
         self.state
-            .fold
+            .view
             .projection
             .with_untracked(|projection| projection.line_of_row(row))
+    }
+}
+
+impl EditorState {
+    /// Puts the document, folds cut out, in the textarea. Returns whether
+    /// its text changed.
+    pub(super) fn show_text(&self) -> bool {
+        let projection = self.with_closed_folds_untracked(|folds| {
+            self.doc
+                .text
+                .with_untracked(|doc| Projection::new(doc, folds))
+        });
+        let rewritten = self
+            .view
+            .textarea_ref
+            .get_untracked()
+            .is_some_and(|element| {
+                self.doc.text.with_untracked(|doc| {
+                    let view = projection.view(doc);
+                    let rewrite = element.value() != view;
+                    if rewrite {
+                        element.set_value(view);
+                    }
+                    rewrite
+                })
+            });
+        if self
+            .view
+            .projection
+            .with_untracked(|shown| **shown != projection)
+        {
+            self.view.projection.set(Arc::new(projection));
+        }
+        rewritten
     }
 }

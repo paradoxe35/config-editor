@@ -91,11 +91,13 @@ pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};
 pub use editor::language;
 pub use settings::EditorSettings;
 
+#[cfg(feature = "diff")]
+pub use editor::unified_diff;
 pub use editor::{
     BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,
     Conversion, ConvertError, Diagnostic, DiagnosticOrigin, DiagnosticTarget, EditorHandle,
     EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
     SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
     ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, flush_pending_edits,
-    flush_pending_input, unified_diff,
+    flush_pending_input,
 };

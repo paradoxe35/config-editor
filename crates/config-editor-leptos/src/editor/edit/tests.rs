@@ -125,11 +125,6 @@ fn an_edit_passes_the_stages_in_order_and_on_change_sees_it_whole() {
 #[test]
 fn a_refused_edit_changes_nothing() {
     let (_owner, state) = editor();
-    // A key about to edit at the end of a folded line opens the fold.
-    assert!(state.fold_line(1));
-    let closed = state.fold.folded.get_untracked();
-    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
-    assert!(state.fold.folded.with_untracked(Vec::is_empty));
     let dirty = state.editing.dirty.get_untracked();
 
     let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
@@ -137,11 +132,6 @@ fn a_refused_edit_changes_nothing() {
 
     assert_eq!(take_trace(), [Stage::Prepare, Stage::Check, Stage::Refused]);
     assert_eq!(text(state), TEXT);
-    assert_eq!(
-        state.fold.folded.get_untracked(),
-        closed,
-        "folds closed again"
-    );
     assert!(!can_undo(state), "nothing recorded");
     assert_eq!(state.editing.dirty.get_untracked(), dirty);
     assert_eq!(seen(), [], "no on_change");
@@ -152,6 +142,27 @@ fn a_refused_edit_changes_nothing() {
     );
     // The reason shows at the caret.
     assert!(state.protect.tip.with_untracked(Option::is_some));
+}
+
+#[cfg(feature = "folding")]
+#[test]
+fn a_refused_edit_closes_the_folds_it_opened_again() {
+    let (_owner, state) = editor();
+    // A key about to edit at the end of a folded line opens the fold.
+    assert!(state.fold_line(1));
+    let closed = state.fold.folded.get_untracked();
+    state.open_folds_for_edit(FOLDED_LINE_END, FOLDED_LINE_END);
+    assert!(state.fold.folded.with_untracked(Vec::is_empty));
+
+    let refused = Edit::new(TEXT.into(), (7, 7), read_only_changed(), 7);
+    assert!(!state.commit(refused));
+
+    assert_eq!(text(state), TEXT);
+    assert_eq!(
+        state.fold.folded.get_untracked(),
+        closed,
+        "folds closed again"
+    );
 }
 
 #[test]
@@ -168,6 +179,7 @@ fn read_only_refuses_every_edit_of_the_user() {
     assert!(state.protect.tip.with_untracked(Option::is_none));
 }
 
+#[cfg(feature = "folding")]
 #[test]
 fn undo_of_an_edit_that_opened_a_fold_restores_the_text_and_leaves_it_open() {
     let (_owner, state) = editor();

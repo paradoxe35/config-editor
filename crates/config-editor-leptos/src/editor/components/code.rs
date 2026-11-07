@@ -20,7 +20,7 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
             <code>
                 <RowSpacer state=state />
                 <KeyedList
-                    each=move || state.fold.visible_lines.get()
+                    each=move || state.view.visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <CodeLine state=state rows=rows index=index /> }
                 />

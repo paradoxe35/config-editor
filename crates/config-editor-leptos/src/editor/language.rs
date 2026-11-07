@@ -61,7 +61,7 @@ pub use super::completion::{
     array_branch, fill_value, object_branch, placeholder, schema_const, schema_default,
     schema_example,
 };
-pub use super::folding::{
+pub use super::fold_ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
     indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
 };
@@ -1148,7 +1148,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// [multi-line strings](Self::string_body_lines) (see
     /// [`default_fold_ranges`]). Languages override it with their own
     /// structure, combining the same building blocks.
+    ///
+    /// Only the `folding` feature asks; without it the default finds
+    /// nothing, so a build without folding carries none of its code.
     fn fold_ranges(&self, source: &str) -> Vec<FoldRange> {
+        if !cfg!(feature = "folding") {
+            return Vec::new();
+        }
         default_fold_ranges(source, &self.config(), &self.string_body_lines(source))
     }
 

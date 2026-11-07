@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use super::super::language::LanguageConfig;
+use super::language::LanguageConfig;
 
 /// Lines that fold together: `start` stays visible with a `…` after it, and
 /// the lines after it through `end` (0-based, inclusive) are hidden.
@@ -139,7 +139,10 @@ pub(crate) struct BracketScan {
     pub(crate) ranges: Vec<FoldRange>,
     /// Per line, whether it starts outside every bracket, string and
     /// comment (TOML reads it to find its table headers).
-    #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML reads it"))]
+    #[cfg_attr(
+        not(all(feature = "toml", feature = "folding")),
+        allow(dead_code, reason = "only TOML's folding reads it")
+    )]
     pub(crate) at_top: Vec<bool>,
 }
 

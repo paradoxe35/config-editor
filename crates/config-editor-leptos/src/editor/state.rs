@@ -16,7 +16,7 @@
 //! | `problems`   | `ProblemsState`     | `problems`      |
 //! | `changes`    | `ChangesState`      | `changes`       |
 //! | `search`     | `SearchState`       | `search`        |
-//! | `go_to_line` | `GoToLine`          | `go_to_line`    |
+//! | `go_to_line` | `GoToLine`          | `search`        |
 //! | `editing`    | `HostEditing`       | `host_editing`  |
 //! | `fold`       | `FoldState`         | `folding`       |
 //! | `protect`    | `ProtectState`      | `protect`       |
@@ -27,12 +27,13 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::a11y::A11yState;
+#[cfg(feature = "diff")]
 use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
 use super::diagnostics::SchemaBundle;
 use super::document::DocState;
-use super::folding::{FoldState, Projection, SourceArea};
-use super::go_to_line::GoToLine;
+#[cfg(feature = "folding")]
+use super::folding::FoldState;
 use super::history::Selection;
 use super::host_diagnostics::HostDiagnostic;
 use super::host_editing::{
@@ -44,8 +45,11 @@ use super::layout::{ViewState, string_bodies};
 use super::line_rows::rendered_lines;
 use super::live_settings::LiveSettings;
 use super::problems::{self, ProblemsState};
+use super::projection::Projection;
 use super::protect::{Inputs, ProtectInit, ProtectState};
-use super::search::SearchState;
+#[cfg(feature = "search")]
+use super::search::{GoToLine, SearchState};
+use super::source_area::SourceArea;
 use super::sync::SyncState;
 use super::typing::TypingState;
 use crate::EditorSettings;
@@ -122,14 +126,18 @@ pub(super) struct EditorFields {
     pub(super) hover: HoverState,
     pub(super) problems: ProblemsState,
     /// Changes against the baseline (see `changes`).
+    #[cfg(feature = "diff")]
     pub(super) changes: ChangesState,
     /// Find and replace (see `search`).
+    #[cfg(feature = "search")]
     pub(super) search: SearchState,
-    /// The go-to-line field (see `go_to_line`).
+    /// The go-to-line field (see `search`).
+    #[cfg(feature = "search")]
     pub(super) go_to_line: GoToLine,
     /// Saving, the dirty flag and baseline conflicts (see `host_editing`).
     pub(super) editing: HostEditing,
     /// Folding (see `folding`).
+    #[cfg(feature = "folding")]
     pub(super) fold: FoldState,
     /// Read-only fields and secrets (see `protect`).
     pub(super) protect: ProtectState,
@@ -224,22 +232,20 @@ impl EditorState {
             config.schema,
             &sync,
         );
+        #[cfg(feature = "diff")]
         let changes = ChangesState::new(doc.text, editing.shown_baseline, settings.diff);
         let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let view = ViewState::new(
             projection,
-            rendered_lines(doc.text, problems.diagnostics, changes.diff, protect),
+            rendered_lines(doc.text, problems.diagnostics, protect),
             string_bodies,
         );
-        let fold = FoldState::new(
-            projection,
-            view.visible_rows,
-            doc.text,
-            sync.edit_language,
-            settings.folding,
-        );
+        #[cfg(feature = "folding")]
+        let fold = FoldState::new(doc.text, sync.edit_language, settings.folding);
         let state = Self(Box::leak(Box::new(EditorFields {
+            #[cfg(feature = "search")]
             search: SearchState::new(doc.text),
+            #[cfg(feature = "search")]
             go_to_line: GoToLine::new(),
             typing: TypingState::new(),
             hover: HoverState::new(),
@@ -250,8 +256,10 @@ impl EditorState {
             view,
             completion,
             problems,
+            #[cfg(feature = "diff")]
             changes,
             editing,
+            #[cfg(feature = "folding")]
             fold,
             protect,
         })));

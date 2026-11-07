@@ -1,29 +1,28 @@
+use super::changes::{LineDiff, RowPeeks, line_kind, row_peeks};
 use super::diagnostics::{Diagnostic, Severity};
-use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
-use super::folding::FoldRange;
+use super::diff::DiffKind;
+use super::fold_ranges::FoldRange;
 use super::languages::Language;
 use super::protect::{LineMarks, ProtectState, line_marks};
 use crate::reactive::{Fanout, notify};
 use leptos::prelude::*;
 use std::ops::Range;
 
-/// One line of the document plus its error and diff flags.
+/// One line of the document plus its error flag.
 #[derive(Clone, PartialEq)]
 pub(super) struct RenderedLine {
     pub(super) text: String,
     pub(super) has_error: bool,
-    pub(super) change: DiffKind,
     /// Protected text on the line: muted values and the gutter lock (boxed:
     /// most lines have none, and every line carries the field).
     pub(super) marks: Option<Box<LineMarks>>,
 }
 
-/// Each line of `text` with its error flag (from `diagnostics`), its change
-/// against the baseline (from `diff`) and its protected-text marks.
+/// Each line of `text` with its error flag (from `diagnostics`) and its
+/// protected-text marks.
 pub(super) fn rendered_lines(
     text: RwSignal<String>,
     diagnostics: Memo<Vec<Diagnostic>>,
-    diff: Memo<LineDiff>,
     protect: ProtectState,
 ) -> Memo<Vec<RenderedLine>> {
     Memo::new(move |_| {
@@ -43,24 +42,17 @@ pub(super) fn rendered_lines(
                         .with_value(|options| line_marks(text, protected, tokens, &options.hint))
                 })
             });
-            diff.with(|line_diff| {
-                text.split('\n')
-                    .enumerate()
-                    .map(|(index, line)| RenderedLine {
-                        text: line.to_string(),
-                        has_error: error_lines.contains(&(index + 1)),
-                        change: line_diff
-                            .current
-                            .get(index)
-                            .copied()
-                            .unwrap_or(DiffKind::Unchanged),
-                        marks: marks
-                            .get(index)
-                            .filter(|marks| **marks != LineMarks::default())
-                            .map(|marks| Box::new(marks.clone())),
-                    })
-                    .collect::<Vec<_>>()
-            })
+            text.split('\n')
+                .enumerate()
+                .map(|(index, line)| RenderedLine {
+                    text: line.to_string(),
+                    has_error: error_lines.contains(&(index + 1)),
+                    marks: marks
+                        .get(index)
+                        .filter(|marks| **marks != LineMarks::default())
+                        .map(|marks| Box::new(marks.clone())),
+                })
+                .collect::<Vec<_>>()
         })
     })
 }
@@ -110,12 +102,11 @@ impl RowFolds<'_> {
 pub(super) struct RowUiState {
     pub(super) text: String,
     pub(super) has_error: bool,
+    /// How the line differs from the baseline.
     pub(super) change: DiffKind,
     pub(super) is_active: bool,
-    pub(super) modified_peek: Option<DiffPeek>,
-    pub(super) added_peek: Option<DiffPeek>,
-    pub(super) deleted_peek: Option<DiffPeek>,
-    pub(super) deleted_after_peek: Option<DiffPeek>,
+    /// The previews its change markers open (see `changes`).
+    pub(super) peeks: RowPeeks,
     pub(super) marks: Option<Box<LineMarks>>,
     /// A closed fold on this row hides a line with an error.
     pub(super) hidden_error: bool,
@@ -134,7 +125,7 @@ pub(super) fn row_state(
     let line = index + 1;
     let row = rows.get(index);
     let text = row.map(|row| row.text.clone()).unwrap_or_default();
-    let change = row.map(|row| row.change).unwrap_or(DiffKind::Unchanged);
+    let change = line_kind(line_diff, index);
     let hidden = folds
         .closed_end(index)
         .and_then(|end| rows.get(index + 1..=end.min(rows.len().saturating_sub(1))))
@@ -146,47 +137,7 @@ pub(super) fn row_state(
         has_error: row.is_some_and(|row| row.has_error),
         change,
         is_active: line == active_line,
-        modified_peek: line_diff
-            .modified_before
-            .get(index)
-            .and_then(Option::as_ref)
-            .map(|before| DiffPeek {
-                line,
-                kind: PeekKind::Modified,
-                title: "Modified line".to_string(),
-                before: vec![before.clone()],
-                after: vec![text.clone()],
-            }),
-        added_peek: (change == DiffKind::Added).then(|| DiffPeek {
-            line,
-            kind: PeekKind::Added,
-            title: "Added line".to_string(),
-            before: Vec::new(),
-            after: vec![text.clone()],
-        }),
-        deleted_peek: line_diff
-            .deleted_before
-            .get(index)
-            .copied()
-            .unwrap_or(false)
-            .then(|| DiffPeek {
-                line,
-                kind: PeekKind::Removed,
-                title: "Removed lines".to_string(),
-                before: line_diff
-                    .deleted_lines_before
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_default(),
-                after: Vec::new(),
-            }),
-        deleted_after_peek: (line == line_count && line_diff.deleted_after).then(|| DiffPeek {
-            line,
-            kind: PeekKind::RemovedAtEnd,
-            title: "Removed lines at end of document".to_string(),
-            before: line_diff.deleted_lines_after.clone(),
-            after: Vec::new(),
-        }),
+        peeks: row_peeks(line_diff, index, line_count, &text, change),
         text,
     }
 }

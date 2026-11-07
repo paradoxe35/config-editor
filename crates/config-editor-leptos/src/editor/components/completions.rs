@@ -32,7 +32,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                     .view.textarea_ref
                     .get()
                     .map(|editor| {
-                        state.fold.projection.with(|projection| {
+                        state.view.projection.with(|projection| {
                             completion_popup_style(&editor, projection, &state.doc.text.get(), state.doc.caret.get(), count)
                         })
                     })

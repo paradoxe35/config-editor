@@ -21,11 +21,6 @@ pub(crate) fn save_refused(pointer: &str) -> String {
 /// The gutter lock's label, before the reason.
 pub(crate) const LOCK_LABEL: &str = "Read-only";
 
-/// What Replace All adds when it left matches in protected text alone.
-pub(crate) fn skipped_matches(count: usize) -> String {
-    format!("; skipped {count} in read-only text or secret placeholders")
-}
-
 /// The gutter key's label.
 pub(crate) const SECRET_LABEL: &str = "Secret placeholder";
 
@@ -71,6 +66,3 @@ pub(crate) fn reference_label(prefix: &str, closer: &str) -> String {
 
 /// The type column of a reference suggestion.
 pub(crate) const REFERENCE_TYPE: &str = "reference";
-
-/// What Replace All says when every match is in read-only text.
-pub(crate) const NOTHING_REPLACED: &str = "Every match is in read-only text; nothing was replaced";

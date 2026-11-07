@@ -8,10 +8,10 @@ use super::commands::line_range;
 use super::completion::{key_hover, should_auto_trigger};
 use super::components::HoverCard;
 use super::edit::Edit;
-use super::folding::SourceArea;
 use super::history::EditHistory;
 use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
+use super::source_area::SourceArea;
 use super::state::{EditorState, textarea_selection};
 
 /// The textarea an event came from, in document offsets.
@@ -542,7 +542,7 @@ fn copy_across_folds(
     cut: bool,
 ) {
     if !state
-        .fold
+        .view
         .projection
         .with_untracked(|projection| projection.hides_within(start, end))
     {

@@ -5,8 +5,8 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::search::{self, SearchOptions};
-use super::super::state::EditorState;
+use super::super::super::state::EditorState;
+use super::super::{self as search, SearchOptions};
 
 #[component]
 pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {

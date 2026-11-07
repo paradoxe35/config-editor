@@ -3,8 +3,8 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::super::state::{EditorState, line_count};
 use super::super::go_to_line::{self, hint};
-use super::super::state::{EditorState, line_count};
 
 #[component]
 pub(crate) fn GoToLineWidget(state: EditorState) -> impl IntoView {

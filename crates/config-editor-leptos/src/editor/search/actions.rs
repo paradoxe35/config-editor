@@ -7,11 +7,19 @@ use leptos::prelude::*;
 use super::super::edit::Edit;
 use super::super::input::flush_input;
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::positioning::reveal_centered;
 use super::super::state::{EditorState, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
+use super::reveal::reveal_centered;
 use super::{SearchOptions, SearchResults};
+
+/// What Replace All says when every match is in read-only text.
+const NOTHING_REPLACED: &str = "Every match is in read-only text; nothing was replaced";
+
+/// What Replace All adds when it left matches in protected text alone.
+fn skipped_matches(count: usize) -> String {
+    format!("; skipped {count} in read-only text or secret placeholders")
+}
 
 /// Longest selection taken as the query when the widget opens.
 const SEED_MAX_CHARS: usize = 200;
@@ -215,9 +223,7 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let Some(replaced) = replace::replace_all_except(&before, &matcher, &replacement, &skip) else {
         if matcher.find_from(&before, 0).is_some() {
-            search
-                .notice
-                .set(Some(super::super::protect::NOTHING_REPLACED.to_string()));
+            search.notice.set(Some(NOTHING_REPLACED.to_string()));
         }
         return;
     };
@@ -231,7 +237,7 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     let count = replaced.count;
     search.current.set(None);
     let skipped = if replaced.skipped > 0 {
-        super::super::protect::skipped_matches(replaced.skipped)
+        skipped_matches(replaced.skipped)
     } else {
         String::new()
     };

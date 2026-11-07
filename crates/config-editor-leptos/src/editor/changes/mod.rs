@@ -1,51 +1,63 @@
-//! Changes against the baseline as units: counting them for the host,
-//! reverting one, moving between them, and a unified diff for review.
+//! Changes against the baseline: the gutter's line diff and its markers,
+//! the before/after preview they open, counting the changes for the host
+//! and the footer, reverting one, moving between them, and a unified diff
+//! for review. The `diff` feature: without it, `off/changes.rs` stands in
+//! with the same hooks (the baseline still decides the dirty flag).
 //!
-//! The hunks come from the gutter's own line diff (`diff`), so what is
-//! counted, reverted and walked is exactly what the markers show.
+//! - `line_diff`: the line diff and the previews' geometry;
+//! - `rows`: what each gutter row shows of it;
+//! - `commands`, `keys`: revert, move between changes;
+//! - `unified`: the unified diff; `components`: the views.
+//!
+//! The hunks come from the gutter's own line diff, so what is counted,
+//! reverted and walked is exactly what the markers show.
 
 mod commands;
+mod components;
+mod keys;
+mod line_diff;
+mod rows;
 mod unified;
 
 pub(super) use commands::{ChangesState, report_changes};
+pub(super) use components::{ChangeMarkers, ChangeStatus, DiffPeekPopup};
+pub(super) use keys::go_to_change;
+pub(super) use line_diff::LineDiff;
+#[cfg(feature = "folding")]
+pub(super) use rows::hides_change;
+pub(super) use rows::{RowPeeks, line_kind, row_peeks, with_line_diff};
 pub use unified::unified_diff;
 
-use super::commands::offset_at;
-use super::diff::{DiffPeek, Hunk, LineDiff, PeekKind, diff_lines, document_lines};
+use leptos::prelude::*;
 
-/// How the current text differs from the baseline, by lines, as the diff
-/// gutter shows it.
-///
-/// ```
-/// use config_editor_leptos::ChangeSummary;
-///
-/// let summary = ChangeSummary::between("a: 1\nb: 2\nc: 3\n", "a: 1\nb: 20\nc: 3\nd: 4\n");
-/// assert_eq!((summary.added, summary.modified, summary.removed), (1, 1, 0));
-/// assert_eq!(summary.hunks, 2);
-/// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub struct ChangeSummary {
-    /// Lines added.
-    pub added: usize,
-    /// Lines removed.
-    pub removed: usize,
-    /// Lines changed in place.
-    pub modified: usize,
-    /// Separate changes (runs of changed lines), each one a gutter marker
-    /// group that "Revert this change" restores at once.
-    pub hunks: usize,
+use super::change_summary::ChangeSummary;
+use super::commands::offset_at;
+use super::live_settings::on_switch_off;
+use super::state::EditorState;
+use line_diff::{DiffPeek, Hunk, PeekKind, diff_lines, document_lines};
+
+/// Switching the `show_diff` setting off closes the preview.
+pub(super) fn follow_settings(state: EditorState) {
+    on_switch_off(state.config.settings.diff, move || {
+        state.changes.peek.set(None)
+    });
+}
+
+/// Closes the change preview.
+pub(super) fn close_preview(state: EditorState) {
+    state.changes.peek.set(None);
+}
+
+/// Whether the change preview is open.
+pub(super) fn preview_open(state: EditorState) -> bool {
+    state.changes.peek.with_untracked(Option::is_some)
 }
 
 impl ChangeSummary {
     /// The changes from `baseline` to `current` (line endings ignored).
+    /// Needs the `diff` feature.
     pub fn between(baseline: &str, current: &str) -> Self {
         Self::of(&diff_lines(baseline, current))
-    }
-
-    /// Whether the texts have the same lines.
-    pub fn is_empty(&self) -> bool {
-        self.hunks == 0
     }
 
     pub(super) fn of(line_diff: &LineDiff) -> Self {

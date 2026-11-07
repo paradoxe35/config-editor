@@ -6,9 +6,9 @@ use std::ops::Range;
 
 use leptos::prelude::*;
 
-use super::super::completion::visual_column;
-use super::super::search::SearchMatch;
-use super::super::state::EditorState;
+use super::super::super::completion::visual_column;
+use super::super::super::state::EditorState;
+use super::super::SearchMatch;
 
 /// Most boxes drawn at once (a minified line can hold thousands of matches).
 const MAX_BOXES: usize = 1_000;
@@ -56,7 +56,7 @@ fn boxes(state: EditorState) -> Vec<MatchBox> {
     let search = state.search;
     let rows = state.view.visible_rows.get();
     let current = search.current.get();
-    let projection = state.fold.projection.get();
+    let projection = state.view.projection.get();
     search.results.with(|results| {
         if results.matches.is_empty() || rows.is_empty() {
             return Vec::new();

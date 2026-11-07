@@ -1,5 +1,6 @@
-use super::super::diff::{DiffKind, Hunk, diff_lines};
+use super::super::diff::DiffKind;
 use super::super::line_rows::{RenderedLine, row_state};
+use super::line_diff::{Hunk, diff_lines};
 use super::*;
 
 fn hunk(current: std::ops::Range<usize>, baseline: &[&str], counts: (usize, usize, usize)) -> Hunk {
@@ -189,17 +190,11 @@ fn reverting_every_hunk_gives_the_baseline_property() {
     }
 }
 
-fn rendered(text: &str, line_diff: &super::super::diff::LineDiff) -> Vec<RenderedLine> {
+fn rendered(text: &str) -> Vec<RenderedLine> {
     text.split('\n')
-        .enumerate()
-        .map(|(index, line)| RenderedLine {
+        .map(|line| RenderedLine {
             text: line.to_string(),
             has_error: false,
-            change: line_diff
-                .current
-                .get(index)
-                .copied()
-                .unwrap_or(DiffKind::Unchanged),
             marks: None,
         })
         .collect()
@@ -212,14 +207,15 @@ fn every_marker_preview_finds_its_hunk() {
         let baseline = random_document(&mut random);
         let current = random_document(&mut random);
         let line_diff = diff_lines(&baseline, &current);
-        let rows = rendered(&current, &line_diff);
+        let rows = rendered(&current);
         for index in 0..rows.len() {
-            let row = row_state(index, &rows, rows.len(), &line_diff, 0, Default::default());
+            let peeks =
+                row_state(index, &rows, rows.len(), &line_diff, 0, Default::default()).peeks;
             for peek in [
-                row.modified_peek,
-                row.added_peek,
-                row.deleted_peek,
-                row.deleted_after_peek,
+                peeks.modified,
+                peeks.added,
+                peeks.deleted,
+                peeks.deleted_after,
             ]
             .into_iter()
             .flatten()
@@ -255,14 +251,15 @@ fn next_and_previous_change_wrap_around() {
 
 #[test]
 fn an_added_line_preview_survives_edits_elsewhere_only() {
-    use super::super::diff::{PeekKind, peek_survives_edit};
+    use super::line_diff::{PeekKind, peek_survives_edit};
     let baseline = "a: 1\nb: 2\nc: 3\n";
     let lines = |text: &str| -> Vec<String> { text.split('\n').map(str::to_string).collect() };
     let current = "a: 1\nnew: 3\nb: 2\nc: 3\n";
     let line_diff = diff_lines(baseline, current);
-    let rows = rendered(current, &line_diff);
+    let rows = rendered(current);
     let peek = row_state(1, &rows, rows.len(), &line_diff, 0, Default::default())
-        .added_peek
+        .peeks
+        .added
         .expect("line 2 is added");
     assert_eq!(peek.kind, PeekKind::Added);
     assert_eq!(peek.after, vec!["new: 3"]);

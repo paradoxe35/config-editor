@@ -6,11 +6,11 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::keys::{typed_character, unmodified};
 use super::super::state::{EditorState, textarea_selection};
-use super::{typed_character, unmodified};
 
 /// The folding shortcuts. Returns whether the key was one.
-pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
+pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
     if !state.config.settings.folding.get_untracked() {
         return false;
     }
@@ -59,7 +59,7 @@ pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
 /// a character typed at a folded line's end, Backspace at the start of the
 /// line after a fold, Delete at a folded line's end, any edit of a
 /// selection reaching into one. The edit then applies to the whole text.
-pub(super) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
+pub(in crate::editor) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
     if state.fold.folded.with_untracked(Vec::is_empty) {
         return;
     }

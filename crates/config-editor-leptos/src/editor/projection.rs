@@ -6,8 +6,8 @@
 //! fold follows the fold's first line in the textarea. Offsets are UTF-16,
 //! as the textarea counts them.
 
-use super::super::keyboard::utf16_to_byte_index;
-use super::FoldRange;
+use super::fold_ranges::FoldRange;
+use super::keyboard::utf16_to_byte_index;
 
 /// Which document offset a textarea offset at a fold's first line end
 /// stands for: before the hidden text (`Before`, where the caret shows) or
@@ -180,6 +180,7 @@ impl Projection {
 
     /// The hidden UTF-16 range (`start..end` in the document) holding
     /// `offset`, if a fold hides it.
+    #[cfg(feature = "folding")]
     pub(crate) fn hidden_at(&self, offset: usize) -> Option<(usize, usize)> {
         let after = self
             .regions

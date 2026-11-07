@@ -93,7 +93,7 @@ pub(crate) fn completion_popup_geometry(
 
 pub(crate) fn completion_popup_style(
     editor: &web_sys::HtmlTextAreaElement,
-    projection: &super::super::folding::Projection,
+    projection: &super::super::projection::Projection,
     source: &str,
     cursor: usize,
     option_count: usize,

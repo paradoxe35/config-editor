@@ -3,11 +3,12 @@
 
 use leptos::prelude::*;
 
-use super::super::diff::{DiffPeek, LineDiff, diff_lines};
+use super::super::change_summary::ChangeSummary;
 use super::super::edit::Edit;
 use super::super::line_rows::row_state;
 use super::super::state::{EditorState, textarea_selection};
-use super::{ChangeSummary, adjacent_change, change_line, hunk_for_peek, revert_hunk};
+use super::line_diff::{DiffPeek, LineDiff, diff_lines};
+use super::{adjacent_change, change_line, hunk_for_peek, revert_hunk};
 
 /// The changes part of the editor state.
 #[derive(Clone, Copy)]
@@ -103,12 +104,13 @@ impl EditorState {
             let row = self.view.lines.with_untracked(|lines| {
                 row_state(line, lines, line_count, line_diff, 0, Default::default())
             });
+            let peeks = row.peeks;
             let peek = if !hunk.current.is_empty() {
-                row.modified_peek.or(row.added_peek)
+                peeks.modified.or(peeks.added)
             } else if hunk.current.start >= line_diff.current.len() {
-                row.deleted_after_peek
+                peeks.deleted_after
             } else {
-                row.deleted_peek
+                peeks.deleted
             };
             Some((line, peek))
         }) else {

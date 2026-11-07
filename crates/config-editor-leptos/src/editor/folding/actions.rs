@@ -2,17 +2,14 @@
 //! lines when the edit pipeline writes the text (see `edit`), opened for
 //! an edit that reaches into them, closed again when it is refused.
 
-use std::sync::Arc;
-
 use leptos::prelude::*;
 
 use super::super::commands::line_at_cursor;
+use super::super::fold_ranges::FoldRange;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection};
-use super::FoldRange;
 use super::follow::{follow_edit, keep_valid};
-use super::projection::Projection;
 
 impl EditorState {
     /// The closed folds moved through the change of the document to `new`
@@ -45,38 +42,6 @@ impl EditorState {
         self.show_text()
     }
 
-    /// Puts the document, folds cut out, in the textarea. Returns whether
-    /// its text changed.
-    pub(crate) fn show_text(&self) -> bool {
-        let projection = self.fold.folded.with_untracked(|folds| {
-            self.doc
-                .text
-                .with_untracked(|doc| Projection::new(doc, folds))
-        });
-        let rewritten = self
-            .view
-            .textarea_ref
-            .get_untracked()
-            .is_some_and(|element| {
-                self.doc.text.with_untracked(|doc| {
-                    let view = projection.view(doc);
-                    let rewrite = element.value() != view;
-                    if rewrite {
-                        element.set_value(view);
-                    }
-                    rewrite
-                })
-            });
-        if self
-            .fold
-            .projection
-            .with_untracked(|shown| **shown != projection)
-        {
-            self.fold.projection.set(Arc::new(projection));
-        }
-        rewritten
-    }
-
     /// Whether an edit of UTF-16 `start..end` touches a closed fold (see
     /// [`unfold_touched`](Self::unfold_touched)).
     pub(crate) fn touches_fold(&self, start: usize, end: usize) -> bool {
@@ -107,7 +72,7 @@ impl EditorState {
             let top = f64::from(area.scroll_top());
             let row = ((top - metrics.padding_top) / line_height).floor().max(0.0) as usize;
             // Whether the caret's row is in view, to keep it there.
-            let caret_row = self.fold.projection.with_untracked(|projection| {
+            let caret_row = self.view.projection.with_untracked(|projection| {
                 projection.row_of_line(self.caret_line_of(selection.1))
             }) as f64;
             let caret_top = metrics.padding_top + caret_row * line_height;
@@ -129,12 +94,12 @@ impl EditorState {
         else {
             return;
         };
-        let (anchor, caret) = self.fold.projection.with_untracked(|projection| {
+        let (anchor, caret) = self.view.projection.with_untracked(|projection| {
             let shown = |offset: usize| projection.hidden_at(offset).map_or(offset, |(at, _)| at);
             (shown(anchor), shown(caret))
         });
         let (view_anchor, view_caret) = self
-            .fold
+            .view
             .projection
             .with_untracked(|projection| (projection.to_view(anchor), projection.to_view(caret)));
         let element = area.element();
@@ -168,7 +133,7 @@ impl EditorState {
     /// Opens the folds hiding UTF-16 `start` or `end`, so a selection moved
     /// there shows.
     pub(crate) fn reveal_offsets(&self, start: usize, end: usize) {
-        let hidden = self.fold.projection.with_untracked(|projection| {
+        let hidden = self.view.projection.with_untracked(|projection| {
             projection.hidden_at(start).is_some() || projection.hidden_at(end).is_some()
         });
         if !hidden {

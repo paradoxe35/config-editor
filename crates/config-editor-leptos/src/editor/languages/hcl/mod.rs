@@ -17,6 +17,8 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+// The fold ranges (the `folding` feature).
+#[cfg(feature = "folding")]
 mod folding;
 
 use tokens::*;
@@ -263,6 +265,7 @@ impl ConfigLanguage for HclBehavior {
     }
 
 
+    #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
         folding::hcl_fold_ranges(source, &self.string_body_lines(source))
     }

@@ -319,7 +319,9 @@ impl EditorState {
         })
     }
 
-    /// Byte ranges of `text` (the text on screen) no replace may touch.
+    /// Byte ranges of `text` (the text on screen) no replace may touch
+    /// (find and replace's Replace All).
+    #[cfg(feature = "search")]
     pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
         let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
         self.protect.protected.with_untracked(|protected| {

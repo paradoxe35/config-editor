@@ -14,6 +14,8 @@ mod style;
 mod parse;
 mod suggestions;
 mod editing;
+// The fold ranges (the `folding` feature).
+#[cfg(feature = "folding")]
 mod folding;
 
 use style::*;
@@ -209,6 +211,7 @@ impl ConfigLanguage for TomlBehavior {
     }
 
 
+    #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
         folding::toml_fold_ranges(source, &self.config(), &self.string_body_lines(source))
     }

@@ -16,7 +16,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             style=move || {
                 format!(
                     "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
-                    state.fold.projection.with(|projection| projection.rows()),
+                    state.view.projection.with(|projection| projection.rows()),
                 )
             }
             aria-label=move || format!("{} source", state.label())
@@ -37,7 +37,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             aria-readonly=move || read_only.get().to_string()
             inputmode=move || read_only.get().then_some("none")
             prop:value=move || {
-                let projection = state.fold.projection.get();
+                let projection = state.view.projection.get();
                 state.doc.text.with(|doc| projection.view(doc).to_string())
             }
             on:beforeinput=move |event| input::before_input(state, &event)

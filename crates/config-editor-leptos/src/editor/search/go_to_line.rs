@@ -2,11 +2,11 @@
 
 use leptos::prelude::*;
 
-use super::state::{EditorState, line_count};
+use super::super::state::{EditorState, line_count};
 
 /// The go-to-line field's state.
 #[derive(Clone, Copy)]
-pub(super) struct GoToLine {
+pub(in crate::editor) struct GoToLine {
     pub(super) open: RwSignal<bool>,
     pub(super) text: RwSignal<String>,
     pub(super) widget_ref: NodeRef<leptos::html::Div>,
@@ -18,7 +18,7 @@ pub(super) struct GoToLine {
 static NEXT_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl GoToLine {
-    pub(super) fn new() -> Self {
+    pub(in crate::editor) fn new() -> Self {
         Self {
             open: RwSignal::new(false),
             text: RwSignal::new(String::new()),
@@ -54,7 +54,7 @@ pub(super) fn parse_position(input: &str) -> Option<(usize, Option<usize>)> {
 /// Opens the field and focuses it.
 pub(super) fn open(state: EditorState) {
     let go_to = state.go_to_line;
-    super::input::flush_input(state);
+    super::super::input::flush_input(state);
     go_to.text.set(String::new());
     go_to.open.set(true);
     // Shown now rather than when the view catches up, so the digits typed

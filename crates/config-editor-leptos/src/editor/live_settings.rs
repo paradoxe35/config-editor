@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 
 use super::state::EditorState;
-use super::{go_to_line, search};
+use super::{changes, folding, search};
 use crate::{EditorSettings, EditorTheme, ThemeColors};
 
 /// The settings as the editor's parts read them.
@@ -68,17 +68,14 @@ impl LiveSettings {
 /// problems, the diff, highlighting).
 pub(super) fn follow(state: EditorState) {
     let settings = state.config.settings;
-    on_switch_off(settings.folding, move || state.unfold_all());
-    on_switch_off(settings.search, move || search::dismiss(state));
-    on_switch_off(settings.go_to_line, move || {
-        go_to_line::cancel_on_blur(state)
-    });
-    on_switch_off(settings.diff, move || state.changes.peek.set(None));
+    folding::follow_settings(state);
+    search::follow_settings(state);
+    changes::follow_settings(state);
     on_switch_off(settings.hover_docs, move || state.hide_hover());
 }
 
 /// Runs `off` each time `setting` turns from on to off.
-fn on_switch_off(setting: Memo<bool>, off: impl Fn() + 'static) {
+pub(super) fn on_switch_off(setting: Memo<bool>, off: impl Fn() + 'static) {
     Effect::new(move |was_on: Option<bool>| {
         let on = setting.get();
         if was_on == Some(true) && !on {

@@ -6,10 +6,10 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
+use super::super::changes::hides_change;
 use super::super::completion::visual_column;
-use super::super::diff::DiffKind;
-use super::super::folding::texts;
 use super::super::state::EditorState;
+use super::texts;
 use crate::reactive::KeyedList;
 
 /// A line in view that starts a fold range.
@@ -35,7 +35,7 @@ pub(crate) type FoldItems = Memo<Vec<FoldItem>>;
 fn fold_items(state: EditorState) -> FoldItems {
     Memo::new(move |_| {
         let rows = state.view.visible_rows.get();
-        state.fold.visible_lines.with(|lines| {
+        state.view.visible_lines.with(|lines| {
             state.fold.fold_ranges.with(|ranges| {
                 state.fold.folded.with(|closed| {
                     lines
@@ -70,15 +70,7 @@ fn fold_items(state: EditorState) -> FoldItems {
 
 /// Whether the fold `line..=end` hides changes, and its line's width.
 fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) {
-    let changed = state.changes.diff.with(|diff| {
-        let hidden = line + 1..=end;
-        hidden.clone().any(|index| {
-            diff.current
-                .get(index)
-                .is_some_and(|change| *change != DiffKind::Unchanged)
-                || diff.deleted_before.get(index).copied().unwrap_or(false)
-        })
-    });
+    let changed = hides_change(state, line + 1..=end);
     let width = state.view.lines.with(|lines| {
         lines
             .get(line)
@@ -104,7 +96,7 @@ fn FoldGutter(state: EditorState, folds: FoldItems) -> impl IntoView {
 /// page, each as a view of its own: built from an effect, they add nothing
 /// to the depth of the editor's own build, which a host's debug build
 /// already runs close to the stack's limit.
-pub(crate) fn mount_fold_layers(state: EditorState) {
+pub(in crate::editor) fn mount_fold_layers(state: EditorState) {
     let folds = fold_items(state);
     let layers: StoredValue<Vec<Box<dyn std::any::Any>>, LocalStorage> =
         StoredValue::new_local(Vec::new());

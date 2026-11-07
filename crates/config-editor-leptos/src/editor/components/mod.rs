@@ -7,14 +7,9 @@ mod chrome;
 mod code;
 mod completions;
 mod diagnostics;
-mod diff_peek;
-mod find_widget;
-mod folds;
-mod go_to_line;
 mod gutter;
 mod hover_card;
 mod protect_tip;
-mod search_highlights;
 mod source;
 mod status_bar;
 mod toolbar;
@@ -25,20 +20,16 @@ pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 pub(super) use code::CodeLayer;
 pub(super) use completions::CompletionList;
 pub(super) use diagnostics::DiagnosticOverlay;
-pub(super) use diff_peek::DiffPeekPopup;
-pub(super) use find_widget::FindWidget;
-pub(super) use folds::mount_fold_layers;
-pub(super) use go_to_line::GoToLineWidget;
 pub(super) use gutter::Gutter;
 pub(super) use hover_card::{HoverCard, HoverCardView};
 pub(super) use protect_tip::ProtectTipView;
-pub(super) use search_highlights::SearchHighlights;
 pub(super) use source::SourceInput;
 pub(super) use status_bar::StatusBar;
 pub(super) use toolbar::Toolbar;
 
 use leptos::prelude::*;
 
+use super::changes::with_line_diff;
 use super::line_rows::{Highlighting, LineRows, RowFolds, RowInputs};
 use super::state::EditorState;
 
@@ -49,7 +40,7 @@ pub(super) fn row_states(state: EditorState) -> LineRows {
     let rows = LineRows::new();
     Effect::new(move |_| {
         state
-            .fold
+            .view
             .visible_lines
             .with(|visible| with_row_inputs(state, |inputs| rows.sync(inputs, visible)));
     });
@@ -65,10 +56,10 @@ pub(super) fn with_row_inputs<R>(state: EditorState, f: impl FnOnce(&RowInputs<'
         .highlighting
         .get()
         .then(|| state.sync.edit_language.get());
-    state.fold.folded.with(|closed| {
+    state.with_closed_folds(|closed| {
         state.view.string_bodies.with(|string_bodies| {
             state.view.lines.with(|rows| {
-                state.changes.diff.with(|line_diff| {
+                with_line_diff(state, |line_diff| {
                     f(&RowInputs {
                         rows,
                         line_diff,

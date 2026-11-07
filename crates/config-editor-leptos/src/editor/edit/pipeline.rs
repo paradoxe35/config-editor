@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 
-use super::super::folding::FoldRange;
+use super::super::fold_ranges::FoldRange;
 use super::super::history::{EditHistory, Selection, Snapshot};
 use super::super::positioning::set_caret_visible;
 use super::super::state::{EditorState, textarea_selection};

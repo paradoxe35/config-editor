@@ -21,7 +21,7 @@ pub(super) struct EditorMetrics {
 const CHAR_WIDTH_FACTOR: f64 = 0.6;
 
 impl EditorMetrics {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "diff"))]
     pub(super) fn fallback() -> Self {
         Self {
             char_width: FALLBACK_FONT_SIZE * CHAR_WIDTH_FACTOR,

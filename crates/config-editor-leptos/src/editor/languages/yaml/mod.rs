@@ -14,6 +14,8 @@ mod editing;
 mod style;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
+// The fold ranges (the `folding` feature).
+#[cfg(feature = "folding")]
 mod folding;
 
 use parse::*;
@@ -228,6 +230,7 @@ impl ConfigLanguage for YamlBehavior {
         slots
     }
 
+    #[cfg(feature = "folding")]
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
         folding::yaml_fold_ranges(source, &self.string_body_lines(source))
     }

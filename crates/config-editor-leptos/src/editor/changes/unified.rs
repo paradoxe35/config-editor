@@ -2,7 +2,8 @@
 
 use std::fmt::Write as _;
 
-use super::super::diff::{DiffEdit, middle_edits, normalize_newlines};
+use super::super::diff::DiffEdit;
+use super::line_diff::{middle_edits, normalize_newlines};
 
 /// The unified diff of `baseline` against `current`, as `diff -u` writes it,
 /// with `context` unchanged lines around each change: `--- baseline` and
