@@ -33,6 +33,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if state.step_over_token(event)
+        || super::a11y::open_docs_key(state, event)
         || navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
         || super::changes::go_to_change(state, event)
@@ -77,9 +78,13 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
 }
 
 /// Keys on the editor root, from the text or a widget: find and replace
-/// shortcuts; Escape closes every popup.
+/// shortcuts, saving, `F6` to the baseline notice and back; Escape closes
+/// every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
-    if super::search::shortcuts(state, event) || save_key(state, event) {
+    if super::search::shortcuts(state, event)
+        || save_key(state, event)
+        || state.notice_shortcut(event)
+    {
         return;
     }
     if event.key() == "Escape" {

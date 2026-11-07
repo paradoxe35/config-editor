@@ -225,3 +225,75 @@ fn the_count_reads_like_vs_code() {
         "1 of 10000+"
     );
 }
+
+/// The replacement rules of VS Code (JavaScript's `String.replace`, plus
+/// `$0` and `${…}`), every case listed at once.
+#[test]
+fn regex_replacements_follow_vs_code_rules() {
+    let regex = options(true, false, true);
+    // (pattern, text, replacement, expected)
+    let cases = [
+        (r"(\w+): (\d+)", "port: 80", "$1_host", "port_host"),
+        (r"(\w+): (\d+)", "port: 80", "$2$1", "80port"),
+        (r"(\w+): (\d+)", "port: 80", "$10", "port0"),
+        (r"(\w+): (\d+)", "port: 80", "$3", "$3"),
+        (r"(\w+): (\d+)", "port: 80", "$&!", "port: 80!"),
+        (r"(\w+): (\d+)", "port: 80", "[$0]", "[port: 80]"),
+        (r"(\w+): (\d+)", "port: 80", "$$1", "$1"),
+        (r"(\w+): (\d+)", "port: 80", "$", "$"),
+        (r"(\w+): (\d+)", "port: 80", "$x", "$x"),
+        (r"(\w+): (\d+)", "port: 80", "${2}_${1}", "80_port"),
+        (r"(\w+): (\d+)", "port: 80", "${9}", "${9}"),
+        (
+            r"(?P<key>\w+): (?P<value>\d+)",
+            "port: 80",
+            "$<value>=$<key>",
+            "80=port",
+        ),
+        (
+            r"(?P<key>\w+): (?P<value>\d+)",
+            "port: 80",
+            "${key}_x",
+            "port_x",
+        ),
+        (
+            r"(?P<key>\w+): (?P<value>\d+)",
+            "port: 80",
+            "$<nope>",
+            "$<nope>",
+        ),
+        (
+            r"(?P<key>\w+): (?P<value>\d+)",
+            "port: 80",
+            "$<key",
+            "$<key",
+        ),
+        (r"(a)|(p)ort: 80", "port: 80", "[$1|$2]", "[|p]"),
+        (
+            r"(?P<a>a)|(?P<b>p)ort: 80",
+            "port: 80",
+            "[$<a>|$<b>]",
+            "[|p]",
+        ),
+        (
+            r"(1)(2)(3)(4)(5)(6)(7)(8)(9)(0)(x)",
+            "1234567890x",
+            "$11-$10-$1",
+            "x-0-1",
+        ),
+        (r"(\w+): (\d+)", "port: 80", r"$1\n\t\\", "port\n\t\\"),
+        (r"(\w+): (\d+)", "port: 80", r"\q$1", r"\qport"),
+        (r"(\w+): (\d+)", "port: 80", "é$1€", "éport€"),
+    ];
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|(pattern, text, replacement, expected)| {
+            let matcher = Matcher::new(pattern, regex).unwrap().unwrap();
+            let (result, _, _) = replace_all(text, &matcher, replacement).unwrap();
+            (result != *expected).then(|| {
+                format!("{pattern} on {text:?} with {replacement:?}: {result:?}, want {expected:?}")
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

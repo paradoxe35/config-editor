@@ -202,7 +202,7 @@ and `editAsTypedCommentsNone`.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (146 texts)</summary>
+<summary>Every text and its default (149 texts)</summary>
 
 | Key | Default | |
 |---|---|---|
@@ -244,6 +244,7 @@ and `editAsTypedCommentsNone`.
 | `reloadTitle` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
 | `keepMine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
 | `keepMineTitle` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
+| `baselineChangedKeys` | `"F6 moves to the choices and back."` | How to reach the notice's choices from the keyboard, shown on it (and announced with it). |
 | `findWidget` | `"Find and replace"` | The find widget's accessible name. |
 | `toggleReplace` | `"Toggle replace"` | The button showing the replace row. |
 | `toggleReplaceTitle` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
@@ -304,7 +305,7 @@ and `editAsTypedCommentsNone`.
 | `defaultValue` | `"Default"` | The hover card's default row. |
 | `examples` | `"Examples"` | The hover card's examples row. |
 | `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
-| `openDocs` | `"Open docs ↗"` | The link under a host problem's message. |
+| `openDocs` | `"Open docs ↗ (Alt+Enter)"` | The link under a host problem's message. |
 | `error` | `"Error"` | An error, as a screen reader hears it. |
 | `warning` | `"Warning"` | A warning, as a screen reader hears it. |
 | `info` | `"Info"` | An info, as a screen reader hears it. |
@@ -312,6 +313,8 @@ and `editAsTypedCommentsNone`.
 | `problemSource` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
 | `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
 | `problemPosition` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
+| `problemCode` | `" Code {code}."` | After a problem's text for screen readers: its `{code}` (from the host). |
+| `problemDocs` | `" Documentation: {url} (Alt+Enter opens it)."` | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it. |
 | `problemMarker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
 | `protectedNote` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
 | `sourceLabel` | `"{language} source"` | The text area. |
@@ -406,7 +409,8 @@ editor.setHostDiagnostics([
   colors `error`, `warning`, `info` and `hint` in `colors`.
 - `F8` stops at them, the footer counts them, and the hover message adds
   `source` (default `"host"`), `code` and "Open docs ↗": a click on the
-  message opens `docsUrl`.
+  message opens `docsUrl`, as `Alt+Enter` does with the caret on the
+  problem; screen readers hear the code and the link with the problem.
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one; only the
   markers update. An invalid entry throws, naming its index.
@@ -713,6 +717,8 @@ update them with the setters when they change.
 - `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
+- `Alt+Enter` on a problem with a docs link: open its documentation
+- `F6` while the baseline notice is open: to its Keep mine button and back to the text
 
 **Changes against the baseline**
 - `Alt+F5` / `Shift+Alt+F5`: next / previous change
@@ -798,8 +804,8 @@ events.on("config-changed", (text) => editor.setBaseline(text));
 ```
 
 A new baseline while the user has unsaved edits opens a notice in the editor,
-"The file changed on the server.", focused on **Keep mine** when the user is
-in the editor: **Reload** makes the new baseline the document (one undo step,
+"The file changed on the server." (announced, `role="alert"`; it leaves the
+focus in the text, and `F6` moves it to **Keep mine** and back): **Reload** makes the new baseline the document (one undo step,
 reported through `onChange`), **Keep mine** (or `Escape`) keeps the document
 and diffs it against the new baseline. Without unsaved edits, or when the new
 baseline is the document or a text the editor sent (`onChange`, `onSave`: a

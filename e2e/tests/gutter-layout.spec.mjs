@@ -57,9 +57,42 @@ test.describe('the gutter on a document with four-digit line numbers', () => {
       return { left: box.left + parseFloat(style.left), width: parseFloat(style.width) };
     });
     expect(dot.left - (await gutterLeft(page))).toBeGreaterThanOrEqual(3);
-    expect(await digitsLeft(page, line)).toBeGreaterThanOrEqual(dot.left + dot.width + 1);
+    expect(await digitsLeft(page, line)).toBeGreaterThanOrEqual(dot.left + dot.width + 3);
   });
 });
+
+/** The problem dot of the error row, in page coordinates. */
+const errorDot = (page) =>
+  page.locator('.config-editor__line-number-error').evaluate((row) => {
+    const style = getComputedStyle(row, '::before');
+    const box = row.getBoundingClientRect();
+    return { left: box.left + parseFloat(style.left), width: parseFloat(style.width) };
+  });
+
+// A number that fills the digit column (five digits in a 10,000-line
+// document) still has the dot a clear gap away, at every width.
+for (const width of [1100, 390]) {
+  test.describe(`the gutter on a document with five-digit line numbers, ${width}px wide`, () => {
+    test.use({ viewport: { width, height: 700 } });
+
+    test('the problem dot keeps its own column beside the number', async ({ page, baseURL }) => {
+      const text = `${Array.from({ length: 10005 }, (_, i) => `# note ${i}`).join('\n')}\nnonsense_key: 1\n`;
+      await page.addInitScript((sample) => {
+        window.configEditorSample = sample;
+      }, text);
+      await page.goto(`${baseURL}?sample=page`);
+      await page.locator('.config-editor__input').waitFor();
+      await page.locator('.config-editor__input').click();
+      await page.keyboard.press('Control+End');
+      await expect(page.locator('.config-editor__line-number-error')).toHaveCount(1, { timeout: 10000 });
+      const line = await page.locator('.config-editor__line-number-error').getAttribute('data-line');
+      expect(Number(line)).toBe(10006);
+      const dot = await errorDot(page);
+      expect(dot.left - (await gutterLeft(page))).toBeGreaterThanOrEqual(3);
+      expect(await digitsLeft(page, line)).toBeGreaterThanOrEqual(dot.left + dot.width + 3);
+    });
+  });
+}
 
 test.describe('the gutter markers at phone width', () => {
   test.use({ viewport: { width: 390, height: 700 } });

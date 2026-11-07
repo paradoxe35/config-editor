@@ -103,8 +103,8 @@ impl Matcher {
     }
 
     /// What replaces the match at `range`: `replacement` as written, or for
-    /// a regular expression with `$1`, `${name}` and `$$` expanded and
-    /// `\n`, `\t` and `\\` unescaped.
+    /// a regular expression with its groups and escapes filled in as VS Code
+    /// does (see `template`).
     pub(in crate::editor) fn replacement_for(
         &self,
         text: &str,
@@ -114,15 +114,12 @@ impl Matcher {
         let Kind::Pattern(regex) = &self.kind else {
             return replacement.to_string();
         };
-        let template = unescape(replacement);
-        let mut expanded = String::new();
         match regex.captures_at(text, range.start) {
             Some(captures) if captures.get(0).map(|whole| whole.range()) == Some(range.clone()) => {
-                captures.expand(&template, &mut expanded);
+                super::template::expand(replacement, regex, &captures)
             }
-            _ => expanded = template,
+            _ => replacement.to_string(),
         }
-        expanded
     }
 }
 
@@ -202,29 +199,6 @@ fn is_whole_word(text: &str, range: &Range<usize>) -> bool {
         text[..range.start].chars().next_back(),
         found.chars().next(),
     ) && !joins(text[range.end..].chars().next(), found.chars().next_back())
-}
-
-/// `\n`, `\t` and `\\` in a regular expression's replacement.
-fn unescape(replacement: &str) -> String {
-    let mut unescaped = String::with_capacity(replacement.len());
-    let mut characters = replacement.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            unescaped.push(character);
-            continue;
-        }
-        match characters.next() {
-            Some('n') => unescaped.push('\n'),
-            Some('t') => unescaped.push('\t'),
-            Some('\\') => unescaped.push('\\'),
-            Some(other) => {
-                unescaped.push('\\');
-                unescaped.push(other);
-            }
-            None => unescaped.push('\\'),
-        }
-    }
-    unescaped
 }
 
 /// Regex errors span several lines (the pattern, a caret, the message);

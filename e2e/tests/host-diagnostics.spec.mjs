@@ -66,7 +66,7 @@ test.describe('vanilla.html', () => {
     await setHost(browserPage, PROBLEMS);
     await expect(markers(browserPage)).toHaveCount(3);
     expect(await shown(browserPage)).toEqual([
-      { text: '7835', classes: ['docs', 'host', 'warning'], message: 'port in use', detail: 'burrow · E_PORT · Open docs ↗' },
+      { text: '7835', classes: ['docs', 'host', 'warning'], message: 'port in use', detail: 'burrow · E_PORT · Open docs ↗ (Alt+Enter)' },
       { text: 'tunnel.example.com', classes: ['host', 'info'], message: 'resolves to 10.0.0.1', detail: 'host' },
       { text: 'insecure_plaintext', classes: ['hint', 'host'], message: 'consider TLS', detail: 'host' },
     ]);
@@ -74,7 +74,7 @@ test.describe('vanilla.html', () => {
     // The message shows who reported it, under the message.
     const tip = await markers(browserPage).first().evaluate((element) => getComputedStyle(element, '::after').content);
     expect(tip).toContain('port in use');
-    expect(tip).toContain('burrow · E_PORT · Open docs ↗');
+    expect(tip).toContain('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
     // F8 walks them in order.
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
@@ -158,6 +158,31 @@ test.describe('vanilla.html', () => {
     await browserPage.mouse.move(box.x + 4, box.y + box.height + 10);
     await browserPage.mouse.click(box.x + 4, box.y + box.height + 10);
     await popup;
+  });
+
+  test('the keyboard reaches a problem’s code and docs: the caret’s note and F8 say them, Alt+Enter opens the docs', async ({
+    page: browserPage,
+  }) => {
+    await open(browserPage, 'vanilla.html');
+    await setHost(browserPage, PROBLEMS);
+    await expect(markers(browserPage)).toHaveCount(3);
+    // The caret on `7835` (line 2), from the keyboard.
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+Home');
+    await browserPage.keyboard.press('ArrowDown');
+    await browserPage.keyboard.press('End');
+    const note = browserPage.locator(`#${await input(browserPage).getAttribute('aria-describedby')}`);
+    await expect(note).toContainText('port in use');
+    await expect(note).toContainText('E_PORT');
+    await expect(note).toContainText('about:blank#ports');
+    await browserPage.keyboard.press('Control+Home');
+    await browserPage.keyboard.press('F8');
+    await expect(browserPage.locator('.config-editor__announcement')).toContainText('E_PORT');
+    const popup = browserPage.waitForEvent('popup');
+    await browserPage.keyboard.press('Alt+Enter');
+    expect((await popup).url()).toContain('about:blank');
+    // Nothing was typed.
+    expect(await input(browserPage).inputValue()).toContain('listen: 7835\n');
   });
 
   test('bad host diagnostics throw, saying which and why', async ({ page: browserPage }) => {

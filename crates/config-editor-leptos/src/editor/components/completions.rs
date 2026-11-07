@@ -16,6 +16,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             class="config-editor__completions"
             class:hidden=move || state.completion.suggestions.get().is_empty()
             role="listbox"
+            id=state.a11y.suggestions_id()
             aria-label=state.language_text(|strings| &strings.suggestions_label)
             node_ref=state.view.completion_ref
             style=move || {
@@ -87,7 +88,8 @@ fn Suggestion(
         <button
             type="button"
             role="option"
-            aria-selected=selected
+            id=state.a11y.suggestion_id(index)
+            aria-selected=move || selected().to_string()
             class="config-editor__completion"
             class:config-editor__completion-active=selected
             class:config-editor__completion--deprecated=deprecated

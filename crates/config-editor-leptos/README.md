@@ -44,6 +44,7 @@ method and headless function here has a JS option, method or function there
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
   - [Folding](#folding)
+  - [Large documents](#large-documents)
 - [Headless API](#headless-api)
 - [XML mapping](#xml-mapping)
 - [Your own language](#your-own-language)
@@ -237,7 +238,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (146 texts)</summary>
+<summary>Every text and its default (149 texts)</summary>
 
 | Field | Default | |
 |---|---|---|
@@ -279,6 +280,7 @@ they come.
 | `reload_title` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
 | `keep_mine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
 | `keep_mine_title` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
+| `baseline_changed_keys` | `"F6 moves to the choices and back."` | How to reach the notice's choices from the keyboard, shown on it (and announced with it). |
 | `find_widget` | `"Find and replace"` | The find widget's accessible name. |
 | `toggle_replace` | `"Toggle replace"` | The button showing the replace row. |
 | `toggle_replace_title` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
@@ -339,7 +341,7 @@ they come.
 | `default_value` | `"Default"` | The hover card's default row. |
 | `examples` | `"Examples"` | The hover card's examples row. |
 | `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
-| `open_docs` | `"Open docs ↗"` | The link under a host problem's message. |
+| `open_docs` | `"Open docs ↗ (Alt+Enter)"` | The link under a host problem's message. |
 | `error` | `"Error"` | An error, as a screen reader hears it. |
 | `warning` | `"Warning"` | A warning, as a screen reader hears it. |
 | `info` | `"Info"` | An info, as a screen reader hears it. |
@@ -347,6 +349,8 @@ they come.
 | `problem_source` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
 | `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
 | `problem_position` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
+| `problem_code` | `" Code {code}."` | After a problem's text for screen readers: its `{code}` (from the host). |
+| `problem_docs` | `" Documentation: {url} (Alt+Enter opens it)."` | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it. |
 | `problem_marker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
 | `protected_note` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
 | `source_label` | `"{language} source"` | The text area. |
@@ -471,8 +475,11 @@ the text, "The file changed on the server.", instead of mixing the two:
   also while editing as another language).
 - **Keep mine** keeps the text and diffs it against the new baseline.
   `Escape` in the notice chooses it, as the choice that loses nothing.
-- The notice is `role="alert"`. It takes the focus (on Keep mine) only when
-  the focus was in the editor, and gives it back to the text when closed.
+- The notice is `role="alert"`, so screen readers announce it, and it never
+  takes the focus: it opens while the user may be typing, and a key in
+  flight would land on its buttons. `F6` moves the focus to Keep mine and
+  back to the text (the notice says so); closing it returns the focus to
+  the text.
 - It closes by itself (`BaselineConflict::Settled`) when the text comes to
   equal the new baseline, or the host sets the old one back.
 
@@ -661,7 +668,9 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   value, or the key of a block), next to the editor's own problems: `F8` /
   `Shift+F8` stop at them, the footer counts them, and the hover message
   adds who reported them, the code, and "Open docs ↗" (a click on the
-  message opens `docs_url`). What cannot be placed (a missing field, a range
+  message opens `docs_url`, as `Alt+Enter` does with the caret on the
+  problem; screen readers hear the code and the link with the problem, in
+  the caret's description and on `F8`). What cannot be placed (a missing field, a range
   while editing as another language, the whole document) shows in the footer.
 - Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
   (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
@@ -841,11 +850,13 @@ schema whose regex it cannot compile.
 | `Ctrl+/`                                     | Toggle comments                                                                  |
 | `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
 | `F8` / `Shift+F8`                            | Next / previous problem                                                          |
+| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                              |
 | `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                      |
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
 | `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
 | `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                          |
+| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                     |
 | `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                       |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold    |
 | `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                              |
@@ -898,8 +909,10 @@ view! { <ConfigEditor initial_value=text /> }
 (never in a read-only editor). Options match case, whole words, or a regular
 expression (the `regex` engine with `schema-validation`, else `regex-lite`,
 whose case folding is ASCII-only); an invalid pattern is shown, not thrown.
-In a regular expression's replacement, `$1` and `${name}` insert groups, and
-`\n` and `\t` a line break and a tab. Replacing goes through the normal edit
+A regular expression's replacement reads as in VS Code: `$1`–`$99` insert
+groups (`$1_host` is group 1, then `_host`), `$<name>` or `${name}` a named
+group, `$&` or `$0` the whole match, `$$` a `$`, and `\n` and `\t` a line
+break and a tab. Replacing goes through the normal edit
 path: undo, `on_change` and Edit-as all see it, and replace all is one undo
 step. Up to 10,000 matches are counted and stepped through, and only those
 in view are drawn, so large documents stay fast.
@@ -944,6 +957,17 @@ view! {
     <ConfigEditor handle=editor value=text />
 }
 ```
+
+### Large documents
+
+Only the rows in view are rendered, and typing, scrolling, find, folding
+and selecting stay within their budgets on 6,000–8,000-line documents
+(`e2e/tests/large-files.spec.mjs`). One thing on the host's page can slow
+selecting down: in Chrome, while the page holds a closed `<details>` or an
+element with `hidden="until-found"` anywhere, selecting many lines of a
+textarea takes time quadratic in the lines selected (`Ctrl+A` over 8,000
+lines takes seconds). A disclosure button (`aria-expanded` and `hidden`)
+in their place keeps it instant; the demo pages use one.
 
 ## Headless API
 

@@ -153,7 +153,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     await expect(page.locator('.config-editor__diff-marker-modified')).toHaveCount(1);
   });
 
-  test('asks, with the focus on Keep mine; Escape keeps the text and diffs it against the new baseline', async ({ page }) => {
+  test('asks without taking the focus; F6 reaches Keep mine, Escape keeps the text and diffs it against the new baseline', async ({ page }) => {
     const e = editor(page);
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
@@ -161,6 +161,15 @@ test.describe('the baseline changing under unsaved edits', () => {
     await expect(notice(page)).toBeVisible();
     await expect(notice(page)).toHaveAttribute('role', 'alert');
     await expect(notice(page)).toContainText('The file changed on the server.');
+    await expect(notice(page)).toContainText('F6');
+    // The focus stays in the text; F6 goes to the notice and back.
+    expect(await focusedClass(page)).toContain('config-editor__input');
+    await page.keyboard.press('F6');
+    await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-keep');
+    await page.keyboard.press('F6');
+    await expect.poll(() => focusedClass(page)).toContain('config-editor__input');
+    await expect(notice(page)).toBeVisible();
+    await page.keyboard.press('F6');
     await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-keep');
     await page.keyboard.press('Escape');
     await expect(notice(page)).toBeHidden();
@@ -180,8 +189,10 @@ test.describe('the baseline changing under unsaved edits', () => {
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
     await pushFromServer(page);
+    await expect(notice(page)).toBeVisible();
+    // From the keyboard: F6 to the notice, Shift+Tab to Reload, Enter.
+    await page.keyboard.press('F6');
     await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-keep');
-    // From the keyboard: Shift+Tab to Reload, Enter.
     await page.keyboard.press('Shift+Tab');
     await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-reload');
     await page.keyboard.press('Enter');
@@ -225,26 +236,25 @@ test.describe('the baseline changing under unsaved edits', () => {
     await expect(status(page)).toHaveAttribute('data-dirty', 'false');
   });
 
-  test('a click back into the text right after the notice opens keeps the focus there', async ({ page }) => {
+  test('typing continues in the text while the notice opens', async ({ page }) => {
+    const e = editor(page);
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
-    // A loaded machine draws its frames late: the push, then the user's
-    // click back into the text before the next frame. The notice's own focus
-    // move must not land after that click and take the text's focus away.
-    await page.evaluate(
-      () =>
-        new Promise((done) => {
-          window.requestAnimationFrame = (callback) => setTimeout(() => callback(performance.now()), 50);
-          document.querySelector('.demo__server-change').click();
-          setTimeout(() => {
-            document.querySelector('.config-editor__input').focus();
-            done();
-          }, 0);
-        }),
-    );
+    // A loaded machine draws its frames late: the push lands while the user
+    // goes on typing, Space and Enter included. Every key stays in the text
+    // and none of them presses a button of the notice.
+    await page.evaluate(() => {
+      window.requestAnimationFrame = (callback) => setTimeout(() => callback(performance.now()), 50);
+      document.querySelector('.demo__server-change').click();
+    });
+    await page.keyboard.type(' x');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('y ');
     await expect(notice(page)).toBeVisible();
     await page.waitForTimeout(150);
     expect(await focusedClass(page)).toContain('config-editor__input');
+    expect(await e.value()).toContain('tunnel.example.com.org x\ny ');
+    await expect(status(page)).toHaveAttribute('data-conflicts', 'Opened');
   });
 
   test('the notice does not take the focus from outside the editor', async ({ page }) => {
@@ -391,6 +401,7 @@ for (const name of ['vanilla.html', 'react.html', 'react.html?late', 'react.html
       expect(await page.evaluate(`${handle}.isDirty`)).toBe(true);
       await page.locator('#server-change').evaluate((button) => button.click());
       await expect(page.locator('.config-editor__notice')).toBeVisible();
+      await page.keyboard.press('F6');
       await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-keep');
       await page.keyboard.press('Escape');
       await expect(page.locator('.config-editor__notice')).toBeHidden();

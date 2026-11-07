@@ -29,6 +29,9 @@ const BUDGET = {
   wheelStepMs: 250,
   findMs: 1000,
   foldAllMs: 1000,
+  selectAllMs: 1000,
+  shiftArrowMs: 250,
+  typeOverAllMs: 1000,
   editAsMs: 3000,
 };
 
@@ -242,6 +245,32 @@ test.describe('large files', () => {
       const folds = await worstEvent(page);
       record(language, 'foldAll', folds);
       expect.soft(folds, `${language} foldAllMs`).toBeLessThan(BUDGET.foldAllMs);
+
+      // Selecting: all of it, then line by line from the end of that (every
+      // step selects nearly everything), then typing over everything and
+      // undoing it.
+      await e.input.focus();
+      await page.keyboard.press('Control+Home');
+      await startProbe(page);
+      await page.keyboard.press('Control+a');
+      const selectAll = await worstEvent(page);
+      record(language, 'selectAll', selectAll);
+      expect.soft(selectAll, `${language} selectAllMs`).toBeLessThan(BUDGET.selectAllMs);
+      await startProbe(page);
+      for (let line = 0; line < 10; line += 1) await page.keyboard.press('Shift+ArrowUp');
+      const shiftArrow = (await interactionStats(page, 10)).worst;
+      record(language, 'shiftArrow', shiftArrow);
+      expect.soft(shiftArrow, `${language} shiftArrowMs`).toBeLessThan(BUDGET.shiftArrowMs);
+      const whole = await e.value();
+      await page.keyboard.press('Control+a');
+      await startProbe(page);
+      await page.keyboard.type('x');
+      await expect.poll(() => e.value()).toBe('x');
+      await page.keyboard.press('Control+z');
+      await expect.poll(() => e.value()).toBe(whole);
+      const typeOverAll = await worstEvent(page);
+      record(language, 'typeOverAll', typeOverAll);
+      expect.soft(typeOverAll, `${language} typeOverAllMs`).toBeLessThan(BUDGET.typeOverAllMs);
 
       // Edit as another language and back.
       const other = language === 'json' ? 'yaml' : 'json';
