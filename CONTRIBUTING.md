@@ -6,6 +6,9 @@ when it is broken.
 
 ## Checks
 
+`make help` lists every command below as a target (`make check`, `make e2e`,
+`make fmt`, `make docs-generate`, …).
+
 `scripts/ci.sh` runs every check CI runs (CI calls its steps one by one):
 formatting, clippy in every configuration, the tests, each language feature
 on its own, every language without schema validation, each optional feature

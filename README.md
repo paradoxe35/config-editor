@@ -156,7 +156,7 @@ The crate has no JavaScript in it, so a Rust project can vendor
 
 ## Development
 
-How the editor is built, its design rules and the checks to run before a commit: [CONTRIBUTING.md](CONTRIBUTING.md).
+How the editor is built, its design rules and the checks to run before a commit: [CONTRIBUTING.md](CONTRIBUTING.md). `make help` lists the everyday commands (`make dev`, `make check`, `make e2e`, `make fmt`, …).
 
 Requirements: Rust 1.88+ with the `wasm32-unknown-unknown` target,
 [trunk](https://trunkrs.dev), `wasm-bindgen-cli` matching the version in
