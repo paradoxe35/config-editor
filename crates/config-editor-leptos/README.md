@@ -84,6 +84,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
 | `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
+| `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -121,6 +122,7 @@ and `colors` so they match the editor.
 | `Ctrl+/`                                     | Toggle comments                                                                  |
 | `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
 | `F8` / `Shift+F8`                            | Next / previous problem                                                          |
+| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
 | `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |

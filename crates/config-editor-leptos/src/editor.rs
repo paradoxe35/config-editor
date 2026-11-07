@@ -17,6 +17,7 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod go_to_line;
 mod highlight;
 mod history;
 mod inline;
@@ -43,8 +44,8 @@ pub use languages::{Language, UnknownLanguage};
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
-    CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget, Gutter, HoverCardView,
-    SearchHighlights, SourceInput, StatusBar, Toolbar,
+    CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget, GoToLineWidget,
+    Gutter, HoverCardView, SearchHighlights, SourceInput, StatusBar, Toolbar,
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
@@ -146,6 +147,9 @@ pub fn ConfigEditor(
     /// are left to the browser.
     #[prop(default = true)]
     enable_search: bool,
+    /// Go to line (`Ctrl+G`). When `false`, the key is left to the browser.
+    #[prop(default = true)]
+    enable_go_to_line: bool,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
@@ -171,6 +175,7 @@ pub fn ConfigEditor(
         diagnostics: show_diagnostics,
         diff: show_diff,
         search: enable_search,
+        go_to_line: enable_go_to_line,
     };
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
@@ -225,6 +230,7 @@ pub fn ConfigEditor(
                         <HoverCardView state=state />
                         <CompletionList state=state />
                         {enable_search.then(|| view! { <FindWidget state=state /> })}
+                        {enable_go_to_line.then(|| view! { <GoToLineWidget state=state /> })}
                     </div>
                 </div>
                 {show_footer.then(|| view! { <StatusBar state=state /> })}

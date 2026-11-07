@@ -15,6 +15,7 @@ use super::completion::{
 use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
+use super::go_to_line::GoToLine;
 use super::history::{EditHistory, Selection, Snapshot};
 use super::language::ConfigLanguage;
 use super::languages::Language;
@@ -41,6 +42,7 @@ pub(super) struct Features {
     pub(super) diagnostics: bool,
     pub(super) diff: bool,
     pub(super) search: bool,
+    pub(super) go_to_line: bool,
 }
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
@@ -217,6 +219,8 @@ pub(super) struct EditorState {
 
     /// Find and replace (see `search`).
     pub(super) search: SearchState,
+    /// The go-to-line field (see `go_to_line`).
+    pub(super) go_to_line: GoToLine,
 }
 
 impl EditorState {
@@ -404,6 +408,7 @@ impl EditorState {
         });
         let state = Self {
             search: SearchState::new(source),
+            go_to_line: GoToLine::new(),
             string_bodies,
             host_language,
             edit_language,

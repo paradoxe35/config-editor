@@ -524,6 +524,35 @@
   content: "";
 }
 
+/* Go to line: a field over the top right of the text, like the find widget. */
+.config-editor__goto {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  right: 14px;
+  width: min(300px, calc(100% - 22px));
+  display: grid;
+  gap: 3px;
+  padding: 5px 6px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-muted);
+  box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__goto[hidden] { display: none; }
+
+.config-editor__goto-input {
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+
 /* Find matches sit under the textarea and the highlighted text, like the
    selection, so the text keeps its colors. */
 .config-editor__search-highlights {
