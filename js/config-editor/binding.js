@@ -1,5 +1,6 @@
-// What a framework component does with an editor, written once: the React,
-// Vue and Svelte packages are thin wrappers around these bindings.
+// `@pngwasi/config-editor/binding`: what a framework component does with an
+// editor, written once. The React, Vue and Svelte packages are thin wrappers
+// around these bindings; a package for another framework builds on them too.
 //
 // A binding is fed the component's props (`attach` once its element exists,
 // `update` after every change, `detach` on unmount) and decides what each
@@ -10,41 +11,12 @@
 // that failed on a bad prop is retried when a prop changes, and the
 // WebAssembly loads once for every editor on the page.
 
-import init, { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
+import { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
+import { loadConfigEditor, whenLoaded } from "./load.js";
 import { SETTING_TYPES } from "./setting-types.js";
-export { SETTING_TYPES };
 import { ValueSync } from "./sync.js";
 
-let loading;
-// Bindings whose own load failed, retried when a later load succeeds.
-const onLoaded = new Set();
-
-function loaded(value) {
-  for (const retry of [...onLoaded]) retry();
-  return value;
-}
-
-function forget(error) {
-  loading = undefined;
-  throw error;
-}
-
-/**
- * Loads the WebAssembly module once (`init`, shared by every binding).
- * @param {Parameters<typeof init>[0]} [input]
- */
-export function loadConfigEditor(input) {
-  // A URL given while a load runs: tried when that one fails (a wrong URL,
-  // or the default one, followed by the right one). A failed load is not
-  // kept: calling again (with the right URL) retries.
-  if (loading && input !== undefined) {
-    const previous = loading;
-    loading = previous.catch(() => init(input)).then(loaded, forget);
-    return loading;
-  }
-  loading ??= init(input).then(loaded, forget);
-  return loading;
-}
+export { SETTING_TYPES, ValueSync };
 
 /** The settings among `props`: the keys of `EditorSettings` it sets, as plain data. */
 function settingsOf(props) {
@@ -53,6 +25,29 @@ function settingsOf(props) {
     if (props[key] !== undefined) settings[key] = props[key];
   }
   return JSON.stringify(settings);
+}
+
+/**
+ * What `update` takes to go from the settings `before` to `after` (both
+ * from `settingsOf`): the keys that changed, `null` for one no longer set,
+ * and `strings` text by text (`update` merges them).
+ */
+function settingsChange(before, after) {
+  const change = {};
+  const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  for (const key of Object.keys(SETTING_TYPES)) {
+    if (same(before[key], after[key])) continue;
+    if (key === "strings" && after.strings) {
+      const texts = {};
+      for (const text of new Set([...Object.keys(before.strings ?? {}), ...Object.keys(after.strings)])) {
+        texts[text] = after.strings[text] ?? null;
+      }
+      change.strings = texts;
+    } else {
+      change[key] = after[key] ?? null;
+    }
+  }
+  return change;
 }
 
 /** What the editor and documents bindings share: mounting, retries, errors. */
@@ -90,9 +85,10 @@ class Binding {
     if (this.mountKey() !== this.#mountKey) return this.#mount();
     const settings = settingsOf(props);
     if (this.#settings !== null && settings !== this.#settings) {
+      const before = JSON.parse(this.#settings);
       this.#settings = settings;
       if (this.failed) return this.#mount();
-      this.guard((instance) => instance.setSettings(JSON.parse(settings)));
+      this.guard((instance) => instance.update(settingsChange(before, JSON.parse(settings))));
     }
     const retryKey = this.retryKey();
     if (retryKey !== this.#retryKey) {
@@ -140,7 +136,7 @@ class Binding {
   }
 
   #cancelRetry() {
-    if (this.#onLoad) onLoaded.delete(this.#onLoad);
+    this.#onLoad?.();
     this.#onLoad = null;
   }
 
@@ -170,11 +166,10 @@ class Binding {
         if (generation !== this.#generation) return;
         // When this load fails, the app's own `loadConfigEditor(url)`
         // succeeding later mounts the editor.
-        this.#onLoad = () => {
+        this.#onLoad = whenLoaded(() => {
           this.#cancelRetry();
           if (generation === this.#generation && this.element) this.#mount();
-        };
-        onLoaded.add(this.#onLoad);
+        });
         this.report(error);
       },
     );
@@ -193,7 +188,7 @@ export class EditorBinding extends Binding {
   // Where the caret was when a re-mount took the editor away while it had
   // focus: the new one takes focus and the caret back, so typing goes on.
   #carriedFocus = null;
-  // A `setValue` made while there is no editor (before the first mount, or
+  // A `setValue` (the handle's) made while there is no editor (before the first mount, or
   // while a re-mount has failed): applied and reported on mount.
   #reset = null;
   // Each live prop as last applied.
@@ -322,41 +317,29 @@ export class EditorBinding extends Binding {
         // now (reading `value` does), so its echo is told apart like any.
         const current = editor.value;
         const { apply, report } = this.#sync.received(value, current);
-        if (apply !== null) editor.setValue(apply);
+        if (apply !== null) editor.update({ value: apply });
         if (report !== null) this.props.onChange?.(report);
       });
     }
+    // The live props that changed, each in its own `update`: a bad one
+    // (reported) does not hold the others back.
+    const update = {};
     if (changed("baseline", props.baseline) && props.baseline !== undefined) {
       if (this.#carried) this.#carried.baseline = props.baseline;
-      this.guard((editor) => editor.setBaseline(props.baseline));
+      update.baseline = props.baseline;
     }
-    if (changed("editAs", props.editAs ?? null)) {
-      this.guard((editor) => editor.setEditAs(props.editAs ?? undefined));
-    }
-    if (changed("readOnly", props.readOnly ?? false)) {
-      this.guard((editor) => editor.setReadOnly(props.readOnly ?? false));
-    }
-    const hostDiagnostics = JSON.stringify(props.hostDiagnostics ?? []);
-    if (changed("hostDiagnostics", hostDiagnostics)) {
-      this.guard((editor) => editor.setHostDiagnostics(JSON.parse(hostDiagnostics)));
-    }
-    const readOnlyPaths = JSON.stringify(props.readOnlyPaths ?? []);
-    if (changed("readOnlyPaths", readOnlyPaths)) {
-      this.guard((editor) => editor.setReadOnlyPaths(JSON.parse(readOnlyPaths)));
-    }
-    const readOnlyRanges = JSON.stringify(props.readOnlyRanges ?? []);
-    if (changed("readOnlyRanges", readOnlyRanges)) {
-      this.guard((editor) => editor.setReadOnlyRanges(JSON.parse(readOnlyRanges)));
+    if (changed("editAs", props.editAs ?? null)) update.editAs = props.editAs ?? null;
+    if (changed("readOnly", props.readOnly ?? false)) update.readOnly = props.readOnly ?? false;
+    for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
+      const list = JSON.stringify(props[name] ?? []);
+      if (changed(name, list)) update[name] = JSON.parse(list);
     }
     const followsPath = props.onPathChange !== undefined;
-    if (changed("followsPath", followsPath)) {
-      this.guard((editor) => editor.setCallbacks({ onPathChange: followsPath ? this.#followPath : null }));
-    }
+    if (changed("followsPath", followsPath)) update.onPathChange = followsPath ? this.#followPath : null;
     // `Ctrl+S` is the editor's only while `onSave` is set.
     const saves = props.onSave !== undefined;
-    if (changed("saves", saves)) {
-      this.guard((editor) => editor.setCallbacks({ onSave: saves ? this.#save : null }));
-    }
+    if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
+    for (const [key, value] of Object.entries(update)) this.guard((editor) => editor.update({ [key]: value }));
   }
 
   /** The document while there is no editor: a pending reset, the carried one, the props'. */
@@ -380,7 +363,7 @@ export class EditorBinding extends Binding {
     }
     this.guard((editor) => {
       if (editor.value === value) return;
-      editor.setValue(value);
+      editor.update({ value });
       // The host's state follows the reset: it is reported like an edit,
       // and its echo is recognised like one.
       this.#sync.sent(value);
@@ -535,14 +518,18 @@ export class DocumentsBinding extends Binding {
       this.#applied[name] = key;
       return true;
     };
+    const update = {};
     const documents = props.documents ?? [];
-    if (changed("documents", JSON.stringify(documents))) {
-      this.guard((view) => view.setDocuments(this.#reconcile(documents)));
-    }
+    if (changed("documents", JSON.stringify(documents))) update.documents = documents;
     // `Ctrl+S` is the view's only while `onSave` is set.
     const saves = props.onSave !== undefined;
-    if (changed("saves", saves)) {
-      this.guard((view) => view.setCallbacks({ onSave: saves ? this.#save : null }));
+    if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
+    if (update.documents) this.guard((view) => view.update({ documents: this.#reconcile(update.documents) }));
+    if ("onSave" in update) this.guard((view) => view.update({ onSave: update.onSave }));
+    // A new `activeId` shows that document (the mount took the first one).
+    const activeId = props.activeId ?? null;
+    if (changed("activeId", activeId) && !force && activeId !== null) {
+      this.guard((view) => view.update({ activeId }));
     }
   }
 

@@ -5,27 +5,14 @@ use config_editor_leptos::{EditorTheme, Language, PRESET_CSS, ThemeColor};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::languages::{REGISTERED, language_named};
-use crate::typings::{LanguageInfoResult, NameResult, Names, ThemeInfoResult};
+use crate::languages::REGISTERED;
+use crate::typings::{LanguageInfos, NameResult, Names, ThemeInfos};
 use crate::values::{text_arg, to_js};
 
 /// A language's name in JavaScript: its label, lowercased (`"yaml"`, or a
 /// registered `"env"`), as `languages()` lists it and callbacks report it.
 pub(crate) fn language_name(language: Language) -> String {
     language.label().to_lowercase()
-}
-
-pub(crate) fn theme_named(name: &str) -> Result<EditorTheme, JsError> {
-    name.parse::<EditorTheme>()
-        .map_err(|error| JsError::new(&error.to_string()))
-}
-
-/// Names of the built-in and registered languages.
-#[wasm_bindgen]
-pub fn languages() -> Names {
-    let mut names: Vec<String> = Language::ALL.iter().copied().map(language_name).collect();
-    REGISTERED.with(|languages| names.extend(languages.borrow().keys().cloned()));
-    to_js(&names).unchecked_into()
 }
 
 #[derive(Serialize)]
@@ -38,22 +25,38 @@ struct LanguageInfoOut {
     default_file_name: String,
 }
 
-/// What a language name (or file extension, as `language` takes) stands
-/// for: its canonical name, label, toolbar icon, extensions and the file
-/// name the toolbar shows when none is given. Throws on an unknown name.
-#[wasm_bindgen(js_name = languageInfo)]
-pub fn language_info(
-    #[wasm_bindgen(unchecked_param_type = "LanguageName")] name: JsValue,
-) -> Result<LanguageInfoResult, JsError> {
-    let language = language_named(&text_arg(&name, "language")?)?;
-    Ok(to_js(&LanguageInfoOut {
-        name: language_name(language),
-        label: language.label(),
-        icon: language.file_icon(),
-        extensions: language.extensions(),
-        default_file_name: language.default_file_name(),
-    })
-    .unchecked_into())
+impl From<Language> for LanguageInfoOut {
+    fn from(language: Language) -> Self {
+        Self {
+            name: language_name(language),
+            label: language.label(),
+            icon: language.file_icon(),
+            extensions: language.extensions(),
+            default_file_name: language.default_file_name(),
+        }
+    }
+}
+
+/// The built-in and registered languages, each with its canonical name
+/// (what `language` and `editAs` take), label, toolbar icon, extensions and
+/// the file name the toolbar shows when none is given.
+#[wasm_bindgen]
+pub fn languages() -> LanguageInfos {
+    let mut found: Vec<LanguageInfoOut> = Language::ALL
+        .iter()
+        .copied()
+        .map(LanguageInfoOut::from)
+        .collect();
+    REGISTERED.with(|languages| {
+        found.extend(
+            languages
+                .borrow()
+                .values()
+                .copied()
+                .map(LanguageInfoOut::from),
+        );
+    });
+    to_js(&found).unchecked_into()
 }
 
 /// The language of a file, from its extension (`"config/app.yml"` →
@@ -81,34 +84,27 @@ pub fn language_for_file(
         .unchecked_into())
 }
 
-/// Slugs of the bundled themes.
-#[wasm_bindgen]
-pub fn themes() -> Names {
-    let names: Vec<&str> = EditorTheme::ALL
-        .iter()
-        .map(|theme| theme.as_str())
-        .collect();
-    to_js(&names).unchecked_into()
-}
-
 #[derive(Serialize)]
 struct ThemeInfoOut {
     name: &'static str,
     label: &'static str,
+    dark: bool,
 }
 
-/// A theme's slug and display name (`"nord"` → `{ name: "nord", label:
-/// "Nord" }`), for a picker. Throws on an unknown theme.
-#[wasm_bindgen(js_name = themeInfo)]
-pub fn theme_info(
-    #[wasm_bindgen(unchecked_param_type = "ThemeName")] name: JsValue,
-) -> Result<ThemeInfoResult, JsError> {
-    let theme = theme_named(&text_arg(&name, "theme")?)?;
-    Ok(to_js(&ThemeInfoOut {
-        name: theme.as_str(),
-        label: theme.label(),
-    })
-    .unchecked_into())
+/// The bundled themes, for a picker: each one's slug (what `theme` takes),
+/// display name, and whether it is dark.
+#[wasm_bindgen]
+pub fn themes() -> ThemeInfos {
+    let themes: Vec<ThemeInfoOut> = EditorTheme::ALL
+        .iter()
+        .map(|theme| ThemeInfoOut {
+            name: theme.as_str(),
+            label: theme.label(),
+            // Each theme's stylesheet builds on one of the four families.
+            dark: !matches!(theme.css_family(), "vscode-light" | "obsidian-light"),
+        })
+        .collect();
+    to_js(&themes).unchecked_into()
 }
 
 /// Token names accepted in `colors`.

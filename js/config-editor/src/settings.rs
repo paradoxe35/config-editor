@@ -9,8 +9,8 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::options::warn_unknown_keys;
-use crate::typings::{SettingKeys, SettingsResult};
-use crate::values::{field, to_js};
+use crate::typings::SettingsResult;
+use crate::values::field;
 
 thread_local! {
     static KEYS: Vec<String> = keys_of(&EditorSettings::default());
@@ -142,11 +142,4 @@ pub(crate) fn settings_to_js(settings: &EditorSettings) -> JsValue {
 /// The settings `object` sets: the typed result for a getter.
 pub(crate) fn settings_result(settings: &EditorSettings) -> SettingsResult {
     settings_to_js(settings).unchecked_into()
-}
-
-/// The keys of `EditorSettings`, such as `"showFooter"`: what the editors'
-/// options and `setSettings` read as settings.
-#[wasm_bindgen(js_name = settingKeys)]
-pub fn setting_keys_js() -> SettingKeys {
-    to_js(&setting_keys()).unchecked_into()
 }

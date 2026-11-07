@@ -235,11 +235,11 @@ const scenes = {
     await page.locator('.config-editor__input').first().waitFor();
     await ready(page);
     await page.evaluate(() =>
-      window.editor.setHostDiagnostics([
+      window.editor.update({ hostDiagnostics: [
         { path: '/listen', severity: 'error', message: 'port 7835 is already used by another tunnel', source: 'burrow', code: 'E_PORT', docsUrl: 'https://example.com/docs/ports' },
         { path: '/public_address', severity: 'info', message: 'resolves to 203.0.113.7', source: 'burrow' },
         { path: '/insecure_plaintext', severity: 'hint', message: 'TLS is recommended in production', source: 'burrow' },
-      ]),
+      ] }),
     );
     await pause(page, 500);
     await hoverText(page, '7835');

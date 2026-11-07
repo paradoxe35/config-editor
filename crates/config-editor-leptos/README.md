@@ -595,7 +595,8 @@ view! {
   shown documents add nothing (a switch, from the click to the panel shown
   as a test driver sees it, took 49 ms at the median).
 - **`DocumentsHandle`:** `select(id)` (shows it and focuses its editor),
-  `active()`, `editor(id)` / `active_editor()` (the document's
+  `show(id)` (shows it, leaving the focus where it is: a host following its
+  own state of which file is open), `active()`, `editor(id)` / `active_editor()` (the document's
   `EditorHandle`, attached once it has been shown), `is_dirty(id)`,
   `save(id)`, `save_all()` (the dirty documents; returns the ids sent),
   `focus()`.
@@ -700,8 +701,8 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   value, or the key of a block), next to the editor's own problems: `F8` /
   `Shift+F8` stop at them, the footer counts them, and the hover message
   adds who reported them, the code, and "Open docs ↗" (a click on the
-  message opens `docs_url`, an `http:` or `https:` URL (`is_web_url`
-  checks one; another is not linked), as `Alt+Enter` does with the caret
+  message opens `docs_url` when it is an `http:` or `https:` URL (another
+  is not linked), as `Alt+Enter` does with the caret
   on the problem; screen readers hear the code and the link with the
   problem, in the caret's description and on `F8`). What cannot be placed (a missing field, a range
   while editing as another language, the whole document) shows in the footer.

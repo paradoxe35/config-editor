@@ -1,6 +1,7 @@
-//! `DocumentEditor`: one document's editor in a `ConfigDocuments`, from
-//! `documents.editor(id)`. It answers what a `ConfigEditor` answers about
-//! its text (paths, ranges, folds, focus, saving), through the same calls
+//! `DocumentEditorView`: one document's editor in a `ConfigDocuments`, from
+//! `documents.editor(id)`, typed as the `EditorView` interface. It has the
+//! read and act members of a `ConfigEditor` (the document, paths, ranges,
+//! folds, focus, saving, the diff), through the same calls
 //! (`handle_calls`). It looks the editor up on each call, so it follows a
 //! document whose editor is mounted again (a new language or schema).
 
@@ -10,22 +11,24 @@ use wasm_bindgen::prelude::*;
 
 use crate::documents_view::State;
 use crate::handle_calls;
-use crate::typings::{LineRanges, PathResult, RangeResult};
+use crate::settings::settings_result;
+use crate::typings::{LineRanges, PathResult, RangeResult, SettingsResult};
+use crate::values::context_arg;
 
-/// The editor of one document of a `ConfigDocuments`.
+/// The editor of one document of a `ConfigDocuments` (an `EditorView`).
 ///
 /// ```js
 /// const tls = documents.editor("tls");
 /// tls.reveal("/cert");
 /// tls.fold("/ciphers");
 /// ```
-#[wasm_bindgen]
-pub struct DocumentEditor {
+#[wasm_bindgen(skip_typescript)]
+pub struct DocumentEditorView {
     state: State,
     id: String,
 }
 
-impl DocumentEditor {
+impl DocumentEditorView {
     pub(crate) fn new(state: State, id: String) -> Self {
         Self { state, id }
     }
@@ -37,11 +40,39 @@ impl DocumentEditor {
 }
 
 #[wasm_bindgen]
-impl DocumentEditor {
-    /// The document's id.
+impl DocumentEditorView {
+    /// The document, in its language: the host's `value`, then each edit.
     #[wasm_bindgen(getter)]
-    pub fn id(&self) -> String {
-        self.id.clone()
+    pub fn value(&self) -> String {
+        config_editor_leptos::flush_pending_edits();
+        self.state
+            .texts_of(&self.id)
+            .map(|texts| texts.value)
+            .unwrap_or_default()
+    }
+
+    /// The settings of the document's editor: its own over the view's.
+    #[wasm_bindgen(getter)]
+    pub fn settings(&self) -> SettingsResult {
+        settings_result(&self.state.settings_of(&self.id).unwrap_or_default())
+    }
+
+    /// The unified diff (`diff -u`) of the document's baseline against it,
+    /// with `context` unchanged lines around each change (default 3).
+    #[wasm_bindgen(js_name = unifiedDiff)]
+    pub fn unified_diff(
+        &self,
+        #[wasm_bindgen(unchecked_optional_param_type = "number")] context: JsValue,
+    ) -> Result<String, JsError> {
+        let context = context_arg(&context)?;
+        let current = self.value();
+        let baseline = self
+            .state
+            .texts_of(&self.id)
+            .map_or_else(|| current.clone(), |texts| texts.baseline);
+        Ok(config_editor_leptos::unified_diff(
+            &baseline, &current, context,
+        ))
     }
 
     /// Where the field at `path` is written in the text on screen, or `null`.
@@ -73,7 +104,7 @@ impl DocumentEditor {
     #[wasm_bindgen(getter)]
     pub fn text(&self) -> String {
         handle_calls::text(self.handle())
-            .or_else(|| self.state.value_of(&self.id))
+            .or_else(|| self.state.texts_of(&self.id).map(|texts| texts.value))
             .unwrap_or_default()
     }
 
@@ -131,7 +162,7 @@ impl DocumentEditor {
     /// Saves the document as `Ctrl+S` in its editor does (calls the view's
     /// `onSave`); `false` when nothing was sent.
     pub fn save(&self) -> bool {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         if self.state.saves.try_get_untracked() != Some(true) {
             return false;
         }
@@ -141,7 +172,7 @@ impl DocumentEditor {
     /// Whether the document differs from its baseline.
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
-        config_editor_leptos::flush_pending_input();
+        config_editor_leptos::js_support::flush_pending_input();
         untrack(|| self.state.handle.is_dirty(&self.id))
     }
 }

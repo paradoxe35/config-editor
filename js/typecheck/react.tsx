@@ -1,6 +1,8 @@
 // The React README examples, type-checked against the built packages.
 import { useState, useRef } from "react";
-import { ConfigEditor, type ConfigEditorHandle, type ChangeSummary, loadConfigEditor, validate, convert, unifiedDiff } from "@pngwasi/config-editor-react";
+import { ConfigEditor, type ConfigEditorHandle, type ChangeSummary } from "@pngwasi/config-editor-react";
+import { loadConfigEditor, themes } from "@pngwasi/config-editor";
+import { validate, convert, unifiedDiff } from "@pngwasi/config-editor/tools";
 export function Settings({ schema }: { schema: string }) {
   const [text, setText] = useState("listen: 7835\n");
   const ref = useRef<ConfigEditorHandle>(null);
@@ -15,6 +17,7 @@ await loadConfigEditor();
 const problems = validate("toml", text, schema);
 convert("yaml", text, "json");
 const patch: string = unifiedDiff("a\n", "b\n", 3);
+const names: string[] = themes().map((theme) => theme.label);
 // Saving.
 declare function putConfig(text: string): Promise<void>;
 export function Saving() {
@@ -29,11 +32,13 @@ export function Saving() {
     onBaselineConflict={(event) => console.log(event)} />);
 }
 // Parity with the Rust API.
-import { changeSummary, parse, serialize, rangeOf, pathAt, foldRanges, languageInfo, languageForFile, themeInfo, presetCss, type LineRange, type LanguageInfo, type ThemeInfo } from "@pngwasi/config-editor-react";
+import { languageForFile, languages, type LanguageInfo, type ThemeInfo } from "@pngwasi/config-editor";
+import { changeSummary, parse, serialize, rangeOf, pathAt, foldRanges, presetCss } from "@pngwasi/config-editor/tools";
+import type { EditorView, LineRange } from "@pngwasi/config-editor-react";
 export function Viewer({ text }: { text: string }) {
   const ref = useRef<ConfigEditorHandle>(null);
   const onScreen: string | undefined = ref.current?.text; const folds: LineRange[] | undefined = ref.current?.foldedLines;
-  const info: LanguageInfo = languageInfo("yml"); const theme: ThemeInfo = themeInfo("nord");
+  const info: LanguageInfo | undefined = languages()[0]; const theme: ThemeInfo | undefined = themes().find((one) => one.dark);
   void [onScreen, folds, info, theme, changeSummary("a", "b"), parse("yaml", text), serialize("json", {}), rangeOf("yaml", text, "/a"), pathAt("yaml", text, 0), foldRanges("yaml", text), languageForFile("a.tf"), presetCss()];
   return (<ConfigEditor ref={ref} value={text} readOnly highlighting={false} showDiff={false} completions={false}
     autoTriggerCompletions={false} hoverDocs={false} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
@@ -48,6 +53,7 @@ export function Files({ schema }: { schema: string }) {
   const tabs = useRef<ConfigDocumentsHandle>(null);
   const sent: string[] | undefined = tabs.current?.saveAll(); tabs.current?.select("tls"); tabs.current?.activeId; void sent;
   tabs.current?.editor("tls")?.reveal("/cert");
+  const tlsView: EditorView | null | undefined = tabs.current?.editor("tls"); const tlsValue: string | undefined = tlsView?.value; void tlsValue;
   return (
     <ConfigDocuments ref={tabs} documents={files} showFooter folding={false} theme="nord" onChange={(id, value) => update(id, { value })}
       onSave={async (id, value) => { await putFile(id, value); update(id, { baseline: value }); }}

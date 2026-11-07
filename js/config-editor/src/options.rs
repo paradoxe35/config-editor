@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use crate::settings::setting_keys;
 use crate::values::{field, optional_text};
 
-/// The constructor's options apart from the settings (`settingKeys()`),
+/// The constructor's options apart from the settings (`EditorSettings`),
 /// for the unknown-option warning.
 pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "value",
@@ -41,16 +41,10 @@ pub(crate) fn warn_unknown_options(options: &JsValue, known: &[&str]) {
     warn_unknown_keys(options, &names, "option");
 }
 
-/// Keys `setCallbacks` takes.
-pub(crate) const CALLBACK_KEYS: &[&str] = &[
-    "onChange",
-    "onEditAsChange",
-    "onChangeSummary",
-    "onPathChange",
-    "onSave",
-    "onDirtyChange",
-    "onBaselineConflict",
-];
+/// The options the editor is built from, which `update` refuses: changing
+/// one needs a new `ConfigEditor`.
+pub(crate) const EDITOR_REMOUNT_OPTIONS: &[&str] =
+    &["language", "schema", "fileName", "className", "secrets"];
 
 /// A console warning for each key of `object` not in `known`, with the
 /// closest known one as a hint (`valu` → `value`).

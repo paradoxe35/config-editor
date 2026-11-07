@@ -6,8 +6,18 @@ editing one language as another, and eleven themes. It is written in Rust
 ([`config-editor-leptos`](https://crates.io/crates/config-editor-leptos))
 and ships as WebAssembly; this package is its framework-free JavaScript API.
 
-For React, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
-which builds on this package.
+It has three entries:
+
+| Entry                            | For                                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@pngwasi/config-editor`         | An app: `loadConfigEditor`, `ConfigEditor`, `ConfigDocuments`, and the language and theme catalogs (`languages`, `themes`, `languageForFile`, `registerLanguage`). |
+| `@pngwasi/config-editor/tools`   | Text without an editor (servers, build steps, review screens): validation, conversion, parsing, diffs, paths, folds; see [Tools](#pngwasiconfig-editortools).      |
+| `@pngwasi/config-editor/binding` | Writing a package for another framework; see [Binding](#pngwasiconfig-editorbinding).                                                                              |
+
+For React, Vue and Svelte, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
+[`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)
+or [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte),
+which build on this package.
 
 <!-- toc -->
 
@@ -19,13 +29,15 @@ which builds on this package.
 - [`new ConfigEditor(element, options)`](#new-configeditorelement-options)
   - [Settings](#settings)
   - [Built-in texts](#built-in-texts)
+  - [`update(options)`](#updateoptions)
   - [Instance members](#instance-members)
   - [Host diagnostics](#host-diagnostics)
   - [Read-only fields](#read-only-fields)
   - [Secrets](#secrets)
   - [Paths](#paths)
-- [Functions](#functions)
-- [Binding to a framework](#binding-to-a-framework)
+- [Languages and themes](#languages-and-themes)
+- [`@pngwasi/config-editor/tools`](#pngwasiconfig-editortools)
+- [`@pngwasi/config-editor/binding`](#pngwasiconfig-editorbinding)
   - [`ValueSync`](#valuesync)
 - [Keyboard](#keyboard)
   - [Leaving the editor and screen readers](#leaving-the-editor-and-screen-readers)
@@ -54,9 +66,9 @@ what it does not use ([Cargo features](https://crates.io/crates/config-editor-le
 ## Quick start
 
 ```ts
-import init, { ConfigEditor } from "@pngwasi/config-editor";
+import { ConfigEditor, loadConfigEditor } from "@pngwasi/config-editor";
 
-await init();
+await loadConfigEditor();
 
 const editor = new ConfigEditor(document.getElementById("config")!, {
   language: "yaml",
@@ -70,25 +82,26 @@ const editor = new ConfigEditor(document.getElementById("config")!, {
 
 ### Loading the WebAssembly
 
-`init()` fetches `config_editor_bg.wasm` next to the package's JavaScript,
-which works with bundlers that copy it (Vite, webpack 5, Parcel). When yours
-does not, pass its URL:
+`loadConfigEditor()` loads the WebAssembly module, once for the whole page
+however many callers ask (the framework components call it themselves).
+Await it before creating an editor or calling a [tool](#pngwasiconfig-editortools).
+It fetches `config_editor_bg.wasm` next to the package's JavaScript, which
+works with bundlers that copy it (Vite, webpack 5, Parcel). When yours does
+not, pass its URL:
 
 ```js
-import init from "@pngwasi/config-editor";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 
 // Vite
 import wasmUrl from "@pngwasi/config-editor/config_editor_bg.wasm?url";
-await init({ module_or_path: wasmUrl });
+await loadConfigEditor({ module_or_path: wasmUrl });
 
 // Any server: copy node_modules/@pngwasi/config-editor/pkg/config_editor_bg.wasm
-await init({ module_or_path: "/assets/config_editor_bg.wasm" });
+await loadConfigEditor({ module_or_path: "/assets/config_editor_bg.wasm" });
 ```
 
-Call `init()` once, before creating editors or calling any other function.
-`loadConfigEditor(input?)` is `init` loaded once for the whole page, however
-many callers ask (the framework components call it): a failed load is
-forgotten, so calling it again with the right URL retries.
+A failed load is not kept: calling it again (with the right URL) retries,
+and framework components whose own load failed mount then.
 
 ## `new ConfigEditor(element, options)`
 
@@ -125,19 +138,19 @@ An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
 
 `value`, `baseline`, `editAs`, `readOnly`, `hostDiagnostics`, the read-only
-fields, the callbacks and every setting change live through the setters
-below. The other options (`language`, `schema`, `fileName`, `className`,
-`secrets`) are fixed for the editor's life: create a new one to change them
-(the React component does it for you).
+fields, the callbacks and every setting change live through
+[`update`](#updateoptions). The other options (`language`, `schema`,
+`fileName`, `className`, `secrets`) are what the editor is built from:
+create a new one to change them (the framework components do it for you).
 
 ### Settings
 
 The settings are the theme, the colors and every on/off switch: the
 `EditorSettings` type, generated from the Rust crate's struct, each with a
 default. Give them with the other options, and switch any of them live with
-`setSettings`: the caret, the undo history and the folds stay. `setSettings`
-replaces them all (a key left out takes its default, as in the
-constructor); `settings` returns them, every key set.
+`update`: the caret, the undo history and the folds stay. `update` merges
+them key by key (a setting left out stays as it is, one set to `null`
+returns to its default); `settings` returns them, every key set.
 
 ```ts
 // A plain viewer: no colors, no diff, no suggestions, no popups.
@@ -152,7 +165,7 @@ const viewer = new ConfigEditor(element, {
 });
 
 // Later: one setting changed, the rest kept.
-viewer.setSettings({ ...viewer.settings, showDiagnostics: true });
+viewer.update({ showDiagnostics: true });
 ```
 
 <!-- settings:start -->
@@ -197,11 +210,10 @@ const editor = new ConfigEditor(element, {
     errorsOther: "{count} Fehler",
   },
 });
-// Live, like every setting (setSettings replaces them all, so spread the current ones):
-editor.setSettings({
-  ...editor.settings,
-  strings: { ...editor.settings.strings, find: "Suchen" },
-});
+// Live, like every setting: the texts given change, the others stay.
+editor.update({ strings: { find: "Suchen" } });
+// `null` returns one text, or all of them, to the English default.
+editor.update({ strings: { find: null } });
 ```
 
 Placeholders are written in braces (`{count}`, `{line}`); a text takes the
@@ -380,28 +392,59 @@ and `editAsTypedCommentsNone`.
 
 <!-- strings:end -->
 
+### `update(options)`
+
+`editor.update(options)` changes a mounted editor, live (the caret, undo
+history, scroll and folds stay). It takes the constructor's options, any of
+them, and is the one way to change one:
+
+```ts
+editor.update({ readOnly: true, theme: "nord" });
+editor.update({ value: loaded, baseline: loaded }); // a file loaded from the server
+editor.update({ hostDiagnostics: problems, onSave: null });
+```
+
+- A key left out, or set to `undefined`, stays as it is.
+- `null` removes a callback (`onSave: null` gives `Ctrl+S` back to the
+  browser), clears `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`,
+  turns `editAs` and `readOnly` off, and returns a setting to its default.
+- Settings merge key by key, and `strings` text by text.
+- A new `value` replaces the document as a host update: the caret stays on
+  the same text when possible. `readOnlyRanges` and host `range`s given with
+  it are in the new document.
+- `language`, `schema`, `fileName`, `className` and `secrets` are what the
+  editor is built from: they throw (`"language cannot change on a mounted
+ConfigEditor …"`); create a new editor to change them. TypeScript types
+  them `never` in `EditorUpdate`.
+- Every key is checked before any applies: a wrong value throws and changes
+  nothing.
+
 ### Instance members
 
-| Member                                                                                                                        | Description                                                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `value` (getter)                                                                                                              | The current document, in `language`, including an edit made in `editAs` that is still waiting out the typing pause (it is sent to `onChange` first). Still readable after `destroy()`.                                                                                                                                   |
-| `setValue(text)`                                                                                                              | Replace the document (for example after loading a file). The caret stays on the same text when possible.                                                                                                                                                                                                                 |
-| `setBaseline(text)`                                                                                                           | Set the diff baseline; pass the saved text to clear the diff.                                                                                                                                                                                                                                                            |
-| `setEditAs(language \| null)`                                                                                                 | Switch the editing language live; `null` edits in `language` again. The language must be able to write documents (a registered one needs `serialize`).                                                                                                                                                                   |
-| `setReadOnly(boolean)`                                                                                                        | Toggle view mode.                                                                                                                                                                                                                                                                                                        |
-| `settings` (getter), `setSettings(settings)`                                                                                  | The settings in effect (every key set), and replacing them live; see [Settings](#settings).                                                                                                                                                                                                                              |
-| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange?, onSave?, onDirtyChange?, onBaselineConflict? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                                                                                                                                                                           |
-| `save()`                                                                                                                      | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                                                                                                                                                   |
-| `isDirty` (getter)                                                                                                            | Whether the document differs from the baseline.                                                                                                                                                                                                                                                                          |
-| `unifiedDiff(context?)`                                                                                                       | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                                                                                                                                                          |
-| `setHostDiagnostics(list)`                                                                                                    | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                |
-| `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()`                                                    | Paths and positions; see [Paths](#paths).                                                                                                                                                                                                                                                                                |
-| `setReadOnlyPaths(paths)`, `setReadOnlyRanges(ranges)`                                                                        | Replace the host's read-only fields or ranges; `[]` clears them. See [Read-only fields](#read-only-fields).                                                                                                                                                                                                              |
-| `text` (getter)                                                                                                               | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                                                                                                                                                  |
-| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()`                                                                      | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                                                                                                                                                             |
-| `foldedLines` (getter)                                                                                                        | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                                                                                                                                                            |
-| `destroy()`                                                                                                                   | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                                                       |
-| `free()`                                                                                                                      | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
+`ConfigEditor` is an `EditorView`, the interface a document's editor in a
+[`ConfigDocuments`](#several-documents) (`view.editor(id)`) implements too:
+
+| `EditorView` member                                      | Description                                                                                                                                                                            |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value` (getter)                                         | The current document, in `language`, including an edit made in `editAs` that is still waiting out the typing pause (it is sent to `onChange` first). Still readable after `destroy()`. |
+| `text` (getter)                                          | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                |
+| `isDirty` (getter)                                       | Whether the document differs from the baseline.                                                                                                                                        |
+| `currentPath` (getter)                                   | The path of what the caret is on; see [Paths](#paths).                                                                                                                                 |
+| `foldedLines` (getter)                                   | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                          |
+| `settings` (getter)                                      | The settings in effect, every key set; see [Settings](#settings).                                                                                                                      |
+| `reveal(path)`, `rangeOf(path)`, `pathAt(index)`         | Paths and positions; see [Paths](#paths).                                                                                                                                              |
+| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                           |
+| `focus()`                                                | Focus the editor, keeping its selection.                                                                                                                                               |
+| `save()`                                                 | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                 |
+| `unifiedDiff(context?)`                                  | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                        |
+
+`ConfigEditor` adds:
+
+| Member            | Description                                                                                                                                                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)` | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                         |
+| `destroy()`       | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                              |
+| `free()`          | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -411,22 +454,24 @@ break the editor.
 When a server validates the document, show its problems with the editor's own:
 
 ```ts
-editor.setHostDiagnostics([
-  {
-    path: "/web/listen",
-    severity: "error",
-    message: "port 80 is taken",
-    code: "E_PORT",
-    source: "burrow",
-    docsUrl: "https://example.com/docs/ports",
-  },
-  {
-    range: { startLine: 4, startColumn: 1, endColumn: 19 },
-    severity: "hint",
-    message: "consider TLS",
-  },
-  { severity: "warning", message: "restart needed to apply" }, // the whole document
-]);
+editor.update({
+  hostDiagnostics: [
+    {
+      path: "/web/listen",
+      severity: "error",
+      message: "port 80 is taken",
+      code: "E_PORT",
+      source: "burrow",
+      docsUrl: "https://example.com/docs/ports",
+    },
+    {
+      range: { startLine: 4, startColumn: 1, endColumn: 19 },
+      severity: "hint",
+      message: "consider TLS",
+    },
+    { severity: "warning", message: "restart needed to apply" }, // the whole document
+  ],
+});
 ```
 
 - `path` (a JSON pointer or keys and indices) is marked where the field is
@@ -445,8 +490,9 @@ editor.setHostDiagnostics([
 - `path` and `range` are exclusive; a range past the text's end, ending
   before it starts, or a pointer without its leading `/` throws.
 - Where the host marks the same text as one of the editor's own problems,
-  only the host's shows. A new list replaces the previous one; only the
-  markers update. An invalid entry throws, naming its index.
+  only the host's shows. A new list replaces the previous one (`null` or
+  `[]` clears it); only the markers update. An invalid entry throws, naming
+  its index.
 
 ### Read-only fields
 
@@ -461,7 +507,7 @@ const editor = new ConfigEditor(element, {
   readOnlyPaths: ["/limits"],
   readOnlyRanges: [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }],
 });
-editor.setReadOnlyPaths(["/limits", "/tls/cert"]); // at runtime
+editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
 ```
 
 - A lock in the gutter marks each locked line, the value is muted (color
@@ -519,7 +565,7 @@ const editor = new ConfigEditor(element, {
 A path names a field the same way in every language: a JSON pointer
 (`"/web/hosts/1"`, `""` for the whole document) or its keys and indices
 (`["web", "hosts", 1]`). A pointer starts with `/`: `"web/hosts"` throws,
-everywhere a path is taken (the editor's methods, the headless functions,
+everywhere a path is taken (the editor's methods, the tools,
 `readOnlyPaths`, host diagnostics).
 
 ```ts
@@ -541,30 +587,48 @@ the key alone when the value is a block below it, and the value alone for a
 list item. `pathAt` gives the key under or just before the index, else the
 value or container holding it (`""` at the top level).
 
-## Functions
+## Languages and themes
 
-| Function                                   | Returns               | Description                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init(input?)`                             | `Promise`             | Load the WebAssembly (default export).                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `validate(language, text, schema?)`        | `Diagnostic[]`        | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                                                                                                                                                                                                       |
-| `convert(from, text, to, schema?)`         | `{ text, losses }`    | Convert between languages. `losses` lists JSON pointers of values the target reads back differently. Throws when the text does not parse or the target cannot express it. With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                                                                                                                    |
-| `unifiedDiff(baseline, current, context?)` | `string`              | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                                                                                       |
-| `changeSummary(baseline, current)`         | `ChangeSummary`       | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                                                                                                                                                                                                       |
-| `parse(language, text)`                    | `unknown`             | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. Integers past 2^53 (TOML holds 64-bit ones) lose precision as JavaScript numbers, as with `JSON.parse`. Throws the first syntax error, with its line and column.                                                 |
-| `serialize(language, value)`               | `string`              | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item lists; JSON, HCL and XML have no `Infinity` or `NaN`). Whole numbers past 2^53 are written as integers. |
-| `rangeOf(language, text, path)`            | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                                                                         |
-| `pathAt(language, text, index)`            | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                                                                             |
-| `foldRanges(language, text)`               | `LineRange[]`         | The blocks that fold, one-based `{ startLine, endLine }` (`startLine` stays visible), as the gutter chevrons offer them.                                                                                                                                                                                                                                                                                                                            |
-| `languageInfo(name)`                       | `LanguageInfo`        | `{ name, label, icon, extensions, defaultFileName }` of a language name or extension (`"yml"` gives `name: "yaml"`). Throws on an unknown one.                                                                                                                                                                                                                                                                                                      |
-| `languageForFile(path)`                    | `string \| null`      | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                                                                                                                                                                                                                                                                                                                               |
-| `themeInfo(name)`                          | `ThemeInfo`           | `{ name, label }` of a theme slug (`"nord"` gives `"Nord"`), for a picker.                                                                                                                                                                                                                                                                                                                                                                          |
-| `presetCss()`                              | `string`              | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                                                                                    |
-| `schemaWarnings(schema)`                   | `string[]`            | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                      |
-| `languages()`                              | `string[]`            | Built-in and registered language names.                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `themes()`                                 | `string[]`            | Theme slugs.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `colorTokens()`                            | `string[]`            | Tokens accepted by `colors`.                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `settingKeys()`                            | `string[]`            | The keys of `EditorSettings` (`"showFooter"`, `"folding"`, …): what the options and `setSettings` read as settings. A framework wrapper picks them out of its props with it.                                                                                                                                                                                                                                                                        |
-| `registerLanguage(definition)`             | `string`              | Add a language written in JavaScript (below); returns its name.                                                                                                                                                                                                                                                                                                                                                                                     |
+The main entry also lists what the editor accepts, for pickers and file
+handling (after `loadConfigEditor()`):
+
+| Function                       | Returns          | Description                                                                                                                                     |
+| ------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `languages()`                  | `LanguageInfo[]` | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
+| `themes()`                     | `ThemeInfo[]`    | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
+| `languageForFile(path)`        | `string \| null` | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
+| `registerLanguage(definition)` | `string`         | Add a language written in JavaScript; returns its name. See [Languages written in JavaScript](#languages-written-in-javascript).                |
+
+```js
+import { languageForFile, languages, themes } from "@pngwasi/config-editor";
+
+languageForFile("deploy/main.tf"); // "hcl"
+languages().find((language) => language.extensions.includes("yml"));
+// { name: "yaml", label: "YAML", icon: "Y", extensions: ["yaml", "yml"], defaultFileName: "untitled.yaml" }
+for (const theme of themes())
+  picker.append(new Option(theme.label, theme.name));
+```
+
+## `@pngwasi/config-editor/tools`
+
+The editor's answers about a text, without an editor: for a server, a
+build step or a review screen. They need the WebAssembly module loaded:
+`loadConfigEditor()`, which this entry exports too.
+
+| Function                                   | Returns               | Description                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate(language, text, schema?)`        | `Diagnostic[]`        | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                                                                                                      |
+| `convert(from, text, to, schema?)`         | `{ text, losses }`    | Convert between languages. `losses` lists JSON pointers of values the target reads back differently. Throws when the text does not parse or the target cannot express it. With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                   |
+| `unifiedDiff(baseline, current, context?)` | `string`              | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                      |
+| `changeSummary(baseline, current)`         | `ChangeSummary`       | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                                                                                                      |
+| `parse(language, text)`                    | `unknown`             | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. Integers past 2^53 (TOML holds 64-bit ones) lose precision as JavaScript numbers, as with `JSON.parse`.         |
+| `serialize(language, value)`               | `string`              | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list). |
+| `rangeOf(language, text, path)`            | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                        |
+| `pathAt(language, text, index)`            | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                            |
+| `foldRanges(language, text)`               | `LineRange[]`         | The blocks that fold, one-based `{ startLine, endLine }` (`startLine` stays visible), as the gutter chevrons offer them.                                                                                                                                                                                                                           |
+| `schemaWarnings(schema)`                   | `string[]`            | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                     |
+| `colorTokens()`                            | `string[]`            | Tokens accepted by `colors`.                                                                                                                                                                                                                                                                                                                       |
+| `presetCss()`                              | `string`              | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                   |
 
 ```ts
 interface Diagnostic {
@@ -577,7 +641,17 @@ interface Diagnostic {
 ```
 
 ```js
-import { validate, convert } from "@pngwasi/config-editor";
+import {
+  convert,
+  foldRanges,
+  loadConfigEditor,
+  parse,
+  rangeOf,
+  serialize,
+  validate,
+} from "@pngwasi/config-editor/tools";
+
+await loadConfigEditor();
 
 validate("json", '{"insecure_plaintext": "yes"}', schemaText);
 // [{ line: 1, column: 24, endColumn: 29, severity: "error",
@@ -595,15 +669,13 @@ rangeOf("yaml", "web:\n  http: 80\n", "/web/http");
 // { start: 7, end: 15, startLine: 2, startColumn: 3, endLine: 2, endColumn: 11 }
 foldRanges("json", '{\n  "web": {\n    "http": 80\n  }\n}');
 // [{ startLine: 1, endLine: 4 }, { startLine: 2, endLine: 3 }]
-languageForFile("deploy/main.tf"); // "hcl"
-languageInfo("yml");
-// { name: "yaml", label: "YAML", icon: "Y", extensions: ["yaml", "yml"], defaultFileName: "untitled.yaml" }
 ```
 
-## Binding to a framework
+## `@pngwasi/config-editor/binding`
 
 React, Vue and Svelte have packages of their own, built on what this
-section describes:
+entry exports (`EditorBinding`, `DocumentsBinding`, `ValueSync`,
+`SETTING_TYPES`):
 
 | Package                                                                                        | Component                                                     |
 | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
@@ -621,9 +693,11 @@ the document, its baseline and the caret over; the bound value goes through
 that failed on a bad prop is retried when a prop changes; the WebAssembly
 loads once (`loadConfigEditor`); and `handle` is the instance API
 (`ConfigEditorHandle`: `value`, `setValue`, `reveal`, `save`, `isDirty`, …).
+Each prop that changes reaches the editor through `update`: a setting no
+longer passed returns to its default.
 
 ```ts
-import { EditorBinding } from "@pngwasi/config-editor";
+import { EditorBinding } from "@pngwasi/config-editor/binding";
 
 const binding = new EditorBinding("my-framework-config-editor");
 // When the component's element exists (props named as React's:
@@ -647,22 +721,25 @@ binding.detach();
 ```
 
 `DocumentsBinding` does the same for a `ConfigDocuments` view (`label`,
-`viewClassName` and whether `onClose` is set re-mount). `SETTING_TYPES` is
-every setting's key and type, generated from the Rust struct, readable
-before the WebAssembly loads (Vue declares its props from it).
+`viewClassName` and whether `onClose` is set re-mount; a new `activeId`
+shows that document). `SETTING_TYPES` is every setting's key and the
+JavaScript type of its values, generated from the Rust struct: plain data,
+readable before the WebAssembly loads (Vue declares its props from it, and
+`Object.keys(SETTING_TYPES)` picks the settings out of a component's props).
 
 ### `ValueSync`
 
 A framework that binds the document two ways (Vue's `v-model`, Svelte's
 `bind:value`, Angular's `ControlValueAccessor`, Solid signals) passes every
 edit back in as its value, sometimes late and several at a time. Applying
-such an echo with `setValue` would roll the document back. `ValueSync` tells
+such an echo with `update({ value })` would roll the document back. `ValueSync` tells
 the host's own values (a reset, a loaded file: applied) from echoes
 (skipped). `EditorBinding` is built on it; use it alone to bind the value
 your own way.
 
 ```ts
-import { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
+import { ConfigEditor } from "@pngwasi/config-editor";
+import { ValueSync } from "@pngwasi/config-editor/binding";
 
 const sync = new ValueSync();
 const editor = new ConfigEditor(element, {
@@ -675,12 +752,12 @@ const editor = new ConfigEditor(element, {
 
 // Whenever the bound value changes:
 const { apply, report } = sync.received(newValue, editor.value);
-if (apply !== null) editor.setValue(apply);
+if (apply !== null) editor.update({ value: apply });
 if (report !== null) emit(report); // the host took a stale echo: correct it
 
 // Replacing the document from code, whatever is in flight:
 sync.supersede();
-editor.setValue(text);
+editor.update({ value: text });
 sync.sent(text);
 emit(text);
 ```
@@ -798,13 +875,13 @@ const editor = new ConfigEditor(element, {
   baseline: loaded,
   onSave: async (text) => {
     await putConfig(text);
-    editor.setBaseline(text); // saved: nothing is unsaved any more
+    editor.update({ baseline: text }); // saved: nothing is unsaved any more
   },
   onDirtyChange: (dirty) => (saveButton.disabled = !dirty),
   onBaselineConflict: (event) => console.log("baseline conflict:", event),
 });
 // Another client saved: the server's version moves on.
-events.on("config-changed", (text) => editor.setBaseline(text));
+events.on("config-changed", (text) => editor.update({ baseline: text }));
 ```
 
 A new baseline while the user has unsaved edits opens a notice in the editor,
@@ -813,8 +890,8 @@ focus in the text, and `F6` moves it to **Keep mine** and back): **Reload** make
 reported through `onChange`), **Keep mine** (or `Escape`) keeps the document
 and diffs it against the new baseline. Without unsaved edits, or when the new
 baseline is the document or a text the editor sent (`onChange`, `onSave`: a
-save coming back while the user typed on), it is taken silently. A `setValue`
-keeps the caret and the scroll position.
+save coming back while the user typed on), it is taken silently. A new
+`value` keeps the caret and the scroll position.
 
 ## Several documents
 
@@ -825,9 +902,9 @@ schema (documents with the same schema text share one compiled schema) and,
 optionally, settings, host problems and read-only fields.
 
 ```js
-import init, { ConfigDocuments } from "@pngwasi/config-editor";
+import { ConfigDocuments, loadConfigEditor } from "@pngwasi/config-editor";
 
-await init();
+await loadConfigEditor();
 let files = [
   { id: "main", fileName: "burrow.yaml", value: mainText, schema },
   { id: "limits", fileName: "conf.d/limits.toml", value: limitsText, schema },
@@ -841,7 +918,7 @@ let files = [
 ];
 const update = (id, change) => {
   files = files.map((file) => (file.id === id ? { ...file, ...change } : file));
-  view.setDocuments(files);
+  view.update({ documents: files });
 };
 const view = new ConfigDocuments(document.getElementById("files"), {
   documents: files,
@@ -853,7 +930,7 @@ const view = new ConfigDocuments(document.getElementById("files"), {
   onClose: ({ id, dirty }) => {
     if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
     files = files.filter((file) => file.id !== id);
-    view.setDocuments(files);
+    view.update({ documents: files });
   },
   onSelect: (id) => console.log("showing", id),
 });
@@ -863,7 +940,7 @@ view.activeId; // "limits"
 view.isDirty("main");
 ```
 
-- You own the list: `setDocuments` adds, removes, renames and reorders. A
+- You own the list: `update({ documents })` adds, removes, renames and reorders. A
   document keeps its editor while its `id` stays listed (a new `value`,
   `baseline`, `fileName`, `readOnly` or `editAs` updates it in place; a new
   `language` or `schema` mounts a new editor).
@@ -884,21 +961,28 @@ view.isDirty("main");
 - Settings: the options take every [setting](#settings), for all the
   editors and the tabs (`theme`, `colors` with the `tab-*` tokens, see
   [Styling](#styling); `styled` injects the stylesheet once for the view);
-  `settings` / `setSettings` read and switch them live. A document's own
+  `settings` reads them and `update` switches them live, merging key by
+  key. A document's own
   `settings` go over them for its editor: the keys it gives replace the
   view's, the rest follow the view's.
 - Per document, as on `ConfigEditor`: `hostDiagnostics`, `readOnlyPaths`,
-  `readOnlyRanges` (updated in place by `setDocuments`) and `secrets` (read
+  `readOnlyRanges` (updated in place by `update({ documents })`) and `secrets` (read
   when its editor mounts).
-- `editor(id)` returns that document's `DocumentEditor`, with the
-  `ConfigEditor` members about its text: `rangeOf`, `pathAt`,
-  `currentPath`, `text`, `reveal`, `fold`, `unfold`, `foldAll`,
-  `unfoldAll`, `foldedLines`, `focus`, `save`, `isDirty`, and `id`
-  (`null` for an id not listed, as in the React package). An editor mounts the first time its
-  document is shown: until then its queries answer `null` or `false`
+- `editor(id)` returns that document's editor, an
+  [`EditorView`](#instance-members) like a `ConfigEditor` (`null` for an id
+  not listed): its `value` (the host's, then each edit), `settings` (its
+  own over the view's) and `unifiedDiff` against its baseline, paths,
+  folds, `focus`, `save` and `isDirty`. An editor mounts the first time
+  its document is shown: until then its queries answer `null` or `false`
   (`text` answers the document's `value`).
-- Other options: `activeId` (shown first), `className`, `label` (the tab
-  list's name); also `setCallbacks` and `destroy()`.
+- `update(options)` changes the view live, with `ConfigEditor`'s rules
+  (left out or `undefined` stays, `null` removes a callback or returns a
+  setting to its default, every key checked before any applies): the
+  `documents`, `activeId` (shows that document, leaving the focus where it
+  is), the settings and the callbacks. `className` and `label` (the tab
+  list's name) are fixed and throw, and so does an `onClose` for a view
+  created without one (its tabs have no close buttons); `activeId` given to
+  the constructor is the document shown first. Also `destroy()`.
 
 ```js
 files = files.map((file) =>
@@ -910,8 +994,8 @@ files = files.map((file) =>
       }
     : file,
 );
-view.setDocuments(files);
-view.setSettings({ ...view.settings, showFooter: true }); // every editor; limits keeps folding off
+view.update({ documents: files, showFooter: true }); // every editor; limits keeps folding off
+view.update({ activeId: "limits" }); // shows it, the focus stays where it is
 view.editor("main").reveal("/public_address");
 ```
 
@@ -927,17 +1011,14 @@ const editor = new ConfigEditor(element, {
   onChangeSummary: ({ hunks }) => (reviewButton.disabled = hunks === 0),
 });
 reviewButton.onclick = () => showPatch(editor.unifiedDiff());
-// After saving: editor.setBaseline(editor.value) clears the changes.
+// After saving: editor.update({ baseline: editor.value }) clears the changes.
 ```
 
 ## Languages written in JavaScript
 
 ```js
-import {
-  registerLanguage,
-  ConfigEditor,
-  convert,
-} from "@pngwasi/config-editor";
+import { registerLanguage, ConfigEditor } from "@pngwasi/config-editor";
+import { convert } from "@pngwasi/config-editor/tools";
 
 const env = registerLanguage({
   label: "ENV", // its name is the label lowercased: "env"
@@ -996,7 +1077,8 @@ the label lowercased (`"Énv"` → `"énv"`).
 
 ## Themes
 
-The `theme` setting takes a slug; `themes()` returns them all.
+The `theme` setting takes a slug; `themes()` returns them all, each with
+its display name and whether it is dark.
 
 <details>
 <summary>The eleven themes</summary>

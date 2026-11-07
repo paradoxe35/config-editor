@@ -1,5 +1,5 @@
 import { flushSync, mount, unmount } from "svelte";
-import { loadConfigEditor } from "@pngwasi/config-editor-svelte";
+import { loadConfigEditor } from "@pngwasi/config-editor";
 import App from "./svelte/App.svelte";
 
 // The bundle does not sit next to the package's wasm, so say where it is.

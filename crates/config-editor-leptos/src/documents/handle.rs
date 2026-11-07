@@ -85,6 +85,14 @@ impl DocumentsHandle {
             .is_some_and(|documents| documents.select(id, Focus::Editor))
     }
 
+    /// Shows the document `id`, leaving the focus where it is (a host
+    /// following its own state of which file is open). Returns whether the
+    /// document is open.
+    pub fn show(&self, id: &str) -> bool {
+        self.view()
+            .is_some_and(|documents| documents.select(id, Focus::Keep))
+    }
+
     /// The editor of the document `id`, for paths, folds, saving and the
     /// rest of [`EditorHandle`]. It is attached once the document has been
     /// shown: editors mount the first time their document is selected.

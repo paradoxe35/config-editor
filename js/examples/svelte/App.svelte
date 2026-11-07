@@ -2,6 +2,9 @@
      ids, query flags and `window` hooks. -->
 <script lang="ts">
   import { onMount } from "svelte";
+  import * as core from "@pngwasi/config-editor";
+  import * as tools from "@pngwasi/config-editor/tools";
+  import { themes } from "@pngwasi/config-editor";
   import * as api from "@pngwasi/config-editor-svelte";
   import {
     type BaselineConflict,
@@ -11,7 +14,6 @@
     type ConfigEditorProps,
     type EditorPath,
     type HostDiagnostic,
-    themes,
   } from "@pngwasi/config-editor-svelte";
 
   let { schema, ready }: { schema: string; ready: Promise<unknown> } = $props();
@@ -78,6 +80,8 @@
   type Change = Partial<ConfigEditorProps> | ((props: Partial<ConfigEditorProps>) => Partial<ConfigEditorProps>);
   Object.assign(window, {
     packageApi: api,
+    coreApi: core,
+    toolsApi: tools,
     setExtraProps: (change: Change) => (extra = typeof change === "function" ? change(extra) : change),
     editorHandle: { get current() { return editor ? asHandle(editor) : null; } },
     renameFile: () => (fileName = `renamed-${fileName}`),
@@ -87,7 +91,7 @@
 
 
   onMount(() => {
-    ready.then(() => (themeNames = themes() as unknown as string[]));
+    ready.then(() => (themeNames = themes().map((theme) => theme.name)));
     if (resetEarly) editor?.setValue("from-effect: 1\n");
   });
 

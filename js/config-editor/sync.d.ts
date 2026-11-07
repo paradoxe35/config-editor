@@ -11,10 +11,10 @@
  * });
  * // When the bound value changes:
  * const { apply, report } = sync.received(newValue, editor.value);
- * if (apply !== null) editor.setValue(apply);
+ * if (apply !== null) editor.update({ value: apply });
  * if (report !== null) emit(report);
  * // An imperative reset:
- * sync.supersede(); editor.setValue(text); sync.sent(text); emit(text);
+ * sync.supersede(); editor.update({ value: text }); sync.sent(text); emit(text);
  * ```
  */
 export class ValueSync {
@@ -32,7 +32,7 @@ export class ValueSync {
   supersede(): void;
   /**
    * The host's value arrived; `current` is `editor.value` read just before.
-   * `apply`: the text to `setValue`, if any. `report`: the text to send the
+   * `apply`: the text to apply (`update({ value })`), if any. `report`: the text to send the
    * host through its change callback, if any (already recorded as sent).
    */
   received(value: string, current: string): { apply: string | null; report: string | null };

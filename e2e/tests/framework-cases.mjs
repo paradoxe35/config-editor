@@ -41,6 +41,27 @@ export function frameworkCases(name) {
       expect(style).toContain('--config-editor-key: #ffcc66');
     });
 
+    test('a setting prop taken away returns to its default, a text taken out of strings too', async ({ page: browserPage }) => {
+      // The binding hands the editor's `update` only what changed: `null`
+      // for a prop no longer passed, each text of `strings` on its own.
+      await open(browserPage, name);
+      const mark = () => input(browserPage).evaluate((element) => (element.dataset.kept = 'yes'));
+      await mark();
+      const toolbar = browserPage.locator('.config-editor__toolbar');
+      const footer = browserPage.locator('.config-editor__status');
+      const extra = (props) => browserPage.evaluate((props) => window.setExtraProps(props), props);
+      await extra({ showFooter: false, strings: { linesOther: '{count} Zeilen', schemaConnected: 'Schema verbunden' } });
+      await expect(toolbar).toContainText('Schema verbunden');
+      await expect(footer).toHaveCount(0);
+      await extra({ strings: { linesOther: '{count} Zeilen' } });
+      await expect(toolbar).toContainText('Schema connected');
+      await expect(footer).toContainText('Zeilen');
+      await extra({});
+      await expect(footer).toContainText(/\d+ lines/);
+      // Live, not a new editor.
+      expect(await input(browserPage).evaluate((element) => element.dataset.kept)).toBe('yes');
+    });
+
     test('onEditAsChange reports the switch', async ({ page: browserPage }) => {
       await open(browserPage, name);
       await browserPage.locator('#edit-as').selectOption('toml');

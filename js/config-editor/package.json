@@ -11,20 +11,32 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
+    "./tools": {
+      "types": "./tools.d.ts",
+      "default": "./tools.js"
+    },
+    "./binding": {
+      "types": "./binding.d.ts",
+      "default": "./binding.js"
+    },
     "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm"
   },
   "files": [
     "index.js",
     "index.d.ts",
+    "tools.js",
+    "tools.d.ts",
+    "binding.js",
+    "binding.d.ts",
+    "load.js",
+    "load.d.ts",
+    "sync.js",
+    "sync.d.ts",
+    "setting-types.js",
     "pkg/config_editor.js",
     "pkg/config_editor.d.ts",
     "pkg/config_editor_bg.wasm",
     "pkg/config_editor_bg.wasm.d.ts",
-    "binding.js",
-    "binding.d.ts",
-    "setting-types.js",
-    "sync.js",
-    "sync.d.ts",
     "README.md",
     "LICENSE"
   ],

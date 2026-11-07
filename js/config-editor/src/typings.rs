@@ -28,7 +28,7 @@ export interface EditorOptions extends EditorSettings {
   baseline?: string;
   /** File name shown in the toolbar. */
   fileName?: string;
-  /** View mode; switches live with `setReadOnly`. */
+  /** View mode; switches live (`update`). */
   readOnly?: boolean;
   /** Extra class on the editor root. */
   className?: string;
@@ -40,7 +40,7 @@ export interface EditorOptions extends EditorSettings {
   onChangeSummary?: (summary: ChangeSummary) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
   onPathChange?: (path: EditorPath) => void;
-  /** Problems the host found (a server's validation), shown next to the editor's own. See `setHostDiagnostics`. */
+  /** Problems the host found (a server's validation), shown next to the editor's own; `update` replaces them. */
   hostDiagnostics?: HostDiagnostic[];
   /** Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. Without it, each is a console warning. */
   onSchemaWarning?: (message: string) => void;
@@ -50,9 +50,9 @@ export interface EditorOptions extends EditorSettings {
   onDirtyChange?: (dirty: boolean) => void;
   /** Called when a new `baseline` arrives under unsaved edits (the editor asks the user to reload or keep their text), and when that is settled. */
   onBaselineConflict?: (event: BaselineConflict) => void;
-  /** Fields the user cannot change (each with everything inside it), on top of those the schema marks `readOnly`. They hold while editing as another language too. See `setReadOnlyPaths`. */
+  /** Fields the user cannot change (each with everything inside it), on top of those the schema marks `readOnly`. They hold while editing as another language too; `update` replaces them. */
   readOnlyPaths?: FieldPath[];
-  /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits. See `setReadOnlyRanges`. */
+  /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits; `update` replaces them. */
   readOnlyRanges?: TextRangeInput[];
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
@@ -100,15 +100,98 @@ export interface HostDiagnostic {
 
 export type Severity = "error" | "warning" | "info" | "hint";
 
-/** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
-export interface CallbackUpdate {
+/**
+ * Settings to change: each key left out (or `undefined`) stays, `null`
+ * returns it to its default; `strings` merges text by text (a text set to
+ * `null` returns to its default).
+ */
+export type SettingsUpdate = {
+  [K in Exclude<keyof EditorSettings, "strings">]?: EditorSettings[K] | null;
+} & {
+  strings?: { [K in keyof EditorStrings]?: EditorStrings[K] | null } | null;
+};
+
+/**
+ * What `editor.update` takes: the constructor's options, any of them. A key
+ * left out (or `undefined`) stays as it is; `null` removes a callback,
+ * clears a list, turns `editAs` and `readOnly` off, or returns a setting to
+ * its default; settings merge key by key. The options the editor is built
+ * from (`language`, `schema`, `fileName`, `className`, `secrets`) cannot
+ * change: create a new editor.
+ */
+export interface EditorUpdate extends SettingsUpdate {
+  /** Replaces the document (in `language`), as a host update: the caret stays when the text is unchanged. */
+  value?: string;
+  /** The text the diff gutter compares against. */
+  baseline?: string;
+  /** Edit in another language; `null` edits in `language` again. */
+  editAs?: LanguageName | null;
+  /** View mode; `null` is `false`. */
+  readOnly?: boolean | null;
+  /** Replaces the host's problems; `null` or `[]` clears them. */
+  hostDiagnostics?: HostDiagnostic[] | null;
+  /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
+  readOnlyPaths?: FieldPath[] | null;
+  /** Replaces the stretches the user cannot change (in the document as it is after this update); `null` or `[]` clears them. */
+  readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
   onChangeSummary?: ((summary: ChangeSummary) => void) | null;
   onPathChange?: ((path: EditorPath) => void) | null;
+  onSchemaWarning?: ((message: string) => void) | null;
+  /** `null` gives `Ctrl+S` back to the browser. */
   onSave?: ((value: string, language: LanguageName) => void) | null;
   onDirtyChange?: ((dirty: boolean) => void) | null;
   onBaselineConflict?: ((event: BaselineConflict) => void) | null;
+  /** The editor is built from it: create a new one to change it. */
+  language?: never;
+  /** The editor is built from it: create a new one to change it. */
+  schema?: never;
+  /** The editor is built from it: create a new one to change it. */
+  fileName?: never;
+  /** The editor is built from it: create a new one to change it. */
+  className?: never;
+  /** The editor is built from it: create a new one to change it. */
+  secrets?: never;
+}
+
+/**
+ * What a mounted editor answers and does: a `ConfigEditor`, and a
+ * document's editor in a `ConfigDocuments` (`view.editor(id)`).
+ */
+export interface EditorView {
+  /** The document, in its language (a document's editor: the host's `value`, then each edit). */
+  readonly value: string;
+  /** The text on screen: in the `editAs` language while editing as another one (what `rangeOf` and `pathAt` index into). */
+  readonly text: string;
+  /** Whether the document differs from its baseline. */
+  readonly isDirty: boolean;
+  /** The path of what the caret is on, or `null` (a document's editor: until it has been shown once). */
+  readonly currentPath: EditorPath | null;
+  /** The folded blocks, one-based `{ startLine, endLine }` (`startLine` stays visible). */
+  readonly foldedLines: LineRange[];
+  /** The settings in effect: every key of `EditorSettings`, set. */
+  readonly settings: Required<EditorSettings>;
+  /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
+  reveal(path: FieldPath): boolean;
+  /** Where the field at `path` is written in the text on screen, or `null`. */
+  rangeOf(path: FieldPath): EditorRange | null;
+  /** The path of what the text on screen holds at string index `offset`, or `null`. */
+  pathAt(offset: number): EditorPath | null;
+  /** Folds the block the field at `path` opens; `false` when there is none to fold. */
+  fold(path: FieldPath): boolean;
+  /** Opens the folds around the field at `path`; `false` when none was closed. */
+  unfold(path: FieldPath): boolean;
+  /** Folds every block (`Ctrl+K Ctrl+0`). */
+  foldAll(): void;
+  /** Opens every fold (`Ctrl+K Ctrl+J`). */
+  unfoldAll(): void;
+  /** Focuses the editor, keeping its selection. */
+  focus(): void;
+  /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). */
+  save(): boolean;
+  /** The unified diff (`diff -u`) of the baseline against the document, with `context` unchanged lines around each change (default 3); empty when they are the same. */
+  unifiedDiff(context?: number): string;
 }
 
 /** How the document differs from the baseline, by lines, as the diff gutter shows it. */
@@ -146,9 +229,9 @@ export interface LineRange {
   endLine: number;
 }
 
-/** What a language name stands for (`languageInfo`). */
+/** A language, as `languages()` lists it. */
 export interface LanguageInfo {
-  /** The canonical name, as `languages()` lists it: `"yaml"` for `"yml"`. */
+  /** The canonical name, what `language` and `editAs` take (they also take an extension: `"yml"`). */
   name: LanguageName;
   /** Short UI label, such as `"YAML"`. */
   label: string;
@@ -160,11 +243,14 @@ export interface LanguageInfo {
   defaultFileName: string;
 }
 
-/** A bundled theme (`themeInfo`). */
+/** A bundled theme, as `themes()` lists it. */
 export interface ThemeInfo {
+  /** The slug `theme` takes, such as `"vscode-dark"`. */
   name: ThemeName;
   /** Display name, such as `"VS Code Dark"`. */
   label: string;
+  /** Whether it is a dark theme. */
+  dark: boolean;
 }
 
 export interface Diagnostic {
@@ -209,7 +295,7 @@ export interface CustomLanguage {
 const DOCUMENT_TYPES: &str = r#"
 /** One open document of a `ConfigDocuments` view. */
 export interface DocumentSpec {
-  /** Identifies the document across `setDocuments` calls and in every callback. Unique in the list. */
+  /** Identifies the document across `update({ documents })` calls and in every callback. Unique in the list. */
   id: string;
   /** The tab's label (a file name or path); its extension gives the language when `language` is not set. */
   fileName: string;
@@ -225,7 +311,7 @@ export interface DocumentSpec {
   schema?: string;
   /** Edit in another language than `language`; switches live. */
   editAs?: LanguageName;
-  /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `setSettings`). Switch live. The view's `styled` applies to every editor. */
+  /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `update`). Switch live. The view's `styled` applies to every editor. */
   settings?: EditorSettings;
   /** Problems the host found in this document (see `HostDiagnostic`); a new list replaces the markers. */
   hostDiagnostics?: HostDiagnostic[];
@@ -266,13 +352,28 @@ export interface DocumentsOptions extends EditorSettings {
   onDirtyChange?: (id: string, dirty: boolean) => void;
 }
 
-/** Callbacks of a `ConfigDocuments` to replace: a function replaces, `null` removes, absent keeps. */
-export interface DocumentsCallbackUpdate {
+/**
+ * What `view.update` takes: the documents, the active one, the settings and
+ * the callbacks, any of them. A key left out (or `undefined`) stays as it
+ * is; `null` removes a callback or returns a setting to its default;
+ * settings merge key by key. `className` and `label` cannot change.
+ */
+export interface DocumentsUpdate extends SettingsUpdate {
+  /** Replaces the list: a document keeps its editor while its `id` stays listed. */
+  documents?: DocumentSpec[];
+  /** Shows this document, leaving the focus where it is. */
+  activeId?: string;
   onSelect?: ((id: string) => void) | null;
+  /** Replaces or removes it; it cannot be added to a view mounted without one (its tabs have no close buttons). */
   onClose?: ((request: CloseRequest) => void) | null;
   onChange?: ((id: string, value: string) => void) | null;
+  /** `null` gives `Ctrl+S` back to the browser. */
   onSave?: ((id: string, value: string, language: LanguageName) => void) | null;
   onDirtyChange?: ((id: string, dirty: boolean) => void) | null;
+  /** The view is built from it: create a new one to change it. */
+  className?: never;
+  /** The view is built from it: create a new one to change it. */
+  label?: never;
 }
 "#;
 
@@ -285,21 +386,15 @@ const SETTINGS_TYPES: &str = include_str!("settings.d.ts");
 extern "C" {
     #[wasm_bindgen(typescript_type = "EditorOptions")]
     pub type EditorOptions;
-    #[wasm_bindgen(typescript_type = "EditorSettings")]
-    pub type Settings;
     #[wasm_bindgen(typescript_type = "Required<EditorSettings>")]
     pub type SettingsResult;
-    #[wasm_bindgen(typescript_type = "(keyof EditorSettings)[]")]
-    pub type SettingKeys;
-    #[wasm_bindgen(typescript_type = "DocumentEditor | null")]
+    #[wasm_bindgen(typescript_type = "EditorView | null")]
     pub type DocumentEditorResult;
-    #[wasm_bindgen(typescript_type = "CallbackUpdate")]
+    #[wasm_bindgen(typescript_type = "EditorUpdate")]
     pub type EditorUpdate;
     #[wasm_bindgen(typescript_type = "DocumentsOptions")]
     pub type DocumentsOptions;
-    #[wasm_bindgen(typescript_type = "DocumentSpec[]")]
-    pub type DocumentList;
-    #[wasm_bindgen(typescript_type = "DocumentsCallbackUpdate")]
+    #[wasm_bindgen(typescript_type = "DocumentsUpdate")]
     pub type DocumentsUpdate;
     #[wasm_bindgen(typescript_type = "CustomLanguage")]
     pub type CustomLanguage;
@@ -321,10 +416,10 @@ extern "C" {
     pub type LineRanges;
     #[wasm_bindgen(typescript_type = "unknown")]
     pub type Data;
-    #[wasm_bindgen(typescript_type = "LanguageInfo")]
-    pub type LanguageInfoResult;
+    #[wasm_bindgen(typescript_type = "LanguageInfo[]")]
+    pub type LanguageInfos;
     #[wasm_bindgen(typescript_type = "LanguageName | null")]
     pub type NameResult;
-    #[wasm_bindgen(typescript_type = "ThemeInfo")]
-    pub type ThemeInfoResult;
+    #[wasm_bindgen(typescript_type = "ThemeInfo[]")]
+    pub type ThemeInfos;
 }

@@ -10,6 +10,8 @@
     "types": [],
     "paths": {
       "@pngwasi/config-editor": ["../config-editor/index.d.ts"],
+      "@pngwasi/config-editor/tools": ["../config-editor/tools.d.ts"],
+      "@pngwasi/config-editor/binding": ["../config-editor/binding.d.ts"],
       "@pngwasi/config-editor-react": ["../config-editor-react/dist/index.d.ts"]
     }
   },

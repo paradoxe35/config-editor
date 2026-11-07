@@ -1,4 +1,4 @@
-import { type DocumentEditor } from "@pngwasi/config-editor";
+import type { EditorView } from "@pngwasi/config-editor";
 import type { ConfigDocumentsProps } from "./types.js";
 /**
  * Several documents as tabs, one editor per document (each keeps its caret,
@@ -19,7 +19,7 @@ declare const ConfigDocuments: import("svelte").Component<ConfigDocumentsProps, 
     save: (id: string) => boolean;
     saveAll: () => string[];
     focus: () => void;
-    editor: (id: string) => DocumentEditor | null;
+    editor: (id: string) => EditorView | null;
 }, "">;
 type ConfigDocuments = ReturnType<typeof ConfigDocuments>;
 export default ConfigDocuments;

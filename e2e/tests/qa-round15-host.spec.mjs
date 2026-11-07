@@ -199,12 +199,12 @@ test.describe('host inputs and data', () => {
         map: caught(() => api.serialize('json', { m: new Map() })),
         big: api.serialize('json', { n: 1e16 }),
         noSlash: caught(() => api.rangeOf('yaml', 'web:\n  http: 80\n', 'web/http')),
-        paths: caught(() => editor.setReadOnlyPaths(['/listen', 'nope'])),
-        backwards: caught(() => editor.setReadOnlyRanges([{ start: 5, end: 2 }])),
-        past: caught(() => editor.setReadOnlyRanges([{ startLine: 999, startColumn: 1 }])),
-        both: caught(() => editor.setHostDiagnostics([{ path: '/listen', range: { start: 0, end: 1 }, message: 'x' }])),
-        docs: caught(() => editor.setHostDiagnostics([{ path: '/listen', message: 'x', docsUrl: 'javascript:alert(1)' }])),
-        badPath: caught(() => editor.setHostDiagnostics([{ message: 'ok' }, { path: 'listen', message: 'x' }])),
+        paths: caught(() => editor.update({ readOnlyPaths: ['/listen', 'nope'] })),
+        backwards: caught(() => editor.update({ readOnlyRanges: [{ start: 5, end: 2 }] })),
+        past: caught(() => editor.update({ readOnlyRanges: [{ startLine: 999, startColumn: 1 }] })),
+        both: caught(() => editor.update({ hostDiagnostics: [{ path: '/listen', range: { start: 0, end: 1 }, message: 'x' }] })),
+        docs: caught(() => editor.update({ hostDiagnostics: [{ path: '/listen', message: 'x', docsUrl: 'javascript:alert(1)' }] })),
+        badPath: caught(() => editor.update({ hostDiagnostics: [{ message: 'ok' }, { path: 'listen', message: 'x' }] })),
       };
     });
     expect(result.xmlOne).toMatch(/XML cannot write this value.*\/a/);
