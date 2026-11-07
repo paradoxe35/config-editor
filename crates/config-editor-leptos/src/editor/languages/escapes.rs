@@ -6,8 +6,13 @@
 #[derive(Clone, Copy)]
 pub(super) enum Astral {
     /// Two `\uXXXX` escapes, a UTF-16 surrogate pair (JSON).
+    #[cfg_attr(not(feature = "json"), allow(dead_code))]
     SurrogatePair,
     /// One `\UXXXXXXXX` escape (YAML, TOML, HCL).
+    #[cfg_attr(
+        not(any(feature = "yaml", feature = "toml", feature = "hcl")),
+        allow(dead_code)
+    )]
     Long,
 }
 
