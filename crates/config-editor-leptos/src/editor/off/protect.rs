@@ -150,6 +150,10 @@ impl EditorState {
 
     pub(super) fn snap_to_tokens(&self) {}
 
+    pub(super) fn press_at(&self, _offset: usize) {}
+
+    pub(super) fn release_press(&self) {}
+
     pub(super) fn step_over_token(&self, _event: &KeyboardEvent) -> bool {
         false
     }

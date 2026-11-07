@@ -237,7 +237,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (146 texts)</summary>
+<summary>Every text and its default (148 texts)</summary>
 
 | Field | Default | |
 |---|---|---|
@@ -362,6 +362,7 @@ they come.
 | `secret_hint` | `"Keeps the current secret unless you replace it"` | The hover text of a secret placeholder, unless the host gives one. |
 | `secret_value` | `"the secret value"` | What a schema problem says instead of a secret field's value. |
 | `unknown_placeholder` | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field. |
+| `moved_placeholder` | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"` | One of the host's placeholders outside the field it stands in. |
 | `env_reference` | `"Read the secret from an environment variable"` | The detail of the `${…}` reference suggestion. |
 | `file_reference` | `"Read the secret from a file"` | The detail of the `file:` reference suggestion. |
 | `other_reference` | `"A reference starting with {prefix}"` | The detail of another reference suggestion. |
@@ -379,6 +380,7 @@ they come.
 | `edit_cannot_show` | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"` | A value the edited language cannot show exactly (Edit-as). |
 | `not_saved` | `"Not saved as {host}: {error}"` | An edit the host's language cannot save (Edit-as). |
 | `no_null` | `"{host} has no null value (at {pointer})"` | A null the host's language cannot write (Edit-as). |
+| `no_non_finite` | `"{host} has no infinity or NaN (at {pointer})"` | An infinity or NaN the host's language has no number for (Edit-as). |
 | `cannot_edit_as` | `"Cannot edit this {host} as {edit}: {error}"` | A host document that does not convert for editing. |
 | `cannot_switch` | `"Cannot switch to {edit} yet: {error}"` | An Edit-as switch waiting until the document converts. |
 | `tab_list` | `"Open files"` | The tab list's accessible name, unless the host gives one. |
@@ -661,7 +663,8 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   value, or the key of a block), next to the editor's own problems: `F8` /
   `Shift+F8` stop at them, the footer counts them, and the hover message
   adds who reported them, the code, and "Open docs ↗" (a click on the
-  message opens `docs_url`). What cannot be placed (a missing field, a range
+  message opens `docs_url`, an `http:` or `https:` URL; `is_web_url` checks
+  one, and another is not linked). What cannot be placed (a missing field, a range
   while editing as another language, the whole document) shows in the footer.
 - Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
   (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
@@ -755,10 +758,16 @@ let secrets = SecretOptions::default()
 view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 ```
 
-- Only tokens the host gave are placeholders: a match of the pattern (and
-  of the host's check) found in the host's own `value`. A look-alike typed
-  or pasted in stays plain text, and one in a secret field is flagged as a
-  problem (it stands for no current secret).
+- A placeholder is real only in the field the host gave it in: a match of
+  the pattern (and of the host's check) found in that field of the host's
+  own `value`, at most as often as there. Anywhere else it is plain text,
+  so it can never stand for another field's secret: one of the host's
+  tokens pasted into another field, or left under a renamed key, is flagged
+  (it stands for the secret of the field it came from), and so is a token
+  the host did not give in a secret field (it stands for no current
+  secret). Put back into its own field (cut and pasted back, the key's name
+  restored), it is real again, since the field then holds what the host
+  gave. The schema check accepts a placeholder only in its own field.
 - A placeholder is atomic: the caret never lands inside it (clicks, arrows,
   `Home`/`End` and selections snap to its edges; `←`/`→` step over it),
   `Backspace` or `Delete` next to it removes it whole, an edit or a
@@ -959,7 +968,7 @@ let problems = schema.validate(Language::TOML, &text); // Vec<Diagnostic>
 let syntax_only = check_syntax(Language::JSON, &text);
 
 let value = Language::YAML.parse(&text)?;              // serde_json::Value
-let yaml = Language::YAML.serialize(&value)?;
+let yaml = Language::YAML.serialize(&value)?;          // only if it reads back the same
 let hcl = Language::YAML.convert(&text, Language::HCL)?;
 assert!(hcl.losses.is_empty());
 let xml = schema.convert(Language::YAML, &text, Language::XML)?; // schema-aware
@@ -967,6 +976,22 @@ let xml = schema.convert(Language::YAML, &text, Language::XML)?; // schema-aware
 let language: Language = "yml".parse()?;               // names and extensions
 let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ```
+
+- `serialize` writes only a document that reads back as exactly the value
+  given: it fails (`ConvertError::Unsupported`, naming the value) where
+  `convert` would report a loss, such as an XML empty, nested or one-item
+  list, or an infinity in JSON. It is the same check, so the two agree.
+- Infinities and NaN (YAML `.inf`, `-.inf`, `.nan`; TOML `inf`, `-inf`,
+  `nan`) stay numbers. A `serde_json::Value` cannot hold them, so the data
+  model holds each as a reserved string (a Unicode noncharacter, U+FDD0,
+  then `inf`, `-inf` or `nan`), which `float_value` makes and `float_of`
+  reads (`float_of(&value["rate"]) == Some(f64::INFINITY)`). YAML and TOML
+  write them back as numbers; JSON, HCL and XML have none, so a conversion
+  reports them as losses and an Edit-as save into one of them waits with a
+  problem (an Edit-as view in one of them shows the text `inf` and keeps the
+  host's number unless the user edits it). Schema validation reads them as
+  numbers beyond every bound. A custom language says it writes them with
+  `ConfigLanguage::writes_non_finite`.
 
 | Item                                       | Description                                                                                                                                                                                                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

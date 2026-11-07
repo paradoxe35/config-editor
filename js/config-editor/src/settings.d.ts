@@ -844,6 +844,12 @@ export interface EditorStrings {
    */
   unknownPlaceholder?: string;
   /**
+   * One of the host's placeholders outside the field it stands in.
+   *
+   * @default "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"
+   */
+  movedPlaceholder?: string;
+  /**
    * The detail of the `${…}` reference suggestion.
    *
    * @default "Read the secret from an environment variable"
@@ -945,6 +951,12 @@ export interface EditorStrings {
    * @default "{host} has no null value (at {pointer})"
    */
   noNull?: string;
+  /**
+   * An infinity or NaN the host's language has no number for (Edit-as).
+   *
+   * @default "{host} has no infinity or NaN (at {pointer})"
+   */
+  noNonFinite?: string;
   /**
    * A host document that does not convert for editing.
    *

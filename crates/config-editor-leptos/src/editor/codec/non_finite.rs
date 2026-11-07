@@ -20,11 +20,16 @@
 //! [`ConfigLanguage::writes_non_finite`]: super::super::language::ConfigLanguage::writes_non_finite
 
 use std::borrow::Cow;
+#[cfg(feature = "yaml")]
 use std::fmt;
 
+#[cfg(feature = "yaml")]
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+#[cfg(any(feature = "yaml", feature = "toml"))]
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use serde_json::{Map, Number, Value};
+#[cfg(feature = "yaml")]
+use serde_json::Map;
+use serde_json::{Number, Value};
 
 /// The noncharacter starting a non-finite number's string.
 const MARK: char = '\u{FDD0}';
@@ -116,6 +121,7 @@ pub(crate) fn as_text(value: &Value) -> Cow<'_, Value> {
     replaced(value, &|name| Value::String(name.to_string()))
 }
 
+#[cfg(feature = "schema-validation")]
 /// The finite numbers schema validation sees for `inf`, `-inf` and `nan`:
 /// an infinity is the largest finite number of its sign (beyond every bound
 /// a schema can write), NaN the one just below the largest.
@@ -127,6 +133,7 @@ fn stand_in(name: &str) -> f64 {
     }
 }
 
+#[cfg(feature = "schema-validation")]
 /// `value` as schema validation sees it: each non-finite number as its
 /// stand-in, a number, as it is in the config.
 pub(crate) fn for_validation(value: &Value) -> Cow<'_, Value> {
@@ -135,6 +142,7 @@ pub(crate) fn for_validation(value: &Value) -> Cow<'_, Value> {
     })
 }
 
+#[cfg(feature = "schema-validation")]
 /// A validation message with the stand-ins it quotes written as the
 /// numbers they stand for.
 pub(crate) fn restore_in_message(message: &str) -> String {
@@ -146,10 +154,12 @@ pub(crate) fn restore_in_message(message: &str) -> String {
     message
 }
 
+#[cfg(any(feature = "yaml", feature = "toml"))]
 /// `value` serialized with its non-finite numbers as floats, for a serde
 /// writer that has them (YAML's `.inf`, TOML's `inf`).
 pub(crate) struct Floats<'a>(pub(crate) &'a Value);
 
+#[cfg(any(feature = "yaml", feature = "toml"))]
 impl Serialize for Floats<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self.0 {
@@ -175,18 +185,22 @@ impl Serialize for Floats<'_> {
     }
 }
 
+#[cfg(feature = "yaml")]
 /// A value read by a serde parser, its non-finite floats kept (a plain
 /// `Value` turns them into `null`).
 pub(crate) struct Parsed(pub(crate) Value);
 
+#[cfg(feature = "yaml")]
 impl<'de> Deserialize<'de> for Parsed {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_any(ParsedVisitor).map(Parsed)
     }
 }
 
+#[cfg(feature = "yaml")]
 struct ParsedVisitor;
 
+#[cfg(feature = "yaml")]
 impl<'de> Visitor<'de> for ParsedVisitor {
     type Value = Value;
 

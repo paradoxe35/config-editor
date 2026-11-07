@@ -202,7 +202,7 @@ and `editAsTypedCommentsNone`.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (146 texts)</summary>
+<summary>Every text and its default (148 texts)</summary>
 
 | Key | Default | |
 |---|---|---|
@@ -327,6 +327,7 @@ and `editAsTypedCommentsNone`.
 | `secretHint` | `"Keeps the current secret unless you replace it"` | The hover text of a secret placeholder, unless the host gives one. |
 | `secretValue` | `"the secret value"` | What a schema problem says instead of a secret field's value. |
 | `unknownPlaceholder` | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field. |
+| `movedPlaceholder` | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"` | One of the host's placeholders outside the field it stands in. |
 | `envReference` | `"Read the secret from an environment variable"` | The detail of the `${…}` reference suggestion. |
 | `fileReference` | `"Read the secret from a file"` | The detail of the `file:` reference suggestion. |
 | `otherReference` | `"A reference starting with {prefix}"` | The detail of another reference suggestion. |
@@ -344,6 +345,7 @@ and `editAsTypedCommentsNone`.
 | `editCannotShow` | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"` | A value the edited language cannot show exactly (Edit-as). |
 | `notSaved` | `"Not saved as {host}: {error}"` | An edit the host's language cannot save (Edit-as). |
 | `noNull` | `"{host} has no null value (at {pointer})"` | A null the host's language cannot write (Edit-as). |
+| `noNonFinite` | `"{host} has no infinity or NaN (at {pointer})"` | An infinity or NaN the host's language has no number for (Edit-as). |
 | `cannotEditAs` | `"Cannot edit this {host} as {edit}: {error}"` | A host document that does not convert for editing. |
 | `cannotSwitch` | `"Cannot switch to {edit} yet: {error}"` | An Edit-as switch waiting until the document converts. |
 | `tabList` | `"Open files"` | The tab list's accessible name, unless the host gives one. |
@@ -406,7 +408,9 @@ editor.setHostDiagnostics([
   colors `error`, `warning`, `info` and `hint` in `colors`.
 - `F8` stops at them, the footer counts them, and the hover message adds
   `source` (default `"host"`), `code` and "Open docs ↗": a click on the
-  message opens `docsUrl`.
+  message opens `docsUrl`, which must be an `http:` or `https:` URL.
+- `path` and `range` are exclusive; a range past the text's end, ending
+  before it starts, or a pointer without its leading `/` throws.
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one; only the
   markers update. An invalid entry throws, naming its index.
@@ -461,9 +465,13 @@ const editor = new ConfigEditor(element, {
 });
 ```
 
-- Only tokens in the host's own `value` (and accepted by `isPlaceholder`)
-  are placeholders; typed or pasted look-alikes stay plain text, and one in
-  a secret field is flagged.
+- A placeholder is real only in the field of the host's own `value` it
+  was given in (and accepted by `isPlaceholder`). Anywhere else it is plain
+  text, so it never stands for another field's secret: one of the host's
+  tokens pasted into another field, or under a renamed key, is flagged, and
+  so is a token the host did not give in a secret field. Put back into its
+  own field it is real again. `placeholder` must be a regular expression
+  that matches no empty text (`.*` throws).
 - A placeholder is atomic: the caret never lands inside, `Backspace` and
   `Delete` remove it whole, an edit cutting into it replaces it whole, and
   copying keeps its text. It shows as a chip (color tokens `secret-chip`,
@@ -476,7 +484,10 @@ const editor = new ConfigEditor(element, {
 ### Paths
 
 A path names a field the same way in every language: a JSON pointer
-(`"/web/hosts/1"`) or its keys and indices (`["web", "hosts", 1]`).
+(`"/web/hosts/1"`, `""` for the whole document) or its keys and indices
+(`["web", "hosts", 1]`). A pointer starts with `/`: `"web/hosts"` throws,
+everywhere a path is taken (the editor's methods, the headless functions,
+`readOnlyPaths`, host diagnostics).
 
 ```ts
 editor.reveal("/web/listen");     // scroll to it, select it, focus; false when absent
@@ -504,8 +515,8 @@ value or container holding it (`""` at the top level).
 | `convert(from, text, to, schema?)`  | `{ text, losses }` | Convert between languages. `losses` lists JSON pointers of values the target reads back differently. Throws when the text does not parse or the target cannot express it. With a schema, a lone XML element where it expects a list converts as a one-item list. |
 | `unifiedDiff(baseline, current, context?)` | `string`    | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                   |
 | `changeSummary(baseline, current)`  | `ChangeSummary`    | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                    |
-| `parse(language, text)`             | `unknown`          | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. Throws the first syntax error, with its line and column.                                                       |
-| `serialize(language, value)`        | `string`           | Plain data as a document. Throws when the value is not JSON data or the language cannot express it (TOML has no `null`).                                                                                                                                        |
+| `parse(language, text)`             | `unknown`          | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. Integers past 2^53 (TOML holds 64-bit ones) lose precision as JavaScript numbers, as with `JSON.parse`. Throws the first syntax error, with its line and column. |
+| `serialize(language, value)`        | `string`           | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item lists; JSON, HCL and XML have no `Infinity` or `NaN`). Whole numbers past 2^53 are written as integers. |
 | `rangeOf(language, text, path)`     | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                 |
 | `pathAt(language, text, index)`     | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                     |
 | `foldRanges(language, text)`        | `LineRange[]`      | The blocks that fold, one-based `{ startLine, endLine }` (`startLine` stays visible), as the gutter chevrons offer them.                                                                                                                                         |

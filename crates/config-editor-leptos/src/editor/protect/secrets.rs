@@ -13,7 +13,7 @@ use super::super::edit::Edit;
 use super::super::input::edit_range;
 use super::super::language::ConfigLanguage;
 use super::super::secret_options::SecretOptions;
-use super::super::state::{EditorState, directed_selection};
+use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::tokens::{Known, SecretMatcher, locate, snap, snap_selection, widen};
 
 /// A text and the language it is written in.
@@ -28,6 +28,8 @@ pub(crate) struct SecretState {
     pub(crate) known: RwSignal<Vec<Known>>,
     /// UTF-16 ranges of the real tokens in the text on screen.
     pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
+    /// The token a mouse press landed inside, until the button is released.
+    pressed: StoredValue<Option<Range<usize>>>,
 }
 
 impl SecretState {
@@ -40,6 +42,7 @@ impl SecretState {
             matcher: StoredValue::new(Arc::new(matcher)),
             known: RwSignal::new(known),
             tokens: RwSignal::new(tokens),
+            pressed: StoredValue::new(None),
         }
     }
 
@@ -54,6 +57,18 @@ impl SecretState {
     }
 }
 
+/// Whether `after` is `before` with the UTF-16 range `start..end` replaced.
+fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    let kept = old.len().checked_sub(end).filter(|_| start <= end);
+    kept.is_some_and(|kept| {
+        new.len() >= start + kept
+            && old[..start] == new[..start]
+            && old[end..] == new[new.len() - kept..]
+    })
+}
+
 impl EditorState {
     /// The edit pipeline's prepare stage: an edit cutting a placeholder
     /// takes it whole, leaving just the caret.
@@ -62,7 +77,12 @@ impl EditorState {
             if tokens.is_empty() {
                 return None;
             }
-            let (start, end) = edit_range(&edit.before, &edit.text, edit.caret());
+            // The selection the edit replaced when it is known and the
+            // texts agree with it: a token pasted over another shares its
+            // first characters, which a diff of the texts would keep.
+            let (start, end) = Some(edit.replaced(edit.caret()))
+                .filter(|selection| replaces(&edit.before, &edit.text, *selection))
+                .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
             widen(tokens, &edit.before, &edit.text, start..end)
         });
         if let Some((text, _, caret)) = widened {
@@ -149,6 +169,51 @@ impl EditorState {
         let backward = caret < anchor;
         super::super::state::select(&element, snapped.0, snapped.1, backward);
         self.note_caret(if backward { snapped.0 } else { snapped.1 });
+    }
+
+    /// A mouse press at UTF-16 `offset` (read off the pointer, since the
+    /// browser's own anchor inside a placeholder is not reliable): a press
+    /// inside one is remembered, for the release to anchor at its edge.
+    pub(crate) fn press_at(&self, offset: usize) {
+        let secrets = self.protect.secrets;
+        let pressed = secrets.tokens.with_untracked(|tokens| {
+            tokens
+                .iter()
+                .find(|token| token.start < offset && offset < token.end)
+                .cloned()
+        });
+        secrets.pressed.set_value(pressed);
+    }
+
+    /// The mouse button released: a selection dragged from inside a
+    /// placeholder takes it whole, anchored at its edge away from the drag
+    /// (dragged left, at its end; right, at its start); without a drag the
+    /// caret snaps out of it.
+    pub(crate) fn release_press(&self) {
+        let secrets = self.protect.secrets;
+        let pressed = secrets.pressed.get_value();
+        secrets.pressed.set_value(None);
+        let (Some(token), Some(element)) = (pressed, self.textarea()) else {
+            self.snap_to_tokens();
+            return;
+        };
+        let (start, end) = textarea_selection(&element);
+        let inside = |at: usize| token.start < at && at < token.end;
+        // The end the pointer moved: the one outside the placeholder.
+        let focus = if !inside(start) && (start < end || !inside(end)) {
+            if start < token.start { start } else { end }
+        } else {
+            end
+        };
+        if focus <= token.start {
+            super::super::state::select(&element, focus, token.end, true);
+            self.note_caret(focus);
+        } else if focus >= token.end {
+            super::super::state::select(&element, token.start, focus, false);
+            self.note_caret(focus);
+        } else {
+            self.snap_to_tokens();
+        }
     }
 
     /// `ArrowLeft` / `ArrowRight` (with `Shift`, extending) step over a

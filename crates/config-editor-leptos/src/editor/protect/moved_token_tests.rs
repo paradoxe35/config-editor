@@ -69,9 +69,16 @@ fn a_placeholder_is_real_only_in_its_own_field_in_every_language() {
         // Pasted over the pin's token: plain there, and flagged.
         let (_owner, state) = TestEditor::new(language, &text).mount();
         let pin = text.find(PIN).unwrap();
-        replace(state, pin..pin + PIN.len(), "");
-        replace(state, pin..pin, SECRET);
+        // Pasted over the pin's token selected whole: the two tokens share
+        // their first characters, and the paste still replaces it whole.
+        replace(state, pin..pin + PIN.len(), SECRET);
         let pasted = pin;
+        if !state.doc.text.get_untracked()[pin..].starts_with(SECRET) {
+            failures.push(format!(
+                "{language}: the paste over the pin's token left {:?}",
+                state.doc.text.get_untracked()
+            ));
+        }
         if real_at(state, pasted) {
             failures.push(format!("{language}: the secret's token is real in /pin"));
         }

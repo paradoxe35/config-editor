@@ -179,6 +179,7 @@ pub(crate) fn problem_span(
         .find_map(|pointer| locate(pointer))
 }
 
+#[cfg(any(feature = "protect", feature = "schema-validation"))]
 /// Whether two pointers name the same field, in languages that write a
 /// lone list item without its `/0` (XML, HCL blocks) or with it.
 pub(crate) fn same_field(one: &str, other: &str) -> bool {

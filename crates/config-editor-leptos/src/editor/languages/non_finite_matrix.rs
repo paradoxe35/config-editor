@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use super::super::bridge::Bridge;
 use super::super::codec::{self, float_of};
-use super::super::diagnostics::build_schema;
 use super::Language;
 
 /// `rate` holds each non-finite number in the languages that have them.
@@ -133,6 +132,7 @@ fn edit_as_saves_keep_non_finite_numbers() {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn schema_validation_reads_non_finite_numbers_as_numbers() {
+    use super::super::diagnostics::build_schema;
     let numbers = build_schema(
         r#"{"properties": {"rate": {"type": "number"}, "low": {"type": "number"}, "odd": {"type": "number"}}}"#,
     )

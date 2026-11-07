@@ -81,7 +81,7 @@ extends the generated `EditorSettings` type.
 | `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
 | `readOnlyPaths` | `FieldPath[]` | — | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones; they hold with `editAs` too. See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#read-only-fields). Updates live. |
 | `readOnlyRanges` | `TextRangeInput[]` | — | Stretches of the document (in `language`) the user cannot change: `{ start, end }` or `{ startLine, startColumn, endLine?, endColumn? }`. Updates live. |
-| `secrets` | `SecretOptions` | defaults | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic and are kept unless replaced; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#secrets). Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. |
+| `secrets` | `SecretOptions` | defaults | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: secret placeholders (`«secret 3f2a»`) in `writeOnly` / `x-secret` fields stay atomic and are kept unless replaced, each real only in the field the host gave it in; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#secrets). Changing `placeholder`, `hint` or `referencePrefixes` re-mounts; `isPlaceholder` may change freely. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine). |
@@ -161,7 +161,7 @@ keeps them) and that comments typed there are not saved.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (146 texts)</summary>
+<summary>Every text and its default (148 texts)</summary>
 
 | Key | Default | |
 |---|---|---|
@@ -286,6 +286,7 @@ keeps them) and that comments typed there are not saved.
 | `secretHint` | `"Keeps the current secret unless you replace it"` | The hover text of a secret placeholder, unless the host gives one. |
 | `secretValue` | `"the secret value"` | What a schema problem says instead of a secret field's value. |
 | `unknownPlaceholder` | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field. |
+| `movedPlaceholder` | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"` | One of the host's placeholders outside the field it stands in. |
 | `envReference` | `"Read the secret from an environment variable"` | The detail of the `${…}` reference suggestion. |
 | `fileReference` | `"Read the secret from a file"` | The detail of the `file:` reference suggestion. |
 | `otherReference` | `"A reference starting with {prefix}"` | The detail of another reference suggestion. |
@@ -303,6 +304,7 @@ keeps them) and that comments typed there are not saved.
 | `editCannotShow` | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"` | A value the edited language cannot show exactly (Edit-as). |
 | `notSaved` | `"Not saved as {host}: {error}"` | An edit the host's language cannot save (Edit-as). |
 | `noNull` | `"{host} has no null value (at {pointer})"` | A null the host's language cannot write (Edit-as). |
+| `noNonFinite` | `"{host} has no infinity or NaN (at {pointer})"` | An infinity or NaN the host's language has no number for (Edit-as). |
 | `cannotEditAs` | `"Cannot edit this {host} as {edit}: {error}"` | A host document that does not convert for editing. |
 | `cannotSwitch` | `"Cannot switch to {edit} yet: {error}"` | An Edit-as switch waiting until the document converts. |
 | `tabList` | `"Open files"` | The tab list's accessible name, unless the host gives one. |
@@ -477,7 +479,7 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `convert(from, text, to, schema?)` | `{ text, losses }`. |
 | `unifiedDiff(baseline, current, context?)` | The `diff -u` of two texts (`""` when they have the same lines). |
 | `changeSummary(baseline, current)` | `{ added, removed, modified, hunks }` between two texts, as `onChangeSummary` counts them. |
-| `parse(language, text)`, `serialize(language, value)` | A document as plain data and back; errors are thrown. |
+| `parse(language, text)`, `serialize(language, value)` | A document as plain data and back, as in [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor#functions): `Infinity` and `NaN` for YAML's `.inf` and TOML's `nan`, integers past 2^53 imprecise as in `JSON.parse`; `serialize` throws unless the document reads back as exactly the value. |
 | `rangeOf(language, text, path)`, `pathAt(language, text, index)` | Where a field is written / the path at a string index, as the ref's `rangeOf` and `pathAt` answer. |
 | `foldRanges(language, text)` | The blocks that fold, one-based `{ startLine, endLine }`. |
 | `languageInfo(name)`, `languageForFile(path)` | `{ name, label, icon, extensions, defaultFileName }` of a language; the language of a file name. |

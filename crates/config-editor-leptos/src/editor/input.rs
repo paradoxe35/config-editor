@@ -356,6 +356,33 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     }
 }
 
+/// A mouse press in the text: where it landed, for a drag that starts on a
+/// secret placeholder.
+fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
+    if event.button() != 0 {
+        return;
+    }
+    let Some(element) = target_textarea(state, event) else {
+        return;
+    };
+    let (line, column) = pointer_text_position(
+        &element,
+        f64::from(event.client_x()),
+        f64::from(event.client_y()),
+    );
+    let offset = state.doc.text.with_untracked(|text| {
+        super::paths::TextPosition::new(line + 1, column + 1).to_offset(text)
+    });
+    state.press_at(offset);
+}
+
+/// The end of a mouse selection: a drag that started on a secret
+/// placeholder takes it whole, anchored at its far edge (no `click`
+/// follows a drag that ends off the text it started on).
+fn mouse_up(state: EditorState) {
+    state.release_press();
+}
+
 /// Whether a click was a tap on a touch screen.
 fn from_touch(event: &web_sys::MouseEvent) -> bool {
     web_sys::js_sys::Reflect::get(event, &"pointerType".into())
@@ -452,6 +479,15 @@ pub(super) fn attach_listeners(state: EditorState) {
                 "selectionchange",
                 clipboard(Box::new(move |_| selection_change(state))),
             ),
+            // Each listener's event is cast to what it is (the closures
+            // share one type).
+            (
+                "mousedown",
+                clipboard(Box::new(move |event| {
+                    mouse_down(state, event.unchecked_ref::<web_sys::MouseEvent>());
+                })),
+            ),
+            ("mouseup", clipboard(Box::new(move |_| mouse_up(state)))),
             (
                 "compositionend",
                 clipboard(Box::new(move |_| {

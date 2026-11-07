@@ -75,7 +75,7 @@ const view = new ConfigDocuments(element, {
   showFooter: true,
   theme: "nord",
 });
-const tls: DocumentEditor | undefined = view.editor("tls");
+const tls: DocumentEditor | null = view.editor("tls");
 const revealed: boolean | undefined = tls?.reveal("/cert"); tls?.fold("/ciphers"); const tlsPath = tls?.currentPath; void [revealed, tlsPath];
 const savedIds: string[] = view.saveAll(); const shown: boolean = view.select("limits"); const active: string | undefined = view.activeId; const dirtyMain: boolean = view.isDirty("main");
 view.setCallbacks({ onSave: null }); view.setSettings({ ...view.settings, colors: { "tab-dirty": "#ffcc66" } }); view.destroy();

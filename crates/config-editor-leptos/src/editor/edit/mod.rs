@@ -236,7 +236,7 @@ impl Edit {
     }
 
     /// The selection the edit replaced, given the caret it left.
-    fn replaced(&self, caret: usize) -> Selection {
+    pub(in crate::editor) fn replaced(&self, caret: usize) -> Selection {
         if self.selection == UNKNOWN_SELECTION {
             edit_range(&self.before, &self.text, caret)
         } else {
