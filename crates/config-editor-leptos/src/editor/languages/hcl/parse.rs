@@ -5,7 +5,7 @@ use super::*;
 /// References, interpolations, and function calls arrive as their
 /// `${ ... }`-style source text.
 pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
-    hcl::from_str::<Value>(source).map_err(|error| {
+    let value = hcl::from_str::<Value>(source).map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {
@@ -20,7 +20,51 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             line: Some(line.clamp(1, line_count)),
             column: Some(column.max(1)),
         }
-    })
+    })?;
+    match shadowed_name(source) {
+        Some((offset, message)) => {
+            let (line, column) = line_column(source, offset);
+            Err(ParseError { message, line: Some(line), column: Some(column) })
+        }
+        None => Ok(value),
+    }
+}
+
+/// A name one body writes in two forms the parser cannot both keep (an
+/// attribute and a block, or blocks with and without labels): it keeps one
+/// and drops the other silently, so the second one is reported instead.
+pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
+    let scan = analyze(source, 0);
+    // Each name a body writes: (body, name) -> (first form, its offset).
+    let mut seen: HashMap<(usize, String), (&'static str, usize)> = HashMap::new();
+    let mut found: Option<(usize, String)> = None;
+    let mut forms: Vec<(usize, usize, String, &'static str)> = scan
+        .attributes
+        .iter()
+        .filter(|attribute| attribute.prefix.is_empty())
+        .map(|attribute| (attribute.key_span.0, attribute.body, attribute.name.clone(), "an attribute"))
+        .collect();
+    forms.extend(scan.headers.iter().map(|header| {
+        let form = if header.labels.is_empty() { "a block without labels" } else { "a block with labels" };
+        (header.type_span.0, header.parent, header.block_type.clone(), form)
+    }));
+    forms.sort_by_key(|(offset, ..)| *offset);
+    for (offset, body, name, form) in forms {
+        match seen.get(&(body, name.clone())) {
+            Some((first, _)) if *first != form => {
+                found = Some((
+                    offset,
+                    format!("`{name}` is written both as {first} and as {form}; only one of them would be read. Use one form."),
+                ));
+                break;
+            }
+            Some(_) => {}
+            None => {
+                seen.insert((body, name), (form, offset));
+            }
+        }
+    }
+    found
 }
 
 /// The parser's sentence without its ASCII-art source frame (`--> …`, `|`,

@@ -90,7 +90,7 @@ impl ConfigLanguage for HclBehavior {
         {
             return Some(format!("{{ {key} = {} }}", hcl_text(child)));
         }
-        let body = hcl::format::to_string(&hcl_body(map, &LabelledBlocks::new(), &[]).ok()?).ok()?;
+        let body = hcl::format::to_string(&hcl_body(map, &HostForms::default(), &[]).ok()?).ok()?;
         let mut text = String::from("{\n");
         for line in body.lines() {
             if !line.is_empty() {
@@ -107,6 +107,10 @@ impl ConfigLanguage for HclBehavior {
 
     fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
         one_line_block(source, pointer)
+    }
+
+    fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
+        rename_block_key(source, pointer, new_key)
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
@@ -210,9 +214,11 @@ impl ConfigLanguage for HclBehavior {
         let Value::Object(map) = value else {
             return Err("an HCL document is a body: the top level must be an object".to_string());
         };
-        // Maps the host wrote as labelled blocks are written that way again.
-        let labelled = previous.map(labelled_blocks).unwrap_or_default();
-        hcl::format::to_string(&hcl_body(map, &labelled, &[])?).map_err(|error| error.to_string())
+        // Maps are written in the host's forms again: labelled blocks,
+        // attributes, blocks on one line.
+        let forms = previous.map(host_forms).unwrap_or_default();
+        let rendered = hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string())?;
+        Ok(fold_one_line_blocks(&rendered, &forms.one_line))
     }
 
     /// An attribute's `=` (or `:` in an object), or a block's body after its

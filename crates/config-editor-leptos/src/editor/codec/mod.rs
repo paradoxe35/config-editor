@@ -2,11 +2,14 @@
 //! `xml.parse` then `hcl.serialize`. A language implements only its own side
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
+mod flow;
 mod kept_inline;
 mod lists;
 mod renames;
+mod reorder;
 
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
+pub(super) use reorder::patch_reorder;
 
 use super::completion::conform_arrays;
 use super::inline::matching_close;
@@ -147,7 +150,8 @@ pub(super) fn patch_scalars(
         while range.end > range.start && previous[..range.end].ends_with('\n') {
             range.end -= 1;
         }
-        let mut text = language.format_value(value);
+        // In the host's style for what was there (plain, quoted, a block).
+        let mut text = language.format_value_like(value, &previous[range.clone()]);
         // A triple-quoted string (`"""` … `"""`) runs to its closing
         // delimiter, and text with line breaks is written back that way.
         if let Some(delimiter) = triple_quote_at(previous, range.start) {
@@ -186,7 +190,7 @@ pub(super) fn patch_scalars(
         let line_end = previous[range.start..]
             .find('\n')
             .map_or(previous.len(), |offset| range.start + offset);
-        if range.end > line_end {
+        if range.end > line_end && !text.contains('\n') {
             let line = &previous[line_start..line_end];
             if let Some(comment) = language
                 .comment_start(line)
@@ -340,10 +344,8 @@ fn replace_inline(
     let end = start + matching_close(text, close)? + 1;
     let mut patched = previous.to_string();
     let written = &line[start..end];
-    patched.replace_range(
-        line_start + start..line_start + end,
-        &language.format_value_like(value, written),
-    );
+    let text = flow::restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written));
+    patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)
 }
 
@@ -494,8 +496,9 @@ fn patch_lines(
         while top > 0 && is_comment(host[top - 1]) {
             top -= 1;
         }
-        // Comments at the very top are the file's header, unless they name
-        // the entry right below them (`# tcp` over `tcp { … }`).
+        // Comments at the very top are the file's header, except the lines
+        // right above the entry that name it (`# tcp` over `tcp { … }`); a
+        // header of several lines keeps its first one.
         if top == 0 {
             let key: String = host[index]
                 .trim_start()
@@ -506,18 +509,23 @@ fn patch_lines(
                 })
                 .collect::<String>()
                 .to_lowercase();
-            let names_it = !key.is_empty()
-                && host[..index].iter().any(|line| {
-                    line.to_lowercase()
+            let names_it = |line: &str| {
+                !key.is_empty()
+                    && line
+                        .to_lowercase()
                         .split(|character: char| {
                             !(character.is_alphanumeric() || matches!(character, '_' | '-'))
                         })
                         .any(|word| word == key)
-                });
-            if !names_it {
-                continue;
+            };
+            let mut first = index;
+            while first > 0 && names_it(host[first - 1]) {
+                first -= 1;
             }
-            for line in removed.iter_mut().take(index) {
+            if first == 0 && index > 1 {
+                first = 1;
+            }
+            for line in removed.iter_mut().take(index).skip(first) {
                 *line = true;
             }
             continue;

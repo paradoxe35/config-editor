@@ -74,7 +74,16 @@ pub(super) fn hide(
             .trim_end()
             .ends_with('[')
     });
-    if lines.is_empty() && !multi_line_lists {
+    // Strings written over lines (a YAML block, a TOML `"""`, a heredoc):
+    // the serializer writes them on one.
+    let host_lines: Vec<&str> = previous.split('\n').collect();
+    let bodies: Vec<String> = language
+        .string_body_lines(previous)
+        .into_iter()
+        .filter_map(|range| host_lines.get(range).map(|lines| lines.join("\n")))
+        .collect();
+    let string_bodies = !bodies.is_empty();
+    if lines.is_empty() && !multi_line_lists && !string_bodies {
         return None;
     }
     let mut candidates = Vec::new();
@@ -115,6 +124,36 @@ pub(super) fn hide(
             .or_else(|| language.one_line_container(previous, &pointer));
         if let Some(one_line) = one_line {
             found.push((pointer, one_line));
+        }
+    }
+    if string_bodies {
+        let mut strings = Vec::new();
+        collect_strings(old, String::new(), &mut strings);
+        // Only strings whose text is in one of the bodies: a span lookup per
+        // string of a large host is too slow.
+        strings.retain(|pointer| {
+            let first_line = old
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .and_then(|text| text.lines().find(|line| !line.trim().is_empty()))
+                .map(str::trim);
+            first_line.is_some_and(|line| bodies.iter().any(|body| body.contains(line)))
+        });
+        let spans = language.value_spans(previous, &strings);
+        for (pointer, span) in strings.into_iter().zip(spans) {
+            let inside_found = found.iter().any(|(outer, _)| {
+                pointer.starts_with(outer.as_str()) && pointer[outer.len()..].starts_with('/')
+            });
+            let Some(mut range) = span.and_then(|span| super::byte_range(previous, span)) else {
+                continue;
+            };
+            range.end = super::through_triple_quote(previous, range.clone());
+            while range.end > range.start && previous[..range.end].ends_with('\n') {
+                range.end -= 1;
+            }
+            if !inside_found && previous[range.clone()].contains('\n') {
+                found.push((pointer, OneLine { range: range.clone(), written: String::new(), value: range }));
+            }
         }
     }
     if found.is_empty() {
@@ -236,6 +275,24 @@ fn collect(
                     format!("{pointer}/{index}"),
                     out,
                 );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Pointers of the strings in `value`.
+fn collect_strings(value: &Value, pointer: String, out: &mut Vec<String>) {
+    match value {
+        Value::String(_) if !pointer.is_empty() => out.push(pointer),
+        Value::Object(map) => {
+            for (key, child) in map {
+                collect_strings(child, format!("{pointer}/{}", escape(key)), out);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                collect_strings(child, format!("{pointer}/{index}"), out);
             }
         }
         _ => {}

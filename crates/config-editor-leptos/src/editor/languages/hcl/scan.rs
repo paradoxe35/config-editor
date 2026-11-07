@@ -287,6 +287,13 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
                     index += 1;
                     continue;
                 }
+                // A comma between entries ends the entry before it.
+                if token.kind == Kind::Punct(',') && value.containers == 0 {
+                    value.nested_value = None;
+                    value.pending_key = None;
+                    index += 1;
+                    continue;
+                }
                 if let Some(nested) = value.nested_value {
                     attributes[nested].value_span.1 = token.end;
                 } else {

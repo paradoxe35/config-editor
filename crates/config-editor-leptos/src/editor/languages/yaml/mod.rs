@@ -11,6 +11,7 @@ mod parse;
 mod suggestions;
 mod hover;
 mod editing;
+mod style;
 
 use parse::*;
 use suggestions::*;
@@ -124,6 +125,10 @@ impl ConfigLanguage for YamlBehavior {
 
     fn format_value(&self, value: &Value) -> String {
         yaml_value(value)
+    }
+
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        style::yaml_value_like(self, value, written)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

@@ -98,6 +98,22 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::XML,
             "<!-- c -->\n<tcp><nodelay>true</nodelay></tcp>\n<udp>\n  <nodelay>true</nodelay> <!-- u -->\n</udp>\n<listen>1</listen>\n",
         ),
+        // Round 10 shapes: a table with its own header under a parent with
+        // dotted keys, one-line labelled blocks next to an object attribute,
+        // YAML scalars in every style, list items with comments, a header
+        // of several lines.
+        (
+            Language::TOML,
+            "# head\n# more\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\nallow = [\n  \"127.0.0.1/32\", # lo\n  \"10.0.0.0/8\",\n]\n",
+        ),
+        (
+            Language::HCL,
+            "# head\n# more\nlisten = 1 # l\nclients \"alpha\" { secret = \"s1\" } # a\nclients \"beta\" {\n  secret = \"s2\" # b\n}\nudp = { max_peers = 3 }\n",
+        ),
+        (
+            Language::YAML,
+            "# head\n# more\nlisten: 1\nallow:\n  - a/8 # A\n  # private\n  - 'c/8'\n  - \"e/8\"\nsecret: >-\n  s1\nhealth_check: {path: /h, interval_secs: 3}\nflow: [ 'a/8', \"b/8\" ]   # flow\n",
+        ),
     ]
 }
 
@@ -133,9 +149,10 @@ enum Op {
     ScalarToContainer,
     AddItem,
     DeleteItem,
+    ReorderItems,
 }
 
-const OPS: [Op; 8] = [
+const OPS: [Op; 9] = [
     Op::AddKey,
     Op::ChangeScalar,
     Op::DeleteKey,
@@ -144,6 +161,7 @@ const OPS: [Op; 8] = [
     Op::ScalarToContainer,
     Op::AddItem,
     Op::DeleteItem,
+    Op::ReorderItems,
 ];
 
 /// Every pointer in `value` with its value, parents first.
@@ -187,6 +205,9 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             Op::ScalarToContainer => is_key(pointer) && !item.is_object() && !item.is_array(),
             Op::AddItem => item.is_array(),
             Op::DeleteItem => item.as_array().is_some_and(|items| items.len() > 1),
+            Op::ReorderItems => item
+                .as_array()
+                .is_some_and(|items| items.len() > 1 && items.iter().any(|other| *other != items[0])),
         })
         .collect();
     if candidates.is_empty() {
@@ -206,7 +227,8 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             *edited.pointer_mut(&pointer)? = match item {
                 Value::Number(_) => json!(serial + 100),
                 Value::Bool(flag) => json!(!flag),
-                _ => json!(format!("changed{serial}")),
+                // A slash: plain in YAML, but not a bare identifier.
+                _ => json!(format!("changed/{serial}")),
             };
         }
         Op::DeleteKey | Op::RenameKey => {
@@ -238,6 +260,7 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
         Op::DeleteItem => {
             edited.pointer_mut(&pointer)?.as_array_mut()?.remove(0);
         }
+        Op::ReorderItems => edited.pointer_mut(&pointer)?.as_array_mut()?.reverse(),
     }
     (edited != *value).then_some((edited, label))
 }
@@ -372,7 +395,12 @@ fn check(
     // A rename or a scalar becoming a container keeps every comment too.
     if matches!(
         op,
-        Op::AddKey | Op::ChangeScalar | Op::AddItem | Op::RenameKey | Op::ScalarToContainer
+        Op::AddKey
+            | Op::ChangeScalar
+            | Op::AddItem
+            | Op::RenameKey
+            | Op::ScalarToContainer
+            | Op::ReorderItems
     ) {
         let kept = comments(host, &saved);
         let lost: Vec<String> = comments(host, host_text)
@@ -399,12 +427,74 @@ fn check(
     if let Some(switched) = switched_forms(host, host_text, &saved, retyped.as_deref()) {
         problems.push(switched);
     }
+    // A value the edit did not touch is written exactly as before (quotes,
+    // spacing in its flow collection), and a changed string keeps its
+    // quotes.
+    // (Small hosts only: a span lookup per value of a large one is slow.)
+    if host_text.lines().count() < 200 && let Ok(saved_value) = codec::read(host.behavior(), &saved, shape) {
+        let changed = (op == Op::ChangeScalar).then(|| label.split('"').nth(1).unwrap_or("").to_string());
+        let restyled = restyled_values(host, host_text, &old_host_value, &saved, &saved_value, changed.as_deref());
+        if !restyled.is_empty() {
+            problems.push(format!("writes untouched values differently: {restyled:?}"));
+        }
+    }
     (!problems.is_empty()).then(|| {
         format!(
             "{case}: {}\n--- host\n{host_text}--- saved\n{saved}",
             problems.join("; ")
         )
     })
+}
+
+/// The text a one-based line/character-column span covers.
+fn span_text(text: &str, span: super::language::Span) -> Option<String> {
+    let line = text.split('\n').nth(span.line.checked_sub(1)?)?;
+    let characters: Vec<char> = line.chars().collect();
+    let end = span.end_column.saturating_sub(1).min(characters.len());
+    let start = span.start_column.saturating_sub(1).min(end);
+    Some(characters[start..end].iter().collect())
+}
+
+/// Scalars equal before and after a save, at the same place, whose text
+/// changed (`/h` → `"/h"`); and strings the host quoted that lost their
+/// quotes or changed their kind.
+fn restyled_values(
+    host: Language,
+    before: &str,
+    old: &Value,
+    after: &str,
+    new: &Value,
+    changed: Option<&str>,
+) -> Vec<String> {
+    let mut all = Vec::new();
+    pointers(old, String::new(), &mut all);
+    let scalars: Vec<(String, Value)> = all
+        .into_iter()
+        .filter(|(pointer, value)| !pointer.is_empty() && !value.is_object() && !value.is_array())
+        .collect();
+    let wanted: Vec<String> = scalars.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let language = host.behavior();
+    let old_spans = language.value_spans(before, &wanted);
+    let new_spans = language.value_spans(after, &wanted);
+    let mut found = Vec::new();
+    for (((pointer, value), old_span), new_span) in scalars.iter().zip(old_spans).zip(new_spans) {
+        let (Some(old_span), Some(new_span), Some(now)) = (old_span, new_span, new.pointer(pointer)) else {
+            continue;
+        };
+        let (Some(was), Some(is)) = (span_text(before, old_span), span_text(after, new_span)) else {
+            continue;
+        };
+        let quote = |text: &str| text.chars().next().filter(|first| matches!(first, '"' | '\''));
+        let restyled = if now == value {
+            was != is
+        } else {
+            changed == Some(pointer.as_str()) && now.is_string() && quote(&was).is_some() && quote(&was) != quote(&is)
+        };
+        if restyled {
+            found.push(format!("{pointer}: {was} -> {is}"));
+        }
+    }
+    found
 }
 
 /// XML attribute and element names, or HCL block and object-attribute

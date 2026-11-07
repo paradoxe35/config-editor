@@ -62,12 +62,23 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
             Some((_, _, true)) => None,
         }
     };
+    // Tables the host writes under a header of their own stay that way,
+    // even when a parent's other keys are dotted.
+    let host_headers: HashSet<Vec<String>> = previous
+        .lines()
+        .filter_map(|line| parse_header(split_toml_comment(line).0))
+        .filter_map(|(segments, is_array)| (!is_array).then_some(segments))
+        .collect();
     let mut index = 0;
     while index < sections.len() {
         let Some((_, segments, false)) = sections[index].0.clone() else {
             index += 1;
             continue;
         };
+        if host_headers.contains(&segments) {
+            index += 1;
+            continue;
+        }
         // The shortest dotted prefix that covers this table: its keys go to
         // that prefix's table, written under the whole remaining path.
         let target = (0..segments.len()).find_map(|split| {

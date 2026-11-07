@@ -524,3 +524,105 @@ fn round_9_saves_change_only_the_edit() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+#[test]
+fn round_10_saves_change_only_the_edit() {
+    use serde_json::{Value, json};
+    let mut failures = Vec::new();
+    // The edit is made on the value (through a JSON view); the host must
+    // change only where the value did.
+    let mut check = |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+        let bridge = Bridge::new(host, Language::JSON, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let mut value: Value = serde_json::from_str(&shown).unwrap();
+        change(&mut value);
+        let changed = serde_json::to_string_pretty(&value).unwrap();
+        match bridge.to_host(&changed, text) {
+            Ok(saved) if saved.text == expected => {}
+            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    };
+    let object = |value: &mut Value, path: &[&str]| -> serde_json::Map<String, Value> {
+        let mut at = &*value;
+        for key in path {
+            at = &at[*key];
+        }
+        at.as_object().unwrap().clone()
+    };
+    let set = |value: &mut Value, path: &[&str], map: serde_json::Map<String, Value>| {
+        let mut at = value;
+        for key in path {
+            at = &mut at[*key];
+        }
+        *at = Value::Object(map);
+    };
+    // H1: a TOML table with its own header, next to dotted keys of its parent.
+    let toml = "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\n";
+    check("H1 add", Language::TOML, toml, &|v| v["services"]["web"]["bind"] = json!(5),
+        "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\nbind = 5\n");
+    check("H1 delete", Language::TOML, toml, &|v| {
+        let mut web = object(v, &["services", "web"]);
+        web.remove("client");
+        set(v, &["services", "web"], web);
+    }, "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\n");
+    // H2: one-line labelled HCL blocks.
+    let hcl = "# head\nlisten = 1 # l\nclients \"beta\" { secret = \"s2\" }\nudp = { max_peers = 3 }\n";
+    check("H2 add", Language::HCL, hcl, &|v| v["clients"]["beta"]["max_connections"] = json!(2),
+        "# head\nlisten = 1 # l\nclients \"beta\" {\n  secret = \"s2\"\n  max_connections = 2\n}\nudp = { max_peers = 3 }\n");
+    let hcl = "# h\nclients \"a\" { secret = \"s\" }\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n";
+    let drop_a = |v: &mut Value| {
+        let mut clients = object(v, &["clients"]);
+        clients.remove("a");
+        set(v, &["clients"], clients);
+    };
+    check("H2 delete", Language::HCL, hcl, &drop_a, "# h\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n");
+    let hcl = "clients \"a\" { secret = \"s\" } # a\nclients \"b\" {\n  secret = \"t\" # b\n}\n";
+    check("H2 delete before multi-line", Language::HCL, hcl, &drop_a, "clients \"b\" {\n  secret = \"t\" # b\n}\n");
+    // H4: YAML scalars and flow collections keep their style.
+    let yaml = "allow:\n  - a/8 # A\n  - 'c/8'\n  - \"e/8\"\nsecret: >-\n  s1\nhealth_check: {path: /h, interval_secs: 3}\nflow: [ 'a/8', \"b/8\" ]   # flow\n";
+    check("H4 plain", Language::YAML, yaml, &|v| v["allow"][0] = json!("b/8"),
+        &yaml.replace("- a/8 # A", "- b/8 # A"));
+    check("H4 single", Language::YAML, yaml, &|v| v["allow"][1] = json!("d/8"),
+        &yaml.replace("'c/8'", "'d/8'"));
+    check("H4 block", Language::YAML, yaml, &|v| v["secret"] = json!("s1x"),
+        &yaml.replace("  s1\n", "  s1x\n"));
+    check("H4 flow add", Language::YAML, yaml, &|v| v["health_check"]["failures"] = json!(2),
+        &yaml.replace("interval_secs: 3}", "interval_secs: 3, failures: 2}"));
+    check("H4 flow delete", Language::YAML, yaml, &|v| {
+        let mut health = object(v, &["health_check"]);
+        health.remove("interval_secs");
+        set(v, &["health_check"], health);
+    }, &yaml.replace("{path: /h, interval_secs: 3}", "{path: /h}"));
+    check("H4 flow append", Language::YAML, yaml, &|v| v["flow"].as_array_mut().unwrap().push(json!("c/8")),
+        &yaml.replace("\"b/8\" ]", "\"b/8\", \"c/8\" ]"));
+    check("H4 block delete", Language::YAML, yaml, &|v| {
+        v.as_object_mut().unwrap().remove("secret");
+    }, &yaml.replace("secret: >-\n  s1\n", ""));
+    let hcl = "clients \"alpha\" { secret = \"s1\" } # a\nclients \"beta\" {\n  secret = \"s2\" # b\n}\n";
+    check("H2 rename", Language::HCL, hcl, &|v| {
+        let clients = v.as_object_mut().unwrap().remove("clients").unwrap();
+        v["peers"] = clients;
+    }, &hcl.replace("clients", "peers"));
+    // M1: a header of several comment lines above the first entry keeps
+    // the lines that do not name the entry.
+    for (host, text, expected) in [
+        (Language::YAML, "# Header\n# about tcp\ntcp:\n  nodelay: true\nlisten: 1\n", "# Header\nlisten: 1\n"),
+        (Language::YAML, "# Burrow\n# settings\ntcp:\n  nodelay: true\nlisten: 1\n", "# Burrow\n# settings\nlisten: 1\n"),
+        (Language::TOML, "# Header\n# about tcp\n[tcp]\nnodelay = true\n\n[udp]\nmax_peers = 1\n", "# Header\n\n[udp]\nmax_peers = 1\n"),
+        (Language::HCL, "# Header\n# about tcp\ntcp {\n  nodelay = true\n}\nlisten = 1\n", "# Header\nlisten = 1\n"),
+    ] {
+        check(&format!("M1 {host:?}"), host, text, &|v| {
+            v.as_object_mut().unwrap().remove("tcp");
+        }, expected);
+    }
+    // M2: a reorder takes each item's comments along.
+    for (host, text, expected) in [
+        (Language::YAML, "allow:\n  - 127.0.0.1/32 # loopback\n  # private\n  - 10.0.0.0/8\n", "allow:\n  # private\n  - 10.0.0.0/8\n  - 127.0.0.1/32 # loopback\n"),
+        (Language::TOML, "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n", "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n"),
+        (Language::HCL, "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n", "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n"),
+    ] {
+        check(&format!("M2 {host:?}"), host, text, &|v| v["allow"].as_array_mut().unwrap().reverse(), expected);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

@@ -601,3 +601,27 @@ fn tricky_lines_cover_every_character() {
         assert_eq!(text, line);
     }
 }
+
+#[test]
+fn a_name_written_in_two_forms_is_reported_not_dropped() {
+    for (source, line) in [
+        ("services \"web\" { target = 80 }\nservices {\n  api { target = 81 }\n}\n", 2),
+        ("services {\n  api { target = 81 }\n}\nservices \"web\" { target = 80 }\n", 4),
+        ("x = 1\nx { v = 2 }\n", 2),
+        ("x { v = 1 }\nx = { w = 2 }\n", 2),
+        ("outer {\n  x = 1\n  x \"a\" { v = 2 }\n}\n", 3),
+    ] {
+        let error = super::parse::hcl_parse(source).expect_err(source);
+        assert_eq!(error.line, Some(line), "{source}: {}", error.message);
+        assert!(error.message.contains("both as"), "{}", error.message);
+    }
+    // Forms the parser keeps: repeated blocks, labels of any depth, a name
+    // reused in another body.
+    for source in [
+        "x { v = 1 }\nx { v = 2 }\n",
+        "a \"x\" \"y\" { v = 1 }\na \"z\" { v = 2 }\n",
+        "x = 1\ny {\n  x { v = 2 }\n}\n",
+    ] {
+        assert!(super::parse::hcl_parse(source).is_ok(), "{source}: {:?}", super::parse::hcl_parse(source));
+    }
+}

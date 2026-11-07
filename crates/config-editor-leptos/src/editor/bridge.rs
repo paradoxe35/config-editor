@@ -90,7 +90,8 @@ impl Bridge {
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
-        let patched = codec::patch_scalars(host, previous_host, &old, &target, self.shape())
+        let patched = codec::patch_reorder(host, previous_host, &old, &target, self.shape())
+            .or_else(|| codec::patch_scalars(host, previous_host, &old, &target, self.shape()))
             .or_else(|| codec::patch_renames(host, previous_host, &old, &target, self.shape()))
             .or_else(|| {
                 codec::patch_scalar_to_container(host, previous_host, &old, &target, self.shape())
@@ -483,7 +484,7 @@ mod tests {
         assert_eq!(shown.losses, Vec::<String>::new(), "{}", shown.text);
         let edited = shown.text.replace(">x<", ">y<");
         let saved = bridge.to_host(&edited, host).unwrap();
-        assert_eq!(saved.text, host.replace("token: x", "token: \"y\""));
+        assert_eq!(saved.text, host.replace("token: x", "token: y"));
     }
 
     #[test]
@@ -731,7 +732,7 @@ mod structural_saves {
         let saved = save(Language::YAML, Language::JSON, yaml, |shown| {
             shown.replace("\"ab\"", "\"cd\"")
         });
-        assert_eq!(saved, "public_address: cd # c\nlisten: 1\n");
+        assert_eq!(saved, "public_address: >- # c\n  cd\nlisten: 1\n");
     }
 
     #[test]
