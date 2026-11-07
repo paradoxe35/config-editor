@@ -170,6 +170,9 @@ pub(super) struct HostEditing {
     pub(super) on_conflict: Option<Callback<BaselineConflict>>,
     /// The notice's Keep mine button, which takes the focus when it opens.
     pub(super) keep_mine_ref: NodeRef<leptos::html::Button>,
+    /// The notice opened while the user was in the editor: Keep mine takes
+    /// the focus as soon as it is rendered (see `conflict::focus_when_rendered`).
+    pub(super) focus_keep_mine: RwSignal<bool>,
     pub(super) notice_ref: NodeRef<leptos::html::Div>,
 }
 
@@ -241,6 +244,7 @@ impl HostEditing {
             save_shortcut,
             on_conflict,
             keep_mine_ref: NodeRef::new(),
+            focus_keep_mine: RwSignal::new(false),
             notice_ref: NodeRef::new(),
         }
     }
@@ -274,6 +278,7 @@ pub(super) fn connect(state: EditorState, host: Host) {
         untrack(|| state.offer_baseline(new));
     });
     conflict::settle_when_text_matches(state);
+    conflict::focus_when_rendered(state);
     if let Some(callback) = on_dirty_change {
         Effect::new(move |_| callback.run(state.editing.dirty.get()));
     }

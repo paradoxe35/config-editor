@@ -69,7 +69,8 @@ step_docs() {
 step_browser() {
   (cd js && npm ci && npm run build && npm run typecheck)
   trunk build
-  (cd e2e && npm ci && npx playwright test --workers="${E2E_WORKERS:-1}")
+  # Workers: playwright.config.mjs (1 in CI, E2E_WORKERS or 4 locally).
+  (cd e2e && npm ci && npx playwright test)
 }
 
 STEPS=(fmt clippy test languages minimal docs)

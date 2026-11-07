@@ -3,7 +3,6 @@
 //! their text.
 
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 use super::super::edit::Edit;
 use super::super::state::{EditorState, textarea_selection};
@@ -100,6 +99,8 @@ impl EditorState {
 
     fn close_conflict(&self, how: BaselineConflict) {
         let focused_notice = self.notice_has_focus();
+        // A focus asked for by a notice that never rendered is dropped.
+        self.editing.focus_keep_mine.set(false);
         self.editing.conflict.set(None);
         self.report_conflict(how);
         if focused_notice && let Some(element) = self.textarea() {
@@ -148,16 +149,7 @@ impl EditorState {
         if !in_editor {
             return;
         }
-        let button = self.editing.keep_mine_ref;
-        // After the notice renders.
-        if let Some(window) = web_sys::window() {
-            let focus = wasm_bindgen::closure::Closure::once_into_js(move || {
-                if let Some(button) = button.try_get_untracked().flatten() {
-                    let _ = button.focus();
-                }
-            });
-            let _ = window.request_animation_frame(focus.unchecked_ref());
-        }
+        self.editing.focus_keep_mine.set(true);
     }
 
     fn notice_has_focus(&self) -> bool {
@@ -173,6 +165,22 @@ impl EditorState {
 
 fn active_element() -> Option<web_sys::Element> {
     web_sys::window()?.document()?.active_element()
+}
+
+/// Moves the focus to Keep mine once the notice that asked for it is
+/// rendered: in the same turn as the opening (effects run before the browser
+/// handles the next event), so a click or key that comes after it is never
+/// overridden by a late focus move (a frame later, on a loaded machine, it
+/// took the focus back from the text the user had just clicked).
+pub(super) fn focus_when_rendered(state: EditorState) {
+    Effect::new(move |_| {
+        let wanted = state.editing.focus_keep_mine.get();
+        let button = state.editing.keep_mine_ref.get();
+        if let (true, Some(button)) = (wanted, button) {
+            untrack(|| state.editing.focus_keep_mine.set(false));
+            let _ = button.focus();
+        }
+    });
 }
 
 /// While the notice is open, a text that comes to equal the new baseline

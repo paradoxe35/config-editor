@@ -225,6 +225,28 @@ test.describe('the baseline changing under unsaved edits', () => {
     await expect(status(page)).toHaveAttribute('data-dirty', 'false');
   });
 
+  test('a click back into the text right after the notice opens keeps the focus there', async ({ page }) => {
+    await caretAtEnd(page, 3);
+    await page.keyboard.type('.org');
+    // A loaded machine draws its frames late: the push, then the user's
+    // click back into the text before the next frame. The notice's own focus
+    // move must not land after that click and take the text's focus away.
+    await page.evaluate(
+      () =>
+        new Promise((done) => {
+          window.requestAnimationFrame = (callback) => setTimeout(() => callback(performance.now()), 50);
+          document.querySelector('.demo__server-change').click();
+          setTimeout(() => {
+            document.querySelector('.config-editor__input').focus();
+            done();
+          }, 0);
+        }),
+    );
+    await expect(notice(page)).toBeVisible();
+    await page.waitForTimeout(150);
+    expect(await focusedClass(page)).toContain('config-editor__input');
+  });
+
   test('the notice does not take the focus from outside the editor', async ({ page }) => {
     await caretAtEnd(page, 3);
     await page.keyboard.type('.org');
