@@ -14,11 +14,11 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
     view! {
         <div
             class="config-editor__gutter"
-            class:config-editor__gutter-folding=state.features.folding
+            class:config-editor__gutter-folding=state.config.features.folding
             // Wide enough for the longest line number beside the diagnostic
             // dot (52px fits four digits) and the fold chevrons.
             style:width=move || {
-                let digits = state.source.with(|text| line_count(text)).to_string().len();
+                let digits = state.doc.text.with(|text| line_count(text)).to_string().len();
                 (digits > 4).then(|| {
                     format!(
                         "calc(52px + var(--config-editor-fold-gutter, 0px) + {}ch)",
@@ -29,11 +29,11 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
         >
             <div
                 class="config-editor__gutter-content"
-                style:transform=move || format!("translateY(-{}px)", state.scroll_y.get())
+                style:transform=move || format!("translateY(-{}px)", state.view.scroll_y.get())
             >
                 <RowSpacer state=state />
                 <For
-                    each=move || state.folds().visible_lines.get()
+                    each=move || state.fold.visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <LineNumber state=state rows=rows.clone() index=index /> }
                 />
@@ -46,11 +46,12 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
 fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
     let line = index + 1;
     // Subscribe only to the row's own signal (see `line_rows`).
-    let active = state.current_line.get_untracked();
+    let active = state.doc.current_line.get_untracked();
     // Borrow, never clone: cloning the whole document per new row made large
     // pastes quadratic.
-    let row = state.lines.with_untracked(|lines| {
+    let row = state.view.lines.with_untracked(|lines| {
         state
+            .changes
             .diff
             .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
     });
@@ -59,7 +60,10 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
         let Some(offset) = state.focus_at(line, 1) else {
             return;
         };
-        let (_, line_end) = state.source.with_untracked(|text| line_range(text, offset));
+        let (_, line_end) = state
+            .doc
+            .text
+            .with_untracked(|text| line_range(text, offset));
         if let Some(element) = state.textarea() {
             let _ = element.set_selection_range(offset as u32, line_end as u32);
         }
@@ -176,7 +180,7 @@ fn PeekTrigger(
     title: &'static str,
 ) -> impl IntoView {
     let toggle = move |_| {
-        state.selected_diff_peek.update(|selected| {
+        state.changes.peek.update(|selected| {
             *selected = if selected.as_ref() == Some(&peek) {
                 None
             } else {
@@ -186,7 +190,7 @@ fn PeekTrigger(
     };
     let keydown = move |event: web_sys::KeyboardEvent| {
         if event.key() == "Escape" {
-            state.selected_diff_peek.set(None);
+            state.changes.peek.set(None);
         }
     };
     view! {

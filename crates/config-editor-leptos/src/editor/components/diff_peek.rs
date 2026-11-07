@@ -14,7 +14,8 @@ pub(crate) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
     close_when_edited(state);
     move || {
         state
-            .selected_diff_peek
+            .changes
+            .peek
             .get()
             .map(|peek| view! { <Peek state=state peek=peek /> })
     }
@@ -24,20 +25,22 @@ pub(crate) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
 fn close_when_edited(state: EditorState) {
     Effect::new(move |_| {
         // The preview is read untracked so closing it cannot re-trigger this.
-        state.diff.track();
-        state.source.track();
-        let survives = state.selected_diff_peek.with_untracked(|peek| {
+        state.changes.diff.track();
+        state.doc.text.track();
+        let survives = state.changes.peek.with_untracked(|peek| {
             peek.as_ref().is_none_or(|peek| {
                 let current: Vec<String> = state
-                    .source
+                    .doc
+                    .text
                     .with_untracked(|text| text.split('\n').map(str::to_string).collect());
                 state
+                    .changes
                     .diff
                     .with_untracked(|line_diff| peek_survives_edit(peek, &current, line_diff))
             })
         });
         if !survives {
-            state.selected_diff_peek.set(None);
+            state.changes.peek.set(None);
         }
     });
 }
@@ -45,7 +48,7 @@ fn close_when_edited(state: EditorState) {
 /// "Revert lines 3–5": the lines of the change a revert restores, which
 /// may be more than the one line the preview shows.
 fn revert_label(state: EditorState, peek: &DiffPeek) -> String {
-    let span = state.diff.with_untracked(|line_diff| {
+    let span = state.changes.diff.with_untracked(|line_diff| {
         hunk_for_peek(line_diff, peek).map(|hunk| (hunk.current.clone(), hunk.removed))
     });
     match span {
@@ -64,7 +67,7 @@ fn revert_label(state: EditorState, peek: &DiffPeek) -> String {
 
 /// Closes the preview; when it had the focus, the text takes it back.
 fn close(state: EditorState) {
-    state.selected_diff_peek.set(None);
+    state.changes.peek.set(None);
     if let Some(element) = state.textarea() {
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
@@ -107,20 +110,20 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
     // Opened from the keyboard: the revert button takes the focus.
     Effect::new(move |_| {
         if let Some(button) = revert_ref.get()
-            && state.focus_preview.get_value()
+            && state.changes.focus_preview.get_value()
         {
-            state.focus_preview.set_value(false);
+            state.changes.focus_preview.set_value(false);
             let _ = button.focus();
         }
     });
     let style = move || {
-        state.layout_revision.get();
-        state.scroll_y.get();
-        match (state.editor_ref.get(), state.root_ref.get()) {
+        state.view.layout_revision.get();
+        state.view.scroll_y.get();
+        match (state.view.textarea_ref.get(), state.view.root_ref.get()) {
             (Some(editor), Some(root)) => {
                 // The row the line is on, folded lines skipped.
                 let row = state
-                    .folds()
+                    .fold
                     .projection
                     .with(|projection| projection.row_of_line(line.saturating_sub(1)));
                 peek_popup_style(&editor, &root, row + 1, old_count, new_count)
@@ -145,7 +148,7 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
             <header class="config-editor__diff-peek-header">
                 <strong>{format!("{title} · line {line}")}</strong>
                 <span class="config-editor__diff-peek-actions">
-                    {move || (!state.read_only.get()).then(|| view! {
+                    {move || (!state.config.read_only.get()).then(|| view! {
                         <button
                             type="button"
                             class="config-editor__diff-peek-revert"

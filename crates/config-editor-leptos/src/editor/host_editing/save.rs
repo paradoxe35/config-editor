@@ -15,16 +15,16 @@ impl EditorState {
     /// as a `null` for TOML): then the caret goes to the problem, whose
     /// message shows, and nothing is sent.
     pub(in crate::editor) fn save(&self) -> bool {
-        let Some(on_save) = self.editing().on_save else {
+        let Some(on_save) = self.editing.on_save else {
             return false;
         };
         super::super::input::flush_input(*self);
         match self.host_document() {
             Some(text) => {
-                self.editing().sent.update_value(|sent| sent.note(&text));
+                self.editing.sent.update_value(|sent| sent.note(&text));
                 on_save.run(SaveRequest {
                     text,
-                    language: self.host_language,
+                    language: self.config.host_language,
                 });
                 true
             }
@@ -40,22 +40,23 @@ impl EditorState {
     /// cannot convert.
     pub(in crate::editor) fn host_document(&self) -> Option<String> {
         if self.bridge().is_none() {
-            return Some(self.source.get_untracked());
+            return Some(self.doc.text.get_untracked());
         }
-        let text = self.source.get_untracked();
-        if text != self.synced_edit.get_value() {
-            sync::convert_now(*self, text, self.edit_language.get_untracked());
+        let text = self.doc.text.get_untracked();
+        if text != self.sync.synced_edit.get_value() {
+            sync::convert_now(*self, text, self.sync.edit_language.get_untracked());
         }
         let converted = self
-            .source
-            .with_untracked(|text| *text == self.synced_edit.get_value());
-        converted.then(|| self.host_text.get_value())
+            .doc
+            .text
+            .with_untracked(|text| *text == self.sync.synced_edit.get_value());
+        converted.then(|| self.sync.host_text.get_value())
     }
 
     /// Moves to the first conversion problem with a place and shows its
     /// message, as `F8` does; just focuses the editor without one.
     fn show_conversion_problem(&self) {
-        let place = self.conversion_problems.with_untracked(|problems| {
+        let place = self.sync.conversion_problems.with_untracked(|problems| {
             problems
                 .iter()
                 .find_map(|problem| Some((problem.line?, problem.column?)))
@@ -63,7 +64,7 @@ impl EditorState {
         match place {
             Some((line, column)) => {
                 self.focus_at(line, column);
-                self.shown_problem.set(Some((line, column)));
+                self.problems.current.set(Some((line, column)));
             }
             None => {
                 if let Some(element) = self.textarea() {

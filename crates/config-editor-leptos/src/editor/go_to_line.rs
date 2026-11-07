@@ -91,7 +91,7 @@ pub(super) fn go(state: EditorState) -> bool {
     else {
         return false;
     };
-    let line = line.min(state.source.with_untracked(|text| line_count(text)));
+    let line = line.min(state.doc.text.with_untracked(|text| line_count(text)));
     close(state);
     state.focus_at(line, column.unwrap_or(1));
     state.forget_typing_aids();

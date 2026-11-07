@@ -18,9 +18,13 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use leptos::prelude::*;
 
+use std::sync::Arc;
+
 use super::bridge::Bridge;
+use super::diagnostics::SchemaBundle;
 use super::languages::Language;
 use super::state::{EditorState, normalize_newlines};
+use super::sync::SyncState;
 
 /// What `on_save` receives: the document to store, in the host's
 /// `language` (Edit-as edits already converted back).
@@ -152,6 +156,8 @@ pub(super) struct HostEditing {
     /// language. It follows the `baseline` prop, except while a conflict
     /// waits for the user.
     pub(super) baseline: RwSignal<String>,
+    /// `baseline` as shown, in the language on screen.
+    pub(super) shown_baseline: Memo<String>,
     /// A new baseline waiting for the user's choice (the notice is open).
     pub(super) conflict: RwSignal<Option<PendingBaseline>>,
     /// The text on screen differs from the baseline as shown.
@@ -167,17 +173,67 @@ pub(super) struct HostEditing {
     pub(super) notice_ref: NodeRef<leptos::html::Div>,
 }
 
+/// The host's side of saving (from the component's props).
+pub(super) struct Init {
+    /// The host's diff baseline at mount, in the host language.
+    pub(super) baseline: String,
+    /// What reaches the host, remembered (see [`noting_sent`]).
+    pub(super) sent: StoredValue<SentTexts>,
+    pub(super) on_save: Option<Callback<SaveRequest>>,
+    pub(super) save_shortcut: Signal<bool>,
+    pub(super) on_conflict: Option<Callback<BaselineConflict>>,
+}
+
 impl HostEditing {
+    /// Host editing for `text`, the document on screen, kept in step with
+    /// the host's text through `sync`.
     pub(super) fn new(
-        baseline: RwSignal<String>,
-        dirty: Memo<bool>,
-        sent: StoredValue<SentTexts>,
-        on_save: Option<Callback<SaveRequest>>,
-        save_shortcut: Signal<bool>,
-        on_conflict: Option<Callback<BaselineConflict>>,
+        init: Init,
+        text: RwSignal<String>,
+        host_language: Language,
+        schema: StoredValue<Option<Arc<SchemaBundle>>>,
+        sync: &SyncState,
     ) -> Self {
+        let Init {
+            baseline,
+            sent,
+            on_save,
+            save_shortcut,
+            on_conflict,
+        } = init;
+        let baseline = RwSignal::new(normalize_newlines(baseline));
+        let SyncState {
+            edit_language,
+            shown_cache,
+            host_text,
+            synced_edit,
+            ..
+        } = *sync;
+        let shown_baseline = Memo::new(move |_| {
+            let host = baseline.get();
+            let edit = edit_language.get();
+            // Usually the baseline is the host text a switch just converted.
+            let cached = shown_cache.with_value(|cache| {
+                cache
+                    .as_ref()
+                    .filter(|(language, from, _)| *language == edit && *from == host)
+                    .map(|(_, _, shown)| shown.clone())
+            });
+            if let Some(shown) = cached {
+                return shown;
+            }
+            let bridge = Bridge::new(host_language, edit, schema.get_value());
+            host_text.with_value(|host_text| {
+                synced_edit.with_value(|synced| {
+                    shown_baseline(bridge.as_ref(), &host, (host_text, synced))
+                })
+            })
+        });
+        let dirty =
+            Memo::new(move |_| text.with(|text| shown_baseline.with(|baseline| text != baseline)));
         Self {
             baseline,
+            shown_baseline,
             conflict: RwSignal::new(None),
             dirty,
             sent,
@@ -219,6 +275,6 @@ pub(super) fn connect(state: EditorState, host: Host) {
     });
     conflict::settle_when_text_matches(state);
     if let Some(callback) = on_dirty_change {
-        Effect::new(move |_| callback.run(state.editing().dirty.get()));
+        Effect::new(move |_| callback.run(state.editing.dirty.get()));
     }
 }

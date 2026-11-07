@@ -5,10 +5,13 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::bridge;
+use std::sync::Arc;
+
+use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::DIAGNOSTICS_DEBOUNCE_MS;
+use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Diagnostic, SchemaBundle};
 use super::history::EditHistory;
+use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::state::{EditorState, normalize_newlines, textarea_selection};
 
@@ -19,6 +22,140 @@ pub(super) struct Host {
     pub(super) on_edit_as_change: Option<Callback<Language>>,
     /// A switch the document could not make when mounted.
     pub(super) initial_pending: Option<Language>,
+}
+
+/// The host-and-Edit-as part of the editor state.
+#[derive(Clone, Copy)]
+pub(super) struct SyncState {
+    /// The language on screen; `edit_as` switches change it.
+    pub(super) edit_language: RwSignal<Language>,
+    /// Edits in the edit language; `None` while editing as another
+    /// language (the conversion here reports them).
+    pub(super) on_change: Option<Callback<String>>,
+    pub(super) host_on_change: Option<Callback<String>>,
+    /// Last host text received or sent.
+    pub(super) host_text: StoredValue<String>,
+    /// The edited text matching `host_text`.
+    pub(super) synced_edit: StoredValue<String>,
+    /// Edited texts already saved, each with the host text it saved as: an
+    /// undo back to one restores that host exactly, comments a fresh save
+    /// could not bring back included. Cleared when the host or the edit
+    /// language changes.
+    pub(super) synced_hosts: StoredValue<Vec<(String, String)>>,
+    /// An `edit_as` switch waiting until the document can convert.
+    pub(super) pending_switch: RwSignal<Option<Language>>,
+    /// The last host text converted for display: (language, host, shown).
+    pub(super) shown_cache: StoredValue<Option<(Language, String, String)>>,
+    pub(super) load_problems: RwSignal<Vec<Diagnostic>>,
+    pub(super) conversion_problems: RwSignal<Vec<Diagnostic>>,
+}
+
+impl SyncState {
+    /// The host's text loaded for editing as `edit_language`: the state,
+    /// the text to show, and a switch to retry once the document can
+    /// convert (until then it is shown in the host language).
+    pub(super) fn load(
+        host_language: Language,
+        edit_language: Language,
+        schema: StoredValue<Option<Arc<SchemaBundle>>>,
+        host_text: String,
+        host_on_change: Option<Callback<String>>,
+    ) -> (Self, String, Option<Language>) {
+        let mut load_problems = Vec::new();
+        let mut pending = None;
+        let mut shown = host_text.clone();
+        if let Some(bridge) = Bridge::new(host_language, edit_language, schema.get_value()) {
+            match bridge.to_edit(&host_text) {
+                Ok(conversion) => {
+                    load_problems = bridge.view_problems(&conversion);
+                    shown = conversion.text;
+                }
+                Err(_) => pending = Some(edit_language),
+            }
+        }
+        let edit_language = RwSignal::new(if pending.is_some() {
+            host_language
+        } else {
+            edit_language
+        });
+        let on_change = host_on_change.map(|callback| {
+            Callback::new(move |text: String| {
+                let bridge = Bridge::new(
+                    host_language,
+                    edit_language.get_untracked(),
+                    schema.get_value(),
+                );
+                if bridge.is_none() {
+                    callback.run(text);
+                }
+            })
+        });
+        let sync = Self {
+            edit_language,
+            on_change,
+            host_on_change,
+            // The baseline as shown, in the language on screen.
+            shown_cache: StoredValue::new(Some((
+                edit_language.get_untracked(),
+                host_text.clone(),
+                shown.clone(),
+            ))),
+            host_text: StoredValue::new(host_text),
+            synced_edit: StoredValue::new(shown.clone()),
+            synced_hosts: StoredValue::new(Vec::new()),
+            pending_switch: RwSignal::new(None),
+            load_problems: RwSignal::new(load_problems),
+            conversion_problems: RwSignal::new(Vec::new()),
+        };
+        (sync, shown, pending)
+    }
+}
+
+impl EditorState {
+    /// `host` as shown in the language on screen; a text that cannot convert
+    /// is shown as is, with the problem reported.
+    pub(super) fn shown(&self, host: &str) -> String {
+        let Some(bridge) = self.bridge() else {
+            return host.to_string();
+        };
+        match bridge.to_edit(host) {
+            Ok(conversion) => {
+                self.sync
+                    .load_problems
+                    .set(bridge.view_problems(&conversion));
+                conversion.text
+            }
+            Err(error) => {
+                self.sync
+                    .load_problems
+                    .set(vec![bridge.load_problem(&error)]);
+                host.to_string()
+            }
+        }
+    }
+
+    /// The language on screen.
+    pub(super) fn behavior(&self) -> &'static dyn ConfigLanguage {
+        self.sync.edit_language.get_untracked().behavior()
+    }
+
+    /// The bridge between the host and the language on screen, when they
+    /// differ.
+    pub(super) fn bridge(&self) -> Option<Bridge> {
+        self.bridge_to(self.sync.edit_language.get_untracked())
+    }
+
+    pub(super) fn bridge_to(&self, edit: Language) -> Option<Bridge> {
+        Bridge::new(
+            self.config.host_language,
+            edit,
+            self.config.schema.get_value(),
+        )
+    }
+
+    pub(super) fn label(&self) -> &'static str {
+        self.sync.edit_language.get().label()
+    }
 }
 
 pub(super) fn connect(state: EditorState, host: Host) {
@@ -44,14 +181,14 @@ fn follow_value(state: EditorState, value: Signal<String>) {
 pub(super) fn take_host_value(state: EditorState, external: String) {
     // Ignore the host echoing our own edit; reconverting would reformat
     // the text under the caret.
-    if external == state.host_text.get_value() {
+    if external == state.sync.host_text.get_value() {
         return;
     }
-    state.host_text.set_value(external.clone());
+    state.sync.host_text.set_value(external.clone());
     let edit = state.shown(&external);
-    state.synced_edit.set_value(edit.clone());
-    state.synced_hosts.update_value(Vec::clear);
-    let current = state.source.get_untracked();
+    state.sync.synced_edit.set_value(edit.clone());
+    state.sync.synced_hosts.update_value(Vec::clear);
+    let current = state.doc.text.get_untracked();
     if current != edit {
         // Keep the caret on the same text and the view where it was:
         // write the new value here and map the caret through the change,
@@ -68,8 +205,8 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
             let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
             element.set_scroll_top(top);
             element.set_scroll_left(left);
-            state.scroll_x.set(f64::from(element.scroll_left()));
-            state.scroll_y.set(f64::from(element.scroll_top()));
+            state.view.scroll_x.set(f64::from(element.scroll_left()));
+            state.view.scroll_y.set(f64::from(element.scroll_top()));
         }
         state.redetect_indent();
         // A new text from the host: its ranges and placeholders anew. Not
@@ -85,10 +222,10 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
 fn debounce_validation(state: EditorState) {
     let token = StoredValue::new(0u64);
     Effect::new(move |_| {
-        let text = state.source.get();
+        let text = state.doc.text.get();
         token.update_value(|token| *token += 1);
         let current = token.get_value();
-        let diagnosed = state.diagnosed_text;
+        let diagnosed = state.problems.diagnosed_text;
         if let Some(window) = web_sys::window() {
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                 wasm_bindgen::closure::Closure::once_into_js(move || {
@@ -110,8 +247,8 @@ fn debounce_validation(state: EditorState) {
 /// text back and sends it to the host when it converts.
 fn convert_edits(state: EditorState) {
     Effect::new(move |_| {
-        let text = state.diagnosed_text.get();
-        convert_now(state, text, state.edit_language.get());
+        let text = state.problems.diagnosed_text.get();
+        convert_now(state, text, state.sync.edit_language.get());
     });
     // `flush_pending_edits` converts an edit still waiting out the pause.
     let id = NEXT_EDITOR.with(|next| {
@@ -124,8 +261,8 @@ fn convert_edits(state: EditorState) {
             id,
             std::rc::Rc::new(move || {
                 if let (Some(text), Some(language)) = (
-                    state.source.try_get_untracked(),
-                    state.edit_language.try_get_untracked(),
+                    state.doc.text.try_get_untracked(),
+                    state.sync.edit_language.try_get_untracked(),
                 ) {
                     convert_now(state, text, language);
                 }
@@ -171,24 +308,24 @@ pub fn flush_pending_edits() {
 pub(super) fn convert_now(state: EditorState, text: String, language: Language) {
     {
         let Some(bridge) = state.bridge_to(language) else {
-            state.conversion_problems.set(Vec::new());
+            state.sync.conversion_problems.set(Vec::new());
             return;
         };
-        if text == state.synced_edit.get_value() {
-            state.conversion_problems.set(Vec::new());
+        if text == state.sync.synced_edit.get_value() {
+            state.sync.conversion_problems.set(Vec::new());
             return;
         }
         remember_synced(
             state,
-            state.synced_edit.get_value(),
-            state.host_text.get_value(),
+            state.sync.synced_edit.get_value(),
+            state.sync.host_text.get_value(),
         );
-        let previous = state.host_text.get_value();
+        let previous = state.sync.host_text.get_value();
         let mut hosts_own = false;
         let result = bridge.to_host(&text, &previous).map(|mut conversion| {
             // Back to a text saved before (an undo), or the host's own (a
             // reloaded baseline): its host text exactly.
-            if let Some(host) = state.synced_hosts.with_value(|saved| {
+            if let Some(host) = state.sync.synced_hosts.with_value(|saved| {
                 saved
                     .iter()
                     .find(|(edit, _)| *edit == text)
@@ -212,13 +349,14 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 .map_err(codec::ConvertError::Unsupported)
         });
         state
+            .sync
             .conversion_problems
             .set(bridge.problems(&text, &result));
         if let Ok(conversion) = result {
-            state.synced_edit.set_value(text);
-            if conversion.text != state.host_text.get_value() {
-                state.host_text.set_value(conversion.text.clone());
-                if let Some(on_change) = state.host_on_change {
+            state.sync.synced_edit.set_value(text);
+            if conversion.text != state.sync.host_text.get_value() {
+                state.sync.host_text.set_value(conversion.text.clone());
+                if let Some(on_change) = state.sync.host_on_change {
                     on_change.run(conversion.text);
                 }
             }
@@ -230,7 +368,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
 const SYNCED_HOSTS_KEPT: usize = 64;
 
 pub(super) fn remember_synced(state: EditorState, edit: String, host: String) {
-    state.synced_hosts.update_value(|saved| {
+    state.sync.synced_hosts.update_value(|saved| {
         saved.retain(|(known, _)| *known != edit);
         saved.push((edit, host));
         if saved.len() > SYNCED_HOSTS_KEPT {
@@ -244,24 +382,24 @@ pub(super) fn remember_synced(state: EditorState, edit: String, host: String) {
 fn save_on_unmount(state: EditorState) {
     on_cleanup(move || {
         let (Some(text), Some(synced), Some(host), Some(edit), Some(schema)) = (
-            state.source.try_get_untracked(),
-            state.synced_edit.try_get_value(),
-            state.host_text.try_get_value(),
-            state.edit_language.try_get_untracked(),
-            state.schema.try_get_value(),
+            state.doc.text.try_get_untracked(),
+            state.sync.synced_edit.try_get_value(),
+            state.sync.host_text.try_get_value(),
+            state.sync.edit_language.try_get_untracked(),
+            state.config.schema.try_get_value(),
         ) else {
             return;
         };
         if text == synced {
             return;
         }
-        let Some(bridge) = bridge::Bridge::new(state.host_language, edit, schema) else {
+        let Some(bridge) = bridge::Bridge::new(state.config.host_language, edit, schema) else {
             return;
         };
         if let Ok(conversion) = bridge.to_host(&text, &host)
             && conversion.text != host
             && state.check_host_save(&host, &conversion.text).is_ok()
-            && let Some(on_change) = state.host_on_change
+            && let Some(on_change) = state.sync.host_on_change
         {
             on_change.run(conversion.text);
         }
@@ -285,12 +423,12 @@ fn switch_languages(state: EditorState, host: Host) {
     if let Some(next) = initial_pending {
         try_switch(next);
     } else if let Some(callback) = on_edit_as_change
-        && state.edit_language.get_untracked() != state.host_language
+        && state.sync.edit_language.get_untracked() != state.config.host_language
     {
         // Mounted already editing as another language: that switch completed
         // too. Reported after mounting, so a host's callback can use the
         // editor it is creating.
-        let edit = state.edit_language.get_untracked();
+        let edit = state.sync.edit_language.get_untracked();
         Effect::new(move |previous: Option<()>| {
             if previous.is_none() {
                 callback.run(edit);
@@ -298,20 +436,20 @@ fn switch_languages(state: EditorState, host: Host) {
         });
     }
     Effect::new(move |previous: Option<Language>| {
-        let next = edit_as.get().unwrap_or(state.host_language);
+        let next = edit_as.get().unwrap_or(state.config.host_language);
         // Changed before this first ran (`setEditAs` right after mounting):
         // that is a switch too.
         let changed_before_mount = previous.is_none()
-            && next != state.edit_language.get_untracked()
-            && state.pending_switch.get_untracked() != Some(next);
+            && next != state.sync.edit_language.get_untracked()
+            && state.sync.pending_switch.get_untracked() != Some(next);
         if changed_before_mount {
             try_switch(next);
         } else if previous.is_some() {
-            if next == state.edit_language.get_untracked() {
+            if next == state.sync.edit_language.get_untracked() {
                 // Back to the current language: nothing to convert.
-                if state.pending_switch.get_untracked().is_some() {
-                    state.pending_switch.set(None);
-                    state.load_problems.set(Vec::new());
+                if state.sync.pending_switch.get_untracked().is_some() {
+                    state.sync.pending_switch.set(None);
+                    state.sync.load_problems.set(Vec::new());
                 }
             } else {
                 try_switch(next);
@@ -320,26 +458,26 @@ fn switch_languages(state: EditorState, host: Host) {
         next
     });
     Effect::new(move |_| {
-        state.diagnosed_text.track();
+        state.problems.diagnosed_text.track();
         // Not on a step back through undo: the switch starts the history
         // over, and the steps the user may redo would be lost. The next edit
         // (which ends redo anyway) makes it.
-        if state.history.with_untracked(EditHistory::can_redo) {
+        if state.doc.history.with_untracked(EditHistory::can_redo) {
             return;
         }
-        if let Some(next) = state.pending_switch.get_untracked() {
+        if let Some(next) = state.sync.pending_switch.get_untracked() {
             try_switch(next);
         }
     });
 }
 
 fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callback<Language>>) {
-    let current = state.edit_language.get_untracked();
-    let text = state.source.get_untracked();
-    let host_text = state.host_text.get_value();
+    let current = state.sync.edit_language.get_untracked();
+    let text = state.doc.text.get_untracked();
+    let host_text = state.sync.host_text.get_value();
     let host_text_before = host_text.clone();
-    state.synced_hosts.update_value(Vec::clear);
-    let unsaved = text != state.synced_edit.get_value();
+    state.sync.synced_hosts.update_value(Vec::clear);
+    let unsaved = text != state.sync.synced_edit.get_value();
     let mut view_warnings = Vec::new();
     let converted = if !unsaved {
         match state.bridge_to(next) {
@@ -352,7 +490,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
     } else {
         match state
             .bridge_to(current)
-            .filter(|_| next == state.host_language)
+            .filter(|_| next == state.config.host_language)
         {
             Some(bridge) => bridge.to_host(&text, &host_text).and_then(|conversion| {
                 state
@@ -360,7 +498,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                     .map(|()| conversion.text)
                     .map_err(codec::ConvertError::Unsupported)
             }),
-            None => state.schema.with_value(|schema| {
+            None => state.config.schema.with_value(|schema| {
                 codec::convert(
                     &text,
                     current.behavior(),
@@ -375,44 +513,44 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
     match converted {
         Ok(converted) => {
             if !unsaved {
-                state.synced_edit.set_value(converted.clone());
-                state.shown_cache.set_value(Some((
+                state.sync.synced_edit.set_value(converted.clone());
+                state.sync.shown_cache.set_value(Some((
                     next,
                     host_text_before.clone(),
                     converted.clone(),
                 )));
-            } else if next == state.host_language {
+            } else if next == state.config.host_language {
                 // Back to the host language with an edit still waiting out
                 // the typing pause: the converted text is the host's now.
-                state.synced_edit.set_value(converted.clone());
+                state.sync.synced_edit.set_value(converted.clone());
                 if converted != host_text_before {
-                    state.host_text.set_value(converted.clone());
-                    if let Some(on_change) = state.host_on_change {
+                    state.sync.host_text.set_value(converted.clone());
+                    if let Some(on_change) = state.sync.host_on_change {
                         on_change.run(converted.clone());
                     }
                 }
             }
-            state.pending_switch.set(None);
-            state.load_problems.set(view_warnings);
-            state.history.set(EditHistory::default());
+            state.sync.pending_switch.set(None);
+            state.sync.load_problems.set(view_warnings);
+            state.doc.history.set(EditHistory::default());
             state.hide_hover();
             state.close_suggestions();
-            state.edit_language.set(next);
+            state.sync.edit_language.set(next);
             if let Some(callback) = on_edit_as_change {
                 callback.run(next);
             }
-            state.diagnosed_text.set(converted.clone());
+            state.problems.diagnosed_text.set(converted.clone());
             // Another language's lines: the folds do not carry over.
-            state.folds().folded.set(Vec::new());
+            state.fold.folded.set(Vec::new());
             state.write_text(converted);
             state.redetect_indent();
             state.place_ranges();
             state.rescan_tokens(false);
         }
         Err(error) => {
-            state.pending_switch.set(Some(next));
+            state.sync.pending_switch.set(Some(next));
             let message = format!("Cannot switch to {next} yet: {error}");
-            state.load_problems.set(vec![bridge::locate_error(
+            state.sync.load_problems.set(vec![bridge::locate_error(
                 current.behavior(),
                 &text,
                 &error,

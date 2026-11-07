@@ -14,7 +14,7 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     };
     // The selection before the edit, for undo.
     let selection = textarea_selection(&element);
-    let text = state.source.get_untracked();
+    let text = state.doc.text.get_untracked();
     let modified = event.ctrl_key() || event.meta_key();
     if modified && event.shift_key() {
         open_line_above(state, text, selection);

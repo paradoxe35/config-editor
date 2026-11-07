@@ -14,7 +14,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         return;
     };
     let (start, end) = textarea_selection(&element);
-    let text = state.source.get_untracked();
+    let text = state.doc.text.get_untracked();
     if !event.shift_key()
         && start == end
         && (next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start))
@@ -36,7 +36,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         &text,
         start,
         end,
-        &tab_insert(&text, start, &state.indent.get_value()),
+        &tab_insert(&text, start, &state.doc.indent.get_value()),
     );
     state.commit(Edit::new(text, (start, end), updated, caret));
     state.close_suggestions();
@@ -45,12 +45,13 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
 /// In a block a suggestion just wrote, Tab goes to its next empty value or
 /// selects the next value it wrote, as through a snippet's placeholders.
 pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
-    let Some((region_start, from_end)) = state.slot_region.get_value() else {
+    let Some((region_start, from_end)) = state.completion.slot_region.get_value() else {
         return false;
     };
     let length = text.encode_utf16().count();
     let region_end = length.saturating_sub(from_end);
     let stops: Vec<(usize, usize)> = state
+        .completion
         .value_stops
         .get_value()
         .into_iter()
@@ -68,12 +69,12 @@ pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize
                 if let Some(element) = state.textarea() {
                     select(&element, anchor, end, false);
                 }
-                state.placeholder.set_value(Some((anchor, end)));
+                state.completion.placeholder.set_value(Some((anchor, end)));
             }
             true
         }
         None => {
-            state.slot_region.set_value(None);
+            state.completion.slot_region.set_value(None);
             false
         }
     }
@@ -130,7 +131,7 @@ fn indent_block(
     backward: bool,
 ) {
     let Some((updated, selection_start, selection_end)) =
-        indent_lines(&text, start, end, outdent, &state.indent.get_value())
+        indent_lines(&text, start, end, outdent, &state.doc.indent.get_value())
     else {
         return;
     };

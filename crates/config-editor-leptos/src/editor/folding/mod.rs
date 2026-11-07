@@ -50,6 +50,38 @@ pub(crate) struct FoldState {
     /// put back if the edit is then refused (a read-only value).
     pub(crate) before_edit: StoredValue<Option<Vec<FoldRange>>>,
 }
+
+impl FoldState {
+    /// Folding for `text` (in `edit_language`), nothing folded: the
+    /// textarea shows `projection`, and `visible_rows` of it are rendered.
+    /// With `enabled` off (`enable_folding=false`) nothing can fold.
+    pub(crate) fn new(
+        projection: RwSignal<Arc<Projection>>,
+        visible_rows: Memo<std::ops::Range<usize>>,
+        text: RwSignal<String>,
+        edit_language: RwSignal<super::languages::Language>,
+        enabled: bool,
+    ) -> Self {
+        let visible_lines = Memo::new(move |_| {
+            let rows = visible_rows.get();
+            projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
+        });
+        let fold_ranges = Memo::new(move |_| {
+            if !enabled {
+                return Vec::new();
+            }
+            text.with(|text| edit_language.get().behavior().fold_ranges(text))
+        });
+        Self {
+            visible_lines,
+            folded: RwSignal::new(Vec::new()),
+            projection,
+            fold_ranges,
+            fold_chord: StoredValue::new(false),
+            before_edit: StoredValue::new(None),
+        }
+    }
+}
 pub(crate) use projection::Projection;
 pub(crate) use ranges::scan_brackets;
 pub use ranges::{

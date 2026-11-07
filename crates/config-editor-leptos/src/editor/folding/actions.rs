@@ -18,20 +18,21 @@ impl EditorState {
     /// the document goes through here. Returns whether the textarea's text
     /// had to be rewritten (its selection is then lost).
     pub(crate) fn write_text(&self, text: String) -> bool {
-        if self.folds().folded.with_untracked(Vec::is_empty) {
-            self.source.set(text);
+        if self.fold.folded.with_untracked(Vec::is_empty) {
+            self.doc.text.set(text);
         } else {
-            let moved = self.folds().folded.with_untracked(|folds| {
-                self.source
+            let moved = self.fold.folded.with_untracked(|folds| {
+                self.doc
+                    .text
                     .with_untracked(|old| follow_edit(folds, old, &text))
             });
-            self.source.set(text);
+            self.doc.text.set(text);
             let kept = self
-                .folds()
+                .fold
                 .fold_ranges
                 .with_untracked(|ranges| keep_valid(&moved, ranges));
-            if self.folds().folded.with_untracked(|folds| *folds != kept) {
-                self.folds().folded.set(kept);
+            if self.fold.folded.with_untracked(|folds| *folds != kept) {
+                self.fold.folded.set(kept);
             }
         }
         self.show_text()
@@ -40,26 +41,31 @@ impl EditorState {
     /// Puts the document, folds cut out, in the textarea. Returns whether
     /// its text changed.
     pub(crate) fn show_text(&self) -> bool {
-        let projection = self.folds().folded.with_untracked(|folds| {
-            self.source
+        let projection = self.fold.folded.with_untracked(|folds| {
+            self.doc
+                .text
                 .with_untracked(|doc| Projection::new(doc, folds))
         });
-        let rewritten = self.editor_ref.get_untracked().is_some_and(|element| {
-            self.source.with_untracked(|doc| {
-                let view = projection.view(doc);
-                let rewrite = element.value() != view;
-                if rewrite {
-                    element.set_value(view);
-                }
-                rewrite
-            })
-        });
+        let rewritten = self
+            .view
+            .textarea_ref
+            .get_untracked()
+            .is_some_and(|element| {
+                self.doc.text.with_untracked(|doc| {
+                    let view = projection.view(doc);
+                    let rewrite = element.value() != view;
+                    if rewrite {
+                        element.set_value(view);
+                    }
+                    rewrite
+                })
+            });
         if self
-            .folds()
+            .fold
             .projection
             .with_untracked(|shown| **shown != projection)
         {
-            self.folds().projection.set(Arc::new(projection));
+            self.fold.projection.set(Arc::new(projection));
         }
         rewritten
     }
@@ -67,9 +73,9 @@ impl EditorState {
     /// Whether an edit of UTF-16 `start..end` touches a closed fold (see
     /// [`unfold_touched`](Self::unfold_touched)).
     pub(crate) fn touches_fold(&self, start: usize, end: usize) -> bool {
-        !self.folds().folded.with_untracked(Vec::is_empty)
-            && self.folds().folded.with_untracked(|folds| {
-                self.source.with_untracked(|doc| {
+        !self.fold.folded.with_untracked(Vec::is_empty)
+            && self.fold.folded.with_untracked(|folds| {
+                self.doc.text.with_untracked(|doc| {
                     hidden_spans(doc, folds)
                         .iter()
                         .any(|(from, to)| start <= *to && end >= *from)
@@ -83,11 +89,7 @@ impl EditorState {
     pub(crate) fn set_folds(&self, mut folds: Vec<FoldRange>) {
         folds.sort_unstable();
         folds.dedup();
-        if self
-            .folds()
-            .folded
-            .with_untracked(|current| *current == folds)
-        {
+        if self.fold.folded.with_untracked(|current| *current == folds) {
             return;
         }
         let area = self.textarea();
@@ -98,7 +100,7 @@ impl EditorState {
             let top = f64::from(area.scroll_top());
             let row = ((top - metrics.padding_top) / line_height).floor().max(0.0) as usize;
             // Whether the caret's row is in view, to keep it there.
-            let caret_row = self.folds().projection.with_untracked(|projection| {
+            let caret_row = self.fold.projection.with_untracked(|projection| {
                 projection.row_of_line(self.caret_line_of(selection.1))
             }) as f64;
             let caret_top = metrics.padding_top + caret_row * line_height;
@@ -113,19 +115,19 @@ impl EditorState {
                 caret_shown,
             )
         });
-        self.folds().folded.set(folds);
+        self.fold.folded.set(folds);
         self.show_text();
         let (Some(area), Some(((anchor, caret), top_line, top_row, line_height, top, caret_shown))) =
             (area, before)
         else {
             return;
         };
-        let (anchor, caret) = self.folds().projection.with_untracked(|projection| {
+        let (anchor, caret) = self.fold.projection.with_untracked(|projection| {
             let shown = |offset: usize| projection.hidden_at(offset).map_or(offset, |(at, _)| at);
             (shown(anchor), shown(caret))
         });
         let (view_anchor, view_caret) = self
-            .folds()
+            .fold
             .projection
             .with_untracked(|projection| (projection.to_view(anchor), projection.to_view(caret)));
         let element = area.element();
@@ -139,32 +141,34 @@ impl EditorState {
         let new_row = area.row_of_line(top_line);
         let scroll = (top + (new_row as f64 - top_row as f64) * line_height).max(0.0);
         element.set_scroll_top(scroll as i32);
-        self.scroll_y.set(f64::from(element.scroll_top()));
+        self.view.scroll_y.set(f64::from(element.scroll_top()));
         // A caret that was in view stays in view.
         if caret_shown {
-            self.source
-                .with_untracked(|text| reveal_offset(&area, text, caret, self.scroll_y));
+            self.doc
+                .text
+                .with_untracked(|text| reveal_offset(&area, text, caret, self.view.scroll_y));
         }
         self.note_caret(caret);
     }
 
     /// The 0-based line of UTF-16 `offset`.
     fn caret_line_of(&self, offset: usize) -> usize {
-        self.source
+        self.doc
+            .text
             .with_untracked(|text| line_at_cursor(text, offset).saturating_sub(1))
     }
 
     /// Opens the folds hiding UTF-16 `start` or `end`, so a selection moved
     /// there shows.
     pub(crate) fn reveal_offsets(&self, start: usize, end: usize) {
-        let hidden = self.folds().projection.with_untracked(|projection| {
+        let hidden = self.fold.projection.with_untracked(|projection| {
             projection.hidden_at(start).is_some() || projection.hidden_at(end).is_some()
         });
         if !hidden {
             return;
         }
-        let kept = self.folds().folded.with_untracked(|folds| {
-            self.source.with_untracked(|doc| {
+        let kept = self.fold.folded.with_untracked(|folds| {
+            self.doc.text.with_untracked(|doc| {
                 let spans = hidden_spans(doc, folds);
                 folds
                     .iter()
@@ -176,7 +180,7 @@ impl EditorState {
                     .collect::<Vec<_>>()
             })
         });
-        self.folds().folded.set(kept);
+        self.fold.folded.set(kept);
         self.show_text();
     }
 
@@ -186,21 +190,21 @@ impl EditorState {
     /// then refused (see `before_edit`); the caller shows the text.
     pub(crate) fn restore_folds(&self) {
         if let Some(folds) = self
-            .folds()
+            .fold
             .before_edit
             .try_update_value(Option::take)
             .flatten()
         {
-            self.folds().folded.set(folds);
+            self.fold.folded.set(folds);
         }
     }
 
     pub(crate) fn unfold_touched(&self, start: usize, end: usize) {
-        if self.folds().folded.with_untracked(Vec::is_empty) {
+        if self.fold.folded.with_untracked(Vec::is_empty) {
             return;
         }
-        let kept = self.folds().folded.with_untracked(|folds| {
-            self.source.with_untracked(|doc| {
+        let kept = self.fold.folded.with_untracked(|folds| {
+            self.doc.text.with_untracked(|doc| {
                 folds
                     .iter()
                     .zip(hidden_spans(doc, folds))
@@ -210,12 +214,12 @@ impl EditorState {
             })
         });
         if self
-            .folds()
+            .fold
             .folded
             .with_untracked(|folds| folds.len() != kept.len())
         {
             let selection = self.textarea().map(|area| directed_selection(&area));
-            self.folds().folded.set(kept);
+            self.fold.folded.set(kept);
             self.show_text();
             if let (Some(area), Some((anchor, caret))) = (self.textarea(), selection) {
                 let direction = if caret < anchor {
@@ -234,7 +238,7 @@ impl EditorState {
 
     /// The caret's line (0-based).
     fn caret_line(&self) -> usize {
-        self.current_line.get_untracked().saturating_sub(1)
+        self.doc.current_line.get_untracked().saturating_sub(1)
     }
 
     /// Folds the innermost open range around the caret's line; again, the
@@ -246,8 +250,8 @@ impl EditorState {
     /// Folds the innermost open range starting at or around `line`
     /// (0-based). Returns whether one was found.
     pub(crate) fn fold_line(&self, line: usize) -> bool {
-        let range = self.folds().fold_ranges.with_untracked(|ranges| {
-            self.folds().folded.with_untracked(|folded| {
+        let range = self.fold.fold_ranges.with_untracked(|ranges| {
+            self.fold.folded.with_untracked(|folded| {
                 ranges
                     .iter()
                     .filter(|range| range.contains(line) && !folded.contains(range))
@@ -258,7 +262,7 @@ impl EditorState {
         let Some(range) = range else {
             return false;
         };
-        let mut folds = self.folds().folded.get_untracked();
+        let mut folds = self.fold.folded.get_untracked();
         folds.push(range);
         self.set_folds(folds);
         true
@@ -267,7 +271,7 @@ impl EditorState {
     /// Folds the range starting at `line` (0-based). Returns whether there
     /// is one, open.
     pub(crate) fn fold_starting_at(&self, line: usize) -> bool {
-        let range = self.folds().fold_ranges.with_untracked(|ranges| {
+        let range = self.fold.fold_ranges.with_untracked(|ranges| {
             ranges
                 .binary_search_by_key(&line, |range| range.start)
                 .ok()
@@ -276,11 +280,11 @@ impl EditorState {
         match range {
             Some(range)
                 if !self
-                    .folds()
+                    .fold
                     .folded
                     .with_untracked(|folded| folded.contains(&range)) =>
             {
-                let mut folds = self.folds().folded.get_untracked();
+                let mut folds = self.fold.folded.get_untracked();
                 folds.push(range);
                 self.set_folds(folds);
                 true
@@ -297,7 +301,7 @@ impl EditorState {
     /// Opens the folds starting at or around `line` (0-based). Returns
     /// whether one was closed.
     pub(crate) fn unfold_line(&self, line: usize) -> bool {
-        let mut folds = self.folds().folded.get_untracked();
+        let mut folds = self.fold.folded.get_untracked();
         let count = folds.len();
         folds.retain(|fold| !fold.contains(line));
         if folds.len() == count {
@@ -309,10 +313,10 @@ impl EditorState {
 
     /// Folds or opens the range starting at `line` (a gutter chevron).
     pub(crate) fn toggle_fold(&self, line: usize) {
-        let mut folds = self.folds().folded.get_untracked();
+        let mut folds = self.fold.folded.get_untracked();
         if let Some(index) = folds.iter().position(|fold| fold.start == line) {
             folds.remove(index);
-        } else if let Some(range) = self.folds().fold_ranges.with_untracked(|ranges| {
+        } else if let Some(range) = self.fold.fold_ranges.with_untracked(|ranges| {
             ranges
                 .binary_search_by_key(&line, |range| range.start)
                 .ok()
@@ -327,7 +331,7 @@ impl EditorState {
 
     /// Folds every range (`Ctrl+K Ctrl+0`).
     pub(crate) fn fold_all(&self) {
-        let all = self.folds().fold_ranges.get_untracked();
+        let all = self.fold.fold_ranges.get_untracked();
         self.set_folds(all);
     }
 

@@ -14,12 +14,12 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
         <pre
             class="config-editor__highlight"
             aria-hidden="true"
-            style:transform=move || format!("translate({}px, {}px)", -state.scroll_x.get(), -state.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
         >
             <code>
                 <RowSpacer state=state />
                 <For
-                    each=move || state.folds().visible_lines.get()
+                    each=move || state.fold.visible_lines.get()
                     key=|index| *index
                     children=move |index| view! { <CodeLine state=state rows=rows.clone() index=index /> }
                 />
@@ -31,18 +31,20 @@ pub(crate) fn CodeLayer(state: EditorState, rows: LineRows) -> impl IntoView {
 #[component]
 fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
     // Subscribe only to the row's own signal (see `line_rows`).
-    let active = state.current_line.get_untracked();
+    let active = state.doc.current_line.get_untracked();
     // Borrow, never clone: cloning the whole document per new row made large
     // pastes quadratic.
-    let row = state.lines.with_untracked(|lines| {
+    let row = state.view.lines.with_untracked(|lines| {
         state
+            .changes
             .diff
             .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
     });
-    let highlighting = state.features.highlighting;
+    let highlighting = state.config.features.highlighting;
     // A line inside a multi-line string's body is all string.
     let in_string_body = move || {
         state
+            .view
             .string_bodies
             .with(|bodies| bodies.iter().any(|lines| lines.contains(&index)))
     };
@@ -64,7 +66,7 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
                     tokens.push(0, text.len(), TokenKind::String);
                     tokens.finish()
                 } else if highlighting {
-                    state.edit_language.get().behavior().highlight(&text)
+                    state.sync.edit_language.get().behavior().highlight(&text)
                 } else {
                     Vec::new()
                 };

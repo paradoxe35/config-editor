@@ -8,7 +8,7 @@ use super::super::state::EditorState;
 
 #[component]
 pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
-    let diagnostics = state.diagnostics;
+    let diagnostics = state.problems.diagnostics;
     let first_placed = move |_| {
         let index = diagnostics.with_untracked(|problems| {
             problems
@@ -20,7 +20,8 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
         }
     };
     // Follows `read_only`, which switches without remounting.
-    let offers_completions = move || state.features.completions && !state.read_only.get();
+    let offers_completions =
+        move || state.config.features.completions && !state.config.read_only.get();
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
@@ -29,7 +30,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 })}
             </span>
             <span class="config-editor__status-meta">
-                {state.features.diagnostics.then(|| view! {
+                {state.config.features.diagnostics.then(|| view! {
                     <button
                         type="button"
                         class="config-editor__diagnostic-status"
@@ -51,10 +52,10 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                         {move || diagnostics.with(|problems| summary(problems))}
                     </button>
                 })}
-                {state.features.diff.then(|| view! { <ChangeStatus state=state /> })}
+                {state.config.features.diff.then(|| view! { <ChangeStatus state=state /> })}
                 <span class="config-editor__line-count">
                     {move || {
-                        let count = state.source.with(|text| text.split('\n').count());
+                        let count = state.doc.text.with(|text| text.split('\n').count());
                         format!("{count} {}", if count == 1 { "line" } else { "lines" })
                     }}
                 </span>
@@ -66,7 +67,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
 /// "2 changes" against the baseline; it moves to the next one, as `Alt+F5`.
 #[component]
 fn ChangeStatus(state: EditorState) -> impl IntoView {
-    let changes = state.changes;
+    let changes = state.changes.summary;
     let next_change = move |_| state.go_to_change(true, false);
     move || {
         let summary = changes.get();

@@ -7,7 +7,7 @@
 mod commands;
 mod unified;
 
-pub(super) use commands::report_changes;
+pub(super) use commands::{ChangesState, report_changes};
 pub use unified::unified_diff;
 
 use super::commands::offset_at;

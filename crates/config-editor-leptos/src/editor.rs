@@ -18,6 +18,7 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod document;
 mod folding;
 mod go_to_line;
 mod handle;
@@ -25,6 +26,7 @@ mod highlight;
 mod history;
 mod host_diagnostics;
 mod host_editing;
+mod hover;
 mod inline;
 mod input;
 pub use input::flush_pending_input;
@@ -33,10 +35,12 @@ mod keyboard;
 mod keys;
 pub mod language;
 mod languages;
+mod layout;
 mod line_rows;
 mod metrics;
 mod paths;
 mod positioning;
+mod problems;
 mod protect;
 mod search;
 mod state;
@@ -44,6 +48,7 @@ mod sync;
 #[cfg(test)]
 mod test_state;
 mod theme;
+mod typing;
 
 pub use changes::{ChangeSummary, unified_diff};
 pub use codec::{Conversion, ConvertError};
@@ -323,7 +328,7 @@ pub fn ConfigEditor(
         handle.attach(state);
     }
     if let Some(on_path_change) = on_path_change {
-        Effect::new(move |_| on_path_change.run(state.caret_path.get()));
+        Effect::new(move |_| on_path_change.run(state.doc.caret_path.get()));
     }
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
@@ -344,7 +349,7 @@ pub fn ConfigEditor(
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
             style=move || colors.get().map(|colors| colors.to_style())
-            node_ref=state.root_ref
+            node_ref=state.view.root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
             {styled.then(|| view! { <style>{PRESET_CSS}</style> })}
@@ -385,7 +390,7 @@ fn report_schema_warnings(warnings: &[String], on_schema_warning: Option<Callbac
 
 /// Window resizes and page scrolls move the editor, so popups re-measure.
 fn remeasure_on_window_changes(state: EditorState) {
-    let bump = move || state.layout_revision.update(|revision| *revision += 1);
+    let bump = move || state.view.layout_revision.update(|revision| *revision += 1);
     let resize = window_event_listener(ev::resize, move |_| bump());
     let scroll = window_event_listener(ev::scroll, move |_| bump());
     on_cleanup(move || {

@@ -8,7 +8,7 @@ use super::super::search;
 use super::super::state::EditorState;
 
 pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !state.features.search {
+    if !state.config.features.search {
         return false;
     }
     let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();

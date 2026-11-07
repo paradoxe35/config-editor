@@ -74,7 +74,7 @@ impl EditorHandle {
 
     /// The text on screen.
     pub fn text(&self) -> Option<String> {
-        self.editor()?.source.try_get_untracked()
+        self.editor()?.doc.text.try_get_untracked()
     }
 
     /// Where the field at `path` is written: its key and value when they share
@@ -84,7 +84,8 @@ impl EditorHandle {
         let state = self.editor()?;
         let pointer = path.into().to_pointer();
         state
-            .source
+            .doc
+            .text
             .try_with_untracked(|text| field_range(state.behavior(), text, &pointer))
             .flatten()
     }
@@ -94,7 +95,8 @@ impl EditorHandle {
     pub fn path_at(&self, position: TextPosition) -> Option<FieldPath> {
         let state = self.editor()?;
         state
-            .source
+            .doc
+            .text
             .try_with_untracked(|text| {
                 if position.line > text.split('\n').count() {
                     return None;
@@ -111,7 +113,7 @@ impl EditorHandle {
         self.state
             .try_get()
             .flatten()
-            .and_then(|state| state.caret_path.try_get())
+            .and_then(|state| state.doc.caret_path.try_get())
     }
 
     /// Scrolls to the field at `path`, selects it (as
@@ -126,7 +128,8 @@ impl EditorHandle {
             return false;
         };
         let (start, end) = state
-            .source
+            .doc
+            .text
             .with_untracked(|text| (range.start.to_offset(text), range.end.to_offset(text)));
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
@@ -147,8 +150,8 @@ impl EditorHandle {
         self.state
             .try_get()
             .flatten()
-            .and_then(|state| state.try_editing())
-            .is_some_and(|editing| editing.dirty.try_get().unwrap_or(false))
+            .and_then(|state| state.editing.dirty.try_get())
+            .unwrap_or(false)
     }
 
     /// Folds the block the field at `path` opens (its key's line), as its
@@ -190,8 +193,7 @@ impl EditorHandle {
         self.state
             .try_get()
             .flatten()
-            .and_then(|state| state.fold.try_get_value())
-            .and_then(|fold| fold.folded.try_get())
+            .and_then(|state| state.fold.folded.try_get())
             .unwrap_or_default()
             .iter()
             .map(|fold| (fold.start + 1, fold.end + 1))

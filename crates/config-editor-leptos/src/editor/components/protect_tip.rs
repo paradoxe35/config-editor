@@ -12,7 +12,7 @@ use super::super::state::EditorState;
 #[component]
 pub(crate) fn ProtectTipView(state: EditorState) -> impl IntoView {
     move || {
-        let tip = state.protect().tip.get()?;
+        let tip = state.protect.tip.get()?;
         let style = tip_style(state, &tip)?;
         Some(view! {
             <div
@@ -31,8 +31,8 @@ pub(crate) fn ProtectTipView(state: EditorState) -> impl IntoView {
 /// Where the tooltip goes: under (or above) the text it points at.
 fn tip_style(state: EditorState, tip: &Tip) -> Option<String> {
     let element = state.textarea()?;
-    state.layout_revision.track();
-    let (line, column) = state.source.with_untracked(|text| {
+    state.view.layout_revision.track();
+    let (line, column) = state.doc.text.with_untracked(|text| {
         let byte = utf16_to_byte_index(text, tip.offset);
         let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
         (

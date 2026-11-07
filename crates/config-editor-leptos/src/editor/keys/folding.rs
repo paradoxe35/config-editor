@@ -11,12 +11,12 @@ use super::{typed_character, unmodified};
 
 /// The folding shortcuts. Returns whether the key was one.
 pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !state.features.folding {
+    if !state.config.features.folding {
         return false;
     }
     let command = event.ctrl_key() || event.meta_key();
-    if state.folds().fold_chord.get_value() && !matches!(event.key().as_str(), "Control" | "Meta") {
-        state.folds().fold_chord.set_value(false);
+    if state.fold.fold_chord.get_value() && !matches!(event.key().as_str(), "Control" | "Meta") {
+        state.fold.fold_chord.set_value(false);
         let key = event.key().to_ascii_lowercase();
         if command && (key == "0" || event.code() == "Digit0") {
             event.prevent_default();
@@ -34,7 +34,7 @@ pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     if !event.shift_key() && event.key().eq_ignore_ascii_case("k") {
         event.prevent_default();
-        state.folds().fold_chord.set_value(true);
+        state.fold.fold_chord.set_value(true);
         return true;
     }
     if !event.shift_key() {
@@ -60,7 +60,7 @@ pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
 /// line after a fold, Delete at a folded line's end, any edit of a
 /// selection reaching into one. The edit then applies to the whole text.
 pub(super) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
-    if state.folds().folded.with_untracked(Vec::is_empty) {
+    if state.fold.folded.with_untracked(Vec::is_empty) {
         return;
     }
     let Some(element) = state.textarea() else {
@@ -75,12 +75,9 @@ pub(super) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
         _ if typed_character(event).is_some() && unmodified(event) => (start, end),
         _ => return,
     };
-    let folded = state.folds().folded.get_untracked();
+    let folded = state.fold.folded.get_untracked();
     state.unfold_touched(reach.0, reach.1);
     // Kept until the edit is made: a refused one puts the folds back.
-    let opened = state.folds().folded.with_untracked(|now| *now != folded);
-    state
-        .folds()
-        .before_edit
-        .set_value(opened.then_some(folded));
+    let opened = state.fold.folded.with_untracked(|now| *now != folded);
+    state.fold.before_edit.set_value(opened.then_some(folded));
 }

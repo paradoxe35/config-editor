@@ -11,7 +11,7 @@ use super::super::state::EditorState;
 #[component]
 pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
     let search = state.search;
-    let editable = move || !state.read_only.get();
+    let editable = move || !state.config.read_only.get();
     let invalid = move || search.results.with(|results| results.error.is_some());
     view! {
         <div

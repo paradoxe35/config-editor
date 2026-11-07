@@ -55,7 +55,7 @@ impl EditorState {
         after: String,
         caret: usize,
     ) -> Option<(String, usize)> {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         let widened = secrets.tokens.with_untracked(|tokens| {
             if tokens.is_empty() {
                 return None;
@@ -73,7 +73,7 @@ impl EditorState {
 
     /// Follows an applied edit with the placeholders' places.
     pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         if secrets.tokens.with_untracked(Vec::is_empty) {
             return;
         }
@@ -89,11 +89,11 @@ impl EditorState {
     /// value, an Edit-as switch, undo); with `host_changed`, the host's text
     /// is new and says again which tokens are real.
     pub(crate) fn rescan_tokens(&self, host_changed: bool) {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         if host_changed {
             let known = secrets
                 .matcher
-                .with_value(|matcher| self.host_text.with_value(|host| matcher.known(host)));
+                .with_value(|matcher| self.sync.host_text.with_value(|host| matcher.known(host)));
             if secrets.known.with_untracked(|current| *current != known) {
                 secrets.known.set(known);
             }
@@ -102,7 +102,7 @@ impl EditorState {
             if known.is_empty() {
                 return Vec::new();
             }
-            self.source.with_untracked(|text| locate(text, known))
+            self.doc.text.with_untracked(|text| locate(text, known))
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
@@ -112,7 +112,7 @@ impl EditorState {
     /// Takes the placeholders of `host` (a text the host gave, such as a
     /// reloaded baseline) as real, and finds them in the text on screen.
     pub(crate) fn adopt_host_tokens(&self, host: &str) {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         let known = secrets.matcher.with_value(|matcher| matcher.known(host));
         if secrets.known.with_untracked(|current| *current != known) {
             secrets.known.set(known);
@@ -124,7 +124,7 @@ impl EditorState {
     /// a vertical move) out of it: a caret to the nearest edge, a selection
     /// grown to take it whole.
     pub(crate) fn snap_to_tokens(&self) {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         let Some(element) = self.textarea() else {
             return;
         };
@@ -166,7 +166,7 @@ impl EditorState {
             caret.saturating_sub(1)
         };
         let target = self
-            .protect()
+            .protect
             .secrets
             .tokens
             .with_untracked(|tokens| snap(tokens, step, Some(forward)));
@@ -187,7 +187,7 @@ impl EditorState {
 
     /// The hint of the placeholder covering UTF-16 `offset`, if any.
     pub(crate) fn token_hint(&self, offset: usize) -> Option<String> {
-        let secrets = self.protect().secrets;
+        let secrets = self.protect.secrets;
         let on_token = secrets.tokens.with_untracked(|tokens| {
             tokens
                 .iter()

@@ -1,6 +1,7 @@
+use super::diagnostics::{Diagnostic, Severity};
 use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
 use super::folding::FoldRange;
-use super::protect::LineMarks;
+use super::protect::{LineMarks, ProtectState, line_marks};
 use leptos::prelude::*;
 
 /// One line of the document plus its error and diff flags.
@@ -12,6 +13,53 @@ pub(super) struct RenderedLine {
     /// Protected text on the line: muted values and the gutter lock (boxed:
     /// most lines have none, and every line carries the field).
     pub(super) marks: Option<Box<LineMarks>>,
+}
+
+/// Each line of `text` with its error flag (from `diagnostics`), its change
+/// against the baseline (from `diff`) and its protected-text marks.
+pub(super) fn rendered_lines(
+    text: RwSignal<String>,
+    diagnostics: Memo<Vec<Diagnostic>>,
+    diff: Memo<LineDiff>,
+    protect: ProtectState,
+) -> Memo<Vec<RenderedLine>> {
+    Memo::new(move |_| {
+        let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
+            errors
+                .iter()
+                .filter(|error| error.severity == Severity::Error)
+                .filter_map(|error| error.line)
+                .collect()
+        });
+        text.with(|text| {
+            let marks = protect.protected.with(|protected| {
+                protect.secrets.tokens.with(|tokens| {
+                    protect
+                        .secrets
+                        .options
+                        .with_value(|options| line_marks(text, protected, tokens, &options.hint))
+                })
+            });
+            diff.with(|line_diff| {
+                text.split('\n')
+                    .enumerate()
+                    .map(|(index, line)| RenderedLine {
+                        text: line.to_string(),
+                        has_error: error_lines.contains(&(index + 1)),
+                        change: line_diff
+                            .current
+                            .get(index)
+                            .copied()
+                            .unwrap_or(DiffKind::Unchanged),
+                        marks: marks
+                            .get(index)
+                            .filter(|marks| **marks != LineMarks::default())
+                            .map(|marks| Box::new(marks.clone())),
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+    })
 }
 
 /// A row's protected-text marks; a closed fold on it that hides a

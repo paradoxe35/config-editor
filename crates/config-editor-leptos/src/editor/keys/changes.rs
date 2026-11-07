@@ -7,7 +7,7 @@ use super::super::state::EditorState;
 
 /// The change keys; they move the caret only, so they work read-only too.
 pub(in crate::editor) fn go_to_change(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !event.alt_key() || event.ctrl_key() || event.meta_key() || !state.features.diff {
+    if !event.alt_key() || event.ctrl_key() || event.meta_key() || !state.config.features.diff {
         return false;
     }
     let preview = match event.code().as_str() {

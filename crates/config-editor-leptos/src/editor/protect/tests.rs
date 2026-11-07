@@ -652,7 +652,7 @@ fn host_ranges_lock_the_fields_of_the_current_host_text_while_editing_as() {
     }
     .mount();
     let locked = || {
-        state.protect().protected.with_untracked(|protected| {
+        state.protect.protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()

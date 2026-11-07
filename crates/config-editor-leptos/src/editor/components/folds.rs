@@ -33,10 +33,10 @@ pub(crate) type FoldItems = Memo<Vec<FoldItem>>;
 /// The [`FoldItems`] of `state`, kept in step with the rows in view.
 fn fold_items(state: EditorState) -> FoldItems {
     Memo::new(move |_| {
-        let rows = state.visible_rows.get();
-        state.folds().visible_lines.with(|lines| {
-            state.folds().fold_ranges.with(|ranges| {
-                state.folds().folded.with(|closed| {
+        let rows = state.view.visible_rows.get();
+        state.fold.visible_lines.with(|lines| {
+            state.fold.fold_ranges.with(|ranges| {
+                state.fold.folded.with(|closed| {
                     lines
                         .iter()
                         .zip(rows)
@@ -69,7 +69,7 @@ fn fold_items(state: EditorState) -> FoldItems {
 
 /// Whether the fold `line..=end` hides changes, and its line's width.
 fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) {
-    let changed = state.diff.with(|diff| {
+    let changed = state.changes.diff.with(|diff| {
         let hidden = line + 1..=end;
         hidden.clone().any(|index| {
             diff.current
@@ -78,7 +78,7 @@ fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) 
                 || diff.deleted_before.get(index).copied().unwrap_or(false)
         })
     });
-    let width = state.lines.with(|lines| {
+    let width = state.view.lines.with(|lines| {
         lines
             .get(line)
             .map_or(0.0, |rendered| visual_column(&rendered.text))
@@ -108,7 +108,7 @@ pub(crate) fn mount_fold_layers(state: EditorState) {
     let layers: StoredValue<Vec<Box<dyn std::any::Any>>, LocalStorage> =
         StoredValue::new_local(Vec::new());
     Effect::new(move |_| {
-        let Some(root) = state.root_ref.get() else {
+        let Some(root) = state.view.root_ref.get() else {
             return;
         };
         let find = |selector: &str| {
@@ -175,7 +175,7 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
     view! {
         <div
             class="config-editor__fold-chips"
-            style:transform=move || format!("translate({}px, {}px)", -state.scroll_x.get(), -state.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
         >
             <For
                 each=move || folds.get().into_iter().filter(|item| item.closed_end.is_some())

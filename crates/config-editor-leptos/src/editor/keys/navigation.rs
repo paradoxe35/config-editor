@@ -20,7 +20,10 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     };
     let (anchor, caret) = directed_selection(&element);
-    let target = state.source.with_untracked(|text| home_target(text, caret));
+    let target = state
+        .doc
+        .text
+        .with_untracked(|text| home_target(text, caret));
     event.prevent_default();
     if event.shift_key() {
         let direction = if target < anchor {
@@ -37,7 +40,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         let _ = element.set_selection_range(target as u32, target as u32);
     }
     // Bring the caret back into view when the line is scrolled sideways.
-    let column = state.source.with_untracked(|text| {
+    let column = state.doc.text.with_untracked(|text| {
         let byte = utf16_to_byte_index(text, target);
         let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
         visual_column(&text[line_start..byte])
@@ -49,8 +52,9 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     // And vertically, when the caret's line is scrolled out of view.
     state
-        .source
-        .with_untracked(|text| reveal_offset(&element, text, target, state.scroll_y));
+        .doc
+        .text
+        .with_untracked(|text| reveal_offset(&element, text, target, state.view.scroll_y));
     state.note_caret(target);
     true
 }
@@ -59,7 +63,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
 /// steps past it (and its closing quote) and is done; Enter goes on from
 /// the end of its line, so a string or element is never split.
 pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> bool {
-    let Some((start, end)) = state.placeholder.get_value() else {
+    let Some((start, end)) = state.completion.placeholder.get_value() else {
         return false;
     };
     let key = event.key();
@@ -69,11 +73,11 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
     let Some(element) = state.textarea() else {
         return false;
     };
-    state.placeholder.set_value(None);
+    state.completion.placeholder.set_value(None);
     if textarea_selection(&element) != (start, end) {
         return false;
     }
-    let end = state.source.with_untracked(|text| {
+    let end = state.doc.text.with_untracked(|text| {
         let byte = utf16_to_byte_index(text, end);
         let rest = &text[byte..];
         let skip = if key == "Enter" {
@@ -84,13 +88,14 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         end + rest[..skip].encode_utf16().count()
     });
     let _ = element.set_selection_range(end as u32, end as u32);
-    state.cursor.set(end);
+    state.doc.caret.set(end);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
         // On to the block's next value, if it has one.
         state
-            .source
+            .doc
+            .text
             .with_untracked(|text| super::tab::next_placeholder_slot(state, text, end));
         return true;
     }
@@ -107,11 +112,11 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
-    state.auto_closers.update_value(Vec::clear);
-    state.slot_region.set_value(None);
-    let current = state.source.get_untracked();
+    state.typing.closers.update_value(Vec::clear);
+    state.completion.slot_region.set_value(None);
+    let current = state.doc.text.get_untracked();
     let mut restored = None;
-    state.history.update(|history| {
+    state.doc.history.update(|history| {
         restored = if undo {
             history.undo(current.clone())
         } else {
@@ -125,7 +130,7 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
             state.follow_edit(&current, &snapshot.value, caret);
             restored = Some(snapshot);
         } else {
-            state.history.update(|history| {
+            state.doc.history.update(|history| {
                 if undo {
                     history.redo(snapshot.value);
                 } else {
@@ -137,13 +142,16 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
     if let Some(restored) = restored {
         let (start, end) = restored.selection;
         state.write_text(restored.value.clone());
-        state.cursor.set(end);
-        state.current_line.set(line_at_cursor(&restored.value, end));
+        state.doc.caret.set(end);
+        state
+            .doc
+            .current_line
+            .set(line_at_cursor(&restored.value, end));
         if let Some(element) = state.textarea() {
-            set_caret_visible(&element, &restored.value, end, state.scroll_y);
+            set_caret_visible(&element, &restored.value, end, state.view.scroll_y);
             let _ = element.set_selection_range(start as u32, end as u32);
         }
-        if let Some(on_change) = state.on_change {
+        if let Some(on_change) = state.sync.on_change {
             on_change.run(restored.value);
         }
         // A placeholder an undo brings back is the host's again.
@@ -162,16 +170,17 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     // Right after an edit the problems are those of the text before the
     // typing pause: check the text as it is now first.
-    let text = state.source.get_untracked();
+    let text = state.doc.text.get_untracked();
     if state
+        .problems
         .diagnosed_text
         .with_untracked(|diagnosed| *diagnosed != text)
     {
-        state.diagnosed_text.set(text);
+        state.problems.diagnosed_text.set(text);
     }
-    let here = state.cursor.get_untracked();
-    let mut positioned: Vec<(usize, usize)> = state.source.with_untracked(|text| {
-        state.diagnostics.with_untracked(|problems| {
+    let here = state.doc.caret.get_untracked();
+    let mut positioned: Vec<(usize, usize)> = state.doc.text.with_untracked(|text| {
+        state.problems.diagnostics.with_untracked(|problems| {
             problems
                 .iter()
                 .enumerate()
@@ -192,7 +201,7 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
 /// Escape closes the suggestion list, then the find widget, or with nothing
 /// to close collapses a selection.
 pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
-    if state.suggestions_requested.get_untracked() {
+    if state.completion.requested.get_untracked() {
         event.prevent_default();
         state.close_suggestions();
         return;

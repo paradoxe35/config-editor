@@ -10,26 +10,26 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
     view! {
         <div
             class="config-editor__completions"
-            class:hidden=move || state.suggestions.get().is_empty()
+            class:hidden=move || state.completion.suggestions.get().is_empty()
             role="listbox"
             aria-label=move || format!("{} suggestions", state.label())
-            node_ref=state.completion_ref
+            node_ref=state.view.completion_ref
             style=move || {
-                state.layout_revision.get();
-                state.scroll_x.get();
-                state.scroll_y.get();
+                state.view.layout_revision.get();
+                state.view.scroll_x.get();
+                state.view.scroll_y.get();
                 // Return before reading source and caret so typing with the
                 // list hidden forces no layout.
-                let count = state.suggestions.with(Vec::len);
+                let count = state.completion.suggestions.with(Vec::len);
                 if count == 0 {
                     return "visibility:hidden".to_string();
                 }
                 state
-                    .editor_ref
+                    .view.textarea_ref
                     .get()
                     .map(|editor| {
-                        state.folds().projection.with(|projection| {
-                            completion_popup_style(&editor, projection, &state.source.get(), state.cursor.get(), count)
+                        state.fold.projection.with(|projection| {
+                            completion_popup_style(&editor, projection, &state.doc.text.get(), state.doc.caret.get(), count)
                         })
                     })
                     .unwrap_or_else(|| "visibility:hidden".to_string())
@@ -37,7 +37,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
         >
             {move || {
                 state
-                    .suggestions
+                    .completion.suggestions
                     .get()
                     .into_iter()
                     .enumerate()
@@ -50,7 +50,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
 
 #[component]
 fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl IntoView {
-    let selected = move || state.active_completion.get() == index;
+    let selected = move || state.completion.active.get() == index;
     let label = option
         .label
         .chars()
@@ -105,7 +105,7 @@ fn Suggestion(state: EditorState, index: usize, option: Completion) -> impl Into
 /// pointer that stays still keeps the keyboard's selection.
 fn hover_selects(state: EditorState, index: usize, event: &web_sys::MouseEvent) {
     let moved = event.movement_x() != 0 || event.movement_y() != 0;
-    if moved && state.active_completion.get_untracked() != index {
-        state.active_completion.set(index);
+    if moved && state.completion.active.get_untracked() != index {
+        state.completion.active.set(index);
     }
 }

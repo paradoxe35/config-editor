@@ -17,13 +17,13 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
         <div
             class="config-editor__diagnostic-overlay"
             aria-label=move || format!("Inline {} diagnostics", state.label())
-            style:transform=move || format!("translate({}px, {}px)", -state.scroll_x.get(), -state.scroll_y.get())
+            style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
         >
             {move || {
-                let text = state.source.get();
-                let projection = state.folds().projection.get();
+                let text = state.doc.text.get();
+                let projection = state.fold.projection.get();
                 state
-                    .diagnostics
+                    .problems.diagnostics
                     .get()
                     .into_iter()
                     .filter_map(|diagnostic| {
@@ -93,14 +93,14 @@ fn marker(
             class:config-editor__diagnostic-marker-host=from_host
             class:config-editor__diagnostic-marker-docs=has_docs
             class:config-editor__diagnostic-marker-eof=at_end
-            class:config-editor__diagnostic-marker-shown=move || state.shown_problem.get() == Some((line, column))
+            class:config-editor__diagnostic-marker-shown=move || state.problems.current.get() == Some((line, column))
             // Near the top of the viewport (not of the document), the message
             // opens below its line.
             class:config-editor__diagnostic-marker-near-top=move || {
                 let line_height = state
                     .textarea()
                     .map_or(22.0, |editor| read_editor_metrics(editor.element()).line_height);
-                row as f64 * line_height - state.scroll_y.get() < 3.0 * line_height
+                row as f64 * line_height - state.view.scroll_y.get() < 3.0 * line_height
             }
             tabindex="-1"
             aria-label=aria_label
@@ -170,7 +170,7 @@ fn on_marker_click(
 /// `column`: as wide as the visible text area allows (up to
 /// [`TOOLTIP_MAX_WIDTH`]) and shifted left to stay inside it.
 fn tooltip_placement(state: EditorState, column: f64) -> (String, String) {
-    let scroll = state.scroll_x.get();
+    let scroll = state.view.scroll_x.get();
     let Some(editor) = state.textarea() else {
         return ("0px".to_string(), format!("{TOOLTIP_MAX_WIDTH}px"));
     };

@@ -47,12 +47,13 @@ pub(super) fn row_states(state: EditorState) -> LineRows {
     let rows = LineRows::new();
     let synced = rows.clone();
     Effect::new(move |_| {
-        let line = state.current_line.get();
-        state.folds().visible_lines.with(|visible| {
-            state.folds().folded.with(|closed| {
+        let line = state.doc.current_line.get();
+        state.fold.visible_lines.with(|visible| {
+            state.fold.folded.with(|closed| {
                 let folds = RowFolds { closed };
-                state.lines.with(|lines| {
+                state.view.lines.with(|lines| {
                     state
+                        .changes
                         .diff
                         .with(|diff| synced.sync(lines, diff, line, visible, folds))
                 })
@@ -71,7 +72,7 @@ fn RowSpacer(state: EditorState) -> impl IntoView {
             style:height=move || {
                 format!(
                     "calc({} * var(--config-editor-line-height))",
-                    state.visible_rows.with(|rows| rows.start),
+                    state.view.visible_rows.with(|rows| rows.start),
                 )
             }
         ></span>

@@ -1,46 +1,52 @@
-//! The editor's shared state: every signal the parts of the editor read or
-//! write, in one `Copy` handle passed to components and event handlers.
+//! The editor's shared state: one `Copy` handle, passed to every component
+//! and event handler, pointing at the state's parts.
+//!
+//! Each part is a small group of signals defined in and owned by the module
+//! that uses it; this module only composes them:
+//!
+//! | Field        | Type                | Module          |
+//! |--------------|---------------------|-----------------|
+//! | `config`     | [`Config`]          | here            |
+//! | `doc`        | `DocState`          | `document`      |
+//! | `sync`       | `SyncState`         | `sync`          |
+//! | `view`       | `ViewState`         | `layout`        |
+//! | `completion` | `CompletionState`   | `completion`    |
+//! | `typing`     | `TypingState`       | `typing`        |
+//! | `hover`      | `HoverState`        | `hover`         |
+//! | `problems`   | `ProblemsState`     | `problems`      |
+//! | `changes`    | `ChangesState`      | `changes`       |
+//! | `search`     | `SearchState`       | `search`        |
+//! | `go_to_line` | `GoToLine`          | `go_to_line`    |
+//! | `editing`    | `HostEditing`       | `host_editing`  |
+//! | `fold`       | `FoldState`         | `folding`       |
+//! | `protect`    | `ProtectState`      | `protect`       |
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::bridge::Bridge;
-use super::changes::ChangeSummary;
-use super::commands::{line_at_cursor, offset_at};
-use super::completion::{
-    Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
-    next_slot, stop_ranges,
-};
-use super::components::HoverCard;
-use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate_with};
-use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
+use super::changes::ChangesState;
+use super::commands::line_at_cursor;
+use super::completion::{self, CompletionState};
+use super::diagnostics::SchemaBundle;
+use super::document::DocState;
 use super::folding::{FoldState, Projection, SourceArea};
 use super::go_to_line::GoToLine;
-use super::history::{EditHistory, Selection, Snapshot};
-use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
+use super::history::{Selection, Snapshot};
+use super::host_diagnostics::HostDiagnostic;
 use super::host_editing::{
-    BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent, shown_baseline,
+    self, BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent,
 };
-use super::language::ConfigLanguage;
+use super::hover::HoverState;
 use super::languages::Language;
-use super::line_rows::RenderedLine;
-use super::metrics::read_editor_metrics;
-use super::paths::{FieldPath, path_at};
-use super::positioning::{reveal_offset, set_caret_visible};
-use super::protect::{
-    Around, Inputs, LineMarks, ProtectInit, ProtectState, adjust_suggestions, line_marks,
-    unknown_placeholders,
-};
+use super::layout::ViewState;
+use super::line_rows::rendered_lines;
+use super::positioning::set_caret_visible;
+use super::problems::{self, ProblemsState};
+use super::protect::{Inputs, ProtectInit, ProtectState};
 use super::search::SearchState;
-
-/// Rows rendered above and below the visible ones, so fast scrolling does
-/// not show blank lines before the next frame.
-const OVERSCAN_ROWS: usize = 40;
-
-/// Rows rendered before the editor element exists to measure.
-const INITIAL_ROWS: usize = 120;
+use super::sync::SyncState;
+use super::typing::TypingState;
 
 /// Which optional behaviours are on (from the component's props).
 #[derive(Clone, Copy)]
@@ -57,20 +63,14 @@ pub(super) struct Features {
     pub(super) folding: bool,
 }
 
-/// Closing text the editor wrote after the caret: a bracket, a quote, or
-/// markup such as an XML end tag.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Closer {
-    /// UTF-16 distance from the document end to where it starts; typing
-    /// before it does not change it.
-    pub(super) distance: usize,
-    /// UTF-16 length.
-    pub(super) len: usize,
-    /// For a closer that ends a value (a string, an element's text): the
-    /// character just before the value (`"`, the `>` of `<k>`). Once the text
-    /// before the caret no longer ends with it, a value was typed, and Enter
-    /// steps past the closer. `None` for brackets, which Enter opens instead.
-    pub(super) opener: Option<char>,
+/// What the editor is mounted with and keeps: the host's language, the
+/// schema, the read-only switch and the optional behaviours.
+pub(super) struct Config {
+    pub(super) host_language: Language,
+    pub(super) schema: StoredValue<Option<Arc<SchemaBundle>>>,
+    /// The `read_only` prop, which may switch live.
+    pub(super) read_only: Signal<bool>,
+    pub(super) features: Features,
 }
 
 /// What the component hands over to build the state.
@@ -96,6 +96,256 @@ pub(super) struct Init {
     pub(super) on_save: Option<Callback<SaveRequest>>,
     pub(super) save_shortcut: Signal<bool>,
     pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
+}
+
+/// The editor's state, shared by every handler: one pointer to its
+/// [`EditorFields`].
+///
+/// Handlers and view closures capture the state by copy, and an unoptimized
+/// (debug) wasm build keeps each copy on the stack while it builds them, so
+/// the fields held inline overflowed the stack once they reached about a
+/// kilobyte. A pointer keeps every capture at one word however many fields
+/// there are.
+///
+/// The fields (small signal and stored-value handles, about 1 KB) are
+/// allocated once per mounted editor and never freed: timers and other
+/// handlers may still read them after the editor unmounts, where the handles
+/// inside answer as disposed. Anything larger than a handle (the schema, a
+/// text) lives behind one, so it is freed with the editor's reactive owner.
+#[derive(Clone, Copy)]
+pub(super) struct EditorState(&'static EditorFields);
+
+impl std::ops::Deref for EditorState {
+    type Target = EditorFields;
+
+    fn deref(&self) -> &EditorFields {
+        self.0
+    }
+}
+
+/// What an [`EditorState`] points to: its parts (see the module docs).
+pub(super) struct EditorFields {
+    pub(super) config: Config,
+    pub(super) doc: DocState,
+    /// The host's text and Edit-as (see `sync`).
+    pub(super) sync: SyncState,
+    pub(super) view: ViewState,
+    pub(super) completion: CompletionState,
+    pub(super) typing: TypingState,
+    pub(super) hover: HoverState,
+    pub(super) problems: ProblemsState,
+    /// Changes against the baseline (see `changes`).
+    pub(super) changes: ChangesState,
+    /// Find and replace (see `search`).
+    pub(super) search: SearchState,
+    /// The go-to-line field (see `go_to_line`).
+    pub(super) go_to_line: GoToLine,
+    /// Saving, the dirty flag and baseline conflicts (see `host_editing`).
+    pub(super) editing: HostEditing,
+    /// Folding (see `folding`).
+    pub(super) fold: FoldState,
+    /// Read-only fields and secrets (see `protect`).
+    pub(super) protect: ProtectState,
+}
+
+impl EditorState {
+    /// The state, and an `edit_as` switch to retry once the document can
+    /// convert (TOML has no `null`): until then it is shown in the host
+    /// language, as a live switch waits.
+    pub(super) fn new(init: Init) -> (Self, Option<Language>) {
+        let Init {
+            host_language,
+            edit_language,
+            schema,
+            schema_error,
+            host_text,
+            baseline,
+            read_only,
+            features,
+            host_on_change,
+            host_diagnostics,
+            protect,
+            on_save,
+            save_shortcut,
+            on_baseline_conflict,
+        } = init;
+        let config = Config {
+            host_language,
+            schema: StoredValue::new(schema.clone()),
+            read_only,
+            features,
+        };
+        // What reaches the host is remembered: a baseline equal to it is the
+        // user's own work coming back (see `host_editing`).
+        let sent = StoredValue::new(SentTexts::default());
+        let host_on_change = host_on_change.map(|callback| noting_sent(sent, callback));
+        let (sync, shown, pending) = SyncState::load(
+            host_language,
+            edit_language,
+            config.schema,
+            host_text,
+            host_on_change,
+        );
+        let doc = DocState::new(&shown, sync.edit_language);
+        let protect = ProtectState::new(
+            protect,
+            Inputs {
+                source: doc.text,
+                edit_language: sync.edit_language,
+                host_language,
+                schema: schema.clone(),
+                host_text: sync.host_text,
+            },
+        );
+        let problems = ProblemsState::new(
+            problems::Sources {
+                shown: shown.clone(),
+                text: doc.text,
+                host_language,
+                schema: schema.clone(),
+                schema_error,
+                enabled: features.diagnostics,
+                host_diagnostics,
+            },
+            &sync,
+            protect,
+        );
+        let completion = CompletionState::new(completion::Sources {
+            text: doc.text,
+            caret: doc.caret,
+            edit_language: sync.edit_language,
+            schema,
+            read_only,
+            enabled: features.completions,
+            protect,
+        });
+        let editing = HostEditing::new(
+            host_editing::Init {
+                baseline,
+                sent,
+                on_save,
+                save_shortcut,
+                on_conflict: on_baseline_conflict,
+            },
+            doc.text,
+            host_language,
+            config.schema,
+            &sync,
+        );
+        let changes = ChangesState::new(doc.text, editing.shown_baseline, features.diff);
+        let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
+        let view = ViewState::new(
+            doc.text,
+            sync.edit_language,
+            projection,
+            rendered_lines(doc.text, problems.diagnostics, changes.diff, protect),
+        );
+        let fold = FoldState::new(
+            projection,
+            view.visible_rows,
+            doc.text,
+            sync.edit_language,
+            features.folding,
+        );
+        let state = Self(Box::leak(Box::new(EditorFields {
+            search: SearchState::new(doc.text),
+            go_to_line: GoToLine::new(),
+            typing: TypingState::new(),
+            hover: HoverState::new(),
+            config,
+            doc,
+            sync,
+            view,
+            completion,
+            problems,
+            changes,
+            editing,
+            fold,
+            protect,
+        })));
+        (state, pending)
+    }
+
+    /// The textarea, in the document's offsets (see `folding`).
+    pub(super) fn textarea(&self) -> Option<SourceArea> {
+        self.view
+            .textarea_ref
+            .get_untracked()
+            .map(|element| SourceArea::new(element, *self))
+    }
+
+    /// Applies a programmatic edit: records undo, syncs the textarea and
+    /// state, and notifies the host. Every keyboard edit goes through here
+    /// to keep that order consistent. An edit that would change a read-only
+    /// field is refused (the text stays as it was and the reason shows at
+    /// the caret); returns whether it was applied.
+    pub(super) fn commit(&self, edit: Edit) -> bool {
+        let Edit {
+            before,
+            before_selection,
+            text,
+            caret,
+            anchor,
+            reveal,
+            from_host,
+        } = edit;
+        let widened_from = caret;
+        let allowed = if from_host {
+            Some((text, caret))
+        } else {
+            self.allow_edit(&before, text, caret)
+        };
+        let Some((text, caret)) = allowed else {
+            // The document never changed: the textarea shows it again (folds
+            // as they were) with the selection the edit started from.
+            self.restore_folds();
+            self.show_text();
+            if let Some(element) = self.textarea() {
+                let _ =
+                    element.restore_selection(before_selection.0 as u32, before_selection.1 as u32);
+            }
+            return false;
+        };
+        self.fold.before_edit.set_value(None);
+        self.follow_edit(&before, &text, caret);
+        // An edit widened over a placeholder leaves just the caret.
+        let anchor = if caret == widened_from {
+            anchor.unwrap_or(caret)
+        } else {
+            caret
+        };
+        let (start, end) = (anchor.min(caret), anchor.max(caret));
+        self.doc.history.update(|history| {
+            history.record_action(
+                Snapshot {
+                    value: before,
+                    selection: before_selection,
+                },
+                (start, end),
+            );
+        });
+        self.write_text(text);
+        let element = self.textarea();
+        if let Some(on_change) = self.sync.on_change {
+            on_change.run(self.doc.text.get_untracked());
+        }
+        self.doc.caret.set(caret);
+        self.doc.current_line.set(
+            self.doc
+                .text
+                .with_untracked(|text| line_at_cursor(text, caret)),
+        );
+        if let Some(element) = element {
+            if reveal {
+                self.doc.text.with_untracked(|text| {
+                    set_caret_visible(&element, text, caret, self.view.scroll_y)
+                });
+            }
+            // The text between the anchor and the caret stays selected.
+            let _ = element.set_selection_range(start as u32, end as u32);
+        }
+        true
+    }
 }
 
 /// A programmatic edit, applied with [`EditorState::commit`].
@@ -147,894 +397,6 @@ impl Edit {
     pub(super) fn quiet(mut self) -> Self {
         self.reveal = false;
         self
-    }
-}
-
-/// The editor's state, shared by every handler: one pointer to its
-/// [`EditorFields`].
-///
-/// Handlers and view closures capture the state by copy, and an unoptimized
-/// (debug) wasm build keeps each copy on the stack while it builds them, so
-/// the fields held inline overflowed the stack once they reached about a
-/// kilobyte. A pointer keeps every capture at one word however many fields
-/// there are.
-///
-/// The fields (small signal and stored-value handles, about 1 KB) are
-/// allocated once per mounted editor and never freed: timers and other
-/// handlers may still read them after the editor unmounts, where the handles
-/// inside answer as disposed.
-#[derive(Clone, Copy)]
-pub(super) struct EditorState(&'static EditorFields);
-
-impl std::ops::Deref for EditorState {
-    type Target = EditorFields;
-
-    fn deref(&self) -> &EditorFields {
-        self.0
-    }
-}
-
-/// What an [`EditorState`] points to.
-pub(super) struct EditorFields {
-    pub(super) host_language: Language,
-    /// The language on screen; `edit_as` switches change it.
-    pub(super) edit_language: RwSignal<Language>,
-    pub(super) schema: StoredValue<Option<Arc<SchemaBundle>>>,
-    pub(super) read_only: Signal<bool>,
-    pub(super) features: Features,
-
-    // The document and caret.
-    pub(super) source: RwSignal<String>,
-    pub(super) cursor: RwSignal<usize>,
-    pub(super) current_line: RwSignal<usize>,
-    pub(super) history: RwSignal<EditHistory>,
-    /// The document's indent unit, detected when it is loaded, replaced or
-    /// pasted in (not after every edit, so Tab then Shift+Tab round-trips).
-    pub(super) indent: StoredValue<String>,
-    /// Edits in the edit language; `None` while editing as another
-    /// language (the conversion in `sync` reports them).
-    pub(super) on_change: Option<Callback<String>>,
-    pub(super) host_on_change: Option<Callback<String>>,
-
-    // Host and Edit-as synchronisation (see `sync`).
-    /// Last host text received or sent.
-    pub(super) host_text: StoredValue<String>,
-    /// The edited text matching `host_text`.
-    pub(super) synced_edit: StoredValue<String>,
-    /// Edited texts already saved, each with the host text it saved as: an
-    /// undo back to one restores that host exactly, comments a fresh save
-    /// could not bring back included. Cleared when the host or the edit
-    /// language changes.
-    pub(super) synced_hosts: StoredValue<Vec<(String, String)>>,
-    /// `source` after the typing pause; validation and conversion read it.
-    pub(super) diagnosed_text: RwSignal<String>,
-    pub(super) load_problems: RwSignal<Vec<Diagnostic>>,
-    pub(super) conversion_problems: RwSignal<Vec<Diagnostic>>,
-    /// An `edit_as` switch waiting until the document can convert.
-    pub(super) pending_switch: RwSignal<Option<Language>>,
-    /// The last host text converted for display: (language, host, shown).
-    pub(super) shown_cache: StoredValue<Option<(Language, String, String)>>,
-
-    // Elements and layout.
-    pub(super) editor_ref: NodeRef<leptos::html::Textarea>,
-    pub(super) completion_ref: NodeRef<leptos::html::Div>,
-    pub(super) root_ref: NodeRef<leptos::html::Div>,
-    pub(super) scroll_x: RwSignal<f64>,
-    pub(super) scroll_y: RwSignal<f64>,
-    /// Bumped on window resize and scroll so popups re-measure.
-    pub(super) layout_revision: RwSignal<usize>,
-
-    // Suggestions.
-    pub(super) suggestions_requested: RwSignal<bool>,
-    pub(super) explicit_request: RwSignal<bool>,
-    /// The list was asked for over a selected word (Ctrl+Space): it offers
-    /// every key, and accepting one replaces the word.
-    pub(super) replace_word: RwSignal<bool>,
-    pub(super) active_completion: RwSignal<usize>,
-    pub(super) suggestions: Memo<Vec<Completion>>,
-
-    // Typing aids.
-    /// Closers the editor inserted. Only these are typed over, deleted with
-    /// their opener, or stepped past by Enter.
-    pub(super) auto_closers: StoredValue<Vec<Closer>>,
-    /// An inserted default left selected after an accept: typing replaces
-    /// it, Tab keeps it and moves past it, Enter keeps it and starts a new
-    /// line.
-    pub(super) placeholder: StoredValue<Option<(usize, usize)>>,
-    /// The block an accepted suggestion wrote, as (start, distance from the
-    /// end): Tab walks its empty value slots.
-    pub(super) slot_region: StoredValue<Option<(usize, usize)>>,
-    /// The values that block wrote (defaults, examples), each as distances
-    /// of its start and end from the end of the text: Tab selects them.
-    pub(super) value_stops: StoredValue<Vec<(usize, usize)>>,
-    /// The line last copied or cut with nothing selected, to paste it whole.
-    pub(super) copied_line: StoredValue<Option<String>>,
-    /// The selection just before the browser applies an edit, for undo.
-    pub(super) pre_edit_selection: StoredValue<Selection>,
-    /// Input events not applied yet (see `input::flush_input`).
-    pub(super) input_burst: StoredValue<Option<super::input::InputBurst>>,
-
-    // Hover docs.
-    pub(super) hover_card: RwSignal<Option<HoverCard>>,
-    pub(super) hover_pending: StoredValue<Option<(usize, usize, String)>>,
-    /// The pointer is over the hover card (one with a link it can reach).
-    pub(super) hover_card_entered: StoredValue<bool>,
-    pub(super) hover_token: StoredValue<u64>,
-
-    // Problems and changes.
-    pub(super) diagnostics: Memo<Vec<Diagnostic>>,
-    pub(super) diff: Memo<LineDiff>,
-    /// Rows must not subscribe to this memo or `diff`; the row sync effect
-    /// fans them out to per-row signals (see `line_rows`).
-    pub(super) lines: Memo<Vec<RenderedLine>>,
-    /// Only the rows in view (plus overscan) exist in the DOM: textarea
-    /// rows, which skip folded lines.
-    pub(super) visible_rows: Memo<Range<usize>>,
-    pub(super) selected_diff_peek: RwSignal<Option<DiffPeek>>,
-    /// The changes the diff counts, for the host and the footer.
-    pub(super) changes: Memo<ChangeSummary>,
-    /// The next preview to open takes the focus (opened from the keyboard,
-    /// so `Enter` reverts it).
-    pub(super) focus_preview: StoredValue<bool>,
-    /// The problem F8 moved to, `(line, column)`: its message shows until the
-    /// next key, click or edit.
-    pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
-    /// Lines inside multi-line strings' bodies, shown as string text.
-    pub(super) string_bodies: Memo<Vec<Range<usize>>>,
-    /// The path of what the caret is on (see `paths::path_at`). Lazy: only
-    /// computed while something reads it (`on_path_change`, a handle).
-    pub(super) caret_path: Memo<FieldPath>,
-
-    /// Find and replace (see `search`).
-    pub(super) search: SearchState,
-    /// The go-to-line field (see `go_to_line`).
-    pub(super) go_to_line: GoToLine,
-    /// Read-only fields (see `protect`), behind one handle: this state is
-    /// copied into every handler, so it stays small.
-    protect_state: StoredValue<ProtectState>,
-    /// Saving, the dirty flag and baseline conflicts (see `host_editing`),
-    /// read through [`Self::editing`]. Stored rather than held: the state is
-    /// copied into every handler, and a larger copy overflowed the wasm stack
-    /// of debug builds.
-    host_editing: StoredValue<HostEditing>,
-
-    /// Folding (see `folding`), behind one handle: this state is copied
-    /// into every handler, so it stays small.
-    pub(super) fold: StoredValue<FoldState>,
-}
-
-impl EditorState {
-    /// The state, and an `edit_as` switch to retry once the document can
-    /// convert (TOML has no `null`): until then it is shown in the host
-    /// language, as a live switch waits.
-    pub(super) fn new(init: Init) -> (Self, Option<Language>) {
-        let Init {
-            host_language,
-            edit_language,
-            schema,
-            schema_error,
-            host_text,
-            baseline,
-            read_only,
-            features,
-            host_on_change,
-            host_diagnostics,
-            protect,
-            on_save,
-            save_shortcut,
-            on_baseline_conflict,
-        } = init;
-        // What reaches the host is remembered: a baseline equal to it is the
-        // user's own work coming back (see `host_editing`).
-        let sent = StoredValue::new(SentTexts::default());
-        let host_on_change = host_on_change.map(|callback| noting_sent(sent, callback));
-        let mut load_problem = Vec::new();
-        let mut pending = None;
-        let mut shown = host_text.clone();
-        if let Some(bridge) = Bridge::new(host_language, edit_language, schema.clone()) {
-            match bridge.to_edit(&host_text) {
-                Ok(conversion) => {
-                    load_problem = bridge.view_problems(&conversion);
-                    shown = conversion.text;
-                }
-                Err(_) => pending = Some(edit_language),
-            }
-        }
-        let edit_language = RwSignal::new(if pending.is_some() {
-            host_language
-        } else {
-            edit_language
-        });
-        let schema_store = StoredValue::new(schema.clone());
-        let source = RwSignal::new(shown.clone());
-        let cursor = RwSignal::new(0usize);
-        let suggestions_requested = RwSignal::new(false);
-        let explicit_request = RwSignal::new(false);
-        let replace_word = RwSignal::new(false);
-        let scroll_y = RwSignal::new(0.0);
-        let layout_revision = RwSignal::new(0usize);
-        let editor_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
-        let diagnosed_text = RwSignal::new(shown.clone());
-        let load_problems = RwSignal::new(load_problem);
-        let conversion_problems = RwSignal::new(Vec::new());
-
-        let on_change = host_on_change.map(|callback| {
-            Callback::new(move |text: String| {
-                let bridge = Bridge::new(
-                    host_language,
-                    edit_language.get_untracked(),
-                    schema_store.get_value(),
-                );
-                if bridge.is_none() {
-                    callback.run(text);
-                }
-            })
-        });
-
-        let host_text_store = StoredValue::new(host_text.clone());
-        let protect = ProtectState::new(
-            protect,
-            Inputs {
-                source,
-                edit_language,
-                host_language,
-                schema: schema.clone(),
-                host_text: host_text_store,
-            },
-        );
-        let validated = {
-            let schema = schema.clone();
-            Memo::new(move |_| {
-                // The host's placeholders stand for the current secrets.
-                let accepted = protect.secrets.known_tokens();
-                let behavior = edit_language.get().behavior();
-                let mut found = diagnosed_text.with(|text| {
-                    validate_with(
-                        text,
-                        schema.as_deref(),
-                        schema_error.as_deref(),
-                        features.diagnostics,
-                        behavior,
-                        &accepted,
-                    )
-                });
-                if features.diagnostics {
-                    found.extend(load_problems.get());
-                    found.extend(conversion_problems.get());
-                    if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
-                        found.extend(diagnosed_text.with(|text| {
-                            protect.secrets.matcher.with_value(|matcher| {
-                                protect.secrets.known.with(|known| {
-                                    unknown_placeholders(
-                                        behavior,
-                                        text,
-                                        matcher,
-                                        known,
-                                        &bundle.schema,
-                                    )
-                                })
-                            })
-                        }));
-                    }
-                }
-                found
-            })
-        };
-        // The host's problems, placed on the text validation saw; a new list
-        // from the host re-places only these, not the editor's own.
-        let host_placed = Memo::new(move |_| {
-            if !features.diagnostics {
-                return Vec::new();
-            }
-            let edit = edit_language.get();
-            host_diagnostics.with(|problems| {
-                diagnosed_text
-                    .with(|text| place_host(edit.behavior(), text, problems, edit == host_language))
-            })
-        });
-        // Until validation catches up with an edit, markers move with the
-        // lines the edit shifted, so they never sit on the wrong text.
-        let diagnostics = Memo::new(move |_| {
-            let checked = diagnosed_text.get();
-            let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
-            source.with(|current| shift_diagnostics(&checked, current, &found))
-        });
-        let suggestions = Memo::new(move |_| {
-            if !suggestions_requested.get() || !features.completions {
-                return Vec::new();
-            }
-            let behavior = edit_language.get_untracked().behavior();
-            let at = cursor.get();
-            source.with(|text| {
-                let options = completions_for(
-                    text,
-                    at,
-                    explicit_request.get(),
-                    schema.as_deref(),
-                    features.completions && !read_only.get(),
-                    behavior,
-                    replace_word.get(),
-                );
-                if read_only.get() {
-                    return options;
-                }
-                let prefixes = protect
-                    .secrets
-                    .options
-                    .with_value(|options| options.reference_prefixes.clone());
-                protect.host_paths.with(|host_paths| {
-                    protect.protected.with(|protected| {
-                        adjust_suggestions(
-                            options,
-                            &Around {
-                                behavior,
-                                source: text,
-                                cursor: at,
-                                explicit: explicit_request.get(),
-                                prefixes: &prefixes,
-                                schema: schema.as_deref().map(|bundle| &bundle.schema),
-                                host_paths,
-                                protected,
-                            },
-                        )
-                    })
-                })
-            })
-        });
-        // The baseline as shown, in the language on screen.
-        let shown_cache = StoredValue::new(Some((
-            edit_language.get_untracked(),
-            host_text.clone(),
-            shown.clone(),
-        )));
-        let baseline = RwSignal::new(normalize_newlines(baseline));
-        let synced_edit = StoredValue::new(shown.clone());
-        let shown_baseline = Memo::new(move |_| {
-            let host = baseline.get();
-            let edit = edit_language.get();
-            // Usually the baseline is the host text a switch just converted.
-            let cached = shown_cache.with_value(|cache| {
-                cache
-                    .as_ref()
-                    .filter(|(language, from, _)| *language == edit && *from == host)
-                    .map(|(_, _, shown)| shown.clone())
-            });
-            if let Some(shown) = cached {
-                return shown;
-            }
-            let bridge = Bridge::new(host_language, edit, schema_store.get_value());
-            host_text_store.with_value(|host_text| {
-                synced_edit.with_value(|synced| {
-                    shown_baseline(bridge.as_ref(), &host, (host_text, synced))
-                })
-            })
-        });
-        let dirty = Memo::new(move |_| {
-            source.with(|text| shown_baseline.with(|baseline| text != baseline))
-        });
-        let diff = Memo::new(move |_| {
-            source.with(|text| {
-                if features.diff {
-                    shown_baseline.with(|baseline| diff_lines(baseline, text))
-                } else {
-                    LineDiff::empty(text.split('\n').count())
-                }
-            })
-        });
-        let lines = Memo::new(move |_| {
-            let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
-                errors
-                    .iter()
-                    .filter(|error| error.severity == Severity::Error)
-                    .filter_map(|error| error.line)
-                    .collect()
-            });
-            source.with(|text| {
-                let marks = protect.protected.with(|protected| {
-                    protect.secrets.tokens.with(|tokens| {
-                        protect.secrets.options.with_value(|options| {
-                            line_marks(text, protected, tokens, &options.hint)
-                        })
-                    })
-                });
-                diff.with(|line_diff| {
-                    text.split('\n')
-                        .enumerate()
-                        .map(|(index, line)| RenderedLine {
-                            text: line.to_string(),
-                            has_error: error_lines.contains(&(index + 1)),
-                            change: line_diff
-                                .current
-                                .get(index)
-                                .copied()
-                                .unwrap_or(DiffKind::Unchanged),
-                            marks: marks
-                                .get(index)
-                                .filter(|marks| **marks != LineMarks::default())
-                                .map(|marks| Box::new(marks.clone())),
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
-        });
-        let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
-        let visible_rows = Memo::new(move |_| {
-            layout_revision.track();
-            let top = scroll_y.get();
-            // From the text, not `lines`: a second reader of `lines` here
-            // kept the row sync from seeing diagnostic-only changes to it.
-            let count = projection.with(|projection| projection.rows());
-            let Some(editor) = editor_ref.get() else {
-                return 0..count.min(INITIAL_ROWS);
-            };
-            let metrics = read_editor_metrics(&editor);
-            let window_height = web_sys::window()
-                .and_then(|window| window.inner_height().ok())
-                .and_then(|height| height.as_f64())
-                .unwrap_or(0.0);
-            let height = f64::from(editor.client_height()).max(window_height);
-            let line_height = metrics.line_height.max(1.0);
-            let first = ((top - metrics.padding_top) / line_height).floor().max(0.0) as usize;
-            let first = first.saturating_sub(OVERSCAN_ROWS).min(count);
-            let last =
-                (first + (height / line_height).ceil() as usize + 2 * OVERSCAN_ROWS).min(count);
-            first..last
-        });
-
-        let visible_lines = Memo::new(move |_| {
-            let rows = visible_rows.get();
-            projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
-        });
-        let fold_ranges = Memo::new(move |_| {
-            if !features.folding {
-                return Vec::new();
-            }
-            source.with(|text| edit_language.get().behavior().fold_ranges(text))
-        });
-        let string_bodies = Memo::new(move |_| {
-            source.with(|text| edit_language.get().behavior().string_body_lines(text))
-        });
-        let caret_path = Memo::new(move |_| {
-            let behavior = edit_language.get().behavior();
-            let at = cursor.get();
-            source.with(|text| path_at(behavior, text, at).unwrap_or_default())
-        });
-        let state = Self(Box::leak(Box::new(EditorFields {
-            caret_path,
-            search: SearchState::new(source),
-            go_to_line: GoToLine::new(),
-            host_editing: StoredValue::new(HostEditing::new(
-                baseline,
-                dirty,
-                sent,
-                on_save,
-                save_shortcut,
-                on_baseline_conflict,
-            )),
-            string_bodies,
-            host_language,
-            edit_language,
-            schema: schema_store,
-            read_only,
-            features,
-            source,
-            cursor,
-            current_line: RwSignal::new(1),
-            history: RwSignal::new(EditHistory::default()),
-            indent: StoredValue::new(super::commands::indent_unit(&shown)),
-            on_change,
-            host_on_change,
-            host_text: host_text_store,
-            synced_edit,
-            synced_hosts: StoredValue::new(Vec::new()),
-            diagnosed_text,
-            load_problems,
-            conversion_problems,
-            pending_switch: RwSignal::new(None),
-            shown_cache,
-            editor_ref,
-            completion_ref: NodeRef::new(),
-            root_ref: NodeRef::new(),
-            scroll_x: RwSignal::new(0.0),
-            scroll_y,
-            layout_revision,
-            suggestions_requested,
-            explicit_request,
-            replace_word,
-            active_completion: RwSignal::new(0),
-            suggestions,
-            auto_closers: StoredValue::new(Vec::new()),
-            placeholder: StoredValue::new(None),
-            slot_region: StoredValue::new(None),
-            value_stops: StoredValue::new(Vec::new()),
-            copied_line: StoredValue::new(None),
-            pre_edit_selection: StoredValue::new(super::input::UNKNOWN_SELECTION),
-            input_burst: StoredValue::new(None),
-            hover_card: RwSignal::new(None),
-            hover_pending: StoredValue::new(None),
-            hover_card_entered: StoredValue::new(false),
-            hover_token: StoredValue::new(0),
-            diagnostics,
-            diff,
-            lines,
-            visible_rows,
-            fold: StoredValue::new(FoldState {
-                visible_lines,
-                folded: RwSignal::new(Vec::new()),
-                projection,
-                fold_ranges,
-                fold_chord: StoredValue::new(false),
-                before_edit: StoredValue::new(None),
-            }),
-            selected_diff_peek: RwSignal::new(None),
-            changes: Memo::new(move |_| diff.with(ChangeSummary::of)),
-            focus_preview: StoredValue::new(false),
-            shown_problem: RwSignal::new(None),
-            protect_state: StoredValue::new(protect),
-        })));
-        (state, pending)
-    }
-
-    /// `host` as shown in the language on screen; a text that cannot convert
-    /// is shown as is, with the problem reported.
-    pub(super) fn shown(&self, host: &str) -> String {
-        let Some(bridge) = self.bridge() else {
-            return host.to_string();
-        };
-        match bridge.to_edit(host) {
-            Ok(conversion) => {
-                self.load_problems.set(bridge.view_problems(&conversion));
-                conversion.text
-            }
-            Err(error) => {
-                self.load_problems.set(vec![bridge.load_problem(&error)]);
-                host.to_string()
-            }
-        }
-    }
-
-    /// Read-only fields (see `protect`).
-    pub(super) fn protect(&self) -> ProtectState {
-        self.protect_state.get_value()
-    }
-
-    /// Saving, the dirty flag and baseline conflicts (see `host_editing`).
-    pub(super) fn editing(&self) -> HostEditing {
-        self.host_editing.get_value()
-    }
-
-    /// [`Self::editing`], or `None` once the editor is gone.
-    pub(super) fn try_editing(&self) -> Option<HostEditing> {
-        self.host_editing.try_get_value()
-    }
-
-    /// The language on screen.
-    pub(super) fn behavior(&self) -> &'static dyn ConfigLanguage {
-        self.edit_language.get_untracked().behavior()
-    }
-
-    /// The bridge between the host and the language on screen, when they
-    /// differ.
-    pub(super) fn bridge(&self) -> Option<Bridge> {
-        self.bridge_to(self.edit_language.get_untracked())
-    }
-
-    pub(super) fn bridge_to(&self, edit: Language) -> Option<Bridge> {
-        Bridge::new(self.host_language, edit, self.schema.get_value())
-    }
-
-    pub(super) fn label(&self) -> &'static str {
-        self.edit_language.get().label()
-    }
-
-    /// The folding handles (see [`FoldState`]).
-    pub(super) fn folds(&self) -> FoldState {
-        self.fold.get_value()
-    }
-
-    /// The textarea, in the document's offsets (see `folding`).
-    pub(super) fn textarea(&self) -> Option<SourceArea> {
-        self.editor_ref
-            .get_untracked()
-            .map(|element| SourceArea::new(element, *self))
-    }
-
-    /// Applies a programmatic edit: records undo, syncs the textarea and
-    /// state, and notifies the host. Every keyboard edit goes through here
-    /// to keep that order consistent. An edit that would change a read-only
-    /// field is refused (the text stays as it was and the reason shows at
-    /// the caret); returns whether it was applied.
-    pub(super) fn commit(&self, edit: Edit) -> bool {
-        let Edit {
-            before,
-            before_selection,
-            text,
-            caret,
-            anchor,
-            reveal,
-            from_host,
-        } = edit;
-        let widened_from = caret;
-        let allowed = if from_host {
-            Some((text, caret))
-        } else {
-            self.allow_edit(&before, text, caret)
-        };
-        let Some((text, caret)) = allowed else {
-            // The document never changed: the textarea shows it again (folds
-            // as they were) with the selection the edit started from.
-            self.restore_folds();
-            self.show_text();
-            if let Some(element) = self.textarea() {
-                let _ =
-                    element.restore_selection(before_selection.0 as u32, before_selection.1 as u32);
-            }
-            return false;
-        };
-        self.folds().before_edit.set_value(None);
-        self.follow_edit(&before, &text, caret);
-        // An edit widened over a placeholder leaves just the caret.
-        let anchor = if caret == widened_from {
-            anchor.unwrap_or(caret)
-        } else {
-            caret
-        };
-        let (start, end) = (anchor.min(caret), anchor.max(caret));
-        self.history.update(|history| {
-            history.record_action(
-                Snapshot {
-                    value: before,
-                    selection: before_selection,
-                },
-                (start, end),
-            );
-        });
-        self.write_text(text);
-        let element = self.textarea();
-        if let Some(on_change) = self.on_change {
-            on_change.run(self.source.get_untracked());
-        }
-        self.cursor.set(caret);
-        self.current_line.set(
-            self.source
-                .with_untracked(|text| line_at_cursor(text, caret)),
-        );
-        if let Some(element) = element {
-            if reveal {
-                self.source
-                    .with_untracked(|text| set_caret_visible(&element, text, caret, self.scroll_y));
-            }
-            // The text between the anchor and the caret stays selected.
-            let _ = element.set_selection_range(start as u32, end as u32);
-        }
-        true
-    }
-
-    /// The inserted closer starting at UTF-16 `offset`, if any.
-    pub(super) fn closer_at(&self, offset: usize) -> Option<Closer> {
-        let distance = self
-            .source
-            .with_untracked(|text| text.encode_utf16().count())
-            .checked_sub(offset)?;
-        self.auto_closers.with_value(|closers| {
-            closers
-                .iter()
-                .find(|closer| closer.distance == distance)
-                .copied()
-        })
-    }
-
-    /// Forgets the inserted closer starting at UTF-16 `offset`.
-    pub(super) fn forget_closer_at(&self, offset: usize) {
-        let distance = self
-            .source
-            .with_untracked(|text| text.encode_utf16().count())
-            .saturating_sub(offset);
-        self.auto_closers
-            .update_value(|closers| closers.retain(|closer| closer.distance != distance));
-    }
-
-    /// Remembers a closer written at UTF-16 `offset` of `text` (the document
-    /// after the edit that wrote it).
-    pub(super) fn remember_closer(
-        &self,
-        text: &str,
-        offset: usize,
-        len: usize,
-        opener: Option<char>,
-    ) {
-        let distance = text.encode_utf16().count() - offset;
-        self.auto_closers.update_value(|closers| {
-            closers.push(Closer {
-                distance,
-                len,
-                opener,
-            });
-        });
-    }
-
-    /// Detects the indent unit again, for a document loaded or replaced.
-    pub(super) fn redetect_indent(&self) {
-        let unit = self
-            .source
-            .with_untracked(|text| super::commands::indent_unit(text));
-        self.indent.set_value(unit);
-    }
-
-    /// Records where the caret is, without touching the textarea.
-    pub(super) fn note_caret(&self, offset: usize) {
-        self.cursor.set(offset);
-        self.current_line.set(
-            self.source
-                .with_untracked(|text| line_at_cursor(text, offset)),
-        );
-    }
-
-    /// Puts the caret at `offset` in the textarea, in view, and records it.
-    pub(super) fn place_caret(&self, offset: usize) {
-        if let Some(element) = self.textarea() {
-            let _ = element.set_selection_range(offset as u32, offset as u32);
-            self.source
-                .with_untracked(|text| set_caret_visible(&element, text, offset, self.scroll_y));
-        }
-        self.note_caret(offset);
-    }
-
-    pub(super) fn close_suggestions(&self) {
-        self.suggestions_requested.set(false);
-        if self.replace_word.get_untracked() {
-            self.replace_word.set(false);
-        }
-    }
-
-    /// Forgets the typing aids tied to the caret's place (inserted closers,
-    /// placeholder slots) and ends the undo group.
-    pub(super) fn forget_typing_aids(&self) {
-        self.auto_closers.update_value(Vec::clear);
-        self.slot_region.set_value(None);
-        self.value_stops.update_value(Vec::clear);
-        self.history.update(EditHistory::seal);
-    }
-
-    /// Hides a card the pointer may be on its way to (one with a link)
-    /// after a moment, unless it gets there; hides any other card now.
-    pub(super) fn leave_hover(&self) {
-        let reachable = self.hover_card.with_untracked(|card| {
-            card.as_ref()
-                .is_some_and(|card| card.info.docs_url.is_some())
-        });
-        if !reachable {
-            self.hide_hover();
-            return;
-        }
-        let state = *self;
-        let token = self.hover_token.get_value();
-        super::positioning::schedule_hover(move || {
-            if state.hover_token.try_get_value() == Some(token)
-                && state.hover_card_entered.try_get_value() == Some(false)
-            {
-                state.hide_hover();
-            }
-        });
-    }
-
-    pub(super) fn hide_hover(&self) {
-        self.hover_token.update_value(|token| *token += 1);
-        self.hover_pending.set_value(None);
-        self.hover_card_entered.set_value(false);
-        if self.hover_card.with_untracked(Option::is_some) {
-            self.hover_card.set(None);
-        }
-    }
-
-    /// Focuses the editor with the caret at `line`:`column`, scrolled into
-    /// view, closing popups.
-    pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<usize> {
-        let offset = self
-            .source
-            .with_untracked(|text| offset_at(text, line, column));
-        self.focus_range(offset, offset)?;
-        Some(offset)
-    }
-
-    /// Focuses the editor with UTF-16 `start..end` selected, its start
-    /// scrolled into view, closing popups.
-    pub(super) fn focus_range(&self, start: usize, end: usize) -> Option<()> {
-        let element = self.textarea()?;
-        // Focusing scrolls back to the old caret; keep the view where the
-        // user clicked (a line number, an underline), then reveal if needed.
-        let (top, left) = (element.scroll_top(), element.scroll_left());
-        let _ = element.focus();
-        let _ = element.set_selection_range(start as u32, end as u32);
-        element.set_scroll_top(top);
-        element.set_scroll_left(left);
-        self.source
-            .with_untracked(|text| reveal_offset(&element, text, start, self.scroll_y));
-        self.note_caret(start);
-        self.close_suggestions();
-        self.hide_hover();
-        Some(())
-    }
-
-    /// Moves to diagnostic `index`, which must have a position.
-    pub(super) fn go_to_diagnostic(&self, index: usize) {
-        let position = self.diagnostics.with_untracked(|problems| {
-            problems
-                .get(index)
-                .and_then(|problem| Some((problem.line?, problem.column?)))
-        });
-        if let Some((line, column)) = position {
-            self.focus_at(line, column);
-        }
-        self.shown_problem.set(position);
-    }
-
-    /// Hides the message F8 showed.
-    pub(super) fn hide_shown_problem(&self) {
-        if self.shown_problem.get_untracked().is_some() {
-            self.shown_problem.set(None);
-        }
-    }
-
-    /// Writes `option` into the document, remembering what it inserted for
-    /// Tab and closer handling.
-    pub(super) fn accept(&self, option: &Completion, reveal: bool) {
-        let before = self.source.get_untracked();
-        let (updated, anchor, caret) = apply_completion(&before, option);
-        // Closers after the replaced text stay (an XML end tag the editor
-        // wrote before a value was accepted into it); the insert adds its own.
-        let old_length = before.encode_utf16().count();
-        let inserted = inserted_closers(option, &updated, (anchor, caret), self.behavior());
-        self.auto_closers.update_value(|closers| {
-            closers.retain(|closer| old_length - closer.distance.min(old_length) >= option.end);
-            closers.extend(inserted);
-        });
-        self.placeholder
-            .set_value((anchor != caret).then_some((anchor, caret)));
-        // Tab walks the empty values the insert wrote after the caret, on one
-        // line (`{ server = "|", key_name = "" }`) or several.
-        let insert_start = caret.saturating_sub(option.cursor_offset);
-        let insert_end = insert_start + option.insert.encode_utf16().count();
-        let has_slots = next_slot(&updated, caret, insert_end, self.behavior()).is_some();
-        // The values it wrote are stops too, measured from the end so typing
-        // before them keeps them in place.
-        let total = updated.encode_utf16().count();
-        let stops: Vec<(usize, usize)> =
-            stop_ranges(&option.insert, option.cursor_offset, &option.fills)
-                .into_iter()
-                .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
-                .collect();
-        let has_stops = !stops.is_empty();
-        self.value_stops.set_value(stops);
-        self.slot_region.set_value(
-            (option.insert.contains('\n') || has_slots || has_stops).then(|| {
-                (
-                    insert_start,
-                    updated.encode_utf16().count().saturating_sub(insert_end),
-                )
-            }),
-        );
-        let reopen = accept_reopens_suggestions(option, self.features.auto_trigger);
-        self.hide_hover();
-        let at = self.cursor.get_untracked();
-        let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
-        if !self.commit(if reveal { edit } else { edit.quiet() }) {
-            self.placeholder.set_value(None);
-            self.forget_typing_aids();
-            self.close_suggestions();
-            return;
-        }
-        self.active_completion.set(0);
-        self.explicit_request.set(true);
-        self.suggestions_requested.set(reopen);
-    }
-
-    /// Accepts the highlighted suggestion.
-    pub(super) fn accept_active(&self) {
-        let options = self.suggestions.get_untracked();
-        if let Some(option) = options.get(self.active_completion.get_untracked()) {
-            self.accept(option, true);
-        }
     }
 }
 
