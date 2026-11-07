@@ -62,10 +62,12 @@ step_minimal() {
 # The optional features (search, diff, folding, protect): each one off with
 # everything else on, then all of them off together (YAML and JSON), so
 # shared code never needs one and a test that does is gated by it. The
-# end-to-end suite runs only with the defaults (`browser`).
+# end-to-end suite runs only with the defaults (`browser`). Without debug
+# info: five configurations of test binaries are otherwise several GB.
 OPTIONAL=(search diff folding protect)
 step_optional() {
   (cd crates/config-editor-leptos &&
+    export CARGO_PROFILE_DEV_DEBUG=0 &&
     for off in "${OPTIONAL[@]}"; do
       local on=(schema-validation yaml json toml hcl xml)
       for feature in "${OPTIONAL[@]}"; do

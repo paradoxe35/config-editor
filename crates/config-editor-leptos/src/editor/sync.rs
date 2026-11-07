@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Diagnostic, SchemaBundle};
+use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, SchemaBundle};
 use super::edit::{Edit, Origin};
+use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::history::EditHistory;
 use super::language::ConfigLanguage;
 use super::languages::Language;
@@ -47,8 +48,12 @@ pub(super) struct SyncState {
     pub(super) pending_switch: RwSignal<Option<Language>>,
     /// The last host text converted for display: (language, host, shown).
     pub(super) shown_cache: StoredValue<Option<(Language, String, String)>>,
-    pub(super) load_problems: RwSignal<Vec<Diagnostic>>,
-    pub(super) conversion_problems: RwSignal<Vec<Diagnostic>>,
+    /// Edit-as problems of the text shown (values it cannot show, a
+    /// switch that waits).
+    pub(super) load_problems: RwSignal<Vec<EditAsProblem>>,
+    /// Edit-as problems of the last save (values the host cannot keep, a
+    /// save refused).
+    pub(super) conversion_problems: RwSignal<Vec<EditAsProblem>>,
 }
 
 impl SyncState {
@@ -333,7 +338,7 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             state
                 .check_host_save(&previous, &conversion.text)
                 .map(|()| conversion)
-                .map_err(codec::ConvertError::Unsupported)
+                .map_err(SaveError::ReadOnly)
         });
         state
             .sync
@@ -468,10 +473,13 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
     let mut view_warnings = Vec::new();
     let converted = if !unsaved {
         match state.bridge_to(next) {
-            Some(bridge) => bridge.to_edit(&host_text).map(|conversion| {
-                view_warnings = bridge.view_problems(&conversion);
-                conversion.text
-            }),
+            Some(bridge) => bridge
+                .to_edit(&host_text)
+                .map(|conversion| {
+                    view_warnings = bridge.view_problems(&conversion);
+                    conversion.text
+                })
+                .map_err(SaveError::from),
             None => Ok(host_text),
         }
     } else {
@@ -483,7 +491,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                 state
                     .check_host_save(&host_text, &conversion.text)
                     .map(|()| conversion.text)
-                    .map_err(codec::ConvertError::Unsupported)
+                    .map_err(SaveError::ReadOnly)
             }),
             None => state.config.schema.with_value(|schema| {
                 codec::convert(
@@ -494,6 +502,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                     schema.as_deref().map(|bundle| &bundle.schema),
                 )
                 .map(|conversion| conversion.text)
+                .map_err(SaveError::from)
             }),
         }
     };
@@ -532,13 +541,14 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
         }
         Err(error) => {
             state.sync.pending_switch.set(Some(next));
-            let message = format!("Cannot switch to {next} yet: {error}");
-            state.sync.load_problems.set(vec![bridge::locate_error(
-                current.behavior(),
-                &text,
-                &error,
-                message,
-            )]);
+            state.sync.load_problems.set(vec![EditAsProblem {
+                at: bridge::locate_error(current.behavior(), &text, &error),
+                text: EditAsText::CannotSwitch {
+                    edit: next,
+                    host: state.config.host_language,
+                    error,
+                },
+            }]);
         }
     }
 }

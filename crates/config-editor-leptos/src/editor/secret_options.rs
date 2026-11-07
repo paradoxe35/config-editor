@@ -6,9 +6,6 @@ use leptos::prelude::Callback;
 /// The default placeholder pattern.
 const SECRET_PATTERN: &str = "«secret [0-9a-f]+»";
 
-/// The default hover text of a secret placeholder.
-const SECRET_HINT: &str = "Keeps the current secret unless you replace it";
-
 /// The default reference forms offered in a secret field.
 const REFERENCE_PREFIXES: [&str; 2] = ["${", "file:"];
 
@@ -32,8 +29,9 @@ pub struct SecretOptions {
     /// Decides which matched tokens are real placeholders, after the
     /// pattern (and before the check that the host's value holds them).
     pub is_placeholder: Option<Callback<String, bool>>,
-    /// The hover text of a placeholder.
-    pub hint: String,
+    /// The hover text of a placeholder; unset, the `secretHint` text of
+    /// the `strings` setting.
+    pub hint: Option<String>,
     /// The reference forms offered in a secret field's value (`${` opens
     /// `${VAR}`, `file:` writes `file:`).
     pub reference_prefixes: Vec<String>,
@@ -44,7 +42,7 @@ impl Default for SecretOptions {
         SecretOptions {
             placeholder: SECRET_PATTERN.to_string(),
             is_placeholder: None,
-            hint: SECRET_HINT.to_string(),
+            hint: None,
             reference_prefixes: REFERENCE_PREFIXES
                 .iter()
                 .map(|prefix| prefix.to_string())
@@ -86,7 +84,7 @@ impl SecretOptions {
     /// The hover text of a placeholder.
     #[must_use]
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hint = hint.into();
+        self.hint = Some(hint.into());
         self
     }
 

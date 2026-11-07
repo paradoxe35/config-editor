@@ -16,6 +16,8 @@ use super::{
     Completion, accept_reopens_suggestions, apply_completion, completions_in, inserted_closers,
     next_slot, stop_ranges,
 };
+use crate::EditorStrings;
+use crate::strings::fill;
 
 /// The suggestions part of the editor state.
 #[derive(Clone, Copy)]
@@ -70,6 +72,8 @@ pub(crate) struct Sources {
     /// The text's multi-line string bodies (no suggestions there), shared
     /// with the view.
     pub(crate) string_bodies: Memo<Vec<std::ops::Range<usize>>>,
+    /// The built-in texts (reasons, reference and end-tag details).
+    pub(crate) strings: Memo<EditorStrings>,
 }
 
 impl CompletionState {
@@ -83,6 +87,7 @@ impl CompletionState {
             enabled,
             protect,
             string_bodies,
+            strings,
         } = sources;
         let requested = RwSignal::new(false);
         let explicit = RwSignal::new(false);
@@ -106,19 +111,25 @@ impl CompletionState {
                         bodies,
                     )
                 });
-                if read_only.get() {
-                    return options;
-                }
-                protect.adjust_suggestions(
-                    options,
-                    &SuggestionPlace {
-                        behavior,
-                        source: text,
-                        cursor: at,
-                        explicit: explicit.get(),
-                        schema: schema.as_deref().map(|bundle| &bundle.schema),
-                    },
-                )
+                strings.with(|strings| {
+                    let mut options = if read_only.get() {
+                        options
+                    } else {
+                        protect.adjust_suggestions(
+                            options,
+                            &SuggestionPlace {
+                                behavior,
+                                source: text,
+                                cursor: at,
+                                explicit: explicit.get(),
+                                schema: schema.as_deref().map(|bundle| &bundle.schema),
+                            },
+                            strings,
+                        )
+                    };
+                    word_end_tags(&mut options, strings);
+                    options
+                })
             })
         });
         Self {
@@ -203,5 +214,13 @@ impl EditorState {
         if let Some(option) = options.get(self.completion.active.get_untracked()) {
             self.accept(option, true);
         }
+    }
+}
+
+/// The end tag XML suggests, worded: "Closes <server>", "end tag".
+fn word_end_tags(options: &mut [Completion], strings: &EditorStrings) {
+    for option in options.iter_mut().filter(|option| option.closes_tag) {
+        option.detail = fill(&strings.closes_tag, &[("name", &option.label)]);
+        option.type_label = strings.end_tag.clone();
     }
 }

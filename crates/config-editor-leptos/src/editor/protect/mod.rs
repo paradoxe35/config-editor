@@ -35,8 +35,8 @@ pub(super) use components::ProtectTipView;
 pub(crate) use hooks::secret_pointers;
 pub(crate) use live::{Inputs, ProtectInit, ProtectState};
 pub(crate) use marks::mentions_marks;
-#[cfg(feature = "schema-validation")]
-pub(crate) use texts::SECRET_VALUE;
+pub(crate) use save::ReadOnlyChange;
+pub(crate) use texts::save_refused;
 
 #[cfg(all(
     test,

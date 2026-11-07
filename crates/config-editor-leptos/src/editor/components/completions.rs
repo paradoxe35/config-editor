@@ -16,7 +16,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             class="config-editor__completions"
             class:hidden=move || state.completion.suggestions.get().is_empty()
             role="listbox"
-            aria-label=move || format!("{} suggestions", state.label())
+            aria-label=state.language_text(|strings| &strings.suggestions_label)
             node_ref=state.view.completion_ref
             style=move || {
                 state.view.layout_revision.get();
@@ -100,7 +100,7 @@ fn Suggestion(
                 <span class="config-editor__completion-primary">
                     <span class="config-editor__completion-key">{label}</span>
                     {deprecated.then(|| view! {
-                        <span class="config-editor__completion-deprecated">"deprecated"</span>
+                        <span class="config-editor__completion-deprecated">{state.text(|strings| &strings.deprecated)}</span>
                     })}
                     <span class="config-editor__completion-type">{type_label}</span>
                 </span>

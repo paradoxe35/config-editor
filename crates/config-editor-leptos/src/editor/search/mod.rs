@@ -25,7 +25,8 @@ pub(super) use go_to_line::GoToLine;
 pub(super) use keys::shortcuts;
 
 use actions::{
-    close, count_label, dismiss, replace_all, replace_current, select_nearest, step, toggle_option,
+    SearchNotice, close, count_label, dismiss, replace_all, replace_current, select_nearest, step,
+    toggle_option,
 };
 use matcher::{SearchMatch, SearchOptions};
 
@@ -80,7 +81,7 @@ pub(super) struct SearchState {
     /// Index of the match stepped to, shown distinctly.
     pub(super) current: RwSignal<Option<usize>>,
     /// What the last replace all did, announced in place of the count.
-    pub(super) notice: RwSignal<Option<String>>,
+    pub(super) notice: RwSignal<Option<SearchNotice>>,
     pub(super) results: Memo<SearchResults>,
     pub(super) widget_ref: NodeRef<leptos::html::Div>,
     pub(super) query_ref: NodeRef<leptos::html::Input>,

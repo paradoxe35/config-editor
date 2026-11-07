@@ -51,14 +51,12 @@ pub(in crate::editor) fn row_peeks(
             .map(|before| DiffPeek {
                 line,
                 kind: PeekKind::Modified,
-                title: "Modified line".to_string(),
                 before: vec![before.clone()],
                 after: vec![text.to_string()],
             }),
         added: (change == DiffKind::Added).then(|| DiffPeek {
             line,
             kind: PeekKind::Added,
-            title: "Added line".to_string(),
             before: Vec::new(),
             after: vec![text.to_string()],
         }),
@@ -70,7 +68,6 @@ pub(in crate::editor) fn row_peeks(
             .then(|| DiffPeek {
                 line,
                 kind: PeekKind::Removed,
-                title: "Removed lines".to_string(),
                 before: line_diff
                     .deleted_lines_before
                     .get(index)
@@ -81,7 +78,6 @@ pub(in crate::editor) fn row_peeks(
         deleted_after: (line == line_count && line_diff.deleted_after).then(|| DiffPeek {
             line,
             kind: PeekKind::RemovedAtEnd,
-            title: "Removed lines at end of document".to_string(),
             before: line_diff.deleted_lines_after.clone(),
             after: Vec::new(),
         }),

@@ -43,10 +43,10 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                             <code class="config-editor__hover-key">{info.key}</code>
                             <span class="config-editor__hover-type">{info.type_label}</span>
                             {info.required.then(|| view! {
-                                <span class="config-editor__hover-required">"required"</span>
+                                <span class="config-editor__hover-required">{state.text(|strings| &strings.required)}</span>
                             })}
                             {info.deprecated.then(|| view! {
-                                <span class="config-editor__hover-deprecated">"deprecated"</span>
+                                <span class="config-editor__hover-deprecated">{state.text(|strings| &strings.deprecated)}</span>
                             })}
                         </div>
                         {info.deprecation.map(|message| view! {
@@ -57,13 +57,13 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         })}
                         {info.default.map(|default| view! {
                             <div class="config-editor__hover-meta">
-                                <span>"Default"</span>
+                                <span>{state.text(|strings| &strings.default_value)}</span>
                                 <code>{default}</code>
                             </div>
                         })}
                         {(!examples.is_empty()).then(|| view! {
                             <div class="config-editor__hover-meta">
-                                <span>"Examples"</span>
+                                <span>{state.text(|strings| &strings.examples)}</span>
                                 <code>{examples}</code>
                             </div>
                         })}
@@ -74,7 +74,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
-                                "Documentation"
+                                {state.text(|strings| &strings.documentation)}
                             </a>
                         })}
                     </div>

@@ -6,7 +6,9 @@ use leptos::prelude::*;
 
 use super::state::EditorState;
 use super::{changes, folding, search};
-use crate::{EditorSettings, EditorTheme, ThemeColors};
+use crate::reactive::Relay;
+use crate::{EditorSettings, EditorStrings, EditorTheme, ThemeColors};
+use std::sync::Arc;
 
 /// The settings as the editor's parts read them.
 #[derive(Clone, Copy)]
@@ -28,11 +30,18 @@ pub(super) struct LiveSettings {
     pub(super) go_to_line: Memo<bool>,
     pub(super) folding: Memo<bool>,
     pub(super) save_shortcut: Memo<bool>,
+    /// Every built-in text, for the editor's long-lived parts (memos,
+    /// views mounted once).
+    pub(super) strings: Memo<EditorStrings>,
+    /// The same for views that come and go: each reads its own copy (see
+    /// `reactive`).
+    pub(super) strings_relay: Relay<Arc<EditorStrings>>,
 }
 
 impl LiveSettings {
     pub(super) fn new(settings: Signal<EditorSettings>, has_schema: bool) -> Self {
         let flag = move |read: fn(&EditorSettings) -> bool| Memo::new(move |_| settings.with(read));
+        let strings = Memo::new(move |_| settings.with(|settings| settings.strings.clone()));
         Self {
             theme: Memo::new(move |_| settings.with(|settings| settings.theme)),
             colors: Memo::new(move |_| settings.with(|settings| settings.colors.clone())),
@@ -52,6 +61,8 @@ impl LiveSettings {
             go_to_line: flag(|settings| settings.go_to_line),
             folding: flag(|settings| settings.folding),
             save_shortcut: flag(|settings| settings.save_shortcut),
+            strings,
+            strings_relay: Relay::new(move || Arc::new(strings.get())),
         }
     }
 
@@ -72,6 +83,17 @@ pub(super) fn follow(state: EditorState) {
     search::follow_settings(state);
     changes::follow_settings(state);
     on_switch_off(settings.hover_docs, move || state.hide_hover());
+    warn_about_strings(settings.strings);
+}
+
+/// A console warning for each placeholder a host's text uses that its
+/// default does not have (it would be shown as written).
+fn warn_about_strings(strings: Memo<EditorStrings>) {
+    Effect::new(move |_| {
+        for problem in strings.with(EditorStrings::check) {
+            leptos::logging::warn!("config-editor: {problem}");
+        }
+    });
 }
 
 /// Runs `off` each time `setting` turns from on to off.

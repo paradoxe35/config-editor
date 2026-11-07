@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EditorTheme, ThemeColors};
+use crate::{EditorStrings, EditorTheme, ThemeColors};
 
 /// How an editor looks and which of its features are on: everything a host
 /// sets once and may switch at any time, apart from the document itself.
@@ -94,10 +94,10 @@ pub struct EditorSettings {
     /// Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off,
     /// the key is left to the browser and only the handle's `save` saves.
     pub save_shortcut: bool,
-    // Every built-in text (hints, tooltips, notices, accessible names) will
-    // join as one `strings` field: a nested struct of its own with these
-    // same rules (doc comments, defaults, camelCase keys), generated for
-    // JavaScript the same way.
+    /// Every built-in text (hints, tooltips, notices and their buttons,
+    /// footer counts, accessible names and announcements), English by
+    /// default: give only the texts to change. See [`EditorStrings`].
+    pub strings: EditorStrings,
 }
 
 impl Default for EditorSettings {
@@ -119,6 +119,7 @@ impl Default for EditorSettings {
             go_to_line: true,
             folding: true,
             save_shortcut: true,
+            strings: EditorStrings::default(),
         }
     }
 }
@@ -180,6 +181,9 @@ mod tests {
                 let flipped = match &defaults[key] {
                     serde_json::Value::Bool(on) => serde_json::Value::Bool(!on),
                     serde_json::Value::String(_) => "dracula".into(),
+                    serde_json::Value::Object(_) if key == "strings" => {
+                        serde_json::json!({"noProblems": "Keine Fehler"})
+                    }
                     serde_json::Value::Object(_) => serde_json::json!({"key": "#ffcc66"}),
                     other => return Some(format!("{key}: unexpected default {other}")),
                 };
@@ -189,7 +193,13 @@ mod tests {
                         Err(error) => return Some(format!("{key}: {error}")),
                     };
                 let written = serde_json::to_value(&read).unwrap();
-                (written[key] != flipped || read == EditorSettings::default())
+                // A partial `strings` object fills in the rest.
+                let read_back = if key == "strings" {
+                    written[key]["noProblems"] == flipped["noProblems"]
+                } else {
+                    written[key] == flipped
+                };
+                (!read_back || read == EditorSettings::default())
                     .then(|| format!("{key}: read {written} from {flipped}"))
             })
             .collect();

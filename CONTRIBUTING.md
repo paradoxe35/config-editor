@@ -106,10 +106,16 @@ setting updates live, and switching one off cleans up after itself.
 or exported function has no JS and React counterpart: add it to both, or to
 its exemptions with the reason.
 
-### Built-in texts live in one place per feature
+### Every built-in text comes from the strings setting
 
-Each feature keeps its texts in its `texts.rs`, so a host can reword or
-translate the editor through one strings setting.
+A text the editor writes itself (a label, a tooltip, a notice, a count, an
+announcement, a problem it words) is a field of `EditorStrings`
+(`src/strings.rs`, the `strings` setting) with its English default and a
+doc comment; views and messages read it from there (`state.text(…)`, or a
+feature's `texts.rs` that fills its placeholders), never as a literal. A
+count is a `…_one` / `…_other` pair; a template takes the placeholders of its
+default. Guarded by `views_take_every_text_from_the_strings_setting` (no
+text literal in a `view!`) and `every_text_is_shown_somewhere`.
 
 ### Saving never breaks the config
 

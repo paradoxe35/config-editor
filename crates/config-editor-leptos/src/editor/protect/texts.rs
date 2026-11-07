@@ -1,51 +1,77 @@
-//! The built-in texts of protected fields, in one place.
+//! How protected fields are worded, from the `strings` setting, and the
+//! defaults of secret placeholders that are patterns, not texts.
 
-/// Why a field is read-only when neither the schema (`x-readonly-reason`)
-/// nor the host says.
-pub(crate) const DEFAULT_REASON: &str = "This field is read-only";
+use crate::EditorStrings;
+use crate::strings::fill;
 
-/// Why text in a read-only range the host gave cannot change.
-pub(crate) const RANGE_REASON: &str = "This text is read-only";
-
-/// Why renaming or moving the key above a read-only field is refused.
-pub(crate) fn holds_locked(reason: &str) -> String {
-    format!("Holds a read-only field: {reason}")
+/// Why a field or a stretch of text is read-only.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Reason {
+    /// The schema's `x-readonly-reason`.
+    Given(String),
+    /// A read-only field that says no more (the `readOnlyField` text).
+    Field,
+    /// A read-only range the host gave (the `readOnlyText` text).
+    Range,
 }
 
-/// A save refused because it would change a read-only value.
-pub(crate) fn save_refused(pointer: &str) -> String {
-    let place = if pointer.is_empty() { "/" } else { pointer };
-    format!("{place} is read-only and this change would alter it")
+impl Reason {
+    /// The reason as shown.
+    pub(crate) fn text(&self, strings: &EditorStrings) -> String {
+        match self {
+            Reason::Given(reason) => reason.clone(),
+            Reason::Field => strings.read_only_field.clone(),
+            Reason::Range => strings.read_only_text.clone(),
+        }
+    }
+
+    /// Why renaming or moving the key above a field locked for this reason
+    /// is refused.
+    pub(crate) fn holding(&self, strings: &EditorStrings) -> String {
+        fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
+    }
+
+    /// "Read-only: …", the gutter lock's label.
+    pub(crate) fn label(&self, strings: &EditorStrings) -> String {
+        labelled(strings, &strings.read_only_label, &self.text(strings))
+    }
 }
 
-/// The gutter lock's label, before the reason.
-pub(crate) const LOCK_LABEL: &str = "Read-only";
+/// "Secret placeholder: …", the gutter key's label.
+pub(crate) fn secret_label(strings: &EditorStrings, hint: &str) -> String {
+    labelled(strings, &strings.secret_label, hint)
+}
 
-/// The gutter key's label.
-pub(crate) const SECRET_LABEL: &str = "Secret placeholder";
-
-/// What a schema message says instead of a secret field's value.
-#[cfg(feature = "schema-validation")]
-pub(crate) const SECRET_VALUE: &str = "the secret value";
-
-/// A placeholder the host did not give, in a secret field.
-pub(crate) fn unknown_placeholder(pointer: &str) -> String {
-    format!(
-        "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"
+fn labelled(strings: &EditorStrings, label: &str, message: &str) -> String {
+    fill(
+        &strings.protected_note,
+        &[("label", &label), ("message", &message)],
     )
 }
 
+/// A save refused because it would change the read-only value at
+/// `pointer`.
+pub(crate) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    fill(&strings.save_refused, &[("pointer", &place)])
+}
+
+/// A placeholder the host did not give, in a secret field.
+pub(crate) fn unknown_placeholder(strings: &EditorStrings, pointer: &str) -> String {
+    fill(&strings.unknown_placeholder, &[("pointer", &pointer)])
+}
+
 /// What a reference suggestion is, in its detail.
-pub(crate) fn reference_detail(prefix: &str) -> String {
+pub(crate) fn reference_detail(strings: &EditorStrings, prefix: &str) -> String {
     match prefix {
-        "${" => "Read the secret from an environment variable".to_string(),
-        "file:" => "Read the secret from a file".to_string(),
-        other => format!("A reference starting with {other}"),
+        "${" => strings.env_reference.clone(),
+        "file:" => strings.file_reference.clone(),
+        other => fill(&strings.other_reference, &[("prefix", &other)]),
     }
 }
 
 /// The label of a reference suggestion: the prefix with a stand-in for
-/// what follows it (`${VAR}`, `file:path`).
+/// what follows it (`${VAR}`, `file:path`), as code is written.
 pub(crate) fn reference_label(prefix: &str, closer: &str) -> String {
     let stand_in = match prefix {
         "${" => "VAR",
@@ -54,6 +80,3 @@ pub(crate) fn reference_label(prefix: &str, closer: &str) -> String {
     };
     format!("{prefix}{stand_in}{closer}")
 }
-
-/// The type column of a reference suggestion.
-pub(crate) const REFERENCE_TYPE: &str = "reference";

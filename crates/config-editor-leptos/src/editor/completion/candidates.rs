@@ -74,6 +74,7 @@ pub(super) fn value_completions(
                             matched: match_ranges(&label, query),
                             deprecated: false,
                             fills: Vec::new(),
+                            closes_tag: false,
                         },
                     ));
                 }
@@ -199,6 +200,7 @@ pub(super) fn property_completions(
                     matched: match_ranges(key, typed),
                     deprecated: is_deprecated(property, root),
                     fills: required_fills(property, root),
+                    closes_tag: false,
                 },
             ));
         }
@@ -309,8 +311,9 @@ pub(crate) fn completions_in(
         let insert = format!("{name}{close}");
         return vec![Completion {
             label: name.clone(),
-            detail: format!("Closes <{name}>"),
-            type_label: "end tag".to_string(),
+            detail: String::new(),
+            type_label: String::new(),
+            closes_tag: true,
             cursor_offset: insert.encode_utf16().count(),
             insert,
             start: context.replace_start,

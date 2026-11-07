@@ -14,7 +14,6 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::state::EditorState;
-use super::texts::{TAB_FOCUS_OFF, TAB_FOCUS_ON};
 
 /// What the editor looks like to the key.
 #[derive(Clone, Copy, Debug, Default)]
@@ -118,7 +117,12 @@ pub(in crate::editor) fn focus_keys(state: EditorState, event: &KeyboardEvent) -
 pub(in crate::editor) fn toggle_tab_focus(state: EditorState) {
     let on = !state.a11y.tab_moves_focus.get_untracked();
     state.a11y.tab_moves_focus.set(on);
-    state
-        .a11y
-        .announce(if on { TAB_FOCUS_ON } else { TAB_FOCUS_OFF }.to_string());
+    let said = state.strings_untracked(|strings| {
+        if on {
+            strings.tab_focus_on.clone()
+        } else {
+            strings.tab_focus_off.clone()
+        }
+    });
+    state.a11y.announce(said);
 }

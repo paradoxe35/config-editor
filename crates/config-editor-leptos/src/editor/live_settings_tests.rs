@@ -170,3 +170,43 @@ fn switching_keeps_the_text_caret_and_history() {
             .with_untracked(|history| history.can_undo())
     );
 }
+
+/// The built-in texts follow the `strings` setting live: what views read
+/// (`state.text`, `state.language_text`) and what the editor words in its
+/// memos (a lock's label in the gutter), without mounting again.
+#[test]
+fn texts_follow_the_strings_setting_live() {
+    let settings = RwSignal::new(EditorSettings::default());
+    let (_owner, state) = TestEditor {
+        settings: settings.into(),
+        read_only_paths: vec![super::paths::FieldPath::from("/web")],
+        ..TestEditor::new(Language::YAML, TEXT)
+    }
+    .mount();
+    let find = state.text(|strings| &strings.find);
+    let source = state.language_text(|strings| &strings.source_label);
+    let lock = move || {
+        state.view.lines.with_untracked(|lines| {
+            lines
+                .iter()
+                .find_map(|line| line.marks.as_ref().and_then(|marks| marks.lock.clone()))
+        })
+    };
+    assert_eq!(find(), "Find");
+    assert_eq!(source(), "YAML source");
+    assert_eq!(
+        lock().as_deref(),
+        Some("Read-only: This field is read-only")
+    );
+    settings.update(|settings| {
+        settings.strings.find = "Suchen".into();
+        settings.strings.source_label = "{language}-Quelltext".into();
+        settings.strings.read_only_label = "Schreibgeschützt".into();
+        settings.strings.read_only_field = "Vom Server".into();
+    });
+    assert_eq!(find(), "Suchen");
+    assert_eq!(source(), "YAML-Quelltext");
+    assert_eq!(lock().as_deref(), Some("Schreibgeschützt: Vom Server"));
+    settings.set(EditorSettings::default());
+    assert_eq!(find(), "Find");
+}

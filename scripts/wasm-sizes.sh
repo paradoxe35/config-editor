@@ -42,7 +42,7 @@ size_of() {
     -p config-editor-leptos --example wasm_size --no-default-features --features "$1"
   rm -rf "$work/out"
   "$bindgen" --target web --out-dir "$work/out" 2>/dev/null \
-    target/wasm32-unknown-unknown/release/examples/wasm_size.wasm
+    "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/examples/wasm_size.wasm"
   local wasm="$work/out/wasm_size_bg.wasm"
   if command -v wasm-opt >/dev/null; then
     wasm-opt -Os --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \

@@ -155,6 +155,16 @@ const scenes = {
     await open(page, '?edit=toml');
     await demoShot(page, 'edit-as');
   },
+  async 'edit-as-notice'(page) {
+    await open(page, '?edit=toml');
+    await page.locator('.config-editor__input').first().click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.type('# a note typed in TOML');
+    await page.keyboard.press('Enter');
+    await page.locator('.config-editor__edit-as-notice').filter({ hasText: 'Comments typed in TOML' }).waitFor();
+    await pause(page, 400);
+    await demoShot(page, 'edit-as-notice');
+  },
   async diff(page) {
     await open(page, '?language=json');
     await page.locator('.config-editor__input').first().click();

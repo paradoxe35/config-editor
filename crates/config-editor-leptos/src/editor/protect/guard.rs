@@ -23,11 +23,26 @@ use super::super::codec;
 use super::super::language::ConfigLanguage;
 use super::locate::LineIndex;
 use super::locks::{Lock, Protected};
+use super::texts::Reason;
+use crate::EditorStrings;
 
 /// An edit that would change a locked field, and why it is locked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Blocked {
-    pub(crate) reason: String,
+    pub(crate) reason: Reason,
+    /// It renames or moves a key holding the locked field.
+    pub(crate) holds: bool,
+}
+
+impl Blocked {
+    /// Why the edit is refused, as the tooltip says it.
+    pub(crate) fn message(&self, strings: &EditorStrings) -> String {
+        if self.holds {
+            self.reason.holding(strings)
+        } else {
+            self.reason.text(strings)
+        }
+    }
 }
 
 /// Checks the edit turning `before` (whose locks are `protected`) into
@@ -69,11 +84,13 @@ pub(crate) fn check(
         if !lock.ranges.iter().all(kept) {
             return Err(Blocked {
                 reason: lock.reason.clone(),
+                holds: false,
             });
         }
         if !lock.guards.iter().all(kept) {
             return Err(Blocked {
-                reason: super::texts::holds_locked(&lock.reason),
+                reason: lock.reason.clone(),
+                holds: true,
             });
         }
     }
@@ -110,6 +127,7 @@ pub(crate) fn check(
         if !unchanged {
             return Err(Blocked {
                 reason: lock.reason.clone(),
+                holds: false,
             });
         }
     }

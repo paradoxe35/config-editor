@@ -3,19 +3,26 @@
 //! missing ones taking their defaults), and back. The TypeScript type is
 //! generated from the struct (`settings.d.ts`, see `tests/settings.rs`).
 
-use config_editor_leptos::{EditorSettings, ThemeColors};
+use config_editor_leptos::{EditorSettings, EditorStrings, ThemeColors};
 use js_sys::{Object, Reflect};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::options::warn_unknown_keys;
 use crate::typings::{SettingKeys, SettingsResult};
 use crate::values::{field, to_js};
 
 thread_local! {
-    static KEYS: Vec<String> = match serde_json::to_value(EditorSettings::default()) {
+    static KEYS: Vec<String> = keys_of(&EditorSettings::default());
+    static STRING_KEYS: Vec<String> = keys_of(&EditorStrings::default());
+}
+
+/// The keys `value` serializes with, as JavaScript spells them.
+fn keys_of(value: &impl Serialize) -> Vec<String> {
+    match serde_json::to_value(value) {
         Ok(serde_json::Value::Object(fields)) => fields.keys().cloned().collect(),
         _ => Vec::new(),
-    };
+    }
 }
 
 /// The settings keys, as JavaScript spells them (`showFooter`).
@@ -38,6 +45,17 @@ pub(crate) fn settings_from(object: &JsValue) -> Result<EditorSettings, JsError>
     }
     // serde-wasm-bindgen reads a map's entries with `Reflect`, which throws
     // its own error for anything else.
+    let strings = field(&given, "strings");
+    if !strings.is_undefined() {
+        if !strings.is_object() || strings.is_function() || js_sys::Array::is_array(&strings) {
+            return Err(JsError::new(
+                "strings must be an object of text key: text, such as { noProblems: \"Keine Fehler\" }",
+            ));
+        }
+        let known = STRING_KEYS.with(Clone::clone);
+        let names: Vec<&str> = known.iter().map(String::as_str).collect();
+        warn_unknown_keys(&strings, &names, "string");
+    }
     let colors = field(&given, "colors");
     if !colors.is_undefined()
         && (!colors.is_object() || colors.is_function() || js_sys::Array::is_array(&colors))
@@ -76,7 +94,8 @@ fn describe(key: &str, error: &str) -> String {
 }
 
 /// `overrides` (a document's `settings`) over `base` (the view's): the keys
-/// it sets replace the base's.
+/// it sets replace the base's, and the texts of its `strings` the base's
+/// texts.
 pub(crate) fn settings_over(
     base: &EditorSettings,
     overrides: &JsValue,
@@ -84,9 +103,17 @@ pub(crate) fn settings_over(
     let merged = settings_to_js(base);
     for key in setting_keys() {
         let value = field(overrides, &key);
-        if !value.is_undefined() && !value.is_null() {
-            let _ = Reflect::set(&merged, &JsValue::from_str(&key), &value);
+        if value.is_undefined() || value.is_null() {
+            continue;
         }
+        let base_strings = field(&merged, "strings");
+        let value = if key == "strings" && value.is_object() && base_strings.is_object() {
+            let texts = Object::assign(&Object::new(), base_strings.unchecked_ref());
+            Object::assign(&texts, value.unchecked_ref()).into()
+        } else {
+            value
+        };
+        let _ = Reflect::set(&merged, &JsValue::from_str(&key), &value);
     }
     settings_from(&merged)
 }

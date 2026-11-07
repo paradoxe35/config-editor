@@ -65,6 +65,7 @@ export type {
   EditorPath,
   EditorRange,
   EditorSettings,
+  EditorStrings,
   FieldPath,
   HostDiagnostic,
   LanguageInfo,

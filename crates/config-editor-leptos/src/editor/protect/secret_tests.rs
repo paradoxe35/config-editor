@@ -108,7 +108,7 @@ fn placeholders_survive_every_conversion_and_save() {
             let saved = match bridge.to_host(&edited, &host_text) {
                 Ok(conversion) => conversion.text,
                 Err(error) => {
-                    failures.push(format!("{host} as {edit}: save failed: {error}"));
+                    failures.push(format!("{host} as {edit}: save failed: {error:?}"));
                     continue;
                 }
             };
@@ -247,6 +247,7 @@ fn an_untouched_placeholder_passes_the_schema_check_in_every_language() {
             true,
             language.behavior(),
             &accepted,
+            crate::strings::default_strings(),
         );
         if !problems.is_empty() {
             failures.push(format!("{language}: {problems:#?}"));
@@ -267,6 +268,7 @@ fn an_untouched_placeholder_passes_the_schema_check_in_every_language() {
             true,
             language.behavior(),
             &accepted,
+            crate::strings::default_strings(),
         );
         if !problems
             .iter()
@@ -294,15 +296,28 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
     let mut failures = Vec::new();
     for (language, text) in documents() {
         let known = matcher().known(&text);
-        let none = unknown_placeholders(language.behavior(), &text, &matcher(), &known, &schema);
+        let none = unknown_placeholders(
+            language.behavior(),
+            &text,
+            &matcher(),
+            &known,
+            &schema,
+            crate::strings::default_strings(),
+        );
         if !none.is_empty() {
             failures.push(format!("{language}: flagged the host's own: {none:?}"));
         }
         let typed = text
             .replacen(SECRET, "«secret beef»", 1)
             .replacen('a', "«secret 77»", 1);
-        let flagged =
-            unknown_placeholders(language.behavior(), &typed, &matcher(), &known, &schema);
+        let flagged = unknown_placeholders(
+            language.behavior(),
+            &typed,
+            &matcher(),
+            &known,
+            &schema,
+            crate::strings::default_strings(),
+        );
         // The one in `secret`, not the look-alike in `name`.
         if flagged.len() != 1 || !flagged[0].message.starts_with("/secret") {
             failures.push(format!("{language}: flagged {flagged:?}"));
@@ -338,6 +353,7 @@ fn a_secret_field_offers_reference_forms_in_every_language() {
                 host_paths: &[],
                 protected: &protected,
                 prefixes: &prefixes,
+                strings: &crate::EditorStrings::default(),
             },
         );
         let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();

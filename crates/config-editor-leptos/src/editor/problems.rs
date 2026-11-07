@@ -8,11 +8,13 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{Diagnostic, SchemaBundle, shift_diagnostics, validate_with};
+use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::languages::Language;
 use super::protect::ProtectState;
 use super::state::EditorState;
 use super::sync::SyncState;
+use crate::EditorStrings;
 
 /// The problems part of the editor state.
 #[derive(Clone, Copy)]
@@ -36,6 +38,8 @@ pub(super) struct Sources {
     /// The `show_diagnostics` setting.
     pub(super) enabled: Memo<bool>,
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
+    /// The built-in texts the editor's own problems are worded with.
+    pub(super) strings: Memo<EditorStrings>,
 }
 
 impl ProblemsState {
@@ -48,16 +52,17 @@ impl ProblemsState {
             schema_error,
             enabled,
             host_diagnostics,
+            strings,
         } = sources;
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
-        let validated =
-            Memo::new(move |_| {
-                let enabled = enabled.get();
-                // The host's placeholders stand for the current secrets.
-                let accepted = protect.accepted_tokens();
-                let behavior = edit_language.get().behavior();
+        let validated = Memo::new(move |_| {
+            let enabled = enabled.get();
+            // The host's placeholders stand for the current secrets.
+            let accepted = protect.accepted_tokens();
+            let behavior = edit_language.get().behavior();
+            strings.with(|strings| {
                 let mut found = diagnosed_text.with(|text| {
                     validate_with(
                         text,
@@ -66,19 +71,27 @@ impl ProblemsState {
                         enabled,
                         behavior,
                         &accepted,
+                        strings,
                     )
                 });
                 if enabled {
-                    found.extend(load_problems.get());
-                    found.extend(conversion_problems.get());
+                    let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
+                        problems
+                            .iter()
+                            .map(|problem| problem.worded(strings))
+                            .collect()
+                    };
+                    found.extend(load_problems.with(worded));
+                    found.extend(conversion_problems.with(worded));
                     if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
                         found.extend(diagnosed_text.with(|text| {
-                            protect.placeholder_problems(behavior, text, &bundle.schema)
+                            protect.placeholder_problems(behavior, text, &bundle.schema, strings)
                         }));
                     }
                 }
                 found
-            });
+            })
+        });
         // The host's problems, placed on the text validation saw; a new list
         // from the host re-places only these, not the editor's own.
         let host_placed = Memo::new(move |_| {

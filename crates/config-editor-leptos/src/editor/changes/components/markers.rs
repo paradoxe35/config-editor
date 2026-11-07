@@ -5,6 +5,8 @@ use leptos::prelude::*;
 use super::super::super::line_rows::RowUiState;
 use super::super::super::state::EditorState;
 use super::super::line_diff::DiffPeek;
+use crate::EditorStrings;
+use crate::strings::fill;
 
 /// The markers of line `line`, from its row's state.
 #[component]
@@ -20,8 +22,9 @@ pub(in crate::editor) fn ChangeMarkers(
                     state=state
                     peek=peek
                     class="config-editor__diff-marker config-editor__diff-marker-added config-editor__diff-change-trigger"
-                    label=format!("Show added line {line}")
-                    title="Show added line"
+                    label=|strings| &strings.show_added
+                    title=|strings| &strings.show_added_title
+                    line=line
                 />
             })
         }}
@@ -31,8 +34,9 @@ pub(in crate::editor) fn ChangeMarkers(
                     state=state
                     peek=peek
                     class="config-editor__diff-marker config-editor__diff-marker-modified config-editor__diff-change-trigger"
-                    label=format!("Show before and after for modified line {line}")
-                    title="Show before and after"
+                    label=|strings| &strings.show_modified
+                    title=|strings| &strings.show_modified_title
+                    line=line
                 />
             })
         }}
@@ -42,8 +46,9 @@ pub(in crate::editor) fn ChangeMarkers(
                     state=state
                     peek=peek
                     class="config-editor__diff-deleted"
-                    label=format!("Show removed lines before line {line}")
-                    title="Show removed lines"
+                    label=|strings| &strings.show_removed
+                    title=|strings| &strings.show_removed_title
+                    line=line
                 />
             })
         }}
@@ -53,8 +58,9 @@ pub(in crate::editor) fn ChangeMarkers(
                     state=state
                     peek=peek
                     class="config-editor__diff-deleted config-editor__diff-deleted-after"
-                    label="Show removed lines at end of document".to_string()
-                    title="Show removed lines"
+                    label=|strings| &strings.show_removed_at_end
+                    title=|strings| &strings.show_removed_title
+                    line=line
                 />
             })
         }}
@@ -67,9 +73,13 @@ fn PeekTrigger(
     state: EditorState,
     peek: DiffPeek,
     class: &'static str,
-    label: String,
-    title: &'static str,
+    /// Its accessible name, a text naming the `{line}`.
+    label: fn(&EditorStrings) -> &String,
+    title: fn(&EditorStrings) -> &String,
+    line: usize,
 ) -> impl IntoView {
+    let strings = state.strings_signal();
+    let label = move || strings.with(|strings| fill(label(strings), &[("line", &line)]));
     let toggle = move |_| {
         state.changes.peek.update(|selected| {
             *selected = if selected.as_ref() == Some(&peek) {
@@ -89,7 +99,7 @@ fn PeekTrigger(
             type="button"
             class=class
             aria-label=label
-            title=title
+            title=state.text(title)
             on:click=toggle
             on:keydown=keydown
         ></button>

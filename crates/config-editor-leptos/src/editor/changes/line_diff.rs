@@ -27,9 +27,20 @@ pub(in crate::editor) enum PeekKind {
 pub(in crate::editor) struct DiffPeek {
     pub(in crate::editor) line: usize,
     pub(in crate::editor) kind: PeekKind,
-    pub(in crate::editor) title: String,
     pub(in crate::editor) before: Vec<String>,
     pub(in crate::editor) after: Vec<String>,
+}
+
+impl DiffPeek {
+    /// The preview's title: "Added line", "Modified line", ….
+    pub(in crate::editor) fn title<'a>(&self, strings: &'a crate::EditorStrings) -> &'a str {
+        match self.kind {
+            PeekKind::Added => &strings.added_line,
+            PeekKind::Modified => &strings.modified_line,
+            PeekKind::Removed => &strings.removed_lines,
+            PeekKind::RemovedAtEnd => &strings.removed_lines_at_end,
+        }
+    }
 }
 
 /// One change against the baseline: a run of current lines that replaced
@@ -545,7 +556,6 @@ mod tests {
         DiffPeek {
             line,
             kind: PeekKind::Modified,
-            title: "Modified line".to_string(),
             before: vec![before.to_string()],
             after: vec![after.to_string()],
         }
@@ -610,7 +620,6 @@ mod tests {
         let peek = DiffPeek {
             line: 2,
             kind: PeekKind::Removed,
-            title: "Removed lines".to_string(),
             before: vec!["gone: 1".to_string()],
             after: Vec::new(),
         };
@@ -648,7 +657,6 @@ mod tests {
         let peek = DiffPeek {
             line: 1,
             kind: PeekKind::RemovedAtEnd,
-            title: "Removed lines at end of document".to_string(),
             before: vec!["gone one".to_string(), "gone two".to_string()],
             after: Vec::new(),
         };

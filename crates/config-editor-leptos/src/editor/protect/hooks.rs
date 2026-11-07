@@ -15,16 +15,20 @@ use super::live::ProtectState;
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
 use super::view::line_marks;
+use crate::EditorStrings;
 
 impl ProtectState {
     /// The marks of every line of `text` (the text on screen); empty when
     /// nothing is protected. Tracked.
-    pub(crate) fn line_marks(&self, text: &str) -> Vec<LineMarks> {
+    pub(crate) fn line_marks(&self, text: &str, strings: &EditorStrings) -> Vec<LineMarks> {
         self.protected.with(|protected| {
             self.secrets.tokens.with(|tokens| {
-                self.secrets
+                let hint = self
+                    .secrets
                     .options
-                    .with_value(|options| line_marks(text, protected, tokens, &options.hint))
+                    .with_value(|options| options.hint.clone())
+                    .unwrap_or_else(|| strings.secret_hint.clone());
+                line_marks(text, protected, tokens, &hint, strings)
             })
         })
     }
@@ -35,6 +39,7 @@ impl ProtectState {
         &self,
         options: Vec<Completion>,
         place: &SuggestionPlace<'_>,
+        strings: &EditorStrings,
     ) -> Vec<Completion> {
         let prefixes = self
             .secrets
@@ -53,6 +58,7 @@ impl ProtectState {
                         schema: place.schema,
                         host_paths,
                         protected,
+                        strings,
                     },
                 )
             })
@@ -72,11 +78,12 @@ impl ProtectState {
         behavior: &dyn ConfigLanguage,
         text: &str,
         schema: &Value,
+        strings: &EditorStrings,
     ) -> Vec<Diagnostic> {
         self.secrets.matcher.with_value(|matcher| {
             self.secrets
                 .known
-                .with(|known| unknown_placeholders(behavior, text, matcher, known, schema))
+                .with(|known| unknown_placeholders(behavior, text, matcher, known, schema, strings))
         })
     }
 

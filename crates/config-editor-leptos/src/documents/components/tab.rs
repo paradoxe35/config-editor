@@ -5,7 +5,8 @@ use leptos::prelude::*;
 use web_sys::{KeyboardEvent, MouseEvent};
 
 use super::super::entries::{Documents, Entry, Focus};
-use super::super::{keys, texts};
+use super::super::keys;
+use crate::strings::fill;
 
 #[component]
 pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> impl IntoView {
@@ -22,17 +23,21 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         ..
     } = entry;
     let icon = entry.setup.language.file_icon();
+    let strings = documents.follows.strings.read();
     let accessible_name = move || {
         let mut name = file_name.get();
-        if dirty.get() {
-            name.push_str(&format!(", {}", texts::UNSAVED));
-        }
-        if read_only.get() {
-            name.push_str(&format!(", {}", texts::READ_ONLY));
-        }
+        strings.with(|strings| {
+            if dirty.get() {
+                name.push_str(&format!(", {}", strings.unsaved));
+            }
+            if read_only.get() {
+                name.push_str(&format!(", {}", strings.read_only_tab));
+            }
+        });
         name
     };
-    let close_label = move || format!("{} {}", texts::CLOSE_LABEL, file_name.get());
+    let close_label =
+        move || strings.with(|strings| fill(&strings.close_tab, &[("name", &file_name.get())]));
 
     let select = move |_: MouseEvent| {
         id.with_value(|id| documents.select(id, Focus::Keep));
@@ -75,7 +80,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
                 class="config-editor-documents__close"
                 type="button"
                 tabindex="-1"
-                title=texts::CLOSE_TITLE
+                title=documents.text(|strings| &strings.close_tab_title)
                 aria-label=close_label
                 on:click=close
             >
@@ -87,7 +92,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     } else {
         view! {
             <span class="config-editor-documents__marker" aria-hidden="true">
-                <span class="config-editor-documents__dirty-dot" title=texts::UNSAVED>"●"</span>
+                <span class="config-editor-documents__dirty-dot" title=documents.text(|strings| &strings.unsaved)>"●"</span>
             </span>
         }
         .into_any()

@@ -20,6 +20,7 @@ use super::line_rows::LineMarks;
 use super::paths::{FieldPath, TextRange};
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
+use crate::EditorStrings;
 
 /// The host's side of protection (the component's props, when given).
 pub(super) struct ProtectInit {
@@ -74,7 +75,7 @@ impl ProtectState {
         Self
     }
 
-    pub(super) fn line_marks(&self, _text: &str) -> Vec<LineMarks> {
+    pub(super) fn line_marks(&self, _text: &str, _strings: &EditorStrings) -> Vec<LineMarks> {
         Vec::new()
     }
 
@@ -82,6 +83,7 @@ impl ProtectState {
         &self,
         options: Vec<Completion>,
         _place: &SuggestionPlace<'_>,
+        _strings: &EditorStrings,
     ) -> Vec<Completion> {
         options
     }
@@ -95,6 +97,7 @@ impl ProtectState {
         _behavior: &dyn ConfigLanguage,
         _text: &str,
         _schema: &Value,
+        _strings: &EditorStrings,
     ) -> Vec<Diagnostic> {
         Vec::new()
     }
@@ -134,7 +137,7 @@ impl EditorState {
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
-    pub(super) fn check_host_save(&self, _old: &str, _new: &str) -> Result<(), String> {
+    pub(super) fn check_host_save(&self, _old: &str, _new: &str) -> Result<(), ReadOnlyChange> {
         Ok(())
     }
 
@@ -144,11 +147,7 @@ impl EditorState {
         false
     }
 
-    pub(super) fn protected_note(
-        &self,
-        _offset: usize,
-        _ends: bool,
-    ) -> Option<(&'static str, String)> {
+    pub(super) fn protected_note(&self, _offset: usize, _ends: bool) -> Option<(String, String)> {
         None
     }
 
@@ -162,6 +161,21 @@ impl EditorState {
     }
 }
 
+/// A save that would change a read-only value: never one without the
+/// feature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code, reason = "nothing is read-only without the feature")]
+pub(super) struct ReadOnlyChange {
+    pub(super) pointer: String,
+}
+
+/// A save refused because it would change the read-only value at
+/// `pointer`.
+pub(super) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    crate::strings::fill(&strings.save_refused, &[("pointer", &place)])
+}
+
 /// No schema marks are read.
 pub(super) fn mentions_marks(_schema: &Value) -> bool {
     false
@@ -171,9 +185,6 @@ pub(super) fn mentions_marks(_schema: &Value) -> bool {
 pub(super) fn secret_pointers(_document: &Value, _root: &Value) -> Vec<String> {
     Vec::new()
 }
-
-#[cfg(feature = "schema-validation")]
-pub(super) const SECRET_VALUE: &str = "the secret value";
 
 #[component]
 pub(super) fn ProtectTipView(state: EditorState) -> impl IntoView {

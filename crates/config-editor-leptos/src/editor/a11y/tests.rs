@@ -272,6 +272,7 @@ fn the_caret_position_counts_characters_not_units() {
 ))]
 #[test]
 fn the_caret_note_names_the_syntax_error_under_it_in_every_language() {
+    let strings = crate::EditorStrings::default();
     let cases = [
         (Language::YAML, "a: 1\nb: [1, 2\nc: 3\n"),
         (Language::JSON, "{\n  \"a\": 1,\n  \"b\": tru\n}\n"),
@@ -288,7 +289,7 @@ fn the_caret_note_names_the_syntax_error_under_it_in_every_language() {
         };
         let line = first.line.unwrap();
         let column = first.column.unwrap_or(1);
-        let found = note(&problems, line, column, None);
+        let found = note(&strings, &problems, line, column, None);
         if !found.contains(&first.message) || !found.starts_with("Error") {
             failures.push(format!(
                 "{language:?}: at {line}:{column} the note is {found:?}"
@@ -300,7 +301,7 @@ fn the_caret_note_names_the_syntax_error_under_it_in_every_language() {
                 .all(|problem| problem.line != Some(*candidate))
         });
         if let Some(other) = elsewhere {
-            let quiet = note(&problems, other, 1, None);
+            let quiet = note(&strings, &problems, other, 1, None);
             if !quiet.is_empty() {
                 failures.push(format!(
                     "{language:?}: line {other} has no problem, note {quiet:?}"
@@ -320,11 +321,13 @@ fn the_note_lists_every_problem_and_then_the_protected_text() {
     host.message = "port is taken".to_string();
     let mut own = problem(1, Some(2), Some(3));
     own.message = "expected a number".to_string();
+    let strings = crate::EditorStrings::default();
     let found = note(
+        &strings,
         &[host, own],
         1,
         2,
-        Some(("Read-only", "Managed by the server".to_string())),
+        Some(("Read-only".to_string(), "Managed by the server".to_string())),
     );
     assert_eq!(
         found,
@@ -332,10 +335,14 @@ fn the_note_lists_every_problem_and_then_the_protected_text() {
     );
     assert_eq!(
         note(
+            &strings,
             &[],
             1,
             1,
-            Some(("Secret placeholder", "Type a new value".to_string()))
+            Some((
+                "Secret placeholder".to_string(),
+                "Type a new value".to_string()
+            ))
         ),
         "Secret placeholder: Type a new value"
     );
@@ -343,17 +350,18 @@ fn the_note_lists_every_problem_and_then_the_protected_text() {
 
 #[test]
 fn f8_announces_the_problem_with_its_place_in_the_list() {
+    let strings = crate::EditorStrings::default();
     let mut first = problem(3, Some(1), None);
     first.message = "unknown key `lisen`".to_string();
     assert_eq!(
-        problem_announcement(&first, 2, 5),
+        problem_announcement(&strings, &first, 2, 5),
         "Error 2 of 5: unknown key `lisen`"
     );
     first.origin = DiagnosticOrigin::Host;
     first.source = Some("burrow".to_string());
     first.severity = Severity::Info;
     assert_eq!(
-        problem_announcement(&first, 1, 1),
+        problem_announcement(&strings, &first, 1, 1),
         "Info 1 of 1 from burrow: unknown key `lisen`"
     );
 }

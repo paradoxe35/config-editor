@@ -25,6 +25,7 @@ mod diagnostics;
 mod diff;
 mod document;
 mod edit;
+mod edit_as;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
 mod folding;
@@ -93,8 +94,8 @@ pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 use crate::EditorSettings;
 use changes::DiffPeekPopup;
 use components::{
-    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, Gutter, HoverCardView,
-    SourceInput, StatusBar, Toolbar,
+    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
+    HoverCardView, SourceInput, StatusBar, Toolbar,
 };
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
@@ -326,8 +327,9 @@ pub fn ConfigEditor(
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
             {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
-            <section class="config-editor__frame" aria-label=move || format!("{} editor", state.label())>
+            <section class="config-editor__frame" aria-label=state.language_text(|strings| &strings.editor_label)>
                 <Kept when=shown.toolbar view=move || view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> } />
+                <EditAsNotice state=state />
                 <BaselineNotice state=state />
                 <div class="config-editor__surface">
                     <Gutter state=state rows=rows />

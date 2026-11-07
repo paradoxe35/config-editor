@@ -1,4 +1,5 @@
 // Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`.
+// Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`.
 
 /**
  * How an editor looks and which of its features are on: everything a host sets once and may switch at any time, apart from the document itself.
@@ -102,4 +103,894 @@ export interface EditorSettings {
    * @default true
    */
   saveShortcut?: boolean;
+  /**
+   * Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.
+   *
+   * @default English texts
+   */
+  strings?: EditorStrings;
+}
+
+/**
+ * Every built-in text of the editor and its documents' tabs, in English by default; change any to reword or translate the editor.
+ *
+ * Every key is optional: one left out takes its default.
+ */
+export interface EditorStrings {
+  /**
+   * The footer's suggestions hint; `{key}` is where the chord goes.
+   *
+   * @default "{key} for suggestions"
+   */
+  suggestionsHint?: string;
+  /**
+   * The chord that opens suggestions, as the footer draws it: keys between `+`.
+   *
+   * @default "Ctrl+Space"
+   */
+  suggestionsKey?: string;
+  /**
+   * The footer's problem count when there are none.
+   *
+   * @default "No errors"
+   */
+  noProblems?: string;
+  /**
+   * One error, in the footer's problem count.
+   *
+   * @default "{count} error"
+   */
+  errorsOne?: string;
+  /**
+   * Several errors, in the footer's problem count.
+   *
+   * @default "{count} errors"
+   */
+  errorsOther?: string;
+  /**
+   * One warning, in the footer's problem count.
+   *
+   * @default "{count} warning"
+   */
+  warningsOne?: string;
+  /**
+   * Several warnings, in the footer's problem count.
+   *
+   * @default "{count} warnings"
+   */
+  warningsOther?: string;
+  /**
+   * One info, in the footer's problem count.
+   *
+   * @default "{count} info"
+   */
+  infosOne?: string;
+  /**
+   * Several infos, in the footer's problem count.
+   *
+   * @default "{count} info"
+   */
+  infosOther?: string;
+  /**
+   * One hint, in the footer's problem count.
+   *
+   * @default "{count} hint"
+   */
+  hintsOne?: string;
+  /**
+   * Several hints, in the footer's problem count.
+   *
+   * @default "{count} hints"
+   */
+  hintsOther?: string;
+  /**
+   * After the problem count when every problem has its place.
+   *
+   * @default "hover or focus underlined text"
+   */
+  problemsHint?: string;
+  /**
+   * After the problem count when the list was cut; `{count}` is how many are shown.
+   *
+   * @default "only the first {count} are shown"
+   */
+  problemsCut?: string;
+  /**
+   * The problem that says the list was cut, after `{count}` problems.
+   *
+   * @default "Only the first {count} problems are shown; more follow."
+   */
+  problemsMore?: string;
+  /**
+   * The footer's change count against the baseline, for one change.
+   *
+   * @default "{count} change"
+   */
+  changesOne?: string;
+  /**
+   * The footer's change count, for several changes.
+   *
+   * @default "{count} changes"
+   */
+  changesOther?: string;
+  /**
+   * The change count's tooltip when one line changed; `{lines}` lists the added, modified and removed counts.
+   *
+   * @default "{lines} line · Alt+F5 for the next"
+   */
+  changeDetailsOne?: string;
+  /**
+   * The change count's tooltip when several lines changed.
+   *
+   * @default "{lines} lines · Alt+F5 for the next"
+   */
+  changeDetailsOther?: string;
+  /**
+   * Added lines, in the change count's tooltip.
+   *
+   * @default "{count} added"
+   */
+  changedAdded?: string;
+  /**
+   * Modified lines, in the change count's tooltip.
+   *
+   * @default "{count} modified"
+   */
+  changedModified?: string;
+  /**
+   * Removed lines, in the change count's tooltip.
+   *
+   * @default "{count} removed"
+   */
+  changedRemoved?: string;
+  /**
+   * The footer's line count, for one line.
+   *
+   * @default "{count} line"
+   */
+  linesOne?: string;
+  /**
+   * The footer's line count, for several lines.
+   *
+   * @default "{count} lines"
+   */
+  linesOther?: string;
+  /**
+   * The footer's indicator while Tab moves the focus.
+   *
+   * @default "Tab moves focus"
+   */
+  tabFocus?: string;
+  /**
+   * Its tooltip; clicking it turns the mode off.
+   *
+   * @default "Tab moves focus (Ctrl+M to indent with Tab)"
+   */
+  tabFocusTitle?: string;
+  /**
+   * Announced when `Ctrl+M` makes Tab move the focus.
+   *
+   * @default "Tab moves focus: Tab and Shift+Tab now leave the editor. Ctrl+M to indent with Tab again."
+   */
+  tabFocusOn?: string;
+  /**
+   * Announced when `Ctrl+M` makes Tab indent again.
+   *
+   * @default "Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."
+   */
+  tabFocusOff?: string;
+  /**
+   * The toolbar's schema state.
+   *
+   * @default "Schema connected"
+   */
+  schemaConnected?: string;
+  /**
+   * The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps.
+   *
+   * @default "The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."
+   */
+  editAsHostComments?: string;
+  /**
+   * The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments.
+   *
+   * @default "Comments typed in {edit} are not saved: the {host} file keeps only its own comments."
+   */
+  editAsTypedComments?: string;
+  /**
+   * The same when the host's language has no comments (JSON).
+   *
+   * @default "Comments typed in {edit} are not saved: {host} has no comments."
+   */
+  editAsTypedCommentsNone?: string;
+  /**
+   * The Edit-as notice's close button.
+   *
+   * @default "Dismiss"
+   */
+  editAsDismiss?: string;
+  /**
+   * The notice shown when the host's baseline changes under unsaved edits.
+   *
+   * @default "The file changed on the server."
+   */
+  baselineChanged?: string;
+  /**
+   * What the notice's choices do, after its message.
+   *
+   * @default "Reload it, losing your changes, or keep your text and compare it with the new version."
+   */
+  baselineChangedDetail?: string;
+  /**
+   * The notice's button that takes the new baseline as the text.
+   *
+   * @default "Reload"
+   */
+  reload?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Replace your text with the new version (Ctrl+Z brings yours back)"
+   */
+  reloadTitle?: string;
+  /**
+   * The notice's button that keeps the text against the new baseline.
+   *
+   * @default "Keep mine"
+   */
+  keepMine?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Keep your text; the changes are now shown against the new version (Escape)"
+   */
+  keepMineTitle?: string;
+  /**
+   * The find widget's accessible name.
+   *
+   * @default "Find and replace"
+   */
+  findWidget?: string;
+  /**
+   * The button showing the replace row.
+   *
+   * @default "Toggle replace"
+   */
+  toggleReplace?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Toggle replace (Ctrl+H)"
+   */
+  toggleReplaceTitle?: string;
+  /**
+   * The query field's accessible name and placeholder.
+   *
+   * @default "Find"
+   */
+  find?: string;
+  /**
+   * The match-case toggle.
+   *
+   * @default "Match case"
+   */
+  matchCase?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Match case (Alt+C)"
+   */
+  matchCaseTitle?: string;
+  /**
+   * The whole-word toggle.
+   *
+   * @default "Match whole word"
+   */
+  wholeWord?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Match whole word (Alt+W)"
+   */
+  wholeWordTitle?: string;
+  /**
+   * The regular-expression toggle.
+   *
+   * @default "Use regular expression"
+   */
+  useRegex?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Use regular expression (Alt+R)"
+   */
+  useRegexTitle?: string;
+  /**
+   * The previous-match button.
+   *
+   * @default "Previous match"
+   */
+  previousMatch?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Previous match (Shift+Enter)"
+   */
+  previousMatchTitle?: string;
+  /**
+   * The next-match button.
+   *
+   * @default "Next match"
+   */
+  nextMatch?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Next match (Enter)"
+   */
+  nextMatchTitle?: string;
+  /**
+   * The find widget's close button.
+   *
+   * @default "Close"
+   */
+  close?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Close (Escape)"
+   */
+  closeTitle?: string;
+  /**
+   * The replacement field's accessible name and placeholder, and the button replacing the current match.
+   *
+   * @default "Replace"
+   */
+  replace?: string;
+  /**
+   * The replace button's tooltip.
+   *
+   * @default "Replace (Enter)"
+   */
+  replaceTitle?: string;
+  /**
+   * The replace-all button.
+   *
+   * @default "All"
+   */
+  replaceAll?: string;
+  /**
+   * Its accessible name.
+   *
+   * @default "Replace all"
+   */
+  replaceAllLabel?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Replace all (Ctrl+Alt+Enter)"
+   */
+  replaceAllTitle?: string;
+  /**
+   * The match count: match `{current}` of `{total}`.
+   *
+   * @default "{current} of {total}"
+   */
+  matchPosition?: string;
+  /**
+   * The match count when nothing matches.
+   *
+   * @default "No results"
+   */
+  noResults?: string;
+  /**
+   * The match count when the regular expression is invalid.
+   *
+   * @default "Invalid pattern"
+   */
+  invalidPattern?: string;
+  /**
+   * After Replace All, for one match.
+   *
+   * @default "Replaced {count} occurrence"
+   */
+  replacedOne?: string;
+  /**
+   * After Replace All, for several.
+   *
+   * @default "Replaced {count} occurrences"
+   */
+  replacedOther?: string;
+  /**
+   * Added when Replace All left matches in protected text alone.
+   *
+   * @default "; skipped {count} in read-only text or secret placeholders"
+   */
+  replaceSkipped?: string;
+  /**
+   * After Replace All when every match is in read-only text.
+   *
+   * @default "Every match is in read-only text; nothing was replaced"
+   */
+  nothingReplaced?: string;
+  /**
+   * The go-to-line field's accessible name.
+   *
+   * @default "Go to line"
+   */
+  goToLine?: string;
+  /**
+   * Its placeholder.
+   *
+   * @default "line or line:column"
+   */
+  goToLinePlaceholder?: string;
+  /**
+   * Its hint: the range of lines.
+   *
+   * @default "Line 1–{lines}, or line:column"
+   */
+  goToLineHint?: string;
+  /**
+   * Its hint when the text is no position.
+   *
+   * @default "Type a line number between 1 and {lines}"
+   */
+  goToLineInvalid?: string;
+  /**
+   * The change preview's title for an added line.
+   *
+   * @default "Added line"
+   */
+  addedLine?: string;
+  /**
+   * For a modified line.
+   *
+   * @default "Modified line"
+   */
+  modifiedLine?: string;
+  /**
+   * For removed lines.
+   *
+   * @default "Removed lines"
+   */
+  removedLines?: string;
+  /**
+   * For lines removed after the last one.
+   *
+   * @default "Removed lines at end of document"
+   */
+  removedLinesAtEnd?: string;
+  /**
+   * The gutter marker of an added line.
+   *
+   * @default "Show added line {line}"
+   */
+  showAdded?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Show added line"
+   */
+  showAddedTitle?: string;
+  /**
+   * The gutter marker of a modified line.
+   *
+   * @default "Show before and after for modified line {line}"
+   */
+  showModified?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Show before and after"
+   */
+  showModifiedTitle?: string;
+  /**
+   * The gutter marker of removed lines.
+   *
+   * @default "Show removed lines before line {line}"
+   */
+  showRemoved?: string;
+  /**
+   * Its tooltip, and that of lines removed at the end.
+   *
+   * @default "Show removed lines"
+   */
+  showRemovedTitle?: string;
+  /**
+   * The gutter marker of lines removed after the last one.
+   *
+   * @default "Show removed lines at end of document"
+   */
+  showRemovedAtEnd?: string;
+  /**
+   * The change preview's heading: its `{title}` and `{line}`.
+   *
+   * @default "{title} · line {line}"
+   */
+  previewHeading?: string;
+  /**
+   * The change preview's accessible name.
+   *
+   * @default "{title}, line {line}"
+   */
+  previewLabel?: string;
+  /**
+   * The preview's revert button.
+   *
+   * @default "Revert"
+   */
+  revert?: string;
+  /**
+   * Its tooltip, for a one-line change.
+   *
+   * @default "Revert this change (R)"
+   */
+  revertTitle?: string;
+  /**
+   * Its tooltip, for a change over lines `{first}` to `{last}`.
+   *
+   * @default "Revert this change (lines {first}–{last}) (R)"
+   */
+  revertLinesTitle?: string;
+  /**
+   * Its tooltip, for a changed line with removed lines.
+   *
+   * @default "Revert this change (line {line} and the removed lines) (R)"
+   */
+  revertLineAndRemovedTitle?: string;
+  /**
+   * The preview's close button.
+   *
+   * @default "Close change preview"
+   */
+  closePreview?: string;
+  /**
+   * The preview's column of the baseline's lines.
+   *
+   * @default "Before"
+   */
+  before?: string;
+  /**
+   * The preview's column of the current lines.
+   *
+   * @default "Current"
+   */
+  current?: string;
+  /**
+   * The chevron of an open range.
+   *
+   * @default "Fold line {line}"
+   */
+  fold?: string;
+  /**
+   * The chevron or chip of a closed fold.
+   *
+   * @default "Unfold lines {first}–{last}"
+   */
+  unfold?: string;
+  /**
+   * A closed fold's line number when it hides changes or problems.
+   *
+   * @default "Folded lines have changes"
+   */
+  foldedChanges?: string;
+  /**
+   * The hover card's mark of a required key.
+   *
+   * @default "required"
+   */
+  required?: string;
+  /**
+   * The hover card's mark of a deprecated key.
+   *
+   * @default "deprecated"
+   */
+  deprecated?: string;
+  /**
+   * The hover card's default row.
+   *
+   * @default "Default"
+   */
+  defaultValue?: string;
+  /**
+   * The hover card's examples row.
+   *
+   * @default "Examples"
+   */
+  examples?: string;
+  /**
+   * The hover card's link to the schema's documentation.
+   *
+   * @default "Documentation"
+   */
+  documentation?: string;
+  /**
+   * The link under a host problem's message.
+   *
+   * @default "Open docs ↗"
+   */
+  openDocs?: string;
+  /**
+   * An error, as a screen reader hears it.
+   *
+   * @default "Error"
+   */
+  error?: string;
+  /**
+   * A warning, as a screen reader hears it.
+   *
+   * @default "Warning"
+   */
+  warning?: string;
+  /**
+   * An info, as a screen reader hears it.
+   *
+   * @default "Info"
+   */
+  info?: string;
+  /**
+   * A hint, as a screen reader hears it.
+   *
+   * @default "Hint"
+   */
+  hint?: string;
+  /**
+   * Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems).
+   *
+   * @default " from {source}"
+   */
+  problemSource?: string;
+  /**
+   * A problem at the caret, for screen readers.
+   *
+   * @default "{severity}{source}: {message}"
+   */
+  problem?: string;
+  /**
+   * Announced on `F8`: problem `{position}` of `{total}`.
+   *
+   * @default "{severity} {position} of {total}{source}: {message}"
+   */
+  problemPosition?: string;
+  /**
+   * An underlined problem's accessible name.
+   *
+   * @default "{language} {severity}{source} on line {line}: {message}"
+   */
+  problemMarker?: string;
+  /**
+   * What protected text at the caret is, for screen readers: its `{label}` and `{message}`.
+   *
+   * @default "{label}: {message}"
+   */
+  protectedNote?: string;
+  /**
+   * The text area.
+   *
+   * @default "{language} source"
+   */
+  sourceLabel?: string;
+  /**
+   * The suggestions list.
+   *
+   * @default "{language} suggestions"
+   */
+  suggestionsLabel?: string;
+  /**
+   * The layer of underlined problems.
+   *
+   * @default "Inline {language} diagnostics"
+   */
+  problemsLabel?: string;
+  /**
+   * The editor's frame.
+   *
+   * @default "{language} editor"
+   */
+  editorLabel?: string;
+  /**
+   * Why a field is read-only when neither the schema nor the host says.
+   *
+   * @default "This field is read-only"
+   */
+  readOnlyField?: string;
+  /**
+   * Why text in a read-only range the host gave cannot change.
+   *
+   * @default "This text is read-only"
+   */
+  readOnlyText?: string;
+  /**
+   * Why renaming or moving the key above a read-only field is refused.
+   *
+   * @default "Holds a read-only field: {reason}"
+   */
+  holdsReadOnly?: string;
+  /**
+   * A save refused because it would change a read-only value.
+   *
+   * @default "{pointer} is read-only and this change would alter it"
+   */
+  saveRefused?: string;
+  /**
+   * The gutter lock's label, before the reason.
+   *
+   * @default "Read-only"
+   */
+  readOnlyLabel?: string;
+  /**
+   * The gutter key's label, before the hint.
+   *
+   * @default "Secret placeholder"
+   */
+  secretLabel?: string;
+  /**
+   * The hover text of a secret placeholder, unless the host gives one.
+   *
+   * @default "Keeps the current secret unless you replace it"
+   */
+  secretHint?: string;
+  /**
+   * What a schema problem says instead of a secret field's value.
+   *
+   * @default "the secret value"
+   */
+  secretValue?: string;
+  /**
+   * A placeholder the host did not give, in a secret field.
+   *
+   * @default "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"
+   */
+  unknownPlaceholder?: string;
+  /**
+   * The detail of the `${…}` reference suggestion.
+   *
+   * @default "Read the secret from an environment variable"
+   */
+  envReference?: string;
+  /**
+   * The detail of the `file:` reference suggestion.
+   *
+   * @default "Read the secret from a file"
+   */
+  fileReference?: string;
+  /**
+   * The detail of another reference suggestion.
+   *
+   * @default "A reference starting with {prefix}"
+   */
+  otherReference?: string;
+  /**
+   * The type column of a reference suggestion.
+   *
+   * @default "reference"
+   */
+  referenceType?: string;
+  /**
+   * The detail of the end tag XML suggests.
+   *
+   * @default "Closes <{name}>"
+   */
+  closesTag?: string;
+  /**
+   * Its type column.
+   *
+   * @default "end tag"
+   */
+  endTag?: string;
+  /**
+   * A key the schema does not allow.
+   *
+   * @default "{pointer}: '{key}' is not allowed here"
+   */
+  keyNotAllowed?: string;
+  /**
+   * Text in an element the schema wants elements in (XML).
+   *
+   * @default "{pointer}: text is not allowed here, only elements"
+   */
+  textNotAllowed?: string;
+  /**
+   * A deprecated key.
+   *
+   * @default "{pointer}: '{key}' is deprecated"
+   */
+  keyDeprecated?: string;
+  /**
+   * A deprecated key whose schema says what to use instead.
+   *
+   * @default "{pointer}: '{key}' is deprecated. {message}"
+   */
+  keyDeprecatedInstead?: string;
+  /**
+   * A value not among the allowed ones.
+   *
+   * @default "{value} is not one of {allowed}"
+   */
+  notOneOf?: string;
+  /**
+   * A value of none of the accepted types.
+   *
+   * @default "{value} is not of type {types}"
+   */
+  wrongType?: string;
+  /**
+   * A schema that does not compile.
+   *
+   * @default "Invalid JSON Schema: {error}"
+   */
+  invalidSchema?: string;
+  /**
+   * A value the host's language reads back differently (Edit-as).
+   *
+   * @default "{pointer}: {host} cannot keep this value exactly; it reads back differently"
+   */
+  hostCannotKeep?: string;
+  /**
+   * A value the edited language cannot show exactly (Edit-as).
+   *
+   * @default "{pointer}: {edit} cannot show this value exactly; editing it here may change it"
+   */
+  editCannotShow?: string;
+  /**
+   * An edit the host's language cannot save (Edit-as).
+   *
+   * @default "Not saved as {host}: {error}"
+   */
+  notSaved?: string;
+  /**
+   * A null the host's language cannot write (Edit-as).
+   *
+   * @default "{host} has no null value (at {pointer})"
+   */
+  noNull?: string;
+  /**
+   * A host document that does not convert for editing.
+   *
+   * @default "Cannot edit this {host} as {edit}: {error}"
+   */
+  cannotEditAs?: string;
+  /**
+   * An Edit-as switch waiting until the document converts.
+   *
+   * @default "Cannot switch to {edit} yet: {error}"
+   */
+  cannotSwitch?: string;
+  /**
+   * The tab list's accessible name, unless the host gives one.
+   *
+   * @default "Open files"
+   */
+  tabList?: string;
+  /**
+   * Shown in place of an editor while no document is open.
+   *
+   * @default "No open files"
+   */
+  noDocuments?: string;
+  /**
+   * A tab's close button.
+   *
+   * @default "Close {name}"
+   */
+  closeTab?: string;
+  /**
+   * Its tooltip.
+   *
+   * @default "Close (Delete)"
+   */
+  closeTabTitle?: string;
+  /**
+   * The dirty dot's tooltip, and what a tab's accessible name adds for it.
+   *
+   * @default "unsaved changes"
+   */
+  unsaved?: string;
+  /**
+   * What a read-only document's tab adds to its accessible name.
+   *
+   * @default "read-only"
+   */
+  readOnlyTab?: string;
 }

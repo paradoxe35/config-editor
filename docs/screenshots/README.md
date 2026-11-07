@@ -45,6 +45,12 @@ A YAML file edited as TOML (any pair of YAML, JSON, TOML, HCL and XML); edits ar
 
 ![A YAML file edited as TOML](edit-as.png)
 
+### What Edit-as keeps
+
+A notice under the toolbar says the file's comments and formatting are not shown in the edited language (saving keeps them) and that comments typed there are not saved; it can be dismissed, and its texts come from the `strings` setting.
+
+![The Edit-as notice for a YAML file edited as TOML](edit-as-notice.png)
+
 ## Reviewing changes
 
 ### Changes against the baseline

@@ -9,7 +9,7 @@ use super::DocumentTab;
 use crate::reactive::KeyedList;
 
 #[component]
-pub(in crate::documents) fn TabStrip(documents: Documents, label: String) -> impl IntoView {
+pub(in crate::documents) fn TabStrip(documents: Documents, label: Option<String>) -> impl IntoView {
     reveal_active_tab(documents);
     // A vertical wheel scrolls the strip sideways, as in VS Code.
     let wheel = move |event: WheelEvent| {
@@ -23,6 +23,8 @@ pub(in crate::documents) fn TabStrip(documents: Documents, label: String) -> imp
         }
     };
     let tabs = move || documents.entries.get();
+    let default_label = documents.text(|strings| &strings.tab_list);
+    let label = move || label.clone().unwrap_or_else(default_label);
     let tab = move |entry: Entry| view! { <DocumentTab documents=documents entry=entry /> };
 
     view! {

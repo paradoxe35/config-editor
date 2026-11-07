@@ -25,6 +25,7 @@ export const GALLERY = [
     section: 'Languages',
     items: [
       { title: 'Edit as another language', caption: "A YAML file edited as TOML (any pair of YAML, JSON, TOML, HCL and XML); edits are saved back in the file's own language.", images: [['edit-as.png', 'A YAML file edited as TOML']] },
+      { title: 'What Edit-as keeps', caption: "A notice under the toolbar says the file's comments and formatting are not shown in the edited language (saving keeps them) and that comments typed there are not saved; it can be dismissed, and its texts come from the `strings` setting.", images: [['edit-as-notice.png', 'The Edit-as notice for a YAML file edited as TOML']] },
     ],
   },
   {

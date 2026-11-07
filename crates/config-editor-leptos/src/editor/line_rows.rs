@@ -24,6 +24,7 @@ pub(super) fn rendered_lines(
     text: RwSignal<String>,
     diagnostics: Memo<Vec<Diagnostic>>,
     protect: ProtectState,
+    strings: Memo<crate::EditorStrings>,
 ) -> Memo<Vec<RenderedLine>> {
     Memo::new(move |_| {
         let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
@@ -34,7 +35,7 @@ pub(super) fn rendered_lines(
                 .collect()
         });
         text.with(|text| {
-            let marks = protect.line_marks(text);
+            let marks = strings.with(|strings| protect.line_marks(text, strings));
             text.split('\n')
                 .enumerate()
                 .map(|(index, line)| RenderedLine {

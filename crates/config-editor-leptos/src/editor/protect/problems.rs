@@ -9,6 +9,7 @@ use super::super::paths::path_at;
 use super::marks::marks_at;
 use super::texts;
 use super::tokens::SecretMatcher;
+use crate::EditorStrings;
 
 /// A warning on each placeholder in a secret field of `text` that is not
 /// one of the host's `known` tokens.
@@ -18,6 +19,7 @@ pub(crate) fn unknown_placeholders(
     matcher: &SecretMatcher,
     known: &[(String, usize)],
     schema: &Value,
+    strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     let repeats = behavior.repetition() != Repetition::None;
     matcher
@@ -36,7 +38,7 @@ pub(crate) fn unknown_placeholders(
                 line: Some(text[..line_start].matches('\n').count() + 1),
                 column: Some(column),
                 end_column: Some(column + text[range].chars().count()),
-                message: texts::unknown_placeholder(&path.to_pointer()),
+                message: texts::unknown_placeholder(strings, &path.to_pointer()),
                 severity: Severity::Warning,
                 ..Diagnostic::default()
             })

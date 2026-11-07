@@ -1165,6 +1165,21 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         comment_start_outside_quotes(line, self.config().line_comments)
     }
 
+    /// Whether `source` holds a comment: a line comment
+    /// ([`comment_start`](ConfigLanguage::comment_start)) or the start of a
+    /// block comment, outside strings and multi-line string bodies. The
+    /// Edit-as notice reads it: the data a conversion carries has none.
+    fn has_comments(&self, source: &str) -> bool {
+        let bodies = self.string_body_lines(source);
+        let block = self.config().block_comment.map(|(open, _)| [open]);
+        source.lines().enumerate().any(|(index, line)| {
+            !bodies.iter().any(|lines| lines.contains(&index))
+                && (self.comment_start(line).is_some()
+                    || block
+                        .is_some_and(|open| comment_start_outside_quotes(line, &open).is_some()))
+        })
+    }
+
     /// Whether `rest`, the text after a key being completed, shows the key
     /// already has its value (`: 99`, ` = "x"`, an HCL block's `{`), so
     /// accepting a suggestion renames only the key.

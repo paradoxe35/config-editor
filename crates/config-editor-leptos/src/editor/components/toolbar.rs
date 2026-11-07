@@ -16,7 +16,7 @@ pub(crate) fn Toolbar(state: EditorState, file_name: String, has_schema: bool) -
                 {has_schema.then(|| view! {
                     <span class="config-editor__schema-state">
                         <span class="config-editor__schema-check">"✓"</span>
-                        "Schema connected"
+                        {state.text(|strings| &strings.schema_connected)}
                     </span>
                 })}
                 <span class="config-editor__language">{move || state.label()}</span>
