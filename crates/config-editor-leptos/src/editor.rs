@@ -47,7 +47,8 @@ mod protect;
 mod search;
 mod state;
 mod sync;
-#[cfg(test)]
+// Used by the tests that mount a YAML editor (all of them need YAML).
+#[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod theme;
 mod typing;

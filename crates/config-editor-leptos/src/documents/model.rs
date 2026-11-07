@@ -125,7 +125,17 @@ pub struct CloseRequest {
     pub dirty: bool,
 }
 
-#[cfg(test)]
+// The tests need a built-in language.
+#[cfg(all(
+    test,
+    any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
 mod tests {
     use super::*;
 

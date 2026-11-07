@@ -289,9 +289,12 @@ test.describe('diagnostics navigation', () => {
       element.setSelectionRange(0, 0);
       element.scrollTop = 0;
     });
-    await page.keyboard.press('F8');
+    // The caret is on the first problem (the editor follows the selection
+    // set above): F8 goes on to the second, far below, then wraps around.
     await page.keyboard.press('F8');
     await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+    await page.keyboard.press('F8');
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
   });
 });
 

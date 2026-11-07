@@ -13,21 +13,23 @@ import { editor } from './helpers.mjs';
 // Timings come from the browser's Event Timing API (the data behind INP):
 // each interaction's time from the input event to the next paint, which
 // covers our handlers, the reactive updates and rendering. Each test logs
-// its numbers; the budgets are several times what this machine measures,
-// so a shared CI box stays green while O(n²) work per keystroke fails.
+// its numbers. The budgets leave at least 1.7× (mostly 5–10×) headroom
+// over what a debug build measures on a shared 2-core box, while O(n²)
+// work per keystroke still fails them. They are soft: one run reports
+// every number over its budget.
 const LANGUAGES = ['yaml', 'json', 'toml', 'hcl', 'xml'];
 const SCALE = 5;
 // Typed inside a JSON string value, where any text is valid.
 const JSON_TYPED = '-edge-tuned-for-many-lines';
 const BUDGET = {
-  loadMs: 6000,
+  loadMs: 3000,
   keystrokeWorstMs: 400,
   keystrokeP95Ms: 250,
   jumpToEndMs: 400,
   wheelStepMs: 250,
-  findMs: 1500,
-  foldAllMs: 1500,
-  editAsMs: 8000,
+  findMs: 1000,
+  foldAllMs: 1000,
+  editAsMs: 3000,
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -152,7 +154,7 @@ test.describe('large files', () => {
       expect(await e.value()).toBe(text);
       // The scaled document is valid: nothing to underline.
       await expect.poll(() => e.diagnosticCount(), { timeout: 20000 }).toBe(0);
-      expect(loaded).toBeLessThan(BUDGET.loadMs);
+      expect.soft(loaded, `${language} loadMs`).toBeLessThan(BUDGET.loadMs);
 
       // Typing in the middle of the document: every line after it moves.
       await e.input.evaluate((element) => {
@@ -178,8 +180,8 @@ test.describe('large files', () => {
       const typing = await interactionStats(page, keys);
       record(language, 'keyWorst', typing.worst);
       record(language, 'keyP95', typing.p95);
-      expect(typing.worst).toBeLessThan(BUDGET.keystrokeWorstMs);
-      expect(typing.p95).toBeLessThan(BUDGET.keystrokeP95Ms);
+      expect.soft(typing.worst, `${language} keystrokeWorstMs`).toBeLessThan(BUDGET.keystrokeWorstMs);
+      expect.soft(typing.p95, `${language} keystrokeP95Ms`).toBeLessThan(BUDGET.keystrokeP95Ms);
       await expect.poll(() => e.diagnosticCount(), { timeout: 20000 }).toBe(0);
 
       // Ctrl+End reaches the last line.
@@ -189,7 +191,7 @@ test.describe('large files', () => {
       await expect.poll(() => lastLineShown(page, total)).toBe(1);
       const jump = await worstEvent(page);
       record(language, 'ctrlEnd', jump);
-      expect(jump).toBeLessThan(BUDGET.jumpToEndMs);
+      expect.soft(jump, `${language} jumpToEndMs`).toBeLessThan(BUDGET.jumpToEndMs);
 
       // Back to the top, then the wheel to the end: each step paints in time.
       await page.keyboard.press('Control+Home');
@@ -211,7 +213,7 @@ test.describe('large files', () => {
       await expect.poll(() => lastLineShown(page, total)).toBe(1);
       const wheel = Math.max(...frames);
       record(language, 'wheelStep', wheel);
-      expect(wheel).toBeLessThan(BUDGET.wheelStepMs);
+      expect.soft(wheel, `${language} wheelStepMs`).toBeLessThan(BUDGET.wheelStepMs);
 
       // Find: every match of a common word is counted and highlighted.
       await e.input.focus();
@@ -224,7 +226,7 @@ test.describe('large files', () => {
       await expect(page.locator('.config-editor__find-count')).toContainText(/of \d{3,}/, { timeout: 20000 });
       const find = Math.max(await worstEvent(page), Date.now() - started);
       record(language, 'findAll', find);
-      expect(find).toBeLessThan(BUDGET.findMs);
+      expect.soft(find, `${language} findMs`).toBeLessThan(BUDGET.findMs);
       await page.keyboard.press('Escape');
 
       // Fold everything, then unfold everything.
@@ -239,7 +241,7 @@ test.describe('large files', () => {
       await expect.poll(async () => (await e.value()).split('\n').length).toBe(total);
       const folds = await worstEvent(page);
       record(language, 'foldAll', folds);
-      expect(folds).toBeLessThan(BUDGET.foldAllMs);
+      expect.soft(folds, `${language} foldAllMs`).toBeLessThan(BUDGET.foldAllMs);
 
       // Edit as another language and back.
       const other = language === 'json' ? 'yaml' : 'json';
@@ -250,7 +252,7 @@ test.describe('large files', () => {
       await page.locator('.config-editor__code-line').first().waitFor();
       const editAs = Date.now() - switchStart;
       record(language, 'editAs', editAs);
-      expect(editAs).toBeLessThan(BUDGET.editAsMs);
+      expect.soft(editAs, `${language} editAsMs`).toBeLessThan(BUDGET.editAsMs);
     });
   }
 });
