@@ -614,7 +614,7 @@ pub(super) fn toml_text(value: &Value) -> String {
     }
     match value {
         // Always quoted: a bare string could read back as a date or number.
-        Value::String(text) => serde_json::to_string(text).unwrap_or_else(|_| text.clone()),
+        Value::String(text) => serde_json::to_string(super::super::super::codec::non_finite::written(text)).unwrap_or_else(|_| text.clone()),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(toml_text).collect();
             format!("[{}]", items.join(", "))

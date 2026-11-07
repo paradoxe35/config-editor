@@ -742,7 +742,7 @@ pub(super) fn hcl_text(value: &Value) -> String {
         Value::Number(number) => number.to_string(),
         // Template sequences are escaped, so `${HOST}` stays text, as the
         // serializer writes it.
-        Value::String(text) => serde_json::to_string(text)
+        Value::String(text) => serde_json::to_string(super::super::super::codec::non_finite::written(text))
             .unwrap_or_else(|_| text.clone())
             .replace("${", "$${")
             .replace("%{", "%%{"),

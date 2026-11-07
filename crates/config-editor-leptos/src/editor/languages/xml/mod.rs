@@ -95,7 +95,7 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        xml_parse(source)
+        xml_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {

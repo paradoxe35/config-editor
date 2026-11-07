@@ -264,6 +264,6 @@ pub(super) fn json_text(value: &Value) -> String {
             format!("{{{}}}", entries.join(", "))
         }
         Value::Array(items) => format!("[{}]", items.iter().map(json_text).collect::<Vec<_>>().join(", ")),
-        other => serde_json::to_string(other).unwrap_or_default(),
+        other => serde_json::to_string(&*super::super::super::codec::non_finite::unescape_strings(other)).unwrap_or_default(),
     }
 }

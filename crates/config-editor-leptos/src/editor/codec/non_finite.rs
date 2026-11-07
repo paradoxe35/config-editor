@@ -17,6 +17,13 @@
 //!
 //! [`float_value`] and [`float_of`] build and read it.
 //!
+//! A real string spelled the same way (a document holding the text
+//! `"\u{FDD0}inf"`) must stay a string, so the form is kept unforgeable:
+//! every string a parser reads goes through [`string_value`], which puts one
+//! more U+FDD0 in front of a string made of U+FDD0s and a name, and every
+//! writer takes one off again ([`written`], [`string_of`]). Only those
+//! strings carry the extra mark; every other string is held as it is.
+//!
 //! [`ConfigLanguage::writes_non_finite`]: super::super::language::ConfigLanguage::writes_non_finite
 
 use std::borrow::Cow;
@@ -67,6 +74,93 @@ pub fn float_of(value: &Value) -> Option<f64> {
     }
 }
 
+/// A string in the data model, as a parser reads it: a string that would
+/// read as a non-finite number's form ([`float_value`]) is held with one
+/// more U+FDD0 in front, so it stays a string. Build a string with it
+/// whenever its text may start with U+FDD0; [`string_of`] reads it back.
+///
+/// ```
+/// use config_editor_leptos::{float_of, string_of, string_value};
+/// let text = string_value("\u{FDD0}inf");
+/// assert_eq!(float_of(&text), None);
+/// assert_eq!(string_of(&text), Some("\u{FDD0}inf"));
+/// assert_eq!(string_value("plain"), serde_json::json!("plain"));
+/// ```
+#[must_use]
+pub fn string_value(text: impl Into<String>) -> Value {
+    let text = text.into();
+    if reserved_shape(&text) {
+        Value::String(format!("{MARK}{text}"))
+    } else {
+        Value::String(text)
+    }
+}
+
+/// The text of the string `value` holds, as a document writes it
+/// ([`string_value`] undone); `None` for anything but a string, and for a
+/// non-finite number.
+#[must_use]
+pub fn string_of(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(_) if name(value).is_some() => None,
+        Value::String(text) => Some(written(text)),
+        _ => None,
+    }
+}
+
+/// A string of the model as a writer writes it: one U+FDD0 taken off a
+/// string made of U+FDD0s and a name (a non-finite number, held with one,
+/// is written as its name, as [`as_text`] writes it). Every writer applies
+/// it exactly once, to the model's own string.
+pub(crate) fn written(text: &str) -> &str {
+    if reserved_shape(text) {
+        &text[MARK.len_utf8()..]
+    } else {
+        text
+    }
+}
+
+/// Whether `text` is one or more U+FDD0 followed by `inf`, `-inf` or `nan`.
+fn reserved_shape(text: &str) -> bool {
+    let rest = text.trim_start_matches(MARK);
+    rest.len() < text.len() && matches!(rest, "inf" | "-inf" | "nan")
+}
+
+/// `value` with each string read as [`string_value`] holds it: for a
+/// parser that reads strings only (JSON, HCL, XML), applied to what it
+/// read.
+pub(crate) fn escape_strings(value: Value) -> Value {
+    if !marked(&value) {
+        return value;
+    }
+    match value {
+        Value::Array(items) => Value::Array(items.into_iter().map(escape_strings).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, item)| (key, escape_strings(item)))
+                .collect(),
+        ),
+        Value::String(text) => string_value(text),
+        other => other,
+    }
+}
+
+/// `value` with each string as a writer writes it ([`written`]), for a
+/// serde writer that takes the whole value.
+pub(crate) fn unescape_strings(value: &Value) -> Cow<'_, Value> {
+    replaced(value, &|text| Value::String(written(text).to_string()))
+}
+
+/// Whether any string in `value` starts with U+FDD0.
+fn marked(value: &Value) -> bool {
+    match value {
+        Value::Array(items) => items.iter().any(marked),
+        Value::Object(map) => map.values().any(marked),
+        Value::String(text) => text.starts_with(MARK),
+        _ => false,
+    }
+}
+
 /// The infinity or NaN `value` stands for.
 pub(crate) fn non_finite(value: &Value) -> Option<f64> {
     match name(value)? {
@@ -81,22 +175,13 @@ pub(crate) fn name(value: &Value) -> Option<&str> {
     let Value::String(text) = value else {
         return None;
     };
-    text.strip_prefix(MARK)
-        .filter(|name| matches!(*name, "inf" | "-inf" | "nan"))
+    name_of(text)
 }
 
-/// Whether `value` holds a non-finite number anywhere.
-pub(crate) fn contains(value: &Value) -> bool {
-    match value {
-        Value::Array(items) => items.iter().any(contains),
-        Value::Object(map) => map.values().any(contains),
-        _ => name(value).is_some(),
-    }
-}
-
-/// `value` with each non-finite number replaced by `replace` of it.
+/// `value` with each string starting with U+FDD0 (a non-finite number, or
+/// a string holding its form) replaced by `replace` of its text.
 fn replaced<'a>(value: &'a Value, replace: &dyn Fn(&str) -> Value) -> Cow<'a, Value> {
-    if !contains(value) {
+    if !marked(value) {
         return Cow::Borrowed(value);
     }
     fn walk(value: &Value, replace: &dyn Fn(&str) -> Value) -> Value {
@@ -109,7 +194,8 @@ fn replaced<'a>(value: &'a Value, replace: &dyn Fn(&str) -> Value) -> Cow<'a, Va
                     .map(|(key, item)| (key.clone(), walk(item, replace)))
                     .collect(),
             ),
-            _ => name(value).map_or_else(|| value.clone(), replace),
+            Value::String(text) if text.starts_with(MARK) => replace(text),
+            _ => value.clone(),
         }
     }
     Cow::Owned(walk(value, replace))
@@ -117,8 +203,19 @@ fn replaced<'a>(value: &'a Value, replace: &dyn Fn(&str) -> Value) -> Cow<'a, Va
 
 /// `value` as a language without infinities writes it: each one as the text
 /// `inf`, `-inf` or `nan` (which reads back as a string: a loss).
+/// A string holding the form stays as the model holds it, for the
+/// language's writer to write ([`written`]).
 pub(crate) fn as_text(value: &Value) -> Cow<'_, Value> {
-    replaced(value, &|name| Value::String(name.to_string()))
+    replaced(value, &|text| match name_of(text) {
+        Some(name) => Value::String(name.to_string()),
+        None => Value::String(text.to_string()),
+    })
+}
+
+/// [`name`] of a string's text.
+fn name_of(text: &str) -> Option<&str> {
+    text.strip_prefix(MARK)
+        .filter(|name| matches!(*name, "inf" | "-inf" | "nan"))
 }
 
 #[cfg(feature = "schema-validation")]
@@ -136,9 +233,11 @@ fn stand_in(name: &str) -> f64 {
 #[cfg(feature = "schema-validation")]
 /// `value` as schema validation sees it: each non-finite number as its
 /// stand-in, a number, as it is in the config.
+/// A string holding the form is validated as the text it is.
 pub(crate) fn for_validation(value: &Value) -> Cow<'_, Value> {
-    replaced(value, &|name| {
-        Number::from_f64(stand_in(name)).map_or(Value::Null, Value::Number)
+    replaced(value, &|text| match name_of(text) {
+        Some(name) => Number::from_f64(stand_in(name)).map_or(Value::Null, Value::Number),
+        None => Value::String(written(text).to_string()),
     })
 }
 
@@ -177,9 +276,10 @@ impl Serialize for Floats<'_> {
                 }
                 out.end()
             }
-            value => match non_finite(value) {
-                Some(number) => serializer.serialize_f64(number),
-                None => value.serialize(serializer),
+            value => match (non_finite(value), value) {
+                (Some(number), _) => serializer.serialize_f64(number),
+                (None, Value::String(text)) => serializer.serialize_str(written(text)),
+                (None, value) => value.serialize(serializer),
             },
         }
     }
@@ -238,11 +338,11 @@ impl<'de> Visitor<'de> for ParsedVisitor {
     }
 
     fn visit_str<E>(self, text: &str) -> Result<Value, E> {
-        Ok(Value::String(text.to_string()))
+        Ok(string_value(text))
     }
 
     fn visit_string<E>(self, text: String) -> Result<Value, E> {
-        Ok(Value::String(text))
+        Ok(string_value(text))
     }
 
     fn visit_none<E>(self) -> Result<Value, E> {

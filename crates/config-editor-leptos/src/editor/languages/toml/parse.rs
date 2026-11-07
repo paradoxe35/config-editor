@@ -30,7 +30,7 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
 /// infinities are held as `codec::non_finite` holds them.
 fn toml_to_json(value: &toml::Value) -> Value {
     match value {
-        toml::Value::String(text) => Value::String(text.clone()),
+        toml::Value::String(text) => super::super::super::codec::non_finite::string_value(text.clone()),
         toml::Value::Integer(number) => Value::from(*number),
         toml::Value::Float(number) => super::super::super::codec::non_finite::float_value(*number),
         toml::Value::Boolean(flag) => Value::Bool(*flag),

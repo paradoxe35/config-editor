@@ -26,8 +26,8 @@ pub(super) fn yaml_value(value: &Value) -> String {
         return format!(".{name}").replace(".-", "-.");
     }
     match value {
-        Value::String(value) if is_plain_identifier(value) => value.clone(),
-        Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),
+        Value::String(value) if is_plain_identifier(non_finite::written(value)) => non_finite::written(value).to_string(),
+        Value::String(value) => serde_json::to_string(non_finite::written(value)).unwrap_or_else(|_| value.clone()),
         // Flow style, as people write it: `{a: 1, b: x}`, `[a, b]`.
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(yaml_value).collect();

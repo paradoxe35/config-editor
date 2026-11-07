@@ -70,7 +70,7 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        hcl_parse(source)
+        hcl_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {

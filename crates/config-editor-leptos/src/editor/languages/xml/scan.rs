@@ -499,7 +499,7 @@ pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
 
 pub(super) fn xml_text(value: &Value) -> String {
     match value {
-        Value::String(value) => value.clone(),
+        Value::String(value) => super::super::super::codec::non_finite::written(value).to_string(),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
 }

@@ -19,11 +19,14 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
     if non_finite::name(value).is_some() {
         return yaml_value(value);
     }
+    // The text as written (a string holding a non-finite number's form
+    // carries one more mark in the model).
+    let text = non_finite::written(text);
     let written = written.trim_start();
     let reads_back = |candidate: &str| {
         // Both as a block value and inside a flow collection.
-        language.parse(&format!("k: {candidate}\n")).ok() == Some(serde_json::json!({ "k": text }))
-            && language.parse(&format!("k: [{candidate}]\n")).ok() == Some(serde_json::json!({ "k": [text] }))
+        language.parse(&format!("k: {candidate}\n")).ok() == Some(serde_json::json!({ "k": value }))
+            && language.parse(&format!("k: [{candidate}]\n")).ok() == Some(serde_json::json!({ "k": [value] }))
     };
     match written.chars().next() {
         Some('\'') if !text.contains('\n') => format!("'{}'", text.replace('\'', "''")),
@@ -33,7 +36,7 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
             super::super::escapes::Astral::Long,
         ),
         Some('|' | '>') => super::block_scalar::block_scalar(language, written, text).unwrap_or_else(|| yaml_value(value)),
-        Some(_) if !text.is_empty() && reads_back(text) => text.clone(),
+        Some(_) if !text.is_empty() && reads_back(text) => text.to_string(),
         _ => yaml_value(value),
     }
 }

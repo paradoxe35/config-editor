@@ -57,6 +57,7 @@ fn with_serializer_text(value: &Value) -> Value {
                 .collect(),
         ),
         Value::Array(items) => Value::Array(items.iter().map(with_serializer_text).collect()),
+        Value::String(text) => Value::String(super::super::super::codec::non_finite::written(text).to_string()),
         other => other.clone(),
     }
 }

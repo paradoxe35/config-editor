@@ -63,7 +63,7 @@ impl ConfigLanguage for JsonBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        json_parse(source)
+        json_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
@@ -108,7 +108,8 @@ impl ConfigLanguage for JsonBehavior {
     /// Without a space after any `:` or `,`, the host writes compact JSON.
     fn format_value_like(&self, value: &Value, written: &str) -> String {
         let compact = !written.contains(": ") && !written.contains(", ") && (written.contains(':') || written.contains(','));
-        let text = if compact { serde_json::to_string(value).unwrap_or_else(|_| json_text(value)) } else { json_text(value) };
+        let plain = super::super::codec::non_finite::unescape_strings(value);
+        let text = if compact { serde_json::to_string(&*plain).unwrap_or_else(|_| json_text(value)) } else { json_text(value) };
         if !value.is_string() {
             return text;
         }
@@ -153,7 +154,7 @@ impl ConfigLanguage for JsonBehavior {
         let mut out = Vec::new();
         let formatter = serde_json::ser::PrettyFormatter::with_indent(unit.as_bytes());
         let mut serializer = serde_json::Serializer::with_formatter(&mut out, formatter);
-        value
+        super::super::codec::non_finite::unescape_strings(value)
             .serialize(&mut serializer)
             .map_err(|error| error.to_string())?;
         let mut text = String::from_utf8(out).map_err(|error| error.to_string())?;

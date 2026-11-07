@@ -271,7 +271,9 @@ pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expres
             expression_of(text).unwrap_or_else(|| hcl_expression(value))
         }
         Value::String(text) if forms.templates.contains(text) => {
-            hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(text.clone())))
+            hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(
+                super::super::super::codec::non_finite::written(text).to_string(),
+            )))
         }
         Value::Array(items) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
             hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, forms)).collect())
@@ -287,7 +289,7 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
         Value::Null => Expression::Null,
         Value::Bool(flag) => Expression::Bool(*flag),
         Value::Number(number) => hcl::to_expression(number).unwrap_or(Expression::Null),
-        Value::String(text) => Expression::String(text.clone()),
+        Value::String(text) => Expression::String(super::super::super::codec::non_finite::written(text).to_string()),
         Value::Array(items) => Expression::Array(items.iter().map(hcl_expression).collect()),
         Value::Object(map) => Expression::Object(
             map.iter()
