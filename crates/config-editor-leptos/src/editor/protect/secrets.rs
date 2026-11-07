@@ -19,6 +19,10 @@ use super::tokens::{
     widen,
 };
 
+/// Known tokens one edit may write and still have found by path (a
+/// paste); more (an undo restoring a whole text) are found by text.
+const MAX_WRITTEN_BY_PATH: usize = 8;
+
 /// A text and the language it is written in.
 type Written<'a> = (&'static dyn ConfigLanguage, &'a str);
 
@@ -41,7 +45,7 @@ impl SecretState {
         let known = matcher.known(host.0, host.1);
         // By text, then by path only if the document says they are not all
         // in their fields.
-        let written = locate_written(shown.1, &known);
+        let written = locate_written(&matcher, shown.1, &known);
         let tokens = if in_their_fields(shown.0, shown.1, &known, &written) {
             written
         } else {
@@ -87,19 +91,19 @@ fn in_their_fields(
         return true;
     };
     let units: Vec<u16> = text.encode_utf16().collect();
-    let written = |range: &Range<usize>| {
-        String::from_utf16_lossy(&units[range.start.min(units.len())..range.end.min(units.len())])
-    };
-    let mut tokens: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
-    tokens.sort_unstable();
-    tokens.dedup();
-    tokens.into_iter().all(|token| {
-        let shown = followed
+    let mut shown: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for range in followed {
+        let written = String::from_utf16_lossy(
+            &units[range.start.min(units.len())..range.end.min(units.len())],
+        );
+        *shown.entry(written).or_default() += 1;
+    }
+    let held = held_in_fields(&document, known);
+    held.iter()
+        .all(|(token, count)| shown.get(*token).copied().unwrap_or(0) == *count)
+        && shown
             .iter()
-            .filter(|range| written(range) == token)
-            .count();
-        shown == held_in_fields(&document, known, token)
-    })
+            .all(|(token, count)| held.get(token.as_str()) == Some(count))
 }
 
 /// Whether `after` is `before` with the UTF-16 range `start..end` replaced.
@@ -155,17 +159,52 @@ impl EditorState {
             .tokens
             .with_untracked(|tokens| follow(tokens, &(start..end), inserted_len));
         let behavior = self.behavior();
-        let tokens = secrets.known.with_untracked(|known| {
-            let inserted = utf16_slice(after, start..start + inserted_len);
-            let writes_token = known.iter().any(|known| inserted.contains(&known.token));
-            if writes_token {
-                locate(behavior, after, known)
-            } else {
-                followed
-            }
+        let inserted = utf16_slice(after, start..start + inserted_len);
+        let (tokens, by_text) = secrets.matcher.with_value(|matcher| {
+            secrets.known.with_untracked(|known| {
+                // The known tokens the edit wrote (one pass of the pattern).
+                let mut written: Vec<&str> = matcher
+                    .find(&inserted)
+                    .into_iter()
+                    .map(|range| &inserted[range])
+                    .filter(|token| known.iter().any(|known| known.token == *token))
+                    .collect();
+                written.sort_unstable();
+                written.dedup();
+                if written.is_empty() {
+                    return (followed, false);
+                }
+                if written.len() > MAX_WRITTEN_BY_PATH {
+                    // A text written whole (an undo, a large paste): by
+                    // text, then the fields checked in one parse.
+                    return (locate_written(matcher, after, known), true);
+                }
+                // A token pasted: those few found by path, the rest followed.
+                let mine: Vec<Known> = known
+                    .iter()
+                    .filter(|known| written.contains(&known.token.as_str()))
+                    .cloned()
+                    .collect();
+                let units: Vec<u16> = after.encode_utf16().collect();
+                let mut tokens: Vec<Range<usize>> = followed
+                    .into_iter()
+                    .filter(|range| {
+                        let token = String::from_utf16_lossy(
+                            &units[range.start.min(units.len())..range.end.min(units.len())],
+                        );
+                        !written.contains(&token.as_str())
+                    })
+                    .chain(locate(behavior, after, &mine))
+                    .collect();
+                tokens.sort_by_key(|range| range.start);
+                (tokens, false)
+            })
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
+        }
+        if by_text {
+            self.recheck_tokens();
         }
     }
 
@@ -214,9 +253,11 @@ impl EditorState {
             if known.is_empty() {
                 return Vec::new();
             }
-            self.doc
-                .text
-                .with_untracked(|text| locate_written(text, known))
+            secrets.matcher.with_value(|matcher| {
+                self.doc
+                    .text
+                    .with_untracked(|text| locate_written(matcher, text, known))
+            })
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);

@@ -12,6 +12,7 @@ use super::marks::marks_at;
 use super::texts;
 use super::tokens::{Known, SecretMatcher, held_in_fields};
 use crate::EditorStrings;
+use std::collections::HashMap;
 
 /// A warning on each placeholder of `text` that is not real: one of the
 /// host's `known` tokens out of its own field anywhere, and a token the host
@@ -35,16 +36,16 @@ pub(crate) fn unknown_placeholders(
     }
     let repeats = behavior.repetition() != Repetition::None;
     let document = behavior.parse(text).ok();
+    let mut written: HashMap<&str, usize> = HashMap::new();
+    for range in &found {
+        *written.entry(&text[range.clone()]).or_default() += 1;
+    }
+    let held = document
+        .as_ref()
+        .map(|document| held_in_fields(document, known))
+        .unwrap_or_default();
     // Known tokens the document holds in their fields as often as written.
-    let settled = |token: &str| {
-        let written = found
-            .iter()
-            .filter(|range| &text[(*range).clone()] == token)
-            .count();
-        document
-            .as_ref()
-            .is_some_and(|document| held_in_fields(document, known, token) == written)
-    };
+    let settled = |token: &str| document.is_some() && held.get(token) == written.get(token);
     let mut checked: Vec<(&str, bool)> = Vec::new();
     let mut left: Vec<(&str, String, usize)> = known
         .iter()

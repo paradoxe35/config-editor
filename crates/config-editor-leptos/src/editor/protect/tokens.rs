@@ -125,47 +125,61 @@ impl SecretMatcher {
 /// UTF-16 ranges of the known tokens written in `text`, each as often as
 /// the host wrote it, first ones first, without asking where each is (a
 /// text replaced whole: an undo, a switch); the pause in typing then checks
-/// they are in their fields (`EditorState::recheck_tokens`).
-pub(crate) fn locate_written(text: &str, known: &[Known]) -> Vec<Range<usize>> {
-    let mut tokens: Vec<(&str, usize)> = Vec::new();
-    for known in known {
-        match tokens.iter_mut().find(|(token, _)| *token == known.token) {
-            Some((_, count)) => *count += known.count,
-            None => tokens.push((&known.token, known.count)),
-        }
+/// they are in their fields (`EditorState::recheck_tokens`). One pass of the
+/// pattern, however many tokens there are.
+pub(crate) fn locate_written(
+    matcher: &SecretMatcher,
+    text: &str,
+    known: &[Known],
+) -> Vec<Range<usize>> {
+    let mut left = written_counts(known);
+    let mut found = Vec::new();
+    let mut units = 0;
+    let mut byte = 0;
+    for range in matcher.find(text) {
+        let token = &text[range.clone()];
+        let Some(count) = left.get_mut(token).filter(|count| **count > 0) else {
+            continue;
+        };
+        *count -= 1;
+        units += text[byte..range.start].encode_utf16().count();
+        let length = token.encode_utf16().count();
+        found.push(units..units + length);
+        units += length;
+        byte = range.end;
     }
-    let mut found: Vec<Range<usize>> = Vec::new();
-    for (token, count) in tokens {
-        found.extend(
-            text.match_indices(token)
-                .take(count)
-                .map(|(byte, written)| {
-                    let start = text[..byte].encode_utf16().count();
-                    start..start + written.encode_utf16().count()
-                }),
-        );
-    }
-    found.sort_by_key(|range| range.start);
-    found.dedup_by(|later, earlier| later.start < earlier.end);
     found
 }
 
-/// How many times the parsed `document` holds `token` in the fields the
-/// host gave it in (`known`), at most as often as there.
-pub(crate) fn held_in_fields(document: &serde_json::Value, known: &[Known], token: &str) -> usize {
-    known
-        .iter()
-        .filter(|known| known.token == token)
-        .map(|known| {
-            let value = document.pointer(&known.pointer).or_else(|| {
-                let lone = format!("{}/", known.pointer).replace("/0/", "/");
-                document.pointer(lone.trim_end_matches('/'))
+/// How often the host wrote each known token, over all its fields.
+pub(crate) fn written_counts(known: &[Known]) -> std::collections::HashMap<&str, usize> {
+    let mut counts = std::collections::HashMap::new();
+    for known in known {
+        *counts.entry(known.token.as_str()).or_default() += known.count;
+    }
+    counts
+}
+
+/// How many times the parsed `document` holds each known token in the
+/// fields the host gave it in, at most as often as there.
+pub(crate) fn held_in_fields<'a>(
+    document: &serde_json::Value,
+    known: &'a [Known],
+) -> std::collections::HashMap<&'a str, usize> {
+    let mut held = std::collections::HashMap::new();
+    for known in known {
+        let value = document.pointer(&known.pointer).or_else(|| {
+            let lone = format!("{}/", known.pointer).replace("/0/", "/");
+            document.pointer(lone.trim_end_matches('/'))
+        });
+        let count = value
+            .and_then(serde_json::Value::as_str)
+            .map_or(0, |value| {
+                value.matches(known.token.as_str()).count().min(known.count)
             });
-            value
-                .and_then(serde_json::Value::as_str)
-                .map_or(0, |value| value.matches(token).count().min(known.count))
-        })
-        .sum()
+        *held.entry(known.token.as_str()).or_default() += count;
+    }
+    held
 }
 
 /// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
