@@ -62,6 +62,8 @@ jobs:
       - name: Type-check the README examples
         working-directory: js
         run: npm run typecheck
+      - name: Check the README contents lists
+        run: node scripts/readme-toc.mjs --check
       - name: Build the demo
         run: trunk build
       - name: End-to-end tests

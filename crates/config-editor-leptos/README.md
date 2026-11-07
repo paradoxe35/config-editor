@@ -20,6 +20,32 @@ headless API for the same parsing, validation, and conversion.
 For JavaScript and React, see [`@pngwasi/config-editor`] and
 [`@pngwasi/config-editor-react`]; they wrap this crate.
 
+<!-- toc -->
+
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [`<ConfigEditor>` props](#configeditor-props)
+  - [Editing in another language](#editing-in-another-language)
+  - [Changes against the baseline](#changes-against-the-baseline)
+  - [Saving and unsaved edits](#saving-and-unsaved-edits)
+- [Paths and positions](#paths-and-positions)
+- [Host diagnostics](#host-diagnostics)
+- [Schema help](#schema-help)
+- [Keyboard](#keyboard)
+  - [Find and replace](#find-and-replace)
+  - [Folding](#folding)
+- [Headless API](#headless-api)
+- [XML mapping](#xml-mapping)
+- [Your own language](#your-own-language)
+  - [Describing syntax as data](#describing-syntax-as-data)
+  - [Optional refinements](#optional-refinements)
+- [Themes and colors](#themes-and-colors)
+- [Cargo features](#cargo-features)
+- [License](#license)
+<!-- /toc -->
+
 ## Install
 
 ```sh
@@ -56,46 +82,46 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 
 ## `<ConfigEditor>` props
 
-| Prop                           | Type                                       | Default          | Purpose                                                                                                                              |
-| ------------------------------ | ------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `language`                     | `Language`                                 | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                     |
-| `edit_as`                      | `Language`, `Option<Language>` or a signal | unset            | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.             |
-| `initial_value`                | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                                |
-| `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                  |
-| `on_change`                    | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                               |
-| `on_edit_as_change`            | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                |
-| `on_schema_warning`            | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.               |
+| Prop                | Type                                       | Default          | Purpose                                                                                                                  |
+| ------------------- | ------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `language`          | `Language`                                 | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.         |
+| `edit_as`           | `Language`, `Option<Language>` or a signal | unset            | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included. |
+| `initial_value`     | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                    |
+| `value`             | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                      |
+| `on_change`         | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                   |
+| `on_edit_as_change` | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).    |
+| `on_schema_warning` | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.  |
 
 While editing as another language, edits reach `on_change` after each typing
 pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
 document from code (a Save button) to send an edit still waiting first.
-| `baseline`                     | `Signal<String>`                           | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
-| `schema`                       | `&str`, `String` or `Schema`               | —                | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
-| `theme`                        | `EditorTheme` or a signal                  | `VsCodeDark`     | Color theme.                                                                                                                         |
-| `colors`                       | `ThemeColors` or a signal                  | —                | Colors overriding the theme's.                                                                                                       |
-| `read_only`                    | `bool` or a signal                         | `false`          | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.      |
-| `file_name`                    | `String`                                   | `untitled.<ext>` | Name shown in the toolbar.                                                                                                           |
-| `class`                        | `String`                                   | —                | Extra class on the editor root.                                                                                                      |
-| `styled`                       | `bool`                                     | `true`           | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself.                                                            |
-| `show_toolbar` / `show_footer` | `bool`                                     | `false`          | Built-in file toolbar and status bar (problem counts, line count).                                                                   |
-| `show_diagnostics`             | `bool`                                     | `true`           | Syntax and schema problems, underlined with a message on hover.                                                                      |
-| `enable_completions`           | `bool`                                     | `true`           | Schema suggestions (`Ctrl+Space`).                                                                                                   |
-| `auto_trigger_completions`     | `bool`                                     | `true`           | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them.                                                           |
-| `enable_hover_docs`            | `bool`                                     | `true`           | Schema docs when hovering a key or a documented value: description, type, default, examples, deprecation and a docs link.           |
-| `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
-| `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
-| `show_diff`                    | `bool`                                     | `true`           | Added, modified and removed line markers with a before/after preview and "Revert this change".                                       |
-| `on_change_summary`            | `Fn(ChangeSummary)`                        | —                | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.              |
-| `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
-| `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
-| `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
-| `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
-| `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
-| `on_save`                      | `Fn(SaveRequest)`                          | —                | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
-| `enable_save_shortcut`         | `bool` or a signal                         | `true`           | Whether `Ctrl+S` saves (with `on_save`); `false` leaves the key to the browser, and only `EditorHandle::save` saves.                  |
-| `on_dirty_change`              | `Fn(bool)`                                 | —                | Called with whether the text differs from `baseline`: once on mount, then each time that changes.                                    |
-| `on_baseline_conflict`         | `Fn(BaselineConflict)`                     | —                | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                |
-| `enable_folding`               | `bool`                                     | `true`           | Folding by structure: gutter chevrons and the folding keys; see [Folding](#folding).                                                 |
+| `baseline` | `Signal<String>` | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
+| `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
+| `theme` | `EditorTheme` or a signal | `VsCodeDark` | Color theme. |
+| `colors` | `ThemeColors` or a signal | — | Colors overriding the theme's. |
+| `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included. |
+| `file_name` | `String` | `untitled.<ext>` | Name shown in the toolbar. |
+| `class` | `String` | — | Extra class on the editor root. |
+| `styled` | `bool` | `true` | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself. |
+| `show_toolbar` / `show_footer` | `bool` | `false` | Built-in file toolbar and status bar (problem counts, line count). |
+| `show_diagnostics` | `bool` | `true` | Syntax and schema problems, underlined with a message on hover. |
+| `enable_completions` | `bool` | `true` | Schema suggestions (`Ctrl+Space`). |
+| `auto_trigger_completions` | `bool` | `true` | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them. |
+| `enable_hover_docs` | `bool` | `true` | Schema docs when hovering a key or a documented value: description, type, default, examples, deprecation and a docs link. |
+| `enable_highlighting` | `bool` | `true` | Syntax colors. |
+| `enable_auto_closing` | `bool` | `true` | Close brackets, quotes and XML tags; wrap selections; delete empty pairs. |
+| `show_diff` | `bool` | `true` | Added, modified and removed line markers with a before/after preview and "Revert this change". |
+| `on_change_summary` | `Fn(ChangeSummary)` | — | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes. |
+| `handle` | `EditorHandle` | — | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions). |
+| `on_path_change` | `Fn(FieldPath)` | — | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. |
+| `host_diagnostics` | `Signal<Vec<HostDiagnostic>>` | — | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
+| `enable_search` | `bool` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser. |
+| `enable_go_to_line` | `bool` | `true` | Go to line (`Ctrl+G`). When `false`, the key is left to the browser. |
+| `on_save` | `Fn(SaveRequest)` | — | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
+| `enable_save_shortcut` | `bool` or a signal | `true` | Whether `Ctrl+S` saves (with `on_save`); `false` leaves the key to the browser, and only `EditorHandle::save` saves. |
+| `on_dirty_change` | `Fn(bool)` | — | Called with whether the text differs from `baseline`: once on mount, then each time that changes. |
+| `on_baseline_conflict` | `Fn(BaselineConflict)` | — | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled. |
+| `enable_folding` | `bool` | `true` | Folding by structure: gutter chevrons and the folding keys; see [Folding](#folding). |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -230,16 +256,16 @@ view! {
 }
 ```
 
-| `EditorHandle` method  | Description                                                                                                                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `range_of(path)`       | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item. |
-| `path_at(position)`    | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                         |
-| `current_path()`       | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                       |
-| `reveal(path)`         | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                      |
-| `fold(path)` / `unfold(path)` | Fold the block the field's key opens / open the folds around the field; `false` when there was nothing to do.                                                                     |
-| `fold_all()` / `unfold_all()` | Fold every block / open every fold.                                                                                                                                                      |
-| `folded_lines()`       | The closed folds as one-based `(first, last)` line pairs. Reactive.                                                                                                                             |
-| `focus()`, `text()`    | Focus the editor; the text on screen.                                                                                                                                                         |
+| `EditorHandle` method         | Description                                                                                                                                                                                     |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `range_of(path)`              | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item. |
+| `path_at(position)`           | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                        |
+| `current_path()`              | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                        |
+| `reveal(path)`                | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                     |
+| `fold(path)` / `unfold(path)` | Fold the block the field's key opens / open the folds around the field; `false` when there was nothing to do.                                                                                   |
+| `fold_all()` / `unfold_all()` | Fold every block / open every fold.                                                                                                                                                             |
+| `folded_lines()`              | The closed folds as one-based `(first, last)` line pairs. Reactive.                                                                                                                             |
+| `focus()`, `text()`           | Focus the editor; the text on screen.                                                                                                                                                           |
 
 Positions (`TextPosition`: one-based `line` and character `column`) refer to
 the text on screen, which is the `edit_as` language while editing as another
@@ -293,14 +319,14 @@ view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
 Completions and hover read these keywords, with or without the
 `schema-validation` feature:
 
-| Keyword                                      | Shown                                                                                                                       |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                           |
-| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning.             |
-| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                          |
-| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                       |
-| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.     |
-| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                 |
+| Keyword                                      | Shown                                                                                                                   |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                       |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning.         |
+| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                      |
+| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                   |
+| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document. |
+| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                             |
 
 ```json
 {
@@ -316,7 +342,11 @@ Completions and hover read these keywords, with or without the
       { "const": "trace", "title": "Trace", "description": "Everything." }
     ]
   },
-  "timeout": { "type": "integer", "deprecated": true, "deprecationMessage": "Use deadline instead." }
+  "timeout": {
+    "type": "integer",
+    "deprecated": true,
+    "deprecationMessage": "Use deadline instead."
+  }
 }
 ```
 
@@ -444,13 +474,13 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`, `warnings()`. Cheap to clone and share.                                                                                                                           |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
-| `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
-| `language::FoldRange`                      | A range that folds (0-based `start` stays visible, lines through `end` hide); `Language::fold_ranges(text)` lists them.                                                                                                                                   |
+| `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                              |
+| `language::FoldRange`                      | A range that folds (0-based `start` stays visible, lines through `end` hide); `Language::fold_ranges(text)` lists them.                                                                                                                                     |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
-| `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                  |
+| `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                   |
 | `ChangeSummary`                            | `added`, `removed`, `modified` lines and `hunks` (separate changes), as the diff gutter counts them; `ChangeSummary::between(baseline, current)`, `is_empty()`.                                                                                             |
-| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, and for host problems `code`, `source`, `docs_url`.                                                                    |
-| `HostDiagnostic`, `DiagnosticTarget`       | A problem the host found, by path, range or for the whole document; see [Host diagnostics](#host-diagnostics).                                                                                                                                                |
+| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, and for host problems `code`, `source`, `docs_url`.                                                       |
+| `HostDiagnostic`, `DiagnosticTarget`       | A problem the host found, by path, range or for the whole document; see [Host diagnostics](#host-diagnostics).                                                                                                                                              |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
 | `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
 | `ParseError`                               | `message`, `line`, `column`.                                                                                                                                                                                                                                |
@@ -528,13 +558,13 @@ override one only when your syntax needs more than `config` says: HCL
 overrides `value_follows_key` for its `name { … }` blocks, XML overrides them
 all.
 
-| Kind of language                        | Method               | Adds                                                              | Helper                         |
-| --------------------------------------- | -------------------- | ----------------------------------------------------------------- | ------------------------------ |
-| Key/value (`key: value`, `key = value`) | `value_follows_key`  | Completing a key that already has a value renames just the key    | —                              |
-|                                         | `line_has_value`     | A space typed after a complete value ends the entry               | `value_after_separator`        |
-|                                         | `empty_value_slots`  | `Tab` walks the empty values of an accepted block                 | `empty_slots_at_line_ends`     |
-| Markup (`<k>…</k>`)                     | `closing_markup_len` | Enter after a typed value steps past the end tag the editor wrote | —                              |
-| With trailing comments                  | `comment_start`      | Edit-as keeps a line's comment when the line is renamed or moves  | `comment_start_outside_quotes` |
+| Kind of language                        | Method               | Adds                                                                                                   | Helper                                                                                                             |
+| --------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Key/value (`key: value`, `key = value`) | `value_follows_key`  | Completing a key that already has a value renames just the key                                         | —                                                                                                                  |
+|                                         | `line_has_value`     | A space typed after a complete value ends the entry                                                    | `value_after_separator`                                                                                            |
+|                                         | `empty_value_slots`  | `Tab` walks the empty values of an accepted block                                                      | `empty_slots_at_line_ends`                                                                                         |
+| Markup (`<k>…</k>`)                     | `closing_markup_len` | Enter after a typed value steps past the end tag the editor wrote                                      | —                                                                                                                  |
+| With trailing comments                  | `comment_start`      | Edit-as keeps a line's comment when the line is renamed or moves                                       | `comment_start_outside_quotes`                                                                                     |
 | Any                                     | `fold_ranges`        | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |
 
 `config_editor_leptos::language` also exports the other helpers the built-in
@@ -549,19 +579,19 @@ their slugs parse with `FromStr`, as the JS package names them).
 <details>
 <summary>The eleven themes</summary>
 
-| `EditorTheme` | Slug | Name | Look |
-|---|---|---|---|
-| `VsCodeDark` | `vscode-dark` | VS Code Dark (the default) | dark |
-| `VsCodeLight` | `vscode-light` | VS Code Light | light |
-| `Obsidian` | `obsidian` | Obsidian Dark | dark |
-| `ObsidianLight` | `obsidian-light` | Obsidian Light | light |
-| `Dracula` | `dracula` | Dracula | dark |
-| `Nord` | `nord` | Nord | dark |
-| `AtomOneDark` | `atom-one-dark` | Atom One Dark | dark |
-| `GitHubLight` | `github-light` | GitHub Light | light |
-| `GitHubDark` | `github-dark` | GitHub Dark | dark |
-| `SolarizedLight` | `solarized-light` | Solarized Light | light |
-| `ViraInspired` | `vira-inspired` | Vira-inspired (original) | dark |
+| `EditorTheme`    | Slug              | Name                       | Look  |
+| ---------------- | ----------------- | -------------------------- | ----- |
+| `VsCodeDark`     | `vscode-dark`     | VS Code Dark (the default) | dark  |
+| `VsCodeLight`    | `vscode-light`    | VS Code Light              | light |
+| `Obsidian`       | `obsidian`        | Obsidian Dark              | dark  |
+| `ObsidianLight`  | `obsidian-light`  | Obsidian Light             | light |
+| `Dracula`        | `dracula`         | Dracula                    | dark  |
+| `Nord`           | `nord`            | Nord                       | dark  |
+| `AtomOneDark`    | `atom-one-dark`   | Atom One Dark              | dark  |
+| `GitHubLight`    | `github-light`    | GitHub Light               | light |
+| `GitHubDark`     | `github-dark`     | GitHub Dark                | dark  |
+| `SolarizedLight` | `solarized-light` | Solarized Light            | light |
+| `ViraInspired`   | `vira-inspired`   | Vira-inspired (original)   | dark  |
 
 </details>
 

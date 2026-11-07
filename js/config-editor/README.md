@@ -9,13 +9,35 @@ and ships as WebAssembly; this package is its framework-free JavaScript API.
 For React, use [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react),
 which builds on this package.
 
+<!-- toc -->
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+  - [Loading the WebAssembly](#loading-the-webassembly)
+- [`new ConfigEditor(element, options)`](#new-configeditorelement-options)
+  - [Instance members](#instance-members)
+  - [Host diagnostics](#host-diagnostics)
+  - [Paths](#paths)
+- [Functions](#functions)
+- [Binding to a framework](#binding-to-a-framework)
+- [Keyboard](#keyboard)
+  - [Folding](#folding)
+- [Saving and unsaved edits](#saving-and-unsaved-edits)
+- [Reviewing changes](#reviewing-changes)
+- [Languages written in JavaScript](#languages-written-in-javascript)
+- [Themes](#themes)
+- [Styling](#styling)
+- [License](#license)
+<!-- /toc -->
+
 ## Install
 
 ```sh
 npm install @pngwasi/config-editor
 ```
 
-Browsers only (ES modules + WebAssembly). The `.wasm` file is about 1.5 MB
+Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2 MB
 gzipped and loads once per page.
 
 ## Quick start

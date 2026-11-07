@@ -5,6 +5,18 @@ a schema-aware YAML, JSON, TOML, HCL and XML editor running as WebAssembly,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes.
 
+<!-- toc -->
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [`<ConfigEditor>` props](#configeditor-props)
+- [Ref](#ref)
+  - [Saving](#saving)
+- [Other exports](#other-exports)
+- [License](#license)
+<!-- /toc -->
+
 ## Install
 
 ```sh
