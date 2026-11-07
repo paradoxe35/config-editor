@@ -106,15 +106,10 @@ mod tests {
                 start..start + token_units
             })
             .collect();
-        let started = std::time::Instant::now();
-        let marks = line_marks(
-            &text,
-            &Protected::default(),
-            &tokens,
-            "hint",
-            &crate::EditorStrings::default(),
-        );
-        let took = started.elapsed();
+        let strings = crate::EditorStrings::default();
+        let (took, marks) = crate::editor::test_timing::best_of(3, || {
+            line_marks(&text, &Protected::default(), &tokens, "hint", &strings)
+        });
         let byte_start = "  secret: ".len();
         let expected = byte_start..byte_start + "«secret 3f2a»".len();
         assert_eq!(marks.len(), lines + 1);
