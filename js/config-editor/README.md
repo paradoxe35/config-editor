@@ -201,6 +201,9 @@ and `editAsTypedCommentsNone`.
 
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
+<details>
+<summary>Every text and its default (146 texts)</summary>
+
 | Key | Default | |
 |---|---|---|
 | `suggestionsHint` | `"{key} for suggestions"` | The footer's suggestions hint; `{key}` is where the chord goes. |
@@ -349,6 +352,8 @@ and `editAsTypedCommentsNone`.
 | `closeTabTitle` | `"Close (Delete)"` | Its tooltip. |
 | `unsaved` | `"unsaved changes"` | The dirty dot's tooltip, and what a tab's accessible name adds for it. |
 | `readOnlyTab` | `"read-only"` | What a read-only document's tab adds to its accessible name. |
+
+</details>
 
 <!-- strings:end -->
 
