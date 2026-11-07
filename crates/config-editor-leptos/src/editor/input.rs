@@ -206,6 +206,22 @@ pub(super) fn flush_input(state: EditorState) {
     } else {
         burst.selection
     };
+    // An edit changing a read-only field is undone, its reason shown.
+    let caret = textarea_selection(&element).0;
+    if before != value && !state.edit_allowed(&before, &value, caret) {
+        let (start, end) = if burst_selection == UNKNOWN_SELECTION {
+            edit_range(&before, &value, caret)
+        } else {
+            burst_selection
+        };
+        element.set_value(&before);
+        let _ = element.set_selection_range(start as u32, end as u32);
+        state.note_caret(start);
+        return;
+    }
+    if before != value {
+        state.follow_edit(&before, &value, caret);
+    }
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
@@ -268,11 +284,9 @@ pub(super) fn flush_input(state: EditorState) {
     state.hide_shown_problem();
 }
 
-/// Hovering a key shows its schema docs after a short pause.
+/// Hovering a key shows its schema docs after a short pause; hovering a
+/// read-only value says why it is read-only.
 pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
-    if !state.features.hover_docs {
-        return;
-    }
     let Some(element) = target_textarea(event) else {
         return;
     };
@@ -285,6 +299,10 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         f64::from(event.client_x()),
         f64::from(event.client_y()),
     );
+    let on_protected = state.hover_protected(line, column);
+    if !state.features.hover_docs {
+        return;
+    }
     let info = state.source.with_untracked(|text| {
         state
             .schema
@@ -294,6 +312,11 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         state.leave_hover();
         return;
     };
+    // The value's own message takes the place of its key's docs there.
+    if on_protected && column >= info.start_column + info.key.chars().count() {
+        state.leave_hover();
+        return;
+    }
     let identity = (line, info.start_column, info.key.clone());
     if state.hover_pending.get_value().as_ref() == Some(&identity) {
         return;
@@ -326,9 +349,11 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
 pub(super) fn blur(state: EditorState) {
     state.close_suggestions();
     state.hide_hover();
+    state.protect().hide_tip(true);
 }
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
+    state.protect().hide_tip(false);
     state.forget_typing_aids();
     state.hide_shown_problem();
     if let Some(element) = target_textarea(event) {

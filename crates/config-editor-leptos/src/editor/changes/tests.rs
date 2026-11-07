@@ -200,6 +200,7 @@ fn rendered(text: &str, line_diff: &super::super::diff::LineDiff) -> Vec<Rendere
                 .get(index)
                 .copied()
                 .unwrap_or(DiffKind::Unchanged),
+            marks: None,
         })
         .collect()
 }

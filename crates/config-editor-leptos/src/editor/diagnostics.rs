@@ -37,6 +37,9 @@ pub(super) struct SchemaBundle {
     pub(super) warnings: Vec<String>,
     /// Some property is `deprecated`: documents are checked for its key.
     pub(super) has_deprecated: bool,
+    /// Some field is `readOnly`, `writeOnly` or `x-secret`: documents are
+    /// walked for them.
+    pub(super) has_marks: bool,
     #[cfg(feature = "schema-validation")]
     validator: jsonschema::Validator,
 }
@@ -49,10 +52,12 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
         .map_err(|error| format!("Invalid JSON Schema: {error}"))?;
     let warnings = super::completion::unsupported_patterns(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
+    let has_marks = super::protect::mentions_marks(&schema);
     Ok(SchemaBundle {
         schema,
         warnings,
         has_deprecated,
+        has_marks,
         #[cfg(feature = "schema-validation")]
         validator,
     })

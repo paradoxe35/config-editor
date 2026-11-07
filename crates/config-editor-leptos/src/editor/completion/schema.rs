@@ -137,7 +137,7 @@ pub fn array_branch<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value>
         })
 }
 
-pub(super) fn resolve_branches<'a>(
+pub(crate) fn resolve_branches<'a>(
     schema: &'a Value,
     root: &'a Value,
     depth: usize,
@@ -167,7 +167,7 @@ pub(super) fn resolve_branches<'a>(
 /// The schemas `path` leads to from the root. With `repeats_arrays` a key
 /// naming an array is one of its items as well (each XML `<dns>` element is
 /// one entry of `dns`).
-pub(super) fn schema_at_path<'a>(
+pub(crate) fn schema_at_path<'a>(
     root: &'a Value,
     path: &[SchemaPathSegment],
     repeats_arrays: bool,
@@ -199,7 +199,7 @@ pub(super) fn schema_at_path<'a>(
 }
 
 /// The schemas of one child (a key or an array item) of a value of `schema`.
-pub(super) fn child_schemas<'a>(
+pub(crate) fn child_schemas<'a>(
     schema: &'a Value,
     root: &'a Value,
     segment: &SchemaPathSegment,
@@ -394,7 +394,7 @@ pub(super) fn value_label(value: &Value) -> String {
     }
 }
 
-pub(super) fn unquoted(typed: &str) -> &str {
+pub(crate) fn unquoted(typed: &str) -> &str {
     let typed = typed.trim_start();
     if let Some(quote) = typed
         .chars()

@@ -60,6 +60,7 @@ fn follow_value(state: EditorState, value: Signal<String>) {
             state.source.set(edit);
             state.redetect_indent();
         }
+        state.place_ranges();
     });
 }
 
@@ -166,11 +167,8 @@ fn convert_now(state: EditorState, text: String, language: Language) {
             state.synced_edit.get_value(),
             state.host_text.get_value(),
         );
-        let result = bridge.to_host(&text, &state.host_text.get_value());
-        state
-            .conversion_problems
-            .set(bridge.problems(&text, &result));
-        if let Ok(mut conversion) = result {
+        let previous = state.host_text.get_value();
+        let result = bridge.to_host(&text, &previous).map(|mut conversion| {
             // Back to a text saved before (an undo): its host text exactly.
             if let Some(host) = state.synced_hosts.with_value(|saved| {
                 saved
@@ -180,6 +178,20 @@ fn convert_now(state: EditorState, text: String, language: Language) {
             }) {
                 conversion.text = host;
             }
+            conversion
+        });
+        // However the edit got there, a save never changes a read-only
+        // value: it is refused like any other unsafe save.
+        let result = result.and_then(|conversion| {
+            state
+                .check_host_save(&previous, &conversion.text)
+                .map(|()| conversion)
+                .map_err(codec::ConvertError::Unsupported)
+        });
+        state
+            .conversion_problems
+            .set(bridge.problems(&text, &result));
+        if let Ok(conversion) = result {
             state.synced_edit.set_value(text);
             if conversion.text != state.host_text.get_value() {
                 state.host_text.set_value(conversion.text.clone());
@@ -225,6 +237,7 @@ fn save_on_unmount(state: EditorState) {
         };
         if let Ok(conversion) = bridge.to_host(&text, &host)
             && conversion.text != host
+            && state.check_host_save(&host, &conversion.text).is_ok()
             && let Some(on_change) = state.host_on_change
         {
             on_change.run(conversion.text);
@@ -318,9 +331,12 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
             .bridge_to(current)
             .filter(|_| next == state.host_language)
         {
-            Some(bridge) => bridge
-                .to_host(&text, &host_text)
-                .map(|conversion| conversion.text),
+            Some(bridge) => bridge.to_host(&text, &host_text).and_then(|conversion| {
+                state
+                    .check_host_save(&host_text, &conversion.text)
+                    .map(|()| conversion.text)
+                    .map_err(codec::ConvertError::Unsupported)
+            }),
             None => state.schema.with_value(|schema| {
                 codec::convert(
                     &text,
@@ -365,6 +381,7 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
             state.diagnosed_text.set(converted.clone());
             state.source.set(converted);
             state.redetect_indent();
+            state.place_ranges();
         }
         Err(error) => {
             state.pending_switch.set(Some(next));

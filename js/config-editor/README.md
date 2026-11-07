@@ -82,6 +82,8 @@ throws, and an unknown option name is reported in the console.
 | `hostDiagnostics` | `HostDiagnostic[]`        | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                     |
 | `onPathChange`   | `(path: EditorPath) => void` | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                  |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). |
+| `readOnlyPaths`  | `FieldPath[]`                | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
+| `readOnlyRanges` | `TextRangeInput[]`           | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` string indices or one-based `{ startLine, startColumn, endLine?, endColumn? }`. |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -101,6 +103,7 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
 | `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
+| `setReadOnlyPaths(paths)`, `setReadOnlyRanges(ranges)` | Replace the host's read-only fields or ranges; `[]` clears them. See [Read-only fields](#read-only-fields). |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
@@ -134,6 +137,36 @@ editor.setHostDiagnostics([
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one; only the
   markers update. An invalid entry throws, naming its index.
+
+### Read-only fields
+
+A field is read-only when the schema marks it `readOnly: true` (with its
+reason in `x-readonly-reason`), or when the host names it:
+
+```ts
+const editor = new ConfigEditor(element, {
+  language: "yaml",
+  value,
+  schema, // {"properties": {"id": {"readOnly": true, "x-readonly-reason": "Assigned by the server"}}}
+  readOnlyPaths: ["/limits"],
+  readOnlyRanges: [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }],
+});
+editor.setReadOnlyPaths(["/limits", "/tls/cert"]); // at runtime
+```
+
+- A lock in the gutter marks each locked line, the value is muted (color
+  token `locked`), and hovering it shows the reason.
+- Typing, deleting, pasting, cutting, completions, Replace, `Ctrl+/`,
+  Revert and undo that would change a read-only value, delete its key (also
+  inside a deleted selection or parent block) or add to a read-only block
+  are refused: the text stays, and a tooltip at the caret says why. Replace
+  All skips matches in read-only text and says how many.
+- Whitespace, comments and punctuation around a locked field stay free;
+  in YAML a locked line's indent cannot change (it is structure).
+- Suggestions leave read-only keys out (inside a read-only block they are
+  listed with the reason).
+- With `editAs`, the same fields are locked in the other language, and a
+  save that would change one is refused (shown as an error, not sent).
 
 ### Paths
 

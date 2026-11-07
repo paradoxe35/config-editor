@@ -63,6 +63,7 @@
   --config-editor-input-bg: #3c3c3c;
   --config-editor-input-border: #3c3c3c;
   --config-editor-toggle-active: rgb(36 137 219 / 51%);
+  --config-editor-locked: var(--config-editor-muted);
   --config-editor-font-size: 12px;
   --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
   --config-editor-padding-top: 15px;
@@ -209,6 +210,24 @@
   border-radius: 50%;
   background: var(--config-editor-error);
   content: "";
+}
+
+/* A read-only line: a lock before the number. */
+.config-editor__lock-marker {
+  position: absolute;
+  top: calc(50% - 5px);
+  left: 0;
+  width: 9px;
+  height: 10px;
+  background: var(--config-editor-locked);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 18'%3E%3Cpath d='M3 8V5a5 5 0 0 1 10 0v3h1.5v10h-13V8zm2.5 0h5V5a2.5 2.5 0 0 0-5 0z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 18'%3E%3Cpath d='M3 8V5a5 5 0 0 1 10 0v3h1.5v10h-13V8zm2.5 0h5V5a2.5 2.5 0 0 0-5 0z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* A read-only value, muted (its key keeps its color). */
+.config-editor__highlight .config-editor__locked,
+.config-editor__highlight .config-editor__locked > span {
+  color: var(--config-editor-locked);
 }
 
 .config-editor__diff-marker {
@@ -827,6 +846,25 @@
   box-shadow: 0 8px 24px var(--config-editor-hover-shadow);
   pointer-events: none;
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__protect-tip {
+  position: fixed;
+  z-index: 61;
+  width: max-content;
+  max-width: 340px;
+  padding: 4px 8px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 4px 12px var(--config-editor-hover-shadow);
+  pointer-events: none;
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__protect-tip--refused {
+  border-color: var(--config-editor-locked);
 }
 
 .config-editor__hover-header {

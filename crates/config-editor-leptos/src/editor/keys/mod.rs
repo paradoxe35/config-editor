@@ -19,6 +19,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     // Keys act on the document as the browser last left it.
     super::input::flush_input(state);
     state.hide_hover();
+    state.protect().hide_tip(false);
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"

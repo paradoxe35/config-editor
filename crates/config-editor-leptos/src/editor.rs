@@ -35,6 +35,7 @@ mod line_rows;
 mod metrics;
 mod paths;
 mod positioning;
+mod protect;
 mod search;
 mod state;
 mod sync;
@@ -55,7 +56,7 @@ pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
     CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget, GoToLineWidget,
-    Gutter, HoverCardView, SearchHighlights, SourceInput, StatusBar, Toolbar,
+    Gutter, HoverCardView, ProtectTipView, SearchHighlights, SourceInput, StatusBar, Toolbar,
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
@@ -192,6 +193,17 @@ pub fn ConfigEditor(
     /// the top level.
     #[prop(optional, into)]
     on_path_change: Option<Callback<FieldPath>>,
+    /// Fields the user cannot change, each with everything inside it, on
+    /// top of those the schema marks `readOnly`; may be a signal to change
+    /// them at runtime. They are found by path in the language on screen,
+    /// so they hold while editing as another language too.
+    #[prop(optional, into)]
+    read_only_paths: Option<Signal<Vec<FieldPath>>>,
+    /// Stretches of the host's text the user cannot change; may be a
+    /// signal. They follow the text through edits; while editing as another
+    /// language, the fields they cover are locked instead.
+    #[prop(optional, into)]
+    read_only_ranges: Option<Signal<Vec<TextRange>>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -229,6 +241,10 @@ pub fn ConfigEditor(
         features,
         host_on_change: on_change,
         host_diagnostics: host_diagnostics.unwrap_or_default(),
+        protect: protect::ProtectInit {
+            paths: read_only_paths.unwrap_or_default(),
+            ranges: read_only_ranges.unwrap_or_default(),
+        },
     });
     sync::connect(
         state,
@@ -243,6 +259,7 @@ pub fn ConfigEditor(
         changes::report_changes(state, callback);
     }
     input::attach_listeners(state);
+    state.connect_protection();
     if let Some(handle) = handle {
         handle.attach(state);
     }
@@ -279,6 +296,7 @@ pub fn ConfigEditor(
                         {enable_search.then(|| view! { <SearchHighlights state=state /> })}
                         <SourceInput state=state />
                         <HoverCardView state=state />
+                        <ProtectTipView state=state />
                         <CompletionList state=state />
                         {enable_search.then(|| view! { <FindWidget state=state /> })}
                         {enable_go_to_line.then(|| view! { <GoToLineWidget state=state /> })}

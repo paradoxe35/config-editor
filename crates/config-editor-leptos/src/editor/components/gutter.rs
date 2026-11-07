@@ -5,7 +5,7 @@ use leptos::prelude::*;
 
 use super::super::commands::line_range;
 use super::super::diff::{DiffKind, DiffPeek};
-use super::super::line_rows::LineRows;
+use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
 use super::RowSpacer;
 
@@ -61,13 +61,17 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
     view! {
         <div
             data-line=line
-            class:config-editor__line-number-active=move || row.with(|row| row.is_active)
-            class:config-editor__line-number-error=move || row.with(|row| row.has_error)
-            class:config-editor__line-number-added=move || row.with(|row| row.change == DiffKind::Added)
-            class:config-editor__line-number-modified=move || row.with(|row| row.change == DiffKind::Modified)
+            // One binding for every state class: rows are many, and each
+            // binding is a reactive node of its own.
+            class=move || row.with(line_number_class)
             on:click=select_line
         >
             <span aria-hidden="true">{line}</span>
+            {move || {
+                row.with(|row| row.marks.as_ref().and_then(|marks| marks.lock.clone())).map(|label| view! {
+                    <span class="config-editor__lock-marker" role="img" aria-label=label.clone() title=label></span>
+                })
+            }}
             {move || {
                 row.with(|row| row.added_peek.clone()).map(|peek| view! {
                     <PeekTrigger
@@ -113,6 +117,38 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
                 })
             }}
         </div>
+    }
+}
+
+/// The state classes of a line number.
+fn line_number_class(row: &RowUiState) -> &'static str {
+    match (row.is_active, row.has_error, row.change) {
+        (false, false, DiffKind::Unchanged) => "",
+        (true, false, DiffKind::Unchanged) => "config-editor__line-number-active",
+        (false, false, DiffKind::Added) => "config-editor__line-number-added",
+        (true, false, DiffKind::Added) => {
+            "config-editor__line-number-active config-editor__line-number-added"
+        }
+        (false, false, DiffKind::Modified) => "config-editor__line-number-modified",
+        (true, false, DiffKind::Modified) => {
+            "config-editor__line-number-active config-editor__line-number-modified"
+        }
+        (false, true, DiffKind::Unchanged) => "config-editor__line-number-error",
+        (true, true, DiffKind::Unchanged) => {
+            "config-editor__line-number-active config-editor__line-number-error"
+        }
+        (false, true, DiffKind::Added) => {
+            "config-editor__line-number-error config-editor__line-number-added"
+        }
+        (true, true, DiffKind::Added) => {
+            "config-editor__line-number-active config-editor__line-number-error config-editor__line-number-added"
+        }
+        (false, true, DiffKind::Modified) => {
+            "config-editor__line-number-error config-editor__line-number-modified"
+        }
+        (true, true, DiffKind::Modified) => {
+            "config-editor__line-number-active config-editor__line-number-error config-editor__line-number-modified"
+        }
     }
 }
 

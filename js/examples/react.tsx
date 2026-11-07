@@ -47,6 +47,8 @@ function App({ schema }: { schema: string }) {
   const [changes, setChanges] = useState("");
   const [path, setPath] = useState("");
   const [hostProblems, setHostProblems] = useState<HostDiagnostic[]>([]);
+  const [lockAddress, setLockAddress] = useState(false);
+  const [lockFirstLine, setLockFirstLine] = useState(false);
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
@@ -126,6 +128,14 @@ function App({ schema }: { schema: string }) {
         >
           Server problems
         </button>
+        <label>
+          <input id="lock-address" type="checkbox" checked={lockAddress} onChange={(event) => setLockAddress(event.target.checked)} />{" "}
+          Lock public_address
+        </label>
+        <label>
+          <input id="lock-first-line" type="checkbox" checked={lockFirstLine} onChange={(event) => setLockFirstLine(event.target.checked)} />{" "}
+          Lock line 1
+        </label>
         <span id="editing">{editing}</span>
         <span id="changes">{changes}</span>
         <code id="breadcrumb">{path}</code>
@@ -153,6 +163,8 @@ function App({ schema }: { schema: string }) {
         }
         onPathChange={(next) => setPath(next.pointer || "/")}
         hostDiagnostics={hostProblems}
+        readOnlyPaths={lockAddress ? ["/public_address"] : []}
+        readOnlyRanges={lockFirstLine ? [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }] : []}
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}

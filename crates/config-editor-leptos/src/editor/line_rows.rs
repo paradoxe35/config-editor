@@ -1,4 +1,5 @@
 use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
+use super::protect::LineMarks;
 use leptos::prelude::*;
 
 /// One line of the document plus its error and diff flags.
@@ -7,6 +8,9 @@ pub(super) struct RenderedLine {
     pub(super) text: String,
     pub(super) has_error: bool,
     pub(super) change: DiffKind,
+    /// Protected text on the line: muted values and the gutter lock (boxed:
+    /// most lines have none, and every line carries the field).
+    pub(super) marks: Option<Box<LineMarks>>,
 }
 
 /// Everything one gutter/highlight row displays, comparable so unchanged rows
@@ -21,6 +25,7 @@ pub(super) struct RowUiState {
     pub(super) added_peek: Option<DiffPeek>,
     pub(super) deleted_peek: Option<DiffPeek>,
     pub(super) deleted_after_peek: Option<DiffPeek>,
+    pub(super) marks: Option<Box<LineMarks>>,
 }
 
 pub(super) fn row_state(
@@ -35,6 +40,7 @@ pub(super) fn row_state(
     let text = row.map(|row| row.text.clone()).unwrap_or_default();
     let change = row.map(|row| row.change).unwrap_or(DiffKind::Unchanged);
     RowUiState {
+        marks: row.and_then(|row| row.marks.clone()),
         has_error: row.is_some_and(|row| row.has_error),
         change,
         is_active: line == active_line,

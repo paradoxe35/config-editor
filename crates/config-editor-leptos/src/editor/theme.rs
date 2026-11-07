@@ -233,6 +233,8 @@ pub enum ThemeColor {
     InputBorder,
     /// A pressed option button (match case, whole word, regex).
     ToggleActive,
+    /// Read-only values and the gutter lock (by default the `Muted` color).
+    Locked,
 }
 
 impl ThemeColor {
@@ -302,6 +304,7 @@ impl ThemeColor {
         Self::InputBackground,
         Self::InputBorder,
         Self::ToggleActive,
+        Self::Locked,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -371,6 +374,7 @@ impl ThemeColor {
             Self::InputBackground => "--config-editor-input-bg",
             Self::InputBorder => "--config-editor-input-border",
             Self::ToggleActive => "--config-editor-toggle-active",
+            Self::Locked => "--config-editor-locked",
         }
     }
 }

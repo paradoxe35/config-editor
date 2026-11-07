@@ -25,6 +25,9 @@ use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
 use super::paths::{FieldPath, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
+use super::protect::{
+    Around, Inputs, LineMarks, ProtectInit, ProtectState, adjust_suggestions, line_marks,
+};
 use super::search::SearchState;
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
@@ -81,6 +84,8 @@ pub(super) struct Init {
     pub(super) host_on_change: Option<Callback<String>>,
     /// The host's own problems (see `host_diagnostics`).
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
+    /// The host's read-only paths and ranges (see `protect`).
+    pub(super) protect: ProtectInit,
 }
 
 /// A programmatic edit, applied with [`EditorState::commit`].
@@ -239,6 +244,9 @@ pub(super) struct EditorState {
     pub(super) search: SearchState,
     /// The go-to-line field (see `go_to_line`).
     pub(super) go_to_line: GoToLine,
+    /// Read-only fields (see `protect`), behind one handle: this state is
+    /// copied into every handler, so it stays small.
+    protect_state: StoredValue<ProtectState>,
 }
 
 impl EditorState {
@@ -257,6 +265,7 @@ impl EditorState {
             features,
             host_on_change,
             host_diagnostics,
+            protect,
         } = init;
         let mut load_problem = Vec::new();
         let mut pending = None;
@@ -337,19 +346,52 @@ impl EditorState {
             let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
             source.with(|current| shift_diagnostics(&checked, current, &found))
         });
+        let host_text_store = StoredValue::new(host_text.clone());
+        let protect = ProtectState::new(
+            protect,
+            Inputs {
+                source,
+                edit_language,
+                host_language,
+                schema: schema.clone(),
+                host_text: host_text_store,
+            },
+        );
         let suggestions = Memo::new(move |_| {
             if !suggestions_requested.get() {
                 return Vec::new();
             }
-            completions_for(
-                &source.get(),
-                cursor.get(),
-                explicit_request.get(),
-                schema.as_deref(),
-                features.completions,
-                edit_language.get_untracked().behavior(),
-                replace_word.get(),
-            )
+            let behavior = edit_language.get_untracked().behavior();
+            let at = cursor.get();
+            source.with(|text| {
+                let options = completions_for(
+                    text,
+                    at,
+                    explicit_request.get(),
+                    schema.as_deref(),
+                    features.completions,
+                    behavior,
+                    replace_word.get(),
+                );
+                if options.is_empty() {
+                    return options;
+                }
+                protect.host_paths.with(|host_paths| {
+                    protect.protected.with(|protected| {
+                        adjust_suggestions(
+                            options,
+                            &Around {
+                                behavior,
+                                source: text,
+                                cursor: at,
+                                schema: schema.as_deref().map(|bundle| &bundle.schema),
+                                host_paths,
+                                protected,
+                            },
+                        )
+                    })
+                })
+            })
         });
         // The baseline as shown, in the language on screen.
         let shown_cache = StoredValue::new(Some((
@@ -395,6 +437,9 @@ impl EditorState {
                     .collect()
             });
             source.with(|text| {
+                let marks = protect
+                    .protected
+                    .with(|protected| line_marks(text, protected));
                 diff.with(|line_diff| {
                     text.split('\n')
                         .enumerate()
@@ -406,6 +451,10 @@ impl EditorState {
                                 .get(index)
                                 .copied()
                                 .unwrap_or(DiffKind::Unchanged),
+                            marks: marks
+                                .get(index)
+                                .filter(|marks| **marks != LineMarks::default())
+                                .map(|marks| Box::new(marks.clone())),
                         })
                         .collect::<Vec<_>>()
                 })
@@ -459,7 +508,7 @@ impl EditorState {
             indent: StoredValue::new(super::commands::indent_unit(&shown)),
             on_change,
             host_on_change,
-            host_text: StoredValue::new(host_text),
+            host_text: host_text_store,
             synced_edit: StoredValue::new(shown),
             synced_hosts: StoredValue::new(Vec::new()),
             diagnosed_text,
@@ -497,6 +546,7 @@ impl EditorState {
             changes: Memo::new(move |_| diff.with(ChangeSummary::of)),
             focus_preview: StoredValue::new(false),
             shown_problem: RwSignal::new(None),
+            protect_state: StoredValue::new(protect),
         };
         (state, pending)
     }
@@ -517,6 +567,11 @@ impl EditorState {
                 host.to_string()
             }
         }
+    }
+
+    /// Read-only fields (see `protect`).
+    pub(super) fn protect(&self) -> ProtectState {
+        self.protect_state.get_value()
     }
 
     /// The language on screen.
@@ -544,8 +599,10 @@ impl EditorState {
 
     /// Applies a programmatic edit: records undo, syncs the textarea and
     /// state, and notifies the host. Every keyboard edit goes through here
-    /// to keep that order consistent.
-    pub(super) fn commit(&self, edit: Edit) {
+    /// to keep that order consistent. An edit that would change a read-only
+    /// field is refused (the text stays as it was and the reason shows at
+    /// the caret); returns whether it was applied.
+    pub(super) fn commit(&self, edit: Edit) -> bool {
         let Edit {
             before,
             before_selection,
@@ -554,6 +611,15 @@ impl EditorState {
             anchor,
             reveal,
         } = edit;
+        if !self.edit_allowed(&before, &text, caret) {
+            if let Some(element) = self.textarea() {
+                element.set_value(&before);
+                let _ = element
+                    .set_selection_range(before_selection.0 as u32, before_selection.1 as u32);
+            }
+            return false;
+        }
+        self.follow_edit(&before, &text, caret);
         let anchor = anchor.unwrap_or(caret);
         let (start, end) = (anchor.min(caret), anchor.max(caret));
         self.history.update(|history| {
@@ -586,6 +652,7 @@ impl EditorState {
             // The text between the anchor and the caret stays selected.
             let _ = element.set_selection_range(start as u32, end as u32);
         }
+        true
     }
 
     /// The inserted closer starting at UTF-16 `offset`, if any.
@@ -796,7 +863,12 @@ impl EditorState {
         self.hide_hover();
         let at = self.cursor.get_untracked();
         let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
-        self.commit(if reveal { edit } else { edit.quiet() });
+        if !self.commit(if reveal { edit } else { edit.quiet() }) {
+            self.placeholder.set_value(None);
+            self.forget_typing_aids();
+            self.close_suggestions();
+            return;
+        }
         self.active_completion.set(0);
         self.explicit_request.set(true);
         self.suggestions_requested.set(reopen);

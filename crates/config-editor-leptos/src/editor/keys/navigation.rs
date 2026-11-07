@@ -113,11 +113,27 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
     let mut restored = None;
     state.history.update(|history| {
         restored = if undo {
-            history.undo(current)
+            history.undo(current.clone())
         } else {
-            history.redo(current)
+            history.redo(current.clone())
         };
     });
+    // Undo never changes a read-only field the host locked meanwhile.
+    if let Some(snapshot) = restored.take() {
+        let (_, caret) = snapshot.selection;
+        if state.edit_allowed(&current, &snapshot.value, caret) {
+            state.follow_edit(&current, &snapshot.value, caret);
+            restored = Some(snapshot);
+        } else {
+            state.history.update(|history| {
+                if undo {
+                    history.redo(snapshot.value);
+                } else {
+                    history.undo(snapshot.value);
+                }
+            });
+        }
+    }
     if let Some(restored) = restored {
         let (start, end) = restored.selection;
         state.source.set(restored.value.clone());

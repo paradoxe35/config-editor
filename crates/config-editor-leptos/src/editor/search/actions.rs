@@ -199,18 +199,37 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let before = state.source.get_untracked();
     let replacement = search.replacement.get_untracked();
-    let Some((updated, count, first)) = replace::replace_all(&before, &matcher, &replacement)
-    else {
+    // Matches in read-only text are left as they are, and counted.
+    let protected = state.protected_bytes(&before);
+    let skip = |found: &std::ops::Range<usize>| {
+        protected
+            .iter()
+            .any(|range| range.start < found.end && found.start < range.end)
+    };
+    let Some(replaced) = replace::replace_all_except(&before, &matcher, &replacement, &skip) else {
+        if matcher.find_from(&before, 0).is_some() {
+            search
+                .notice
+                .set(Some(super::super::protect::NOTHING_REPLACED.to_string()));
+        }
         return;
     };
     let selection = state
         .textarea()
         .map_or((0, 0), |element| textarea_selection(&element));
-    let caret = utf16(&updated, first.end);
-    state.commit(Edit::new(before, selection, updated, caret));
+    let caret = utf16(&replaced.text, replaced.first.end);
+    if !state.commit(Edit::new(before, selection, replaced.text, caret)) {
+        return;
+    }
+    let count = replaced.count;
     search.current.set(None);
+    let skipped = if replaced.skipped > 0 {
+        super::super::protect::skipped_matches(replaced.skipped)
+    } else {
+        String::new()
+    };
     search.notice.set(Some(format!(
-        "Replaced {count} {}",
+        "Replaced {count} {}{skipped}",
         if count == 1 {
             "occurrence"
         } else {

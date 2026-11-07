@@ -89,6 +89,8 @@ document from code (a Save button) to send an edit still waiting first.
 | `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
 | `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
 | `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
+| `read_only_paths`              | `Signal<Vec<FieldPath>>`                   | —                | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
+| `read_only_ranges`             | `Signal<Vec<TextRange>>`                   | —                | Stretches of the host's text the user cannot change; they follow the text through edits.                                             |
 | `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
 | `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
 
@@ -219,6 +221,59 @@ view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
 - Every `Diagnostic` says where it came from (`origin`:
   `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
   `docs_url`.
+
+## Read-only fields
+
+A field is read-only when the schema says `readOnly: true` (its reason, if
+any, in `x-readonly-reason`), when the host names it in `read_only_paths`
+(a whole subtree each), or when it lies in one of the host's
+`read_only_ranges`. Both props may be signals that change at runtime; the
+whole-document `read_only` stays as it is.
+
+```rust
+use config_editor_leptos::{ConfigEditor, FieldPath, TextPosition, TextRange};
+
+// {"properties": {"id": {"type": "string", "readOnly": true,
+//                        "x-readonly-reason": "Assigned by the server"}}}
+let locked = RwSignal::new(vec![FieldPath::from("/limits")]);
+let first_line = RwSignal::new(vec![TextRange::new(
+    TextPosition::new(1, 1),
+    TextPosition::new(2, 1),
+)]);
+view! {
+    <ConfigEditor
+        value=text
+        schema=SCHEMA
+        read_only_paths=locked
+        read_only_ranges=first_line
+    />
+}
+```
+
+- A lock shows in the gutter on each line the field covers, its value is
+  muted (`--config-editor-locked`, `ThemeColor::Locked`), and hovering the
+  value or the lock shows the reason.
+- Every way of changing the text is checked the same way, after it is made
+  and before it is applied: typing, Backspace and Delete, paste, cut, drop,
+  completions, Replace, `Ctrl+/`, Revert, undo and redo. An edit that would
+  change a read-only value, delete its key (also by deleting a selection or
+  a parent block that holds it), rename a key holding it, or add to a
+  read-only block is refused whole: the text stays as it was, and a short
+  tooltip at the caret says why. Replace All replaces the other matches and
+  reports how many it skipped.
+- Formatting around a locked field stays free: blank lines, trailing
+  spaces, a comment after the value, punctuation next to it (`,` in JSON),
+  and re-indenting where indentation is not structure (JSON, TOML, HCL,
+  XML). In YAML, where the indent says which block a key belongs to,
+  changing a locked line's indent is refused.
+- Suggestions leave read-only keys and values out. Inside a read-only
+  region (browsing it with `Ctrl+Space`) they are listed, with the reason as
+  their detail.
+- While editing as another language, the same fields are locked there,
+  found by path in that language (a host range locks the fields it covers).
+  An Edit-as save that would still change a read-only value, by any route,
+  is refused like other unsafe saves: it is not sent, and an error says
+  which field.
 
 ## Schema help
 
@@ -472,7 +527,8 @@ backgrounds `AddedLine` and `ModifiedLine`, the preview's `DiffRemoved*` and
 The find widget uses `SearchMatch`, `SearchMatchCurrent` and
 `SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
 and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
-option buttons.
+option buttons. Read-only values and the gutter lock use `Locked`
+(`--config-editor-locked`, which follows `Muted` unless set).
 
 ## Cargo features
 

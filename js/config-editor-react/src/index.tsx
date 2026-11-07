@@ -7,6 +7,7 @@ import init, {
   type FieldPath,
   type HostDiagnostic,
   type LanguageName,
+  type TextRangeInput,
   type ThemeColorMap,
   type ThemeName,
   ValueSync,
@@ -42,6 +43,7 @@ export type {
   HostDiagnostic,
   LanguageName,
   Severity,
+  TextRangeInput,
   ThemeColorMap,
   ThemeName,
 } from "@pngwasi/config-editor";
@@ -114,6 +116,14 @@ export interface ConfigEditorProps {
    * the previous one; only the markers update.
    */
   hostDiagnostics?: HostDiagnostic[];
+  /**
+   * Fields the user cannot change, each with everything inside it, on top of
+   * those the schema marks `readOnly`. They hold while editing as another
+   * language too. Updates live.
+   */
+  readOnlyPaths?: FieldPath[];
+  /** Stretches of the document (in `language`) the user cannot change. Updates live. */
+  readOnlyRanges?: TextRangeInput[];
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
@@ -266,6 +276,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           onChangeSummary: (summary) => latest.current.onChangeSummary?.(summary),
           onPathChange: current.onPathChange ? followPath : undefined,
           hostDiagnostics: current.hostDiagnostics,
+          readOnlyPaths: current.readOnlyPaths,
+          readOnlyRanges: current.readOnlyRanges,
           onSchemaWarning: (message) => {
             const report = latest.current.onSchemaWarning;
             if (report) report(message);
@@ -378,6 +390,16 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     useEffect(() => {
       guard((instance) => instance.setHostDiagnostics(JSON.parse(hostDiagnostics) as HostDiagnostic[]));
     }, [mounted, hostDiagnostics]);
+
+    const readOnlyPaths = JSON.stringify(props.readOnlyPaths ?? []);
+    useEffect(() => {
+      guard((instance) => instance.setReadOnlyPaths(JSON.parse(readOnlyPaths) as FieldPath[]));
+    }, [mounted, readOnlyPaths]);
+
+    const readOnlyRanges = JSON.stringify(props.readOnlyRanges ?? []);
+    useEffect(() => {
+      guard((instance) => instance.setReadOnlyRanges(JSON.parse(readOnlyRanges) as TextRangeInput[]));
+    }, [mounted, readOnlyRanges]);
 
     const followsPath = props.onPathChange !== undefined;
     useEffect(() => {

@@ -23,6 +23,8 @@
       <button id="replace" type="button">Replace value</button>
       <button id="destroy" type="button">Destroy</button>
       <button id="reveal" type="button">Go to insecure_plaintext</button>
+      <label><input id="lock-address" type="checkbox" /> Lock public_address</label>
+      <label><input id="lock-first-line" type="checkbox" /> Lock line 1</label>
       <code id="breadcrumb"></code>
     </header>
     <div id="editor"></div>
@@ -100,6 +102,10 @@
       document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");
       document.getElementById("destroy").onclick = () => editor.destroy();
       document.getElementById("reveal").onclick = () => editor.reveal("/insecure_plaintext");
+      document.getElementById("lock-address").onchange = (event) =>
+        editor.setReadOnlyPaths(event.target.checked ? ["/public_address"] : []);
+      document.getElementById("lock-first-line").onchange = (event) =>
+        editor.setReadOnlyRanges(event.target.checked ? [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }] : []);
       document.body.dataset.ready = "true";
     </script>
   </body>

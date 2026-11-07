@@ -59,6 +59,8 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `onChangeSummary` | `(summary: ChangeSummary) => void` | — | Called with `{ added, removed, modified, hunks }` against `baseline`, on mount and whenever it changes. |
 | `onPathChange` | `(path: EditorPath) => void` | — | Called with the path of what the caret is on (`{ pointer: "/web/listen", segments: ["web", "listen"] }`) each time it changes, for a breadcrumb. The path is computed only while this is set. |
 | `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
+| `readOnlyPaths` | `FieldPath[]` | — | Fields the user cannot change (each a whole subtree), on top of the schema's `readOnly` ones; they hold with `editAs` too. See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#read-only-fields). Updates live. |
+| `readOnlyRanges` | `TextRangeInput[]` | — | Stretches of the document (in `language`) the user cannot change: `{ start, end }` or `{ startLine, startColumn, endLine?, endColumn? }`. Updates live. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
@@ -73,7 +75,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
-`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics` and `onPathChange` update the
+`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics`, `readOnlyPaths`, `readOnlyRanges` and `onPathChange` update the
 live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
 `search`, `goToLine` and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
@@ -99,6 +101,8 @@ const ref = useRef<ConfigEditorHandle>(null);
 <ConfigEditor ref={ref} defaultValue={initial} />;
 <ConfigEditor value={text} onChange={setText}
   hostDiagnostics={[{ path: "/web/listen", message: "port 80 is taken", source: "server" }]} />;
+<ConfigEditor value={text} onChange={setText} schema={schema}
+  readOnlyPaths={["/limits"]} />; // plus the schema's `readOnly` fields
 
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted

@@ -17,7 +17,7 @@ pub(crate) const MATCH_SUBSTRING_LENGTH_DIVISOR: i64 = 4;
 
 /// Scores `label` against `typed`: exact prefix, case-insensitive prefix, word
 /// initials (`mc` for `max_connections`), substring, then subsequence.
-pub(super) fn match_score(label: &str, typed: &str) -> Option<i64> {
+pub(crate) fn match_score(label: &str, typed: &str) -> Option<i64> {
     if typed.is_empty() {
         return Some(0);
     }

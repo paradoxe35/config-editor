@@ -68,13 +68,20 @@ export interface EditorOptions {
   hostDiagnostics?: HostDiagnostic[];
   /** Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. Without it, each is a console warning. */
   onSchemaWarning?: (message: string) => void;
+  /** Fields the user cannot change (each with everything inside it), on top of those the schema marks `readOnly`. They hold while editing as another language too. See `setReadOnlyPaths`. */
+  readOnlyPaths?: FieldPath[];
+  /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits. See `setReadOnlyRanges`. */
+  readOnlyRanges?: TextRangeInput[];
 }
+
+/** A stretch of the host's document: string indices, or one-based lines and columns. */
+export type TextRangeInput = { start: number; end?: number } | { startLine: number; startColumn: number; endLine?: number; endColumn?: number };
 
 /** A problem the host found, by `path` (preferred: it follows the field through edits and `editAs`) or `range`; with neither, it is about the whole document. */
 export interface HostDiagnostic {
   path?: FieldPath;
   /** A stretch of the document in `language`: string indices, or one-based lines and columns. Unplaced while editing as another language. */
-  range?: { start: number; end?: number } | { startLine: number; startColumn: number; endLine?: number; endColumn?: number };
+  range?: TextRangeInput;
   /** Default `"error"`. */
   severity?: Severity;
   message: string;
@@ -307,7 +314,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 20] = [
+const OPTIONS: [&str; 22] = [
     "value",
     "language",
     "editAs",
@@ -328,6 +335,8 @@ const OPTIONS: [&str; 20] = [
     "onPathChange",
     "hostDiagnostics",
     "onSchemaWarning",
+    "readOnlyPaths",
+    "readOnlyRanges",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -502,6 +511,8 @@ struct State {
     follows_path: RwSignal<bool>,
     handle: EditorHandle,
     host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
+    read_only_paths: RwSignal<Vec<FieldPath>>,
+    read_only_ranges: RwSignal<Vec<TextRange>>,
 }
 
 /// The latest document, outside the reactive arena: an edit saved while the
@@ -613,6 +624,9 @@ impl ConfigEditor {
             list => host_diagnostics_from(&list, &value)?,
         };
         let on_schema_warning = function_option(&options, "onSchemaWarning")?;
+        let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
+        let read_only_ranges =
+            ranges_from(&field(&options, "readOnlyRanges"), &value, "readOnlyRanges")?;
         warn_unknown_options(&options);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -635,6 +649,8 @@ impl ConfigEditor {
             on_path_change: StoredValue::new_local(on_path_change),
             handle: EditorHandle::new(),
             host_diagnostics: RwSignal::new(host_diagnostics),
+            read_only_paths: RwSignal::new(read_only_paths),
+            read_only_ranges: RwSignal::new(read_only_ranges),
         });
         let mount_element = element.clone();
         let mounted = owner.with(|| {
@@ -666,6 +682,8 @@ impl ConfigEditor {
                 };
                 follow_path(state);
                 let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
+                let read_only_paths = Signal::derive(move || state.read_only_paths.get());
+                let read_only_ranges = Signal::derive(move || state.read_only_ranges.get());
                 let warn_with = StoredValue::new_local(on_schema_warning.clone());
                 let schema_warning = move |message: String| match warn_with
                     .try_get_value()
@@ -707,6 +725,8 @@ impl ConfigEditor {
                             handle=state.handle
                             host_diagnostics=host_diagnostics
                             on_schema_warning=schema_warning
+                            read_only_paths=read_only_paths
+                            read_only_ranges=read_only_ranges
                         />
                     }
                     .into_any(),
@@ -731,6 +751,8 @@ impl ConfigEditor {
                             on_change_summary=summarized
                             handle=state.handle
                             host_diagnostics=host_diagnostics
+                            read_only_paths=read_only_paths
+                            read_only_ranges=read_only_ranges
                         />
                     }
                     .into_any(),
@@ -953,6 +975,37 @@ impl ConfigEditor {
             host_diagnostics_from(&diagnostics, &host_text)?
         };
         let _ = self.state.host_diagnostics.try_set(diagnostics);
+        Ok(())
+    }
+
+    /// Replaces the fields the user cannot change (on top of the schema's
+    /// `readOnly` ones); `[]` clears them.
+    #[wasm_bindgen(js_name = setReadOnlyPaths)]
+    pub fn set_read_only_paths(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FieldPath[]")] paths: JsValue,
+    ) -> Result<(), JsError> {
+        config_editor_leptos::flush_pending_input();
+        let paths = paths_from(&paths, "readOnlyPaths")?;
+        let _ = self.state.read_only_paths.try_set(paths);
+        Ok(())
+    }
+
+    /// Replaces the stretches of the document (in `language`) the user
+    /// cannot change; `[]` clears them.
+    #[wasm_bindgen(js_name = setReadOnlyRanges)]
+    pub fn set_read_only_ranges(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "TextRangeInput[]")] ranges: JsValue,
+    ) -> Result<(), JsError> {
+        config_editor_leptos::flush_pending_input();
+        let host_text = self
+            .latest
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_default();
+        let ranges = ranges_from(&ranges, &host_text, "readOnlyRanges")?;
+        let _ = self.state.read_only_ranges.try_set(ranges);
         Ok(())
     }
 
@@ -1188,6 +1241,40 @@ fn host_diagnostic_from(item: &JsValue, host_text: &str) -> Result<HostDiagnosti
 
 /// A range from JavaScript: string indices `{ start, end }` into
 /// `host_text`, or one-based `{ startLine, startColumn, endLine?, endColumn? }`.
+/// An optional list of paths (`readOnlyPaths`).
+fn paths_from(list: &JsValue, name: &str) -> Result<Vec<FieldPath>, JsError> {
+    if list.is_undefined() || list.is_null() {
+        return Ok(Vec::new());
+    }
+    if !Array::is_array(list) {
+        return Err(JsError::new(&format!(
+            "{name} must be an array of paths (JSON pointers or arrays of keys and indices)"
+        )));
+    }
+    Array::from(list)
+        .iter()
+        .map(|path| path_from_js(&path))
+        .collect()
+}
+
+/// An optional list of ranges of `host_text` (`readOnlyRanges`).
+fn ranges_from(list: &JsValue, host_text: &str, name: &str) -> Result<Vec<TextRange>, JsError> {
+    if list.is_undefined() || list.is_null() {
+        return Ok(Vec::new());
+    }
+    if !Array::is_array(list) {
+        return Err(JsError::new(&format!("{name} must be an array of ranges")));
+    }
+    Array::from(list)
+        .iter()
+        .enumerate()
+        .map(|(index, range)| {
+            range_from_js(&range, host_text)
+                .map_err(|error| JsError::new(&format!("{name}[{index}]: {error}")))
+        })
+        .collect()
+}
+
 fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRange, String> {
     let number = |name: &str| {
         field(range, name)

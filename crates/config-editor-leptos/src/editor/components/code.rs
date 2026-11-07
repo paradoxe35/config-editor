@@ -56,16 +56,19 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
             class:config-editor__code-line-modified=move || row.with(|row| row.change == DiffKind::Modified)
         >
             {move || {
-                let text = row.with(|row| row.text.clone());
-                if highlighting && in_string_body() {
+                let (text, marks) = row.with(|row| {
+                    (row.text.clone(), row.marks.as_ref().map_or_else(Vec::new, |marks| marks.classes()))
+                });
+                let tokens = if highlighting && in_string_body() {
                     let mut tokens = Tokens::new();
                     tokens.push(0, text.len(), TokenKind::String);
-                    highlight::render(&text, &tokens.finish())
+                    tokens.finish()
                 } else if highlighting {
-                    highlight::render(&text, &state.edit_language.get().behavior().highlight(&text))
+                    state.edit_language.get().behavior().highlight(&text)
                 } else {
-                    view! { <span>{text}</span> }.into_any()
-                }
+                    Vec::new()
+                };
+                highlight::render(&text, &tokens, &marks)
             }}
         </span>
     }

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Protected fields fixture",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The server's id.",
+      "readOnly": true,
+      "x-readonly-reason": "Assigned by the server"
+    },
+    "name": { "type": "string", "description": "A display name." },
+    "listen": { "type": "integer", "description": "Port to listen on." },
+    "created": {
+      "type": "string",
+      "description": "When the server was created.",
+      "readOnly": true
+    },
+    "limits": {
+      "type": "object",
+      "description": "Limits set by the plan.",
+      "readOnly": true,
+      "x-readonly-reason": "Set by your plan",
+      "properties": {
+        "max": { "type": "integer" },
+        "burst": { "type": "integer" }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "properties": {
+        "cert": { "type": "string", "description": "Certificate file." },
+        "key": {
+          "type": "string",
+          "description": "The private key.",
+          "writeOnly": true,
+          "minLength": 40,
+          "pattern": "^-----BEGIN"
+        }
+      }
+    },
+    "clients": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "secret": { "type": "string", "x-secret": true, "format": "uuid" },
+          "pin": { "type": "integer", "x-secret": true }
+        }
+      }
+    }
+  }
+}

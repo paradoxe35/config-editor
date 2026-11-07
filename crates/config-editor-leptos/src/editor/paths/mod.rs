@@ -80,6 +80,19 @@ pub(crate) fn field_range(
     found.map(range)
 }
 
+/// Where the key of the field at `pointer` is written, in any spelling of
+/// the pointer; `None` for an array item or a field not written.
+pub(crate) fn key_range(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<TextRange> {
+    spellings(behavior, pointer)
+        .iter()
+        .find_map(|pointer| key_span(behavior, source, pointer))
+        .map(range)
+}
+
 /// [`field_range`] of one spelling of a pointer.
 fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     let key = key_span(behavior, source, pointer);
