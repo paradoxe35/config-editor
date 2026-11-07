@@ -54,8 +54,13 @@ pub(super) fn rename_key_with_value(
     let caret = utf16_to_byte_index(source, cursor);
     let line_rest = source[caret..].split('\n').next().unwrap_or("");
     let typed = source[utf16_to_byte_index(source, option.start)..caret].to_string();
-    // Inside a quoted key (`"pub|lic": 1`) the rest of the key goes too.
-    let word = if typed.starts_with('"') {
+    // Inside a quoted key (`"pub|lic": 1`, `'pub|lic': 1`) the rest of the
+    // key goes too, and its quotes stay as written.
+    let quote = typed
+        .chars()
+        .next()
+        .filter(|first| matches!(first, '"' | '\''));
+    let word = if quote.is_some() {
         line_rest
             .find(|character: char| {
                 !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
@@ -65,21 +70,25 @@ pub(super) fn rename_key_with_value(
         0
     };
     let line_rest = &line_rest[word..];
-    let after_quote = line_rest.strip_prefix('"').unwrap_or(line_rest);
-    if !behavior.value_follows_key(after_quote) {
+    let after_quote = quote
+        .and_then(|quote| line_rest.strip_prefix(quote))
+        .unwrap_or(line_rest);
+    // A value follows, or the rest of a dotted key (`"web|".path = 1`).
+    if !behavior.value_follows_key(after_quote)
+        && !(quote.is_some() && after_quote.starts_with('.'))
+    {
         return;
     }
-    let quoted = option.insert.trim_start().starts_with('"');
-    option.insert = if quoted {
-        format!("\"{}\"", option.label)
-    } else {
-        option.label.clone()
+    let quoted = quote.or_else(|| option.insert.trim_start().starts_with('"').then_some('"'));
+    option.insert = match quoted {
+        Some(quote) => format!("{quote}{}{quote}", option.label),
+        None => option.label.clone(),
     };
     // Up to the caret, plus the rest of a quoted key and its closing quote.
     let rest_of_key = source[caret..caret + word].encode_utf16().count();
     option.end = cursor
         + rest_of_key
-        + if quoted {
+        + if quoted.is_some() {
             line_rest.len() - after_quote.len()
         } else {
             0

@@ -1396,3 +1396,98 @@ fn a_tag_end_inside_a_quoted_attribute_value_is_text() {
     );
     assert!(labels.contains(&"host".to_string()), "{labels:?}");
 }
+
+/// Round 14: quoted keys (TOML dotted, YAML single-quoted) are renamed as
+/// keys; prefixed XML attributes keep their prefix; a one-line HCL block
+/// keeps its spacing; nothing is offered right after an HCL block's `}` or
+/// on a YAML explicit key.
+#[test]
+fn quoted_and_prefixed_names_rename_as_names() {
+    use super::super::completion::{apply_completion, completions_for};
+    let mut failures = Vec::new();
+    for (language, marked, label, check) in [
+        (
+            Language::TOML,
+            "\"websock|\".path = \"/x\"\n",
+            "heartbeat",
+            "\"heartbeat\".path = \"/x\"\n",
+        ),
+        (
+            Language::TOML,
+            "'websock|'.path = \"/x\"\n",
+            "heartbeat",
+            "'heartbeat'.path = \"/x\"\n",
+        ),
+        (
+            Language::YAML,
+            "'websock|':\n  path: /x\n",
+            "heartbeat",
+            "'heartbeat':\n  path: /x\n",
+        ),
+        (
+            Language::YAML,
+            "websocket: {'pa|': /x}\n",
+            "host",
+            "websocket: {'host': /x}\n",
+        ),
+        (
+            Language::XML,
+            "<websocket ns:pa|=\"/x\"/>\n",
+            "host",
+            "<websocket ns:host=\"/x\"/>\n",
+        ),
+        (
+            Language::HCL,
+            "websocket { pa| = \"/x\" }\n",
+            "host",
+            "websocket { host = \"/x\" }\n",
+        ),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let word_start = text[..at]
+            .rfind(|character: char| !(character.is_alphanumeric() || character == '_'))
+            .map_or(0, |index| index + 1);
+        let word_end = at
+            + text[at..]
+                .find(|character: char| !(character.is_alphanumeric() || character == '_'))
+                .unwrap_or(0);
+        // Ctrl+Space over the selected name: the caret at its end.
+        let _ = word_start;
+        let options = completions_for(
+            &text,
+            word_end,
+            true,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+            true,
+        );
+        match options.iter().find(|option| option.label == label) {
+            Some(option) if apply_completion(&text, option).0 == check => {}
+            Some(option) => failures.push(format!(
+                "{}: {marked:?} became {:?}",
+                language.label(),
+                apply_completion(&text, option).0
+            )),
+            None => failures.push(format!(
+                "{}: {marked:?}: {label} not offered",
+                language.label()
+            )),
+        }
+    }
+    for (language, marked) in [
+        (Language::HCL, "websocket {\n  path = \"/x\"\n}|"),
+        (Language::HCL, "websocket { path = \"/x\" }|"),
+        (Language::YAML, "? websock|\n: path: /x\n"),
+    ] {
+        let labels = offered(language, marked);
+        if !labels.is_empty() {
+            failures.push(format!(
+                "{}: {marked:?} offered {labels:?}",
+                language.label()
+            ));
+        }
+    }
+    report(failures);
+}

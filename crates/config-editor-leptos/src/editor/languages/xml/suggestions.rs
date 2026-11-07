@@ -204,7 +204,11 @@ pub(super) fn tag_completion_context(
 ..Default::default()
         };
     }
-    let word = word_at(&snapshot.inner, cursor);
+    // After any prefix (`ns:` of `ns:path`): a rename keeps it.
+    let word = word_at(&snapshot.inner, cursor).map(|(start, end)| {
+        let start = source[start..cursor.max(start)].rfind(':').map_or(start, |colon| start + colon + 1);
+        (start, end)
+    });
     let (typed, replace_start) = match word {
         Some((start, end)) => (
             source[start..cursor.min(end)].to_string(),

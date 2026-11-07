@@ -216,16 +216,23 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
     let end_byte = utf16_to_byte_index(source, end);
     let line_start = source[..end_byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[end_byte..].find('\n').map_or(source.len(), |at| end_byte + at);
-    if parse_header(split_toml_comment(&source[line_start..line_end]).0).is_none() {
+    let Some((segments, is_array)) = parse_header(split_toml_comment(&source[line_start..line_end]).0) else {
         return (start, end);
-    }
+    };
     let mut last_end = line_end;
     let mut offset = line_end;
     for line in source[line_end..].split('\n').skip(1) {
         let begin = offset + 1;
         offset = begin + line.len();
         let code = split_toml_comment(line).0.trim();
-        if parse_header(code).is_some() {
+        if let Some((next, _)) = parse_header(code) {
+            // An array-of-tables entry owns the sub-tables after it
+            // (`[[s]]` then `[s.sub]`): left behind, they would join the
+            // entry above.
+            if is_array && next.len() > segments.len() && next.starts_with(&segments) {
+                last_end = offset;
+                continue;
+            }
             break;
         }
         if !code.is_empty() {

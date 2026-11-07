@@ -490,3 +490,63 @@ fn ctrl_slash_takes_parents_and_enter_opens_one_line_blocks() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Round 14: Ctrl+/ reads a TOML string closed after quotes of its own text
+/// (`""""`), takes an array-of-tables entry with its sub-tables, takes a
+/// YAML plain value over lines whole, and gives XML text back exactly.
+#[test]
+fn ctrl_slash_takes_strings_entries_and_plain_values_exactly() {
+    let mut failures = Vec::new();
+    for (language, marked, expected) in [
+        (
+            Language::TOML,
+            "a = \"\"\"x\n\"\"\"\"\nb| = 1\n",
+            "a = \"\"\"x\n\"\"\"\"\n# b = 1\n",
+        ),
+        (
+            Language::TOML,
+            "a = \"\"\"x\"\"\"\"|\n[u]\nc = 1\n",
+            "# a = \"\"\"x\"\"\"\"\n[u]\nc = 1\n",
+        ),
+        (
+            Language::TOML,
+            "[[s]]|\nn = 1\n[s.sub]\nx = 1\n[[s]]\nn = 2\n",
+            "# [[s]]\n# n = 1\n# [s.sub]\n# x = 1\n[[s]]\nn = 2\n",
+        ),
+        (
+            Language::YAML,
+            "a: x\n  y|\nb: 1\n",
+            "# a: x\n#   y\nb: 1\n",
+        ),
+        (
+            Language::YAML,
+            "a: x|\n  y\nb: 1\n",
+            "# a: x\n#   y\nb: 1\n",
+        ),
+        (Language::YAML, "- x\n  y|\n- z\n", "# - x\n#   y\n- z\n"),
+    ] {
+        let at = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let caret = text[..at].encode_utf16().count();
+        match language.behavior().toggle_comments(&text, caret, caret) {
+            Some((once, _, _)) if once == expected && language.parse(&once).is_ok() => {}
+            other => failures.push(format!(
+                "{}: {text:?} became {:?}",
+                language.label(),
+                other.map(|o| o.0)
+            )),
+        }
+    }
+    let text = "<a>x &#45;&#45; y &amp; -- z</a>\n";
+    let all = text.encode_utf16().count();
+    let behavior = Language::XML.behavior();
+    let (once, start, end) = behavior.toggle_comments(text, 0, all).unwrap();
+    match behavior.toggle_comments(&once, start, end) {
+        Some((twice, _, _)) if twice == text => {}
+        other => failures.push(format!(
+            "XML round trip: {once:?} then {:?}",
+            other.map(|o| o.0)
+        )),
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

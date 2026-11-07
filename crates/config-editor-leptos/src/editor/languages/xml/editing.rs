@@ -394,12 +394,42 @@ const ESCAPED_DASHES: &str = "&#45;&#45;";
 
 /// `text` to put inside a comment the editor writes.
 pub(super) fn escape_comment_text(text: &str) -> String {
-    text.replace("--", ESCAPED_DASHES)
+    // `&` starting what the unescape reads (`&#45;`, `&amp;`) is escaped
+    // too, so text already holding them comes back exactly.
+    let mut escaped = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        if rest.starts_with("--") {
+            escaped.push_str(ESCAPED_DASHES);
+            rest = &rest[2..];
+        } else if rest.starts_with("&#45;") || rest.starts_with("&amp;") {
+            escaped.push_str("&amp;");
+            rest = &rest[1..];
+        } else {
+            escaped.push(character);
+            rest = &rest[character.len_utf8()..];
+        }
+    }
+    escaped
 }
 
 /// The text of a comment the editor wrote, as it was before.
 pub(super) fn unescape_comment_text(text: &str) -> String {
-    text.replace(ESCAPED_DASHES, "--")
+    let mut plain = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        if let Some(after) = rest.strip_prefix("&#45;") {
+            plain.push('-');
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("&amp;") {
+            plain.push('&');
+            rest = after;
+        } else {
+            plain.push(character);
+            rest = &rest[character.len_utf8()..];
+        }
+    }
+    plain
 }
 
 /// The open attribute quote at the caret and whether it is in a comment:

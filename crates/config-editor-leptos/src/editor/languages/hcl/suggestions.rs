@@ -48,6 +48,11 @@ fn in_one_line_block(
     if close < caret {
         return None;
     }
+    // An attribute's name being edited (`{ pa|th = "/x" }`): renamed in
+    // place, as anywhere else.
+    if line[caret..].trim_start().starts_with('=') {
+        return None;
+    }
     let typed_len = before.len() - before.trim_end_matches(|character: char| character.is_alphanumeric() || matches!(character, '_' | '-')).len();
     let typed_start = caret - typed_len;
     let first = line[open + 1..typed_start].trim();
@@ -117,6 +122,22 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let line = &source[line_start..line_end];
     let caret_in_line = cursor.saturating_sub(line_start).min(line.len());
     let before_caret = &line[..caret_in_line];
+
+    // Right after a block's `}` on its line (`}|`, `}h|`): no entry can start
+    // there.
+    if before_caret
+        .trim_end_matches(|character: char| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        .ends_with('}')
+    {
+        return CompletionContext {
+            path,
+            replace_start: utf16(&source[..cursor]),
+            replace_end: utf16(&source[..cursor]),
+            base_indent,
+            no_properties: true,
+            ..Default::default()
+        };
+    }
 
     // The caret sits in a comment: offer nothing typed, keep the path.
     if line_comment_start(before_caret).is_some() {

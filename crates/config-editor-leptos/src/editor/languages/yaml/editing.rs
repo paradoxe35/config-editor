@@ -424,6 +424,7 @@ pub(super) fn quoted_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> 
 /// block below its last line when that line is a key opening one
 /// (`websocket:` with `  path: /x` under it).
 pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) -> (usize, usize) {
+    let start = continued_entry_start(source, start);
     let end_byte = utf16_to_byte_index(source, end);
     let line_start = source[..end_byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[end_byte..].find('\n').map_or(source.len(), |at| end_byte + at);
@@ -440,7 +441,10 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
         bare = before.trim_end();
     }
     let item = code.trim_start().starts_with("- ") || code.trim() == "-";
-    let opens_block = (bare.ends_with(':') || item) && !code.trim_start().starts_with('#');
+    // Any entry: what is indented under it is its children, or the rest of
+    // a plain value written over lines (`a: x` then `  y`).
+    let _ = bare;
+    let opens_block = !code.trim().is_empty() && !code.trim_start().starts_with('#');
     if !opens_block {
         return (start, end);
     }
@@ -465,4 +469,51 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
         return (start, end);
     }
     (start, end.max(source[..last_end].encode_utf16().count()))
+}
+
+/// The UTF-16 offset of the start of the entry a plain value over lines
+/// continues on the line holding `start` (`  y` after `a: x`), or `start`.
+fn continued_entry_start(source: &str, start: usize) -> usize {
+    let byte = utf16_to_byte_index(source, start);
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let is_entry = |code: &str| {
+        let trimmed = code.trim_start();
+        trimmed.starts_with("- ") || trimmed == "-" || mapping_colon_anywhere(trimmed).is_some()
+    };
+    let own_line = source[..byte].rfind('\n').map_or(0, |at| at + 1);
+    let mut line_start = own_line;
+    loop {
+        let line_end = source[line_start..].find('\n').map_or(source.len(), |at| line_start + at);
+        let line = &source[line_start..line_end];
+        let code = code_before_comment(line);
+        if code.trim().is_empty() || is_entry(code) || line_start == 0 {
+            break;
+        }
+        // The nearest line above with code: an entry with a value written
+        // on its line, less indented, that this line continues.
+        let mut above_start = line_start - 1;
+        let above = loop {
+            let begin = source[..above_start].rfind('\n').map_or(0, |at| at + 1);
+            let text = &source[begin..above_start];
+            if !code_before_comment(text).trim().is_empty() || begin == 0 {
+                break (begin, text);
+            }
+            above_start = begin.saturating_sub(1);
+            if begin == 0 {
+                break (0, text);
+            }
+        };
+        let above_code = code_before_comment(above.1);
+        if indent(above.1) >= indent(line) || above_code.trim_end().ends_with(':') || above_code.trim().is_empty() {
+            break;
+        }
+        line_start = above.0;
+        if is_entry(above_code) {
+            break;
+        }
+    }
+    if line_start == own_line {
+        return start;
+    }
+    source[..line_start].encode_utf16().count().min(start)
 }

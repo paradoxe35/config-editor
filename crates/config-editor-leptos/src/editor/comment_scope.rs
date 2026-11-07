@@ -124,7 +124,18 @@ pub(crate) fn over_balanced_lines(
                     escaped = true;
                 } else if rest.starts_with(delimiter) {
                     quote = None;
-                    at += delimiter.len();
+                    // A long quote closes after quotes of its text (TOML's
+                    // `""""` is a `"` then the closer): the whole run.
+                    let run = if delimiter.len() > 1 {
+                        let mark = delimiter.as_bytes()[0];
+                        rest.bytes()
+                            .take_while(|byte| *byte == mark)
+                            .count()
+                            .min(delimiter.len() + 2)
+                    } else {
+                        delimiter.len()
+                    };
+                    at += run;
                     continue;
                 }
                 at += character.len_utf8();
