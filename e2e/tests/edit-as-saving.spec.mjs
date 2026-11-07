@@ -86,11 +86,17 @@ test.describe('saving text that does not parse while editing as another language
     const e = editor(page);
     await caretAfter(e, 'listen = 7835');
     await page.keyboard.type(' =');
-    await caretAfter(e, 'listen');
+    // The caret far from the problem.
+    await e.input.evaluate((element) => {
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    const line = (await e.value()).split('\n').findIndex((text) => text.includes('listen = 7835')) + 1;
+    expect(line).toBeGreaterThan(0);
     await page.keyboard.press('Control+s');
     await expect(status(page)).toHaveAttribute('data-saves', '0');
     await expect(page.locator('.config-editor__diagnostic-marker-shown')).toHaveCount(1);
-    expect(await e.caret()).toMatchObject({ line: 2 });
+    expect(await e.caret()).toMatchObject({ line });
   });
 });
 
