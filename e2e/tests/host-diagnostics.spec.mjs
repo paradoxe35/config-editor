@@ -174,13 +174,15 @@ test.describe('vanilla.html', () => {
     const note = browserPage.locator(`#${await input(browserPage).getAttribute('aria-describedby')}`);
     await expect(note).toContainText('port in use');
     await expect(note).toContainText('E_PORT');
-    await expect(note).toContainText('about:blank#ports');
+    await expect(note).toContainText('https://example.com/docs/ports');
     await browserPage.keyboard.press('Control+Home');
     await browserPage.keyboard.press('F8');
     await expect(browserPage.locator('.config-editor__announcement')).toContainText('E_PORT');
     const popup = browserPage.waitForEvent('popup');
     await browserPage.keyboard.press('Alt+Enter');
-    expect((await popup).url()).toContain('about:blank');
+    // The docs page opens (offline it shows an error page for that address).
+    const opened = await popup;
+    await expect.poll(() => opened.url()).not.toBe('about:blank');
     // Nothing was typed.
     expect(await input(browserPage).inputValue()).toContain('listen: 7835\n');
   });
