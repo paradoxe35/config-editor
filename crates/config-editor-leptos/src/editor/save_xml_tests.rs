@@ -144,3 +144,17 @@ fn xml_mixed_content_refuses_to_be_edited_as_another_language() {
     }
     report(failures);
 }
+
+/// The refusal is worded by the `strings` setting.
+#[test]
+fn the_mixed_content_refusal_is_worded_by_the_strings_setting() {
+    use super::edit_as::SaveError;
+    let strings = crate::EditorStrings {
+        mixed_content: "mixed at {pointer}".to_string(),
+        ..crate::EditorStrings::default()
+    };
+    let error = SaveError::Convert(ConvertError::MixedContent {
+        pointer: "/root/mixed".to_string(),
+    });
+    assert_eq!(error.text(&strings, Language::XML), "mixed at /root/mixed");
+}

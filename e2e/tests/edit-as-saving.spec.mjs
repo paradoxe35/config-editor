@@ -109,10 +109,10 @@ test.describe('switching the editing language', () => {
     await caretAfter(e, 'listen', 2);
     await pick(page, 'json');
     await expect.poll(() => e.value()).toContain('"listen": 7835');
-    // The caret is on the same field in the new view.
+    // The caret is on the same field in the new view, at its place in the key.
     const json = await e.value();
     const caret = await e.input.evaluate((element) => element.selectionStart);
-    expect(json.slice(caret, caret + 8)).toBe('"listen"');
+    expect(json.slice(caret - 2, caret + 4)).toBe('listen');
     await e.input.focus();
     await page.keyboard.press('Control+z');
     await expect.poll(() => e.value()).toBe(original);
