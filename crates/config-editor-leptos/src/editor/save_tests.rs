@@ -531,18 +531,22 @@ fn round_10_saves_change_only_the_edit() {
     let mut failures = Vec::new();
     // The edit is made on the value (through a JSON view); the host must
     // change only where the value did.
-    let mut check = |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
-        let bridge = Bridge::new(host, Language::JSON, None).unwrap();
-        let shown = bridge.to_edit(text).unwrap().text;
-        let mut value: Value = serde_json::from_str(&shown).unwrap();
-        change(&mut value);
-        let changed = serde_json::to_string_pretty(&value).unwrap();
-        match bridge.to_host(&changed, text) {
-            Ok(saved) if saved.text == expected => {}
-            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
-            Err(error) => failures.push(format!("{name}: {error:?}")),
-        }
-    };
+    let mut check =
+        |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+            let bridge = Bridge::new(host, Language::JSON, None).unwrap();
+            let shown = bridge.to_edit(text).unwrap().text;
+            let mut value: Value = serde_json::from_str(&shown).unwrap();
+            change(&mut value);
+            let changed = serde_json::to_string_pretty(&value).unwrap();
+            match bridge.to_host(&changed, text) {
+                Ok(saved) if saved.text == expected => {}
+                Ok(saved) => failures.push(format!(
+                    "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
+                    saved.text, saved.text
+                )),
+                Err(error) => failures.push(format!("{name}: {error:?}")),
+            }
+        };
     let object = |value: &mut Value, path: &[&str]| -> serde_json::Map<String, Value> {
         let mut at = &*value;
         for key in path {
@@ -559,70 +563,184 @@ fn round_10_saves_change_only_the_edit() {
     };
     // H1: a TOML table with its own header, next to dotted keys of its parent.
     let toml = "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\n";
-    check("H1 add", Language::TOML, toml, &|v| v["services"]["web"]["bind"] = json!(5),
-        "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\nbind = 5\n");
-    check("H1 delete", Language::TOML, toml, &|v| {
-        let mut web = object(v, &["services", "web"]);
-        web.remove("client");
-        set(v, &["services", "web"], web);
-    }, "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\n");
+    check(
+        "H1 add",
+        Language::TOML,
+        toml,
+        &|v| v["services"]["web"]["bind"] = json!(5),
+        "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\nclient = \"acme\" # c\nbind = 5\n",
+    );
+    check(
+        "H1 delete",
+        Language::TOML,
+        toml,
+        &|v| {
+            let mut web = object(v, &["services", "web"]);
+            web.remove("client");
+            set(v, &["services", "web"], web);
+        },
+        "# head\nlisten = 1\nservices.api.target = 81\n\n[services.web]\ntarget = 80 # t\n",
+    );
     // H2: one-line labelled HCL blocks.
-    let hcl = "# head\nlisten = 1 # l\nclients \"beta\" { secret = \"s2\" }\nudp = { max_peers = 3 }\n";
-    check("H2 add", Language::HCL, hcl, &|v| v["clients"]["beta"]["max_connections"] = json!(2),
-        "# head\nlisten = 1 # l\nclients \"beta\" {\n  secret = \"s2\"\n  max_connections = 2\n}\nudp = { max_peers = 3 }\n");
-    let hcl = "# h\nclients \"a\" { secret = \"s\" }\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n";
+    let hcl =
+        "# head\nlisten = 1 # l\nclients \"beta\" { secret = \"s2\" }\nudp = { max_peers = 3 }\n";
+    check(
+        "H2 add",
+        Language::HCL,
+        hcl,
+        &|v| v["clients"]["beta"]["max_connections"] = json!(2),
+        "# head\nlisten = 1 # l\nclients \"beta\" {\n  secret = \"s2\"\n  max_connections = 2\n}\nudp = { max_peers = 3 }\n",
+    );
+    let hcl =
+        "# h\nclients \"a\" { secret = \"s\" }\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n";
     let drop_a = |v: &mut Value| {
         let mut clients = object(v, &["clients"]);
         clients.remove("a");
         set(v, &["clients"], clients);
     };
-    check("H2 delete", Language::HCL, hcl, &drop_a, "# h\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n");
+    check(
+        "H2 delete",
+        Language::HCL,
+        hcl,
+        &drop_a,
+        "# h\nclients \"b\" { secret = \"t\" }\nlisten = 1 # l\n",
+    );
     let hcl = "clients \"a\" { secret = \"s\" } # a\nclients \"b\" {\n  secret = \"t\" # b\n}\n";
-    check("H2 delete before multi-line", Language::HCL, hcl, &drop_a, "clients \"b\" {\n  secret = \"t\" # b\n}\n");
+    check(
+        "H2 delete before multi-line",
+        Language::HCL,
+        hcl,
+        &drop_a,
+        "clients \"b\" {\n  secret = \"t\" # b\n}\n",
+    );
     // H4: YAML scalars and flow collections keep their style.
     let yaml = "allow:\n  - a/8 # A\n  - 'c/8'\n  - \"e/8\"\nsecret: >-\n  s1\nhealth_check: {path: /h, interval_secs: 3}\nflow: [ 'a/8', \"b/8\" ]   # flow\n";
-    check("H4 plain", Language::YAML, yaml, &|v| v["allow"][0] = json!("b/8"),
-        &yaml.replace("- a/8 # A", "- b/8 # A"));
-    check("H4 single", Language::YAML, yaml, &|v| v["allow"][1] = json!("d/8"),
-        &yaml.replace("'c/8'", "'d/8'"));
-    check("H4 block", Language::YAML, yaml, &|v| v["secret"] = json!("s1x"),
-        &yaml.replace("  s1\n", "  s1x\n"));
-    check("H4 flow add", Language::YAML, yaml, &|v| v["health_check"]["failures"] = json!(2),
-        &yaml.replace("interval_secs: 3}", "interval_secs: 3, failures: 2}"));
-    check("H4 flow delete", Language::YAML, yaml, &|v| {
-        let mut health = object(v, &["health_check"]);
-        health.remove("interval_secs");
-        set(v, &["health_check"], health);
-    }, &yaml.replace("{path: /h, interval_secs: 3}", "{path: /h}"));
-    check("H4 flow append", Language::YAML, yaml, &|v| v["flow"].as_array_mut().unwrap().push(json!("c/8")),
-        &yaml.replace("\"b/8\" ]", "\"b/8\", \"c/8\" ]"));
-    check("H4 block delete", Language::YAML, yaml, &|v| {
-        v.as_object_mut().unwrap().remove("secret");
-    }, &yaml.replace("secret: >-\n  s1\n", ""));
-    let hcl = "clients \"alpha\" { secret = \"s1\" } # a\nclients \"beta\" {\n  secret = \"s2\" # b\n}\n";
-    check("H2 rename", Language::HCL, hcl, &|v| {
-        let clients = v.as_object_mut().unwrap().remove("clients").unwrap();
-        v["peers"] = clients;
-    }, &hcl.replace("clients", "peers"));
+    check(
+        "H4 plain",
+        Language::YAML,
+        yaml,
+        &|v| v["allow"][0] = json!("b/8"),
+        &yaml.replace("- a/8 # A", "- b/8 # A"),
+    );
+    check(
+        "H4 single",
+        Language::YAML,
+        yaml,
+        &|v| v["allow"][1] = json!("d/8"),
+        &yaml.replace("'c/8'", "'d/8'"),
+    );
+    check(
+        "H4 block",
+        Language::YAML,
+        yaml,
+        &|v| v["secret"] = json!("s1x"),
+        &yaml.replace("  s1\n", "  s1x\n"),
+    );
+    check(
+        "H4 flow add",
+        Language::YAML,
+        yaml,
+        &|v| v["health_check"]["failures"] = json!(2),
+        &yaml.replace("interval_secs: 3}", "interval_secs: 3, failures: 2}"),
+    );
+    check(
+        "H4 flow delete",
+        Language::YAML,
+        yaml,
+        &|v| {
+            let mut health = object(v, &["health_check"]);
+            health.remove("interval_secs");
+            set(v, &["health_check"], health);
+        },
+        &yaml.replace("{path: /h, interval_secs: 3}", "{path: /h}"),
+    );
+    check(
+        "H4 flow append",
+        Language::YAML,
+        yaml,
+        &|v| v["flow"].as_array_mut().unwrap().push(json!("c/8")),
+        &yaml.replace("\"b/8\" ]", "\"b/8\", \"c/8\" ]"),
+    );
+    check(
+        "H4 block delete",
+        Language::YAML,
+        yaml,
+        &|v| {
+            v.as_object_mut().unwrap().remove("secret");
+        },
+        &yaml.replace("secret: >-\n  s1\n", ""),
+    );
+    let hcl =
+        "clients \"alpha\" { secret = \"s1\" } # a\nclients \"beta\" {\n  secret = \"s2\" # b\n}\n";
+    check(
+        "H2 rename",
+        Language::HCL,
+        hcl,
+        &|v| {
+            let clients = v.as_object_mut().unwrap().remove("clients").unwrap();
+            v["peers"] = clients;
+        },
+        &hcl.replace("clients", "peers"),
+    );
     // M1: a header of several comment lines above the first entry keeps
     // the lines that do not name the entry.
     for (host, text, expected) in [
-        (Language::YAML, "# Header\n# about tcp\ntcp:\n  nodelay: true\nlisten: 1\n", "# Header\nlisten: 1\n"),
-        (Language::YAML, "# Burrow\n# settings\ntcp:\n  nodelay: true\nlisten: 1\n", "# Burrow\n# settings\nlisten: 1\n"),
-        (Language::TOML, "# Header\n# about tcp\n[tcp]\nnodelay = true\n\n[udp]\nmax_peers = 1\n", "# Header\n\n[udp]\nmax_peers = 1\n"),
-        (Language::HCL, "# Header\n# about tcp\ntcp {\n  nodelay = true\n}\nlisten = 1\n", "# Header\nlisten = 1\n"),
+        (
+            Language::YAML,
+            "# Header\n# about tcp\ntcp:\n  nodelay: true\nlisten: 1\n",
+            "# Header\nlisten: 1\n",
+        ),
+        (
+            Language::YAML,
+            "# Burrow\n# settings\ntcp:\n  nodelay: true\nlisten: 1\n",
+            "# Burrow\n# settings\nlisten: 1\n",
+        ),
+        (
+            Language::TOML,
+            "# Header\n# about tcp\n[tcp]\nnodelay = true\n\n[udp]\nmax_peers = 1\n",
+            "# Header\n\n[udp]\nmax_peers = 1\n",
+        ),
+        (
+            Language::HCL,
+            "# Header\n# about tcp\ntcp {\n  nodelay = true\n}\nlisten = 1\n",
+            "# Header\nlisten = 1\n",
+        ),
     ] {
-        check(&format!("M1 {host:?}"), host, text, &|v| {
-            v.as_object_mut().unwrap().remove("tcp");
-        }, expected);
+        check(
+            &format!("M1 {host:?}"),
+            host,
+            text,
+            &|v| {
+                v.as_object_mut().unwrap().remove("tcp");
+            },
+            expected,
+        );
     }
     // M2: a reorder takes each item's comments along.
     for (host, text, expected) in [
-        (Language::YAML, "allow:\n  - 127.0.0.1/32 # loopback\n  # private\n  - 10.0.0.0/8\n", "allow:\n  # private\n  - 10.0.0.0/8\n  - 127.0.0.1/32 # loopback\n"),
-        (Language::TOML, "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n", "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n"),
-        (Language::HCL, "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n", "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n"),
+        (
+            Language::YAML,
+            "allow:\n  - 127.0.0.1/32 # loopback\n  # private\n  - 10.0.0.0/8\n",
+            "allow:\n  # private\n  - 10.0.0.0/8\n  - 127.0.0.1/32 # loopback\n",
+        ),
+        (
+            Language::TOML,
+            "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n",
+            "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n",
+        ),
+        (
+            Language::HCL,
+            "allow = [\n  \"127.0.0.1/32\", # loopback\n  \"10.0.0.0/8\",\n]\n",
+            "allow = [\n  \"10.0.0.0/8\",\n  \"127.0.0.1/32\", # loopback\n]\n",
+        ),
     ] {
-        check(&format!("M2 {host:?}"), host, text, &|v| v["allow"].as_array_mut().unwrap().reverse(), expected);
+        check(
+            &format!("M2 {host:?}"),
+            host,
+            text,
+            &|v| v["allow"].as_array_mut().unwrap().reverse(),
+            expected,
+        );
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
@@ -633,91 +751,176 @@ fn round_11_saves_change_only_the_edit() {
     let mut failures = Vec::new();
     // The edits are made on the value (through a JSON view), all before one
     // save; the host must change only where the value did.
-    let mut check = |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
-        // JSON text is YAML too: a JSON host is edited through a YAML view.
-        let edit = if host == Language::JSON { Language::YAML } else { Language::JSON };
-        let bridge = Bridge::new(host, edit, None).unwrap();
-        let shown = bridge.to_edit(text).unwrap().text;
-        let mut value: Value = edit.parse(&shown).unwrap();
-        change(&mut value);
-        let changed = serde_json::to_string_pretty(&value).unwrap();
-        match bridge.to_host(&changed, text) {
-            Ok(saved) if saved.text == expected => {}
-            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
-            Err(error) => failures.push(format!("{name}: {error:?}")),
-        }
-    };
+    let mut check =
+        |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+            // JSON text is YAML too: a JSON host is edited through a YAML view.
+            let edit = if host == Language::JSON {
+                Language::YAML
+            } else {
+                Language::JSON
+            };
+            let bridge = Bridge::new(host, edit, None).unwrap();
+            let shown = bridge.to_edit(text).unwrap().text;
+            let mut value: Value = edit.parse(&shown).unwrap();
+            change(&mut value);
+            let changed = serde_json::to_string_pretty(&value).unwrap();
+            match bridge.to_host(&changed, text) {
+                Ok(saved) if saved.text == expected => {}
+                Ok(saved) => failures.push(format!(
+                    "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
+                    saved.text, saved.text
+                )),
+                Err(error) => failures.push(format!("{name}: {error:?}")),
+            }
+        };
     let remove = |value: &mut Value, path: &[&str], key: &str| {
         let mut at = value;
         for segment in path {
             at = &mut at[*segment];
         }
         let map = at.as_object_mut().unwrap();
-        let rebuilt: serde_json::Map<String, Value> = std::mem::take(map).into_iter().filter(|(name, _)| name != key).collect();
+        let rebuilt: serde_json::Map<String, Value> = std::mem::take(map)
+            .into_iter()
+            .filter(|(name, _)| name != key)
+            .collect();
         *map = rebuilt;
     };
     // H1: YAML hosts indented other than by two spaces.
-    check("H1 indentless", Language::YAML, "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n",
+    check(
+        "H1 indentless",
+        Language::YAML,
+        "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n",
         &|v| v["self"]["allow"].as_array_mut().unwrap().push(json!("b")),
-        "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n  - b\n");
-    check("H1 four-space map", Language::YAML, "# h\npool:\n    min_idle: 4\n\"listen\": 1\n",
+        "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n  - b\n",
+    );
+    check(
+        "H1 four-space map",
+        Language::YAML,
+        "# h\npool:\n    min_idle: 4\n\"listen\": 1\n",
         &|v| v["pool"]["max_idle"] = json!(1),
-        "# h\npool:\n    min_idle: 4\n    max_idle: 1\n\"listen\": 1\n");
-    check("H1 four-space list", Language::YAML, "# h\nallow:\n    - a\n",
+        "# h\npool:\n    min_idle: 4\n    max_idle: 1\n\"listen\": 1\n",
+    );
+    check(
+        "H1 four-space list",
+        Language::YAML,
+        "# h\nallow:\n    - a\n",
         &|v| v["allow"].as_array_mut().unwrap().push(json!("b")),
-        "# h\nallow:\n    - a\n    - b\n");
-    check("H1 spaced dashes", Language::YAML, "# h\nallow:\n-   a\n",
+        "# h\nallow:\n    - a\n    - b\n",
+    );
+    check(
+        "H1 spaced dashes",
+        Language::YAML,
+        "# h\nallow:\n-   a\n",
         &|v| v["allow"].as_array_mut().unwrap().push(json!("b")),
-        "# h\nallow:\n-   a\n-   b\n");
+        "# h\nallow:\n-   a\n-   b\n",
+    );
     // H2: two edits in one save, one of them structural.
-    check("H2 flow kept", Language::YAML, "listen: 1\nudp: {max_peers: 2}\npool:\n  min_idle: 1\n",
+    check(
+        "H2 flow kept",
+        Language::YAML,
+        "listen: 1\nudp: {max_peers: 2}\npool:\n  min_idle: 1\n",
         &|v| {
             v["udp"]["max_peers"] = json!(3);
             v["pool"]["max_idle"] = json!(1);
         },
-        "listen: 1\nudp: {max_peers: 3}\npool:\n  min_idle: 1\n  max_idle: 1\n");
-    check("H2 delete and edit", Language::YAML, "listen: 1 # l\nudp: {max_peers: 2}\n",
+        "listen: 1\nudp: {max_peers: 3}\npool:\n  min_idle: 1\n  max_idle: 1\n",
+    );
+    check(
+        "H2 delete and edit",
+        Language::YAML,
+        "listen: 1 # l\nudp: {max_peers: 2}\n",
         &|v| {
             remove(v, &[], "listen");
             v["udp"]["max_peers"] = json!(3);
         },
-        "udp: {max_peers: 3}\n");
+        "udp: {max_peers: 3}\n",
+    );
     // H3: a list append and another edit in one save.
-    check("H3 TOML", Language::TOML, "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n]\n",
+    check(
+        "H3 TOML",
+        Language::TOML,
+        "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n]\n",
         &|v| {
             v["listen"] = json!(2);
             v["self"]["allow"].as_array_mut().unwrap().push(json!("b"));
         },
-        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n  \"b\",\n]\n");
-    check("H3 HCL", Language::HCL, "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n  ]\n}\n",
+        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n  \"b\",\n]\n",
+    );
+    check(
+        "H3 HCL",
+        Language::HCL,
+        "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n  ]\n}\n",
         &|v| {
             v["listen"] = json!(2);
             v["self"]["allow"].as_array_mut().unwrap().push(json!("b"));
         },
-        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n    \"b\",\n  ]\n}\n");
+        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n    \"b\",\n  ]\n}\n",
+    );
     // H4: a multi-line string in a table under a parent with dotted keys.
     let toml = "listen = 1\nservices.web.target = 80\n\n[services.db]\nhealth_check.path = '''\n/lit\n'''\nclient = \"acme\"\n";
-    check("H4", Language::TOML, toml, &|v| v["listen"] = json!(2), &toml.replace("listen = 1", "listen = 2"));
+    check(
+        "H4",
+        Language::TOML,
+        toml,
+        &|v| v["listen"] = json!(2),
+        &toml.replace("listen = 1", "listen = 2"),
+    );
     // H5, H6: XML attribute values that need escaping.
     let xml = "<!-- head -->\n<beta secret=\"s2\" max_connections=\"2\"></beta>\n<!-- tail -->\n";
-    for (value, written) in [("a&b", "a&amp;b"), ("a\"b", "a&quot;b"), ("a<b", "a&lt;b"), ("a\nb", "a&#10;b")] {
-        check(&format!("H5 {value:?}"), Language::XML, xml, &|v| v["beta"]["secret"] = json!(value),
-            &xml.replace("secret=\"s2\"", &format!("secret=\"{written}\"")));
+    for (value, written) in [
+        ("a&b", "a&amp;b"),
+        ("a\"b", "a&quot;b"),
+        ("a<b", "a&lt;b"),
+        ("a\nb", "a&#10;b"),
+    ] {
+        check(
+            &format!("H5 {value:?}"),
+            Language::XML,
+            xml,
+            &|v| v["beta"]["secret"] = json!(value),
+            &xml.replace("secret=\"s2\"", &format!("secret=\"{written}\"")),
+        );
     }
     // H7: XML text ending in a line break.
     let xml = "<!-- c -->\n<beta>\n  <secret>k1\nk2\n</secret>\n</beta>\n<listen>1</listen>\n";
-    check("H7 edit", Language::XML, xml, &|v| v["beta"]["secret"] = json!("k3"),
-        "<!-- c -->\n<beta>\n  <secret>k3\n</secret>\n</beta>\n<listen>1</listen>\n");
-    check("H7 delete", Language::XML, xml, &|v| remove(v, &[], "beta"), "<!-- c -->\n<listen>1</listen>\n");
+    check(
+        "H7 edit",
+        Language::XML,
+        xml,
+        &|v| v["beta"]["secret"] = json!("k3"),
+        "<!-- c -->\n<beta>\n  <secret>k3\n</secret>\n</beta>\n<listen>1</listen>\n",
+    );
+    check(
+        "H7 delete",
+        Language::XML,
+        xml,
+        &|v| remove(v, &[], "beta"),
+        "<!-- c -->\n<listen>1</listen>\n",
+    );
     // MEDIUM: an HCL heredoc keeps its form; a YAML flow list its spacing.
-    check("M heredoc", Language::HCL, "# c\nsecret = <<EOT\nabc\nEOT\nlisten = 1\n", &|v| v["secret"] = json!("abd\n"),
-        "# c\nsecret = <<EOT\nabd\nEOT\nlisten = 1\n");
+    check(
+        "M heredoc",
+        Language::HCL,
+        "# c\nsecret = <<EOT\nabc\nEOT\nlisten = 1\n",
+        &|v| v["secret"] = json!("abd\n"),
+        "# c\nsecret = <<EOT\nabd\nEOT\nlisten = 1\n",
+    );
     let yaml = "allow: [ 10.0.0.0/8 ,\"192.168.0.0/16\",   '172.16.0.0/12' ]\n";
-    check("M flow spacing", Language::YAML, yaml, &|v| v["allow"].as_array_mut().unwrap().push(json!("1.1.1.1/32")),
-        "allow: [ 10.0.0.0/8 ,\"192.168.0.0/16\",   '172.16.0.0/12',   '1.1.1.1/32' ]\n");
+    check(
+        "M flow spacing",
+        Language::YAML,
+        yaml,
+        &|v| v["allow"].as_array_mut().unwrap().push(json!("1.1.1.1/32")),
+        "allow: [ 10.0.0.0/8 ,\"192.168.0.0/16\",   '172.16.0.0/12',   '1.1.1.1/32' ]\n",
+    );
     // LOW: compact JSON stays compact.
-    check("L compact", Language::JSON, "{\"tcp\":{\"nodelay\":true}}\n", &|v| v["tcp"]["keepalive"] = json!({"secs": 1}),
-        "{\"tcp\":{\"nodelay\":true,\"keepalive\":{\"secs\":1}}}\n");
+    check(
+        "L compact",
+        Language::JSON,
+        "{\"tcp\":{\"nodelay\":true}}\n",
+        &|v| v["tcp"]["keepalive"] = json!({"secs": 1}),
+        "{\"tcp\":{\"nodelay\":true,\"keepalive\":{\"secs\":1}}}\n",
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
@@ -726,11 +929,17 @@ fn round_11_saves_change_only_the_edit() {
 /// empty element.
 #[test]
 fn xml_text_decodes_references_and_refuses_null() {
-    let value = Language::XML.parse("<secret>a&#10;b&#65;&#x42;</secret>\n").unwrap();
+    let value = Language::XML
+        .parse("<secret>a&#10;b&#65;&#x42;</secret>\n")
+        .unwrap();
     assert_eq!(value["secret"], "a\nbAB");
     let bridge = Bridge::new(Language::XML, Language::YAML, None).unwrap();
     let host = "<public_address>x</public_address>\n<listen>1</listen>\n";
-    assert!(bridge.to_host("public_address: null\nlisten: 1\n", host).is_err());
+    assert!(
+        bridge
+            .to_host("public_address: null\nlisten: 1\n", host)
+            .is_err()
+    );
 }
 
 /// Round 11: `<` in an XML attribute value is not well-formed XML, so it is
@@ -745,7 +954,12 @@ fn a_raw_less_than_in_an_xml_attribute_is_a_syntax_error() {
 fn round_12_saves_change_only_the_edit() {
     use serde_json::{Value, json};
     let mut failures = Vec::new();
-    let mut check = |name: &str, host: Language, edit: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+    let mut check = |name: &str,
+                     host: Language,
+                     edit: Language,
+                     text: &str,
+                     change: &dyn Fn(&mut Value),
+                     expected: &str| {
         let bridge = Bridge::new(host, edit, None).unwrap();
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
@@ -753,42 +967,105 @@ fn round_12_saves_change_only_the_edit() {
         let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved.text == expected => {}
-            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Ok(saved) => failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
+                saved.text, saved.text
+            )),
             Err(error) => failures.push(format!("{name}: {error:?}")),
         }
     };
     // H1: anchors and aliases; an alias whose value parts from its anchor's
     // is written out, everything else stays.
     let yaml = "pool: &p\n  min_idle: 1\nudp: *p\nlisten: 1 # keep\n";
-    check("H1 anchor edited", Language::YAML, Language::JSON, yaml, &|v| v["pool"]["min_idle"] = json!(5),
-        "pool: &p\n  min_idle: 5\nudp: {min_idle: 1}\nlisten: 1 # keep\n");
-    check("H1 alias edited", Language::YAML, Language::JSON, yaml, &|v| v["udp"]["min_idle"] = json!(7),
-        "pool: &p\n  min_idle: 1\nudp: {min_idle: 7}\nlisten: 1 # keep\n");
+    check(
+        "H1 anchor edited",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["pool"]["min_idle"] = json!(5),
+        "pool: &p\n  min_idle: 5\nudp: {min_idle: 1}\nlisten: 1 # keep\n",
+    );
+    check(
+        "H1 alias edited",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["udp"]["min_idle"] = json!(7),
+        "pool: &p\n  min_idle: 1\nudp: {min_idle: 7}\nlisten: 1 # keep\n",
+    );
     let yaml = "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 2\n  gamma:\n    <<: *client\n    secret: s3\n";
-    check("H1 merge, anchor edited", Language::YAML, Language::JSON, yaml, &|v| v["clients"]["acme"]["max_connections"] = json!(5),
-        "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 5\n  gamma:\n    max_connections: 2\n    secret: s3\n");
-    check("H1 merge, other edit", Language::YAML, Language::JSON, &format!("{yaml}listen: 1\n"), &|v| v["listen"] = json!(2),
-        &format!("{yaml}listen: 2\n"));
+    check(
+        "H1 merge, anchor edited",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["clients"]["acme"]["max_connections"] = json!(5),
+        "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 5\n  gamma:\n    max_connections: 2\n    secret: s3\n",
+    );
+    check(
+        "H1 merge, other edit",
+        Language::YAML,
+        Language::JSON,
+        &format!("{yaml}listen: 1\n"),
+        &|v| v["listen"] = json!(2),
+        &format!("{yaml}listen: 2\n"),
+    );
     // H2: a YAML empty value filled.
-    check("H2 filled", Language::YAML, Language::JSON, "listen: 1 # l\nservices:\n", &|v| v["services"] = json!({"web": {"target": 80}}),
-        "listen: 1 # l\nservices:\n  web:\n    target: 80\n");
-    check("H2 next comment", Language::YAML, Language::JSON, "services:\nvisitors: {} # none yet\n", &|v| v["services"] = json!({"web": 1}),
-        "services:\n  web: 1\nvisitors: {} # none yet\n");
+    check(
+        "H2 filled",
+        Language::YAML,
+        Language::JSON,
+        "listen: 1 # l\nservices:\n",
+        &|v| v["services"] = json!({"web": {"target": 80}}),
+        "listen: 1 # l\nservices:\n  web:\n    target: 80\n",
+    );
+    check(
+        "H2 next comment",
+        Language::YAML,
+        Language::JSON,
+        "services:\nvisitors: {} # none yet\n",
+        &|v| v["services"] = json!({"web": 1}),
+        "services:\n  web: 1\nvisitors: {} # none yet\n",
+    );
     // H3: values the edit language cannot show exactly stay as written.
     let yaml = "listen: 0x10\nudp: {max_peers: 1}\nheartbeat:\n  interval_secs: 1.5e1\n";
     for edit in [Language::XML, Language::HCL] {
-        check(&format!("H3 {edit:?}"), Language::YAML, edit, yaml, &|v| v["pool"] = json!({"min_idle": 1}),
-            &format!("{yaml}pool:\n  min_idle: 1\n"));
+        check(
+            &format!("H3 {edit:?}"),
+            Language::YAML,
+            edit,
+            yaml,
+            &|v| v["pool"] = json!({"min_idle": 1}),
+            &format!("{yaml}pool:\n  min_idle: 1\n"),
+        );
     }
     // H4: a TOML datetime stays a datetime.
-    check("H4", Language::TOML, Language::JSON, "started = 1979-05-27T07:32:00Z # when\n", &|v| v["started"] = json!("1980-01-01T00:00:00Z"),
-        "started = 1980-01-01T00:00:00Z # when\n");
+    check(
+        "H4",
+        Language::TOML,
+        Language::JSON,
+        "started = 1979-05-27T07:32:00Z # when\n",
+        &|v| v["started"] = json!("1980-01-01T00:00:00Z"),
+        "started = 1980-01-01T00:00:00Z # when\n",
+    );
     // H5, M6: a YAML flow map over lines keeps its form and comments.
     let yaml = "tcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30 # b\n}\nlisten: 1\n";
-    check("H5 add", Language::YAML, Language::JSON, yaml, &|v| v["tcp"]["nodelay_x"] = json!(1),
-        "tcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30, # b\n  nodelay_x: 1\n}\nlisten: 1\n");
-    check("M6 edit", Language::YAML, Language::JSON, yaml, &|v| v["tcp"]["keepalive_secs"] = json!(31),
-        &yaml.replace("keepalive_secs: 30", "keepalive_secs: 31"));
+    check(
+        "H5 add",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["tcp"]["nodelay_x"] = json!(1),
+        "tcp: {\n  nodelay: true,   # a\n  keepalive_secs: 30, # b\n  nodelay_x: 1\n}\nlisten: 1\n",
+    );
+    check(
+        "M6 edit",
+        Language::YAML,
+        Language::JSON,
+        yaml,
+        &|v| v["tcp"]["keepalive_secs"] = json!(31),
+        &yaml.replace("keepalive_secs: 30", "keepalive_secs: 31"),
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
@@ -796,7 +1073,9 @@ fn round_12_saves_change_only_the_edit() {
 /// keys written beside them winning.
 #[test]
 fn yaml_merge_keys_merge_the_anchored_map() {
-    let value = Language::YAML.parse("base: &b\n  a: 1\n  b: 2\nmine:\n  <<: *b\n  b: 3\n").unwrap();
+    let value = Language::YAML
+        .parse("base: &b\n  a: 1\n  b: 2\nmine:\n  <<: *b\n  b: 3\n")
+        .unwrap();
     assert_eq!(value["mine"], serde_json::json!({"a": 1, "b": 3}));
 }
 
@@ -804,10 +1083,17 @@ fn yaml_merge_keys_merge_the_anchored_map() {
 fn round_13_saves_change_only_the_edit() {
     use serde_json::{Value, json};
     let schema = std::sync::Arc::new(
-        super::diagnostics::build_schema(include_str!("../../tests/fixtures/burrow.schema.json")).unwrap(),
+        super::diagnostics::build_schema(include_str!("../../tests/fixtures/burrow.schema.json"))
+            .unwrap(),
     );
     let mut failures = Vec::new();
-    let mut check = |name: &str, host: Language, edit: Language, with_schema: bool, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+    let mut check = |name: &str,
+                     host: Language,
+                     edit: Language,
+                     with_schema: bool,
+                     text: &str,
+                     change: &dyn Fn(&mut Value),
+                     expected: &str| {
         let bridge = Bridge::new(host, edit, with_schema.then(|| schema.clone())).unwrap();
         let shown = bridge.to_edit(text).unwrap().text;
         let mut value: Value = edit.parse(&shown).unwrap();
@@ -815,53 +1101,158 @@ fn round_13_saves_change_only_the_edit() {
         let changed = edit.behavior().serialize(&value, Some(&shown)).unwrap();
         match bridge.to_host(&changed, text) {
             Ok(saved) if saved.text == expected => {}
-            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Ok(saved) => failures.push(format!(
+                "{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}",
+                saved.text, saved.text
+            )),
             Err(error) => failures.push(format!("{name}: {error:?}")),
         }
     };
     let remove = |value: &mut Value, pointer: &str, key: &str| {
         let map = value.pointer_mut(pointer).unwrap().as_object_mut().unwrap();
-        let kept: serde_json::Map<String, Value> = std::mem::take(map).into_iter().filter(|(name, _)| name != key).collect();
+        let kept: serde_json::Map<String, Value> = std::mem::take(map)
+            .into_iter()
+            .filter(|(name, _)| name != key)
+            .collect();
         *map = kept;
     };
     // H1: anchored flow mappings.
-    check("H1 flow anchor", Language::YAML, Language::JSON, false, "pool: &p {min_idle: 1}\nlisten: 1 # l\n",
-        &|v| v["pool"]["min_idle"] = json!(2), "pool: &p {min_idle: 2}\nlisten: 1 # l\n");
-    check("H1 list anchor", Language::YAML, Language::JSON, false, "clients:\n  - &p {name: a, target: 80}\n  - *p\nlisten: 1 # t\n",
-        &|v| v["clients"][0]["target"] = json!(81), "clients:\n  - &p {name: a, target: 81}\n  - {name: a, target: 80}\nlisten: 1 # t\n");
+    check(
+        "H1 flow anchor",
+        Language::YAML,
+        Language::JSON,
+        false,
+        "pool: &p {min_idle: 1}\nlisten: 1 # l\n",
+        &|v| v["pool"]["min_idle"] = json!(2),
+        "pool: &p {min_idle: 2}\nlisten: 1 # l\n",
+    );
+    check(
+        "H1 list anchor",
+        Language::YAML,
+        Language::JSON,
+        false,
+        "clients:\n  - &p {name: a, target: 80}\n  - *p\nlisten: 1 # t\n",
+        &|v| v["clients"][0]["target"] = json!(81),
+        "clients:\n  - &p {name: a, target: 81}\n  - {name: a, target: 80}\nlisten: 1 # t\n",
+    );
     // H2: a mapping with a merge key keeps it when its own keys change.
-    let yaml = "base: &b {min_idle: 1, max_idle: 2}\npool:\n  <<: *b\n  max_idle: 3 # over\nlisten: 1\n";
-    check("H2 own key", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"]["max_idle"] = json!(4), &yaml.replace("max_idle: 3", "max_idle: 4"));
-    check("H2 added key", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"]["extra"] = json!(5),
-        &yaml.replace("  max_idle: 3 # over\n", "  max_idle: 3 # over\n  extra: 5\n"));
+    let yaml =
+        "base: &b {min_idle: 1, max_idle: 2}\npool:\n  <<: *b\n  max_idle: 3 # over\nlisten: 1\n";
+    check(
+        "H2 own key",
+        Language::YAML,
+        Language::JSON,
+        false,
+        yaml,
+        &|v| v["pool"]["max_idle"] = json!(4),
+        &yaml.replace("max_idle: 3", "max_idle: 4"),
+    );
+    check(
+        "H2 added key",
+        Language::YAML,
+        Language::JSON,
+        false,
+        yaml,
+        &|v| v["pool"]["extra"] = json!(5),
+        &yaml.replace(
+            "  max_idle: 3 # over\n",
+            "  max_idle: 3 # over\n  extra: 5\n",
+        ),
+    );
     // H3: the last entry of a flow map over lines, `}` on its line.
-    check("H3", Language::YAML, Language::JSON, false, "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true,\n      keepalive_secs: 30}\n",
-        &|v| remove(v, "/tcp", "keepalive_secs"), "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true}\n");
+    check(
+        "H3",
+        Language::YAML,
+        Language::JSON,
+        false,
+        "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true,\n      keepalive_secs: 30}\n",
+        &|v| remove(v, "/tcp", "keepalive_secs"),
+        "pool: {\n  min_idle: 1, # one\n  max_idle: 2\n}\ntcp: {nodelay: true}\n",
+    );
     // H4: a key appended after a last scalar written its own way.
-    for yaml in ["listen: 1\nclients:\n  a:\n    secret: >-\n      x\n      y\n", "listen: 1\nclients:\n  a:\n    max_connections: !!int \"7\"\n"] {
-        check("H4", Language::YAML, Language::JSON, false, yaml, &|v| v["pool"] = json!({"min_idle": 1}), &format!("{yaml}pool:\n  min_idle: 1\n"));
+    for yaml in [
+        "listen: 1\nclients:\n  a:\n    secret: >-\n      x\n      y\n",
+        "listen: 1\nclients:\n  a:\n    max_connections: !!int \"7\"\n",
+    ] {
+        check(
+            "H4",
+            Language::YAML,
+            Language::JSON,
+            false,
+            yaml,
+            &|v| v["pool"] = json!({"min_idle": 1}),
+            &format!("{yaml}pool:\n  min_idle: 1\n"),
+        );
     }
     // H5: nested and repeated HCL blocks stay blocks.
     let hcl = "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n  }\n}\n";
-    check("H5 add to block", Language::HCL, Language::YAML, true, hcl, &|v| {
-        let dns = &mut v["web"]["letsencrypt"]["dns"];
-        let item = if dns.is_array() { &mut dns[0] } else { dns };
-        item["wait_secs"] = json!(3);
-    }, &hcl.replace("      domains = [\"a\"]\n", "      wait_secs = 3\n      domains = [\"a\"]\n"));
+    check(
+        "H5 add to block",
+        Language::HCL,
+        Language::YAML,
+        true,
+        hcl,
+        &|v| {
+            let dns = &mut v["web"]["letsencrypt"]["dns"];
+            let item = if dns.is_array() { &mut dns[0] } else { dns };
+            item["wait_secs"] = json!(3);
+        },
+        &hcl.replace(
+            "      domains = [\"a\"]\n",
+            "      wait_secs = 3\n      domains = [\"a\"]\n",
+        ),
+    );
     let hcl = "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n    dns {\n      domains = [\"b\"]\n    }\n  }\n}\n";
-    check("H5 delete block", Language::HCL, Language::YAML, true, hcl, &|v| {
-        v["web"]["letsencrypt"]["dns"].as_array_mut().unwrap().remove(1);
-    }, "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n  }\n}\n");
+    check(
+        "H5 delete block",
+        Language::HCL,
+        Language::YAML,
+        true,
+        hcl,
+        &|v| {
+            v["web"]["letsencrypt"]["dns"]
+                .as_array_mut()
+                .unwrap()
+                .remove(1);
+        },
+        "web {\n  letsencrypt {\n    email = \"e\" # e\n    dns {\n      domains = [\"a\"]\n    }\n  }\n}\n",
+    );
     // H6: HCL templates stay templates.
-    check("H6", Language::HCL, Language::YAML, false, "listen = \"0.0.0.0:${var.port}\" # templated\n",
-        &|v| v["listen"] = json!("0.0.0.0:${var.port2}"), "listen = \"0.0.0.0:${var.port2}\" # templated\n");
+    check(
+        "H6",
+        Language::HCL,
+        Language::YAML,
+        false,
+        "listen = \"0.0.0.0:${var.port}\" # templated\n",
+        &|v| v["listen"] = json!("0.0.0.0:${var.port2}"),
+        "listen = \"0.0.0.0:${var.port2}\" # templated\n",
+    );
     // H7: an array of tables pushed in a Cargo-like TOML host.
     let toml = "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n";
-    check("H7", Language::TOML, Language::YAML, false, toml, &|v| v["services"]["web"]["clients"].as_array_mut().unwrap().push(json!({"name": "x"})),
-        "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[[services.web.clients]]\nname = \"x\"\n\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n");
+    check(
+        "H7",
+        Language::TOML,
+        Language::YAML,
+        false,
+        toml,
+        &|v| {
+            v["services"]["web"]["clients"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name": "x"}))
+        },
+        "[[services.web.clients]] # backup\nname = \"beta\"\ntarget = 81\n[[services.web.clients]]\nname = \"x\"\n\n[services.web]\nallow_from = [\n]\n[services.api]\ntarget = 81\nclients = [\n]\n",
+    );
     // MEDIUM: number spellings on a one-line JSON host.
-    check("M json numbers", Language::JSON, Language::YAML, false, "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
-        &|v| v["extra"] = json!(1), "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}, \"extra\": 1}\n");
+    check(
+        "M json numbers",
+        Language::JSON,
+        Language::YAML,
+        false,
+        "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
+        &|v| v["extra"] = json!(1),
+        "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}, \"extra\": 1}\n",
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
@@ -871,9 +1262,21 @@ fn round_13_saves_change_only_the_edit() {
 fn a_yaml_value_made_empty_again_is_written_empty() {
     let bridge = Bridge::new(Language::YAML, Language::JSON, None).unwrap();
     let host = "listen: 1\npool:\n  min_idle: 3\n  max_idle: 2\n";
-    let saved = bridge.to_host("{\"listen\": 1, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}", host).unwrap().text;
+    let saved = bridge
+        .to_host(
+            "{\"listen\": 1, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}",
+            host,
+        )
+        .unwrap()
+        .text;
     assert_eq!(saved, "listen: 1\npool:\n  min_idle:\n  max_idle: 2\n");
     let host = "listen: 1\npool:\n  min_idle: ~\n  max_idle: 2\n";
-    let saved = bridge.to_host("{\"listen\": 2, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}", host).unwrap().text;
+    let saved = bridge
+        .to_host(
+            "{\"listen\": 2, \"pool\": {\"min_idle\": null, \"max_idle\": 2}}",
+            host,
+        )
+        .unwrap()
+        .text;
     assert_eq!(saved, "listen: 2\npool:\n  min_idle: ~\n  max_idle: 2\n");
 }

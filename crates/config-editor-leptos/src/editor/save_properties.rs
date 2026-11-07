@@ -269,9 +269,9 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             Op::ScalarToContainer => is_key(pointer) && !item.is_object() && !item.is_array(),
             Op::AddItem => item.is_array(),
             Op::DeleteItem => item.as_array().is_some_and(|items| items.len() > 1),
-            Op::ReorderItems => item
-                .as_array()
-                .is_some_and(|items| items.len() > 1 && items.iter().any(|other| *other != items[0])),
+            Op::ReorderItems => item.as_array().is_some_and(|items| {
+                items.len() > 1 && items.iter().any(|other| *other != items[0])
+            }),
             Op::TwoEdits => !item.is_object() && !item.is_array(),
         })
         .collect();
@@ -335,7 +335,11 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
                 _ => json!(format!("changed/{serial}")),
             };
             // And an entry added in another place, when there is one.
-            let structural = if serial.is_multiple_of(2) { Op::AddItem } else { Op::AddKey };
+            let structural = if serial.is_multiple_of(2) {
+                Op::AddItem
+            } else {
+                Op::AddKey
+            };
             let (with_entry, _) = apply(&edited, structural, random, serial + 1)
                 .or_else(|| apply(&edited, Op::AddKey, random, serial + 1))?;
             edited = with_entry;
@@ -481,16 +485,18 @@ fn check(
             .and_then(Value::as_array)
             .is_some_and(|items| items.len() == 1);
     // A rename or a scalar becoming a container keeps every comment too.
-    if !renamed_lone_item && matches!(
-        op,
-        Op::AddKey
-            | Op::ChangeScalar
-            | Op::AddItem
-            | Op::RenameKey
-            | Op::ScalarToContainer
-            | Op::ReorderItems
-            | Op::TwoEdits
-    ) {
+    if !renamed_lone_item
+        && matches!(
+            op,
+            Op::AddKey
+                | Op::ChangeScalar
+                | Op::AddItem
+                | Op::RenameKey
+                | Op::ScalarToContainer
+                | Op::ReorderItems
+                | Op::TwoEdits
+        )
+    {
         let kept = comments(host, &saved);
         let lost: Vec<String> = comments(host, host_text)
             .into_iter()
@@ -520,9 +526,19 @@ fn check(
     // spacing in its flow collection), and a changed string keeps its
     // quotes.
     // (Small hosts only: a span lookup per value of a large one is slow.)
-    if host_text.lines().count() < 200 && let Ok(saved_value) = codec::read(host.behavior(), &saved, shape) {
-        let changed = (op == Op::ChangeScalar).then(|| label.split('"').nth(1).unwrap_or("").to_string());
-        let restyled = restyled_values(host, host_text, &old_host_value, &saved, &saved_value, changed.as_deref());
+    if host_text.lines().count() < 200
+        && let Ok(saved_value) = codec::read(host.behavior(), &saved, shape)
+    {
+        let changed =
+            (op == Op::ChangeScalar).then(|| label.split('"').nth(1).unwrap_or("").to_string());
+        let restyled = restyled_values(
+            host,
+            host_text,
+            &old_host_value,
+            &saved,
+            &saved_value,
+            changed.as_deref(),
+        );
         if !restyled.is_empty() {
             problems.push(format!("writes untouched values differently: {restyled:?}"));
         }
@@ -567,17 +583,27 @@ fn restyled_values(
     let new_spans = language.value_spans(after, &wanted);
     let mut found = Vec::new();
     for (((pointer, value), old_span), new_span) in scalars.iter().zip(old_spans).zip(new_spans) {
-        let (Some(old_span), Some(new_span), Some(now)) = (old_span, new_span, new.pointer(pointer)) else {
+        let (Some(old_span), Some(new_span), Some(now)) =
+            (old_span, new_span, new.pointer(pointer))
+        else {
             continue;
         };
-        let (Some(was), Some(is)) = (span_text(before, old_span), span_text(after, new_span)) else {
+        let (Some(was), Some(is)) = (span_text(before, old_span), span_text(after, new_span))
+        else {
             continue;
         };
-        let quote = |text: &str| text.chars().next().filter(|first| matches!(first, '"' | '\''));
+        let quote = |text: &str| {
+            text.chars()
+                .next()
+                .filter(|first| matches!(first, '"' | '\''))
+        };
         let restyled = if now == value {
             was != is
         } else {
-            changed == Some(pointer.as_str()) && now.is_string() && quote(&was).is_some() && quote(&was) != quote(&is)
+            changed == Some(pointer.as_str())
+                && now.is_string()
+                && quote(&was).is_some()
+                && quote(&was) != quote(&is)
         };
         if restyled {
             found.push(format!("{pointer}: {was} -> {is}"));

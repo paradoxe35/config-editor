@@ -9,7 +9,11 @@ use serde_json::Value;
 
 /// `value` written where `written` (one `{…}` or `[…]`) was, or `None` when
 /// `written` holds no item to take the style from.
-pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Option<String> {
+pub(super) fn restyle(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    written: &str,
+) -> Option<String> {
     let (open, close) = match (value, written.chars().next()?) {
         (Value::Object(_), '{') => ('{', '}'),
         (Value::Array(_), '[') => ('[', ']'),
@@ -50,25 +54,43 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
     };
     let mut out: Vec<String> = Vec::new();
     let place = |out: &mut Vec<String>, before: &str, text: String, after: &str| {
-        let before = if out.is_empty() { "" } else if before.is_empty() { gap(out.len()) } else { before };
+        let before = if out.is_empty() {
+            ""
+        } else if before.is_empty() {
+            gap(out.len())
+        } else {
+            before
+        };
         out.push(format!("{before}{text}{after}"));
     };
     match value {
         Value::Object(map) => {
-            let entries: Vec<(String, &str, &str)> =
-                items.iter().map(|(_, item, _)| entry_parts(item)).collect::<Option<_>>()?;
+            let entries: Vec<(String, &str, &str)> = items
+                .iter()
+                .map(|(_, item, _)| entry_parts(item))
+                .collect::<Option<_>>()?;
             let (_, model_head, model_value) = entries.first()?;
             for (key, child) in map {
                 match entries.iter().position(|(name, _, _)| name == key) {
                     Some(at) => {
                         let (_, head, old) = &entries[at];
                         let (before, _, after) = items[at];
-                        place(&mut out, before, format!("{head}{}", item_text(language, child, old)), after);
+                        place(
+                            &mut out,
+                            before,
+                            format!("{head}{}", item_text(language, child, old)),
+                            after,
+                        );
                     }
                     None => {
-                        let separator = &model_head[model_head.trim_end_matches([' ', '\t', ':', '=']).len()..];
+                        let separator =
+                            &model_head[model_head.trim_end_matches([' ', '\t', ':', '=']).len()..];
                         let quoted = model_head.starts_with(['"', '\'']) || !is_bare(key);
-                        let key = if quoted { serde_json::to_string(key).ok()? } else { key.clone() };
+                        let key = if quoted {
+                            serde_json::to_string(key).ok()?
+                        } else {
+                            key.clone()
+                        };
                         let text = fresh_text(language, child, model_value, written);
                         place(&mut out, "", format!("{key}{separator}{text}"), "");
                     }
@@ -78,7 +100,8 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
         Value::Array(values) => {
             let mut used = vec![false; items.len()];
             for (index, child) in values.iter().enumerate() {
-                let reused = (0..items.len()).find(|at| !used[*at] && same_written(language, items[*at].1, child));
+                let reused = (0..items.len())
+                    .find(|at| !used[*at] && same_written(language, items[*at].1, child));
                 match reused {
                     Some(at) => {
                         used[at] = true;
@@ -91,7 +114,12 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
                             used[index] = true;
                             place(&mut out, before, item_text(language, child, text), after);
                         }
-                        _ => place(&mut out, "", fresh_text(language, child, items[last].1, written), ""),
+                        _ => place(
+                            &mut out,
+                            "",
+                            fresh_text(language, child, items[last].1, written),
+                            "",
+                        ),
                     },
                 }
             }
@@ -118,12 +146,19 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
 fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
     let formatted = language.format_value(value);
     comparable(language, written) == comparable(language, &formatted)
-        || value.is_number() && super::canonical_number(written.trim()).is_some_and(|number| Some(number) == super::canonical_number(&formatted))
+        || value.is_number()
+            && super::canonical_number(written.trim())
+                .is_some_and(|number| Some(number) == super::canonical_number(&formatted))
 }
 
 /// A new item, written like its sibling `model` when both are scalars, and
 /// a container like the one it goes in (`container`: compact JSON stays so).
-fn fresh_text(language: &dyn ConfigLanguage, value: &Value, model: &str, container: &str) -> String {
+fn fresh_text(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    model: &str,
+    container: &str,
+) -> String {
     if value.is_object() || value.is_array() || model.starts_with(['{', '[']) {
         language.format_value_like(value, container)
     } else {
@@ -142,7 +177,8 @@ fn entry_parts(item: &str) -> Option<(String, &str, &str)> {
             (None, '"' | '\'') => quote = Some(character),
             (None, ':' | '=') => {
                 let key = item[..index].trim().trim_matches(['"', '\'']).to_string();
-                let value_start = index + 1 + (item[index + 1..].len() - item[index + 1..].trim_start().len());
+                let value_start =
+                    index + 1 + (item[index + 1..].len() - item[index + 1..].trim_start().len());
                 return Some((key, &item[..value_start], &item[value_start..]));
             }
             _ => {}
@@ -193,5 +229,8 @@ fn split_items(inner: &str) -> Option<Vec<&str>> {
 }
 
 fn is_bare(key: &str) -> bool {
-    !key.is_empty() && key.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }

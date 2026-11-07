@@ -50,6 +50,7 @@ impl ConfigLanguage for JsonBehavior {
             block_comment: None,
             brackets: &[('{', '}'), ('[', ']')],
             separators: &[":"],
+            quotes: &["\""],
         }
     }
 

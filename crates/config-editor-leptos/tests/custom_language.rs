@@ -220,6 +220,7 @@ impl ConfigLanguage for Ini {
             block_comment: None,
             brackets: &[('[', ']')],
             separators: &["="],
+            quotes: &["\""],
         }
     }
 
@@ -252,4 +253,43 @@ fn a_language_described_by_config_gets_editing_without_code() {
     assert!(ini.line_has_value("debug = true"));
     assert!(!ini.line_has_value("debug ="));
     assert_eq!(ini.empty_value_slots("a = \nb = 1\n"), vec![4]);
+}
+
+/// A language declaring its long quote gets Ctrl+/ over a string written
+/// over lines whole, without code of its own.
+struct LongStrings;
+
+impl ConfigLanguage for LongStrings {
+    fn info(&self) -> config_editor_leptos::language::LanguageInfo {
+        config_editor_leptos::language::LanguageInfo {
+            label: "LS",
+            icon: "L",
+            extensions: &[],
+        }
+    }
+
+    fn parse(
+        &self,
+        _source: &str,
+    ) -> Result<serde_json::Value, config_editor_leptos::language::ParseError> {
+        Ok(serde_json::json!({}))
+    }
+
+    fn config(&self) -> config_editor_leptos::language::LanguageConfig {
+        config_editor_leptos::language::LanguageConfig {
+            line_comments: &[";"],
+            block_comment: None,
+            brackets: &[],
+            separators: &["="],
+            quotes: &["\"\"\"", "\""],
+        }
+    }
+}
+
+#[test]
+fn a_language_declaring_its_quotes_gets_whole_strings_commented() {
+    let text = "a = 1\nb = \"\"\"x\ny\"\"\"\nc = 2\n";
+    let caret = text.find("y\"").unwrap();
+    let (commented, _, _) = LongStrings.toggle_comments(text, caret, caret).unwrap();
+    assert_eq!(commented, "a = 1\n; b = \"\"\"x\n; y\"\"\"\nc = 2\n");
 }

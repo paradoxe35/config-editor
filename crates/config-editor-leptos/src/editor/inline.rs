@@ -1,7 +1,9 @@
 //! Inline containers shared by the brace languages: inline tables and arrays
 //! (TOML), flow mappings and sequences (YAML), value maps and lists (HCL). A
-//! language passes its key separator (`=` or `:`); quoting, comments, nesting,
-//! and containers spanning lines are handled here once. Functions taking
+//! language passes its key separator (`=` or `:`); quoting, comments (`#`,
+//! as those three write them), nesting, and containers spanning lines are
+//! handled here once. The language-independent save code uses it only with
+//! the language's own comment markers applied after (see `codec`). Functions taking
 //! `code` read one statement: a line, or from [`statement_start`] to the caret.
 
 use super::language::{CompletionContext, SchemaPathSegment};
@@ -347,13 +349,7 @@ pub fn inline_value_len(text: &str) -> usize {
     if text.starts_with(['"', '\'']) {
         return skip_quoted(text, 0);
     }
-    let mut end = text.find([',', '}', ']', '\n']).unwrap_or(text.len());
-    // A comment after the value (`30 # b` in a flow map over lines) ends it.
-    for marker in [" #", "\t#", " //"] {
-        if let Some(at) = text[..end].find(marker) {
-            end = end.min(at);
-        }
-    }
+    let end = text.find([',', '}', ']', '\n']).unwrap_or(text.len());
     text[..end].trim_end().len()
 }
 
@@ -497,8 +493,6 @@ fn value_end(code: &str, at: usize) -> usize {
             b'}' | b']' if depth == 0 => break,
             b'}' | b']' => depth -= 1,
             b',' | b'\n' if depth == 0 => break,
-            // A comment after the value (`30 # b` in a flow map over lines).
-            b'#' if depth == 0 && index > at && matches!(bytes[index - 1], b' ' | b'\t') => break,
             b' ' | b'\t' | b'\r' => {
                 index += 1;
                 continue;

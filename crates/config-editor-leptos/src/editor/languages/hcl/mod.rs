@@ -62,6 +62,7 @@ impl ConfigLanguage for HclBehavior {
             block_comment: Some(("/*", "*/")),
             brackets: &[('{', '}'), ('[', ']')],
             separators: &["=", ":"],
+            quotes: &["\""],
         }
     }
 

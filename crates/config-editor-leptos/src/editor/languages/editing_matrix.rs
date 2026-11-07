@@ -291,8 +291,14 @@ fn toggling_comments_inside_a_multi_line_block_comment_unwraps_it() {
 fn ctrl_slash_never_cuts_through_something_written_over_lines() {
     let mut failures = Vec::new();
     for (language, marked) in [
-        (Language::TOML, "a = 1\ns = \"\"\"mu|lti\nline\"\"\"\nb = 2\n"),
-        (Language::TOML, "a = 1\ns = \"\"\"multi\nli|ne\"\"\"\nb = 2\n"),
+        (
+            Language::TOML,
+            "a = 1\ns = \"\"\"mu|lti\nline\"\"\"\nb = 2\n",
+        ),
+        (
+            Language::TOML,
+            "a = 1\ns = \"\"\"multi\nli|ne\"\"\"\nb = 2\n",
+        ),
         (Language::TOML, "a = [1,|\n  2]\nb = 2\n"),
         (Language::YAML, "a: [1,|\n  2]\nb: 2\n"),
         (Language::YAML, "a: [1,\n  2|]\nb: 2\n"),
@@ -312,23 +318,43 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
             failures.push(format!("{}: nothing toggled in {text:?}", language.label()));
             continue;
         };
-        let b = |source: &str| language.parse(source).ok().and_then(|value| value.get("b").cloned());
+        let b = |source: &str| {
+            language
+                .parse(source)
+                .ok()
+                .and_then(|value| value.get("b").cloned())
+        };
         if language.parse(&once).is_err() || b(&once) != b(&text) {
-            failures.push(format!("{}: {text:?} commented as {once:?}", language.label()));
+            failures.push(format!(
+                "{}: {text:?} commented as {once:?}",
+                language.label()
+            ));
         }
         match behavior.toggle_comments(&once, start, end) {
             Some((twice, _, _)) if twice == text => {}
-            other => failures.push(format!("{}: {text:?} toggled back as {:?}", language.label(), other.map(|o| o.0))),
+            other => failures.push(format!(
+                "{}: {text:?} toggled back as {:?}",
+                language.label(),
+                other.map(|o| o.0)
+            )),
         }
     }
     for (language, marked, comment) in [
         (Language::HCL, "a = 1 /* multi\nli|ne */\nb = 2\n", "/*"),
-        (Language::XML, "<a>1</a> <!-- multi\nli|ne --> <b>2</b>\n", "<!--"),
+        (
+            Language::XML,
+            "<a>1</a> <!-- multi\nli|ne --> <b>2</b>\n",
+            "<!--",
+        ),
     ] {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
-        let once = language.behavior().toggle_comments(&text, caret, caret).map(|o| o.0).unwrap_or_default();
+        let once = language
+            .behavior()
+            .toggle_comments(&text, caret, caret)
+            .map(|o| o.0)
+            .unwrap_or_default();
         if !once.contains(comment) || language.parse(&once).is_err() {
             failures.push(format!("{}: {text:?} became {once:?}", language.label()));
         }
@@ -343,20 +369,52 @@ fn ctrl_slash_never_cuts_through_something_written_over_lines() {
 fn ctrl_slash_takes_exactly_the_construct_under_the_caret() {
     let mut failures = Vec::new();
     for (language, marked, expected) in [
-        (Language::YAML, "motd: \"abc\n  de|f\"\nlisten: 1\npath: 2\n", "# motd: \"abc\n#   def\"\nlisten: 1\npath: 2\n"),
-        (Language::YAML, "motd: \"abc\n  def\"\nli|sten: 1\npath: 2\n", "motd: \"abc\n  def\"\n# listen: 1\npath: 2\n"),
-        (Language::YAML, "- 'a\n  b|'\n- c\n", "# - 'a\n#   b'\n- c\n"),
-        (Language::YAML, "webs|ocket:\n  path: /x\nlisten: 1\n", "# websocket:\n#   path: /x\nlisten: 1\n"),
-        (Language::HCL, "a = <<EOF\nx\nEOF|\nb = 1\n", "# a = <<EOF\n# x\n# EOF\nb = 1\n"),
-        (Language::HCL, "x {\n  a = <<-EOF\n    x\n    EOF|\n}\nb = 1\n", "x {\n  # a = <<-EOF\n  #   x\n  #   EOF\n}\nb = 1\n"),
-        (Language::HCL, "listen = 1 /* c\n  m|ore */ path = 2\nb = 1\n", "# listen = 1 /* c\n#   more */ path = 2\nb = 1\n"),
+        (
+            Language::YAML,
+            "motd: \"abc\n  de|f\"\nlisten: 1\npath: 2\n",
+            "# motd: \"abc\n#   def\"\nlisten: 1\npath: 2\n",
+        ),
+        (
+            Language::YAML,
+            "motd: \"abc\n  def\"\nli|sten: 1\npath: 2\n",
+            "motd: \"abc\n  def\"\n# listen: 1\npath: 2\n",
+        ),
+        (
+            Language::YAML,
+            "- 'a\n  b|'\n- c\n",
+            "# - 'a\n#   b'\n- c\n",
+        ),
+        (
+            Language::YAML,
+            "webs|ocket:\n  path: /x\nlisten: 1\n",
+            "# websocket:\n#   path: /x\nlisten: 1\n",
+        ),
+        (
+            Language::HCL,
+            "a = <<EOF\nx\nEOF|\nb = 1\n",
+            "# a = <<EOF\n# x\n# EOF\nb = 1\n",
+        ),
+        (
+            Language::HCL,
+            "x {\n  a = <<-EOF\n    x\n    EOF|\n}\nb = 1\n",
+            "x {\n  # a = <<-EOF\n  #   x\n  #   EOF\n}\nb = 1\n",
+        ),
+        (
+            Language::HCL,
+            "listen = 1 /* c\n  m|ore */ path = 2\nb = 1\n",
+            "# listen = 1 /* c\n#   more */ path = 2\nb = 1\n",
+        ),
     ] {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
         match language.behavior().toggle_comments(&text, caret, caret) {
             Some((once, _, _)) if once == expected => {}
-            other => failures.push(format!("{}: {text:?} became {:?}", language.label(), other.map(|o| o.0))),
+            other => failures.push(format!(
+                "{}: {text:?} became {:?}",
+                language.label(),
+                other.map(|o| o.0)
+            )),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -381,25 +439,52 @@ fn enter_inside_a_toml_inline_table_keeps_it_on_one_line() {
 fn ctrl_slash_takes_parents_and_enter_opens_one_line_blocks() {
     let mut failures = Vec::new();
     for (language, marked, expected) in [
-        (Language::YAML, "- a: 1|\n  b: 2\n- c: 3\n", "# - a: 1\n#   b: 2\n- c: 3\n"),
-        (Language::YAML, "a: &x|\n  b: 1\nc: 2\n", "# a: &x\n#   b: 1\nc: 2\n"),
-        (Language::YAML, "a: !!map|\n  b: 1\nc: 2\n", "# a: !!map\n#   b: 1\nc: 2\n"),
-        (Language::YAML, "ws:|\n  path: 1\n# comment\n  host: 2\nl: 1\n", "# ws:\n#   path: 1\n# # comment\n#   host: 2\nl: 1\n"),
-        (Language::TOML, "[webs|ocket]\npath = \"/x\"\nhost = \"h\"\n\n[x]\na = 1\n", "# [websocket]\n# path = \"/x\"\n# host = \"h\"\n\n[x]\na = 1\n"),
+        (
+            Language::YAML,
+            "- a: 1|\n  b: 2\n- c: 3\n",
+            "# - a: 1\n#   b: 2\n- c: 3\n",
+        ),
+        (
+            Language::YAML,
+            "a: &x|\n  b: 1\nc: 2\n",
+            "# a: &x\n#   b: 1\nc: 2\n",
+        ),
+        (
+            Language::YAML,
+            "a: !!map|\n  b: 1\nc: 2\n",
+            "# a: !!map\n#   b: 1\nc: 2\n",
+        ),
+        (
+            Language::YAML,
+            "ws:|\n  path: 1\n# comment\n  host: 2\nl: 1\n",
+            "# ws:\n#   path: 1\n# # comment\n#   host: 2\nl: 1\n",
+        ),
+        (
+            Language::TOML,
+            "[webs|ocket]\npath = \"/x\"\nhost = \"h\"\n\n[x]\na = 1\n",
+            "# [websocket]\n# path = \"/x\"\n# host = \"h\"\n\n[x]\na = 1\n",
+        ),
     ] {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
         let caret = text[..at].encode_utf16().count();
         match language.behavior().toggle_comments(&text, caret, caret) {
             Some((once, _, _)) if once == expected && language.parse(&once).is_ok() => {}
-            other => failures.push(format!("{}: {text:?} became {:?}", language.label(), other.map(|o| o.0))),
+            other => failures.push(format!(
+                "{}: {text:?} became {:?}",
+                language.label(),
+                other.map(|o| o.0)
+            )),
         }
     }
     let source = "websocket { path = \"/x\" }\n";
     let caret = source.find('{').unwrap() + 1;
     let newline = Language::HCL.behavior().newline(source, caret);
     let mut after = source.to_string();
-    after.replace_range(caret - newline.replaces_before..caret + newline.replaces, &newline.text);
+    after.replace_range(
+        caret - newline.replaces_before..caret + newline.replaces,
+        &newline.text,
+    );
     if Language::HCL.parse(&after).is_err() {
         failures.push(format!("HCL Enter after brace: {after:?}"));
     }

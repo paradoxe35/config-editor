@@ -275,15 +275,26 @@ pub(crate) fn completions_for(
             matched: match_ranges(name, &context.typed),
         }];
     }
-    line_up_on_indented_line(source, cursor_byte, line_start, line_end, &mut context, behavior);
+    line_up_on_indented_line(
+        source,
+        cursor_byte,
+        line_start,
+        line_end,
+        &mut context,
+        behavior,
+    );
     // A dotted head typed in front of an entry of the table it is typed in
     // (`tls.c|path`, `path` a key of that table): the entry is not renamed.
     let head_segments = context.suffix_head.matches('.').count();
     let entry_of_table = head_segments > 0
         && context.path.len() >= head_segments
         && context.entry_after.as_deref().is_some_and(|word| {
-            known_key(bundle, &context.path[..context.path.len() - head_segments], word, behavior)
-                && !known_key(bundle, &context.path, word, behavior)
+            known_key(
+                bundle,
+                &context.path[..context.path.len() - head_segments],
+                word,
+                behavior,
+            ) && !known_key(bundle, &context.path, word, behavior)
         });
     // The entry after the caret keeps a dotted head only when its key is
     // one under it (see `suffix_head`).
@@ -313,7 +324,8 @@ pub(crate) fn completions_for(
     }
     let mut options =
         completions_for_context(source, cursor_byte, &context, force, bundle, behavior);
-    let replaces_word = replace_word || (!entry_of_table && replaces_word_after_caret(&context, bundle, behavior));
+    let replaces_word =
+        replace_word || (!entry_of_table && replaces_word_after_caret(&context, bundle, behavior));
     // Typed in front of a key, that key is a sibling already there.
     if !replaces_word && let Some(word) = context.entry_after.as_deref() {
         options.retain(|option| option.is_value || option.label != word);
@@ -322,12 +334,20 @@ pub(crate) fn completions_for(
         let renamed = frame_insert(option, &context, replaces_word);
         // A whole key replaced: every other place it is written follows.
         let names_a_key = !option.is_value || context.position == EntryPosition::Name;
-        let elsewhere = if names_a_key { other_places(source, &context, option, behavior) } else { Vec::new() };
+        let elsewhere = if names_a_key {
+            other_places(source, &context, option, behavior)
+        } else {
+            Vec::new()
+        };
         let renamed_elsewhere = !elsewhere.is_empty();
         if renamed || renamed_elsewhere {
             // The key replaced whole is renamed: just its name is written.
             if !renamed {
-                let lead = option.insert.find(option.label.as_str()).map_or("", |at| &option.insert[..at]).to_string();
+                let lead = option
+                    .insert
+                    .find(option.label.as_str())
+                    .map_or("", |at| &option.insert[..at])
+                    .to_string();
                 option.insert = format!("{lead}{}", option.label);
                 option.cursor_offset = option.insert.encode_utf16().count();
                 option.selected = 0;
@@ -474,7 +494,9 @@ fn other_places(
     for segment in &context.path {
         pointer.push('/');
         match segment {
-            SchemaPathSegment::Key(key) => pointer.push_str(&key.replace('~', "~0").replace('/', "~1")),
+            SchemaPathSegment::Key(key) => {
+                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"))
+            }
             SchemaPathSegment::ArrayItem(index) => pointer.push_str(&index.to_string()),
         }
     }
@@ -490,7 +512,9 @@ fn other_places(
         let Some(place) = at.checked_add_signed(-delta) else {
             return Vec::new();
         };
-        let length = source.get(place..).map_or(0, |rest| rest.find(stop).unwrap_or(rest.len()));
+        let length = source
+            .get(place..)
+            .map_or(0, |rest| rest.find(stop).unwrap_or(rest.len()));
         if source.get(place..place + length) != Some(old) {
             return Vec::new();
         }
@@ -543,9 +567,15 @@ fn line_up_on_indented_line(
     let target = written.rsplit('\n').next().unwrap_or_default();
     // Only after a sibling (the line above at that indentation): a first
     // entry may sit deeper under its opener, as the document's style.
-    let above = source[..line_start - 1].rsplit('\n').next().unwrap_or_default();
+    let above = source[..line_start - 1]
+        .rsplit('\n')
+        .next()
+        .unwrap_or_default();
     let above_indent = &above[..above.len() - above.trim_start_matches([' ', '\t']).len()];
-    if !target.trim().is_empty() || typed_start - line_start <= target.len() || above_indent != target {
+    if !target.trim().is_empty()
+        || typed_start - line_start <= target.len()
+        || above_indent != target
+    {
         return;
     }
     context.replace_start = source[..line_start].encode_utf16().count();
@@ -556,15 +586,24 @@ fn line_up_on_indented_line(
 /// Adds the context's entry prefix and suffix to an accepted insert, and lays
 /// out a multi-line insert per `context.block`.
 /// Whether the schema has `key` among the properties at `path`.
-fn known_key(bundle: &SchemaBundle, path: &[SchemaPathSegment], key: &str, behavior: &dyn ConfigLanguage) -> bool {
-    schema_at_path(&bundle.schema, path, behavior.repetition() != Repetition::None)
-        .iter()
-        .any(|schema| {
-            object_branch(schema, &bundle.schema)
-                .and_then(|branch| branch.get("properties"))
-                .and_then(Value::as_object)
-                .is_some_and(|properties| properties.contains_key(key))
-        })
+fn known_key(
+    bundle: &SchemaBundle,
+    path: &[SchemaPathSegment],
+    key: &str,
+    behavior: &dyn ConfigLanguage,
+) -> bool {
+    schema_at_path(
+        &bundle.schema,
+        path,
+        behavior.repetition() != Repetition::None,
+    )
+    .iter()
+    .any(|schema| {
+        object_branch(schema, &bundle.schema)
+            .and_then(|branch| branch.get("properties"))
+            .and_then(Value::as_object)
+            .is_some_and(|properties| properties.contains_key(key))
+    })
 }
 
 /// Whether the word after the caret (`cp` of `t|cp`) is the rest of the key
@@ -664,7 +703,8 @@ pub(crate) fn frame_insert(
             option.insert.push_str(&context.entry_suffix);
             option.cursor_offset += context.entry_prefix.encode_utf16().count();
             if context.suffix_caret > 0 {
-                let into_suffix = context.entry_suffix[..context.suffix_caret.min(context.entry_suffix.len())]
+                let into_suffix = context.entry_suffix
+                    [..context.suffix_caret.min(context.entry_suffix.len())]
                     .encode_utf16()
                     .count();
                 option.cursor_offset = before_suffix + into_suffix;

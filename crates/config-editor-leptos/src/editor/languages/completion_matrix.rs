@@ -921,9 +921,21 @@ fn an_xml_end_tag_name_completes_and_renames_both_tags() {
 fn a_closing_tag_being_typed_closes_its_element() {
     let mut failures = Vec::new();
     for (marked, name, expected) in [
-        ("<websocket>\n  <path>/x</path>\n  </we|", "websocket", "<websocket>\n  <path>/x</path>\n  </websocket>"),
-        ("<websocket>\n  <path>/x</|", "path", "<websocket>\n  <path>/x</path>"),
-        ("<websocket>\n  <path>/x</path>\n  </|\n", "websocket", "<websocket>\n  <path>/x</path>\n  </websocket>\n"),
+        (
+            "<websocket>\n  <path>/x</path>\n  </we|",
+            "websocket",
+            "<websocket>\n  <path>/x</path>\n  </websocket>",
+        ),
+        (
+            "<websocket>\n  <path>/x</|",
+            "path",
+            "<websocket>\n  <path>/x</path>",
+        ),
+        (
+            "<websocket>\n  <path>/x</path>\n  </|\n",
+            "websocket",
+            "<websocket>\n  <path>/x</path>\n  </websocket>\n",
+        ),
     ] {
         let labels = offered(Language::XML, marked);
         if labels != [name] {
@@ -945,26 +957,84 @@ fn ctrl_space_over_part_of_a_key_replaces_all_of_it() {
     let mut failures = Vec::new();
     for (language, marked, label, rest) in [
         (Language::YAML, "websocket:\n  pa|th: /x\n", "host", "th"),
-        (Language::JSON, "{\"websocket\": {\"pa|th\": \"/x\"}}\n", "host", "th"),
-        (Language::TOML, "[websocket]\npa|th = \"/x\"\n", "host", "th"),
-        (Language::HCL, "websocket {\n  pa|th = \"/x\"\n}\n", "host", "th"),
-        (Language::XML, "<websocket>\n  <pa|th>/x</path>\n</websocket>\n", "host", "th"),
-        (Language::XML, "<websocket>\n  <path>/x</pa|th>\n</websocket>\n", "host", "th"),
-        (Language::TOML, "[web|socket]\npath = \"/x\"\n", "metrics", "socket"),
-        (Language::HCL, "web|socket {\n  path = \"/x\"\n}\n", "metrics", "socket"),
-        (Language::YAML, "web|socket:\n  path: /x\n", "metrics", "socket"),
+        (
+            Language::JSON,
+            "{\"websocket\": {\"pa|th\": \"/x\"}}\n",
+            "host",
+            "th",
+        ),
+        (
+            Language::TOML,
+            "[websocket]\npa|th = \"/x\"\n",
+            "host",
+            "th",
+        ),
+        (
+            Language::HCL,
+            "websocket {\n  pa|th = \"/x\"\n}\n",
+            "host",
+            "th",
+        ),
+        (
+            Language::XML,
+            "<websocket>\n  <pa|th>/x</path>\n</websocket>\n",
+            "host",
+            "th",
+        ),
+        (
+            Language::XML,
+            "<websocket>\n  <path>/x</pa|th>\n</websocket>\n",
+            "host",
+            "th",
+        ),
+        (
+            Language::TOML,
+            "[web|socket]\npath = \"/x\"\n",
+            "metrics",
+            "socket",
+        ),
+        (
+            Language::HCL,
+            "web|socket {\n  path = \"/x\"\n}\n",
+            "metrics",
+            "socket",
+        ),
+        (
+            Language::YAML,
+            "web|socket:\n  path: /x\n",
+            "metrics",
+            "socket",
+        ),
     ] {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
-        let options = completions_for(&text, text[..at].encode_utf16().count(), true, Some(&burrow()), true, language.behavior(), true);
+        let options = completions_for(
+            &text,
+            text[..at].encode_utf16().count(),
+            true,
+            Some(&burrow()),
+            true,
+            language.behavior(),
+            true,
+        );
         let Some(option) = options.iter().find(|option| option.label == label) else {
-            failures.push(format!("{}: {label} not offered in {marked:?}", language.label()));
+            failures.push(format!(
+                "{}: {label} not offered in {marked:?}",
+                language.label()
+            ));
             continue;
         };
         let renamed = apply_completion(&text, option).0;
-        let split = renamed.contains(&format!("{rest}:")) || renamed.contains(&format!("{rest} ")) || renamed.contains(&format!("<{rest}")) || renamed.contains(&format!("[{rest}")) || renamed.contains(&format!("\"{rest}\""));
+        let split = renamed.contains(&format!("{rest}:"))
+            || renamed.contains(&format!("{rest} "))
+            || renamed.contains(&format!("<{rest}"))
+            || renamed.contains(&format!("[{rest}"))
+            || renamed.contains(&format!("\"{rest}\""));
         if split || !renamed.contains(label) || parsed(language, &renamed).is_err() {
-            failures.push(format!("{}: {marked:?} became {renamed:?}", language.label()));
+            failures.push(format!(
+                "{}: {marked:?} became {renamed:?}",
+                language.label()
+            ));
         }
     }
     report(failures);
@@ -989,10 +1059,16 @@ fn a_key_accepted_off_its_siblings_column_lines_up_with_them() {
         (Language::YAML, "websocket:\n  path: /x\n ho| host2: h\n"),
         (Language::YAML, "websocket:\n  path: /x\n    |\n"),
         (Language::YAML, "websocket:\n  path: /x\n   ho|\n"),
-        (Language::JSON, "{\n  \"websocket\": {\n    \"path\": \"/x\",\n        \"|\n  }\n}\n"),
+        (
+            Language::JSON,
+            "{\n  \"websocket\": {\n    \"path\": \"/x\",\n        \"|\n  }\n}\n",
+        ),
         (Language::TOML, "[websocket]\npath = \"/x\"\n    |\n"),
         (Language::HCL, "websocket {\n  path = \"/x\"\n      |\n}\n"),
-        (Language::XML, "<websocket>\n  <path>/x</path>\n      |\n</websocket>\n"),
+        (
+            Language::XML,
+            "<websocket>\n  <path>/x</path>\n      |\n</websocket>\n",
+        ),
     ] {
         let text = match accepted(language, marked, "host") {
             Ok(text) => text,
@@ -1006,11 +1082,14 @@ fn a_key_accepted_off_its_siblings_column_lines_up_with_them() {
                 .find(|line| line.contains(word))
                 .map(|line| line.len() - line.trim_start().len())
         };
-        let parses = language.label() == "YAML" && marked.contains("host2") && text.contains("host2")
-            || parsed(language, &text).is_ok();
+        let parses =
+            language.label() == "YAML" && marked.contains("host2") && text.contains("host2")
+                || parsed(language, &text).is_ok();
         if !parses
             || indent_of("host") != indent_of("path")
-            || text.lines().any(|line| line.ends_with([' ', '\t']) && !line.trim_end().ends_with(':'))
+            || text
+                .lines()
+                .any(|line| line.ends_with([' ', '\t']) && !line.trim_end().ends_with(':'))
         {
             failures.push(format!("{}: {marked:?} became {text:?}", language.label()));
         }
@@ -1025,11 +1104,36 @@ fn a_key_accepted_off_its_siblings_column_lines_up_with_them() {
 fn a_key_renamed_by_completion_is_renamed_everywhere_it_is_written() {
     let mut failures = Vec::new();
     for (language, marked, label, old) in [
-        (Language::TOML, "t|cp.nodelay = true\ntcp.keepalive_secs = 1\n", "metrics", "tcp"),
-        (Language::TOML, "[clien|.a]\nsecret = \"s\"\n\n[clien.b]\nsecret = \"t\"\n", "clients", "clien."),
-        (Language::HCL, "clien| \"a\" {\n  secret = \"s\"\n}\nclien \"b\" {\n  secret = \"t\"\n}\n", "clients", "clien "),
-        (Language::HCL, "tc|p {\n  nodelay = true\n}\ntcp {\n  nodelay = false\n}\n", "metrics", "tcp"),
-        (Language::XML, "<clien|><a/></clien>\n<clien><b/></clien>\n", "clients", "clien>"),
+        (
+            Language::TOML,
+            "t|cp.nodelay = true\ntcp.keepalive_secs = 1\n",
+            "metrics",
+            "tcp",
+        ),
+        (
+            Language::TOML,
+            "[clien|.a]\nsecret = \"s\"\n\n[clien.b]\nsecret = \"t\"\n",
+            "clients",
+            "clien.",
+        ),
+        (
+            Language::HCL,
+            "clien| \"a\" {\n  secret = \"s\"\n}\nclien \"b\" {\n  secret = \"t\"\n}\n",
+            "clients",
+            "clien ",
+        ),
+        (
+            Language::HCL,
+            "tc|p {\n  nodelay = true\n}\ntcp {\n  nodelay = false\n}\n",
+            "metrics",
+            "tcp",
+        ),
+        (
+            Language::XML,
+            "<clien|><a/></clien>\n<clien><b/></clien>\n",
+            "clients",
+            "clien>",
+        ),
     ] {
         match accepted(language, marked, label) {
             Ok(text) if !text.contains(old) && text.matches(label).count() >= 2 => {}
@@ -1047,20 +1151,38 @@ fn a_key_renamed_by_completion_is_renamed_everywhere_it_is_written() {
 fn entries_typed_in_one_line_blocks_and_tables_stay_valid() {
     let mut failures = Vec::new();
     for (marked, expected) in [
-        ("websocket { ho|path = \"/x\" }\n", "websocket {\n  host = \"\"\n  path = \"/x\"\n}\n"),
-        ("websocket { path = \"/x\" ho| }\n", "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n"),
-        ("websocket { path = \"/x\" | }\n", "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n"),
+        (
+            "websocket { ho|path = \"/x\" }\n",
+            "websocket {\n  host = \"\"\n  path = \"/x\"\n}\n",
+        ),
+        (
+            "websocket { path = \"/x\" ho| }\n",
+            "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n",
+        ),
+        (
+            "websocket { path = \"/x\" | }\n",
+            "websocket {\n  path = \"/x\"\n  host = \"\"\n}\n",
+        ),
     ] {
         match accepted(Language::HCL, marked, "host") {
             Ok(text) if text == expected => {}
             other => failures.push(format!("HCL {marked:?}: {other:?}")),
         }
     }
-    match accepted_with_selection(Language::TOML, "[heart|websocket]\npath = \"/x\"\n", "heartbeat") {
-        Ok((text, _, caret)) if text == "[heartbeat]\n\n[websocket]\npath = \"/x\"\n" && caret == "[heartbeat]\n".len() => {}
+    match accepted_with_selection(
+        Language::TOML,
+        "[heart|websocket]\npath = \"/x\"\n",
+        "heartbeat",
+    ) {
+        Ok((text, _, caret))
+            if text == "[heartbeat]\n\n[websocket]\npath = \"/x\"\n"
+                && caret == "[heartbeat]\n".len() => {}
         other => failures.push(format!("TOML header in front: {other:?}")),
     }
-    for marked in ["[websock|et]\n\n[websocket.tls]\ncert = \"c\"\n", "[websockt|]\n\n[websocket.tls]\ncert = \"c\"\n"] {
+    for marked in [
+        "[websock|et]\n\n[websocket.tls]\ncert = \"c\"\n",
+        "[websockt|]\n\n[websocket.tls]\ncert = \"c\"\n",
+    ] {
         if !offered(Language::TOML, marked).contains(&"websocket".to_string()) {
             failures.push(format!("TOML {marked:?}: websocket not offered"));
         }
@@ -1079,8 +1201,13 @@ fn a_misspelled_xml_end_tag_closes_the_innermost_element() {
     text.push_str("<tcp>\n  <no|");
     let at = text.find('|').unwrap();
     let source = text.replacen('|', "", 1);
-    let context = Language::XML.behavior().completion_context(&source, source[..at].encode_utf16().count());
-    assert_eq!(context.path, vec![super::super::language::SchemaPathSegment::Key("tcp".into())]);
+    let context = Language::XML
+        .behavior()
+        .completion_context(&source, source[..at].encode_utf16().count());
+    assert_eq!(
+        context.path,
+        vec![super::super::language::SchemaPathSegment::Key("tcp".into())]
+    );
 }
 
 /// Round 11: past the most problems shown, one more without a position says
@@ -1092,9 +1219,19 @@ fn a_cut_problem_list_says_more_follow() {
     for index in 0..50 {
         text.push_str(&format!("unknown_{index}: 1\n"));
     }
-    let problems = super::super::diagnostics::validate(&text, Some(&burrow()), None, true, Language::YAML.behavior());
+    let problems = super::super::diagnostics::validate(
+        &text,
+        Some(&burrow()),
+        None,
+        true,
+        Language::YAML.behavior(),
+    );
     assert_eq!(problems.len(), 21);
-    assert!(problems[20].line.is_none() && problems[20].message.contains("more follow"), "{:?}", problems[20]);
+    assert!(
+        problems[20].line.is_none() && problems[20].message.contains("more follow"),
+        "{:?}",
+        problems[20]
+    );
 }
 
 /// Round 12: a name completed in a block or end tag renames it; a dotted
@@ -1104,21 +1241,42 @@ fn names_complete_in_place_and_entries_in_front_stay() {
     use super::super::completion::{apply_completion, completions_for};
     let mut failures = Vec::new();
     for (language, marked, label, expected) in [
-        (Language::HCL, "heart| { path = \"/x\" }\n", "heartbeat", "heartbeat { path = \"/x\" }\n"),
+        (
+            Language::HCL,
+            "heart| { path = \"/x\" }\n",
+            "heartbeat",
+            "heartbeat { path = \"/x\" }\n",
+        ),
         (Language::HCL, "heart| {}\n", "heartbeat", "heartbeat {}\n"),
-        (Language::XML, "<listen>1</|listen>\n", "public_address", "<public_address>1</public_address>\n"),
-        (Language::XML, "<websocket><path>/x</path></p|websocket>\n", "pool", "<pool><path>/x</path></pool>\n"),
+        (
+            Language::XML,
+            "<listen>1</|listen>\n",
+            "public_address",
+            "<public_address>1</public_address>\n",
+        ),
+        (
+            Language::XML,
+            "<websocket><path>/x</path></p|websocket>\n",
+            "pool",
+            "<pool><path>/x</path></pool>\n",
+        ),
     ] {
         match accepted(language, marked, label) {
             Ok(text) if text == expected => {}
             other => failures.push(format!("{}: {marked:?} became {other:?}", language.label())),
         }
     }
-    for marked in ["[websocket]\ntls.|path = \"/x\"\n", "[websocket]\ntls.c|path = \"/x\"\n"] {
+    for marked in [
+        "[websocket]\ntls.|path = \"/x\"\n",
+        "[websocket]\ntls.c|path = \"/x\"\n",
+    ] {
         match accepted(Language::TOML, marked, "cert") {
             Ok(text) => {
                 let value = parsed(Language::TOML, &text);
-                let path = value.as_ref().ok().and_then(|value| value.pointer("/websocket/path").cloned());
+                let path = value
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value.pointer("/websocket/path").cloned());
                 if path != Some(serde_json::json!("/x")) {
                     failures.push(format!("TOML {marked:?} became {text:?}"));
                 }
@@ -1129,10 +1287,21 @@ fn names_complete_in_place_and_entries_in_front_stay() {
     // The namespaced element is closed with its prefix.
     let at = "<a:b>\n  </".len();
     let text = "<a:b>\n  </";
-    let options = completions_for(text, at, true, Some(&burrow()), true, Language::XML.behavior(), false);
+    let options = completions_for(
+        text,
+        at,
+        true,
+        Some(&burrow()),
+        true,
+        Language::XML.behavior(),
+        false,
+    );
     match options.first() {
         Some(option) if apply_completion(text, option).0 == "<a:b>\n  </a:b>" => {}
-        other => failures.push(format!("XML prefix: {:?}", other.map(|o| (o.label.clone(), o.insert.clone())))),
+        other => failures.push(format!(
+            "XML prefix: {:?}",
+            other.map(|o| (o.label.clone(), o.insert.clone()))
+        )),
     }
     report(failures);
 }
@@ -1143,11 +1312,21 @@ fn names_complete_in_place_and_entries_in_front_stay() {
 fn a_repeated_block_or_element_offers_its_keys() {
     let mut failures = Vec::new();
     for (language, marked) in [
-        (Language::HCL, "websocket {\n  path = \"/x\"\n}\nwebsocket {\n  |\n}\n"),
-        (Language::XML, "<websocket>\n  <path>/x</path>\n</websocket>\n<websocket>\n  |\n</websocket>\n"),
+        (
+            Language::HCL,
+            "websocket {\n  path = \"/x\"\n}\nwebsocket {\n  |\n}\n",
+        ),
+        (
+            Language::XML,
+            "<websocket>\n  <path>/x</path>\n</websocket>\n<websocket>\n  |\n</websocket>\n",
+        ),
     ] {
         if !offered(language, marked).contains(&"host".to_string()) {
-            failures.push(format!("{}: {:?}", language.label(), offered(language, marked)));
+            failures.push(format!(
+                "{}: {:?}",
+                language.label(),
+                offered(language, marked)
+            ));
         }
     }
     report(failures);
@@ -1161,23 +1340,47 @@ fn dotted_heads_prefixed_names_and_header_renames_stay_valid() {
     use super::super::completion::{apply_completion, completions_for};
     let mut failures = Vec::new();
     match accepted(Language::TOML, "websocket.t|", "tls") {
-        Ok(text) if parsed(Language::TOML, &text).is_ok_and(|value| value.pointer("/websocket/tls").is_some()) => {}
+        Ok(text)
+            if parsed(Language::TOML, &text)
+                .is_ok_and(|value| value.pointer("/websocket/tls").is_some()) => {}
         other => failures.push(format!("TOML dotted head: {other:?}")),
     }
     for (marked, label, expected) in [
-        ("<ns:websocket>\n  <ns:path>/x</ns:path>\n</ns:websocket|>\n", "heartbeat", "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n"),
-        ("<ns:websocket|>\n  <ns:path>/x</ns:path>\n</ns:websocket>\n", "heartbeat", "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n"),
+        (
+            "<ns:websocket>\n  <ns:path>/x</ns:path>\n</ns:websocket|>\n",
+            "heartbeat",
+            "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n",
+        ),
+        (
+            "<ns:websocket|>\n  <ns:path>/x</ns:path>\n</ns:websocket>\n",
+            "heartbeat",
+            "<ns:heartbeat>\n  <ns:path>/x</ns:path>\n</ns:heartbeat>\n",
+        ),
     ] {
         let at = marked.find('|').unwrap();
         let text = marked.replacen('|', "", 1);
-        let options = completions_for(&text, at, true, Some(&burrow()), true, Language::XML.behavior(), true);
+        let options = completions_for(
+            &text,
+            at,
+            true,
+            Some(&burrow()),
+            true,
+            Language::XML.behavior(),
+            true,
+        );
         match options.iter().find(|option| option.label == label) {
             Some(option) if apply_completion(&text, option).0 == expected => {}
-            Some(option) => failures.push(format!("XML {marked:?} became {:?}", apply_completion(&text, option).0)),
+            Some(option) => failures.push(format!(
+                "XML {marked:?} became {:?}",
+                apply_completion(&text, option).0
+            )),
             None => failures.push(format!("XML {marked:?}: {label} not offered")),
         }
     }
-    let labels = offered(Language::TOML, "[web|socket]\npath = \"/x\"\n\n[clients.acme]\nsecret = \"s\"\n");
+    let labels = offered(
+        Language::TOML,
+        "[web|socket]\npath = \"/x\"\n\n[clients.acme]\nsecret = \"s\"\n",
+    );
     if labels.contains(&"clients".to_string()) {
         failures.push(format!("TOML rename offers clients: {labels:?}"));
     }
@@ -1187,6 +1390,9 @@ fn dotted_heads_prefixed_names_and_header_renames_stay_valid() {
 /// Round 13: `/>` inside a quoted attribute value does not end the tag.
 #[test]
 fn a_tag_end_inside_a_quoted_attribute_value_is_text() {
-    let labels = offered(Language::XML, "<websocket path=\"a/>b\">\n  |\n</websocket>\n");
+    let labels = offered(
+        Language::XML,
+        "<websocket path=\"a/>b\">\n  |\n</websocket>\n",
+    );
     assert!(labels.contains(&"host".to_string()), "{labels:?}");
 }

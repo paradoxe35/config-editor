@@ -760,7 +760,10 @@ mod structural_saves {
         let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
             shown.replace("public_address: |\n  ab", "public_address: |\n  cd")
         });
-        assert_eq!(saved, "public_address = <<EOT\ncd\nEOT\n\n# after\nlisten = 1\n");
+        assert_eq!(
+            saved,
+            "public_address = <<EOT\ncd\nEOT\n\n# after\nlisten = 1\n"
+        );
         let yaml = "public_address: >- # c\n  ab\nlisten: 1\n";
         let saved = save(Language::YAML, Language::JSON, yaml, |shown| {
             shown.replace("\"ab\"", "\"cd\"")

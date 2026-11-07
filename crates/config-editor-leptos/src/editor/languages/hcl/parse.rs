@@ -177,6 +177,8 @@ fn span_in_scan(
             return Some((line, column, column + 1));
         }
         let end = start + inline_value_len(&source[start..]);
+        // Up to a comment after the value (`3 # three` in an object).
+        let end = start + source[start..end].find([' ', '\t']).filter(|at| line_comment_start(source[start + at..end].trim_start()) == Some(0)).unwrap_or(end - start);
         return (end > start).then(|| span_between(source, start, end));
     };
     let (start, end) = *value_span;

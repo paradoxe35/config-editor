@@ -349,6 +349,7 @@ mod tests {
         }
         fn config(&self) -> LanguageConfig {
             LanguageConfig {
+                quotes: &["\""],
                 line_comments: &["#"],
                 block_comment: None,
                 ..LanguageConfig::default()

@@ -106,14 +106,18 @@ fn convert_edits(state: EditorState) {
         conversions.borrow_mut().push((
             id,
             std::rc::Rc::new(move || {
-                if let (Some(text), Some(language)) = (state.source.try_get_untracked(), state.edit_language.try_get_untracked()) {
+                if let (Some(text), Some(language)) = (
+                    state.source.try_get_untracked(),
+                    state.edit_language.try_get_untracked(),
+                ) {
                     convert_now(state, text, language);
                 }
             }),
         ));
     });
     on_cleanup(move || {
-        let _ = CONVERSIONS.try_with(|conversions| conversions.borrow_mut().retain(|(known, _)| *known != id));
+        let _ = CONVERSIONS
+            .try_with(|conversions| conversions.borrow_mut().retain(|(known, _)| *known != id));
     });
 }
 
@@ -134,8 +138,13 @@ pub fn flush_pending_edits() {
     super::input::flush_pending_input();
     // Cloned out first: a conversion's `onChange` may mount or unmount
     // editors, which changes the list.
-    let conversions: Vec<std::rc::Rc<dyn Fn()>> =
-        CONVERSIONS.with(|conversions| conversions.borrow().iter().map(|(_, convert)| convert.clone()).collect());
+    let conversions: Vec<std::rc::Rc<dyn Fn()>> = CONVERSIONS.with(|conversions| {
+        conversions
+            .borrow()
+            .iter()
+            .map(|(_, convert)| convert.clone())
+            .collect()
+    });
     for convert in conversions {
         convert();
     }

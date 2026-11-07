@@ -20,7 +20,12 @@ pub(crate) struct LineState {
 /// not start or end inside one, and they close no more than they open nor
 /// leave anything open. `starts` has one entry per line plus one for the
 /// end; `lowest[i]` is the lowest depth reached on line `i`.
-pub(crate) fn widen(starts: &[LineState], lowest: &[usize], mut first: usize, mut last: usize) -> (usize, usize) {
+pub(crate) fn widen(
+    starts: &[LineState],
+    lowest: &[usize],
+    mut first: usize,
+    mut last: usize,
+) -> (usize, usize) {
     let lines = lowest.len();
     for _ in 0..lines * 2 + 2 {
         let base = starts[first].depth;
@@ -50,7 +55,12 @@ pub(crate) fn selection_over(
         return (start, end);
     }
     let lines: Vec<&str> = source.split('\n').collect();
-    let line_start = |line: usize| lines[..line].iter().map(|text| text.len() + 1).sum::<usize>();
+    let line_start = |line: usize| {
+        lines[..line]
+            .iter()
+            .map(|text| text.len() + 1)
+            .sum::<usize>()
+    };
     let to_utf16 = |byte: usize| source[..byte].encode_utf16().count();
     let new_start = to_utf16(line_start(first)).min(start);
     let new_end = to_utf16(line_start(last) + lines[last].len()).max(end);
@@ -84,8 +94,12 @@ pub(crate) fn over_balanced_lines(
     // The open quote or block comment: its closing delimiter.
     let mut quote: Option<&'static str> = None;
     let block_comment = behavior.config().block_comment;
+    let quotes = behavior.config().quotes;
     for (index, line) in lines.iter().enumerate() {
-        starts.push(LineState { depth, open: quote.is_some() || body[index] });
+        starts.push(LineState {
+            depth,
+            open: quote.is_some() || body[index],
+        });
         let mut low = depth;
         // A body line of a block string is text; one inside an open quote is
         // read for its closing quote.
@@ -93,7 +107,11 @@ pub(crate) fn over_balanced_lines(
             lowest.push(low);
             continue;
         }
-        let comment = if quote.is_none() { behavior.comment_start(line) } else { None };
+        let comment = if quote.is_none() {
+            behavior.comment_start(line)
+        } else {
+            None
+        };
         let mut escaped = false;
         let mut at = 0;
         while at < line.len() {
@@ -126,14 +144,18 @@ pub(crate) fn over_balanced_lines(
                 .chars()
                 .next_back()
                 .is_none_or(|before| before.is_whitespace() || "[{(,:=".contains(before));
-            if let Some(delimiter) = ["\"\"\"", "'''", "\""].into_iter().find(|delimiter| rest.starts_with(delimiter)) {
+            // The language's string delimiters, longest first; a single
+            // quote opens one only where a value starts (`don't` holds none).
+            if let Some(delimiter) = quotes
+                .iter()
+                .copied()
+                .find(|delimiter| rest.starts_with(delimiter) && (*delimiter != "'" || boundary))
+            {
                 quote = Some(delimiter);
                 at += delimiter.len();
                 continue;
             }
-            if character == '\'' && boundary {
-                quote = Some("'");
-            } else if brackets.iter().any(|(open, _)| *open == character) {
+            if brackets.iter().any(|(open, _)| *open == character) {
                 depth += 1;
             } else if brackets.iter().any(|(_, close)| *close == character) {
                 depth = depth.saturating_sub(1);
@@ -143,7 +165,10 @@ pub(crate) fn over_balanced_lines(
         }
         lowest.push(low);
     }
-    starts.push(LineState { depth, open: quote.is_some() });
+    starts.push(LineState {
+        depth,
+        open: quote.is_some(),
+    });
     let (first, last) = selected_lines(source, start, end);
     let lines_over = widen(&starts, &lowest, first, last);
     selection_over(source, (start, end), lines_over)
@@ -156,6 +181,10 @@ pub(crate) fn selected_lines(source: &str, start: usize, end: usize) -> (usize, 
     let end_byte = utf16_to_byte_index(source, end);
     let first = source[..start_byte].matches('\n').count();
     let last = source[..end_byte].matches('\n').count();
-    let last = if end_byte > start_byte && source[..end_byte].ends_with('\n') { last - 1 } else { last };
+    let last = if end_byte > start_byte && source[..end_byte].ends_with('\n') {
+        last - 1
+    } else {
+        last
+    };
     (first, last.max(first))
 }

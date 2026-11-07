@@ -39,10 +39,17 @@ fn with_scalar_changes(old: &Value, new: &Value) -> Value {
                 })
                 .collect(),
         ),
-        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
-            Value::Array(left.iter().zip(right).map(|(a, b)| with_scalar_changes(a, b)).collect())
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => Value::Array(
+            left.iter()
+                .zip(right)
+                .map(|(a, b)| with_scalar_changes(a, b))
+                .collect(),
+        ),
+        (left, right)
+            if !left.is_object() && !left.is_array() && !right.is_object() && !right.is_array() =>
+        {
+            right.clone()
         }
-        (left, right) if !left.is_object() && !left.is_array() && !right.is_object() && !right.is_array() => right.clone(),
         (left, _) => left.clone(),
     }
 }
@@ -56,7 +63,8 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
     }
     match (current, target) {
         (Value::Object(left), Value::Object(right)) => {
-            let same_keys = left.len() == right.len() && left.keys().all(|key| right.contains_key(key));
+            let same_keys =
+                left.len() == right.len() && left.keys().all(|key| right.contains_key(key));
             if !same_keys {
                 let rebuilt: Map<String, Value> = right
                     .iter()

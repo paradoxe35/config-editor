@@ -65,3 +65,43 @@ fn block_scalar(written: &str, text: &str) -> Option<String> {
     }
     Some(out)
 }
+
+/// `code` with written forms YAML reads the same made equal: a list item's
+/// dash however far its text is (`-   a`), an anchor or tag on a value
+/// (`pool: &p`, `n: !!int "7"`), an empty value and its null (`key: ~`).
+pub(super) fn comparable_yaml_line(code: &str) -> std::borrow::Cow<'_, str> {
+    let mut line = code.to_string();
+    if let Some(rest) = line.strip_prefix('-').filter(|rest| rest.starts_with([' ', '\t'])) {
+        line = format!("- {}", rest.trim_start());
+    }
+    if let Some((at, length)) = [": &", "- &", ": !", "- !"].iter().find_map(|marker| line.find(marker).map(|at| (at, marker.len()))) {
+        let name_end = line[at + length..]
+            .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-' | '!' | ':' | '.' | '/')))
+            .map_or(line.len(), |offset| at + length + offset);
+        if name_end > at + length {
+            line = format!("{}{}", &line[..at + length - 1], line[name_end..].trim_start()).trim_end().to_string();
+        }
+    }
+    for null in [": null", ": ~"] {
+        if let Some(key) = line.strip_suffix(null) {
+            line = format!("{key}:");
+            break;
+        }
+    }
+    if line == code { std::borrow::Cow::Borrowed(code) } else { std::borrow::Cow::Owned(line) }
+}
+
+/// The length of the anchors and tags (`&p `, `!!map `) before a value.
+pub(super) fn node_properties_len(text: &str) -> usize {
+    let mut length = 0;
+    while text[length..].starts_with(['&', '!']) {
+        let token = text[length..].find([' ', '\t']).unwrap_or(text.len() - length);
+        let rest = &text[length + token..];
+        let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        if spaces == 0 {
+            return 0;
+        }
+        length += token + spaces;
+    }
+    length
+}

@@ -1177,7 +1177,9 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
     };
     let separators_value = field(definition, "separators");
     if separators_value.is_string() {
-        return Err(JsError::new("separators must be an array of strings, e.g. [\"=\"]"));
+        return Err(JsError::new(
+            "separators must be an array of strings, e.g. [\"=\"]",
+        ));
     }
     let separators = string_list(&separators_value, "separators")?;
     let brackets_value = field(definition, "brackets");
@@ -1214,6 +1216,7 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
         block_comment,
         brackets: Box::leak(brackets.into_boxed_slice()),
         separators: leak_all(separators),
+        quotes: &["\"", "'"],
     })
 }
 
@@ -1286,16 +1289,19 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
     // A name or extension another registered language already answers to
     // would be taken from it, or never reach this one.
     REGISTERED.with(|languages| {
-        for (other, language) in languages.borrow().iter().filter(|(other, _)| **other != name) {
+        for (other, language) in languages
+            .borrow()
+            .iter()
+            .filter(|(other, _)| **other != name)
+        {
             if language.extensions().contains(&name.as_str()) {
                 return Err(JsError::new(&format!(
                     "\"{name}\" is already an extension of the registered language \"{other}\""
                 )));
             }
-            if let Some(extension) = extensions
-                .iter()
-                .find(|extension| **extension == other.as_str() || language.extensions().contains(*extension))
-            {
+            if let Some(extension) = extensions.iter().find(|extension| {
+                **extension == other.as_str() || language.extensions().contains(*extension)
+            }) {
                 return Err(JsError::new(&format!(
                     "extension \"{extension}\" already names the registered language \"{other}\""
                 )));

@@ -98,6 +98,13 @@ impl ConfigLanguage for XmlBehavior {
         xml_name_span(source, pointer).map(Span::from)
     }
 
+    /// Element text ending in a line break before its end tag
+    /// (`k2\n</secret>`) runs through the break.
+    fn kept_value_end(&self, source: &str, end: usize) -> usize {
+        let rest = &source[end..];
+        if rest.trim_start().starts_with("</") { end + rest.len() - rest.trim_start().len() } else { end }
+    }
+
     /// Lines inside element text written over several lines.
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         text_body_lines(source)

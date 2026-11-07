@@ -43,14 +43,19 @@ pub(in super::super) fn patch_reorder(
             let before_value = previous[line_start..range.start].trim();
             let after_value = &text[range.end - line_start..];
             let after_code = after_value[..comment_start(language, after_value)].trim();
-            if !matches!(before_value, "" | "-") || !matches!(after_code, "" | ",") || item.is_object() || item.is_array() {
+            if !matches!(before_value, "" | "-")
+                || !matches!(after_code, "" | ",")
+                || item.is_object()
+                || item.is_array()
+            {
                 return None;
             }
             // Own-line comments right above it go with it.
             let mut top = line;
             while top > 0 && {
                 let above = lines[top - 1];
-                !above.trim().is_empty() && above[..comment_start(language, above)].trim().is_empty()
+                !above.trim().is_empty()
+                    && above[..comment_start(language, above)].trim().is_empty()
             } {
                 top -= 1;
             }
@@ -63,7 +68,10 @@ pub(in super::super) fn patch_reorder(
             let from = (0..before.len()).find(|at| !used[*at] && before[*at] == *item)?;
             used[from] = true;
             let (top, line) = slots[from];
-            let mut block: Vec<String> = lines[top..line].iter().map(|line| line.to_string()).collect();
+            let mut block: Vec<String> = lines[top..line]
+                .iter()
+                .map(|line| line.to_string())
+                .collect();
             block.push(with_comma_of(language, lines[line], lines[slots[slot].1]));
             moves.push((slots[slot].0..slots[slot].1 + 1, block));
         }
@@ -80,7 +88,11 @@ pub(in super::super) fn patch_reorder(
 /// The item line `moved`, with a comma after its value exactly when the
 /// line of the place it moves to (`slot`) has one.
 fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
-    let has_comma = |line: &str| line[..comment_start(language, line)].trim_end().ends_with(',');
+    let has_comma = |line: &str| {
+        line[..comment_start(language, line)]
+            .trim_end()
+            .ends_with(',')
+    };
     let code_end = comment_start(language, moved);
     let code = moved[..code_end].trim_end();
     let rest = &moved[code.len()..];
@@ -106,7 +118,12 @@ fn permuted_lists<'a>(
                 return None;
             }
             for (key, value) in left {
-                permuted_lists(value, &right[key], format!("{pointer}/{}", escape(key)), out)?;
+                permuted_lists(
+                    value,
+                    &right[key],
+                    format!("{pointer}/{}", escape(key)),
+                    out,
+                )?;
             }
             Some(())
         }

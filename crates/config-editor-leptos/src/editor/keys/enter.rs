@@ -32,7 +32,10 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     }
     // Inside a line's leading indentation, before its text: the line moves
     // down whole, its indentation kept, and the caret with it.
-    if start == end && !modified && let Some(updated) = break_in_indentation(&text, start) {
+    if start == end
+        && !modified
+        && let Some(updated) = break_in_indentation(&text, start)
+    {
         state.commit(Edit::new(text, selection, updated, start + 1));
         state.close_suggestions();
         return;
@@ -101,9 +104,16 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
 pub(super) fn break_in_indentation(text: &str, cursor: usize) -> Option<String> {
     let line_start = line_start_of(text, cursor);
     let line_end = line_end_of(text, cursor);
-    let units: Vec<u16> = text.encode_utf16().skip(line_start).take(line_end - line_start).collect();
+    let units: Vec<u16> = text
+        .encode_utf16()
+        .skip(line_start)
+        .take(line_end - line_start)
+        .collect();
     let column = cursor - line_start;
-    let indent = units.iter().take_while(|unit| **unit == u16::from(b' ') || **unit == u16::from(b'\t')).count();
+    let indent = units
+        .iter()
+        .take_while(|unit| **unit == u16::from(b' ') || **unit == u16::from(b'\t'))
+        .count();
     (column > 0 && column < indent && indent < units.len())
         .then(|| replace_selection(text, line_start, line_start, "\n").0)
 }
@@ -184,7 +194,11 @@ mod tests {
             ("a:\n  b: 1", 5, None),
             ("a:\n    \nb: 1", 5, None),
         ] {
-            assert_eq!(break_in_indentation(text, cursor).as_deref(), expected, "{text:?} at {cursor}");
+            assert_eq!(
+                break_in_indentation(text, cursor).as_deref(),
+                expected,
+                "{text:?} at {cursor}"
+            );
         }
     }
 }

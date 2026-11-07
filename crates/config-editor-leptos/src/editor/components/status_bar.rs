@@ -71,8 +71,14 @@ fn summary(problems: &[Diagnostic]) -> String {
     // The note that more problems follow is not one of them: the counts say
     // "20+" instead.
     let more = problems.iter().any(is_more_note);
-    let counted: Vec<&Diagnostic> = problems.iter().filter(|problem| !is_more_note(problem)).collect();
-    let warnings = counted.iter().filter(|problem| problem.severity == Severity::Warning).count();
+    let counted: Vec<&Diagnostic> = problems
+        .iter()
+        .filter(|problem| !is_more_note(problem))
+        .collect();
+    let warnings = counted
+        .iter()
+        .filter(|problem| problem.severity == Severity::Warning)
+        .count();
     let errors = counted.len() - warnings;
     let plus = if more { "+" } else { "" };
     let count = match (errors, warnings) {

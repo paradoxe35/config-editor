@@ -74,12 +74,11 @@ pub(super) fn hide(
             .trim_end()
             .ends_with('[')
     });
-    // A flow map opened at a line's end after a bare key (YAML's `tcp: {`;
-    // not a JSON object, which the serializer writes the same way).
-    let multi_line_maps = previous.lines().any(|line| {
-        let code = line[..super::comment_start(language, line)].trim();
-        code.ends_with('{') && code.contains(": ") && !code.starts_with(['"', '\''])
-    });
+    // A map written inline over lines (YAML's `tcp: {`), as the language
+    // tells: the serializer writes it another way.
+    let multi_line_maps = previous
+        .lines()
+        .any(|line| language.flow_map_opener(line[..super::comment_start(language, line)].trim()));
     // Strings written over lines (a YAML block, a TOML `"""`, a heredoc):
     // the serializer writes them on one.
     let host_lines: Vec<&str> = previous.split('\n').collect();
@@ -112,13 +111,16 @@ pub(super) fn hide(
         }
         let one_line = span
             .and_then(|span| {
-                braced_one_line(previous, span).or_else(|| {
+                braced_one_line(language, previous, span).or_else(|| {
                     // A list over lines that stays a list but changes is
                     // edited in place (see `lists`); kept, deleted or
                     // replaced by a value, it is hidden like the others.
                     let now = new.pointer(&pointer);
                     let was = old.pointer(&pointer);
-                    let same_kind = now.is_some_and(|now| now.is_array() && was.is_some_and(Value::is_array) || now.is_object() && was.is_some_and(Value::is_object));
+                    let same_kind = now.is_some_and(|now| {
+                        now.is_array() && was.is_some_and(Value::is_array)
+                            || now.is_object() && was.is_some_and(Value::is_object)
+                    });
                     (now == was || !same_kind)
                         .then(|| multi_line_list(language, previous, span))
                         .flatten()
@@ -140,19 +142,30 @@ pub(super) fn hide(
         // Only strings whose text is in one of the bodies: a span lookup per
         // string of a large host is too slow.
         strings.retain(|pointer| {
-            old.pointer(pointer).and_then(Value::as_str).is_some_and(|text| {
-                text.contains('\n')
-                    && text
-                        .lines()
-                        .map(str::trim)
-                        .filter(|line| !line.is_empty())
-                        .any(|line| bodies.iter().any(|body| body.contains(line)))
-            }) || old.pointer(pointer).and_then(Value::as_str).is_some_and(|text| {
-                // A folded block (`>-`) holds one line of text over lines.
-                let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                !words.is_empty()
-                    && bodies.iter().any(|body| body.split_whitespace().collect::<Vec<_>>().join(" ").contains(&words))
-            })
+            old.pointer(pointer)
+                .and_then(Value::as_str)
+                .is_some_and(|text| {
+                    text.contains('\n')
+                        && text
+                            .lines()
+                            .map(str::trim)
+                            .filter(|line| !line.is_empty())
+                            .any(|line| bodies.iter().any(|body| body.contains(line)))
+                })
+                || old
+                    .pointer(pointer)
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| {
+                        // A folded block (`>-`) holds one line of text over lines.
+                        let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                        !words.is_empty()
+                            && bodies.iter().any(|body| {
+                                body.split_whitespace()
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                                    .contains(&words)
+                            })
+                    })
         });
         let spans = language.value_spans(previous, &strings);
         for (pointer, span) in strings.into_iter().zip(spans) {
@@ -162,18 +175,22 @@ pub(super) fn hide(
             let Some(mut range) = span.and_then(|span| super::byte_range(previous, span)) else {
                 continue;
             };
-            range.end = super::through_triple_quote(previous, range.clone());
+            range.end = super::through_long_quote(language, previous, range.clone());
             while range.end > range.start && previous[..range.end].ends_with('\n') {
                 range.end -= 1;
             }
-            // Element text ending in a line break before its end tag
-            // (`k2\n</secret>`): the break goes with it.
-            let rest = &previous[range.end..];
-            if rest.trim_start().starts_with("</") {
-                range.end += rest.len() - rest.trim_start().len();
-            }
+            // Where the language's string really ends (XML text: through
+            // the line break before its end tag).
+            range.end = language.kept_value_end(previous, range.end);
             if !inside_found && previous[range.clone()].contains('\n') {
-                found.push((pointer, OneLine { range: range.clone(), written: String::new(), value: range }));
+                found.push((
+                    pointer,
+                    OneLine {
+                        range: range.clone(),
+                        written: String::new(),
+                        value: range,
+                    },
+                ));
             }
         }
     }
@@ -271,7 +288,9 @@ fn collect(
 ) {
     if !pointer.is_empty()
         && (old.is_object() || old.is_array())
-        && ((multi_line_lists && old.is_array()) || (multi_line_maps && old.is_object()) || on_one_line(&pointer, old, lines))
+        && ((multi_line_lists && old.is_array())
+            || (multi_line_maps && old.is_object())
+            || on_one_line(&pointer, old, lines))
     {
         out.push(pointer.clone());
     }
@@ -359,7 +378,11 @@ fn on_one_line(pointer: &str, container: &Value, lines: &[&str]) -> bool {
 
 /// The byte range of the value marked by `span` when the host wrote it as
 /// a `{…}` or `[…]` on one line.
-fn braced_one_line(previous: &str, span: Span) -> Option<Range<usize>> {
+fn braced_one_line(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    span: Span,
+) -> Option<Range<usize>> {
     let line_start: usize = previous
         .split_inclusive('\n')
         .take(span.line.checked_sub(1)?)
@@ -370,7 +393,7 @@ fn braced_one_line(previous: &str, span: Span) -> Option<Range<usize>> {
         .char_indices()
         .nth(span.start_column.saturating_sub(1))
         .map_or(line.len(), |(index, _)| index);
-    let start = start + super::node_properties_len(&line[start..]);
+    let start = start + language.value_properties_len(&line[start..]);
     let text = &line[start..];
     let close = match text.chars().next()? {
         '{' => '}',

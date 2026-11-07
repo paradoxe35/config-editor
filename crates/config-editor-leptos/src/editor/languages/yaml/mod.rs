@@ -12,6 +12,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod style;
+use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 
 use parse::*;
@@ -52,6 +53,7 @@ impl ConfigLanguage for YamlBehavior {
             block_comment: None,
             brackets: &[('{', '}'), ('[', ']')],
             separators: &[":"],
+            quotes: &["\"", "'"],
         }
     }
 
@@ -132,6 +134,19 @@ impl ConfigLanguage for YamlBehavior {
     /// commented alone, they would be left without their parent.
     fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
         children_of_selected_keys(source, start, end)
+    }
+
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        comparable_yaml_line(code)
+    }
+
+    fn value_properties_len(&self, text: &str) -> usize {
+        node_properties_len(text)
+    }
+
+    /// `tcp: {` after a bare key (a JSON object's key is quoted).
+    fn flow_map_opener(&self, code: &str) -> bool {
+        code.ends_with('{') && code.contains(": ") && !code.starts_with(['"', '\''])
     }
 
     fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {

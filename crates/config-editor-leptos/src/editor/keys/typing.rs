@@ -164,14 +164,18 @@ fn closer_already_there(
     let (closer, typed_from) = if matches!(typed, '}' | ']' | ')') && before.trim().is_empty() {
         (typed.to_string(), byte)
     } else {
-        // Markup from its last `</` (`<tcp></tcp` + `>`).
-        let Some(tag_start) = before.rfind("</") else {
-            return false;
-        };
-        let candidate = format!("{}{typed}", &before[tag_start..]);
-        match state.behavior().closing_markup_len(&candidate) {
-            Some(len) if len == candidate.len() => (candidate, line_start + tag_start),
-            _ => return false,
+        // Markup the language closes elements with, ending with the typed
+        // character (`<tcp></tcp` + `>`): the nearest start that makes one.
+        let behavior = state.behavior();
+        let found = before
+            .char_indices()
+            .rev()
+            .take(256)
+            .map(|(start, _)| (start, format!("{}{typed}", &before[start..])))
+            .find(|(_, candidate)| behavior.closing_markup_len(candidate) == Some(candidate.len()));
+        match found {
+            Some((tag_start, candidate)) => (candidate, line_start + tag_start),
+            None => return false,
         }
     };
     // `</tcp` + `>` right before the `</tcp>` written for it.

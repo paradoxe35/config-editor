@@ -336,7 +336,9 @@ pub fn unwrap_block_comments(
     // line by line instead: its text would become code.)
     let own_lines = |at: usize, close_end: usize| {
         let line_start = source[..at].rfind('\n').map_or(0, |newline| newline + 1);
-        let line_end = source[close_end..].find('\n').map_or(source.len(), |offset| close_end + offset);
+        let line_end = source[close_end..]
+            .find('\n')
+            .map_or(source.len(), |offset| close_end + offset);
         source[line_start..at].trim().is_empty() && source[close_end..line_end].trim().is_empty()
     };
     if let Some(at) = source[..start].rfind(open)
@@ -800,6 +802,7 @@ pub struct Lexical {
 ///     block_comment: None,
 ///     brackets: &[],
 ///     separators: &["="],
+///     quotes: &["\""],
 /// };
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -817,6 +820,9 @@ pub struct LanguageConfig {
     /// that already has a value renames only the key, a space after a complete
     /// value ends the entry, and `Tab` walks values left empty after one.
     pub separators: &'static [&'static str],
+    /// String delimiters, longest first (`"\"\"\""` before `"\""`): `Ctrl+/`
+    /// takes a string written over lines whole, never commenting part of it.
+    pub quotes: &'static [&'static str],
 }
 
 /// A document language for the editor.
@@ -998,7 +1004,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         let config = self.config();
         // Inside a block comment on lines of its own: its markers go.
         if let Some(block) = config.block_comment
-            && let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block)
+            && let Some(unwrapped) =
+                unwrap_block_comments(source, selection_start, selection_end, block)
         {
             return Some(unwrapped);
         }
@@ -1006,7 +1013,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         let (mut selection_start, mut selection_end) = (selection_start, selection_end);
         loop {
             let widened = over_whole_strings(self, source, selection_start, selection_end);
-            let widened = super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
+            let widened =
+                super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
             let widened = self.comment_scope(source, widened.0, widened.1);
             if widened == (selection_start, selection_end) {
                 break;
@@ -1028,6 +1036,37 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
         let _ = (previous, old, new);
         None
+    }
+
+    /// `code` (a line without its comment, trimmed) as an Edit-as save
+    /// compares it with the serializer's line for the same entry: written
+    /// forms that read the same are made equal (YAML's `-   a` and `- a`,
+    /// `key: &anchor`, `key: ~`). The default keeps it.
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        std::borrow::Cow::Borrowed(code)
+    }
+
+    /// The length of what may precede a value without being part of it
+    /// (YAML's `&anchor `, `!!tag `), so a flow collection after it is found.
+    fn value_properties_len(&self, text: &str) -> usize {
+        let _ = text;
+        0
+    }
+
+    /// Whether `code` (a line without its comment, trimmed) opens a map
+    /// written inline over the following lines (YAML's `tcp: {`), which a
+    /// save keeps as written rather than the serializer's form. Default: no.
+    fn flow_map_opener(&self, code: &str) -> bool {
+        let _ = code;
+        false
+    }
+
+    /// Where a string value that ends at byte `end` of `source` really ends
+    /// for keeping it as written: XML text runs through the line break
+    /// before its end tag. Default: `end`.
+    fn kept_value_end(&self, source: &str, end: usize) -> usize {
+        let _ = source;
+        end
     }
 
     /// The UTF-16 selection Ctrl+/ comments, widened over what the selected
@@ -1261,12 +1300,19 @@ pub fn over_whole_strings(
     }
     // (Quoted strings over lines are taken whole by
     // `comment_scope::over_balanced_lines`, which reads them in one pass.)
-    // A closing delimiter alone after a body (`"""`, `'''`, `EOT`).
+    // A closing delimiter alone after a body: one of the language's
+    // multi-character quotes, or a word (a heredoc's `EOT`).
+    let long_quotes: Vec<&str> = behavior
+        .config()
+        .quotes
+        .iter()
+        .copied()
+        .filter(|quote| quote.len() > 1)
+        .collect();
     let closes = |line: usize| {
         lines.get(line).is_some_and(|text| {
             let trimmed = text.trim();
-            trimmed.contains("\"\"\"")
-                || trimmed.contains("'''")
+            long_quotes.iter().any(|quote| trimmed.contains(quote))
                 || (!trimmed.is_empty()
                     && trimmed
                         .chars()

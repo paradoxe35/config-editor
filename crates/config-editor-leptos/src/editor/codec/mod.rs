@@ -152,25 +152,12 @@ pub(super) fn patch_scalars(
         while range.end > range.start && previous[..range.end].ends_with('\n') {
             range.end -= 1;
         }
-        // In the host's style for what was there (plain, quoted, a block).
+        // A string in one of the language's long quotes runs to its closing
+        // delimiter.
+        range.end = through_long_quote(language, previous, range.clone());
+        // In the host's style for what was there (plain, quoted, a block, a
+        // long string).
         let mut text = language.format_value_like(value, &previous[range.clone()]);
-        // A triple-quoted string (`"""` … `"""`) runs to its closing
-        // delimiter, and text with line breaks is written back that way.
-        if let Some(delimiter) = triple_quote_at(previous, range.start) {
-            range.end = through_triple_quote(previous, range.clone());
-            if let Value::String(body) = value
-                && body.contains('\n')
-            {
-                text = if delimiter == "'''" && !body.contains("'''") {
-                    format!("'''\n{body}'''")
-                } else {
-                    format!(
-                        "\"\"\"\n{}\"\"\"",
-                        body.replace('\\', "\\\\").replace("\"\"\"", "\"\"\\\"")
-                    )
-                };
-            }
-        }
         // A value the host wrote in quotes keeps them when the new one is
         // formatted bare (an XML attribute's `"…"`).
         let written = &previous[range.clone()];
@@ -262,7 +249,9 @@ pub(super) fn patch_inline(
         // b: 2}`): restyled whole, its untouched items as written.
         if let Some(span) = span
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
-            && previous[range.clone()].lines().all(|line| comment_start(language, line) == line.len())
+            && previous[range.clone()]
+                .lines()
+                .all(|line| comment_start(language, line) == line.len())
             && let Some(value) = new.pointer(&pointer)
             && let Some(text) = flow::restyle(language, value, &previous[range.clone()])
         {
@@ -277,7 +266,8 @@ pub(super) fn patch_inline(
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Object(entries)) = new.pointer(&pointer)
             && let Some(Value::Object(before)) = old.pointer(&pointer)
-            && let Some(text) = lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
+            && let Some(text) =
+                lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
         {
             let mut patched = previous.to_string();
             patched.replace_range(range, &text);
@@ -308,7 +298,9 @@ pub(super) fn patch_inline(
         // (`tcp: {a: 1,\n  b: 2}` → `tcp: 7`): the value in its place.
         if let Some(span) = span
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
-            && let Some(value) = new.pointer(&pointer).filter(|value| !value.is_object() && !value.is_array())
+            && let Some(value) = new
+                .pointer(&pointer)
+                .filter(|value| !value.is_object() && !value.is_array())
         {
             let mut patched = previous.to_string();
             patched.replace_range(range, &language.format_value_like(value, ""));
@@ -394,7 +386,7 @@ fn replace_inline(
             .map_or(line.len(), |(index, _)| index)
     };
     let start = column_byte(span.start_column);
-    let start = start + node_properties_len(&line[start..]);
+    let start = start + language.value_properties_len(&line[start..]);
     let text = &line[start..];
     let close = match text.chars().next()? {
         '{' => '}',
@@ -404,7 +396,8 @@ fn replace_inline(
     let end = start + matching_close(text, close)? + 1;
     let mut patched = previous.to_string();
     let written = &line[start..end];
-    let text = flow::restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written));
+    let text = flow::restyle(language, value, written)
+        .unwrap_or_else(|| language.format_value_like(value, written));
     patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)
 }
@@ -497,7 +490,10 @@ fn patch_lines(
     // at its key's column, `-   item`), from the matched lines above it.
     let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
     {
-        let (host_unit, rendered_unit) = (super::commands::indent_unit(previous), super::commands::indent_unit(&before));
+        let (host_unit, rendered_unit) = (
+            super::commands::indent_unit(previous),
+            super::commands::indent_unit(&before),
+        );
         let (mut old_at, mut new_at) = (0, 0);
         for edit in &edits {
             match edit {
@@ -507,8 +503,14 @@ fn patch_lines(
                 }
                 DiffEdit::Delete => old_at += 1,
                 DiffEdit::Insert => {
-                    written_new[new_at] =
-                        in_host_indentation(rendered_new[new_at], &rendered_old[..old_at], &place[..old_at], &host, &host_unit, &rendered_unit);
+                    written_new[new_at] = in_host_indentation(
+                        rendered_new[new_at],
+                        &rendered_old[..old_at],
+                        &place[..old_at],
+                        &host,
+                        &host_unit,
+                        &rendered_unit,
+                    );
                     new_at += 1;
                 }
             }
@@ -628,7 +630,7 @@ fn patch_lines(
             }
         }
     }
-    drop_doubled_blank_lines(&host, &mut removed, &inserted);
+    drop_doubled_blank_lines(language, &host, &mut removed, &inserted);
     follow_sibling_spacing(&host, &mut inserted);
     let mut inserted: Vec<Vec<String>> = inserted
         .into_iter()
@@ -692,30 +694,50 @@ fn in_host_indentation(
     };
     let dash_gap = |text: &str| {
         let content = text.trim_start_matches([' ', '\t']);
-        content.strip_prefix('-').filter(|rest| rest.starts_with(' ')).map(|rest| rest.len() - rest.trim_start_matches(' ').len())
+        content
+            .strip_prefix('-')
+            .filter(|rest| rest.starts_with(' '))
+            .map(|rest| rest.len() - rest.trim_start_matches(' ').len())
     };
-    let (prefix, content) = if let Some((_, sibling)) = placed().find(|(rendered, _)| indent(rendered) == wanted) {
-        let mut content = content.to_string();
-        if let (Some(_), Some(gap)) = (dash_gap(line), dash_gap(sibling)) {
-            content = format!("-{}{}", " ".repeat(gap), content[1..].trim_start_matches(' '));
-        }
-        (sibling[..indent(sibling)].to_string(), content)
-    } else if let Some((rendered, parent)) = placed().find(|(rendered, _)| indent(rendered) < wanted) {
-        let levels = (wanted - indent(rendered)) / rendered_unit.len().max(1);
-        let extra = (wanted - indent(rendered)) % rendered_unit.len().max(1);
-        (
-            format!("{}{}{}", &parent[..indent(parent)], host_unit.repeat(levels), " ".repeat(extra)),
-            content.to_string(),
-        )
-    } else {
-        return line.to_string();
-    };
+    let (prefix, content) =
+        if let Some((_, sibling)) = placed().find(|(rendered, _)| indent(rendered) == wanted) {
+            let mut content = content.to_string();
+            if let (Some(_), Some(gap)) = (dash_gap(line), dash_gap(sibling)) {
+                content = format!(
+                    "-{}{}",
+                    " ".repeat(gap),
+                    content[1..].trim_start_matches(' ')
+                );
+            }
+            (sibling[..indent(sibling)].to_string(), content)
+        } else if let Some((rendered, parent)) =
+            placed().find(|(rendered, _)| indent(rendered) < wanted)
+        {
+            let levels = (wanted - indent(rendered)) / rendered_unit.len().max(1);
+            let extra = (wanted - indent(rendered)) % rendered_unit.len().max(1);
+            (
+                format!(
+                    "{}{}{}",
+                    &parent[..indent(parent)],
+                    host_unit.repeat(levels),
+                    " ".repeat(extra)
+                ),
+                content.to_string(),
+            )
+        } else {
+            return line.to_string();
+        };
     format!("{prefix}{content}")
 }
 
 /// A removed run of lines between two blank lines (or after a blank line at
 /// the end) would leave the blank lines doubled: the one above goes.
-fn drop_doubled_blank_lines(host: &[&str], removed: &mut [bool], inserted: &[Vec<&str>]) {
+fn drop_doubled_blank_lines(
+    language: &dyn ConfigLanguage,
+    host: &[&str],
+    removed: &mut [bool],
+    inserted: &[Vec<&str>],
+) {
     let blank = |index: usize| host[index].trim().is_empty();
     let mut index = 0;
     while index < host.len() {
@@ -732,7 +754,7 @@ fn drop_doubled_blank_lines(host: &[&str], removed: &mut [bool], inserted: &[Vec
         // line belongs before it either.
         let closes = |line: &str| {
             let trimmed = line.trim();
-            trimmed.starts_with(['}', ']', ')']) || trimmed.starts_with("</")
+            trimmed.starts_with(['}', ']', ')']) || language.closing_markup_len(trimmed).is_some()
         };
         let after_blank = index == host.len() || blank(index) || closes(host[index]);
         if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
@@ -826,42 +848,27 @@ fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
 /// without its trailing comment (as the language finds it).
 fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
     let code = line[..comment_start(language, line)].trim();
-    // A list item's dash, however far its text is spaced from it (`-   a`).
-    let respaced;
-    let code = match code.strip_prefix('-').filter(|rest| rest.starts_with([' ', '\t'])) {
-        Some(rest) => {
-            respaced = format!("- {}", rest.trim_start());
-            respaced.as_str()
-        }
-        None => code,
-    };
-    // A YAML anchor or tag (`pool: &p`, `n: !!int "7"`) names or types the
-    // value; the line is the same.
-    let anchorless;
-    let code = match [": &", "- &", ": !", "- !"].iter().find_map(|marker| code.find(marker).map(|at| (at, marker.len()))) {
-        Some((at, length)) => {
-            let name_end = code[at + length..]
-                .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-' | '!' | ':' | '.' | '/')))
-                .map_or(code.len(), |offset| at + length + offset);
-            if name_end > at + length {
-                anchorless = format!("{}{}", &code[..at + length - 1], code[name_end..].trim_start());
-                anchorless.trim_end().to_string()
-            } else {
-                code.to_string()
-            }
-        }
-        None => code.to_string(),
-    };
-    let code = code.as_str();
-    // An empty value (`services:`) is the same line as its null written out.
-    let code = [": null", ": ~"].iter().find_map(|null| code.strip_suffix(null).map(|key| &code[..key.len() + 1])).unwrap_or(code);
+    // Written forms the language reads the same (its own rules).
+    let code = language.comparable_line(code);
+    let code = code.as_ref();
     // A number however it is written (`0x10`, `1.5e1`, `1_000`) is the same
     // line as the serializer's `16`, `15.0`, `1000`.
     let numbered;
-    let code = match [": ", " = "].iter().find_map(|separator| code.split_once(separator).map(|(key, value)| (key, *separator, value))) {
-        Some((key, separator, value)) => match canonical_number(value.trim_end_matches(',').trim()) {
+    let code = match [": ", " = "].iter().find_map(|separator| {
+        code.split_once(separator)
+            .map(|(key, value)| (key, *separator, value))
+    }) {
+        Some((key, separator, value)) => match canonical_number(value.trim_end_matches(',').trim())
+        {
             Some(number) => {
-                numbered = format!("{key}{separator}{number}{}", if value.trim_end().ends_with(',') { "," } else { "" });
+                numbered = format!(
+                    "{key}{separator}{number}{}",
+                    if value.trim_end().ends_with(',') {
+                        ","
+                    } else {
+                        ""
+                    }
+                );
                 numbered.as_str()
             }
             None => code,
@@ -885,34 +892,27 @@ fn canonical_number(text: &str) -> Option<String> {
         Some(rest) => (-1.0, rest),
         None => (1.0, text.strip_prefix('+').unwrap_or(&text)),
     };
-    let radix = [("0x", 16), ("0o", 8), ("0b", 2)].iter().find_map(|(prefix, radix)| digits.strip_prefix(prefix).map(|rest| (rest, *radix)));
+    let radix = [("0x", 16), ("0o", 8), ("0b", 2)]
+        .iter()
+        .find_map(|(prefix, radix)| digits.strip_prefix(prefix).map(|rest| (rest, *radix)));
     let value = match radix {
         Some((rest, radix)) => i64::from_str_radix(rest, radix).ok()? as f64,
         None if !digits.is_empty()
-            && digits.chars().all(|character| character.is_ascii_digit() || matches!(character, '.' | 'e' | 'E' | '+' | '-'))
-            && digits.starts_with(|character: char| character.is_ascii_digit() || character == '.') =>
+            && digits.chars().all(|character| {
+                character.is_ascii_digit() || matches!(character, '.' | 'e' | 'E' | '+' | '-')
+            })
+            && digits
+                .starts_with(|character: char| character.is_ascii_digit() || character == '.') =>
         {
             digits.parse::<f64>().ok()?
         }
         None => return None,
     } * sign;
-    Some(if value.fract() == 0.0 && value.abs() < 1e15 { format!("{}", value as i64) } else { value.to_string() })
-}
-
-/// The length of the YAML anchors and tags (`&p `, `!!map `) written
-/// before a value, which a flow collection then follows.
-pub(super) fn node_properties_len(text: &str) -> usize {
-    let mut length = 0;
-    while text[length..].starts_with(['&', '!']) {
-        let token = text[length..].find([' ', '\t']).unwrap_or(text.len() - length);
-        let rest = &text[length + token..];
-        let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-        if spaces == 0 {
-            return 0;
-        }
-        length += token + spaces;
-    }
-    length
+    Some(if value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        value.to_string()
+    })
 }
 
 /// The trailing comment of `line`, or `""`.
@@ -958,7 +958,7 @@ pub(super) fn inline_location(
                 .char_indices()
                 .nth(span.start_column.saturating_sub(1))
                 .map_or(0, |(index, _)| index);
-        let start = start + node_properties_len(&source[start..]);
+        let start = start + behavior.value_properties_len(&source[start..]);
         let text = &source[start..];
         if !text.starts_with(['{', '[']) {
             return None;
@@ -972,6 +972,12 @@ pub(super) fn inline_location(
             .collect();
         let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
         let (from, to) = (start + from, start + to);
+        // A comment after the value (`30 # b` in a flow map over lines) is
+        // the language's, not the value's.
+        let to = match behavior.comment_start(&source[from..to]) {
+            Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
+            _ => to,
+        };
         let line = source[..from].matches('\n').count() + 1;
         let from_line = source[..from].rfind('\n').map_or(0, |index| index + 1);
         let column = source[from_line..from].chars().count() + 1;
@@ -1027,19 +1033,26 @@ fn scalar_changes<'a>(
     }
 }
 
-/// The triple quote (`"""`, `'''`) a value starts with at `start`.
-fn triple_quote_at(source: &str, start: usize) -> Option<&'static str> {
-    ["\"\"\"", "'''"]
-        .into_iter()
-        .find(|delimiter| source[start..].starts_with(delimiter))
-}
-
-/// The end of `range`, run through the closing delimiter when the value is
-/// a triple-quoted string spanning lines.
-fn through_triple_quote(source: &str, range: std::ops::Range<usize>) -> usize {
-    triple_quote_at(source, range.start)
-        .and_then(|delimiter| source[range.start + 3..].find(delimiter))
-        .map_or(range.end, |close| range.start + 3 + close + 3)
+/// The end of `range`, run through the closing delimiter when the value
+/// starts with one of the language's multi-character quotes and spans
+/// lines.
+fn through_long_quote(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    range: std::ops::Range<usize>,
+) -> usize {
+    language
+        .config()
+        .quotes
+        .iter()
+        .filter(|quote| quote.len() > 1)
+        .find(|quote| source[range.start..].starts_with(**quote))
+        .and_then(|quote| {
+            source[range.start + quote.len()..]
+                .find(quote)
+                .map(|close| range.start + 2 * quote.len() + close)
+        })
+        .map_or(range.end, |end| end.max(range.end))
 }
 
 /// The byte range of a one-based line/character-column span.

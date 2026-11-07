@@ -97,9 +97,16 @@ pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usiz
     let before_len = before.encode_utf16().count();
     let inserted_len = latest_units.len() + (end - start) - before_len;
     let inserted = String::from_utf16_lossy(&latest_units[start..start + inserted_len]);
-    let (from, to) = (map_through_change(before, current, start), map_through_change(before, current, end));
+    let (from, to) = (
+        map_through_change(before, current, start),
+        map_through_change(before, current, end),
+    );
     let current_units: Vec<u16> = current.encode_utf16().collect();
-    let (from, to) = (from.min(current_units.len()), to.min(current_units.len()).max(from.min(current_units.len())));
+    let (from, to) = (
+        from.min(current_units.len()),
+        to.min(current_units.len())
+            .max(from.min(current_units.len())),
+    );
     let mut result = String::from_utf16_lossy(&current_units[..from]);
     result.push_str(&inserted);
     result.push_str(&String::from_utf16_lossy(&current_units[to..]));
@@ -194,7 +201,11 @@ pub(super) fn flush_input(state: EditorState) {
         let _ = element.set_selection_range(start as u32, end as u32);
     }
     let before = current;
-    let burst_selection = if replayed_caret.is_some() { UNKNOWN_SELECTION } else { burst.selection };
+    let burst_selection = if replayed_caret.is_some() {
+        UNKNOWN_SELECTION
+    } else {
+        burst.selection
+    };
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
@@ -519,8 +530,14 @@ mod tests {
     #[test]
     fn input_is_replayed_on_a_document_replaced_meanwhile() {
         use super::replay;
-        assert_eq!(replay("listen: 1\n", "listen: 1\nQ", "x: 1\n"), ("x: 1\nQ".to_string(), 6));
-        assert_eq!(replay("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"), ("a: 1\nb: 2X\nc: 3\n".to_string(), 10));
+        assert_eq!(
+            replay("listen: 1\n", "listen: 1\nQ", "x: 1\n"),
+            ("x: 1\nQ".to_string(), 6)
+        );
+        assert_eq!(
+            replay("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"),
+            ("a: 1\nb: 2X\nc: 3\n".to_string(), 10)
+        );
         assert_eq!(replay("abc", "aXYc", "abc"), ("aXYc".to_string(), 3));
     }
 }

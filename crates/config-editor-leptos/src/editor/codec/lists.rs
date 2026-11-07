@@ -156,22 +156,45 @@ pub(super) fn rewrite_map_lines(
         let comma = code.ends_with(',');
         let code = code.trim_end_matches(',').trim_end();
         let separator = code.find([':', '='])?;
-        let key = code[..separator].trim().trim_matches(['"', '\'']).to_string();
-        let value_start = separator + 1 + (code[separator + 1..].len() - code[separator + 1..].trim_start().len());
+        let key = code[..separator]
+            .trim()
+            .trim_matches(['"', '\''])
+            .to_string();
+        let value_start = separator
+            + 1
+            + (code[separator + 1..].len() - code[separator + 1..].trim_start().len());
         let value = &code[value_start..];
         // An entry spread over lines, or several on one: not this shape.
-        if value.is_empty() || value.ends_with(['{', '[']) || value.contains(", ") && !value.starts_with(['"', '\'']) {
+        if value.is_empty()
+            || value.ends_with(['{', '['])
+            || value.contains(", ") && !value.starts_with(['"', '\''])
+        {
             return None;
         }
-        old.push(Entry { above: std::mem::take(&mut above), line, key, head: &code[..value_start], value, comma });
+        old.push(Entry {
+            above: std::mem::take(&mut above),
+            line,
+            key,
+            head: &code[..value_start],
+            value,
+            comma,
+        });
     }
     let closing_comments = above;
     if old.len() != before.len() || !old.iter().all(|entry| before.contains_key(&entry.key)) {
         return None;
     }
-    let commas = old.iter().take(old.len().saturating_sub(1)).any(|entry| entry.comma);
+    let commas = old
+        .iter()
+        .take(old.len().saturating_sub(1))
+        .any(|entry| entry.comma);
     let trailing = old.last().is_some_and(|entry| entry.comma);
-    let indent: String = old.first()?.line.chars().take_while(|character| matches!(character, ' ' | '\t')).collect();
+    let indent: String = old
+        .first()?
+        .line
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .collect();
     let model = old.first()?;
     let mut out = vec![first.to_string()];
     for (index, (key, value)) in entries.iter().enumerate() {
@@ -185,7 +208,11 @@ pub(super) fn rewrite_map_lines(
                     out.push(entry.line.to_string());
                     continue;
                 }
-                let written = if unchanged { entry.value.to_string() } else { language.format_value_like(value, entry.value) };
+                let written = if unchanged {
+                    entry.value.to_string()
+                } else {
+                    language.format_value_like(value, entry.value)
+                };
                 if written.contains('\n') {
                     return None;
                 }
@@ -194,14 +221,31 @@ pub(super) fn rewrite_map_lines(
                 let code_end = line[..comment_at].trim_end().len();
                 let gap = &line[code_end..comment_at];
                 let comment = &line[comment_at..];
-                let gap = if comment.is_empty() { "" } else if gap.is_empty() { " " } else { gap };
+                let gap = if comment.is_empty() {
+                    ""
+                } else if gap.is_empty() {
+                    " "
+                } else {
+                    gap
+                };
                 let lead = &line[..line.len() - line.trim_start().len()];
-                out.push(format!("{lead}{}{written}{comma}{gap}{comment}", entry.head));
+                out.push(format!(
+                    "{lead}{}{written}{comma}{gap}{comment}",
+                    entry.head
+                ));
             }
             None => {
-                let separator = &model.head[model.head.trim_end_matches([' ', '\t', ':', '=']).len()..];
-                let bare = !key.is_empty() && key.chars().all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'));
-                let name = if bare && !model.head.starts_with(['"', '\'']) { key.clone() } else { serde_json::to_string(key).ok()? };
+                let separator =
+                    &model.head[model.head.trim_end_matches([' ', '\t', ':', '=']).len()..];
+                let bare = !key.is_empty()
+                    && key.chars().all(|character| {
+                        character.is_alphanumeric() || matches!(character, '_' | '-')
+                    });
+                let name = if bare && !model.head.starts_with(['"', '\'']) {
+                    key.clone()
+                } else {
+                    serde_json::to_string(key).ok()?
+                };
                 let written = if value.is_object() || value.is_array() {
                     language.format_value(value)
                 } else {

@@ -51,6 +51,7 @@ impl ConfigLanguage for TomlBehavior {
             block_comment: None,
             brackets: &[('[', ']'), ('{', '}')],
             separators: &["="],
+            quotes: &["\"\"\"", "'''", "\"", "'"],
         }
     }
 
@@ -115,6 +116,17 @@ impl ConfigLanguage for TomlBehavior {
             && is_datetime(text)
         {
             return text.clone();
+        }
+        // A multi-line string (triple-quoted) holding line breaks stays one.
+        if let Value::String(body) = value
+            && body.contains('\n')
+            && (written.starts_with("\"\"\"") || written.starts_with("'''"))
+        {
+            return if written.starts_with("'''") && !body.contains("'''") {
+                format!("'''\n{body}'''")
+            } else {
+                format!("\"\"\"\n{}\"\"\"", body.replace('\\', "\\\\").replace("\"\"\"", "\"\"\\\""))
+            };
         }
         self.format_value(value)
     }
