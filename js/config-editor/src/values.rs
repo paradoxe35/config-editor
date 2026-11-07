@@ -172,32 +172,69 @@ pub(crate) fn context_arg(value: &JsValue) -> Result<usize, JsError> {
         .ok_or_else(|| JsError::new("context must be a whole number of lines, 0 or more"))
 }
 
+/// What a range from JavaScript must be.
+const RANGE_SHAPE: &str = "range must be { start, end } (string indices) or { startLine, startColumn, endLine?, endColumn? } (one-based)";
+
 /// A range from JavaScript: string indices `{ start, end }` into
 /// `host_text`, or one-based `{ startLine, startColumn, endLine?, endColumn? }`.
+/// A range past the text's end, ending before it starts, or with a number
+/// that is not a whole one is an error.
 pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRange, String> {
-    let number = |name: &str| {
-        field(range, name)
+    if !range.is_object() || Array::is_array(range) {
+        return Err(RANGE_SHAPE.to_string());
+    }
+    let number = |name: &str, least: f64| -> Result<Option<usize>, String> {
+        let value = field(range, name);
+        if value.is_undefined() || value.is_null() {
+            return Ok(None);
+        }
+        value
             .as_f64()
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .map(|value| value as usize)
+            .filter(|number| number.is_finite() && number.fract() == 0.0 && *number >= least)
+            .map(|number| Some(number as usize))
+            .ok_or_else(|| format!("{name} must be a whole number, {least} or more"))
     };
-    if let Some(start) = number("start") {
-        let end = number("end").unwrap_or(start).max(start);
+    if let Some(start) = number("start", 0.0)? {
+        let end = number("end", 0.0)?.unwrap_or(start);
+        let length = host_text.encode_utf16().count();
+        if end < start {
+            return Err(format!("end ({end}) is before start ({start})"));
+        }
+        if end > length {
+            return Err(format!("end ({end}) is past the text's end ({length})"));
+        }
         return Ok(TextRange::new(
             TextPosition::from_offset(host_text, start),
             TextPosition::from_offset(host_text, end),
         ));
     }
-    let line = number("startLine").filter(|line| *line >= 1);
-    let column = number("startColumn").filter(|column| *column >= 1);
-    let (Some(line), Some(column)) = (line, column) else {
-        return Err(
-            "range must be { start, end } (string indices) or { startLine, startColumn, endLine?, endColumn? } (one-based)"
-                .to_string(),
-        );
+    let (Some(line), Some(column)) = (number("startLine", 1.0)?, number("startColumn", 1.0)?)
+    else {
+        return Err(RANGE_SHAPE.to_string());
     };
-    let end_line = number("endLine").unwrap_or(line).max(line);
-    let end_column = number("endColumn").unwrap_or(column + 1);
+    let end_line = number("endLine", 1.0)?.unwrap_or(line);
+    let end_column = number("endColumn", 1.0)?.unwrap_or(column + 1);
+    let lines: Vec<&str> = host_text.split('\n').collect();
+    let width = |line: usize| lines.get(line - 1).map_or(0, |text| text.chars().count());
+    if end_line < line || (end_line == line && end_column < column) {
+        return Err(format!(
+            "the end ({end_line}:{end_column}) is before the start ({line}:{column})"
+        ));
+    }
+    for (name, line, column) in [("start", line, column), ("end", end_line, end_column)] {
+        if line > lines.len() {
+            return Err(format!(
+                "{name} line {line} is past the text's last line ({})",
+                lines.len()
+            ));
+        }
+        if column > width(line) + 1 {
+            return Err(format!(
+                "{name} column {column} is past the end of line {line} ({} characters)",
+                width(line)
+            ));
+        }
+    }
     Ok(TextRange::new(
         TextPosition::new(line, column),
         TextPosition::new(end_line, end_column),
@@ -208,6 +245,13 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
 /// (non-negative integers).
 pub(crate) fn path_from_js(value: &JsValue) -> Result<FieldPath, JsError> {
     if let Some(pointer) = value.as_string() {
+        // A JSON pointer starts with `/` (`""` is the whole document):
+        // `web/http` is a mistake, not a path.
+        if !pointer.is_empty() && !pointer.starts_with('/') {
+            return Err(JsError::new(&format!(
+                "a JSON pointer starts with \"/\" (got {pointer:?}; \"\" is the whole document)"
+            )));
+        }
         return Ok(FieldPath::from(pointer));
     }
     if !Array::is_array(value) {

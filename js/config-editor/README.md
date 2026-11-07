@@ -850,7 +850,7 @@ view.isDirty("main");
   `ConfigEditor` members about its text: `rangeOf`, `pathAt`,
   `currentPath`, `text`, `reveal`, `fold`, `unfold`, `foldAll`,
   `unfoldAll`, `foldedLines`, `focus`, `save`, `isDirty`, and `id`
-  (`undefined` for an id not listed). An editor mounts the first time its
+  (`null` for an id not listed, as in the React package). An editor mounts the first time its
   document is shown: until then its queries answer `null` or `false`
   (`text` answers the document's `value`).
 - Other options: `activeId` (shown first), `className`, `label` (the tab

@@ -433,8 +433,9 @@ the `tab-*` tokens too; live), `label`, `viewClassName`, `className`,
 `style`, `onError`. A document's own `settings` go over the view's for its
 editor; `hostDiagnostics`, `readOnlyPaths`, `readOnlyRanges` and `secrets`
 work per document as on `<ConfigEditor>`. `ref.current.editor(id)` returns
-that document's editor (`rangeOf`, `reveal`, `fold`, `currentPath`, …; its
-queries answer `null` until the document has been shown once):
+that document's editor, `null` for an id not listed (`rangeOf`, `reveal`,
+`fold`, `currentPath`, …; its queries answer `null` until the document has
+been shown once):
 
 ```tsx
 <ConfigDocuments ref={tabs} documents={files} showFooter theme="nord" />;

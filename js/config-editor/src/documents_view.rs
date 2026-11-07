@@ -531,7 +531,7 @@ impl ConfigDocuments {
     }
 
     /// The editor of the document `id`: paths, folds, focus and saving for
-    /// that document (`undefined` when no document has that id). Its
+    /// that document (`null` when no document has that id). Its
     /// queries answer `null` (or `false`) until the document has been shown
     /// once, which mounts its editor.
     pub fn editor(
@@ -543,7 +543,7 @@ impl ConfigDocuments {
         Ok(if listed {
             JsValue::from(DocumentEditor::new(self.state, id))
         } else {
-            JsValue::UNDEFINED
+            JsValue::NULL
         }
         .unchecked_into())
     }

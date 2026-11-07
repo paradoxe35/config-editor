@@ -153,7 +153,8 @@ pub(super) fn place(
             origin: DiagnosticOrigin::Host,
             code: problem.code.clone(),
             source: Some(problem.source.clone().unwrap_or_else(|| "host".to_string())),
-            docs_url: problem.docs_url.clone(),
+            // A link opens only a web page (never `javascript:`).
+            docs_url: problem.docs_url.clone().filter(|url| is_web_url(url)),
         };
         if !placed.contains(&diagnostic) {
             placed.push(diagnostic);
@@ -214,3 +215,17 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
     feature = "xml"
 ))]
 mod tests;
+
+/// Whether `url` is an `http:` or `https:` URL: the only links a host
+/// diagnostic's documentation may open.
+///
+/// ```
+/// use config_editor_leptos::is_web_url;
+/// assert!(is_web_url("https://example.com/docs"));
+/// assert!(!is_web_url("javascript:alert(1)"));
+/// ```
+#[must_use]
+pub fn is_web_url(url: &str) -> bool {
+    let lower = url.trim_start().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}

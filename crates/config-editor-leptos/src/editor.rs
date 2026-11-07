@@ -66,7 +66,7 @@ pub use diagnostics::{
     Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
 };
 pub use handle::EditorHandle;
-pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic};
+pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};

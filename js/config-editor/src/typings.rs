@@ -291,7 +291,7 @@ extern "C" {
     pub type SettingsResult;
     #[wasm_bindgen(typescript_type = "(keyof EditorSettings)[]")]
     pub type SettingKeys;
-    #[wasm_bindgen(typescript_type = "DocumentEditor | undefined")]
+    #[wasm_bindgen(typescript_type = "DocumentEditor | null")]
     pub type DocumentEditorResult;
     #[wasm_bindgen(typescript_type = "CallbackUpdate")]
     pub type EditorUpdate;

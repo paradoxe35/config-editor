@@ -117,6 +117,35 @@ impl SecretOptions {
         self
     }
 
+    /// Whether the placeholder pattern can be used: it compiles, and it
+    /// matches no empty text (`.*` would make every value a placeholder).
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with the pattern.
+    ///
+    /// ```
+    /// use config_editor_leptos::SecretOptions;
+    /// assert!(SecretOptions::default().check_placeholder().is_ok());
+    /// assert!(SecretOptions::default().with_placeholder("(").check_placeholder().is_err());
+    /// assert!(SecretOptions::default().with_placeholder(".*").check_placeholder().is_err());
+    /// ```
+    pub fn check_placeholder(&self) -> Result<(), String> {
+        let pattern = regex_lite::Regex::new(&self.placeholder).map_err(|error| {
+            format!(
+                "{:?} is not a regular expression: {error}",
+                self.placeholder
+            )
+        })?;
+        if pattern.is_match("") {
+            return Err(format!(
+                "{:?} matches empty text; a placeholder pattern must match the token only",
+                self.placeholder
+            ));
+        }
+        Ok(())
+    }
+
     /// The hover text of a placeholder.
     #[must_use]
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {

@@ -24,7 +24,13 @@ pub(crate) fn paths_from(list: &JsValue, name: &str) -> Result<Vec<FieldPath>, J
     }
     Array::from(list)
         .iter()
-        .map(|path| path_from_js(&path))
+        .enumerate()
+        .map(|(index, path)| {
+            path_from_js(&path).map_err(|error| {
+                let message = js_sys::Error::from(JsValue::from(error)).message();
+                JsError::new(&format!("{name}[{index}]: {message}"))
+            })
+        })
         .collect()
 }
 
@@ -65,6 +71,9 @@ pub(crate) fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
     warn_unknown_keys(value, SECRET_KEYS, "secrets key");
     if let Some(pattern) = optional_text(&field(value, "placeholder"), "secrets.placeholder")? {
         options = options.with_placeholder(pattern);
+        options
+            .check_placeholder()
+            .map_err(|error| JsError::new(&format!("secrets.placeholder: {error}")))?;
     }
     if let Some(hint) = optional_text(&field(value, "hint"), "secrets.hint")? {
         options = options.with_hint(hint);

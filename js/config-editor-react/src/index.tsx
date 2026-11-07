@@ -832,7 +832,7 @@ export const ConfigDocuments = forwardRef<ConfigDocumentsHandle, ConfigDocuments
         save: (id: string) => ask((view) => view.save(id), false),
         saveAll: () => ask((view) => view.saveAll(), [] as string[]),
         focus: () => guard((view) => view.focus()),
-        editor: (id: string) => ask((view) => view.editor(id) ?? null, null),
+        editor: (id: string) => ask((view) => view.editor(id), null),
       }),
       [],
     );

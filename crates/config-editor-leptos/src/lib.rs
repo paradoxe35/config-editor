@@ -99,5 +99,5 @@ pub use editor::{
     EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
     SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
     ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, float_of, float_value,
-    flush_pending_edits, flush_pending_input, unified_diff,
+    flush_pending_edits, flush_pending_input, is_web_url, unified_diff,
 };

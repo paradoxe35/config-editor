@@ -51,9 +51,16 @@ pub(crate) fn host_diagnostic_from(
     };
     let path = field(item, "path");
     let range = field(item, "range");
+    let given = |value: &JsValue| !value.is_undefined() && !value.is_null();
+    if given(&path) && given(&range) {
+        return Err("give a path or a range, not both".to_string());
+    }
     let mut diagnostic = if !path.is_undefined() && !path.is_null() {
-        let path = path_from_js(&path).map_err(|_| {
-            "path must be a JSON pointer or an array of keys and indices".to_string()
+        let path = path_from_js(&path).map_err(|error| {
+            format!(
+                "path: {}",
+                js_sys::Error::from(JsValue::from(error)).message()
+            )
         })?;
         HostDiagnostic::at_path(path, severity, message)
     } else if !range.is_undefined() && !range.is_null() {
@@ -74,5 +81,10 @@ pub(crate) fn host_diagnostic_from(
     diagnostic.code = optional("code")?;
     diagnostic.source = optional("source")?;
     diagnostic.docs_url = optional("docsUrl")?;
+    if let Some(url) = &diagnostic.docs_url
+        && !config_editor_leptos::is_web_url(url)
+    {
+        return Err(format!("docsUrl must be an http(s) URL (got {url:?})"));
+    }
     Ok(diagnostic)
 }
