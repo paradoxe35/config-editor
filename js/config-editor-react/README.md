@@ -85,14 +85,32 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `search` | `boolean` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`); `false` leaves those keys to the browser. |
 | `goToLine` | `boolean` | `true` | Go to line (`Ctrl+G`); `false` leaves the key to the browser. |
 | `folding` | `boolean` | `true` | Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only: `onChange` and copying see the whole text. |
+| `showDiff` | `boolean` | `true` | Line changes against `baseline` in the gutter. |
+| `showDiagnostics` | `boolean` | `true` | Syntax and schema problems inline, in the footer and on hover. |
+| `completions` | `boolean` | `true` | Schema completion; `false` offers no suggestions, `Ctrl+Space` included. |
+| `autoTriggerCompletions` | `boolean` | `true` | Open suggestions while typing; `false` opens them only with `Ctrl+Space`. |
+| `hoverDocs` | `boolean` | `true` | Schema docs when hovering a key. |
+| `highlighting` | `boolean` | `true` | Syntax colors. |
+| `autoClosing` | `boolean` | `true` | Auto-close quotes and brackets, wrap selections, delete empty pairs. |
+| `styled` | `boolean` | `true` | Inject the preset stylesheet; `false` leaves the `config-editor__*` markup to your styles (`presetCss()` returns the preset). |
+| `saveShortcut` | `boolean` | `true` | Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`); `false` leaves it to the browser and only `ref.save()` saves. |
 | `editorClassName` | `string` | — | Class on the editor root. |
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
-`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics` and `onPathChange` update the
+`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics`,
+`saveShortcut`, `onPathChange`, `onSave` and the other callbacks update the
 live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
-`search`, `goToLine`, `folding` and `editorClassName` re-create it; the document and its diff baseline carry
+`search`, `goToLine`, `folding`, `showDiff`, `showDiagnostics`, `completions`,
+`autoTriggerCompletions`, `hoverDocs`, `highlighting`, `autoClosing`, `styled`
+and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
+
+```tsx
+// A plain viewer: no colors, no diff, no suggestions, no popups.
+<ConfigEditor value={text} readOnly highlighting={false} showDiff={false}
+  completions={false} hoverDocs={false} showDiagnostics={false} />
+```
 
 A parent that applies `onChange` values late cannot roll the document back to
 an older one: a `value` equal to one the editor sent in the last 10 seconds,
@@ -126,6 +144,7 @@ ref.current?.reveal("/web/listen");       // scroll to it, select it, focus; fal
 ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColumn, endLine, endColumn } | null
 ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
 ref.current?.currentPath;                  // the caret's path
+ref.current?.text;                         // the text on screen (the editAs language while editing as another)
 ref.current?.focus();
 ref.current?.save();     // as Ctrl+S: calls onSave; false when nothing was sent
 ref.current?.isDirty;    // the document differs from baseline
@@ -135,6 +154,7 @@ ref.current?.foldAll();
 ref.current?.unfoldAll();
 ref.current?.fold("/clients");             // fold the block its key opens; false if none
 ref.current?.unfold("/web/listen");        // open the folds around a field
+ref.current?.foldedLines;                  // [{ startLine, endLine }], one-based
 ```
 
 ### Saving
@@ -178,13 +198,20 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `validate(language, text, schema?)` | Syntax and schema problems: `{ line?, column?, endColumn?, message, severity }[]`. |
 | `convert(from, text, to, schema?)` | `{ text, losses }`. |
 | `unifiedDiff(baseline, current, context?)` | The `diff -u` of two texts (`""` when they have the same lines). |
+| `changeSummary(baseline, current)` | `{ added, removed, modified, hunks }` between two texts, as `onChangeSummary` counts them. |
+| `parse(language, text)`, `serialize(language, value)` | A document as plain data and back; errors are thrown. |
+| `rangeOf(language, text, path)`, `pathAt(language, text, index)` | Where a field is written / the path at a string index, as the ref's `rangeOf` and `pathAt` answer. |
+| `foldRanges(language, text)` | The blocks that fold, one-based `{ startLine, endLine }`. |
+| `languageInfo(name)`, `languageForFile(path)` | `{ name, label, icon, extensions, defaultFileName }` of a language; the language of a file name. |
+| `themeInfo(name)`, `presetCss()` | `{ name, label }` of a theme; the preset stylesheet, for `styled={false}`. |
 | `schemaWarnings(schema)` | What the editor cannot use in a schema, as `onSchemaWarning` reports it. |
 | `registerLanguage(definition)` | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript). |
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
 Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ChangeSummary`, `Diagnostic`, `Conversion`,
-`FieldPath`, `EditorPath`, `EditorRange`, `HostDiagnostic`, `Severity`,
-`CustomLanguage`, `LanguageName`, `ThemeName`, `ThemeColorMap`.
+`FieldPath`, `EditorPath`, `EditorRange`, `LineRange`, `HostDiagnostic`, `Severity`,
+`CustomLanguage`, `LanguageName`, `LanguageInfo`, `ThemeName`, `ThemeInfo`, `ThemeColorMap`,
+`BaselineConflict`.
 
 ```tsx
 import { loadConfigEditor, validate } from "@pngwasi/config-editor-react";

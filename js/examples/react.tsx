@@ -1,8 +1,10 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import * as api from "@pngwasi/config-editor-react";
 import {
   ConfigEditor,
   type ConfigEditorHandle,
+  type ConfigEditorProps,
   type HostDiagnostic,
   loadConfigEditor,
   themes,
@@ -32,6 +34,10 @@ const slow = new URLSearchParams(location.search).has("slow");
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
+// For tests: `?props={...}` adds or overrides props, and `setExtraProps`
+// changes them later; `reactApi` is the package's exports.
+const initialExtra = JSON.parse(new URLSearchParams(location.search).get("props") ?? "{}") as ConfigEditorProps;
+(window as unknown as { reactApi: typeof api }).reactApi = api;
 const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -54,6 +60,8 @@ function App({ schema }: { schema: string }) {
   const [hostProblems, setHostProblems] = useState<HostDiagnostic[]>([]);
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
+  const [extra, setExtra] = useState(initialExtra);
+  (window as unknown as { setExtraProps: typeof setExtra }).setExtraProps = setExtra;
   // For tests: the ref, as an app would read it.
   (window as unknown as { editorHandle: typeof handle }).editorHandle = handle;
   // For tests: a re-mount prop changed without moving focus.
@@ -180,6 +188,7 @@ function App({ schema }: { schema: string }) {
         fileName={fileName}
         showToolbar
         showFooter
+        {...extra}
       />
       <pre id="saved">{value}</pre>
     </>

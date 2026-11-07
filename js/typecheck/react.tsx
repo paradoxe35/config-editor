@@ -28,3 +28,13 @@ export function Saving() {
     onSave={async (next) => { await putConfig(next); setSaved(next); }} onDirtyChange={setDirty}
     onBaselineConflict={(event) => console.log(event)} />);
 }
+// Parity with the Rust API.
+import { changeSummary, parse, serialize, rangeOf, pathAt, foldRanges, languageInfo, languageForFile, themeInfo, presetCss, type LineRange, type LanguageInfo, type ThemeInfo } from "@pngwasi/config-editor-react";
+export function Viewer({ text }: { text: string }) {
+  const ref = useRef<ConfigEditorHandle>(null);
+  const onScreen: string | undefined = ref.current?.text; const folds: LineRange[] | undefined = ref.current?.foldedLines;
+  const info: LanguageInfo = languageInfo("yml"); const theme: ThemeInfo = themeInfo("nord");
+  void [onScreen, folds, info, theme, changeSummary("a", "b"), parse("yaml", text), serialize("json", {}), rangeOf("yaml", text, "/a"), pathAt("yaml", text, 0), foldRanges("yaml", text), languageForFile("a.tf"), presetCss()];
+  return (<ConfigEditor ref={ref} value={text} readOnly highlighting={false} showDiff={false} completions={false}
+    autoTriggerCompletions={false} hoverDocs={false} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
+}
