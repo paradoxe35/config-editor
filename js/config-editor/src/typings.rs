@@ -34,7 +34,7 @@ export interface EditorOptions extends EditorSettings {
   className?: string;
   /** Called with the document, in `language`, after every edit. */
   onChange?: (value: string) => void;
-  /** Called when an `editAs` switch completes (it waits while the document cannot convert yet). */
+  /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;

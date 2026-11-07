@@ -98,7 +98,7 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `initial_value`     | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                    |
 | `value`             | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                      |
 | `on_change`         | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                   |
-| `on_edit_as_change` | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).    |
+| `on_edit_as_change` | `Fn(Language)`                             | —                | Called with the language on screen when an `edit_as` switch completes, and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`. |
 | `on_schema_warning` | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.  |
 
 While editing as another language, edits reach `on_change` after each typing
@@ -189,7 +189,21 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 ```
 
 - Only what the user changed is written back: untouched values keep their
-  exact host spelling, and the host's comments and formatting survive.
+  exact host spelling, and the host's comments and formatting survive. An
+  edited value keeps its form: a YAML block scalar stays a block (folded text
+  keeps its line breaks where the words around them did, and holding a line
+  folding cannot, it is written literally), TOML long strings and HCL
+  heredocs stay so, XML CDATA stays CDATA, YAML anchors stay on their items
+  (an alias or merge is written out only where the edit parts it from its
+  anchor, numbers as the host wrote them), and a JSON string keeps its
+  `\uXXXX` escapes.
+- XML element text is the value exactly as an XML reader reports it, the
+  whitespace and line breaks around it included (a number, boolean or `null`
+  reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
+  and a YAML `|` block keeps its final line break through the XML view.
+- Switching the language is an undo step: `Ctrl+Z` goes back to the view and
+  text before the switch (`on_edit_as_change` hears it), `Ctrl+Y` returns,
+  and the caret stays on the field it was on.
 - Invalid text is never sent to the host.
 - Values the host cannot carry exactly (for example an empty list in XML)
   are flagged as warnings on the value.

@@ -53,14 +53,32 @@ impl EditorState {
         converted.then(|| self.sync.host_text.get_value())
     }
 
-    /// Moves to the first conversion problem with a place and shows its
-    /// message, as `F8` does; just focuses the editor without one.
+    /// Moves to why the save was refused and shows its message, as `F8`
+    /// does: the first conversion problem with a place (a value the host
+    /// cannot hold, a read-only field), else the syntax error of the text on
+    /// screen; just focuses the editor without either.
     fn show_conversion_problem(&self) {
-        let place = self.sync.conversion_problems.with_untracked(|problems| {
-            problems
-                .iter()
-                .find_map(|problem| Some((problem.at.line?, problem.at.column?)))
-        });
+        // Checked now, not after the typing pause, so the message is there.
+        let text = self.doc.text.get_untracked();
+        if self
+            .problems
+            .diagnosed_text
+            .with_untracked(|checked| *checked != text)
+        {
+            self.problems.diagnosed_text.set(text.clone());
+        }
+        let place = self
+            .sync
+            .conversion_problems
+            .with_untracked(|problems| {
+                problems
+                    .iter()
+                    .find_map(|problem| Some((problem.at.line?, problem.at.column?)))
+            })
+            .or_else(|| {
+                let error = self.behavior().parse(&text).err()?;
+                Some((error.line?, error.column.unwrap_or(1)))
+            });
         match place {
             Some((line, column)) => {
                 self.focus_at(line, column);

@@ -4,7 +4,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::commands::{backspace_indent, typed_closer};
+use super::super::commands::{backspace_indent, toggled_selection, typed_closer};
 use super::super::edit::Edit;
 use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
@@ -40,6 +40,12 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
     else {
         return true;
     };
+    let (selection_start, selection_end) = toggled_selection(
+        &before,
+        (start, end),
+        &updated,
+        (selection_start, selection_end),
+    );
     // The caret is the end that moves: the start of a backward selection.
     let (anchor, caret) = if backward {
         (selection_end, selection_start)

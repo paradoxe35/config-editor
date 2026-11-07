@@ -8,12 +8,14 @@
 //! | `Undo`, `Redo` | – | yes | yes | the step moves | yes | placeholders |
 //! | `Reload` | – | – | yes | its own step | yes | the host's placeholders |
 //! | `HostValue` | – | – | – | – | – | indent, ranges, the host's placeholders |
-//! | `Switch` | – | – | – | starts over | – | indent, ranges, placeholders |
+//! | `Switch` | – | – | – | its own step | – | indent, ranges, placeholders |
 //!
 //! Widened: an edit cutting a secret placeholder takes it whole. Checked:
 //! refused while read-only or when it changes a read-only field. Followed:
 //! what is kept by position (placeholders, the host's ranges) moves with
-//! the edit; texts replaced whole find them again instead.
+//! the edit; texts replaced whole find them again instead. An undo or redo
+//! back across a switch goes through as a `Switch` (another language's text,
+//! whole), its history moving as an undo's does.
 
 /// What made an edit.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,7 +39,8 @@ pub(in crate::editor) enum Origin {
     },
     /// A new controlled `value` from the host.
     HostValue,
-    /// The document converted by an `edit_as` switch.
+    /// The document converted by an `edit_as` switch: an undo step back to
+    /// the language and text it left.
     Switch,
 }
 

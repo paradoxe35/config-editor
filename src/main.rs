@@ -245,8 +245,19 @@ fn main() {
             baseline.set(request.text);
             saves.update(|count| *count += 1);
         };
-        // What the editor shows, which lags `edit_as` while a switch waits.
-        let editing = RwSignal::new(edit_as.get_untracked().unwrap_or(language));
+        // The language on screen, as the editor reports it: the file's own
+        // until a switch completes (one that waits keeps showing the file's
+        // language, with the reason on the value in the way), and back after
+        // an undo across a switch. The picker follows it too.
+        let editing = RwSignal::new(language);
+        let follow_editing = move |edit: Language| {
+            editing.set(edit);
+            let chosen = (edit != language).then_some(edit);
+            if edit_as.get_untracked() != chosen {
+                edit_as.set(chosen);
+                remember("edit", chosen.map_or("", key));
+            }
+        };
         let shown = move || editing.get();
         let toolbar_file = {
             let file_name = file_name.clone();
@@ -290,6 +301,7 @@ fn main() {
                         <select
                             class="demo__select demo__edit-select"
                             aria-label="Editing language"
+                            prop:value=move || edit_as.get().map_or("", key)
                             on:change=move |event| {
                                 let value = event_target_value(&event);
                                 edit_as.set(value.parse::<Language>().ok());
@@ -358,7 +370,7 @@ fn main() {
                     on_save=save
                     on_dirty_change=move |now| dirty.set(now)
                     on_baseline_conflict=move |event| conflicts.update(|all| all.push(format!("{event:?}")))
-                    on_edit_as_change=move |edit| editing.set(edit)
+                    on_edit_as_change=follow_editing
                     schema=schema
                     on_schema_warning=move |warning| schema_warnings.update(|all| all.push(warning))
                     file_name=file_name
