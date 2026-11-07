@@ -452,12 +452,22 @@ async function report(browserPage, name, cycle) {
   }
 }
 
+// Longer than any timer the editor sets (the protect tip hides after
+// 2.5 s): a timer still pending holds its closure, which is not a leak.
+const TIMERS_MS = 3000;
+
+/** Waits out the editor's timers, then settles. */
+const outlastTimers = async (browserPage) => {
+  await browserPage.waitForTimeout(TIMERS_MS);
+  await settle(browserPage);
+};
+
 async function measure(browserPage, name, cycle) {
   for (let round = 0; round < 3; round += 1) await cycle(browserPage);
-  await settle(browserPage);
+  await outlastTimers(browserPage);
   const before = await heap(browserPage);
   for (let round = 0; round < 10; round += 1) await cycle(browserPage);
-  await settle(browserPage);
+  await outlastTimers(browserPage);
   const after = await heap(browserPage);
   if (!before) {
     console.log(`soak ${name}: build the package with alloc-stats to measure`);

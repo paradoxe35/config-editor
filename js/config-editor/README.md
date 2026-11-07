@@ -711,15 +711,35 @@ update them with the setters when they change.
 
 ## Keyboard
 
-`Ctrl+Space` suggestions · `Enter`/`Tab` accept · `Tab`/`Shift+Tab` indent ·
-`Ctrl+/` comment · `Ctrl+Z`/`Ctrl+Y` undo/redo · `F8` next problem ·
-`Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
-`Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
-`Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
-reverts the change · `Ctrl+S` save (with `onSave`) · `Ctrl+Shift+[`/`Ctrl+Shift+]`
-fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything ·
-`Alt+PageDown`/`Alt+PageUp` next/previous document in a `ConfigDocuments` view ·
-`Ctrl+M` toggle Tab moves focus · `Escape` then `Tab`/`Shift+Tab` leave the editor once.
+**Writing**
+- `Ctrl+Space`: suggestions; `Enter` or `Tab` accepts one
+- `Tab` / `Shift+Tab`: indent / outdent
+- `Ctrl+/`: comment or uncomment the lines
+- `Ctrl+Enter` / `Ctrl+Shift+Enter`: new line below / above
+- `Ctrl+Z` / `Ctrl+Y`: undo / redo
+- `Ctrl+S`: save (with `onSave`)
+- `Escape`: close what is open (suggestions, a preview, a widget)
+
+**Finding your way**
+- `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
+- `Ctrl+G`: go to a line (`line` or `line:column`)
+- `F8` / `Shift+F8`: next / previous problem
+
+**Changes against the baseline**
+- `Alt+F5` / `Shift+Alt+F5`: next / previous change
+- `Alt+F3` / `Shift+Alt+F3`: the same, opening its preview, where `Enter` or `R` reverts the change
+
+**Folding**
+- `Ctrl+Shift+[` / `Ctrl+Shift+]`: fold / unfold at the caret
+- `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`: fold / unfold everything
+
+**Documents** (a `ConfigDocuments` view)
+- `Alt+PageDown` / `Alt+PageUp`: next / previous document
+
+**Leaving the editor**
+- `Ctrl+M`: toggle "Tab moves focus"
+- `Escape`, then `Tab` / `Shift+Tab`: leave the editor once
+
 `Cmd` works in place of `Ctrl` on macOS.
 
 ### Leaving the editor and screen readers
