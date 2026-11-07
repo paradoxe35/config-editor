@@ -53,6 +53,23 @@ fn value_is_the_text_without_edit_as() {
     assert_eq!(handle.value().as_deref(), Some("a: 2\n"));
 }
 
+/// A CRLF host gets its document back with CRLF, as `on_change` does; the
+/// screen text and the diff stay LF.
+#[test]
+fn value_keeps_the_hosts_line_endings() {
+    let (_owner, state, handle) = editor("a: 1\r\nb: x\r\n", None);
+    assert_eq!(handle.text().as_deref(), Some("a: 1\nb: x\n"));
+    assert_eq!(handle.value().as_deref(), Some("a: 1\r\nb: x\r\n"));
+    replace(state, "a: 2\nb: x\n");
+    assert_eq!(handle.value().as_deref(), Some("a: 2\r\nb: x\r\n"));
+    assert_eq!(sent(), ["a: 2\r\nb: x\r\n"]);
+    #[cfg(feature = "diff")]
+    assert_eq!(
+        handle.unified_diff(0).as_deref(),
+        Some("--- baseline\n+++ current\n@@ -1 +1 @@\n-a: 1\n+a: 2\n")
+    );
+}
+
 #[cfg(feature = "json")]
 #[test]
 fn value_is_the_host_document_while_editing_as_another_language() {

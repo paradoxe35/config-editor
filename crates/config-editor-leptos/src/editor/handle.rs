@@ -93,15 +93,21 @@ impl EditorHandle {
     /// pending Edit-as edit is converted first (and reaches `on_change`
     /// first), as [`save`](Self::save) does. `None` before the editor
     /// mounts, and while an Edit-as edit cannot be written in the host's
-    /// language (invalid text, or a value the language cannot hold).
+    /// language (invalid text, or a value the language cannot hold). Written
+    /// with the host's line endings (CRLF when its text had them): the text
+    /// `on_change` and `on_save` get.
     pub fn value(&self) -> Option<String> {
-        self.editor()?.host_document()
+        let state = self.editor()?;
+        let text = state.host_document()?;
+        Some(state.sync().line_endings.restore(text))
     }
 
     /// The unified diff (`diff -u`) of the baseline against
     /// [`value`](Self::value), both in the host's language, with `context`
     /// unchanged lines around each change; empty when they are the same.
-    /// `None` when `value` is. Needs the `diff` feature.
+    /// Its lines end with LF whatever the host's line endings (as
+    /// [`unified_diff`](crate::unified_diff) and the JS `unifiedDiff()`
+    /// write it). `None` when `value` is. Needs the `diff` feature.
     #[cfg(feature = "diff")]
     pub fn unified_diff(&self, context: usize) -> Option<String> {
         let state = self.editor()?;

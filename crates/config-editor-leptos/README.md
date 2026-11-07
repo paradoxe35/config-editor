@@ -530,11 +530,13 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   schema, for example) and pass the current value, so the text is kept; the
   undo history starts over.
 - **Which text to send:** `EditorHandle::value()` is the document in your
-  language, pending edits applied; `EditorHandle::text()` is what is on
-  screen, which while editing as another language is that language. Send
-  `value()` (or what `on_change` gave you) to a server.
+  language, pending edits applied, with your text's line endings (CRLF when
+  it had them): what `on_change` and `on_save` get. `EditorHandle::text()`
+  is what is on screen (LF), which while editing as another language is
+  that language. Send `value()` (or what `on_change` gave you) to a server.
   `EditorHandle::unified_diff(context)` is the `diff -u` of the baseline
-  against `value()`, in your language (`diff` feature).
+  against `value()`, in your language, its lines ending with LF as the JS
+  `unifiedDiff()` writes them (`diff` feature).
 - **Saving:** `save()` and `Ctrl+S` apply pending edits first. A Save
   button of your own that reads your own copy of the value calls
   `flush_pending_edits()` first.

@@ -436,7 +436,7 @@ ConfigEditor …"`); create a new editor to change them. TypeScript types
 | `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                           |
 | `focus()`                                                | Focus the editor, keeping its selection.                                                                                                                                               |
 | `save()`                                                 | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                 |
-| `unifiedDiff(context?)`                                  | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                        |
+| `unifiedDiff(context?)`                                  | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same. Its lines end with LF.                 |
 
 `ConfigEditor` adds:
 
