@@ -1,8 +1,12 @@
-//! The change preview a diff marker opens: the lines before and now.
+//! The change preview a diff marker opens: the lines before and now, and
+//! "Revert this change".
 
 use leptos::prelude::*;
+use web_sys::KeyboardEvent;
 
+use super::super::changes::hunk_for_peek;
 use super::super::diff::{DiffPeek, peek_popup_style, peek_survives_edit};
+use super::super::keys::changes::go_to_change;
 use super::super::state::EditorState;
 
 #[component]
@@ -38,6 +42,56 @@ fn close_when_edited(state: EditorState) {
     });
 }
 
+/// "Revert lines 3–5": the lines of the change a revert restores, which
+/// may be more than the one line the preview shows.
+fn revert_label(state: EditorState, peek: &DiffPeek) -> String {
+    let span = state.diff.with_untracked(|line_diff| {
+        hunk_for_peek(line_diff, peek).map(|hunk| (hunk.current.clone(), hunk.removed))
+    });
+    match span {
+        Some((lines, _)) if lines.len() > 1 => format!(
+            "Revert this change (lines {}–{}) (R)",
+            lines.start + 1,
+            lines.end
+        ),
+        Some((lines, removed)) if lines.len() == 1 && removed > 0 => format!(
+            "Revert this change (line {} and the removed lines) (R)",
+            lines.start + 1
+        ),
+        _ => "Revert this change (R)".to_string(),
+    }
+}
+
+/// Closes the preview; when it had the focus, the text takes it back.
+fn close(state: EditorState) {
+    state.selected_diff_peek.set(None);
+    if let Some(element) = state.textarea() {
+        let (top, left) = (element.scroll_top(), element.scroll_left());
+        let _ = element.focus();
+        element.set_scroll_top(top);
+        element.set_scroll_left(left);
+    }
+}
+
+/// Keys inside the preview: `Escape` closes it, `R` reverts the change, and
+/// the change keys move on to the next one.
+fn on_peek_keydown(state: EditorState, peek: &DiffPeek, event: &KeyboardEvent) {
+    let plain = !event.ctrl_key() && !event.meta_key() && !event.alt_key();
+    match event.key().as_str() {
+        "Escape" => {
+            event.prevent_default();
+            close(state);
+        }
+        "r" | "R" if plain => {
+            event.prevent_default();
+            state.revert_change(peek);
+        }
+        _ => {
+            go_to_change(state, event);
+        }
+    }
+}
+
 #[component]
 fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
     let DiffPeek {
@@ -46,34 +100,63 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
         before,
         after,
         ..
-    } = peek;
+    } = peek.clone();
     let (old_count, new_count) = (before.len(), after.len());
+    let revert_ref = NodeRef::<leptos::html::Button>::new();
+    let label = revert_label(state, &peek);
+    // Opened from the keyboard: the revert button takes the focus.
+    Effect::new(move |_| {
+        if let Some(button) = revert_ref.get()
+            && state.focus_preview.get_value()
+        {
+            state.focus_preview.set_value(false);
+            let _ = button.focus();
+        }
+    });
+    let style = move || {
+        state.layout_revision.get();
+        state.scroll_y.get();
+        match (state.editor_ref.get(), state.root_ref.get()) {
+            (Some(editor), Some(root)) => {
+                peek_popup_style(&editor, &root, line, old_count, new_count)
+            }
+            _ => "visibility:hidden".to_string(),
+        }
+    };
+    let keydown = {
+        let peek = peek.clone();
+        move |event: KeyboardEvent| on_peek_keydown(state, &peek, &event)
+    };
+    let revert = move |_| state.revert_change(&peek);
+    let close_click = move |_| close(state);
     view! {
         <section
             class="config-editor__diff-peek"
             role="dialog"
             aria-label=format!("{title}, line {line}")
-            style=move || {
-                state.layout_revision.get();
-                state.scroll_y.get();
-                match (state.editor_ref.get(), state.root_ref.get()) {
-                    (Some(editor), Some(root)) => peek_popup_style(&editor, &root, line, old_count, new_count),
-                    _ => "visibility:hidden".to_string(),
-                }
-            }
-            on:keydown=move |event: web_sys::KeyboardEvent| {
-                if event.key() == "Escape" {
-                    state.selected_diff_peek.set(None);
-                }
-            }
+            style=style
+            on:keydown=keydown
         >
             <header class="config-editor__diff-peek-header">
                 <strong>{format!("{title} · line {line}")}</strong>
-                <button
-                    type="button"
-                    aria-label="Close change preview"
-                    on:click=move |_| state.selected_diff_peek.set(None)
-                >"×"</button>
+                <span class="config-editor__diff-peek-actions">
+                    {(!state.read_only.get_untracked()).then(|| view! {
+                        <button
+                            type="button"
+                            class="config-editor__diff-peek-revert"
+                            aria-label=label.clone()
+                            title=label
+                            node_ref=revert_ref
+                            on:click=revert
+                        >"Revert"</button>
+                    })}
+                    <button
+                        type="button"
+                        class="config-editor__diff-peek-close"
+                        aria-label="Close change preview"
+                        on:click=close_click
+                    >"×"</button>
+                </span>
             </header>
             <div class="config-editor__diff-peek-columns">
                 {(!before.is_empty()).then(|| view! {

@@ -10,6 +10,7 @@
 use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 
 mod bridge;
+mod changes;
 mod codec;
 mod commands;
 mod comment_scope;
@@ -34,6 +35,7 @@ mod state;
 mod sync;
 mod theme;
 
+pub use changes::{ChangeSummary, unified_diff};
 pub use codec::{Conversion, ConvertError};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, check_syntax};
@@ -108,6 +110,13 @@ pub fn ConfigEditor(
     /// (TOML has no `null`), so this, not `edit_as`, is what is on screen.
     #[prop(optional, into)]
     on_edit_as_change: Option<Callback<Language>>,
+    /// Called with how the document differs from `baseline` (lines added,
+    /// removed and modified, and the number of separate changes): once on
+    /// mount and after each edit or baseline update that changes it. Counts
+    /// what the diff gutter shows, so it stays at zero with
+    /// `show_diff=false`.
+    #[prop(optional, into)]
+    on_change_summary: Option<Callback<ChangeSummary>>,
     /// Inject [`PRESET_CSS`]. Set `false` to style the `config-editor__*`
     /// markup yourself.
     #[prop(default = true)]
@@ -186,6 +195,9 @@ pub fn ConfigEditor(
             initial_pending,
         },
     );
+    if let Some(callback) = on_change_summary {
+        changes::report_changes(state, callback);
+    }
     input::attach_listeners(state);
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);

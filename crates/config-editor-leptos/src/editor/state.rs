@@ -7,6 +7,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::bridge::Bridge;
+use super::changes::ChangeSummary;
 use super::commands::{line_at_cursor, offset_at};
 use super::completion::{
     Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
@@ -207,6 +208,11 @@ pub(super) struct EditorState {
     /// Only the rows in view (plus overscan) exist in the DOM.
     pub(super) visible_rows: Memo<Range<usize>>,
     pub(super) selected_diff_peek: RwSignal<Option<DiffPeek>>,
+    /// The changes the diff counts, for the host and the footer.
+    pub(super) changes: Memo<ChangeSummary>,
+    /// The next preview to open takes the focus (opened from the keyboard,
+    /// so `Enter` reverts it).
+    pub(super) focus_preview: StoredValue<bool>,
     /// The problem F8 moved to, `(line, column)`: its message shows until the
     /// next key, click or edit.
     pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
@@ -444,6 +450,8 @@ impl EditorState {
             lines,
             visible_rows,
             selected_diff_peek: RwSignal::new(None),
+            changes: Memo::new(move |_| diff.with(ChangeSummary::of)),
+            focus_preview: StoredValue::new(false),
             shown_problem: RwSignal::new(None),
         };
         (state, pending)

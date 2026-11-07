@@ -131,6 +131,8 @@ pub enum ThemeColor {
     Added,
     /// Modified-line gutter marker.
     Modified,
+    /// Removed-lines gutter marker (by default the `Error` color).
+    Removed,
     /// Caret line background.
     ActiveLine,
     /// Background of lines with errors.
@@ -193,6 +195,8 @@ pub enum ThemeColor {
     FileIconText,
     /// Footer error count.
     StatusError,
+    /// Footer change count (by default the `Modified` color).
+    StatusChanges,
     /// Focused diff marker outline.
     DiffFocusRing,
     /// Divider in the change preview.
@@ -231,6 +235,7 @@ impl ThemeColor {
         Self::LineNumberActive,
         Self::Added,
         Self::Modified,
+        Self::Removed,
         Self::ActiveLine,
         Self::ErrorLine,
         Self::AddedLine,
@@ -262,6 +267,7 @@ impl ThemeColor {
         Self::FileIconBackground,
         Self::FileIconText,
         Self::StatusError,
+        Self::StatusChanges,
         Self::DiffFocusRing,
         Self::DiffPeekDivider,
         Self::DiffRemovedBackground,
@@ -290,6 +296,7 @@ impl ThemeColor {
             Self::LineNumberActive => "--config-editor-line-active",
             Self::Added => "--config-editor-added",
             Self::Modified => "--config-editor-modified",
+            Self::Removed => "--config-editor-removed",
             Self::ActiveLine => "--config-editor-active-line",
             Self::ErrorLine => "--config-editor-error-line",
             Self::AddedLine => "--config-editor-added-line",
@@ -321,6 +328,7 @@ impl ThemeColor {
             Self::FileIconBackground => "--config-editor-file-icon-bg",
             Self::FileIconText => "--config-editor-file-icon-text",
             Self::StatusError => "--config-editor-status-error",
+            Self::StatusChanges => "--config-editor-status-changes",
             Self::DiffFocusRing => "--config-editor-diff-focus-ring",
             Self::DiffPeekDivider => "--config-editor-diff-peek-divider",
             Self::DiffRemovedBackground => "--config-editor-diff-removed-bg",

@@ -56,6 +56,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `language` | `string` | `"yaml"` | `"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`, or a registered one. `value`, `baseline` and `onChange` are always in it. |
 | `editAs` | `string \| null` | — | Show and edit the document in another language; it is saved back in `language`, keeping its comments. |
 | `onEditAsChange` | `(language: string) => void` | — | Called when an `editAs` switch completes (a switch waits while the document cannot convert, e.g. a `null` to TOML). |
+| `onChangeSummary` | `(summary: ChangeSummary) => void` | — | Called with `{ added, removed, modified, hunks }` against `baseline`, on mount and whenever it changes. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()`. |
@@ -95,6 +96,7 @@ const ref = useRef<ConfigEditorHandle>(null);
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted
 ref.current?.setValue(saved); // replace the document, always; onChange reports it
+ref.current?.unifiedDiff(); // the `diff -u` of the baseline against the document
 ```
 
 ## Other exports
@@ -106,10 +108,11 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | --- | --- |
 | `validate(language, text, schema?)` | Syntax and schema problems: `{ line?, column?, endColumn?, message, severity }[]`. |
 | `convert(from, text, to, schema?)` | `{ text, losses }`. |
+| `unifiedDiff(baseline, current, context?)` | The `diff -u` of two texts (`""` when they have the same lines). |
 | `registerLanguage(definition)` | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript). |
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
-Types: `ConfigEditorProps`, `ConfigEditorHandle`, `Diagnostic`, `Conversion`,
+Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ChangeSummary`, `Diagnostic`, `Conversion`,
 `CustomLanguage`, `LanguageName`, `ThemeName`, `ThemeColorMap`.
 
 ```tsx

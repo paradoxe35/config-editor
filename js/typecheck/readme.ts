@@ -1,12 +1,14 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
-import init, { ConfigEditor, validate, convert, registerLanguage } from "@pngwasi/config-editor";
+import init, { ConfigEditor, validate, convert, registerLanguage, unifiedDiff, type ChangeSummary } from "@pngwasi/config-editor";
+const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
 await init();
 declare const schemaText: string; declare const element: HTMLElement; declare function save(t: string): void;
 const editor = new ConfigEditor(document.getElementById("config")!, { language: "yaml", value: "listen: 7835\n", showToolbar: true, onChange: (text) => save(text) });
 validate("json", '{"insecure_plaintext": "yes"}', schemaText);
 convert("yaml", "listen: 7835\n", "toml");
 validate("yaml", "a: 1\n");
-editor.setEditAs(null); editor.setTheme(null); editor.setCallbacks({ onChange: null });
+editor.setEditAs(null); editor.setTheme(null); editor.setCallbacks({ onChange: null, onChangeSummary: ({ hunks }) => hunks > 0 });
+const review: string = editor.unifiedDiff() + editor.unifiedDiff(0) + unifiedDiff("a\n", "b\n");
 const env = registerLanguage({
   label: "ENV", icon: "E", extensions: ["env"],
   parse(text) { return Object.fromEntries(text.split("\n").filter(Boolean).map((line) => line.split("="))); },

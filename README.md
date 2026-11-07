@@ -19,8 +19,9 @@ React.
 - **Edit as another language:** open a YAML file as TOML (or any pair); edits
   are saved back in the file's own language, keeping its comments and
   untouched formatting.
-- **A diff gutter:** added, modified and deleted lines against a baseline,
-  with a before/after preview.
+- **A diff gutter:** added, modified and removed lines against a baseline,
+  with a before/after preview, "Revert this change", `Alt+F5` between
+  changes, a change count for the host and a unified diff for review.
 - **Editing you expect from VS Code:** auto-closed brackets, quotes and XML
   tags, smart indentation, `Ctrl+/` comments, line copy/cut, `F8` through
   problems, undo/redo.

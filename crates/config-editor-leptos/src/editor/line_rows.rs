@@ -1,4 +1,4 @@
-use super::diff::{DiffKind, DiffPeek, LineDiff};
+use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
 use leptos::prelude::*;
 
 /// One line of the document plus its error and diff flags.
@@ -18,6 +18,7 @@ pub(super) struct RowUiState {
     pub(super) change: DiffKind,
     pub(super) is_active: bool,
     pub(super) modified_peek: Option<DiffPeek>,
+    pub(super) added_peek: Option<DiffPeek>,
     pub(super) deleted_peek: Option<DiffPeek>,
     pub(super) deleted_after_peek: Option<DiffPeek>,
 }
@@ -31,10 +32,11 @@ pub(super) fn row_state(
 ) -> RowUiState {
     let line = index + 1;
     let row = rows.get(index);
+    let text = row.map(|row| row.text.clone()).unwrap_or_default();
+    let change = row.map(|row| row.change).unwrap_or(DiffKind::Unchanged);
     RowUiState {
-        text: row.map(|row| row.text.clone()).unwrap_or_default(),
         has_error: row.is_some_and(|row| row.has_error),
-        change: row.map(|row| row.change).unwrap_or(DiffKind::Unchanged),
+        change,
         is_active: line == active_line,
         modified_peek: line_diff
             .modified_before
@@ -42,10 +44,18 @@ pub(super) fn row_state(
             .and_then(Option::as_ref)
             .map(|before| DiffPeek {
                 line,
+                kind: PeekKind::Modified,
                 title: "Modified line".to_string(),
                 before: vec![before.clone()],
-                after: vec![row.map(|row| row.text.clone()).unwrap_or_default()],
+                after: vec![text.clone()],
             }),
+        added_peek: (change == DiffKind::Added).then(|| DiffPeek {
+            line,
+            kind: PeekKind::Added,
+            title: "Added line".to_string(),
+            before: Vec::new(),
+            after: vec![text.clone()],
+        }),
         deleted_peek: line_diff
             .deleted_before
             .get(index)
@@ -53,6 +63,7 @@ pub(super) fn row_state(
             .unwrap_or(false)
             .then(|| DiffPeek {
                 line,
+                kind: PeekKind::Removed,
                 title: "Removed lines".to_string(),
                 before: line_diff
                     .deleted_lines_before
@@ -63,10 +74,12 @@ pub(super) fn row_state(
             }),
         deleted_after_peek: (line == line_count && line_diff.deleted_after).then(|| DiffPeek {
             line,
+            kind: PeekKind::RemovedAtEnd,
             title: "Removed lines at end of document".to_string(),
             before: line_diff.deleted_lines_after.clone(),
             after: Vec::new(),
         }),
+        text,
     }
 }
 

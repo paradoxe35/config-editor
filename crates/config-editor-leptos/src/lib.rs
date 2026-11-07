@@ -74,8 +74,8 @@ mod editor;
 pub use editor::language;
 
 pub use editor::{
-    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
-    EditorTheme, Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource, Severity,
-    ThemeColor, ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, flush_pending_edits,
-    flush_pending_input,
+    ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError,
+    Diagnostic, EditorTheme, Language, PRESET_CSS, ParseError, Schema, SchemaError, SchemaSource,
+    Severity, ThemeColor, ThemeColors, UnknownLanguage, UnknownTheme, check_syntax,
+    flush_pending_edits, flush_pending_input, unified_diff,
 };

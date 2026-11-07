@@ -43,6 +43,7 @@ function App({ schema }: { schema: string }) {
   const [theme, setTheme] = useState("vscode-dark");
   const [readOnly, setReadOnly] = useState(false);
   const [editing, setEditing] = useState("yaml");
+  const [changes, setChanges] = useState("");
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
@@ -109,6 +110,7 @@ function App({ schema }: { schema: string }) {
           Rename (re-mounts)
         </button>
         <span id="editing">{editing}</span>
+        <span id="changes">{changes}</span>
       </header>
       <ConfigEditor
         ref={handle}
@@ -128,6 +130,9 @@ function App({ schema }: { schema: string }) {
         }}
         editAs={editAs}
         onEditAsChange={setEditing}
+        onChangeSummary={(summary) =>
+          setChanges(`${summary.hunks} changes: +${summary.added} ~${summary.modified} -${summary.removed}`)
+        }
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}

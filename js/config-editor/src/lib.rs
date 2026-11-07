@@ -12,7 +12,8 @@ use config_editor_leptos::language::{
     Tokens,
 };
 use config_editor_leptos::{
-    ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor, ThemeColors,
+    ChangeSummary, ConfigEditor as Editor, EditorTheme, Language, Schema, SchemaSource, ThemeColor,
+    ThemeColors,
 };
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
@@ -55,12 +56,24 @@ export interface EditorOptions {
   onChange?: (value: string) => void;
   /** Called when an `editAs` switch completes (it waits while the document cannot convert yet). */
   onEditAsChange?: (language: LanguageName) => void;
+  /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
+  onChangeSummary?: (summary: ChangeSummary) => void;
 }
 
 /** Callbacks to replace: a function replaces, `null` removes, absent keeps. */
 export interface CallbackUpdate {
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
+  onChangeSummary?: ((summary: ChangeSummary) => void) | null;
+}
+
+/** How the document differs from the baseline, by lines, as the diff gutter shows it. */
+export interface ChangeSummary {
+  added: number;
+  removed: number;
+  modified: number;
+  /** Separate changes (runs of changed lines); "Revert this change" restores one. */
+  hunks: number;
 }
 
 export interface Diagnostic {
@@ -241,7 +254,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 14] = [
+const OPTIONS: [&str; 15] = [
     "value",
     "language",
     "editAs",
@@ -256,6 +269,7 @@ const OPTIONS: [&str; 14] = [
     "className",
     "onChange",
     "onEditAsChange",
+    "onChangeSummary",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -280,7 +294,7 @@ const DEFINITION_KEYS: &[&str] = &[
 ];
 
 /// Keys `setCallbacks` takes.
-const CALLBACK_KEYS: &[&str] = &["onChange", "onEditAsChange"];
+const CALLBACK_KEYS: &[&str] = &["onChange", "onEditAsChange", "onChangeSummary"];
 
 /// A console warning for each key of `object` not in `known`, with the
 /// closest known one as a hint (`valu` → `value`).
@@ -419,6 +433,7 @@ struct State {
     read_only: RwSignal<bool>,
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
+    on_change_summary: StoredValue<Option<Function>, LocalStorage>,
 }
 
 /// The latest document, outside the reactive arena: an edit saved while the
@@ -521,6 +536,7 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
+        let on_change_summary = function_option(&options, "onChangeSummary")?;
         warn_unknown_options(&options);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -538,6 +554,7 @@ impl ConfigEditor {
             read_only: RwSignal::new(read_only),
             on_change: StoredValue::new_local(on_change),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
+            on_change_summary: StoredValue::new_local(on_change_summary),
         });
         let mount_element = element.clone();
         let mounted = owner.with(|| {
@@ -560,6 +577,11 @@ impl ConfigEditor {
                             &callback,
                             &JsValue::from_str(&language.label().to_lowercase()),
                         );
+                    }
+                };
+                let summarized = move |summary: ChangeSummary| {
+                    if let Some(callback) = state.on_change_summary.try_get_value().flatten() {
+                        call_host(&callback, &to_js(&ChangeSummaryOut::from(summary)));
                     }
                 };
                 let edit_as = Signal::derive(move || state.edit_as.get());
@@ -589,6 +611,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             on_change=changed
                             on_edit_as_change=switched
+                            on_change_summary=summarized
                         />
                     }
                     .into_any(),
@@ -608,6 +631,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             on_change=changed
                             on_edit_as_change=switched
+                            on_change_summary=summarized
                         />
                     }
                     .into_any(),
@@ -773,13 +797,37 @@ impl ConfigEditor {
         // A function replaces a callback; `null` removes it; absent keeps it.
         let on_change = read("onChange")?;
         let on_edit_as_change = read("onEditAsChange")?;
+        let on_change_summary = read("onChangeSummary")?;
         if let Some(callback) = on_change {
             let _ = self.state.on_change.try_set_value(callback);
         }
         if let Some(callback) = on_edit_as_change {
             let _ = self.state.on_edit_as_change.try_set_value(callback);
         }
+        if let Some(callback) = on_change_summary {
+            let _ = self.state.on_change_summary.try_set_value(callback);
+        }
         Ok(())
+    }
+
+    /// The unified diff (`diff -u`) of the baseline against the document,
+    /// with `context` unchanged lines around each change (default 3); empty
+    /// when they are the same.
+    #[wasm_bindgen(js_name = unifiedDiff)]
+    pub fn unified_diff(
+        &self,
+        #[wasm_bindgen(unchecked_optional_param_type = "number")] context: JsValue,
+    ) -> Result<String, JsError> {
+        let context = context_arg(&context)?;
+        let current = self.value();
+        let baseline = self
+            .state
+            .baseline
+            .try_get_untracked()
+            .unwrap_or_else(|| current.clone());
+        Ok(config_editor_leptos::unified_diff(
+            &baseline, &current, context,
+        ))
     }
 
     /// Unmounts the editor. The instance cannot be used afterwards. An edit
@@ -836,6 +884,54 @@ struct DiagnosticOut {
     end_column: Option<usize>,
     message: String,
     severity: &'static str,
+}
+
+#[derive(Serialize)]
+struct ChangeSummaryOut {
+    added: usize,
+    removed: usize,
+    modified: usize,
+    hunks: usize,
+}
+
+impl From<ChangeSummary> for ChangeSummaryOut {
+    fn from(summary: ChangeSummary) -> Self {
+        Self {
+            added: summary.added,
+            removed: summary.removed,
+            modified: summary.modified,
+            hunks: summary.hunks,
+        }
+    }
+}
+
+/// Unchanged lines around each change in a unified diff: a whole number,
+/// 3 when absent.
+fn context_arg(value: &JsValue) -> Result<usize, JsError> {
+    if value.is_undefined() || value.is_null() {
+        return Ok(3);
+    }
+    value
+        .as_f64()
+        .filter(|context| context.fract() == 0.0 && *context >= 0.0)
+        .map(|context| context.min(u32::MAX.into()) as usize)
+        .ok_or_else(|| JsError::new("context must be a whole number of lines, 0 or more"))
+}
+
+/// The unified diff (`diff -u`) of `baseline` against `current`, with
+/// `context` unchanged lines around each change (default 3): `--- baseline`
+/// and `+++ current` headers, then `@@` hunks. Empty when they are the same.
+#[wasm_bindgen(js_name = unifiedDiff)]
+pub fn unified_diff(
+    #[wasm_bindgen(unchecked_param_type = "string")] baseline: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] current: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "number")] context: JsValue,
+) -> Result<String, JsError> {
+    Ok(config_editor_leptos::unified_diff(
+        &text_arg(&baseline, "baseline")?,
+        &text_arg(&current, "current")?,
+        context_arg(&context)?,
+    ))
 }
 
 fn to_js<T: Serialize>(value: &T) -> JsValue {
