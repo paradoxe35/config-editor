@@ -25,6 +25,7 @@ export {
   convert,
   languages,
   registerLanguage,
+  schemaWarnings,
   themes,
   unifiedDiff,
   colorTokens,
@@ -115,6 +116,8 @@ export interface ConfigEditorProps {
   hostDiagnostics?: HostDiagnostic[];
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
+  /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
+  onSchemaWarning?: (message: string) => void;
   /** Text the diff gutter compares against. */
   baseline?: string;
   fileName?: string;
@@ -263,6 +266,11 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           onChangeSummary: (summary) => latest.current.onChangeSummary?.(summary),
           onPathChange: current.onPathChange ? followPath : undefined,
           hostDiagnostics: current.hostDiagnostics,
+          onSchemaWarning: (message) => {
+            const report = latest.current.onSchemaWarning;
+            if (report) report(message);
+            else console.warn(`config-editor: ${message}`);
+          },
         };
         try {
           editor.current = new Editor(host.current, options);

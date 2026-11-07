@@ -37,7 +37,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             on:beforeinput=move |event| input::before_input(state, &event)
             on:input=move |event| input::input(state, &event)
             on:mousemove=move |event| input::mouse_move(state, &event)
-            on:mouseleave=move |_| state.hide_hover()
+            on:mouseleave=move |_| state.leave_hover()
             on:blur=move |_| input::blur(state)
             on:click=move |event| input::click(state, &event)
             on:keyup=move |event| input::key_up(state, &event)

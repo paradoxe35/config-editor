@@ -11,7 +11,7 @@ use super::changes::ChangeSummary;
 use super::commands::{line_at_cursor, offset_at};
 use super::completion::{
     Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
-    next_slot,
+    next_slot, stop_ranges,
 };
 use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
@@ -195,6 +195,9 @@ pub(super) struct EditorState {
     /// The block an accepted suggestion wrote, as (start, distance from the
     /// end): Tab walks its empty value slots.
     pub(super) slot_region: StoredValue<Option<(usize, usize)>>,
+    /// The values that block wrote (defaults, examples), each as distances
+    /// of its start and end from the end of the text: Tab selects them.
+    pub(super) value_stops: StoredValue<Vec<(usize, usize)>>,
     /// The line last copied or cut with nothing selected, to paste it whole.
     pub(super) copied_line: StoredValue<Option<String>>,
     /// The selection just before the browser applies an edit, for undo.
@@ -204,7 +207,9 @@ pub(super) struct EditorState {
 
     // Hover docs.
     pub(super) hover_card: RwSignal<Option<HoverCard>>,
-    pub(super) hover_pending: StoredValue<Option<(usize, String)>>,
+    pub(super) hover_pending: StoredValue<Option<(usize, usize, String)>>,
+    /// The pointer is over the hover card (one with a link it can reach).
+    pub(super) hover_card_entered: StoredValue<bool>,
     pub(super) hover_token: StoredValue<u64>,
 
     // Problems and changes.
@@ -476,11 +481,13 @@ impl EditorState {
             auto_closers: StoredValue::new(Vec::new()),
             placeholder: StoredValue::new(None),
             slot_region: StoredValue::new(None),
+            value_stops: StoredValue::new(Vec::new()),
             copied_line: StoredValue::new(None),
             pre_edit_selection: StoredValue::new(super::input::UNKNOWN_SELECTION),
             input_burst: StoredValue::new(None),
             hover_card: RwSignal::new(None),
             hover_pending: StoredValue::new(None),
+            hover_card_entered: StoredValue::new(false),
             hover_token: StoredValue::new(0),
             diagnostics,
             diff,
@@ -663,12 +670,36 @@ impl EditorState {
     pub(super) fn forget_typing_aids(&self) {
         self.auto_closers.update_value(Vec::clear);
         self.slot_region.set_value(None);
+        self.value_stops.update_value(Vec::clear);
         self.history.update(EditHistory::seal);
+    }
+
+    /// Hides a card the pointer may be on its way to (one with a link)
+    /// after a moment, unless it gets there; hides any other card now.
+    pub(super) fn leave_hover(&self) {
+        let reachable = self.hover_card.with_untracked(|card| {
+            card.as_ref()
+                .is_some_and(|card| card.info.docs_url.is_some())
+        });
+        if !reachable {
+            self.hide_hover();
+            return;
+        }
+        let state = *self;
+        let token = self.hover_token.get_value();
+        super::positioning::schedule_hover(move || {
+            if state.hover_token.try_get_value() == Some(token)
+                && state.hover_card_entered.try_get_value() == Some(false)
+            {
+                state.hide_hover();
+            }
+        });
     }
 
     pub(super) fn hide_hover(&self) {
         self.hover_token.update_value(|token| *token += 1);
         self.hover_pending.set_value(None);
+        self.hover_card_entered.set_value(false);
         if self.hover_card.with_untracked(Option::is_some) {
             self.hover_card.set(None);
         }
@@ -743,13 +774,24 @@ impl EditorState {
         let insert_start = caret.saturating_sub(option.cursor_offset);
         let insert_end = insert_start + option.insert.encode_utf16().count();
         let has_slots = next_slot(&updated, caret, insert_end, self.behavior()).is_some();
-        self.slot_region
-            .set_value((option.insert.contains('\n') || has_slots).then(|| {
+        // The values it wrote are stops too, measured from the end so typing
+        // before them keeps them in place.
+        let total = updated.encode_utf16().count();
+        let stops: Vec<(usize, usize)> =
+            stop_ranges(&option.insert, option.cursor_offset, &option.fills)
+                .into_iter()
+                .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
+                .collect();
+        let has_stops = !stops.is_empty();
+        self.value_stops.set_value(stops);
+        self.slot_region.set_value(
+            (option.insert.contains('\n') || has_slots || has_stops).then(|| {
                 (
                     insert_start,
                     updated.encode_utf16().count().saturating_sub(insert_end),
                 )
-            }));
+            }),
+        );
         let reopen = accept_reopens_suggestions(option, self.features.auto_trigger);
         self.hide_hover();
         let at = self.cursor.get_untracked();

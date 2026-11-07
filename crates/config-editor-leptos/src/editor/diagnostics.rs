@@ -33,6 +33,10 @@ pub(super) const DIAGNOSTICS_DEBOUNCE_MS: i32 = 250;
 
 pub(super) struct SchemaBundle {
     pub(super) schema: Value,
+    /// What the editor cannot use in the schema (see [`Schema::warnings`]).
+    pub(super) warnings: Vec<String>,
+    /// Some property is `deprecated`: documents are checked for its key.
+    pub(super) has_deprecated: bool,
     #[cfg(feature = "schema-validation")]
     validator: jsonschema::Validator,
 }
@@ -43,8 +47,12 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     #[cfg(feature = "schema-validation")]
     let validator = jsonschema::validator_for(&schema)
         .map_err(|error| format!("Invalid JSON Schema: {error}"))?;
+    let warnings = super::completion::unsupported_patterns(&schema);
+    let has_deprecated = super::completion::mentions_deprecated(&schema);
     Ok(SchemaBundle {
         schema,
+        warnings,
+        has_deprecated,
         #[cfg(feature = "schema-validation")]
         validator,
     })
@@ -233,6 +241,20 @@ impl Schema {
             .map_err(SchemaError)
     }
 
+    /// What the editor cannot use in this schema, one message each, such as
+    /// a `patternProperties` regex its engine cannot compile (keys it was
+    /// meant to match get no completions or hover docs). The editor passes
+    /// each to `on_schema_warning` when it mounts.
+    ///
+    /// ```
+    /// use config_editor_leptos::Schema;
+    /// let schema = Schema::compile(r#"{"patternProperties":{"^(?!x-)":{}}}"#).unwrap();
+    /// assert_eq!(schema.warnings().len(), 1);
+    /// ```
+    pub fn warnings(&self) -> &[String] {
+        &self.bundle.warnings
+    }
+
     /// Syntax and schema diagnostics for `source`, as the editor shows them.
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
         validate(source, Some(&self.bundle), None, true, language.behavior())
@@ -379,7 +401,6 @@ pub(super) fn validate(
         return Vec::new();
     }
 
-    #[cfg_attr(not(feature = "schema-validation"), allow(unused_variables))]
     let document: Value =
         match super::codec::read(behavior, source, schema.map(|schema| &schema.schema)) {
             Ok(document) => document,
@@ -433,9 +454,12 @@ pub(super) fn validate(
         }];
     }
 
+    let deprecated = schema
+        .map(|schema| deprecation_warnings(&document, schema, source, behavior))
+        .unwrap_or_default();
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
-        let diagnostics = schema
+        let mut diagnostics = schema
             .validator
             .iter_errors(&document)
             .flat_map(|top| {
@@ -546,10 +570,45 @@ pub(super) fn validate(
             })
             .take(MAX_DIAGNOSTICS + 1)
             .collect::<Vec<_>>();
+        diagnostics.extend(deprecated);
         return capped(diagnostics);
     }
-    let _ = schema;
-    Vec::new()
+    deprecated
+}
+
+/// Most deprecated keys marked in one document.
+const MAX_DEPRECATION_WARNINGS: usize = 20;
+
+/// A warning on each key of `document` its schema marks deprecated, with
+/// what to use instead when the schema says.
+fn deprecation_warnings(
+    document: &Value,
+    bundle: &SchemaBundle,
+    source: &str,
+    behavior: &dyn ConfigLanguage,
+) -> Vec<Diagnostic> {
+    if !bundle.has_deprecated {
+        return Vec::new();
+    }
+    super::completion::deprecated_keys(document, &bundle.schema, MAX_DEPRECATION_WARNINGS)
+        .into_iter()
+        .filter_map(|found| {
+            let span = super::codec::inline_location(behavior, source, &found.pointer, true)
+                .or_else(|| behavior.key_span(source, &found.pointer))?;
+            let instead = found
+                .message
+                .map(|message| format!(". {message}"))
+                .unwrap_or_default();
+            Some(Diagnostic {
+                line: Some(span.line),
+                column: Some(span.start_column),
+                end_column: Some(span.end_column),
+                message: format!("{}: '{}' is deprecated{instead}", found.pointer, found.key),
+                severity: Severity::Warning,
+                ..Diagnostic::default()
+            })
+        })
+        .collect()
 }
 
 /// For an `anyOf` whose every branch wants another type: `true is not of

@@ -30,7 +30,7 @@ use super::super::commands::indent_unit;
 use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start, statements, entry_follows, in_front_of_inline_entry, matching_close};
 use super::super::completion::{
-    array_branch, object_branch, placeholder, schema_const, schema_default,
+    array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;

@@ -854,6 +854,40 @@
   font: 10px var(--config-editor-mono);
 }
 
+.config-editor__hover--interactive { pointer-events: auto; }
+
+.config-editor__hover-deprecated {
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--config-editor-warning);
+  border: 1px solid currentColor;
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__hover-deprecation {
+  margin: 0;
+  color: var(--config-editor-raised-muted);
+  font-style: italic;
+}
+
+.config-editor__hover-value {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+}
+
+.config-editor__hover-value-label {
+  font: 12px var(--config-editor-mono);
+  color: var(--config-editor-string);
+}
+
+.config-editor__hover-link {
+  justify-self: start;
+  color: var(--config-editor-accent);
+  font-size: 11px;
+}
+
 .config-editor__hover-description {
   margin: 0;
   color: var(--config-editor-raised-text);
@@ -909,6 +943,17 @@
 }
 
 .config-editor__completion-match { color: var(--config-editor-accent); }
+
+.config-editor__completion--deprecated .config-editor__completion-key {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.config-editor__completion-deprecated {
+  flex: 0 0 auto;
+  color: var(--config-editor-completion-type);
+  font: italic 10px ui-sans-serif, system-ui, sans-serif;
+}
 
 .config-editor__completion-type {
   flex: 0 0 auto;

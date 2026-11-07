@@ -229,7 +229,7 @@ pub(super) fn child_schemas<'a>(
                 }
                 if let Some(patterns) = branch.get("patternProperties").and_then(Value::as_object) {
                     for (pattern, property) in patterns {
-                        if Regex::new(pattern).is_ok_and(|regex| regex.is_match(key)) {
+                        if patterns::pattern_matches(pattern, key) {
                             next.push(property);
                             matched = true;
                         }
@@ -405,4 +405,28 @@ pub(super) fn unquoted(typed: &str) -> &str {
         return inner.strip_suffix(quote).unwrap_or(inner);
     }
     typed
+}
+
+#[cfg(test)]
+mod pattern_timing {
+    use super::*;
+
+    #[test]
+    #[ignore = "timing, run by hand"]
+    fn pattern_lookup_timing() {
+        let schema = serde_json::json!({
+            "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {"type": "string"},
+                "^x-[A-Za-z0-9-]+$": {"type": "string"},
+                "^[A-Z_]{2,}$": {"type": "integer"}
+            }
+        });
+        let segment = SchemaPathSegment::Key("listen_port".to_string());
+        let start = std::time::Instant::now();
+        let mut found = 0;
+        for _ in 0..10_000 {
+            found += child_schemas(&schema, &schema, &segment).len();
+        }
+        eprintln!("10000 lookups: {:?} ({found})", start.elapsed());
+    }
 }

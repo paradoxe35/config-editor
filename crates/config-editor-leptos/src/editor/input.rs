@@ -291,16 +291,19 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
             .with_value(|schema| key_hover(text, line, column, schema.as_deref(), state.behavior()))
     });
     let Some(info) = info else {
-        state.hide_hover();
+        state.leave_hover();
         return;
     };
-    let identity = (line, info.key.clone());
+    let identity = (line, info.start_column, info.key.clone());
     if state.hover_pending.get_value().as_ref() == Some(&identity) {
         return;
     }
     let shown = state.hover_card.with_untracked(|card| {
-        card.as_ref()
-            .is_some_and(|card| card.line == line && card.info.key == info.key)
+        card.as_ref().is_some_and(|card| {
+            card.line == line
+                && card.info.start_column == info.start_column
+                && card.info.key == info.key
+        })
     });
     if shown {
         return;

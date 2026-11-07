@@ -64,6 +64,7 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text.                                                                  |
 | `on_change`                    | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                               |
 | `on_edit_as_change`            | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                |
+| `on_schema_warning`            | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.               |
 
 While editing as another language, edits reach `on_change` after each typing
 pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
@@ -80,7 +81,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `show_diagnostics`             | `bool`                                     | `true`           | Syntax and schema problems, underlined with a message on hover.                                                                      |
 | `enable_completions`           | `bool`                                     | `true`           | Schema suggestions (`Ctrl+Space`).                                                                                                   |
 | `auto_trigger_completions`     | `bool`                                     | `true`           | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them.                                                           |
-| `enable_hover_docs`            | `bool`                                     | `true`           | Schema description, type, default and examples when hovering a key.                                                                  |
+| `enable_hover_docs`            | `bool`                                     | `true`           | Schema docs when hovering a key or a documented value: description, type, default, examples, deprecation and a docs link.           |
 | `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and removed line markers with a before/after preview and "Revert this change".                                       |
@@ -219,13 +220,58 @@ view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
   `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
   `docs_url`.
 
+## Schema help
+
+Completions and hover read these keywords, with or without the
+`schema-validation` feature:
+
+| Keyword                                      | Shown                                                                                                                       |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                           |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning.             |
+| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                          |
+| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                       |
+| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.     |
+| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                 |
+
+```json
+{
+  "mode": {
+    "description": "How requests are routed.",
+    "x-docs-url": "https://example.com/docs/mode",
+    "enum": ["fast", "safe"],
+    "x-enum-descriptions": ["Skips the checks.", "Checks everything."]
+  },
+  "level": {
+    "oneOf": [
+      { "const": "info", "title": "Info", "description": "Normal messages." },
+      { "const": "trace", "title": "Trace", "description": "Everything." }
+    ]
+  },
+  "timeout": { "type": "integer", "deprecated": true, "deprecationMessage": "Use deadline instead." }
+}
+```
+
+Accepting an object key writes its required children. The caret goes to
+the first one (left empty unless it has a `default`); each other takes its
+`default`, else its first `examples` entry, else a typed placeholder. `Tab`
+then walks the block like a snippet, selecting each written value (typing
+replaces it) and stopping at each empty one.
+
+`patternProperties` regexes are compiled once per pattern, when the schema
+is built. One the editor's engine cannot compile (look-around, and Unicode
+classes without `schema-validation`) is reported through
+`on_schema_warning` and [`Schema::warnings`] instead of silently matching
+nothing. `pattern` itself is only checked by the validator, which rejects a
+schema whose regex it cannot compile.
+
 ## Keyboard
 
 | Keys                                         | Action                                                                           |
 | -------------------------------------------- | -------------------------------------------------------------------------------- |
 | `Ctrl+Space`                                 | Open suggestions (with schema examples)                                          |
 | `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                 |
-| `Tab` after accepting a block                | Jump to the next empty value                                                     |
+| `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote           |
 | `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                      |
 | `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element |
 | `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                        |
@@ -283,7 +329,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | Item                                       | Description                                                                                                                                                                                                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
-| `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share.                                                                                                                                         |
+| `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`, `warnings()`. Cheap to clone and share.                                                                                                                           |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
 | `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
@@ -455,6 +501,7 @@ With no language feature, use your own languages through `Language::new`.
 MIT. See [LICENSE](LICENSE).
 
 [Leptos]: https://leptos.dev
+[`Schema::warnings`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html#method.warnings
 [`PRESET_CSS`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/constant.PRESET_CSS.html
 [`@pngwasi/config-editor`]: https://www.npmjs.com/package/@pngwasi/config-editor
 [`@pngwasi/config-editor-react`]: https://www.npmjs.com/package/@pngwasi/config-editor-react

@@ -88,6 +88,10 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
+        // On to the block's next value, if it has one.
+        state
+            .source
+            .with_untracked(|text| super::tab::next_placeholder_slot(state, text, end));
         return true;
     }
     false

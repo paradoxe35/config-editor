@@ -487,13 +487,18 @@ pub(super) fn property_insert(
                     let child_indent = format!("{base_indent}{unit}");
                     insert.push('\n');
                     for (name, child) in &children {
-                        if caret.is_none() {
+                        let takes_caret = caret.is_none();
+                        if takes_caret {
                             caret = Some(insert.len() + child_indent.len() + name.len() + 2);
                         }
                         insert.push_str(&child_indent);
                         insert.push_str(&format!("<{name}>"));
-                        if let Some(default) = schema_default(child, root) {
-                            insert.push_str(&escape_text(&xml_text(default)));
+                        // A default, else (past the caret's child) an
+                        // example: a value Tab selects.
+                        if let Some(default) = schema_default(child, root).cloned().or_else(|| {
+                            (!takes_caret).then(|| schema_example(child, root)).flatten()
+                        }) {
+                            insert.push_str(&escape_text(&xml_text(&default)));
                         }
                         insert.push_str(&format!("</{name}>\n"));
                     }

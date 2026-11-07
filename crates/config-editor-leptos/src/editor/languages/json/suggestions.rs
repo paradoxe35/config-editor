@@ -263,7 +263,7 @@ pub(super) fn property_insert(
                         }
                         match schema_default(child, root) {
                             Some(default) => insert.push_str(&json_text(default)),
-                            None if !takes_caret => insert.push_str(&json_text(&placeholder(child, root))),
+                            None if !takes_caret => insert.push_str(&json_text(&fill_value(child, root))),
                             // The caret's own child: a string starts quoted, caret inside.
                             None if placeholder(child, root).is_string() => {
                                 insert.push_str("\"\"");

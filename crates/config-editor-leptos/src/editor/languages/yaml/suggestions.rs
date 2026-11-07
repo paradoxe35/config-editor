@@ -92,9 +92,16 @@ pub(super) fn append_required_properties(
         output.push_str(child_indent);
         output.push_str(&yaml_key);
         output.push(':');
-        if let Some(default) = schema_default(property, root) {
+        // A default, else (once the caret has its child) an example: a
+        // value Tab selects (see `stops`).
+        if let Some(default) = schema_default(property, root).cloned().or_else(|| {
+            cursor_offset
+                .is_some()
+                .then(|| schema_example(property, root))
+                .flatten()
+        }) {
             output.push(' ');
-            output.push_str(&yaml_value(default));
+            output.push_str(&yaml_value(&default));
             output.push('\n');
         } else if object_branch(property, root).is_some() {
             let mut children = String::new();
@@ -165,11 +172,15 @@ pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) ->
             first = false;
             insert.push_str(&child_key);
             insert.push_str(": ");
-            if cursor.is_none() {
+            let takes_caret = cursor.is_none();
+            if takes_caret {
                 cursor = Some(insert.len());
             }
-            if let Some(default) = schema_default(child, root) {
-                insert.push_str(&flow(default));
+            if let Some(default) = schema_default(child, root)
+                .cloned()
+                .or_else(|| (!takes_caret).then(|| schema_example(child, root)).flatten())
+            {
+                insert.push_str(&flow(&default));
             }
         }
         insert.push(' ');

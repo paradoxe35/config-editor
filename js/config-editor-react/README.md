@@ -60,6 +60,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `onPathChange` | `(path: EditorPath) => void` | — | Called with the path of what the caret is on (`{ pointer: "/web/listen", segments: ["web", "listen"] }`) each time it changes, for a breadcrumb. The path is computed only while this is set. |
 | `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
+| `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
 | `colors` | `Record<string, string>` | — | Colors overriding the theme's by token (`bg`, `key`, …); see `colorTokens()`. |
@@ -127,6 +128,7 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `validate(language, text, schema?)` | Syntax and schema problems: `{ line?, column?, endColumn?, message, severity }[]`. |
 | `convert(from, text, to, schema?)` | `{ text, losses }`. |
 | `unifiedDiff(baseline, current, context?)` | The `diff -u` of two texts (`""` when they have the same lines). |
+| `schemaWarnings(schema)` | What the editor cannot use in a schema, as `onSchemaWarning` reports it. |
 | `registerLanguage(definition)` | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript). |
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
