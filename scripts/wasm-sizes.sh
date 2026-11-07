@@ -87,6 +87,6 @@ echo "$note"
 if [[ "${1:-}" == "--write" ]]; then
   block=$(printf '%s\n\n%s' "$table" "$note")
   BLOCK="$block" perl -0pi -e \
-    's/(<!-- wasm-sizes:start -->\n).*?(\n<!-- wasm-sizes:end -->)/$1$ENV{BLOCK}$2/s' "$readme"
+    's/(<!-- wasm-sizes:start -->\n).*?(<!-- wasm-sizes:end -->)/$1$ENV{BLOCK}\n$2/s' "$readme"
   echo "rewrote the table in $readme" >&2
 fi

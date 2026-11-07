@@ -52,7 +52,8 @@ mod live_settings;
     feature = "yaml",
     feature = "diff",
     feature = "search",
-    feature = "folding"
+    feature = "folding",
+    feature = "protect"
 ))]
 mod live_settings_tests;
 mod metrics;

@@ -1184,10 +1184,26 @@ are built with every feature.
 
 ### Size
 
-The wasm a small host ships (one `<ConfigEditor>`, release build, gzip -9),
-by features:
+The wasm a small host ships, by features: one `<ConfigEditor>` with a schema,
+the toolbar and the footer, its language any built-in one of the build
+(`examples/wasm_size.rs`), built for release, through wasm-bindgen, gzip -9.
+What a host does not use (`ConfigDocuments`, the handle's methods, the
+headless functions) is left out by the linker, feature or not.
 
 <!-- wasm-sizes:start -->
+| Build | wasm, gzip -9 |
+| ----- | ------------- |
+| Everything (the default features) | 1815 KB |
+| YAML + JSON, every optional feature, no `schema-validation` | 721 KB |
+| YAML + JSON, every optional feature, with `schema-validation` | 1417 KB |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 579 KB |
+| Saved by leaving out `schema-validation` (from everything) | -700 KB |
+| Saved by leaving out `search` (from everything) | -34 KB |
+| Saved by leaving out `folding` (from everything) | -30 KB |
+| Saved by leaving out `diff` (from everything) | -25 KB |
+| Saved by leaving out `protect` (from everything) | -53 KB |
+
+Measured 2026-11-07 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 <!-- wasm-sizes:end -->
 
 To measure again (needs the `wasm32-unknown-unknown` target and the
