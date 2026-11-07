@@ -19,6 +19,11 @@ use super::state::EditorState;
 pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     // Keys act on the document as the browser last left it.
     super::input::flush_input(state);
+    // Before anything closes: an Escape only arms Tab to leave when it had
+    // nothing to close.
+    if super::a11y::focus_keys(state, event) {
+        return;
+    }
     state.hide_hover();
     state.protect.hide_tip(false);
     if !matches!(
@@ -54,7 +59,8 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || navigation::next_problem(state, event)
         || typing::toggle_comments(state, event)
         || typing::join_with_next_line(state, event)
-        || (state.config.features.auto_closing && typing::pairs_and_tags(state, event))
+        || (state.config.settings.auto_closing.get_untracked()
+            && typing::pairs_and_tags(state, event))
         || typing::indentation(state, event);
     if handled {
         return;
@@ -91,7 +97,10 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
 /// `Ctrl+G` opens the go-to-line field.
 fn go_to_line_key(state: EditorState, event: &KeyboardEvent) -> bool {
     let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
-    if !state.config.features.go_to_line || !command || !event.key().eq_ignore_ascii_case("g") {
+    if !state.config.settings.go_to_line.get_untracked()
+        || !command
+        || !event.key().eq_ignore_ascii_case("g")
+    {
         return false;
     }
     event.prevent_default();

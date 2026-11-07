@@ -134,7 +134,7 @@ for (const name of Object.keys(PAGES)) {
       await page.waitForTimeout(300);
       expect(await saveCount(page, name)).toBe(0);
       await page.evaluate((vanilla) => {
-        if (vanilla) window.editor.setSaveShortcut(true);
+        if (vanilla) window.editor.setSettings({ ...window.editor.settings, saveShortcut: true });
         else window.setExtraProps({ saveShortcut: true });
       }, name === 'vanilla.html');
       await input(page).focus();
@@ -158,7 +158,7 @@ for (const name of Object.keys(PAGES)) {
 }
 
 test.describe('vanilla: the switches are checked like the other options', () => {
-  test('a wrong type throws, setSaveShortcut checks its argument', async ({ page }) => {
+  test('a wrong type throws, setSettings checks its argument', async ({ page }) => {
     await open(page, 'vanilla.html');
     const messages = await page.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
@@ -172,10 +172,13 @@ test.describe('vanilla: the switches are checked like the other options', () => 
       };
       return {
         option: caught(() => new module.ConfigEditor(document.createElement('div'), { showDiff: 'no' })),
-        setter: caught(() => window.editor.setSaveShortcut('yes')),
+        setter: caught(() => window.editor.setSettings({ saveShortcut: 'yes' })),
       };
     });
-    expect(messages).toEqual({ option: 'showDiff must be a boolean', setter: 'saveShortcut must be a boolean' });
+    expect(messages).toEqual({
+      option: 'showDiff must be a boolean (got string "no")',
+      setter: 'saveShortcut must be a boolean (got string "yes")',
+    });
   });
 });
 

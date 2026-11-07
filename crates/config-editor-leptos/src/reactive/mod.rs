@@ -19,11 +19,15 @@
 //! - [`KeyedList`]: `For` whose rows own themselves instead of registering
 //!   with the list's owner.
 //! - [`detached_owner`]: an owner no parent keeps a record of.
+//! - [`Kept`]: a part a setting switches on and off, built once and then
+//!   taken off the page and put back.
 
+mod kept;
 mod keyed;
 mod relay;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use kept::Kept;
 pub(crate) use keyed::{KeyedList, detached_owner};
 pub(crate) use relay::{Fanout, Relay, notify};

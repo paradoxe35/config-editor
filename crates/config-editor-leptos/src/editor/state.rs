@@ -20,11 +20,13 @@
 //! | `editing`    | `HostEditing`       | `host_editing`  |
 //! | `fold`       | `FoldState`         | `folding`       |
 //! | `protect`    | `ProtectState`      | `protect`       |
+//! | `a11y`       | `A11yState`         | `a11y`          |
 
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
+use super::a11y::A11yState;
 use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
 use super::diagnostics::SchemaBundle;
@@ -38,37 +40,25 @@ use super::host_editing::{
 };
 use super::hover::HoverState;
 use super::languages::Language;
-use super::layout::ViewState;
+use super::layout::{ViewState, string_bodies};
 use super::line_rows::rendered_lines;
+use super::live_settings::LiveSettings;
 use super::problems::{self, ProblemsState};
 use super::protect::{Inputs, ProtectInit, ProtectState};
 use super::search::SearchState;
 use super::sync::SyncState;
 use super::typing::TypingState;
-
-/// Which optional behaviours are on (from the component's props).
-#[derive(Clone, Copy)]
-pub(super) struct Features {
-    pub(super) completions: bool,
-    pub(super) auto_trigger: bool,
-    pub(super) hover_docs: bool,
-    pub(super) highlighting: bool,
-    pub(super) auto_closing: bool,
-    pub(super) diagnostics: bool,
-    pub(super) diff: bool,
-    pub(super) search: bool,
-    pub(super) go_to_line: bool,
-    pub(super) folding: bool,
-}
+use crate::EditorSettings;
 
 /// What the editor is mounted with and keeps: the host's language, the
-/// schema, the read-only switch and the optional behaviours.
+/// schema, the read-only switch and the settings.
 pub(super) struct Config {
     pub(super) host_language: Language,
     pub(super) schema: StoredValue<Option<Arc<SchemaBundle>>>,
     /// The `read_only` prop, which may switch live.
     pub(super) read_only: Signal<bool>,
-    pub(super) features: Features,
+    /// The `settings` prop, one memo per setting (see `live_settings`).
+    pub(super) settings: LiveSettings,
 }
 
 /// What the component hands over to build the state.
@@ -83,7 +73,7 @@ pub(super) struct Init {
     /// `host_editing` for later ones).
     pub(super) baseline: String,
     pub(super) read_only: Signal<bool>,
-    pub(super) features: Features,
+    pub(super) settings: Signal<EditorSettings>,
     /// The host's `on_change`; edits reach it directly or through the
     /// Edit-as conversion (see `sync`).
     pub(super) host_on_change: Option<Callback<String>>,
@@ -92,7 +82,6 @@ pub(super) struct Init {
     /// The host's read-only paths and ranges (see `protect`).
     pub(super) protect: ProtectInit,
     pub(super) on_save: Option<Callback<SaveRequest>>,
-    pub(super) save_shortcut: Signal<bool>,
     pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
 }
 
@@ -144,6 +133,9 @@ pub(super) struct EditorFields {
     pub(super) fold: FoldState,
     /// Read-only fields and secrets (see `protect`).
     pub(super) protect: ProtectState,
+    /// Leaving with the keyboard, the caret's note, announcements (see
+    /// `a11y`).
+    pub(super) a11y: A11yState,
 }
 
 impl EditorState {
@@ -159,19 +151,19 @@ impl EditorState {
             host_text,
             baseline,
             read_only,
-            features,
+            settings,
             host_on_change,
             host_diagnostics,
             protect,
             on_save,
-            save_shortcut,
             on_baseline_conflict,
         } = init;
+        let settings = LiveSettings::new(settings, schema.is_some());
         let config = Config {
             host_language,
             schema: StoredValue::new(schema.clone()),
             read_only,
-            features,
+            settings,
         };
         // What reaches the host is remembered: a baseline equal to it is the
         // user's own work coming back (see `host_editing`).
@@ -202,27 +194,29 @@ impl EditorState {
                 host_language,
                 schema: schema.clone(),
                 schema_error,
-                enabled: features.diagnostics,
+                enabled: settings.diagnostics,
                 host_diagnostics,
             },
             &sync,
             protect,
         );
+        let string_bodies = string_bodies(doc.text, sync.edit_language);
         let completion = CompletionState::new(completion::Sources {
             text: doc.text,
             caret: doc.caret,
             edit_language: sync.edit_language,
             schema,
             read_only,
-            enabled: features.completions,
+            enabled: settings.completions,
             protect,
+            string_bodies,
         });
         let editing = HostEditing::new(
             host_editing::Init {
                 baseline,
                 sent,
                 on_save,
-                save_shortcut,
+                save_shortcut: settings.save_shortcut.into(),
                 on_conflict: on_baseline_conflict,
             },
             doc.text,
@@ -230,26 +224,26 @@ impl EditorState {
             config.schema,
             &sync,
         );
-        let changes = ChangesState::new(doc.text, editing.shown_baseline, features.diff);
+        let changes = ChangesState::new(doc.text, editing.shown_baseline, settings.diff);
         let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let view = ViewState::new(
-            doc.text,
-            sync.edit_language,
             projection,
             rendered_lines(doc.text, problems.diagnostics, changes.diff, protect),
+            string_bodies,
         );
         let fold = FoldState::new(
             projection,
             view.visible_rows,
             doc.text,
             sync.edit_language,
-            features.folding,
+            settings.folding,
         );
         let state = Self(Box::leak(Box::new(EditorFields {
             search: SearchState::new(doc.text),
             go_to_line: GoToLine::new(),
             typing: TypingState::new(),
             hover: HoverState::new(),
+            a11y: A11yState::new(),
             config,
             doc,
             sync,

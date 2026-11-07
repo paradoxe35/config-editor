@@ -9,6 +9,9 @@
 
 use leptos::{ev, leptos_dom::helpers::window_event_listener, prelude::*};
 
+use crate::reactive::Kept;
+
+mod a11y;
 mod bridge;
 mod changes;
 mod codec;
@@ -38,6 +41,9 @@ pub mod language;
 mod languages;
 mod layout;
 mod line_rows;
+mod live_settings;
+#[cfg(all(test, feature = "yaml"))]
+mod live_settings_tests;
 mod metrics;
 mod paths;
 mod positioning;
@@ -46,6 +52,7 @@ mod protect;
 mod search;
 mod state;
 mod sync;
+// Used by the tests that mount a YAML editor (all of them need YAML).
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod theme;
@@ -66,18 +73,19 @@ pub use paths::{FieldPath, TextPosition, TextRange};
 pub use protect::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
+use crate::EditorSettings;
 use components::{
-    BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget,
-    GoToLineWidget, Gutter, HoverCardView, ProtectTipView, SearchHighlights, SourceInput,
-    StatusBar, Toolbar,
+    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup,
+    FindWidget, GoToLineWidget, Gutter, HoverCardView, ProtectTipView, SearchHighlights,
+    SourceInput, StatusBar, Toolbar,
 };
-use state::{EditorState, Features, Init, normalize_newlines};
+use state::{EditorState, Init, normalize_newlines};
 
 /// The preset stylesheet: layout plus every bundled theme, and the tabs of
 /// [`ConfigDocuments`](crate::ConfigDocuments).
 ///
-/// The editor injects it unless `styled=false`, in which case a host can serve
-/// it itself.
+/// The editor injects it unless the `styled` setting is off, in which case a
+/// host can serve it itself.
 pub const PRESET_CSS: &str = concat!(
     include_str!("preset.css"),
     include_str!("themes.css"),
@@ -132,12 +140,11 @@ pub fn ConfigEditor(
     /// Extra class on the editor root for host styles.
     #[prop(optional, into)]
     class: Option<String>,
-    /// Color theme; may be a signal to switch themes live.
-    #[prop(default = EditorTheme::VsCodeDark.into(), into)]
-    theme: Signal<EditorTheme>,
-    /// Colors overriding the theme's, for a custom palette; may be a signal.
+    /// The theme and the on/off switches; see [`EditorSettings`]. May be a
+    /// signal: every setting switches live, keeping the caret, the undo
+    /// history and the folds.
     #[prop(optional, into)]
-    colors: MaybeProp<ThemeColors>,
+    settings: Signal<EditorSettings>,
     /// Called with the document, in `language`, after every edit.
     #[prop(optional, into)]
     on_change: Option<Callback<String>>,
@@ -149,8 +156,8 @@ pub fn ConfigEditor(
     /// Called with how the document differs from `baseline` (lines added,
     /// removed and modified, and the number of separate changes): once on
     /// mount and after each edit or baseline update that changes it. Counts
-    /// what the diff gutter shows, so it stays at zero with
-    /// `show_diff=false`.
+    /// what the diff gutter shows, so it stays at zero with the `show_diff`
+    /// setting off.
     #[prop(optional, into)]
     on_change_summary: Option<Callback<ChangeSummary>>,
     /// Called once per problem with something in `schema` the editor cannot
@@ -159,51 +166,6 @@ pub fn ConfigEditor(
     /// console as a warning.
     #[prop(optional, into)]
     on_schema_warning: Option<Callback<String>>,
-    /// Inject [`PRESET_CSS`]. Set `false` to style the `config-editor__*`
-    /// markup yourself.
-    #[prop(default = true)]
-    styled: bool,
-    /// Show the built-in file/schema toolbar. See also [`ConfigEditorToolbar`].
-    #[prop(default = false)]
-    show_toolbar: bool,
-    /// Show the built-in status footer. See also [`ConfigEditorFooter`].
-    #[prop(default = false)]
-    show_footer: bool,
-    /// Show inline parse/schema diagnostics and hover messages.
-    #[prop(default = true)]
-    show_diagnostics: bool,
-    /// Enable schema-backed completions (`Ctrl+Space`).
-    #[prop(default = true)]
-    enable_completions: bool,
-    /// Show schema description, type, default, and examples when hovering a key.
-    #[prop(default = true)]
-    enable_hover_docs: bool,
-    /// Open suggestions while typing and after accepting a key. When `false`,
-    /// suggestions open only with `Ctrl+Space`.
-    #[prop(default = true)]
-    auto_trigger_completions: bool,
-    /// Enable syntax colors for the document language.
-    #[prop(default = true)]
-    enable_highlighting: bool,
-    /// Auto-close quotes and brackets, wrap selections, and delete empty
-    /// pairs on Backspace.
-    #[prop(default = true)]
-    enable_auto_closing: bool,
-    /// Show line changes against `baseline`.
-    #[prop(default = true)]
-    show_diff: bool,
-    /// Find and replace: `Ctrl+F`, `Ctrl+H`, `F3`. When `false`, those keys
-    /// are left to the browser.
-    #[prop(default = true)]
-    enable_search: bool,
-    /// Go to line (`Ctrl+G`). When `false`, the key is left to the browser.
-    #[prop(default = true)]
-    enable_go_to_line: bool,
-    /// Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and
-    /// `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for
-    /// everything (`Cmd` on macOS). View only: the text stays whole.
-    #[prop(default = true)]
-    enable_folding: bool,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
@@ -242,15 +204,10 @@ pub fn ConfigEditor(
     /// Called when the user saves (`Ctrl+S` / `Cmd+S`, the browser's save
     /// dialog prevented) or the host calls [`EditorHandle::save`], with the
     /// document in `language`. Nothing saves by itself. Without it, `Ctrl+S`
-    /// is left to the browser. See [`SaveRequest`] for an edit that cannot
-    /// convert back yet.
+    /// is left to the browser (as with the `save_shortcut` setting off). See
+    /// [`SaveRequest`] for an edit that cannot convert back yet.
     #[prop(optional, into)]
     on_save: Option<Callback<SaveRequest>>,
-    /// Whether `Ctrl+S` / `Cmd+S` saves (with `on_save` set). When `false`,
-    /// the key is left to the browser and only [`EditorHandle::save`]
-    /// saves. May be a signal.
-    #[prop(default = Signal::from(true), into)]
-    enable_save_shortcut: Signal<bool>,
     /// Called with whether the text differs from `baseline`: once on mount,
     /// then each time that changes (not on every keystroke).
     #[prop(optional, into)]
@@ -275,20 +232,6 @@ pub fn ConfigEditor(
         .map(Signal::get_untracked)
         .map_or_else(|| initial_value.clone(), normalize_newlines);
     let baseline = baseline.unwrap_or_else(|| Signal::stored(host_text.clone()));
-    let features = Features {
-        // `read_only` switches live; the parts that offer completions read
-        // it as well.
-        completions: enable_completions,
-        auto_trigger: auto_trigger_completions,
-        hover_docs: enable_hover_docs && has_schema,
-        highlighting: enable_highlighting,
-        auto_closing: enable_auto_closing,
-        diagnostics: show_diagnostics,
-        diff: show_diff,
-        search: enable_search,
-        go_to_line: enable_go_to_line,
-        folding: enable_folding,
-    };
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
         edit_language: edit_as.get_untracked().unwrap_or(language),
@@ -297,7 +240,7 @@ pub fn ConfigEditor(
         host_text,
         baseline: baseline.get_untracked(),
         read_only,
-        features,
+        settings,
         host_on_change: on_change,
         host_diagnostics: host_diagnostics.unwrap_or_default(),
         protect: protect::ProtectInit {
@@ -306,7 +249,6 @@ pub fn ConfigEditor(
             secrets: secrets.unwrap_or_default(),
         },
         on_save,
-        save_shortcut: enable_save_shortcut,
         on_baseline_conflict,
     });
     sync::connect(
@@ -330,6 +272,7 @@ pub fn ConfigEditor(
     }
     input::attach_listeners(state);
     state.connect_protection();
+    a11y::connect_caret_note(state);
     if let Some(handle) = handle {
         handle.attach(state);
     }
@@ -337,14 +280,14 @@ pub fn ConfigEditor(
         Effect::new(move |_| on_path_change.run(state.doc.caret_path.get()));
     }
     remeasure_on_window_changes(state);
+    live_settings::follow(state);
     let rows = components::row_states(state);
-    if enable_folding {
-        components::mount_fold_layers(state);
-    }
+    components::mount_fold_layers(state);
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());
     let root_class = class.unwrap_or_default();
+    let shown = state.config.settings;
 
     view! {
         <div
@@ -352,31 +295,32 @@ pub fn ConfigEditor(
                 let read_only = if read_only.get() { " config-editor__readonly" } else { "" };
                 format!("config-editor {root_class}{read_only}")
             }
-            data-theme=move || theme.get().css_family()
-            data-color-theme=move || theme.get().as_str()
-            style=move || colors.get().map(|colors| colors.to_style())
+            data-theme=move || shown.theme.get().css_family()
+            data-color-theme=move || shown.theme.get().as_str()
+            style=move || shown.color_style()
             node_ref=state.view.root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
-            {styled.then(|| view! { <style>{PRESET_CSS}</style> })}
+            {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
             <section class="config-editor__frame" aria-label=move || format!("{} editor", state.label())>
-                {show_toolbar.then(|| view! { <Toolbar state=state file_name=file_name has_schema=has_schema /> })}
+                <Kept when=shown.toolbar view=move || view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> } />
                 <BaselineNotice state=state />
                 <div class="config-editor__surface">
                     <Gutter state=state rows=rows />
                     <div class="config-editor__input-wrap">
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
-                        {enable_search.then(|| view! { <SearchHighlights state=state /> })}
+                        <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />
                         <SourceInput state=state />
                         <HoverCardView state=state />
                         <ProtectTipView state=state />
                         <CompletionList state=state />
-                        {enable_search.then(|| view! { <FindWidget state=state /> })}
-                        {enable_go_to_line.then(|| view! { <GoToLineWidget state=state /> })}
+                        <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />
+                        <Kept when=shown.go_to_line view=move || view! { <GoToLineWidget state=state /> } />
                     </div>
                 </div>
-                {show_footer.then(|| view! { <StatusBar state=state /> })}
+                <Kept when=shown.footer view=move || view! { <StatusBar state=state /> } />
+                <Announcer state=state />
             </section>
             <DiffPeekPopup state=state />
         </div>

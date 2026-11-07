@@ -11,9 +11,11 @@ editing one language as another, and eleven themes.
 - [Install](#install)
 - [Quick start](#quick-start)
 - [`<ConfigEditor>` props](#configeditor-props)
+  - [Settings](#settings)
 - [Ref](#ref)
   - [Saving](#saving)
   - [Several documents](#several-documents)
+- [Keyboard and screen readers](#keyboard-and-screen-readers)
 - [Other exports](#other-exports)
 - [License](#license)
 <!-- /toc -->
@@ -61,6 +63,10 @@ loadConfigEditor({ module_or_path: wasmUrl });
 
 ## `<ConfigEditor>` props
 
+The props are the document and its callbacks (below) and every
+[setting](#settings) (`theme`, `showFooter`, `folding`, …): `ConfigEditorProps`
+extends the generated `EditorSettings` type.
+
 | Prop | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `value` | `string` | — | The document (controlled). |
@@ -81,40 +87,55 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `onSave` | `(value: string, language: string) => void` | — | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `ref.save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. |
 | `onDirtyChange` | `(dirty: boolean) => void` | — | Called with whether the document differs from `baseline`: once on mount, then each time that changes. |
 | `onBaselineConflict` | `(event: BaselineConflict) => void` | — | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`). |
-| `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
-| `colors` | `Record<string, string>` | — | Colors overriding the theme's by token (`bg`, `key`, …); see `colorTokens()`. |
 | `readOnly` | `boolean` | `false` | View mode. |
 | `fileName` | `string` | `untitled.<ext>` | Shown in the toolbar. |
-| `showToolbar` / `showFooter` | `boolean` | `false` | Built-in toolbar and status bar. |
-| `search` | `boolean` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`); `false` leaves those keys to the browser. |
-| `goToLine` | `boolean` | `true` | Go to line (`Ctrl+G`); `false` leaves the key to the browser. |
-| `folding` | `boolean` | `true` | Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only: `onChange` and copying see the whole text. |
-| `showDiff` | `boolean` | `true` | Line changes against `baseline` in the gutter. |
-| `showDiagnostics` | `boolean` | `true` | Syntax and schema problems inline, in the footer and on hover. |
-| `completions` | `boolean` | `true` | Schema completion; `false` offers no suggestions, `Ctrl+Space` included. |
-| `autoTriggerCompletions` | `boolean` | `true` | Open suggestions while typing; `false` opens them only with `Ctrl+Space`. |
-| `hoverDocs` | `boolean` | `true` | Schema docs when hovering a key. |
-| `highlighting` | `boolean` | `true` | Syntax colors. |
-| `autoClosing` | `boolean` | `true` | Auto-close quotes and brackets, wrap selections, delete empty pairs. |
-| `styled` | `boolean` | `true` | Inject the preset stylesheet; `false` leaves the `config-editor__*` markup to your styles (`presetCss()` returns the preset). |
-| `saveShortcut` | `boolean` | `true` | Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`); `false` leaves it to the browser and only `ref.save()` saves. |
 | `editorClassName` | `string` | — | Class on the editor root. |
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
-`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics`,
-`readOnlyPaths`, `readOnlyRanges`, `saveShortcut`, `onPathChange`, `onSave` and the other callbacks update the
-live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
-`search`, `goToLine`, `folding`, `showDiff`, `showDiagnostics`, `completions`,
-`autoTriggerCompletions`, `hoverDocs`, `highlighting`, `autoClosing`, `styled`
-and `editorClassName` re-create it; the document and its diff baseline carry
-over, undo history starts over.
+`value`, `editAs`, `readOnly`, `baseline`, `hostDiagnostics`,
+`readOnlyPaths`, `readOnlyRanges`, every setting, `onPathChange`, `onSave` and
+the other callbacks update the live editor (the caret, undo history and folds
+stay). `language`, `schema`, `fileName`, `editorClassName` and the `secrets`
+patterns re-create it; the document and its diff baseline carry over, undo
+history starts over.
+
+### Settings
+
+The theme, the colors and every on/off switch, each a prop with a default;
+the type (`EditorSettings`) is generated from the Rust crate's struct.
+Changing one applies live.
 
 ```tsx
 // A plain viewer: no colors, no diff, no suggestions, no popups.
 <ConfigEditor value={text} readOnly highlighting={false} showDiff={false}
   completions={false} hoverDocs={false} showDiagnostics={false} />
 ```
+
+<!-- settings:start -->
+
+<!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
+
+| Setting | Default | |
+|---|---|---|
+| `theme` | `"vscode-dark"` | The bundled color theme. |
+| `colors` | none | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette. |
+| `styled` | `true` | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript). |
+| `showToolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
+| `showFooter` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
+| `showDiagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
+| `showDiff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. |
+| `completions` | `true` | Schema completions (`Ctrl+Space`). |
+| `autoTriggerCompletions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
+| `hoverDocs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
+| `highlighting` | `true` | Syntax colors. |
+| `autoClosing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
+| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. |
+| `goToLine` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
+| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
+| `saveShortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
+
+<!-- settings:end -->
 
 A parent that applies `onChange` values late cannot roll the document back to
 an older one: a `value` equal to one the editor sent in the last 10 seconds,
@@ -228,15 +249,42 @@ tabs.current?.activeId;
 ```
 
 Tabs over one editor per document, each with its own language, baseline,
-read-only state and schema; switching keeps each document's caret, undo
+read-only state, schema and, optionally, settings; switching keeps each document's caret, undo
 history, scroll and folds. The parent owns the list (a late parent never
 rolls a document back); nothing closes by itself (`onClose` gets
 `{ id, dirty }`). `Alt+PageDown` / `Alt+PageUp` switch documents; the tab list
 takes arrows, `Home`, `End`, `Enter` and `Delete`. Props: `documents`,
 `activeId`, `onSelect`, `onClose`, `onChange`, `onSave`, `onDirtyChange`,
-`theme`, `colors` (the `tab-*` tokens), `styled`, `showFooter`, `showDiff`,
-`saveShortcut`, `label`, `viewClassName`, `className`, `style`, `onError`.
+every [setting](#settings) (for all the editors and the tabs: `colors` takes
+the `tab-*` tokens too; live), `label`, `viewClassName`, `className`,
+`style`, `onError`. A document's own `settings` go over the view's for its
+editor; `hostDiagnostics`, `readOnlyPaths`, `readOnlyRanges` and `secrets`
+work per document as on `<ConfigEditor>`. `ref.current.editor(id)` returns
+that document's editor (`rangeOf`, `reveal`, `fold`, `currentPath`, …; its
+queries answer `null` until the document has been shown once):
+
+```tsx
+<ConfigDocuments ref={tabs} documents={files} showFooter theme="nord" />;
+tabs.current?.editor("main")?.reveal("/public_address");
+```
 See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+
+## Keyboard and screen readers
+
+The keys are those of [`@pngwasi/config-editor`](../config-editor/README.md#keyboard).
+`Tab` indents while editing; to leave the editor with the keyboard,
+`Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus (announced, and
+shown in the footer as "Tab moves focus" until `Ctrl+M` again), and right
+after an `Escape` that had nothing to close one `Tab` or `Shift+Tab` leaves.
+The textarea's `aria-describedby` holds what is at the caret (each problem's
+message, host ones with their source, a read-only value's reason, a secret
+placeholder's hint), and `F8` announces "Error 2 of 5: …". Nothing to set:
+
+```tsx
+<label htmlFor="after">Next field</label>
+<ConfigEditor value={text} onChange={setText} />
+<input id="after" /> {/* Ctrl+M, Tab (or Escape, Tab) lands here */}
+```
 
 ## Other exports
 
@@ -256,10 +304,11 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `themeInfo(name)`, `presetCss()` | `{ name, label }` of a theme; the preset stylesheet, for `styled={false}`. |
 | `schemaWarnings(schema)` | What the editor cannot use in a schema, as `onSchemaWarning` reports it. |
 | `registerLanguage(definition)` | Add a language written in JavaScript; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#languages-written-in-javascript). |
-| `languages()`, `themes()`, `colorTokens()` | Accepted names. |
+| `languages()`, `themes()`, `colorTokens()`, `settingKeys()` | Accepted names; the keys of `EditorSettings`. |
 
 Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ConfigDocumentsProps`,
-`ConfigDocumentsHandle`, `DocumentSpec`, `DocumentsOptions`, `DocumentsCallbackUpdate`,
+`ConfigDocumentsHandle`, `DocumentSpec`, `DocumentEditor`, `DocumentsOptions`, `DocumentsCallbackUpdate`,
+`EditorSettings`,
 `CloseRequest`, `ChangeSummary`, `Diagnostic`, `Conversion`,
 `FieldPath`, `EditorPath`, `EditorRange`, `LineRange`, `HostDiagnostic`, `Severity`,
 `CustomLanguage`, `LanguageName`, `LanguageInfo`, `ThemeName`, `ThemeInfo`, `ThemeColorMap`,

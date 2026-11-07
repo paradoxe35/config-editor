@@ -1376,17 +1376,6 @@ pub fn over_whole_strings(
     )
 }
 
-/// Whether UTF-16 `cursor` is on a line inside a multi-line string's body
-/// (see [`ConfigLanguage::string_body_lines`]).
-pub(crate) fn in_string_body(behavior: &dyn ConfigLanguage, source: &str, cursor: usize) -> bool {
-    let byte = utf16_to_byte_index(source, cursor);
-    let line = source[..byte].bytes().filter(|byte| *byte == b'\n').count();
-    behavior
-        .string_body_lines(source)
-        .iter()
-        .any(|lines| lines.contains(&line))
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

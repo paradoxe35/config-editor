@@ -29,6 +29,7 @@ method and headless function here has a JS option, method or function there
 - [Install](#install)
 - [Quick start](#quick-start)
 - [`<ConfigEditor>` props](#configeditor-props)
+  - [Settings](#settings)
   - [Editing in another language](#editing-in-another-language)
   - [Changes against the baseline](#changes-against-the-baseline)
   - [Saving and unsaved edits](#saving-and-unsaved-edits)
@@ -39,6 +40,7 @@ method and headless function here has a JS option, method or function there
 - [Secrets](#secrets)
 - [Schema help](#schema-help)
 - [Keyboard](#keyboard)
+  - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
   - [Folding](#folding)
 - [Headless API](#headless-api)
@@ -65,10 +67,10 @@ The headless API also works natively (servers, CLIs, tests).
 
 ```rust
 use leptos::prelude::*;
-use config_editor_leptos::{ConfigEditor, Language};
+use config_editor_leptos::{ConfigEditor, EditorSettings, Language};
 
 #[component]
-fn Settings() -> impl IntoView {
+fn Config() -> impl IntoView {
     let saved = RwSignal::new("listen: 7835\n".to_string());
     view! {
         <ConfigEditor
@@ -76,8 +78,7 @@ fn Settings() -> impl IntoView {
             value=saved
             on_change=move |text| saved.set(text)
             schema=include_str!("schema.json")
-            show_toolbar=true
-            show_footer=true
+            settings=EditorSettings { show_toolbar: true, show_footer: true, ..Default::default() }
         />
     }
 }
@@ -102,20 +103,10 @@ pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
 document from code (a Save button) to send an edit still waiting first.
 | `baseline` | `Signal<String>` | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
 | `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
-| `theme` | `EditorTheme` or a signal | `VsCodeDark` | Color theme. |
-| `colors` | `ThemeColors` or a signal | — | Colors overriding the theme's. |
 | `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included. |
 | `file_name` | `String` | `untitled.<ext>` | Name shown in the toolbar. |
 | `class` | `String` | — | Extra class on the editor root. |
-| `styled` | `bool` | `true` | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself. |
-| `show_toolbar` / `show_footer` | `bool` | `false` | Built-in file toolbar and status bar (problem counts, line count). |
-| `show_diagnostics` | `bool` | `true` | Syntax and schema problems, underlined with a message on hover. |
-| `enable_completions` | `bool` | `true` | Schema suggestions (`Ctrl+Space`). |
-| `auto_trigger_completions` | `bool` | `true` | Open suggestions while typing; when `false`, only `Ctrl+Space` opens them. |
-| `enable_hover_docs` | `bool` | `true` | Schema docs when hovering a key or a documented value: description, type, default, examples, deprecation and a docs link. |
-| `enable_highlighting` | `bool` | `true` | Syntax colors. |
-| `enable_auto_closing` | `bool` | `true` | Close brackets, quotes and XML tags; wrap selections; delete empty pairs. |
-| `show_diff` | `bool` | `true` | Added, modified and removed line markers with a before/after preview and "Revert this change". |
+| `settings` | `EditorSettings` or a signal | defaults | The theme, colors and every on/off switch (toolbar, footer, diagnostics, diff, completions, search, folding, …); see [Settings](#settings). Every setting switches live. |
 | `on_change_summary` | `Fn(ChangeSummary)` | — | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes. |
 | `handle` | `EditorHandle` | — | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions). |
 | `on_path_change` | `Fn(FieldPath)` | — | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. |
@@ -123,17 +114,64 @@ document from code (a Save button) to send an edit still waiting first.
 | `read_only_paths` | `Signal<Vec<FieldPath>>` | — | Fields the user cannot change, each a whole subtree, on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields). |
 | `read_only_ranges` | `Signal<Vec<TextRange>>` | — | Stretches of the host's text the user cannot change; they follow the text through edits. |
 | `secrets` | `SecretOptions` | defaults | How secret placeholders are matched, described and completed; see [Secrets](#secrets). |
-| `enable_search` | `bool` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser. |
-| `enable_go_to_line` | `bool` | `true` | Go to line (`Ctrl+G`). When `false`, the key is left to the browser. |
 | `on_save` | `Fn(SaveRequest)` | — | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
-| `enable_save_shortcut` | `bool` or a signal | `true` | Whether `Ctrl+S` saves (with `on_save`); `false` leaves the key to the browser, and only `EditorHandle::save` saves. |
 | `on_dirty_change` | `Fn(bool)` | — | Called with whether the text differs from `baseline`: once on mount, then each time that changes. |
 | `on_baseline_conflict` | `Fn(BaselineConflict)` | — | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled. |
-| `enable_folding` | `bool` | `true` | Folding by structure: gutter chevrons and the folding keys; see [Folding](#folding). |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
 and `colors` so they match the editor.
+
+### Settings
+
+`settings` takes an [`EditorSettings`]: the theme, the colors and every
+on/off switch, one struct with a default for each field. Name only what you
+change, and pass a signal to switch any of them live: the caret, the undo
+history and the folds stay.
+
+```rust
+use config_editor_leptos::{ConfigEditor, EditorSettings, EditorTheme};
+
+let settings = RwSignal::new(EditorSettings {
+    theme: EditorTheme::Nord,
+    show_footer: true,
+    ..EditorSettings::default()
+});
+view! {
+    <button on:click=move |_| settings.update(|settings| settings.folding = !settings.folding)>
+        "Toggle folding"
+    </button>
+    <ConfigEditor settings=settings initial_value="listen: 7835\n" />
+}
+```
+
+The same struct is what the npm package reads from its options (camelCase
+keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
+
+<!-- settings:start -->
+
+<!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
+
+| Field | Default | |
+|---|---|---|
+| `theme` | `EditorTheme::VsCodeDark` | The bundled color theme. |
+| `colors` | none | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette. |
+| `styled` | `true` | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript). |
+| `show_toolbar` | `false` | Show the built-in toolbar: the file name, its language and the schema's state. |
+| `show_footer` | `false` | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count. |
+| `show_diagnostics` | `true` | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). |
+| `show_diff` | `true` | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. |
+| `completions` | `true` | Schema completions (`Ctrl+Space`). |
+| `auto_trigger_completions` | `true` | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them. |
+| `hover_docs` | `true` | Show the schema's description, type, default and examples when hovering a key. |
+| `highlighting` | `true` | Syntax colors. |
+| `auto_closing` | `true` | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace. |
+| `search` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. |
+| `go_to_line` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
+| `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
+| `save_shortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
+
+<!-- settings:end -->
 
 ### Editing in another language
 
@@ -250,7 +288,8 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
 `<ConfigDocuments>` shows several files in one view, a main config and its
 drop-ins, as VS Code-style tabs over one editor per document. Each
 `Document` has its own language (from its file name unless given), text,
-baseline, read-only state, `edit_as` language and schema; documents with
+baseline, read-only state, `edit_as` language, schema and, optionally,
+settings, host problems and protected fields; documents with
 the same schema JSON share one compiled `Schema` (pass a compiled `Schema`
 to share it with editors elsewhere).
 
@@ -321,10 +360,27 @@ view! {
   `EditorHandle`, attached once it has been shown), `is_dirty(id)`,
   `save(id)`, `save_all()` (the dirty documents; returns the ids sent),
   `focus()`.
-- **Shared settings:** `theme`, `colors`, `show_footer`, `show_diff`,
-  `enable_save_shortcut`, `styled` (the preset stylesheet is injected once
-  for the whole view), `class`, `label` (the tab list's accessible name,
-  default "Open files"), `initial_active`.
+- **Settings:** `settings` takes the same [`EditorSettings`](#settings) as
+  `ConfigEditor`, for every editor of the view and for the tabs (`theme`,
+  `colors` with the `Tab*` tokens; `styled` injects the preset stylesheet
+  once for the whole view). A document's own `Document::settings` replace
+  them for its editor. Both switch live. Also `class`, `label` (the tab
+  list's accessible name, default "Open files"), `initial_active`.
+- **Per document, as on `ConfigEditor`:** `host_diagnostics`,
+  `read_only_paths` and `read_only_ranges` (updated in place when the list
+  changes) and `secrets` (read when its editor mounts).
+
+```rust
+use config_editor_leptos::{Document, EditorSettings, FieldPath, HostDiagnostic, Severity};
+
+let view_settings = EditorSettings { show_footer: true, ..EditorSettings::default() };
+let drop_in = Document::new("tls", "conf.d/tls.toml", tls_text)
+    // This one without folding; the rest as the view's.
+    .settings(EditorSettings { folding: false, ..view_settings.clone() })
+    .read_only_paths(vec![FieldPath::from("/cert")])
+    .host_diagnostics(vec![HostDiagnostic::at_path("/cert", Severity::Error, "certificate expired")]);
+// <ConfigDocuments documents=documents settings=view_settings />
+```
 
 Keyboard: the tab strip is a WAI-ARIA `tablist` (each tab a `tab` with its
 `tabpanel`; one tab in the `Tab` order). `←` / `→` select the previous /
@@ -386,7 +442,7 @@ field through edits and `edit_as`) or at a range of the host's text, or at
 the whole document:
 
 ```rust
-use config_editor_leptos::{ConfigEditor, HostDiagnostic, Severity};
+use config_editor_leptos::{ConfigEditor, EditorSettings, HostDiagnostic, Severity};
 
 let problems = RwSignal::new(Vec::new());
 // After the server answered:
@@ -397,7 +453,8 @@ problems.set(vec![
         .with_docs_url("https://example.com/docs/ports"),
     HostDiagnostic::document(Severity::Warning, "restart needed to apply"),
 ]);
-view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
+let settings = EditorSettings { show_footer: true, ..EditorSettings::default() };
+view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> }
 ```
 
 - They are marked where the field is written, as schema problems are (the
@@ -577,6 +634,8 @@ schema whose regex it cannot compile.
 | `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                 |
 | `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote           |
 | `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                      |
+| `Ctrl+M`                                     | Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting |
+| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                   |
 | `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element |
 | `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                        |
 | `Ctrl+/`                                     | Toggle comments                                                                  |
@@ -600,6 +659,38 @@ schema whose regex it cannot compile.
 | `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                             |
 
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Keyboard and screen-reader access
+
+`Tab` indents while editing, so it would trap the focus. Two ways out, as in
+VS Code: `Ctrl+M` switches `Tab` and `Shift+Tab` to moving the focus to the
+next or previous element of the page (announced, and shown in the footer as
+"Tab moves focus" until `Ctrl+M` again or a click on it), and right after an
+`Escape` that had nothing to close (no suggestions, find widget, hover card
+or preview), one `Tab` or `Shift+Tab` leaves. While the suggestion list is
+open, `Tab` still accepts. A read-only editor never indents, so there `Tab`
+always moves the focus. In a [`ConfigDocuments`](#several-documents) view,
+the other documents' editors are inert: `Tab` out of the editor goes on to
+its footer and what follows the view, `Shift+Tab` back towards the tabs.
+
+The textarea is described (`aria-describedby`) by what is at the caret: the
+message of each problem there, the editor's or the host's ("Warning from
+burrow: port in use"), why a read-only value is read-only, a secret
+placeholder's hint. It follows the caret a moment after it stops. `F8` and
+`Shift+F8` announce the problem they move to through a polite live region
+("Error 2 of 5: …"). The suggestion list is a `listbox`, hover help a
+`tooltip`, the change preview a `dialog`, and the footer's counts
+`aria-live`.
+
+On a touch screen a tap places the caret, a tap on underlined or read-only
+text shows its message (there is no hover), and the selection a long press
+or the selection handles make is followed like one made with the keyboard.
+
+```rust
+// Nothing to set up: the keys and descriptions are always there. The
+// footer's indicator is part of the built-in footer (`show_footer`).
+view! { <ConfigEditor initial_value=text /> }
+```
 
 ### Find and replace
 
@@ -805,13 +896,14 @@ their slugs parse with `FromStr`, as the JS package names them).
 Override any color for a brand palette; every token is a `ThemeColor`:
 
 ```rust
-use config_editor_leptos::{EditorTheme, ThemeColor, ThemeColors};
+use config_editor_leptos::{EditorSettings, EditorTheme, ThemeColor, ThemeColors};
 
 let brand = ThemeColors::new()
     .set(ThemeColor::Background, "#101418")
     .set(ThemeColor::Key, "#ffcc66")
     .set(ThemeColor::Selection, "rgb(255 204 102 / 25%)");
-// <ConfigEditor theme=EditorTheme::Nord colors=brand .../>
+let settings = EditorSettings { theme: EditorTheme::Nord, colors: brand, ..EditorSettings::default() };
+// <ConfigEditor settings=settings .../>
 ```
 
 The same tokens are CSS variables (`--config-editor-key`, …), so a stylesheet

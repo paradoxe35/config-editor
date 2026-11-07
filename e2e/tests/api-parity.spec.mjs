@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 // `EditorTheme`, and item re-exported from the crate root has a
 // JavaScript counterpart (an option, a method, a function or a type) and a
 // React one (a prop, a ref member or a re-export), or an exemption saying
-// why not. Reads the sources only: no build, no browser.
+// why not. `EditorSettings` is not mapped by hand: its TypeScript type is
+// generated from the struct (js/config-editor/tests/settings.rs checks it
+// is current); here every field must be in it, and the JS options and React
+// props must extend it. Reads the sources only: no build, no browser.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...path) => readFileSync(join(root, ...path), 'utf8');
@@ -36,31 +39,16 @@ const PROPS = {
   schema: { js: 'schema' },
   file_name: { js: 'fileName' },
   class: { js: 'className', react: 'editorClassName' },
-  theme: { js: 'theme' },
-  colors: { js: 'colors' },
+  settings: { js: 'EditorSettings', kind: 'extends' },
   on_change: { js: 'onChange' },
   on_edit_as_change: { js: 'onEditAsChange' },
   on_change_summary: { js: 'onChangeSummary' },
   on_schema_warning: { js: 'onSchemaWarning' },
-  styled: { js: 'styled' },
-  show_toolbar: { js: 'showToolbar' },
-  show_footer: { js: 'showFooter' },
-  show_diagnostics: { js: 'showDiagnostics' },
-  enable_completions: { js: 'completions' },
-  enable_hover_docs: { js: 'hoverDocs' },
-  auto_trigger_completions: { js: 'autoTriggerCompletions' },
-  enable_highlighting: { js: 'highlighting' },
-  enable_auto_closing: { js: 'autoClosing' },
-  show_diff: { js: 'showDiff' },
-  enable_search: { js: 'search' },
-  enable_go_to_line: { js: 'goToLine' },
-  enable_folding: { js: 'folding' },
   read_only: { js: 'readOnly' },
   handle: { exempt: 'the `ConfigEditor` instance (React: its ref) is the handle' },
   host_diagnostics: { js: 'hostDiagnostics' },
   on_path_change: { js: 'onPathChange' },
   on_save: { js: 'onSave' },
-  enable_save_shortcut: { js: 'saveShortcut' },
   on_dirty_change: { js: 'onDirtyChange' },
   on_baseline_conflict: { js: 'onBaselineConflict' },
   read_only_paths: { js: 'readOnlyPaths' },
@@ -138,12 +126,7 @@ const DOCUMENTS_PROPS = {
   on_change: { js: 'onChange' },
   on_save: { js: 'onSave' },
   on_dirty_change: { js: 'onDirtyChange' },
-  enable_save_shortcut: { js: 'saveShortcut' },
-  theme: { js: 'theme' },
-  colors: { js: 'colors' },
-  styled: { js: 'styled' },
-  show_footer: { js: 'showFooter' },
-  show_diff: { js: 'showDiff' },
+  settings: { js: 'EditorSettings', kind: 'extends' },
   class: { js: 'className', react: 'viewClassName' },
   label: { js: 'label' },
   handle: { exempt: 'the `ConfigDocuments` instance (React: its ref) is the handle' },
@@ -160,8 +143,8 @@ const DOCUMENTS_HANDLE = {
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (React: `ref.current.instance`)' },
   active: { js: 'activeId' },
   select: { js: 'select' },
-  editor: { exempt: 'JS answers per document by id (`isDirty`, `save`); a document\'s own editor is not exposed to JS' },
-  active_editor: { exempt: 'as `editor`: JS acts on the active document through `focus`, `save(activeId)`' },
+  editor: { js: 'editor' },
+  active_editor: { exempt: '`editor(activeId)`' },
   is_dirty: { js: 'isDirty' },
   save: { js: 'save' },
   save_all: { js: 'saveAll' },
@@ -176,6 +159,11 @@ const DOCUMENT = {
   read_only: { js: 'DocumentSpec', kind: 'type' },
   schema: { js: 'DocumentSpec', kind: 'type' },
   edit_as: { js: 'DocumentSpec', kind: 'type' },
+  settings: { js: 'DocumentSpec', kind: 'type' },
+  host_diagnostics: { js: 'DocumentSpec', kind: 'type' },
+  read_only_paths: { js: 'DocumentSpec', kind: 'type' },
+  read_only_ranges: { js: 'DocumentSpec', kind: 'type' },
+  secrets: { js: 'DocumentSpec', kind: 'type' },
   resolved_language: { js: 'languageForFile', kind: 'function' },
 };
 
@@ -188,14 +176,15 @@ const CRATE_EXPORTS = {
   Document: { js: 'DocumentSpec', kind: 'type' },
   DocumentsHandle: { js: 'ConfigDocuments', kind: 'class' },
   ConfigEditor: { js: 'ConfigEditor', kind: 'class' },
-  ConfigEditorFooter: { js: 'showFooter', kind: 'option' },
-  ConfigEditorToolbar: { js: 'showToolbar', kind: 'option' },
+  ConfigEditorFooter: { js: 'showFooter', kind: 'setting' },
+  ConfigEditorToolbar: { js: 'showToolbar', kind: 'setting' },
   Conversion: { js: 'Conversion', kind: 'type' },
   ConvertError: { exempt: 'thrown as an `Error` with its message' },
   Diagnostic: { js: 'Diagnostic', kind: 'type' },
   DiagnosticOrigin: { exempt: 'host problems are marked by their `source`; `validate` reports only the editor\'s own' },
   DiagnosticTarget: { js: 'HostDiagnostic', kind: 'type' },
   EditorHandle: { js: 'ConfigEditor', kind: 'class' },
+  EditorSettings: { js: 'EditorSettings', kind: 'type' },
   EditorTheme: { js: 'ThemeName', kind: 'type' },
   FieldPath: { js: 'FieldPath', kind: 'type' },
   HostDiagnostic: { js: 'HostDiagnostic', kind: 'type' },
@@ -250,13 +239,21 @@ function componentProps(file = 'editor.rs', component = 'ConfigEditor') {
   return [...params.matchAll(/^    (\w+): /gm)].map(([, name]) => name);
 }
 
+/** Names of the `pub` fields of `pub struct <type> {` in `source`. */
+function structFields(source, type) {
+  const body = block(source, source.indexOf(`pub struct ${type} {`));
+  return [...body.matchAll(/^    pub (\w+): /gm)].map(([, name]) => name);
+}
+
+const camelCase = (name) => name.replace(/_(\w)/g, (_, letter) => letter.toUpperCase());
+
 function crateExports() {
   const source = crate('lib.rs');
   const names = [];
-  for (const [, list] of source.matchAll(/^pub use (?:editor|documents)::\{([^}]*)\};/gm)) {
+  for (const [, list] of source.matchAll(/^pub use (?:editor|documents|settings)::\{([^}]*)\};/gm)) {
     names.push(...list.split(',').map((name) => name.trim()).filter(Boolean));
   }
-  for (const [, name] of source.matchAll(/^pub use (?:editor|documents)::(\w+);/gm)) names.push(name);
+  for (const [, name] of source.matchAll(/^pub use (?:editor|documents|settings)::(\w+);/gm)) names.push(name);
   return names;
 }
 
@@ -271,6 +268,7 @@ const rust = {
   documentsProps: componentProps('documents.rs', 'ConfigDocuments'),
   documentsHandle: implMethods(crate('documents/handle.rs'), 'DocumentsHandle'),
   document: implMethods(crate('documents/model.rs'), 'Document'),
+  settings: structFields(crate('settings.rs'), 'EditorSettings'),
 };
 
 // --- Reading the JS package. -----------------------------------------------
@@ -302,11 +300,15 @@ function jsPackage() {
   const classBody = block(jsSources, classStart);
   const documentsStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl ConfigDocuments \{/m);
   const documentsBody = block(jsSources, documentsStart);
-  const outside = jsSources.replace(classBody, '').replace(documentsBody, '');
-  const optionsList = jsSources.match(/const OPTIONS: \[&str; \d+\] = \[([^\]]*)\]/);
-  const documentsList = jsSources.match(/const DOCUMENTS_OPTIONS: \[&str; \d+\] = \[([^\]]*)\]/);
+  const documentEditorStart = jsSources.search(/^#\[wasm_bindgen\]\nimpl DocumentEditor \{/m);
+  const documentEditorBody = block(jsSources, documentEditorStart);
+  const outside = jsSources.replace(classBody, '').replace(documentsBody, '').replace(documentEditorBody, '');
+  const optionsList = jsSources.match(/const EDITOR_OPTIONS: &\[&str\] = &\[([^\]]*)\]/);
+  const documentsList = jsSources.match(/const DOCUMENTS_OPTIONS: &\[&str\] = &\[([^\]]*)\]/);
+  const generated = read('js', 'config-editor', 'src', 'settings.d.ts');
   const typings = [...jsSources.matchAll(/typescript_custom_section\)\]\nconst \w+: &str = r#"([\s\S]*?)"#;/g)]
     .map(([, text]) => text)
+    .concat(generated)
     .join('\n');
   const optionsInterface = block(typings, typings.indexOf('export interface EditorOptions'));
   const documentsInterface = block(typings, typings.indexOf('export interface DocumentsOptions'));
@@ -320,6 +322,12 @@ function jsPackage() {
     documentsOptions: names(documentsList),
     typedDocumentsOptions: typed(documentsInterface),
     documentsMethods: new Set(bindgenNames(documentsBody, true)),
+    documentEditorMethods: new Set(bindgenNames(documentEditorBody, true)),
+    typedSettings: typed(block(typings, typings.indexOf('export interface EditorSettings'))),
+    extendsSettings: {
+      options: /export interface EditorOptions extends EditorSettings \{/.test(typings),
+      documents: /export interface DocumentsOptions extends EditorSettings \{/.test(typings),
+    },
     functions: new Set([...bindgenNames(outside, false), ...classNames]),
     types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
   };
@@ -340,7 +348,12 @@ function reactPackage() {
   for (const [, name] of react.matchAll(/^export (?:const|function|interface|type) (\w+)/gm)) exported.add(name);
   const forwardedIn = (type) =>
     new Set([...block(react, react.indexOf(`const options: ${type} = {`)).matchAll(/^ {10}(\w+)[:,]/gm)].map(([, name]) => name));
+  const spreads = (type) => block(react, react.indexOf(`const options: ${type} = {`)).includes('...settings,');
   return {
+    extendsSettings: {
+      options: /export interface ConfigEditorProps extends EditorSettings \{/.test(react) && spreads('EditorOptions'),
+      documents: /export interface ConfigDocumentsProps extends EditorSettings \{/.test(react) && spreads('DocumentsOptions'),
+    },
     props: members(react, 'ConfigEditorProps'),
     handle: members(react, 'ConfigEditorHandle'),
     exported,
@@ -364,7 +377,8 @@ const EDITOR_SIDE = {
   methods: () => js.methods,
   props: () => reactSide.props,
   handle: () => reactSide.handle,
-  optionsWhere: 'OPTIONS and the EditorOptions typings',
+  extends: () => js.extendsSettings.options && reactSide.extendsSettings.options,
+  optionsWhere: 'EDITOR_OPTIONS and the EditorOptions typings',
 };
 const DOCUMENTS_SIDE = {
   options: () => js.documentsOptions,
@@ -372,6 +386,7 @@ const DOCUMENTS_SIDE = {
   methods: () => js.documentsMethods,
   props: () => reactSide.documentsProps,
   handle: () => reactSide.documentsHandle,
+  extends: () => js.extendsSettings.documents && reactSide.extendsSettings.documents,
   optionsWhere: 'DOCUMENTS_OPTIONS and the DocumentsOptions typings',
 };
 
@@ -385,6 +400,18 @@ function check(table, items, what, kindOf, side = EDITOR_SIDE) {
     }
     if (entry.exempt) continue;
     const kind = entry.kind ?? kindOf;
+    if (kind === 'setting') {
+      if (!js.typedSettings.has(entry.js)) problems.push(`${what} \`${item}\`: setting \`${entry.js}\` is missing from EditorSettings`);
+      if (!reactSide.extendsSettings.options) problems.push(`${what} \`${item}\`: the React props must extend \`EditorSettings\``);
+      continue;
+    }
+    if (kind === 'extends') {
+      if (!side.extends()) {
+        problems.push(`${what} \`${item}\`: the JS options and the React props must extend \`${entry.js}\` (and the React component spread \`...settings\` into its options)`);
+      }
+      if (!js.types.has(entry.js)) problems.push(`${what} \`${item}\`: type \`${entry.js}\` is missing from the typings`);
+      continue;
+    }
     const present = {
       option: side.options().has(entry.js) && side.typedOptions().has(entry.js),
       method: side.methods().has(entry.js),
@@ -433,20 +460,36 @@ const groups = [
 ];
 
 test.describe('API parity between the Rust crate and the JS packages', () => {
+  test('every EditorSettings field is in the generated TypeScript type', () => {
+    expect(rust.settings).toContain('folding');
+    const missing = rust.settings.map(camelCase).filter((name) => !js.typedSettings.has(name));
+    const extra = [...js.typedSettings].filter((name) => !rust.settings.map(camelCase).includes(name));
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+  });
+
+  test('a document\'s editor (DocumentEditor) answers what a ConfigEditor does about its text', () => {
+    const problems = Object.entries(HANDLE)
+      .filter(([, entry]) => !entry.exempt)
+      .map(([, entry]) => entry.js)
+      .filter((name) => !js.documentEditorMethods.has(name))
+      .map((name) => `DocumentEditor has no \`${name}\``);
+    expect(problems).toEqual([]);
+  });
+
   test('the Rust side was read', () => {
     // A parser that silently finds nothing would pass everything.
-    expect(rust.props).toContain('enable_folding');
+    expect(rust.props).toContain('settings');
     expect(rust.handle).toContain('reveal');
     expect(rust.language).toContain('convert');
     expect(rust.changeSummary).toContain('between');
     expect(rust.schema).toContain('validate');
     expect(rust.theme).toContain('label');
     expect(rust.exports).toContain('unified_diff');
-    expect(js.options.has('folding')).toBe(true);
+    expect(js.options.has('readOnly')).toBe(true);
     expect(js.methods.has('reveal')).toBe(true);
     expect(js.functions.has('validate')).toBe(true);
     expect(js.types.has('EditorOptions')).toBe(true);
-    expect(reactSide.props.has('folding')).toBe(true);
+    expect(reactSide.props.has('readOnly')).toBe(true);
     expect(reactSide.handle.has('reveal')).toBe(true);
     expect(reactSide.exported.has('validate')).toBe(true);
   });
@@ -492,9 +535,8 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     const jsOnly = {
       destroy: 'the component unmounts the view itself',
       setDocuments: 'the `documents` prop',
-      setTheme: 'the `theme` prop',
-      setColors: 'the `colors` prop',
-      setSaveShortcut: 'the `saveShortcut` prop',
+      settings: 'the setting props',
+      setSettings: 'the setting props',
       setCallbacks: 'callback props',
     };
     for (const name of js.documentsMethods) {
@@ -505,8 +547,8 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
 
   test('the option list and the EditorOptions typings name the same options', () => {
     const problems = [
-      ...[...js.options].filter((name) => !js.typedOptions.has(name)).map((name) => `option \`${name}\` is in OPTIONS but not typed in EditorOptions`),
-      ...[...js.typedOptions].filter((name) => !js.options.has(name)).map((name) => `option \`${name}\` is typed in EditorOptions but not in OPTIONS`),
+      ...[...js.options].filter((name) => !js.typedOptions.has(name)).map((name) => `option \`${name}\` is in EDITOR_OPTIONS but not typed in EditorOptions`),
+      ...[...js.typedOptions].filter((name) => !js.options.has(name)).map((name) => `option \`${name}\` is typed in EditorOptions but not in EDITOR_OPTIONS`),
     ];
     expect(problems).toEqual([]);
   });
@@ -539,10 +581,9 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       setValue: 'a ref member too, with React semantics',
       setBaseline: 'the `baseline` prop',
       setEditAs: 'the `editAs` prop',
-      setTheme: 'the `theme` prop',
-      setColors: 'the `colors` prop',
+      settings: 'the setting props',
+      setSettings: 'the setting props',
       setReadOnly: 'the `readOnly` prop',
-      setSaveShortcut: 'the `saveShortcut` prop',
       setCallbacks: 'callback props',
       setHostDiagnostics: 'the `hostDiagnostics` prop',
       setReadOnlyPaths: 'the `readOnlyPaths` prop',

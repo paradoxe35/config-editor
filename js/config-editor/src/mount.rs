@@ -2,16 +2,15 @@
 //! setters write, and the props and callbacks wired to JavaScript.
 
 use config_editor_leptos::{
-    BaselineConflict, ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath,
-    HostDiagnostic, Language, SaveRequest, Schema, SchemaSource, SecretOptions, TextRange,
-    ThemeColors,
+    BaselineConflict, ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorSettings,
+    FieldPath, HostDiagnostic, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
+    TextRange,
 };
 use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::options::Toggles;
 use crate::values::{ChangeSummaryOut, path_to_js, to_js};
 
 thread_local! {
@@ -49,18 +48,16 @@ pub(crate) struct State {
     pub(crate) value: RwSignal<String>,
     pub(crate) baseline: RwSignal<String>,
     pub(crate) edit_as: RwSignal<Option<Language>>,
-    pub(crate) theme: RwSignal<EditorTheme>,
-    pub(crate) colors: RwSignal<ThemeColors>,
+    pub(crate) settings: RwSignal<EditorSettings>,
     pub(crate) read_only: RwSignal<bool>,
     pub(crate) on_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_change_summary: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_path_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_save: StoredValue<Option<Function>, LocalStorage>,
-    /// Whether `onSave` is set: only then does `Ctrl+S` save.
+    /// Whether `onSave` is set: only then does `Ctrl+S` save (with the
+    /// `saveShortcut` setting on).
     pub(crate) saves: RwSignal<bool>,
-    /// The `saveShortcut` option: `Ctrl+S` saves while this and `saves` hold.
-    pub(crate) save_shortcut: RwSignal<bool>,
     pub(crate) on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_baseline_conflict: StoredValue<Option<Function>, LocalStorage>,
     /// Whether `onPathChange` is set: only then is the caret's path computed.
@@ -82,7 +79,6 @@ pub(crate) struct Setup {
     pub(crate) schema: Option<Schema>,
     pub(crate) file_name: String,
     pub(crate) class: String,
-    pub(crate) toggles: Toggles,
     pub(crate) on_schema_warning: Option<Function>,
     pub(crate) secrets: SecretOptions,
 }
@@ -131,7 +127,6 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             call_host(&callback, &JsValue::from_str(conflict_name(event)));
         }
     };
-    let save_shortcut = Signal::derive(move || state.saves.get() && state.save_shortcut.get());
     follow_path(state);
     let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
     let read_only_paths = Signal::derive(move || state.read_only_paths.get());
@@ -144,8 +139,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     let edit_as = Signal::derive(move || state.edit_as.get());
     let value_signal = Signal::derive(move || state.value.get());
     let baseline = Signal::derive(move || state.baseline.get());
-    let theme = Signal::derive(move || state.theme.get());
-    let colors = Signal::derive(move || Some(state.colors.get()));
+    let settings = saving_settings(state.settings, state.saves);
     let read_only = Signal::derive(move || state.read_only.get());
     view! {
         <Editor
@@ -157,27 +151,12 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             nostrip:schema=setup.schema.map(SchemaSource::from)
             file_name=setup.file_name
             class=setup.class
-            theme=theme
-            colors=colors
+            settings=settings
             read_only=read_only
-            styled=setup.toggles.styled
-            show_toolbar=setup.toggles.show_toolbar
-            show_footer=setup.toggles.show_footer
-            enable_search=setup.toggles.search
-            enable_go_to_line=setup.toggles.go_to_line
-            enable_folding=setup.toggles.folding
-            show_diff=setup.toggles.show_diff
-            show_diagnostics=setup.toggles.show_diagnostics
-            enable_completions=setup.toggles.completions
-            auto_trigger_completions=setup.toggles.auto_trigger_completions
-            enable_hover_docs=setup.toggles.hover_docs
-            enable_highlighting=setup.toggles.highlighting
-            enable_auto_closing=setup.toggles.auto_closing
             on_change=changed
             on_edit_as_change=switched
             on_change_summary=summarized
             on_save=saved
-            enable_save_shortcut=save_shortcut
             on_dirty_change=dirty_changed
             on_baseline_conflict=conflicted
             handle=state.handle
@@ -189,6 +168,22 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         />
     }
     .into_any()
+}
+
+/// `settings` as the component takes them: `Ctrl+S` saves only while an
+/// `onSave` is set (`saves`), the component's own callback being always
+/// there.
+pub(crate) fn saving_settings(
+    settings: RwSignal<EditorSettings>,
+    saves: RwSignal<bool>,
+) -> Signal<EditorSettings> {
+    Signal::derive(move || {
+        let saves = saves.get();
+        settings.with(|settings| EditorSettings {
+            save_shortcut: settings.save_shortcut && saves,
+            ..settings.clone()
+        })
+    })
 }
 
 /// A conflict event's name in JavaScript.

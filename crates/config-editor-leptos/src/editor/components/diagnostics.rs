@@ -200,6 +200,9 @@ fn on_marker_click(
         return;
     }
     state.focus_at(line, column);
+    // Its message stays shown, as after F8: a tap on a touch screen has
+    // no hover to show it with.
+    state.problems.current.set(Some((line, column)));
 }
 
 /// `(shift, width)` CSS lengths for a message starting at visual column

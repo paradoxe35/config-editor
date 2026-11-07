@@ -47,8 +47,9 @@ export function Files({ schema }: { schema: string }) {
     setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
   const tabs = useRef<ConfigDocumentsHandle>(null);
   const sent: string[] | undefined = tabs.current?.saveAll(); tabs.current?.select("tls"); tabs.current?.activeId; void sent;
+  tabs.current?.editor("tls")?.reveal("/cert");
   return (
-    <ConfigDocuments ref={tabs} documents={files} onChange={(id, value) => update(id, { value })}
+    <ConfigDocuments ref={tabs} documents={files} showFooter folding={false} theme="nord" onChange={(id, value) => update(id, { value })}
       onSave={async (id, value) => { await putFile(id, value); update(id, { baseline: value }); }}
       onClose={({ id, dirty }) => { if (!dirty) setFiles((list) => list.filter((file) => file.id !== id)); }} />
   );

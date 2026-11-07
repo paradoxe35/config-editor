@@ -5,7 +5,8 @@
   "scripts": {
     "build": "cd .. && trunk build",
     "test": "playwright test",
-    "test:build": "npm run build && playwright test"
+    "test:build": "npm run build && playwright test",
+    "screenshots": "node screenshots.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0"

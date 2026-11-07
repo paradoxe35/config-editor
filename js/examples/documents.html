@@ -53,6 +53,8 @@
       });
       document.getElementById("save-all").addEventListener("click", () => view.saveAll());
       window.documentsView = view;
+      // For tests: a document's own fields, as the host would change them.
+      window.updateFile = update;
       document.body.dataset.ready = "true";
     </script>
   </body>

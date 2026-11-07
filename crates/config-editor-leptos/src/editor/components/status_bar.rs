@@ -2,6 +2,9 @@
 
 use leptos::prelude::*;
 
+use crate::reactive::Kept;
+
+use super::super::a11y::{TAB_FOCUS_LABEL, TAB_FOCUS_TITLE, toggle_tab_focus};
 use super::super::changes::ChangeSummary;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::state::EditorState;
@@ -21,7 +24,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     };
     // Follows `read_only`, which switches without remounting.
     let offers_completions =
-        move || state.config.features.completions && !state.config.read_only.get();
+        move || state.config.settings.completions.get() && !state.config.read_only.get();
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
@@ -30,7 +33,8 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 })}
             </span>
             <span class="config-editor__status-meta">
-                {state.config.features.diagnostics.then(|| view! {
+                <TabFocusStatus state=state />
+                <Kept when=state.config.settings.diagnostics view=move || view! {
                     <button
                         type="button"
                         class="config-editor__diagnostic-status"
@@ -51,8 +55,8 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                     >
                         {move || diagnostics.with(|problems| summary(problems))}
                     </button>
-                })}
-                {state.config.features.diff.then(|| view! { <ChangeStatus state=state /> })}
+                } />
+                <Kept when=state.config.settings.diff view=move || view! { <ChangeStatus state=state /> } />
                 <span class="config-editor__line-count">
                     {move || {
                         let count = state.doc.text.with(|text| text.split('\n').count());
@@ -61,6 +65,26 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                 </span>
             </span>
         </div>
+    }
+}
+
+/// "Tab moves focus" while `Ctrl+M` is on; clicking it turns it off.
+#[component]
+fn TabFocusStatus(state: EditorState) -> impl IntoView {
+    let turn_off = move |_| toggle_tab_focus(state);
+    move || {
+        state.a11y.tab_moves_focus.get().then(|| {
+            view! {
+                <button
+                    type="button"
+                    class="config-editor__tab-focus-status"
+                    title=TAB_FOCUS_TITLE
+                    on:click=turn_off
+                >
+                    {TAB_FOCUS_LABEL}
+                </button>
+            }
+        })
     }
 }
 

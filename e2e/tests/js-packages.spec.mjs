@@ -146,7 +146,7 @@ test.describe('vanilla API robustness', () => {
       };
       return {
         element: attempt(() => new module.ConfigEditor(null, {})),
-        theme: attempt(() => window.editor.setTheme(5)),
+        theme: attempt(() => window.editor.setSettings({ theme: 5 })),
         value: attempt(() => window.editor.setValue(null)),
         validate: attempt(() => module.validate('yaml', 5)),
         extensions: attempt(() => module.registerLanguage({ label: 'Plain', parse: () => ({}) })),
@@ -423,7 +423,7 @@ test.describe('vanilla API: fourth-round findings', () => {
     expect(reported).toEqual(['json']);
   });
 
-  test('setCallbacks and setColors check their arguments', async ({ page: browserPage }) => {
+  test('setCallbacks and setSettings check their arguments', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const messages = await browserPage.evaluate(() => {
       const attempt = (run) => {
@@ -437,8 +437,10 @@ test.describe('vanilla API: fourth-round findings', () => {
       return {
         callbackType: attempt(() => window.editor.setCallbacks({ onChange: 'x' })),
         callbacksNumber: attempt(() => window.editor.setCallbacks(5)),
-        colorsNumber: attempt(() => window.editor.setColors(5)),
-        colorsString: attempt(() => window.editor.setColors('red')),
+        colorsNumber: attempt(() => window.editor.setSettings({ colors: 5 })),
+        colorsString: attempt(() => window.editor.setSettings({ colors: 'red' })),
+        settingsNumber: attempt(() => window.editor.setSettings(5)),
+        unknownToken: attempt(() => window.editor.setSettings({ colors: { keys: 'red' } })),
         removal: attempt(() => window.editor.setCallbacks({ onChange: null })),
       };
     });
@@ -446,6 +448,8 @@ test.describe('vanilla API: fourth-round findings', () => {
     expect(messages.callbacksNumber).toContain('setCallbacks takes an object');
     expect(messages.colorsNumber).toContain('colors must be an object');
     expect(messages.colorsString).toContain('colors must be an object');
+    expect(messages.settingsNumber).toContain('setSettings takes an object');
+    expect(messages.unknownToken).toContain('colors: unknown color token "keys"');
     expect(messages.removal).toBe('no error');
   });
 
@@ -1107,7 +1111,7 @@ test.describe('round 12', () => {
       const editor = new module.ConfigEditor(element, { value: 'a: 1\n' });
       const attempt = (color) => {
         try {
-          editor.setColors({ key: color });
+          editor.setSettings({ colors: { key: color } });
           return 'ok';
         } catch (error) {
           return String(error.message ?? error);

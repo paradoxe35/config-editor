@@ -54,20 +54,20 @@ pub(crate) struct FoldState {
 impl FoldState {
     /// Folding for `text` (in `edit_language`), nothing folded: the
     /// textarea shows `projection`, and `visible_rows` of it are rendered.
-    /// With `enabled` off (`enable_folding=false`) nothing can fold.
+    /// With `enabled` off (the `folding` setting) nothing can fold.
     pub(crate) fn new(
         projection: RwSignal<Arc<Projection>>,
         visible_rows: Memo<std::ops::Range<usize>>,
         text: RwSignal<String>,
         edit_language: RwSignal<super::languages::Language>,
-        enabled: bool,
+        enabled: Memo<bool>,
     ) -> Self {
         let visible_lines = Memo::new(move |_| {
             let rows = visible_rows.get();
             projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
         });
         let fold_ranges = Memo::new(move |_| {
-            if !enabled {
+            if !enabled.get() {
                 return Vec::new();
             }
             text.with(|text| edit_language.get().behavior().fold_ranges(text))

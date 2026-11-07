@@ -1,10 +1,13 @@
 //! What the host describes for each open document, and what the component
 //! asks of the host.
 
-use crate::{Language, SchemaSource};
+use crate::{
+    EditorSettings, FieldPath, HostDiagnostic, Language, SchemaSource, SecretOptions, TextRange,
+};
 
 /// One open document of a [`ConfigDocuments`](crate::ConfigDocuments): a
-/// file with its own language, baseline, read-only state and schema.
+/// file with its own language, baseline, read-only state and schema, and
+/// optionally its own protected fields, host problems and settings.
 ///
 /// The host owns the list. It adds, removes, renames and reorders documents
 /// by changing it, and keeps `value` up to date from `on_change`.
@@ -44,6 +47,22 @@ pub struct Document {
     pub schema: Option<SchemaSource>,
     /// Edit in another language than `language`; switches live.
     pub edit_as: Option<Language>,
+    /// Settings for this document's editor, in place of the view's; switch
+    /// live. Unset, it follows the view's `settings`. The view's `styled`
+    /// applies to every editor.
+    pub settings: Option<EditorSettings>,
+    /// Problems the host found in this document, as the editor's
+    /// `host_diagnostics`; a new list replaces the markers.
+    pub host_diagnostics: Vec<HostDiagnostic>,
+    /// Fields of this document the user cannot change, as the editor's
+    /// `read_only_paths`; update live.
+    pub read_only_paths: Vec<FieldPath>,
+    /// Stretches of this document's text the user cannot change, as the
+    /// editor's `read_only_ranges`; update live.
+    pub read_only_ranges: Vec<TextRange>,
+    /// Secret placeholders, as the editor's `secrets`. Read when the editor
+    /// mounts (the first time the document is shown).
+    pub secrets: Option<SecretOptions>,
 }
 
 impl Document {
@@ -64,6 +83,11 @@ impl Document {
             read_only: false,
             schema: None,
             edit_as: None,
+            settings: None,
+            host_diagnostics: Vec::new(),
+            read_only_paths: Vec::new(),
+            read_only_ranges: Vec::new(),
+            secrets: None,
         }
     }
 
@@ -102,8 +126,49 @@ impl Document {
         self
     }
 
+    /// Gives the document's editor its own settings.
+    #[must_use]
+    pub fn settings(mut self, settings: EditorSettings) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
+    /// Sets the host's problems in the document.
+    #[must_use]
+    pub fn host_diagnostics(mut self, diagnostics: Vec<HostDiagnostic>) -> Self {
+        self.host_diagnostics = diagnostics;
+        self
+    }
+
+    /// Sets the fields the user cannot change.
+    #[must_use]
+    pub fn read_only_paths(mut self, paths: Vec<FieldPath>) -> Self {
+        self.read_only_paths = paths;
+        self
+    }
+
+    /// Sets the stretches of the text the user cannot change.
+    #[must_use]
+    pub fn read_only_ranges(mut self, ranges: Vec<TextRange>) -> Self {
+        self.read_only_ranges = ranges;
+        self
+    }
+
+    /// Sets how secret placeholders are matched, described and completed.
+    #[must_use]
+    pub fn secrets(mut self, secrets: SecretOptions) -> Self {
+        self.secrets = Some(secrets);
+        self
+    }
+
     /// The language the document is in: `language`, else the one of
-    /// `file_name`'s extension, else YAML.
+    /// `file_name`'s extension, else the first built-in language (YAML with
+    /// the default features).
+    ///
+    /// # Panics
+    ///
+    /// When neither tells and no built-in language feature is enabled (as
+    /// [`Language::default`]): give such documents a `language`.
     pub fn resolved_language(&self) -> Language {
         self.language
             .or_else(|| Language::from_path(&self.file_name))
@@ -125,6 +190,7 @@ pub struct CloseRequest {
     pub dirty: bool,
 }
 
+// The tests need a built-in language.
 #[cfg(all(
     test,
     any(

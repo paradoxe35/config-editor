@@ -33,8 +33,8 @@ pub(super) struct Sources {
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) schema_error: Option<String>,
-    /// The `show_diagnostics` prop.
-    pub(super) enabled: bool,
+    /// The `show_diagnostics` setting.
+    pub(super) enabled: Memo<bool>,
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
 }
 
@@ -53,6 +53,7 @@ impl ProblemsState {
         let edit_language = sync.edit_language;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let validated = Memo::new(move |_| {
+            let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
             let accepted = protect.secrets.known_tokens();
             let behavior = edit_language.get().behavior();
@@ -84,7 +85,7 @@ impl ProblemsState {
         // The host's problems, placed on the text validation saw; a new list
         // from the host re-places only these, not the editor's own.
         let host_placed = Memo::new(move |_| {
-            if !enabled {
+            if !enabled.get() {
                 return Vec::new();
             }
             let edit = edit_language.get();

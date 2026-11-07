@@ -1,6 +1,8 @@
 //! The suggestions for a caret position: keys and values the schema
 //! allows there, framed for the language.
 
+use std::ops::Range;
+
 use super::*;
 
 /// Schemas often give a port a string example (`"7835"`) next to an integer
@@ -219,6 +221,7 @@ pub(crate) fn completions(
 /// [`completions`] for the word before `cursor` as a whole to be replaced,
 /// as Ctrl+Space over a selected key does: every key is offered, not only
 /// those matching the word, and accepting one renames it.
+#[cfg(test)]
 pub(crate) fn completions_for(
     source: &str,
     cursor: usize,
@@ -228,6 +231,36 @@ pub(crate) fn completions_for(
     behavior: &dyn ConfigLanguage,
     replace_word: bool,
 ) -> Vec<Completion> {
+    if !enabled || schema.is_none() {
+        return Vec::new();
+    }
+    let bodies = behavior.string_body_lines(source);
+    completions_in(
+        source,
+        cursor,
+        force,
+        schema,
+        enabled,
+        behavior,
+        replace_word,
+        &bodies,
+    )
+}
+
+/// [`completions_for`] with the text's multi-line string bodies already
+/// found (`ConfigLanguage::string_body_lines`): the live editor keeps them
+/// in a memo, so a keystroke does not parse the whole document for them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn completions_in(
+    source: &str,
+    cursor: usize,
+    force: bool,
+    schema: Option<&SchemaBundle>,
+    enabled: bool,
+    behavior: &dyn ConfigLanguage,
+    replace_word: bool,
+    string_bodies: &[Range<usize>],
+) -> Vec<Completion> {
     if !enabled {
         return Vec::new();
     }
@@ -235,8 +268,12 @@ pub(crate) fn completions_for(
         return Vec::new();
     };
     // Nothing is suggested inside a comment or a multi-line string.
+    let line = source[..utf16_to_byte_index(source, cursor)]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count();
     if behavior.lexical_state(source, cursor).in_comment
-        || crate::editor::language::in_string_body(behavior, source, cursor)
+        || string_bodies.iter().any(|lines| lines.contains(&line))
     {
         return Vec::new();
     }
@@ -251,7 +288,7 @@ pub(crate) fn completions_for(
         - source[line_start..line_end].trim_start().len();
     if cursor_byte < indent_end && indent_end < line_end {
         let text_start = source[..indent_end].encode_utf16().count();
-        return completions_for(
+        return completions_in(
             source,
             text_start,
             force,
@@ -259,6 +296,7 @@ pub(crate) fn completions_for(
             enabled,
             behavior,
             replace_word,
+            string_bodies,
         );
     }
     let mut context = behavior.completion_context(source, cursor);

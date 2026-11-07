@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// A bundled color theme.
 ///
 /// All themes share the same layout; only the palette changes.
@@ -346,6 +348,14 @@ impl ThemeColor {
         Self::TabDirty,
     ];
 
+    /// The token's name: its CSS variable without `--config-editor-`, such
+    /// as `"key"`. [`ThemeColors`] read from JSON are keyed by it.
+    pub fn token(self) -> &'static str {
+        self.css_var()
+            .strip_prefix("--config-editor-")
+            .unwrap_or_default()
+    }
+
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
     pub fn css_var(self) -> &'static str {
         match self {
@@ -485,6 +495,13 @@ impl ThemeColors {
     pub fn is_empty(&self) -> bool {
         self.colors.is_empty()
     }
+
+    /// The overrides, in the order they were set.
+    pub fn iter(&self) -> impl Iterator<Item = (ThemeColor, &str)> {
+        self.colors
+            .iter()
+            .map(|(color, value)| (*color, value.as_str()))
+    }
 }
 
 /// A slug that is not a bundled [`EditorTheme`].
@@ -515,6 +532,79 @@ impl FromStr for EditorTheme {
 impl std::fmt::Display for EditorTheme {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.label())
+    }
+}
+
+/// A theme reads from and writes to its slug (`"vscode-dark"`).
+impl Serialize for EditorTheme {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for EditorTheme {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let slug = String::deserialize(deserializer)?;
+        slug.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// Colors read from and write to an object of token: CSS color
+/// (`{"key": "#ffcc66"}`), keyed by [`ThemeColor::token`].
+impl Serialize for ThemeColors {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.iter().map(|(color, value)| (color.token(), value)))
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeColors {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(ColorsVisitor)
+    }
+}
+
+struct ColorsVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ColorsVisitor {
+    type Value = ThemeColors;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an object of token: CSS color, such as { \"key\": \"#ffcc66\" }")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<ThemeColors, A::Error> {
+        let mut colors = ThemeColors::new();
+        while let Some(token) = map.next_key::<String>()? {
+            let color = ThemeColor::ALL
+                .iter()
+                .copied()
+                .find(|color| color.token() == token)
+                .ok_or_else(|| {
+                    serde::de::Error::custom(format!("unknown color token \"{token}\""))
+                })?;
+            let value = map.next_value::<CssColor>()?;
+            colors = colors.set(color, value.0);
+        }
+        Ok(colors)
+    }
+}
+
+/// A color's value: a string, else an error saying so.
+struct CssColor(String);
+
+impl<'de> Deserialize<'de> for CssColor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = CssColor;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a CSS color string")
+            }
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<CssColor, E> {
+                Ok(CssColor(value.to_string()))
+            }
+        }
+        deserializer.deserialize_str(Visitor)
     }
 }
 

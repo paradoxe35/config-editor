@@ -3,33 +3,19 @@
 use js_sys::{Function, Object};
 use wasm_bindgen::prelude::*;
 
+use crate::settings::setting_keys;
 use crate::values::{field, optional_text};
 
-/// The constructor's options, for the unknown-option warning.
-pub(crate) const OPTIONS: [&str; 36] = [
+/// The constructor's options apart from the settings (`settingKeys()`),
+/// for the unknown-option warning.
+pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "value",
     "language",
     "editAs",
     "schema",
     "baseline",
     "fileName",
-    "theme",
-    "colors",
     "readOnly",
-    "showToolbar",
-    "showFooter",
-    "search",
-    "goToLine",
-    "folding",
-    "showDiff",
-    "showDiagnostics",
-    "completions",
-    "autoTriggerCompletions",
-    "hoverDocs",
-    "highlighting",
-    "autoClosing",
-    "styled",
-    "saveShortcut",
     "className",
     "onChange",
     "onEditAsChange",
@@ -45,10 +31,14 @@ pub(crate) const OPTIONS: [&str; 36] = [
     "secrets",
 ];
 
-/// Logs a warning for each option the editor does not know (`readonly` for
-/// `readOnly`), which would otherwise be ignored without a word.
-pub(crate) fn warn_unknown_options(options: &JsValue) {
-    warn_unknown_keys(options, &OPTIONS, "option");
+/// Logs a warning for each key of `options` that is neither one of `known`
+/// nor a setting (`readonly` for `readOnly`), which would otherwise be
+/// ignored without a word.
+pub(crate) fn warn_unknown_options(options: &JsValue, known: &[&str]) {
+    let settings = setting_keys();
+    let mut names: Vec<&str> = known.to_vec();
+    names.extend(settings.iter().map(String::as_str));
+    warn_unknown_keys(options, &names, "option");
 }
 
 /// Keys `setCallbacks` takes.
@@ -134,45 +124,4 @@ pub(crate) fn function_option(options: &JsValue, name: &str) -> Result<Option<Fu
         .dyn_into::<Function>()
         .map(Some)
         .map_err(|_| JsError::new(&format!("{name} must be a function")))
-}
-
-/// The constructor's on/off options, with the component's defaults.
-#[derive(Clone, Copy)]
-pub(crate) struct Toggles {
-    pub(crate) show_toolbar: bool,
-    pub(crate) show_footer: bool,
-    pub(crate) search: bool,
-    pub(crate) go_to_line: bool,
-    pub(crate) folding: bool,
-    pub(crate) show_diff: bool,
-    pub(crate) show_diagnostics: bool,
-    pub(crate) completions: bool,
-    pub(crate) auto_trigger_completions: bool,
-    pub(crate) hover_docs: bool,
-    pub(crate) highlighting: bool,
-    pub(crate) auto_closing: bool,
-    pub(crate) styled: bool,
-}
-
-impl Toggles {
-    pub(crate) fn read(options: &JsValue) -> Result<Self, JsError> {
-        let flag = |name: &str, default: bool| {
-            Ok::<_, JsError>(bool_option(options, name)?.unwrap_or(default))
-        };
-        Ok(Self {
-            show_toolbar: flag("showToolbar", false)?,
-            show_footer: flag("showFooter", false)?,
-            search: flag("search", true)?,
-            go_to_line: flag("goToLine", true)?,
-            folding: flag("folding", true)?,
-            show_diff: flag("showDiff", true)?,
-            show_diagnostics: flag("showDiagnostics", true)?,
-            completions: flag("completions", true)?,
-            auto_trigger_completions: flag("autoTriggerCompletions", true)?,
-            hover_docs: flag("hoverDocs", true)?,
-            highlighting: flag("highlighting", true)?,
-            auto_closing: flag("autoClosing", true)?,
-            styled: flag("styled", true)?,
-        })
-    }
 }

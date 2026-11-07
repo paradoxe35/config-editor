@@ -24,19 +24,17 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
-      - run: cargo test -p config-editor-leptos
+      # The steps live in scripts/ci.sh, so `scripts/ci.sh` runs them locally.
+      - name: Formatting
+        run: scripts/ci.sh fmt
+      - name: Clippy (default features, wasm, every language without validation)
+        run: scripts/ci.sh clippy
+      - name: Tests
+        run: scripts/ci.sh test
       - name: Each language feature on its own
-        working-directory: crates/config-editor-leptos
-        run: |
-          for features in yaml json toml hcl xml schema-validation; do
-            cargo test --lib --no-default-features --features "$features"
-          done
+        run: scripts/ci.sh languages
       - name: Every language without schema validation (completions and hover from the schema alone)
-        working-directory: crates/config-editor-leptos
-        run: cargo test --no-default-features --features yaml,json,toml,hcl,xml
+        run: scripts/ci.sh minimal
 
   browser:
     name: npm packages and end-to-end tests
@@ -62,8 +60,8 @@ jobs:
       - name: Type-check the README examples
         working-directory: js
         run: npm run typecheck
-      - name: Check the README contents lists
-        run: node scripts/readme-toc.mjs --check
+      - name: Generated docs are up to date (contents lists, screenshot gallery)
+        run: scripts/ci.sh docs
       - name: Build the demo
         run: trunk build
       - name: End-to-end tests

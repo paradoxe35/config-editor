@@ -1,6 +1,7 @@
 //! The editor's view, one component per part of the screen. Each takes the
 //! shared [`EditorState`](super::state::EditorState).
 
+mod announcer;
 mod baseline_notice;
 mod chrome;
 mod code;
@@ -18,6 +19,7 @@ mod source;
 mod status_bar;
 mod toolbar;
 
+pub(super) use announcer::Announcer;
 pub(super) use baseline_notice::BaselineNotice;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 pub(super) use code::CodeLayer;
@@ -59,8 +61,9 @@ pub(super) fn with_row_inputs<R>(state: EditorState, f: impl FnOnce(&RowInputs<'
     let active_line = state.doc.current_line.get();
     let language = state
         .config
-        .features
+        .settings
         .highlighting
+        .get()
         .then(|| state.sync.edit_language.get());
     state.fold.folded.with(|closed| {
         state.view.string_bodies.with(|string_bodies| {

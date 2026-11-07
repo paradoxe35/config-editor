@@ -11,7 +11,7 @@ use super::{typed_character, unmodified};
 
 /// The folding shortcuts. Returns whether the key was one.
 pub(super) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !state.config.features.folding {
+    if !state.config.settings.folding.get_untracked() {
         return false;
     }
     let command = event.ctrl_key() || event.meta_key();

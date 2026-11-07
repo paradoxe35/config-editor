@@ -4,6 +4,7 @@ import {
   ConfigDocuments,
   type ConfigDocumentsHandle,
   type DocumentSpec,
+  type EditorSettings,
   loadConfigEditor,
 } from "@pngwasi/config-editor-react";
 
@@ -21,9 +22,20 @@ function App() {
   const [files, setFiles] = useState(initialFiles);
   const [log, setLog] = useState<string[]>([]);
   const tabs = useRef<ConfigDocumentsHandle>(null);
+  // For tests: the view's settings (`setViewSettings`), a document's own
+  // fields (`updateFile`) and the ref (`documentsHandle`).
+  const [settings, setSettings] = useState<EditorSettings>({});
+  const hooks = window as unknown as {
+    setViewSettings: typeof setSettings;
+    updateFile: (id: string, change: Partial<DocumentSpec>) => void;
+    documentsHandle: typeof tabs;
+  };
+  hooks.setViewSettings = setSettings;
+  hooks.documentsHandle = tabs;
   const note = (line: string) => setLog((lines) => [...lines, line]);
   const update = (id: string, change: Partial<DocumentSpec>) =>
     setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
+  hooks.updateFile = update;
 
   return (
     <>
@@ -35,6 +47,7 @@ function App() {
       </header>
       <ConfigDocuments
         ref={tabs}
+        {...settings}
         documents={files}
         onChange={(id, value) => {
           note(`change ${id}`);

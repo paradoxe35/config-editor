@@ -113,7 +113,7 @@
 
       const themeSelect = document.getElementById("theme");
       for (const name of themes()) themeSelect.append(new Option(name, name));
-      themeSelect.onchange = () => editor.setTheme(themeSelect.value);
+      themeSelect.onchange = () => editor.setSettings({ ...editor.settings, theme: themeSelect.value });
       document.getElementById("edit-as").onchange = (event) => editor.setEditAs(event.target.value || null);
       document.getElementById("read-only").onchange = (event) => editor.setReadOnly(event.target.checked);
       document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");

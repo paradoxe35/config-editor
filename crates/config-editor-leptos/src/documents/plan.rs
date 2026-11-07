@@ -159,6 +159,7 @@ impl SchemaCache {
             .collect()
     }
 
+    // The tests need a built-in language.
     #[cfg(all(
         test,
         any(
@@ -174,6 +175,7 @@ impl SchemaCache {
     }
 }
 
+// The tests need a built-in language.
 #[cfg(all(
     test,
     any(

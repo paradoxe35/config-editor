@@ -39,7 +39,7 @@ regex-lite = "0.1"
 leptos = { version = "0.8.14", default-features = false, features = ["csr"] }
 noyalib = { version = "0.0.58", optional = true, default-features = false, features = ["std", "fast-int", "fast-float", "strict-deserialise", "compat-serde-yaml"] }
 hcl-rs = { version = "0.20", optional = true }
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 toml = { version = "1", optional = true, features = ["preserve_order"] }
 quick-xml = { version = "0.42", optional = true, features = ["serialize"] }

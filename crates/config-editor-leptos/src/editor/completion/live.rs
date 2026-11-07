@@ -12,7 +12,7 @@ use super::super::languages::Language;
 use super::super::protect::{Around, ProtectState, adjust_suggestions};
 use super::super::state::EditorState;
 use super::{
-    Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
+    Completion, accept_reopens_suggestions, apply_completion, completions_in, inserted_closers,
     next_slot, stop_ranges,
 };
 
@@ -50,9 +50,12 @@ pub(crate) struct Sources {
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) read_only: Signal<bool>,
-    /// The `enable_completions` prop.
-    pub(crate) enabled: bool,
+    /// The `completions` setting.
+    pub(crate) enabled: Memo<bool>,
     pub(crate) protect: ProtectState,
+    /// The text's multi-line string bodies (no suggestions there), shared
+    /// with the view.
+    pub(crate) string_bodies: Memo<Vec<std::ops::Range<usize>>>,
 }
 
 impl CompletionState {
@@ -65,26 +68,30 @@ impl CompletionState {
             read_only,
             enabled,
             protect,
+            string_bodies,
         } = sources;
         let requested = RwSignal::new(false);
         let explicit = RwSignal::new(false);
         let replace_word = RwSignal::new(false);
         let suggestions = Memo::new(move |_| {
-            if !requested.get() || !enabled {
+            if !requested.get() || !enabled.get() {
                 return Vec::new();
             }
             let behavior = edit_language.get_untracked().behavior();
             let at = caret.get();
             text.with(|text| {
-                let options = completions_for(
-                    text,
-                    at,
-                    explicit.get(),
-                    schema.as_deref(),
-                    enabled && !read_only.get(),
-                    behavior,
-                    replace_word.get(),
-                );
+                let options = string_bodies.with(|bodies| {
+                    completions_in(
+                        text,
+                        at,
+                        explicit.get(),
+                        schema.as_deref(),
+                        !read_only.get(),
+                        behavior,
+                        replace_word.get(),
+                        bodies,
+                    )
+                });
                 if read_only.get() {
                     return options;
                 }
@@ -171,7 +178,8 @@ impl EditorState {
                 )
             }),
         );
-        let reopen = accept_reopens_suggestions(option, self.config.features.auto_trigger);
+        let reopen =
+            accept_reopens_suggestions(option, self.config.settings.auto_trigger.get_untracked());
         self.hide_hover();
         let at = self.doc.caret.get_untracked();
         let edit = Edit::new(before, (at, at), updated, caret).selecting_from(anchor);
