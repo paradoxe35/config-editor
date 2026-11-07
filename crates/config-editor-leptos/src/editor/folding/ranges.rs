@@ -139,6 +139,7 @@ pub(crate) struct BracketScan {
     pub(crate) ranges: Vec<FoldRange>,
     /// Per line, whether it starts outside every bracket, string and
     /// comment.
+    #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML reads it"))]
     pub(crate) at_top: Vec<bool>,
 }
 

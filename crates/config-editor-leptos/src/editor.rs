@@ -49,7 +49,7 @@ mod protect;
 mod search;
 mod state;
 mod sync;
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod theme;
 mod typing;
