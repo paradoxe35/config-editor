@@ -5,6 +5,7 @@
 pub(super) mod changes;
 mod enter;
 mod navigation;
+mod search;
 mod suggestions;
 mod tab;
 mod typing;
@@ -65,8 +66,12 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     }
 }
 
-/// Keys on the editor root: Escape closes every popup.
+/// Keys on the editor root, from the text or a widget: find and replace
+/// shortcuts; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
+    if search::shortcuts(state, event) || go_to_line_key(state, event) {
+        return;
+    }
     if event.key() == "Escape" {
         event.prevent_default();
         state.close_suggestions();
@@ -74,6 +79,17 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         state.selected_diff_peek.set(None);
         state.hide_hover();
     }
+}
+
+/// `Ctrl+G` opens the go-to-line field.
+fn go_to_line_key(state: EditorState, event: &KeyboardEvent) -> bool {
+    let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
+    if !state.features.go_to_line || !command || !event.key().eq_ignore_ascii_case("g") {
+        return false;
+    }
+    event.prevent_default();
+    super::go_to_line::open(state);
+    true
 }
 
 /// Ctrl, Cmd, Alt or Shift held.

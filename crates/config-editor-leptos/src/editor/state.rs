@@ -16,6 +16,7 @@ use super::completion::{
 use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
+use super::go_to_line::GoToLine;
 use super::history::{EditHistory, Selection, Snapshot};
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::language::ConfigLanguage;
@@ -24,6 +25,7 @@ use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
 use super::paths::{FieldPath, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
+use super::search::SearchState;
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -42,6 +44,8 @@ pub(super) struct Features {
     pub(super) auto_closing: bool,
     pub(super) diagnostics: bool,
     pub(super) diff: bool,
+    pub(super) search: bool,
+    pub(super) go_to_line: bool,
 }
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
@@ -225,6 +229,11 @@ pub(super) struct EditorState {
     /// The path of what the caret is on (see `paths::path_at`). Lazy: only
     /// computed while something reads it (`on_path_change`, a handle).
     pub(super) caret_path: Memo<FieldPath>,
+
+    /// Find and replace (see `search`).
+    pub(super) search: SearchState,
+    /// The go-to-line field (see `go_to_line`).
+    pub(super) go_to_line: GoToLine,
 }
 
 impl EditorState {
@@ -430,6 +439,8 @@ impl EditorState {
         });
         let state = Self {
             caret_path,
+            search: SearchState::new(source),
+            go_to_line: GoToLine::new(),
             string_bodies,
             host_language,
             edit_language,

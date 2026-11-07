@@ -50,6 +50,10 @@ export interface EditorOptions {
   readOnly?: boolean;
   showToolbar?: boolean;
   showFooter?: boolean;
+  /** Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Default `true`; `false` leaves those keys to the browser. */
+  search?: boolean;
+  /** Go to line (`Ctrl+G`). Default `true`; `false` leaves the key to the browser. */
+  goToLine?: boolean;
   /** Extra class on the editor root. */
   className?: string;
   /** Called with the document, in `language`, after every edit. */
@@ -301,7 +305,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 17] = [
+const OPTIONS: [&str; 19] = [
     "value",
     "language",
     "editAs",
@@ -313,6 +317,8 @@ const OPTIONS: [&str; 17] = [
     "readOnly",
     "showToolbar",
     "showFooter",
+    "search",
+    "goToLine",
     "className",
     "onChange",
     "onEditAsChange",
@@ -593,6 +599,8 @@ impl ConfigEditor {
         let show_toolbar = bool_option(&options, "showToolbar")?.unwrap_or(false);
         let show_footer = bool_option(&options, "showFooter")?.unwrap_or(false);
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
+        let enable_search = bool_option(&options, "search")?.unwrap_or(true);
+        let enable_go_to_line = bool_option(&options, "goToLine")?.unwrap_or(true);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
@@ -679,6 +687,8 @@ impl ConfigEditor {
                             read_only=read_only
                             show_toolbar=show_toolbar
                             show_footer=show_footer
+                            enable_search=enable_search
+                            enable_go_to_line=enable_go_to_line
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized
@@ -701,6 +711,8 @@ impl ConfigEditor {
                             read_only=read_only
                             show_toolbar=show_toolbar
                             show_footer=show_footer
+                            enable_search=enable_search
+                            enable_go_to_line=enable_go_to_line
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized

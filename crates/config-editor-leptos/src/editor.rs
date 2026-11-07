@@ -18,6 +18,7 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod go_to_line;
 mod handle;
 mod highlight;
 mod history;
@@ -34,6 +35,7 @@ mod line_rows;
 mod metrics;
 mod paths;
 mod positioning;
+mod search;
 mod state;
 mod sync;
 mod theme;
@@ -52,8 +54,8 @@ pub use paths::{FieldPath, TextPosition, TextRange};
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
-    CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, Gutter, HoverCardView,
-    SourceInput, StatusBar, Toolbar,
+    CodeLayer, CompletionList, DiagnosticOverlay, DiffPeekPopup, FindWidget, GoToLineWidget,
+    Gutter, HoverCardView, SearchHighlights, SourceInput, StatusBar, Toolbar,
 };
 use state::{EditorState, Features, Init, normalize_newlines};
 
@@ -158,6 +160,13 @@ pub fn ConfigEditor(
     /// Show line changes against `baseline`.
     #[prop(default = true)]
     show_diff: bool,
+    /// Find and replace: `Ctrl+F`, `Ctrl+H`, `F3`. When `false`, those keys
+    /// are left to the browser.
+    #[prop(default = true)]
+    enable_search: bool,
+    /// Go to line (`Ctrl+G`). When `false`, the key is left to the browser.
+    #[prop(default = true)]
+    enable_go_to_line: bool,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
@@ -197,6 +206,8 @@ pub fn ConfigEditor(
         auto_closing: enable_auto_closing,
         diagnostics: show_diagnostics,
         diff: show_diff,
+        search: enable_search,
+        go_to_line: enable_go_to_line,
     };
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
@@ -256,9 +267,12 @@ pub fn ConfigEditor(
                     <div class="config-editor__input-wrap">
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
+                        {enable_search.then(|| view! { <SearchHighlights state=state /> })}
                         <SourceInput state=state />
                         <HoverCardView state=state />
                         <CompletionList state=state />
+                        {enable_search.then(|| view! { <FindWidget state=state /> })}
+                        {enable_go_to_line.then(|| view! { <GoToLineWidget state=state /> })}
                     </div>
                 </div>
                 {show_footer.then(|| view! { <StatusBar state=state /> })}

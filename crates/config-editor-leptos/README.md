@@ -88,6 +88,8 @@ document from code (a Save button) to send an edit still waiting first.
 | `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
 | `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
 | `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
+| `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
+| `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -233,11 +235,28 @@ view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
 | `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                      |
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
+| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
-| `Escape`                                     | Close popups, then collapse the selection                                        |
+| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                            |
+| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                     |
+| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                          |
+| `Escape`                                     | Close popups and the find widget, then collapse the selection                    |
 
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Find and replace
+
+`Ctrl+F` opens a find widget over the text; `Ctrl+H` adds the replace row
+(never in a read-only editor). Options match case, whole words, or a regular
+expression (the `regex` engine with `schema-validation`, else `regex-lite`,
+whose case folding is ASCII-only); an invalid pattern is shown, not thrown.
+In a regular expression's replacement, `$1` and `${name}` insert groups, and
+`\n` and `\t` a line break and a tab. Replacing goes through the normal edit
+path: undo, `on_change` and Edit-as all see it, and replace all is one undo
+step. Up to 10,000 matches are counted and stepped through, and only those
+in view are drawn, so large documents stay fast.
 
 ## Headless API
 
@@ -404,6 +423,10 @@ can set them too. The diff colors are `Added`, `Modified` and `Removed`
 backgrounds `AddedLine` and `ModifiedLine`, the preview's `DiffRemoved*` and
 `DiffCurrent*`, and the footer's change count `StatusChanges`
 (`--config-editor-status-changes`, which follows `Modified` unless set).
+The find widget uses `SearchMatch`, `SearchMatchCurrent` and
+`SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
+and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
+option buttons.
 
 ## Cargo features
 

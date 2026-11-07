@@ -168,12 +168,17 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     true
 }
 
-/// Escape closes the suggestion list, or with nothing to close collapses a
-/// selection.
+/// Escape closes the suggestion list, then the find widget, or with nothing
+/// to close collapses a selection.
 pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
     if state.suggestions_requested.get_untracked() {
         event.prevent_default();
         state.close_suggestions();
+        return;
+    }
+    if state.search.open.get_untracked() {
+        event.prevent_default();
+        super::super::search::close(state);
         return;
     }
     if let Some(element) = state.textarea() {

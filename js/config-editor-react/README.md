@@ -66,13 +66,15 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `readOnly` | `boolean` | `false` | View mode. |
 | `fileName` | `string` | `untitled.<ext>` | Shown in the toolbar. |
 | `showToolbar` / `showFooter` | `boolean` | `false` | Built-in toolbar and status bar. |
+| `search` | `boolean` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`); `false` leaves those keys to the browser. |
+| `goToLine` | `boolean` | `true` | Go to line (`Ctrl+G`); `false` leaves the key to the browser. |
 | `editorClassName` | `string` | — | Class on the editor root. |
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
 `value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics` and `onPathChange` update the
-live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`
-and `editorClassName` re-create it; the document and its diff baseline carry
+live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
+`search`, `goToLine` and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
 
 A parent that applies `onChange` values late cannot roll the document back to

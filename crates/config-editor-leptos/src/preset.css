@@ -57,6 +57,12 @@
   --config-editor-popup-shadow: rgb(0 0 0 / 35%);
   --config-editor-peek-shadow: rgb(0 0 0 / 45%);
   --config-editor-hover-shadow: rgba(0, 0, 0, 0.28);
+  --config-editor-search-match: rgb(234 92 0 / 33%);
+  --config-editor-search-match-current: rgb(81 92 106 / 90%);
+  --config-editor-search-match-current-border: #74879f;
+  --config-editor-input-bg: #3c3c3c;
+  --config-editor-input-border: #3c3c3c;
+  --config-editor-toggle-active: rgb(36 137 219 / 51%);
   --config-editor-font-size: 12px;
   --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
   --config-editor-padding-top: 15px;
@@ -583,6 +589,181 @@
   content: "";
 }
 
+/* Go to line: a field over the top right of the text, like the find widget. */
+.config-editor__goto {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  right: 14px;
+  width: min(300px, calc(100% - 22px));
+  display: grid;
+  gap: 3px;
+  padding: 5px 6px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-muted);
+  box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__goto[hidden] { display: none; }
+
+.config-editor__goto-input {
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+
+/* Find matches sit under the textarea and the highlighted text, like the
+   selection, so the text keeps its colors. */
+.config-editor__search-highlights {
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  pointer-events: none;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+}
+
+.config-editor__search-match {
+  position: absolute;
+  height: var(--config-editor-line-height);
+  border-radius: 2px;
+  background: var(--config-editor-search-match);
+}
+
+.config-editor__search-match-current {
+  z-index: 1;
+  background: var(--config-editor-search-match-current);
+  box-shadow: inset 0 0 0 1px var(--config-editor-search-match-current-border);
+}
+
+/* The find widget: over the top right of the text, clear of the scrollbar. */
+.config-editor__find {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  right: 14px;
+  width: min(440px, calc(100% - 22px));
+  display: grid;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__find[hidden],
+.config-editor__find [hidden] { display: none; }
+
+.config-editor__find-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.config-editor__find-field {
+  min-width: 0;
+  flex: 1 1 150px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 2px;
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__find-field:focus-within { border-color: var(--config-editor-focus-ring); }
+.config-editor__find-field-invalid,
+.config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
+
+.config-editor__find-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--config-editor-raised-text);
+  font: 12px var(--config-editor-mono);
+}
+
+.config-editor__replace-input {
+  flex: 1 1 90px;
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__replace-input:focus { border-color: var(--config-editor-focus-ring); }
+
+.config-editor__find-input::placeholder { color: var(--config-editor-raised-muted); }
+
+.config-editor__find-toggle,
+.config-editor__find-button {
+  min-width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--config-editor-control-text);
+  cursor: pointer;
+  font: 12px/1 var(--config-editor-mono);
+}
+
+.config-editor__find-toggle:hover,
+.config-editor__find-button:hover { background: var(--config-editor-raised-hover); }
+
+.config-editor__find-toggle-on,
+.config-editor__find-toggle-on:hover {
+  border-color: var(--config-editor-accent);
+  background: var(--config-editor-toggle-active);
+}
+
+.config-editor__find-toggle:focus-visible,
+.config-editor__find-button:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: -1px;
+}
+
+.config-editor__find-text-button {
+  padding: 0 7px;
+  border-color: var(--config-editor-raised-border);
+  background: var(--config-editor-control-bg);
+  font: 12px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__find-expand { font-size: 15px; transition: transform 100ms ease; }
+.config-editor__find-expand-open { transform: rotate(90deg); }
+
+.config-editor__find-count {
+  min-width: 64px;
+  flex: none;
+  padding: 0 2px;
+  color: var(--config-editor-raised-muted);
+  white-space: nowrap;
+}
+
+.config-editor__find-count-empty { color: var(--config-editor-status-error); }
+
+.config-editor__find-actions { display: flex; flex: none; gap: 1px; margin-left: auto; }
+
 .config-editor__comment { color: var(--config-editor-comment); }
 .config-editor__key { color: var(--config-editor-key); }
 .config-editor__punctuation { color: var(--config-editor-punctuation); }
@@ -943,6 +1124,12 @@
   --config-editor-completion-key: var(--config-editor-raised-text);
   --config-editor-completion-type: var(--config-editor-raised-muted);
   --config-editor-completion-detail: var(--config-editor-raised-muted);
+  --config-editor-search-match: color-mix(in srgb, var(--config-editor-warning) 32%, transparent);
+  --config-editor-search-match-current: color-mix(in srgb, var(--config-editor-accent) 38%, transparent);
+  --config-editor-search-match-current-border: var(--config-editor-accent);
+  --config-editor-input-bg: var(--config-editor-bg);
+  --config-editor-input-border: var(--config-editor-raised-border);
+  --config-editor-toggle-active: color-mix(in srgb, var(--config-editor-accent) 30%, transparent);
 }
 
 /* The peek's single-side dividers also colour their undrawn sides in these
