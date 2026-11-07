@@ -132,6 +132,25 @@ impl EditorHandle {
         state.focus_range(start, end).is_some()
     }
 
+    /// Saves as `Ctrl+S` does: sends the document, in the host's language,
+    /// to the `on_save` prop (see [`SaveRequest`](crate::SaveRequest)).
+    /// Returns whether it was sent: `false` without `on_save`, before the
+    /// editor mounts, and while an Edit-as edit cannot convert back (the
+    /// caret then goes to the problem).
+    pub fn save(&self) -> bool {
+        self.editor().is_some_and(|state| state.save())
+    }
+
+    /// Whether the text differs from the baseline (see the
+    /// `on_dirty_change` prop). Reactive; `false` before the editor mounts.
+    pub fn is_dirty(&self) -> bool {
+        self.state
+            .try_get()
+            .flatten()
+            .and_then(|state| state.try_editing())
+            .is_some_and(|editing| editing.dirty.try_get().unwrap_or(false))
+    }
+
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
         if let Some(element) = self.editor().and_then(|state| state.textarea()) {

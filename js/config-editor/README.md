@@ -66,7 +66,7 @@ throws, and an unknown option name is reported in the console.
 | `value`          | `string`                     | `""`             | The document.                                                                                                                                                                                                 |
 | `editAs`         | `string`                     | —                | Show and edit the document in another language; it is saved back in `language`, keeping its comments.                                                                                                         |
 | `schema`         | `string`                     | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                                                                              |
-| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against.                                                                                                                                                                        |
+| `baseline`       | `string`                     | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                            |
 | `theme`          | `string`                     | `"vscode-dark"`  | A theme slug; see `themes()`.                                                                                                                                                                                 |
 | `colors`         | `Record<string, string>`     | —                | CSS colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …); see `colorTokens()`. A value the browser does not read as a color throws.                                              |
 | `readOnly`       | `boolean`                    | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                         |
@@ -82,6 +82,9 @@ throws, and an unknown option name is reported in the console.
 | `hostDiagnostics` | `HostDiagnostic[]`        | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                     |
 | `onPathChange`   | `(path: EditorPath) => void` | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                  |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). |
+| `onSave`         | `(value: string, language: string) => void` | — | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. |
+| `onDirtyChange`  | `(dirty: boolean) => void`   | —                | Called with whether the document differs from `baseline`: once on mount, then each time that changes. |
+| `onBaselineConflict` | `(event: BaselineConflict) => void` | — | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`). |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -97,7 +100,9 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
+| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange?, onSave?, onDirtyChange?, onBaselineConflict? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
+| `save()`                                       | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). |
+| `isDirty` (getter)                             | Whether the document differs from the baseline. |
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
 | `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
@@ -346,8 +351,42 @@ update them with the setters when they change.
 `Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
 `Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
 `Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
-reverts the change.
+reverts the change · `Ctrl+S` save (with `onSave`).
 `Cmd` works in place of `Ctrl` on macOS.
+
+## Saving and unsaved edits
+
+Nothing is saved by itself: `Ctrl+S` / `Cmd+S` in the editor (and
+`editor.save()`) calls `onSave` with the document in `language`. While
+editing as another language, an edit still waiting out the typing pause is
+converted first; when it cannot be written in `language` (invalid, or a
+`null` for TOML), nothing is sent, `save()` returns `false`, and the caret
+goes to the problem. The document is dirty while it differs from `baseline`
+(the document at mount when no `baseline` is given).
+
+```js
+const editor = new ConfigEditor(element, {
+  value: loaded,
+  baseline: loaded,
+  onSave: async (text) => {
+    await putConfig(text);
+    editor.setBaseline(text); // saved: nothing is unsaved any more
+  },
+  onDirtyChange: (dirty) => (saveButton.disabled = !dirty),
+  onBaselineConflict: (event) => console.log("baseline conflict:", event),
+});
+// Another client saved: the server's version moves on.
+events.on("config-changed", (text) => editor.setBaseline(text));
+```
+
+A new baseline while the user has unsaved edits opens a notice in the editor,
+"The file changed on the server.", focused on **Keep mine** when the user is
+in the editor: **Reload** makes the new baseline the document (one undo step,
+reported through `onChange`), **Keep mine** (or `Escape`) keeps the document
+and diffs it against the new baseline. Without unsaved edits, or when the new
+baseline is the document or a text the editor sent (`onChange`, `onSave`: a
+save coming back while the user typed on), it is taken silently. A `setValue`
+keeps the caret and the scroll position.
 
 ## Reviewing changes
 

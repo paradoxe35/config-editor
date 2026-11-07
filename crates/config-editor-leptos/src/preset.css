@@ -159,6 +159,44 @@
   cursor: default;
 }
 
+/* The notice when the host's baseline changed under unsaved edits. */
+.config-editor__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  border-left: 3px solid var(--config-editor-warning);
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__notice[hidden] { display: none; }
+
+.config-editor__notice-detail { color: var(--config-editor-raised-muted); }
+
+.config-editor__notice-actions { display: flex; gap: 6px; }
+
+.config-editor__notice-button {
+  padding: 3px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.config-editor__notice-button:hover { background: var(--config-editor-raised-hover); }
+
+.config-editor__notice-button:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
 .config-editor__surface {
   position: relative;
   min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px)));

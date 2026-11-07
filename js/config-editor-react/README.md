@@ -61,7 +61,10 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `onSchemaWarning` | `(message: string) => void` | console warning | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. |
-| `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
+| `baseline` | `string` | initial value | Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits asks the user (Reload / Keep mine). |
+| `onSave` | `(value: string, language: string) => void` | — | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `ref.save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. |
+| `onDirtyChange` | `(dirty: boolean) => void` | — | Called with whether the document differs from `baseline`: once on mount, then each time that changes. |
+| `onBaselineConflict` | `(event: BaselineConflict) => void` | — | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`). |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
 | `colors` | `Record<string, string>` | — | Colors overriding the theme's by token (`bg`, `key`, …); see `colorTokens()`. |
 | `readOnly` | `boolean` | `false` | View mode. |
@@ -111,7 +114,35 @@ ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColum
 ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
 ref.current?.currentPath;                  // the caret's path
 ref.current?.focus();
+ref.current?.save();     // as Ctrl+S: calls onSave; false when nothing was sent
+ref.current?.isDirty;    // the document differs from baseline
 ```
+
+### Saving
+
+```tsx
+const [saved, setSaved] = useState(loaded);
+const [text, setText] = useState(loaded);
+const [dirty, setDirty] = useState(false);
+<ConfigEditor
+  value={text}
+  onChange={setText}
+  baseline={saved}
+  onSave={async (next) => {
+    await putConfig(next);
+    setSaved(next); // nothing unsaved any more
+  }}
+  onDirtyChange={setDirty}
+/>;
+```
+
+When `baseline` changes while the user has unsaved edits (another client
+saved), the editor shows "The file changed on the server." with **Reload**
+(the document becomes the new baseline, reported through `onChange`) and
+**Keep mine** (or `Escape`: the document stays, diffed against the new
+baseline). A baseline equal to the document, or to a text the editor sent
+(a save coming back while the user typed on, or a late parent), never asks.
+A new `value` from the parent keeps the caret and the scroll position.
 
 Ranges and indices refer to the text on screen (the `editAs` language while
 editing as another one). `reveal` selects the key and its value when they

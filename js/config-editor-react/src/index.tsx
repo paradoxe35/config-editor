@@ -1,4 +1,5 @@
 import init, {
+  type BaselineConflict,
   type ChangeSummary,
   ConfigEditor as Editor,
   type EditorOptions,
@@ -32,6 +33,7 @@ export {
   validate,
 } from "@pngwasi/config-editor";
 export type {
+  BaselineConflict,
   ChangeSummary,
   Conversion,
   CustomLanguage,
@@ -118,8 +120,22 @@ export interface ConfigEditorProps {
   schema?: string;
   /** Called once per thing in `schema` the editor cannot use (an unsupported `patternProperties` regex). Default: a console warning. */
   onSchemaWarning?: (message: string) => void;
-  /** Text the diff gutter compares against. */
+  /**
+   * Text the diff gutter compares against: the version last saved or loaded.
+   * A new one while the user has unsaved edits opens a notice (Reload / Keep
+   * mine) instead of mixing them; see `onBaselineConflict`.
+   */
   baseline?: string;
+  /**
+   * Called when the user presses `Ctrl+S` / `Cmd+S` (the browser's dialog
+   * prevented) or you call `ref.save()`, with the document in `language`.
+   * Nothing saves by itself. Without it, `Ctrl+S` is the browser's.
+   */
+  onSave?: (value: string, language: LanguageName) => void;
+  /** Called with whether the document differs from `baseline`: once on mount, then each time that changes. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Called when a new `baseline` arrives under unsaved edits, and when that conflict is settled. */
+  onBaselineConflict?: (event: BaselineConflict) => void;
   fileName?: string;
   theme?: ThemeName;
   colors?: ThemeColorMap;
@@ -172,6 +188,10 @@ export interface ConfigEditorHandle {
   reveal(path: FieldPath): boolean;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
+  /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, not mounted, or an `editAs` edit that cannot convert back yet). */
+  save(): boolean;
+  /** Whether the document differs from `baseline`. */
+  readonly isDirty: boolean;
 }
 
 /**
@@ -223,6 +243,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     };
 
     const followPath = (path: EditorPath) => latest.current.onPathChange?.(path);
+    const save = (value: string, language: LanguageName) => latest.current.onSave?.(value, language);
 
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
@@ -266,6 +287,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           onChangeSummary: (summary) => latest.current.onChangeSummary?.(summary),
           onPathChange: current.onPathChange ? followPath : undefined,
           hostDiagnostics: current.hostDiagnostics,
+          onSave: current.onSave ? save : undefined,
+          onDirtyChange: (dirty) => latest.current.onDirtyChange?.(dirty),
+          onBaselineConflict: (event) => latest.current.onBaselineConflict?.(event),
           onSchemaWarning: (message) => {
             const report = latest.current.onSchemaWarning;
             if (report) report(message);
@@ -384,6 +408,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       guard((instance) => instance.setCallbacks({ onPathChange: followsPath ? followPath : null }));
     }, [mounted, followsPath]);
 
+    // `Ctrl+S` is the editor's only while `onSave` is set.
+    const saves = props.onSave !== undefined;
+    useEffect(() => {
+      guard((instance) => instance.setCallbacks({ onSave: saves ? save : null }));
+    }, [mounted, saves]);
+
     // Runs `query` on the editor; `fallback` before it mounts or when it throws.
     const ask = <T,>(query: (instance: Editor) => T, fallback: T): T => {
       const instance = editor.current;
@@ -420,6 +450,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         pathAt: (offset: number) => ask((instance) => instance.pathAt(offset), null),
         reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
         focus: () => guard((instance) => instance.focus()),
+        save: () => ask((instance) => instance.save(), false),
+        get isDirty() {
+          return ask((instance) => instance.isDirty, false);
+        },
         setValue(value: string) {
           if (typeof value !== "string") {
             report(new TypeError("setValue needs a string"));

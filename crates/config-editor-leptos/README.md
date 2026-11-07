@@ -61,7 +61,7 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `language`                     | `Language`                                 | `Language::YAML` | Language of the document the host stores: `initial_value`, `value`, `baseline` and `on_change` are always in it.                     |
 | `edit_as`                      | `Language`, `Option<Language>` or a signal | unset            | Show and edit the document in another language. Changing it converts the open document in place, unsaved edits included.             |
 | `initial_value`                | `String`                                   | `""`             | Starting text, also the diff baseline (uncontrolled).                                                                                |
-| `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text.                                                                  |
+| `value`                        | `Signal<String>`                           | —                | Controlled text. Updates flow in; the caret stays on the same text and the scroll position is kept.                                  |
 | `on_change`                    | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                               |
 | `on_edit_as_change`            | `Fn(Language)`                             | —                | Called when an `edit_as` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                |
 | `on_schema_warning`            | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.               |
@@ -69,11 +69,11 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 While editing as another language, edits reach `on_change` after each typing
 pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
 document from code (a Save button) to send an edit still waiting first.
-| `baseline`                     | `Signal<String>`                           | `initial_value`  | Text the diff gutter compares against; set it to the saved text to clear the diff.                                                   |
+| `baseline`                     | `Signal<String>`                           | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
 | `schema`                       | `&str`, `String` or `Schema`               | —                | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
 | `theme`                        | `EditorTheme` or a signal                  | `VsCodeDark`     | Color theme.                                                                                                                         |
 | `colors`                       | `ThemeColors` or a signal                  | —                | Colors overriding the theme's.                                                                                                       |
-| `read_only`                    | `bool` or a signal                         | `false`          | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working.                                           |
+| `read_only`                    | `bool` or a signal                         | `false`          | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included.      |
 | `file_name`                    | `String`                                   | `untitled.<ext>` | Name shown in the toolbar.                                                                                                           |
 | `class`                        | `String`                                   | —                | Extra class on the editor root.                                                                                                      |
 | `styled`                       | `bool`                                     | `true`           | Inject `PRESET_CSS`. Set `false` to serve or replace the styles yourself.                                                            |
@@ -91,6 +91,10 @@ document from code (a Save button) to send an edit still waiting first.
 | `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
 | `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
 | `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
+| `on_save`                      | `Fn(SaveRequest)`                          | —                | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
+| `enable_save_shortcut`         | `bool` or a signal                         | `true`           | Whether `Ctrl+S` saves (with `on_save`); `false` leaves the key to the browser, and only `EditorHandle::save` saves.                  |
+| `on_dirty_change`              | `Fn(bool)`                                 | —                | Called with whether the text differs from `baseline`: once on mount, then each time that changes.                                    |
+| `on_baseline_conflict`         | `Fn(BaselineConflict)`                     | —                | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -145,6 +149,66 @@ view! {
     <pre>{move || unified_diff(&saved.get(), &text.get(), 3)}</pre>
 }
 ```
+
+### Saving and unsaved edits
+
+Nothing is saved by itself. `Ctrl+S` / `Cmd+S` in the editor (the browser's
+save dialog prevented) and `EditorHandle::save` call `on_save` with a
+`SaveRequest { text, language }`: the document in the host's `language`.
+While editing as another language, an edit still waiting out the typing pause
+is converted first (it reaches `on_change` before `on_save`); when it cannot
+be written in `language` (invalid, or a `null` for TOML), nothing is sent,
+`save` returns `false`, and the caret goes to the problem with its message
+shown.
+
+The text is dirty while it differs from `baseline` as shown (the document at
+mount when no `baseline` is given). `on_dirty_change` reports it once on
+mount and on every change; `EditorHandle::is_dirty` reads it.
+
+```rust
+use config_editor_leptos::{BaselineConflict, ConfigEditor, EditorHandle, SaveRequest};
+
+let saved = RwSignal::new(load());
+let text = RwSignal::new(saved.get_untracked());
+let dirty = RwSignal::new(false);
+let editor = EditorHandle::new();
+view! {
+    <button disabled=move || !dirty.get() on:click=move |_| { editor.save(); }>"Save"</button>
+    <ConfigEditor
+        handle=editor
+        value=text
+        on_change=move |next| text.set(next)
+        baseline=saved
+        on_save=move |request: SaveRequest| {
+            store(&request.text);
+            saved.set(request.text); // nothing unsaved any more
+        }
+        on_dirty_change=move |now| dirty.set(now)
+        on_baseline_conflict=move |event: BaselineConflict| log(event)
+    />
+}
+// Another client saved: `saved.set(from_server)` moves the baseline on.
+```
+
+When `baseline` changes while the user has unsaved edits, a notice opens over
+the text, "The file changed on the server.", instead of mixing the two:
+
+- **Reload** makes the new baseline the text: one undo step (`Ctrl+Z` brings
+  the user's text back), sent through `on_change` (exactly the new baseline,
+  also while editing as another language).
+- **Keep mine** keeps the text and diffs it against the new baseline.
+  `Escape` in the notice chooses it, as the choice that loses nothing.
+- The notice is `role="alert"`. It takes the focus (on Keep mine) only when
+  the focus was in the editor, and gives it back to the text when closed.
+- It closes by itself (`BaselineConflict::Settled`) when the text comes to
+  equal the new baseline, or the host sets the old one back.
+
+Without unsaved edits a new baseline is taken silently. It is also taken
+silently when it already is the text, or when it is a text the editor sent
+the host (`on_change`, `on_save`): a save coming back while the user typed
+on is not a change from elsewhere. Colors: the notice uses `raised`,
+`raised-border`, `raised-text`, `raised-muted`, `warning`, `control-bg` and
+`control-text`.
 
 ## Paths and positions
 
@@ -282,6 +346,8 @@ schema whose regex it cannot compile.
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
 | `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
+| `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                          |
+| `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                       |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
 | `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |
