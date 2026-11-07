@@ -124,12 +124,30 @@ impl EditHistory {
         Some(step.before)
     }
 
-    /// The state after the newest undone step, given the current text.
+    /// The state the newest step returns to, without moving it (see
+    /// [`Self::undo`]).
+    pub(super) fn next_undo(&self) -> Option<&Snapshot> {
+        self.undo.last().map(|step| &step.before)
+    }
+
+    /// The state the newest undone step returns to, without moving it (see
+    /// [`Self::redo`]).
+    pub(super) fn next_redo(&self) -> Option<&Snapshot> {
+        self.redo.last().map(|step| &step.before)
+    }
+
+    /// Whether there is a step to undo.
+    #[cfg(test)]
+    pub(super) fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
     /// Whether an undone step can be redone.
     pub(super) fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
 
+    /// The state after the newest undone step, given the current text.
     pub(super) fn redo(&mut self, current: String) -> Option<Snapshot> {
         let step = self.redo.pop()?;
         self.undo.push(Step {

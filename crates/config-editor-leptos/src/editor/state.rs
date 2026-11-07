@@ -26,13 +26,12 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::changes::ChangesState;
-use super::commands::line_at_cursor;
 use super::completion::{self, CompletionState};
 use super::diagnostics::SchemaBundle;
 use super::document::DocState;
 use super::folding::{FoldState, Projection, SourceArea};
 use super::go_to_line::GoToLine;
-use super::history::{Selection, Snapshot};
+use super::history::Selection;
 use super::host_diagnostics::HostDiagnostic;
 use super::host_editing::{
     self, BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent,
@@ -41,7 +40,6 @@ use super::hover::HoverState;
 use super::languages::Language;
 use super::layout::ViewState;
 use super::line_rows::rendered_lines;
-use super::positioning::set_caret_visible;
 use super::problems::{self, ProblemsState};
 use super::protect::{Inputs, ProtectInit, ProtectState};
 use super::search::SearchState;
@@ -272,131 +270,6 @@ impl EditorState {
             .textarea_ref
             .get_untracked()
             .map(|element| SourceArea::new(element, *self))
-    }
-
-    /// Applies a programmatic edit: records undo, syncs the textarea and
-    /// state, and notifies the host. Every keyboard edit goes through here
-    /// to keep that order consistent. An edit that would change a read-only
-    /// field is refused (the text stays as it was and the reason shows at
-    /// the caret); returns whether it was applied.
-    pub(super) fn commit(&self, edit: Edit) -> bool {
-        let Edit {
-            before,
-            before_selection,
-            text,
-            caret,
-            anchor,
-            reveal,
-            from_host,
-        } = edit;
-        let widened_from = caret;
-        let allowed = if from_host {
-            Some((text, caret))
-        } else {
-            self.allow_edit(&before, text, caret)
-        };
-        let Some((text, caret)) = allowed else {
-            // The document never changed: the textarea shows it again (folds
-            // as they were) with the selection the edit started from.
-            self.restore_folds();
-            self.show_text();
-            if let Some(element) = self.textarea() {
-                let _ =
-                    element.restore_selection(before_selection.0 as u32, before_selection.1 as u32);
-            }
-            return false;
-        };
-        self.fold.before_edit.set_value(None);
-        self.follow_edit(&before, &text, caret);
-        // An edit widened over a placeholder leaves just the caret.
-        let anchor = if caret == widened_from {
-            anchor.unwrap_or(caret)
-        } else {
-            caret
-        };
-        let (start, end) = (anchor.min(caret), anchor.max(caret));
-        self.doc.history.update(|history| {
-            history.record_action(
-                Snapshot {
-                    value: before,
-                    selection: before_selection,
-                },
-                (start, end),
-            );
-        });
-        self.write_text(text);
-        let element = self.textarea();
-        if let Some(on_change) = self.sync.on_change {
-            on_change.run(self.doc.text.get_untracked());
-        }
-        self.doc.caret.set(caret);
-        self.doc.current_line.set(
-            self.doc
-                .text
-                .with_untracked(|text| line_at_cursor(text, caret)),
-        );
-        if let Some(element) = element {
-            if reveal {
-                self.doc.text.with_untracked(|text| {
-                    set_caret_visible(&element, text, caret, self.view.scroll_y)
-                });
-            }
-            // The text between the anchor and the caret stays selected.
-            let _ = element.set_selection_range(start as u32, end as u32);
-        }
-        true
-    }
-}
-
-/// A programmatic edit, applied with [`EditorState::commit`].
-pub(super) struct Edit {
-    pub(super) before: String,
-    pub(super) before_selection: Selection,
-    pub(super) text: String,
-    pub(super) caret: usize,
-    /// The other end of a selection left after the edit.
-    pub(super) anchor: Option<usize>,
-    /// Scroll the caret into view (the default).
-    pub(super) reveal: bool,
-    /// The host's own text (a baseline reloaded from the notice): it passes
-    /// no read-only check, and its placeholders are the host's.
-    pub(super) from_host: bool,
-}
-
-impl Edit {
-    pub(super) fn new(
-        before: String,
-        before_selection: Selection,
-        text: String,
-        caret: usize,
-    ) -> Self {
-        Self {
-            before,
-            before_selection,
-            text,
-            caret,
-            anchor: None,
-            reveal: true,
-            from_host: false,
-        }
-    }
-
-    /// Marks the edit as the host's own text (see `from_host`).
-    pub(super) fn hosts_own(mut self) -> Self {
-        self.from_host = true;
-        self
-    }
-
-    pub(super) fn selecting_from(mut self, anchor: usize) -> Self {
-        self.anchor = Some(anchor);
-        self
-    }
-
-    /// Leaves the scroll position alone (an edit made with the mouse, where
-    /// the caret is already in view).
-    pub(super) fn quiet(mut self) -> Self {
-        self.reveal = false;
-        self
     }
 }
 

@@ -4,10 +4,11 @@
 
 use leptos::prelude::*;
 
+use super::super::edit::Edit;
 use super::super::input::flush_input;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::positioning::reveal_centered;
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::state::{EditorState, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
 use super::{SearchOptions, SearchResults};

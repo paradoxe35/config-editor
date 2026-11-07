@@ -9,6 +9,7 @@ use leptos::prelude::*;
 
 use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
+use super::super::edit::{Edit, Origin};
 use super::super::input::edit_range;
 use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
@@ -21,6 +22,7 @@ use super::secrets::SecretState;
 use super::tokens::SecretOptions;
 
 /// How long a refused edit's tooltip stays, in milliseconds.
+#[cfg(target_arch = "wasm32")]
 const TIP_MS: i32 = 2500;
 
 /// A short message at a place in the text: why an edit was refused, or
@@ -151,6 +153,14 @@ impl ProtectState {
             hover: false,
         }));
         self.tip_token.update_value(|token| *token += 1);
+        // Native unit tests have no window to time it with.
+        #[cfg(target_arch = "wasm32")]
+        self.hide_tip_later();
+    }
+
+    /// Hides the tooltip after a moment, unless another took its place.
+    #[cfg(target_arch = "wasm32")]
+    fn hide_tip_later(&self) {
         let token = self.tip_token.get_value();
         let state = *self;
         if let Some(window) = web_sys::window() {
@@ -199,26 +209,45 @@ impl EditorState {
         });
     }
 
-    /// Whether the edit from `before` (the text on screen) to `after` keeps
-    /// every lock; when not, the reason shows at the caret.
-    pub(crate) fn edit_allowed(&self, before: &str, after: &str, caret: usize) -> bool {
-        let verdict = self.protect.protected.with_untracked(|protected| {
-            self.config.schema.with_value(|schema| {
-                check(
-                    self.behavior(),
-                    schema.as_deref().map(|bundle| &bundle.schema),
-                    protected,
-                    before,
-                    after,
-                )
+    /// The edit pipeline's check stage: whether `edit` keeps every lock;
+    /// when not, why the field is locked.
+    pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
+        self.protect
+            .protected
+            .with_untracked(|protected| {
+                self.config.schema.with_value(|schema| {
+                    check(
+                        self.behavior(),
+                        schema.as_deref().map(|bundle| &bundle.schema),
+                        protected,
+                        &edit.before,
+                        &edit.text,
+                    )
+                })
             })
-        });
-        match verdict {
-            Ok(()) => true,
-            Err(Blocked { reason }) => {
-                self.protect.flash(reason, caret);
-                false
+            .map_err(|Blocked { reason }| reason)
+    }
+
+    /// Finds again what is kept by position in a text replaced whole (see
+    /// `edit::Origin`): the host's ranges after a host text, and the secret
+    /// placeholders, the host's own after a text from the host.
+    pub(crate) fn find_protected_again(&self, origin: &Origin) {
+        match origin {
+            // A placeholder an undo brings back is the host's again.
+            Origin::Undo | Origin::Redo => self.rescan_tokens(false),
+            Origin::Reload { host } => self.adopt_host_tokens(host),
+            // A new text from the host: its ranges and placeholders anew. Not
+            // on an echo of the editor's own edit, where they are followed
+            // (a pasted look-alike there never becomes the host's).
+            Origin::HostValue => {
+                self.place_ranges();
+                self.rescan_tokens(true);
             }
+            Origin::Switch => {
+                self.place_ranges();
+                self.rescan_tokens(false);
+            }
+            Origin::Command | Origin::Input { .. } => {}
         }
     }
 

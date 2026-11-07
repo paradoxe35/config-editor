@@ -10,10 +10,11 @@ use std::sync::Arc;
 use super::bridge::{self, Bridge};
 use super::codec;
 use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Diagnostic, SchemaBundle};
+use super::edit::{Edit, Origin};
 use super::history::EditHistory;
 use super::language::ConfigLanguage;
 use super::languages::Language;
-use super::state::{EditorState, normalize_newlines, textarea_selection};
+use super::state::{EditorState, normalize_newlines};
 
 /// The host's side of the connection (from the component's props).
 pub(super) struct Host {
@@ -112,6 +113,15 @@ impl SyncState {
 }
 
 impl EditorState {
+    /// The edit pipeline's notify stage: `on_change` hears of the document
+    /// (while editing in the host's language; otherwise the conversion
+    /// does, after the typing pause).
+    pub(super) fn notify_change(&self) {
+        if let Some(on_change) = self.sync.on_change {
+            on_change.run(self.doc.text.get_untracked());
+        }
+    }
+
     /// `host` as shown in the language on screen; a text that cannot convert
     /// is shown as is, with the problem reported.
     pub(super) fn shown(&self, host: &str) -> String {
@@ -190,30 +200,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
     state.sync.synced_hosts.update_value(Vec::clear);
     let current = state.doc.text.get_untracked();
     if current != edit {
-        // Keep the caret on the same text and the view where it was:
-        // write the new value here and map the caret through the change,
-        // so the later `prop:value` (identical text) leaves the selection
-        // alone. Writing the value scrolls the textarea, so the scroll
-        // position is put back.
-        let kept = state.textarea().map(|element| {
-            let selection = textarea_selection(&element);
-            (selection, element.scroll_top(), element.scroll_left())
-        });
-        state.write_text(edit.clone());
-        if let (Some(element), Some(((start, end), top, left))) = (state.textarea(), kept) {
-            let map = |offset: usize| map_through_change(&current, &edit, offset);
-            let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
-            element.set_scroll_top(top);
-            element.set_scroll_left(left);
-            state.view.scroll_x.set(f64::from(element.scroll_left()));
-            state.view.scroll_y.set(f64::from(element.scroll_top()));
-        }
-        state.redetect_indent();
-        // A new text from the host: its ranges and placeholders anew. Not
-        // on an echo of the editor's own edit, where they are followed
-        // (a pasted look-alike there never becomes the host's).
-        state.place_ranges();
-        state.rescan_tokens(true);
+        state.commit(Edit::replacing(current, edit, Origin::HostValue));
     }
 }
 
@@ -532,7 +519,6 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
             }
             state.sync.pending_switch.set(None);
             state.sync.load_problems.set(view_warnings);
-            state.doc.history.set(EditHistory::default());
             state.hide_hover();
             state.close_suggestions();
             state.sync.edit_language.set(next);
@@ -540,12 +526,9 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                 callback.run(next);
             }
             state.problems.diagnosed_text.set(converted.clone());
-            // Another language's lines: the folds do not carry over.
-            state.fold.folded.set(Vec::new());
-            state.write_text(converted);
-            state.redetect_indent();
-            state.place_ranges();
-            state.rescan_tokens(false);
+            // Another language's lines: the folds do not carry over, and the
+            // history starts over (see `edit::Origin::Switch`).
+            state.commit(Edit::replacing(text.clone(), converted, Origin::Switch));
         }
         Err(error) => {
             state.sync.pending_switch.set(Some(next));

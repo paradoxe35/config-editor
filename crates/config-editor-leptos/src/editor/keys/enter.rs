@@ -3,9 +3,10 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::edit::Edit;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
 use super::super::language::{Newline, in_string_body};
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::state::{EditorState, textarea_selection};
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();

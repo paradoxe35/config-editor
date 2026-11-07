@@ -1,4 +1,6 @@
-//! Folding and unfolding, and writing the document with folds closed.
+//! Folding and unfolding, and the folds through edits: moved with the
+//! lines when the edit pipeline writes the text (see `edit`), opened for
+//! an edit that reaches into them, closed again when it is refused.
 
 use std::sync::Arc;
 
@@ -13,20 +15,25 @@ use super::follow::{follow_edit, keep_valid};
 use super::projection::Projection;
 
 impl EditorState {
-    /// Writes `text` as the document: closed folds follow the edit (see
-    /// [`follow_edit`]) and the textarea shows the result. Every change of
-    /// the document goes through here. Returns whether the textarea's text
-    /// had to be rewritten (its selection is then lost).
-    pub(crate) fn write_text(&self, text: String) -> bool {
+    /// The closed folds moved through the change of the document to `new`
+    /// (see [`follow_edit`]); `None` with nothing folded. The edit pipeline
+    /// asks before it writes the text and settles them after.
+    pub(crate) fn folds_through(&self, new: &str) -> Option<Vec<FoldRange>> {
         if self.fold.folded.with_untracked(Vec::is_empty) {
-            self.doc.text.set(text);
-        } else {
-            let moved = self.fold.folded.with_untracked(|folds| {
-                self.doc
-                    .text
-                    .with_untracked(|old| follow_edit(folds, old, &text))
-            });
-            self.doc.text.set(text);
+            return None;
+        }
+        Some(self.fold.folded.with_untracked(|folds| {
+            self.doc
+                .text
+                .with_untracked(|old| follow_edit(folds, old, new))
+        }))
+    }
+
+    /// Keeps the folds `moved` through an edit that still fold in the new
+    /// text, and shows it. Returns whether the textarea's text had to be
+    /// rewritten (its selection is then lost).
+    pub(crate) fn settle_folds(&self, moved: Option<Vec<FoldRange>>) -> bool {
+        if let Some(moved) = moved {
             let kept = self
                 .fold
                 .fold_ranges
@@ -184,21 +191,46 @@ impl EditorState {
         self.show_text();
     }
 
-    /// Opens the folds an edit of UTF-16 `start..end` touches: from a fold's
-    /// first line end through its last line end, both included.
-    /// Closes again the folds an editing key opened for an edit that was
-    /// then refused (see `before_edit`); the caller shows the text.
-    pub(crate) fn restore_folds(&self) {
-        if let Some(folds) = self
-            .fold
+    /// Opens the folds an edit about to be made of UTF-16 `start..end`
+    /// would touch (see [`unfold_touched`](Self::unfold_touched)), keeping
+    /// the folds as they were: a refused edit closes them again (see
+    /// `before_edit`).
+    pub(crate) fn open_folds_for_edit(&self, start: usize, end: usize) {
+        if self.fold.folded.with_untracked(Vec::is_empty) {
+            return;
+        }
+        let folded = self.fold.folded.get_untracked();
+        self.unfold_touched(start, end);
+        // Kept until the edit is made: a refused one puts the folds back.
+        let opened = self.fold.folded.with_untracked(|now| *now != folded);
+        self.fold.before_edit.set_value(opened.then_some(folded));
+    }
+
+    /// The folds as they were before an editing key opened some for the
+    /// edit now being made (see [`open_folds_for_edit`](Self::open_folds_for_edit)).
+    pub(crate) fn take_opened_folds(&self) -> Option<Vec<FoldRange>> {
+        self.fold
             .before_edit
             .try_update_value(Option::take)
             .flatten()
-        {
-            self.fold.folded.set(folds);
+    }
+
+    /// Closes `folds` again (those before a refused edit opened some); the
+    /// caller shows the text.
+    pub(crate) fn restore_folds(&self, folds: Vec<FoldRange>) {
+        self.fold.folded.set(folds);
+    }
+
+    /// Opens every fold without moving the view (the text changes to
+    /// another language's lines, which they do not fit).
+    pub(crate) fn forget_folds(&self) {
+        if !self.fold.folded.with_untracked(Vec::is_empty) {
+            self.fold.folded.set(Vec::new());
         }
     }
 
+    /// Opens the folds an edit of UTF-16 `start..end` touches: from a fold's
+    /// first line end through its last line end, both included.
     pub(crate) fn unfold_touched(&self, start: usize, end: usize) {
         if self.fold.folded.with_untracked(Vec::is_empty) {
             return;

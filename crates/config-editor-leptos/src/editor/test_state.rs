@@ -18,6 +18,7 @@ pub(super) struct TestEditor {
     pub(super) read_only_paths: Vec<FieldPath>,
     pub(super) read_only_ranges: Vec<TextRange>,
     pub(super) on_change: Option<Callback<String>>,
+    pub(super) read_only: bool,
 }
 
 impl TestEditor {
@@ -29,6 +30,7 @@ impl TestEditor {
             read_only_paths: Vec::new(),
             read_only_ranges: Vec::new(),
             on_change: None,
+            read_only: false,
         }
     }
 
@@ -44,7 +46,7 @@ impl TestEditor {
             schema_error: None,
             host_text: self.text.clone(),
             baseline: self.text,
-            read_only: Signal::from(false),
+            read_only: Signal::from(self.read_only),
             features: Features {
                 completions: true,
                 auto_trigger: true,

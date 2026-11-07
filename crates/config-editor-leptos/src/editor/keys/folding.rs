@@ -75,9 +75,5 @@ pub(super) fn unfold_before_edit(state: EditorState, event: &KeyboardEvent) {
         _ if typed_character(event).is_some() && unmodified(event) => (start, end),
         _ => return,
     };
-    let folded = state.fold.folded.get_untracked();
-    state.unfold_touched(reach.0, reach.1);
-    // Kept until the edit is made: a refused one puts the folds back.
-    let opened = state.fold.folded.with_untracked(|now| *now != folded);
-    state.fold.before_edit.set_value(opened.then_some(folded));
+    state.open_folds_for_edit(reach.0, reach.1);
 }

@@ -5,7 +5,8 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::edit::Edit;
+use super::super::state::{EditorState, textarea_selection};
 use super::super::sync::{map_through_change, remember_synced};
 use super::{BaselineConflict, BaselineDecision, PendingBaseline, decide_baseline};
 
@@ -82,9 +83,8 @@ impl EditorState {
             self.commit(
                 Edit::new(before, selection, pending.shown, caret)
                     .quiet()
-                    .hosts_own(),
+                    .reloading(pending.host.clone()),
             );
-            self.adopt_host_tokens(&pending.host);
         }
         self.close_conflict(BaselineConflict::Reloaded);
     }

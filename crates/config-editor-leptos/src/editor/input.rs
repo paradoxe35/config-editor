@@ -4,14 +4,15 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::commands::{line_at_cursor, line_range};
+use super::commands::line_range;
 use super::completion::{key_hover, should_auto_trigger};
 use super::components::HoverCard;
+use super::edit::Edit;
 use super::folding::SourceArea;
-use super::history::{EditHistory, Snapshot};
+use super::history::EditHistory;
 use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
-use super::state::{Edit, EditorState, textarea_selection};
+use super::state::{EditorState, textarea_selection};
 
 /// The textarea an event came from, in document offsets.
 fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceArea> {
@@ -203,62 +204,48 @@ pub(super) fn flush_input(state: EditorState) {
     let Some(Some(burst)) = state.typing.input_burst.try_update_value(Option::take) else {
         return;
     };
-    let Some(element) = state.textarea() else {
+    if state.textarea().is_none() {
         return;
-    };
+    }
     // What the input made, on the document as it is now: a host value
     // applied since the input (a `setValue` in the same task) gets the input
     // replayed on it, and a textarea rewritten meanwhile gets it back.
-    let current = state.doc.text.get_untracked();
-    let (value, replayed_caret) = if current == burst.before {
-        (burst.latest.clone(), None)
+    let before = state.doc.text.get_untracked();
+    let (value, replayed_caret) = if before == burst.before {
+        (burst.latest, None)
     } else {
-        let (value, caret) = replay(&burst.before, &burst.latest, &current);
+        let (value, caret) = replay(&burst.before, &burst.latest, &before);
         (value, Some(caret))
     };
-    let before = current;
-    let burst_selection = if replayed_caret.is_some() {
+    let selection = if replayed_caret.is_some() {
         UNKNOWN_SELECTION
     } else {
         burst.selection
     };
-    // An edit changing a read-only field is undone, its reason shown; one
-    // cutting a secret placeholder takes it whole.
-    let mut value = value;
-    let mut widened_caret = None;
-    let caret = replayed_caret.unwrap_or(burst.latest_selection.0);
-    if before != value {
-        match state.allow_edit(&before, value.clone(), caret) {
-            None => {
-                let (start, end) = if burst_selection == UNKNOWN_SELECTION {
-                    edit_range(&before, &value, caret)
-                } else {
-                    burst_selection
-                };
-                // The document is unchanged: the textarea shows it again,
-                // folds as they were.
-                state.restore_folds();
-                state.show_text();
-                let _ = element.restore_selection(start as u32, end as u32);
-                state.note_caret(start);
-                return;
-            }
-            Some((allowed, allowed_caret)) => {
-                state.fold.before_edit.set_value(None);
-                if allowed != value {
-                    value = allowed;
-                    widened_caret = Some(allowed_caret);
-                }
-                state.follow_edit(&before, &value, widened_caret.unwrap_or(caret));
-            }
-        }
-    }
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
     } else {
         burst.input_type
     };
+    // Backspace with the list open refilters it instead of closing.
+    let refilter = input_type == "deleteContentBackward"
+        && state.completion.requested.get_untracked()
+        && !state.completion.suggestions.with_untracked(Vec::is_empty);
+    let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
+    let edit = Edit::input(
+        before.clone(),
+        selection,
+        value,
+        typed,
+        input_type.clone(),
+        burst.time,
+    );
+    if !state.commit(edit) {
+        return;
+    }
+    // The text as made (widened over a placeholder it cut).
+    let value = state.doc.text.get_untracked();
     let auto_trigger =
         state.config.features.auto_trigger && should_auto_trigger(&input_type, &before, &value);
     if matches!(
@@ -267,49 +254,7 @@ pub(super) fn flush_input(state: EditorState) {
     ) {
         state.typing.closers.update_value(Vec::clear);
     }
-    // Backspace with the list open refilters it instead of closing.
-    let refilter = input_type == "deleteContentBackward"
-        && state.completion.requested.get_untracked()
-        && !state.completion.suggestions.with_untracked(Vec::is_empty);
     state.completion.placeholder.set_value(None);
-    // The textarea is rewritten when the input was replayed on a newer
-    // document, or an edit opened a fold: the caret goes back where the
-    // input left it.
-    if state.write_text(value.clone()) || widened_caret.is_some() {
-        let (start, end) = widened_caret
-            .or(replayed_caret)
-            .map_or(burst.latest_selection, |caret| (caret, caret));
-        let _ = element.set_selection_range(start as u32, end as u32);
-    }
-    let after = textarea_selection(&element);
-    let selection = if burst_selection == UNKNOWN_SELECTION {
-        edit_range(&before, &value, after.0)
-    } else {
-        burst_selection
-    };
-    if before != value {
-        state.doc.history.update(|history| {
-            history.record_input(
-                Snapshot {
-                    value: before,
-                    selection,
-                },
-                after,
-                &input_type,
-                burst.time,
-            );
-        });
-    }
-    let (position, _) = after;
-    state.doc.caret.set(position);
-    state.doc.current_line.set(line_at_cursor(&value, position));
-    // Pasted or dropped text may bring its own indentation.
-    if matches!(input_type.as_str(), "insertFromPaste" | "insertFromDrop") {
-        state.redetect_indent();
-    }
-    if let Some(on_change) = state.sync.on_change {
-        on_change.run(state.doc.text.get_untracked());
-    }
     state.completion.active.set(0);
     // Typed text filters the list again.
     if state.completion.replace_word.get_untracked() {

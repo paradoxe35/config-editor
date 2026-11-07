@@ -4,11 +4,11 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::commands::{cycle_offset, line_at_cursor, offset_at, smart_home as home_target};
+use super::super::commands::{cycle_offset, offset_at, smart_home as home_target};
 use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
-use super::super::positioning::{reveal_offset, set_caret_visible};
+use super::super::positioning::reveal_offset;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 
 /// Smart Home: the first non-blank character, then the line start.
@@ -114,48 +114,11 @@ pub(super) fn undo_redo(state: EditorState, event: &KeyboardEvent) -> bool {
     event.prevent_default();
     state.typing.closers.update_value(Vec::clear);
     state.completion.slot_region.set_value(None);
-    let current = state.doc.text.get_untracked();
-    let mut restored = None;
-    state.doc.history.update(|history| {
-        restored = if undo {
-            history.undo(current.clone())
-        } else {
-            history.redo(current.clone())
-        };
-    });
-    // Undo never changes a read-only field the host locked meanwhile.
-    if let Some(snapshot) = restored.take() {
-        let (_, caret) = snapshot.selection;
-        if state.edit_allowed(&current, &snapshot.value, caret) {
-            state.follow_edit(&current, &snapshot.value, caret);
-            restored = Some(snapshot);
-        } else {
-            state.doc.history.update(|history| {
-                if undo {
-                    history.redo(snapshot.value);
-                } else {
-                    history.undo(snapshot.value);
-                }
-            });
-        }
-    }
-    if let Some(restored) = restored {
-        let (start, end) = restored.selection;
-        state.write_text(restored.value.clone());
-        state.doc.caret.set(end);
-        state
-            .doc
-            .current_line
-            .set(line_at_cursor(&restored.value, end));
-        if let Some(element) = state.textarea() {
-            set_caret_visible(&element, &restored.value, end, state.view.scroll_y);
-            let _ = element.set_selection_range(start as u32, end as u32);
-        }
-        if let Some(on_change) = state.sync.on_change {
-            on_change.run(restored.value);
-        }
-        // A placeholder an undo brings back is the host's again.
-        state.rescan_tokens(false);
+    // Undo never changes a read-only field the host locked meanwhile: the
+    // pipeline refuses it, and the step stays.
+    if let Some(edit) = state.history_edit(redo)
+        && state.commit(edit)
+    {
         state.close_suggestions();
     }
     true

@@ -19,6 +19,7 @@ mod components;
 mod diagnostics;
 mod diff;
 mod document;
+mod edit;
 mod folding;
 mod go_to_line;
 mod handle;

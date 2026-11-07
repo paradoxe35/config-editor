@@ -9,6 +9,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::edit::Edit;
 use super::super::input::edit_range;
 use super::super::state::{EditorState, directed_selection};
 use super::tokens::{SecretMatcher, SecretOptions, follow, locate, snap, snap_selection, widen};
@@ -45,30 +46,20 @@ impl SecretState {
 }
 
 impl EditorState {
-    /// The edit from `before` to `after` (the caret at `caret` after it) as
-    /// it may be made: widened so it takes whole any placeholder it touches,
-    /// then checked against the locks. `None` when it is refused (the reason
-    /// shows at the caret).
-    pub(crate) fn allow_edit(
-        &self,
-        before: &str,
-        after: String,
-        caret: usize,
-    ) -> Option<(String, usize)> {
-        let secrets = self.protect.secrets;
-        let widened = secrets.tokens.with_untracked(|tokens| {
+    /// The edit pipeline's prepare stage: an edit cutting a placeholder
+    /// takes it whole, leaving just the caret.
+    pub(crate) fn widen_edit(&self, edit: &mut Edit) {
+        let widened = self.protect.secrets.tokens.with_untracked(|tokens| {
             if tokens.is_empty() {
                 return None;
             }
-            let (start, end) = edit_range(before, &after, caret);
-            widen(tokens, before, &after, start..end)
+            let (start, end) = edit_range(&edit.before, &edit.text, edit.caret());
+            widen(tokens, &edit.before, &edit.text, start..end)
         });
-        let (after, caret) = match widened {
-            Some((text, _, caret)) => (text, caret),
-            None => (after, caret),
-        };
-        self.edit_allowed(before, &after, caret)
-            .then_some((after, caret))
+        if let Some((text, _, caret)) = widened {
+            edit.text = text;
+            edit.collapse_to(caret);
+        }
     }
 
     /// Follows an applied edit with the placeholders' places.

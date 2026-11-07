@@ -5,11 +5,12 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::commands::{backspace_indent, typed_closer};
+use super::super::edit::Edit;
 use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
 };
 use super::super::language::in_string_body;
-use super::super::state::{Edit, EditorState, is_backward, select, textarea_selection};
+use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::{typed_character, unmodified};
 
 /// Whether the caret is in a multi-line string's body, where typing is text.

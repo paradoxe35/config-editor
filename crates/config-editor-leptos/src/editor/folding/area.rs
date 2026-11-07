@@ -41,7 +41,7 @@ impl SourceArea {
         })
     }
 
-    /// Writing the text goes through `EditorState::write_text`, which keeps
+    /// Writing the text goes through the edit pipeline (see `edit`), which keeps
     /// the folds in step; this private stand-in keeps the element's own
     /// `set_value` from being reached by mistake.
     #[allow(dead_code)]

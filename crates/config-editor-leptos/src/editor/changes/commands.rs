@@ -4,8 +4,9 @@
 use leptos::prelude::*;
 
 use super::super::diff::{DiffPeek, LineDiff, diff_lines};
+use super::super::edit::Edit;
 use super::super::line_rows::row_state;
-use super::super::state::{Edit, EditorState, textarea_selection};
+use super::super::state::{EditorState, textarea_selection};
 use super::{ChangeSummary, adjacent_change, change_line, hunk_for_peek, revert_hunk};
 
 /// The changes part of the editor state.

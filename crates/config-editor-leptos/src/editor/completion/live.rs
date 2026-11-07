@@ -7,9 +7,10 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::diagnostics::SchemaBundle;
+use super::super::edit::Edit;
 use super::super::languages::Language;
 use super::super::protect::{Around, ProtectState, adjust_suggestions};
-use super::super::state::{Edit, EditorState};
+use super::super::state::EditorState;
 use super::{
     Completion, accept_reopens_suggestions, apply_completion, completions_for, inserted_closers,
     next_slot, stop_ranges,
