@@ -299,7 +299,7 @@ test.describe('a value from the host on a long document', () => {
       expect(await e.input.evaluate((element) => element.scrollTop)).toBe(before);
       expect(await e.caret()).toEqual(caret);
       // The rendered rows follow the kept view.
-      await expect(page.locator(`.config-editor__gutter [data-line="${middle}"]`)).toBeInViewport();
+      await expect(page.locator(`.config-editor__gutter div[data-line="${middle}"]`)).toBeInViewport();
     });
   }
 });
