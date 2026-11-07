@@ -1,5 +1,5 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
-import init, { ConfigEditor, validate, convert, registerLanguage, unifiedDiff, type ChangeSummary } from "@pngwasi/config-editor";
+import init, { ConfigEditor, DocumentsBinding, EditorBinding, SETTING_TYPES, loadConfigEditor, validate, convert, registerLanguage, unifiedDiff, type ChangeSummary } from "@pngwasi/config-editor";
 const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
 await init();
 declare const schemaText: string; declare const element: HTMLElement; declare function save(t: string): void;
@@ -79,3 +79,13 @@ const tls: DocumentEditor | undefined = view.editor("tls");
 const revealed: boolean | undefined = tls?.reveal("/cert"); tls?.fold("/ciphers"); const tlsPath = tls?.currentPath; void [revealed, tlsPath];
 const savedIds: string[] = view.saveAll(); const shown: boolean = view.select("limits"); const active: string | undefined = view.activeId; const dirtyMain: boolean = view.isDirty("main");
 view.setCallbacks({ onSave: null }); view.setSettings({ ...view.settings, colors: { "tab-dirty": "#ffcc66" } }); view.destroy();
+// Binding to a framework.
+declare const emit: (text: string) => void; declare const bindingTheme: string;
+const binding = new EditorBinding("my-framework-config-editor");
+binding.attach(element, { value: "a: 1\n", onChange: (text) => emit(text), language: "yaml" });
+binding.update({ value: "a: 1\n", onChange: (text) => emit(text), language: "yaml", theme: bindingTheme });
+const found: boolean = binding.handle.reveal("/web/listen"); const bound: string = binding.handle.value;
+binding.detach();
+new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
+const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter; await loadConfigEditor();
+void [found, bound, kind];

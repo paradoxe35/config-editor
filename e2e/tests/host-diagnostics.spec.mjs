@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { FRAMEWORK_PAGES } from './helpers.mjs';
 
 // Host diagnostics (`hostDiagnostics`, `setHostDiagnostics`): a server's
 // problems shown with the editor's own, through the npm packages' example
@@ -194,9 +195,9 @@ test.describe('vanilla.html', () => {
   });
 });
 
-test.describe('react.html', () => {
+for (const name of FRAMEWORK_PAGES) test.describe(name, () => {
   test('the hostDiagnostics prop updates the markers', async ({ page: browserPage }) => {
-    const errors = await open(browserPage, 'react.html');
+    const errors = await open(browserPage, name);
     await browserPage.locator('#host-problems').click();
     await expect(markers(browserPage)).toHaveCount(1);
     await expect(markers(browserPage)).toHaveAttribute('data-detail', 'server');

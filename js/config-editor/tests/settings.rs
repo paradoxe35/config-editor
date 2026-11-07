@@ -4,7 +4,10 @@
 //!
 //! - `src/settings.d.ts`: the TypeScript `EditorSettings` and
 //!   `EditorStrings` interfaces, with each field's doc comment and default;
-//! - the settings tables of the three READMEs, between
+//! - `setting-types.js`: each setting's key and JavaScript type, which the
+//!   framework packages read before the WebAssembly loads (Vue declares its
+//!   props from it);
+//! - the settings tables of the five READMEs, between
 //!   `<!-- settings:start -->` and `<!-- settings:end -->`, and their
 //!   strings tables, between `<!-- strings:start -->` and
 //!   `<!-- strings:end -->`.
@@ -186,6 +189,30 @@ fn ts_type(rust_type: &str) -> &'static str {
         "EditorStrings" => "EditorStrings",
         other => panic!("no TypeScript type for `{other}`: add it to ts_type in tests/settings.rs"),
     }
+}
+
+/// The JavaScript type (`typeof`) of a field's values.
+fn js_type(rust_type: &str) -> &'static str {
+    match ts_type(rust_type) {
+        "boolean" => "boolean",
+        "string" | "ThemeName" => "string",
+        _ => "object",
+    }
+}
+
+/// `setting-types.js`: every setting's key and JavaScript type.
+fn setting_types() -> String {
+    let settings = settings();
+    let mut out = format!(
+        "// {}\n\n/** Each key of `EditorSettings` and the JavaScript type of its values. */\n\
+         export const SETTING_TYPES = Object.freeze({{\n",
+        header(&settings)
+    );
+    for (field, key, _) in settings.described() {
+        out.push_str(&format!("  {key}: \"{}\",\n", js_type(&field.rust_type)));
+    }
+    out.push_str("});\n");
+    out
 }
 
 /// A default as Rust spells it.
@@ -394,11 +421,16 @@ fn with_table(text: &str, marker: &str, table: &str, path: &str) -> String {
 #[test]
 fn generated_settings_are_up_to_date() {
     let update = std::env::var_os("UPDATE_GENERATED").is_some();
-    let mut generated = vec![("js/config-editor/src/settings.d.ts", typescript())];
+    let mut generated = vec![
+        ("js/config-editor/src/settings.d.ts", typescript()),
+        ("js/config-editor/setting-types.js", setting_types()),
+    ];
     for (path, rust) in [
         ("crates/config-editor-leptos/README.md", true),
         ("js/config-editor/README.md", false),
         ("js/config-editor-react/README.md", false),
+        ("js/config-editor-vue/README.md", false),
+        ("js/config-editor-svelte/README.md", false),
     ] {
         let mut text = std::fs::read_to_string(repo().join(path)).unwrap();
         for described in [settings(), strings()] {

@@ -1,0 +1,84 @@
+import {
+  type CloseRequest,
+  type DocumentSpec,
+  DocumentsBinding,
+  type DocumentsBindingProps,
+  type LanguageName,
+} from "@pngwasi/config-editor";
+import {
+  type ExtractPublicPropTypes,
+  type PropType,
+  defineComponent,
+  h,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import { type SettingProps, settingProps } from "./settings.js";
+
+const optional = <T>(type: PropType<T>) => ({ type, default: undefined });
+
+/**
+ * The props of `<ConfigDocuments>`: the documents, the event listeners and
+ * the settings of every editor and of the tabs (a document's own `settings`
+ * override them). They apply live.
+ */
+const documentsProps = {
+  /** The open documents, in tab order (keep each `value` up to date from `@change`). */
+  documents: { type: Array as PropType<DocumentSpec[]>, required: true as const },
+  /** The document shown first. Default: the first one. */
+  activeId: optional(String),
+  /** `@select`: a document's id when it becomes the active one. */
+  onSelect: optional(Function as PropType<(id: string) => void>),
+  /** `@close`: the user asks to close a document. Nothing closes by itself: remove it from `documents` (asking first when `request.dirty`). Without a listener, tabs have no close button. Whether one is set re-mounts. */
+  onClose: optional(Function as PropType<(request: CloseRequest) => void>),
+  /** `@change`: a document's id and text after every edit. */
+  onChange: optional(Function as PropType<(id: string, value: string) => void>),
+  /** `@save`: the user saved a document (`Ctrl+S` / `Cmd+S`), or you called `save(id)` / `saveAll()`. */
+  onSave: optional(Function as PropType<(id: string, value: string, language: LanguageName) => void>),
+  /** `@dirty-change`: a document's id and whether it differs from its baseline, when added and then each time that changes. */
+  onDirtyChange: optional(Function as PropType<(id: string, dirty: boolean) => void>),
+  /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
+  label: optional(String),
+  /** Class on the view's root (inside the component's `<div>`). Changing it re-mounts. */
+  viewClass: optional(String),
+  /** `@error`: an error from loading, mounting or a prop the view rejects. Without a listener, logged. */
+  onError: optional(Function as PropType<(error: unknown) => void>),
+};
+
+/** The runtime props: the view's own and one per setting. */
+export const configDocumentsProps: typeof documentsProps & SettingProps = { ...documentsProps, ...settingProps };
+
+/** The props `<ConfigDocuments>` accepts. */
+export type ConfigDocumentsProps = ExtractPublicPropTypes<typeof configDocumentsProps>;
+
+/**
+ * Several documents as tabs, one editor per document (each keeps its caret,
+ * undo history, scroll and folds across switches).
+ *
+ * ```vue
+ * <ConfigDocuments :documents="files" @change="update" @save="upload" @close="close" />
+ * ```
+ *
+ * Its template ref is a `ConfigDocumentsHandle` (`select`, `saveAll`, `editor(id)`, …).
+ */
+export const ConfigDocuments = defineComponent({
+  name: "ConfigDocuments",
+  props: configDocumentsProps,
+  setup(props, { expose }) {
+    const host = ref<HTMLDivElement>();
+    const binding = new DocumentsBinding("config-editor-vue");
+    const current = (): DocumentsBindingProps => {
+      const { viewClass, ...rest } = props;
+      return { ...rest, viewClassName: viewClass };
+    };
+    onMounted(() => binding.attach(host.value!, current()));
+    // Deep: a list or object prop changed in place (a document's value, a
+    // pushed diagnostic) is a change too.
+    watch(current, (next) => binding.update(next), { deep: true, flush: "post" });
+    onBeforeUnmount(() => binding.detach());
+    expose(binding.handle);
+    return () => h("div", { ref: host });
+  },
+});

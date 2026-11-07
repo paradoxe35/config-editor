@@ -1,0 +1,54 @@
+{
+  "name": "@pngwasi/config-editor-svelte",
+  "version": "0.1.0",
+  "description": "Svelte 5 components for config-editor: schema-aware YAML, JSON, TOML, HCL and XML editing",
+  "type": "module",
+  "svelte": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "svelte": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "svelte-package -i src -o dist"
+  },
+  "peerDependencies": {
+    "@pngwasi/config-editor": "^0.1.0",
+    "svelte": "^5.0.0"
+  },
+  "license": "MIT",
+  "keywords": [
+    "config",
+    "editor",
+    "svelte",
+    "yaml",
+    "json",
+    "toml",
+    "hcl",
+    "xml",
+    "json-schema",
+    "wasm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paradoxe35/config-editor.git",
+    "directory": "js/config-editor-svelte"
+  },
+  "homepage": "https://github.com/paradoxe35/config-editor#readme",
+  "bugs": {
+    "url": "https://github.com/paradoxe35/config-editor/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

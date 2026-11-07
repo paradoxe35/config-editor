@@ -17,6 +17,8 @@ const READMES = [
   'crates/config-editor-leptos/README.md',
   'js/config-editor/README.md',
   'js/config-editor-react/README.md',
+  'js/config-editor-vue/README.md',
+  'js/config-editor-svelte/README.md',
 ];
 const START = '<!-- toc -->';
 const END = '<!-- /toc -->';

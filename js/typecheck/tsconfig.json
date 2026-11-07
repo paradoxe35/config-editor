@@ -9,7 +9,7 @@
     "lib": ["es2022", "dom"],
     "types": [],
     "paths": {
-      "@pngwasi/config-editor": ["../config-editor/pkg/config_editor.d.ts"],
+      "@pngwasi/config-editor": ["../config-editor/index.d.ts"],
       "@pngwasi/config-editor-react": ["../config-editor-react/dist/index.d.ts"]
     }
   },
