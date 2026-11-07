@@ -69,13 +69,14 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `showToolbar` / `showFooter` | `boolean` | `false` | Built-in toolbar and status bar. |
 | `search` | `boolean` | `true` | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`); `false` leaves those keys to the browser. |
 | `goToLine` | `boolean` | `true` | Go to line (`Ctrl+G`); `false` leaves the key to the browser. |
+| `folding` | `boolean` | `true` | Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only: `onChange` and copying see the whole text. |
 | `editorClassName` | `string` | — | Class on the editor root. |
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
 `value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics` and `onPathChange` update the
 live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`,
-`search`, `goToLine` and `editorClassName` re-create it; the document and its diff baseline carry
+`search`, `goToLine`, `folding` and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
 
 A parent that applies `onChange` values late cannot roll the document back to
@@ -111,6 +112,12 @@ ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColum
 ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
 ref.current?.currentPath;                  // the caret's path
 ref.current?.focus();
+
+// Folding (view only).
+ref.current?.foldAll();
+ref.current?.unfoldAll();
+ref.current?.fold("/clients");             // fold the block its key opens; false if none
+ref.current?.unfold("/web/listen");        // open the folds around a field
 ```
 
 Ranges and indices refer to the text on screen (the `editAs` language while

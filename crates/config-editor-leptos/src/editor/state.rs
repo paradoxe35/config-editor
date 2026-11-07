@@ -16,6 +16,7 @@ use super::completion::{
 use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
+use super::folding::{FoldState, Projection, SourceArea};
 use super::go_to_line::GoToLine;
 use super::history::{EditHistory, Selection, Snapshot};
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
@@ -46,6 +47,7 @@ pub(super) struct Features {
     pub(super) diff: bool,
     pub(super) search: bool,
     pub(super) go_to_line: bool,
+    pub(super) folding: bool,
 }
 
 /// Closing text the editor wrote after the caret: a bracket, a quote, or
@@ -218,7 +220,8 @@ pub(super) struct EditorState {
     /// Rows must not subscribe to this memo or `diff`; the row sync effect
     /// fans them out to per-row signals (see `line_rows`).
     pub(super) lines: Memo<Vec<RenderedLine>>,
-    /// Only the rows in view (plus overscan) exist in the DOM.
+    /// Only the rows in view (plus overscan) exist in the DOM: textarea
+    /// rows, which skip folded lines.
     pub(super) visible_rows: Memo<Range<usize>>,
     pub(super) selected_diff_peek: RwSignal<Option<DiffPeek>>,
     /// The changes the diff counts, for the host and the footer.
@@ -239,6 +242,10 @@ pub(super) struct EditorState {
     pub(super) search: SearchState,
     /// The go-to-line field (see `go_to_line`).
     pub(super) go_to_line: GoToLine,
+
+    /// Folding (see `folding`), behind one handle: this state is copied
+    /// into every handler, so it stays small.
+    pub(super) fold: StoredValue<FoldState>,
 }
 
 impl EditorState {
@@ -411,12 +418,13 @@ impl EditorState {
                 })
             })
         });
+        let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let visible_rows = Memo::new(move |_| {
             layout_revision.track();
             let top = scroll_y.get();
             // From the text, not `lines`: a second reader of `lines` here
             // kept the row sync from seeing diagnostic-only changes to it.
-            let count = source.with(|text| line_count(text));
+            let count = projection.with(|projection| projection.rows());
             let Some(editor) = editor_ref.get() else {
                 return 0..count.min(INITIAL_ROWS);
             };
@@ -434,6 +442,16 @@ impl EditorState {
             first..last
         });
 
+        let visible_lines = Memo::new(move |_| {
+            let rows = visible_rows.get();
+            projection.with(|projection| rows.map(|row| projection.line_of_row(row)).collect())
+        });
+        let fold_ranges = Memo::new(move |_| {
+            if !features.folding {
+                return Vec::new();
+            }
+            source.with(|text| edit_language.get().behavior().fold_ranges(text))
+        });
         let string_bodies = Memo::new(move |_| {
             source.with(|text| edit_language.get().behavior().string_body_lines(text))
         });
@@ -493,6 +511,13 @@ impl EditorState {
             diff,
             lines,
             visible_rows,
+            fold: StoredValue::new(FoldState {
+                visible_lines,
+                folded: RwSignal::new(Vec::new()),
+                projection,
+                fold_ranges,
+                fold_chord: StoredValue::new(false),
+            }),
             selected_diff_peek: RwSignal::new(None),
             changes: Memo::new(move |_| diff.with(ChangeSummary::of)),
             focus_preview: StoredValue::new(false),
@@ -538,8 +563,16 @@ impl EditorState {
         self.edit_language.get().label()
     }
 
-    pub(super) fn textarea(&self) -> Option<web_sys::HtmlTextAreaElement> {
-        self.editor_ref.get_untracked()
+    /// The folding handles (see [`FoldState`]).
+    pub(super) fn folds(&self) -> FoldState {
+        self.fold.get_value()
+    }
+
+    /// The textarea, in the document's offsets (see `folding`).
+    pub(super) fn textarea(&self) -> Option<SourceArea> {
+        self.editor_ref
+            .get_untracked()
+            .map(|element| SourceArea::new(element, *self))
     }
 
     /// Applies a programmatic edit: records undo, syncs the textarea and
@@ -565,11 +598,8 @@ impl EditorState {
                 (start, end),
             );
         });
+        self.write_text(text);
         let element = self.textarea();
-        if let Some(element) = element.as_ref() {
-            element.set_value(&text);
-        }
-        self.source.set(text);
         if let Some(on_change) = self.on_change {
             on_change.run(self.source.get_untracked());
         }
@@ -825,7 +855,7 @@ pub(super) fn line_count(text: &str) -> usize {
     text.bytes().filter(|byte| *byte == b'\n').count() + 1
 }
 
-pub(super) fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Selection {
+pub(super) fn textarea_selection(element: &SourceArea) -> Selection {
     let start = element.selection_start().ok().flatten().unwrap_or(0) as usize;
     let end = element
         .selection_end()
@@ -837,23 +867,18 @@ pub(super) fn textarea_selection(element: &web_sys::HtmlTextAreaElement) -> Sele
 
 /// Selects `start..end`, keeping the caret at the start when `backward`
 /// (as a selection made with Shift+Left), so Shift+arrows extend the same end.
-pub(super) fn select(
-    element: &web_sys::HtmlTextAreaElement,
-    start: usize,
-    end: usize,
-    backward: bool,
-) {
+pub(super) fn select(element: &SourceArea, start: usize, end: usize, backward: bool) {
     let direction = if backward { "backward" } else { "forward" };
     let _ = element.set_selection_range_with_direction(start as u32, end as u32, direction);
 }
 
 /// Whether the selection's caret is at its start.
-pub(super) fn is_backward(element: &web_sys::HtmlTextAreaElement) -> bool {
+pub(super) fn is_backward(element: &SourceArea) -> bool {
     element.selection_direction().ok().flatten().as_deref() == Some("backward")
 }
 
 /// The selection as (anchor, caret): the caret is the end that moves.
-pub(super) fn directed_selection(element: &web_sys::HtmlTextAreaElement) -> (usize, usize) {
+pub(super) fn directed_selection(element: &SourceArea) -> (usize, usize) {
     let (start, end) = textarea_selection(element);
     let backward = element.selection_direction().ok().flatten().as_deref() == Some("backward");
     if backward { (end, start) } else { (start, end) }

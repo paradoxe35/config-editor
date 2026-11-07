@@ -130,6 +130,7 @@ fn main() {
             .iter()
             .any(|pair| pair == "readonly" || pair == "readonly=1");
         let help_schema = query_value(&flags, "schema").as_deref() == Some("help");
+        let folding = query_value(&flags, "folding").as_deref() != Some("0");
         let (schema, sample) = if help_schema {
             (HELP_SCHEMA, "")
         } else {
@@ -256,6 +257,7 @@ fn main() {
                     read_only=read_only
                     show_toolbar=false
                     show_footer=true
+                    enable_folding=folding
                 />
                 <ul class="demo__schema-warnings">
                     {move || schema_warnings.get().into_iter().map(|warning| view! { <li>{warning}</li> }).collect_view()}

@@ -130,6 +130,8 @@ export interface ConfigEditorProps {
   search?: boolean;
   /** Go to line (`Ctrl+G`). Default `true`. Changing it re-mounts. */
   goToLine?: boolean;
+  /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`. View only. Default `true`. Changing it re-mounts. */
+  folding?: boolean;
   /** Class on the editor root (inside the container). */
   editorClassName?: string;
   /** Class and style of the container element. */
@@ -170,6 +172,14 @@ export interface ConfigEditorHandle {
   pathAt(offset: number): EditorPath | null;
   /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
   reveal(path: FieldPath): boolean;
+  /** Folds the block the field at `path` opens; `false` when there is none to fold. */
+  fold(path: FieldPath): boolean;
+  /** Opens the folds around the field at `path`; `false` when none was closed. */
+  unfold(path: FieldPath): boolean;
+  /** Folds every block. */
+  foldAll(): void;
+  /** Opens every fold. */
+  unfoldAll(): void;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
 }
@@ -256,6 +266,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           showFooter: current.showFooter,
           search: current.search,
           goToLine: current.goToLine,
+          folding: current.folding,
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
@@ -327,6 +338,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.showFooter,
       props.search,
       props.goToLine,
+      props.folding,
       props.editorClassName,
       retry,
     ]);
@@ -419,6 +431,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         rangeOf: (path: FieldPath) => ask((instance) => instance.rangeOf(path), null),
         pathAt: (offset: number) => ask((instance) => instance.pathAt(offset), null),
         reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
+        fold: (path: FieldPath) => ask((instance) => instance.fold(path), false),
+        unfold: (path: FieldPath) => ask((instance) => instance.unfold(path), false),
+        foldAll: () => guard((instance) => instance.foldAll()),
+        unfoldAll: () => guard((instance) => instance.unfoldAll()),
         focus: () => guard((instance) => instance.focus()),
         setValue(value: string) {
           if (typeof value !== "string") {

@@ -51,13 +51,12 @@ fn follow_value(state: EditorState, value: Signal<String>) {
             // Keep the caret on the same text: write the new value here and
             // map the caret through the change, so the later `prop:value`
             // (identical text) leaves the selection alone.
-            if let Some(element) = state.textarea() {
-                let (start, end) = textarea_selection(&element);
+            let selection = state.textarea().map(|element| textarea_selection(&element));
+            state.write_text(edit.clone());
+            if let (Some(element), Some((start, end))) = (state.textarea(), selection) {
                 let map = |offset: usize| map_through_change(&current, &edit, offset);
-                element.set_value(&edit);
                 let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
             }
-            state.source.set(edit);
             state.redetect_indent();
         }
     });
@@ -363,7 +362,9 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                 callback.run(next);
             }
             state.diagnosed_text.set(converted.clone());
-            state.source.set(converted);
+            // Another language's lines: the folds do not carry over.
+            state.folds().folded.set(Vec::new());
+            state.write_text(converted);
             state.redetect_indent();
         }
         Err(error) => {

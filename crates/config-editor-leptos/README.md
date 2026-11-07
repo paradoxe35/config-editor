@@ -91,6 +91,7 @@ document from code (a Save button) to send an edit still waiting first.
 | `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
 | `enable_search`                | `bool`                                     | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). When `false`, those keys are left to the browser.                                       |
 | `enable_go_to_line`            | `bool`                                     | `true`           | Go to line (`Ctrl+G`). When `false`, the key is left to the browser.                                                                 |
+| `enable_folding`               | `bool`                                     | `true`           | Folding by structure: gutter chevrons and the folding keys; see [Folding](#folding).                                                 |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -171,6 +172,9 @@ view! {
 | `path_at(position)`    | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                         |
 | `current_path()`       | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                       |
 | `reveal(path)`         | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                      |
+| `fold(path)` / `unfold(path)` | Fold the block the field's key opens / open the folds around the field; `false` when there was nothing to do.                                                                     |
+| `fold_all()` / `unfold_all()` | Fold every block / open every fold.                                                                                                                                                      |
+| `folded_lines()`       | The closed folds as one-based `(first, last)` line pairs. Reactive.                                                                                                                             |
 | `focus()`, `text()`    | Focus the editor; the text on screen.                                                                                                                                                         |
 
 Positions (`TextPosition`: one-based `line` and character `column`) refer to
@@ -282,6 +286,8 @@ schema whose regex it cannot compile.
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
 | `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel      |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold    |
+| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                              |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
 | `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)          |
@@ -303,6 +309,47 @@ In a regular expression's replacement, `$1` and `${name}` insert groups, and
 path: undo, `on_change` and Edit-as all see it, and replace all is one undo
 step. Up to 10,000 matches are counted and stepped through, and only those
 in view are drawn, so large documents stay fast.
+
+### Folding
+
+Each line that starts a block gets a chevron in the gutter, shown while the
+pointer is over the gutter (always on touch screens and on folded lines),
+as in VS Code. A folded line shows `…` after its text; clicking it or the
+chevron opens the fold. What folds comes from the language
+([`fold_ranges`](#your-own-language)): YAML mappings, sequences and block
+scalars by indentation; JSON objects and arrays; TOML tables and arrays of
+tables (header to the next header) and multi-line arrays, inline tables and
+strings; HCL blocks, objects, lists, calls and heredocs; XML elements,
+comments and CDATA over several lines; runs of line comments and multi-line
+block comments everywhere. A closing bracket or tag on its own line stays
+visible.
+
+Folding only changes the view. `value`, `on_change`, undo and saving see
+the whole text, and copying or cutting a selection across a fold takes the
+hidden lines. Hidden lines are never edited by accident: an edit that
+touches a fold opens it first (typing at the end of a folded line,
+Backspace at the start of the line after it, Delete at its end, a paste or
+replace over a selection reaching into it), then applies to the whole text.
+Editing the folded line before its end keeps the fold. Whatever moves the
+caret into a fold opens it: find matches, go to line, `F8`, `Alt+F5`,
+`EditorHandle::reveal`, a click on a problem, a completion's jump, undo.
+
+A folded block that hides an error marks its line number as an error, and
+one that hides changes gets a dotted change bar. Folds move with the lines
+around them through edits and controlled `value` updates; one whose
+structure is gone (its closing bracket deleted) disappears. The line ranges
+are computed again after each edit, in one pass over the text, and the rows
+stay virtualized: a 10,000-line document folds and scrolls to its end like
+an unfolded one.
+
+```rust
+let editor = EditorHandle::new();
+view! {
+    <button on:click=move |_| editor.fold_all()>"Collapse all"</button>
+    <button on:click=move |_| { editor.unfold("/web/listen"); }>"Show web.listen"</button>
+    <ConfigEditor handle=editor value=text />
+}
+```
 
 ## Headless API
 
@@ -332,6 +379,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`, `warnings()`. Cheap to clone and share.                                                                                                                           |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
 | `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
+| `language::FoldRange`                      | A range that folds (0-based `start` stays visible, lines through `end` hide); `Language::fold_ranges(text)` lists them.                                                                                                                                   |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
 | `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                  |
 | `ChangeSummary`                            | `added`, `removed`, `modified` lines and `hunks` (separate changes), as the diff gutter counts them; `ChangeSummary::between(baseline, current)`, `is_empty()`.                                                                                             |
@@ -421,6 +469,7 @@ all.
 |                                         | `empty_value_slots`  | `Tab` walks the empty values of an accepted block                 | `empty_slots_at_line_ends`     |
 | Markup (`<k>…</k>`)                     | `closing_markup_len` | Enter after a typed value steps past the end tag the editor wrote | —                              |
 | With trailing comments                  | `comment_start`      | Edit-as keeps a line's comment when the line is renamed or moves  | `comment_start_outside_quotes` |
+| Any                                     | `fold_ranges`        | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |
 
 `config_editor_leptos::language` also exports the other helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
@@ -472,7 +521,9 @@ backgrounds `AddedLine` and `ModifiedLine`, the preview's `DiffRemoved*` and
 The find widget uses `SearchMatch`, `SearchMatchCurrent` and
 `SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
 and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
-option buttons.
+option buttons. Folding uses `FoldToggle` for the gutter chevrons (following
+the line numbers' color unless set) and `FoldChip` / `FoldChipText` for the
+`…` after a folded line.
 
 ## Cargo features
 

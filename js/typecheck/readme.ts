@@ -23,3 +23,6 @@ const env = registerLanguage({
 new ConfigEditor(element, { language: env, schema: schemaText });
 convert("env", "listen=7835\n", "yaml").text;
 await init({ module_or_path: "/assets/config_editor_bg.wasm" });
+new ConfigEditor(element, { folding: false });
+editor.foldAll(); editor.unfoldAll();
+const folded: boolean = editor.fold(["clients"]) && editor.unfold("/web/listen");

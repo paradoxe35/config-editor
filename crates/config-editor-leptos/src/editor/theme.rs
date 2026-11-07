@@ -233,6 +233,12 @@ pub enum ThemeColor {
     InputBorder,
     /// A pressed option button (match case, whole word, regex).
     ToggleActive,
+    /// Fold chevrons in the gutter.
+    FoldToggle,
+    /// The `…` chip after a folded line.
+    FoldChip,
+    /// The chip's text.
+    FoldChipText,
 }
 
 impl ThemeColor {
@@ -302,6 +308,9 @@ impl ThemeColor {
         Self::InputBackground,
         Self::InputBorder,
         Self::ToggleActive,
+        Self::FoldToggle,
+        Self::FoldChip,
+        Self::FoldChipText,
     ];
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -371,6 +380,9 @@ impl ThemeColor {
             Self::InputBackground => "--config-editor-input-bg",
             Self::InputBorder => "--config-editor-input-border",
             Self::ToggleActive => "--config-editor-toggle-active",
+            Self::FoldToggle => "--config-editor-fold-toggle",
+            Self::FoldChip => "--config-editor-fold-chip",
+            Self::FoldChipText => "--config-editor-fold-chip-text",
         }
     }
 }

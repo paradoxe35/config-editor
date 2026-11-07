@@ -132,6 +132,53 @@ impl EditorHandle {
         state.focus_range(start, end).is_some()
     }
 
+    /// Folds the block the field at `path` opens (its key's line), as its
+    /// gutter chevron does. Returns whether there was one to fold; `false`
+    /// with `enable_folding=false`.
+    pub fn fold(&self, path: impl Into<FieldPath>) -> bool {
+        let (Some(state), Some(range)) = (self.editor(), self.range_of(path)) else {
+            return false;
+        };
+        state.fold_starting_at(range.start.line - 1)
+    }
+
+    /// Opens the folds around the field at `path`, so it shows. Returns
+    /// whether one was closed.
+    pub fn unfold(&self, path: impl Into<FieldPath>) -> bool {
+        let (Some(state), Some(range)) = (self.editor(), self.range_of(path)) else {
+            return false;
+        };
+        state.unfold_line(range.start.line - 1)
+    }
+
+    /// Folds every block (`Ctrl+K Ctrl+0`).
+    pub fn fold_all(&self) {
+        if let Some(state) = self.editor() {
+            state.fold_all();
+        }
+    }
+
+    /// Opens every fold (`Ctrl+K Ctrl+J`).
+    pub fn unfold_all(&self) {
+        if let Some(state) = self.editor() {
+            state.unfold_all();
+        }
+    }
+
+    /// The folded lines, as one-based `(first, last)` pairs: the line that
+    /// stays visible and the last hidden one. Reactive.
+    pub fn folded_lines(&self) -> Vec<(usize, usize)> {
+        self.state
+            .try_get()
+            .flatten()
+            .and_then(|state| state.fold.try_get_value())
+            .and_then(|fold| fold.folded.try_get())
+            .unwrap_or_default()
+            .iter()
+            .map(|fold| (fold.start + 1, fold.end + 1))
+            .collect()
+    }
+
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
         if let Some(element) = self.editor().and_then(|state| state.textarea()) {

@@ -1,4 +1,5 @@
 use super::diff::{DiffKind, DiffPeek, LineDiff, PeekKind};
+use super::folding::FoldRange;
 use leptos::prelude::*;
 
 /// One line of the document plus its error and diff flags.
@@ -7,6 +8,22 @@ pub(super) struct RenderedLine {
     pub(super) text: String,
     pub(super) has_error: bool,
     pub(super) change: DiffKind,
+}
+
+/// The closed folds (sorted), for a folded row to show the errors it hides.
+#[derive(Clone, Copy, Default)]
+pub(super) struct RowFolds<'a> {
+    pub(super) closed: &'a [FoldRange],
+}
+
+impl RowFolds<'_> {
+    /// The last line the fold closed on `index` hides.
+    fn closed_end(&self, index: usize) -> Option<usize> {
+        self.closed
+            .binary_search_by_key(&index, |fold| fold.start)
+            .ok()
+            .map(|at| self.closed[at].end)
+    }
 }
 
 /// Everything one gutter/highlight row displays, comparable so unchanged rows
@@ -21,6 +38,8 @@ pub(super) struct RowUiState {
     pub(super) added_peek: Option<DiffPeek>,
     pub(super) deleted_peek: Option<DiffPeek>,
     pub(super) deleted_after_peek: Option<DiffPeek>,
+    /// A closed fold on this row hides a line with an error.
+    pub(super) hidden_error: bool,
 }
 
 pub(super) fn row_state(
@@ -29,12 +48,18 @@ pub(super) fn row_state(
     line_count: usize,
     line_diff: &LineDiff,
     active_line: usize,
+    folds: RowFolds<'_>,
 ) -> RowUiState {
     let line = index + 1;
     let row = rows.get(index);
     let text = row.map(|row| row.text.clone()).unwrap_or_default();
     let change = row.map(|row| row.change).unwrap_or(DiffKind::Unchanged);
+    let hidden = folds
+        .closed_end(index)
+        .and_then(|end| rows.get(index + 1..=end.min(rows.len().saturating_sub(1))))
+        .unwrap_or_default();
     RowUiState {
+        hidden_error: hidden.iter().any(|row| row.has_error),
         has_error: row.is_some_and(|row| row.has_error),
         change,
         is_active: line == active_line,
@@ -115,6 +140,7 @@ impl LineRows {
         rows: &[RenderedLine],
         line_diff: &LineDiff,
         active_line: usize,
+        folds: RowFolds<'_>,
     ) -> RwSignal<RowUiState> {
         if let Some(signal) = self
             .states
@@ -128,8 +154,14 @@ impl LineRows {
             self.states.update(|states| {
                 while states.len() <= index {
                     let missing = states.len();
-                    let signal =
-                        RwSignal::new(row_state(missing, rows, rows.len(), line_diff, active_line));
+                    let signal = RwSignal::new(row_state(
+                        missing,
+                        rows,
+                        rows.len(),
+                        line_diff,
+                        active_line,
+                        folds,
+                    ));
                     if missing == index {
                         seeded = Some(signal);
                     }
@@ -140,8 +172,9 @@ impl LineRows {
         seeded.expect("sync just pushed a signal for `index`")
     }
 
-    /// Writes the row signals in `visible` whose state changed. Rows outside
-    /// it are not rendered; they are brought up to date when they scroll in.
+    /// Writes the row signals of the `visible` lines whose state changed.
+    /// Rows outside them are not rendered; they are brought up to date when
+    /// they scroll in.
     ///
     /// Compare before `set`: `set` always notifies, which would re-render
     /// every row.
@@ -150,14 +183,20 @@ impl LineRows {
         rows: &[RenderedLine],
         line_diff: &LineDiff,
         active_line: usize,
-        visible: std::ops::Range<usize>,
+        visible: &[usize],
+        folds: RowFolds<'_>,
     ) {
-        let visible = visible.start.min(rows.len())..visible.end.min(rows.len());
+        let visible: Vec<usize> = visible
+            .iter()
+            .copied()
+            .filter(|index| *index < rows.len())
+            .collect();
+        let needed = visible.iter().max().map_or(0, |last| last + 1);
         // Extend in a separate step: calling `set` while an `update` guard is
         // held traps in the reactive runtime.
         self.owner.with(|| {
             self.states.update(|states| {
-                while states.len() < visible.end {
+                while states.len() < needed {
                     let index = states.len();
                     states.push(RwSignal::new(row_state(
                         index,
@@ -165,15 +204,16 @@ impl LineRows {
                         rows.len(),
                         line_diff,
                         active_line,
+                        folds,
                     )));
                 }
             });
         });
         let signals: Vec<RwSignal<RowUiState>> = self
             .states
-            .with_untracked(|states| states[visible.clone()].to_vec());
+            .with_untracked(|states| visible.iter().map(|index| states[*index]).collect());
         for (signal, index) in signals.iter().zip(visible) {
-            let next = row_state(index, rows, rows.len(), line_diff, active_line);
+            let next = row_state(index, rows, rows.len(), line_diff, active_line, folds);
             if signal.with_untracked(|current| current != &next) {
                 signal.set(next);
             }

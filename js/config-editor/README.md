@@ -75,6 +75,7 @@ throws, and an unknown option name is reported in the console.
 | `showFooter`     | `boolean`                    | `false`          | Problem counts and line count.                                                                                                                                                                                |
 | `search`         | `boolean`                    | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`, as in VS Code). `false` leaves those keys to the browser.                                                                                                         |
 | `goToLine`       | `boolean`                    | `true`           | Go to line (`Ctrl+G`): `line` or `line:column`. `false` leaves the key to the browser.                                                                                                                        |
+| `folding`        | `boolean`                    | `true`           | Folding by structure: gutter chevrons, `…` on folded lines, and the folding keys; see [Folding](#folding).                                                                                                    |
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
@@ -101,6 +102,7 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
 | `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
+| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding). |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
@@ -346,8 +348,32 @@ update them with the setters when they change.
 `Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
 `Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
 `Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
-reverts the change.
+reverts the change · `Ctrl+Shift+[`/`Ctrl+Shift+]` fold/unfold at the caret ·
+`Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything.
 `Cmd` works in place of `Ctrl` on macOS.
+
+### Folding
+
+Lines that start a block (a YAML mapping, a JSON object, a TOML table, an
+HCL block, an XML element, a run of comments, a multi-line string) get a
+chevron in the gutter, shown while the pointer is over it and always on a
+folded line, as in VS Code. A folded line shows `…`; clicking it or the
+chevron opens it.
+
+```ts
+editor.foldAll();
+editor.unfold("/web/listen");   // show one field; false when nothing was folded around it
+editor.fold(["clients"]);        // fold the block its key opens; false when there is none
+```
+
+Folding only changes the view: `value`, `onChange`, undo and saving see the
+whole text, and copying a selection across a fold copies the hidden lines.
+An edit that touches a fold (typing at the end of a folded line, Backspace
+at the start of the next one, a paste over a selection reaching into it)
+opens it first, and whatever moves the caret into a fold (find, go to line,
+`F8`, `reveal`, a click on a problem) opens it. A folded block hiding an
+error or changes marks its line. The textarea holds the text on screen, so
+read the document from `value`, not from the element.
 
 ## Reviewing changes
 

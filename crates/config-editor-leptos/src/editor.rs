@@ -18,6 +18,7 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod folding;
 mod go_to_line;
 mod handle;
 mod highlight;
@@ -173,6 +174,11 @@ pub fn ConfigEditor(
     /// Go to line (`Ctrl+G`). When `false`, the key is left to the browser.
     #[prop(default = true)]
     enable_go_to_line: bool,
+    /// Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and
+    /// `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for
+    /// everything (`Cmd` on macOS). View only: the text stays whole.
+    #[prop(default = true)]
+    enable_folding: bool,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
@@ -217,6 +223,7 @@ pub fn ConfigEditor(
         diff: show_diff,
         search: enable_search,
         go_to_line: enable_go_to_line,
+        folding: enable_folding,
     };
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
@@ -251,6 +258,9 @@ pub fn ConfigEditor(
     }
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
+    if enable_folding {
+        components::mount_fold_layers(state);
+    }
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());

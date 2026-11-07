@@ -16,7 +16,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             style=move || {
                 format!(
                     "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
-                    state.source.get().split('\n').count(),
+                    state.folds().projection.with(|projection| projection.rows()),
                 )
             }
             aria-label=move || format!("{} source", state.label())
@@ -33,7 +33,10 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             // `readonly`, which in Chromium also stops the caret.
             aria-readonly=move || read_only.get().to_string()
             inputmode=move || read_only.get().then_some("none")
-            prop:value=move || state.source.get()
+            prop:value=move || {
+                let projection = state.folds().projection.get();
+                state.source.with(|doc| projection.view(doc).to_string())
+            }
             on:beforeinput=move |event| input::before_input(state, &event)
             on:input=move |event| input::input(state, &event)
             on:mousemove=move |event| input::mouse_move(state, &event)
