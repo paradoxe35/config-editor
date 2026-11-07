@@ -21,6 +21,7 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+mod text;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -163,8 +164,18 @@ impl ConfigLanguage for XmlBehavior {
                 let escaped = if quote == '\'' { escaped.replace('\'', "&apos;") } else { escaped };
                 format!("{quote}{escaped}{quote}")
             }
-            _ => escape_text(&text),
+            _ => text::element_text_like(&text, written),
         }
+    }
+
+    /// Text however it is written: CDATA markers and entity references as
+    /// the characters they stand for (`<![CDATA[a < b]]>` is `a &lt; b`).
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        text::comparable_text(code)
+    }
+
+    fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        text::written_text_range(source, range)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

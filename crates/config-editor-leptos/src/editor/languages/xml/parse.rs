@@ -21,7 +21,12 @@ pub(super) struct OpenElement {
     pub(super) name: String,
     pub(super) attrs: Map<String, Value>,
     pub(super) children: Map<String, Value>,
+    /// The text between its children, each run trimmed (mixed content).
     pub(super) text: String,
+    /// All of its text exactly as read, whitespace included.
+    pub(super) exact: String,
+    /// Some of its text came from a CDATA section.
+    pub(super) cdata: bool,
     pub(super) start: usize,
     /// A top-level element marked `config-root="true"`.
     pub(super) config_root: bool,
@@ -128,6 +133,9 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
             }
             Event::CData(data) => {
                 let content = data.xml10_content();
+                if let Some(open) = stack.last_mut() {
+                    open.cdata = true;
+                }
                 add_text(
                     source,
                     event_start,
@@ -237,6 +245,8 @@ pub(super) fn open_element(
         attrs,
         children: Map::new(),
         text: String::new(),
+        exact: String::new(),
+        cdata: false,
         start,
         config_root,
     })
@@ -264,21 +274,30 @@ pub(super) fn add_text(
 /// references is joined in document order.
 pub(super) fn flush_text(pending: &mut String, stack: &mut [OpenElement]) {
     let text = std::mem::take(pending);
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return;
-    }
     if let Some(open) = stack.last_mut() {
-        open.text.push_str(trimmed);
+        open.exact.push_str(&text);
+        open.text.push_str(text.trim());
     }
 }
 
 /// Turns a finished element into its value. A text-only element is a typed
 /// scalar; children and attributes make an object, with `#text` only for mixed
 /// content. An empty element is an empty object.
+///
+/// Text beside no child element is the value exactly as an XML reader reports
+/// it, its leading and trailing whitespace and line breaks included (a
+/// number, boolean or `null` is read without the whitespace around it): what
+/// the host's program reads, so editing it elsewhere keeps it. Whitespace
+/// alone is the empty element's formatting unless written as CDATA. Beside
+/// child elements, the text runs are trimmed: there the whitespace is the
+/// children's indentation.
 pub(super) fn finalize(open: OpenElement) -> Value {
-    let text = open.text.trim().to_string();
-    if open.children.is_empty() && open.attrs.is_empty() && !text.is_empty() {
+    let text = if open.children.is_empty() {
+        if open.exact.trim().is_empty() && !open.cdata { String::new() } else { open.exact }
+    } else {
+        open.text.trim().to_string()
+    };
+    if open.children.is_empty() && open.attrs.is_empty() && (!text.is_empty() || open.cdata) {
         return typed_scalar(&text);
     }
     let mut map = open.attrs;
@@ -331,7 +350,7 @@ pub(super) fn typed_scalar(text: &str) -> Value {
         // stay text, so saving them keeps what was typed).
         _ => match serde_json::from_str::<Value>(trimmed) {
             Ok(Value::Number(number)) if number.to_string() == trimmed => Value::Number(number),
-            _ => Value::String(trimmed.to_string()),
+            _ => Value::String(text.to_string()),
         },
     }
 }

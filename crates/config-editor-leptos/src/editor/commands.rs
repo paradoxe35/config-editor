@@ -23,6 +23,32 @@ pub(super) fn line_range(source: &str, cursor: usize) -> (usize, usize) {
     )
 }
 
+/// The selection Ctrl+/ leaves in `updated`: `toggled` (UTF-16) as the
+/// language remapped it, or, when the toggle reached lines beyond the ones
+/// `selected` in `before` touched (a key's block, a folded one), those whole
+/// lines, from the first one's start to the last one's end.
+pub(super) fn toggled_selection(
+    before: &str,
+    selected: (usize, usize),
+    updated: &str,
+    toggled: (usize, usize),
+) -> (usize, usize) {
+    let lines = |text: &str, (start, end): (usize, usize)| {
+        line_at_cursor(text, end) - line_at_cursor(text, start)
+    };
+    if lines(updated, toggled) <= lines(before, selected) {
+        return toggled;
+    }
+    let (first, _) = line_range(updated, toggled.0);
+    let (_, mut last) = line_range(updated, toggled.1);
+    // Not the line break after the last line.
+    let byte = utf16_to_byte_index(updated, last);
+    if updated[..byte].ends_with('\n') {
+        last -= 1;
+    }
+    (first, last)
+}
+
 /// What Tab inserts at `cursor` (UTF-16) with no multi-line selection:
 /// spaces up to the next tab stop (`abc|` → `abc |` with 2-space indents),
 /// or a tab in tab-indented documents.
@@ -328,6 +354,28 @@ mod tab_tests {
         let source = "a:\n  b: 1\n     c: 2\n";
         let (updated, _, _) = indent_lines(source, 12, 12, true, "  ").unwrap();
         assert_eq!(updated, "a:\n  b: 1\n    c: 2\n");
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    use super::toggled_selection;
+
+    #[test]
+    fn a_toggle_reaching_other_lines_selects_them_whole() {
+        // The caret in `tls` (a folded header): its block was commented.
+        let before = "a: 1\ntls:\n  cert: x\n  key: y\nb: 2\n";
+        let updated = "a: 1\n# tls:\n#   cert: x\n#   key: y\nb: 2\n";
+        let selected = toggled_selection(before, (6, 6), updated, (8, 33));
+        assert_eq!(
+            &updated[selected.0..selected.1],
+            "# tls:\n#   cert: x\n#   key: y"
+        );
+        // Within the selected lines, the language's selection stays.
+        let before = "a: 1\nb: 2\n";
+        let updated = "# a: 1\n# b: 2\n";
+        assert_eq!(toggled_selection(before, (1, 7), updated, (3, 11)), (3, 11));
+        assert_eq!(toggled_selection(before, (1, 1), updated, (3, 3)), (3, 3));
     }
 }
 

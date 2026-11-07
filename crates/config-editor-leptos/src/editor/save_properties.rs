@@ -190,6 +190,25 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "deps = [\n  \"click\",  # cli\n  \"rich\",\n]\nlisten = 1 # l\n",
         ),
+        // Round 15 shapes: block scalars, anchored items under an anchored
+        // map, XML text with its whitespace and CDATA, JSON escapes, empty
+        // HCL blocks over lines and multi-line object attributes.
+        (
+            Language::YAML,
+            "# c\nscript: |\n  line one\n    indented\nfolded: >-\n  folded text\n  continues\nbase: &b # b\n  min_idle: 0x1F\npool:\n  <<: *b\nlist:\n  - &x two\n  - *x\nlisten: 1 # l\n",
+        ),
+        (
+            Language::XML,
+            "<!-- c -->\n<web>\n  <spaced>  keep  </spaced>\n  <script><![CDATA[a < b\n  c]]></script>\n  <lines>k1\nk2\n</lines>\n</web>\n<listen>1</listen> <!-- l -->\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"s\": \"caf\\u00e9\",\n  \"u\": \"a\\/b\",\n  \"tcp\": {\"x\": \"\\u00e9\", \"nodelay\": true},\n  \"listen\": 1\n}\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nblock {\n}\n\n# mid\nobj = {\n  a = 1\n}\nlisten = 1 # l\n",
+        ),
     ]
 }
 
@@ -551,13 +570,14 @@ fn check(
     {
         let changed =
             (op == Op::ChangeScalar).then(|| label.split('"').nth(1).unwrap_or("").to_string());
+        let moved = matches!(op, Op::DeleteItem | Op::ReorderItems);
         let restyled = restyled_values(
             host,
             host_text,
-            &old_host_value,
+            (&old_host_value, &saved_value),
             &saved,
-            &saved_value,
             changed.as_deref(),
+            moved,
         );
         if !restyled.is_empty() {
             problems.push(format!("writes untouched values differently: {restyled:?}"));
@@ -582,14 +602,16 @@ fn span_text(text: &str, span: super::language::Span) -> Option<String> {
 
 /// Scalars equal before and after a save, at the same place, whose text
 /// changed (`/h` → `"/h"`); and strings the host quoted that lost their
-/// quotes or changed their kind.
+/// quotes or changed their kind. A YAML alias parted from its anchor is
+/// written out, and an anchored item another one took the place of (`moved`)
+/// is that one.
 fn restyled_values(
     host: Language,
     before: &str,
-    old: &Value,
+    (old, new): (&Value, &Value),
     after: &str,
-    new: &Value,
     changed: Option<&str>,
+    moved: bool,
 ) -> Vec<String> {
     let mut all = Vec::new();
     pointers(old, String::new(), &mut all);
@@ -617,8 +639,9 @@ fn restyled_values(
                 .next()
                 .filter(|first| matches!(first, '"' | '\''))
         };
+        let shared = was.starts_with('*') || (moved && was.starts_with('&'));
         let restyled = if now == value {
-            was != is
+            was != is && !shared
         } else {
             changed == Some(pointer.as_str())
                 && now.is_string()
