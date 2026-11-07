@@ -167,7 +167,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (149 texts)</summary>
+<summary>Every text and its default (151 texts)</summary>
 
 | Key                         | Default                                                                                                    |                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -295,6 +295,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `secretHint`                | `"Keeps the current secret unless you replace it"`                                                         | The hover text of a secret placeholder, unless the host gives one.                                                           |
 | `secretValue`               | `"the secret value"`                                                                                       | What a schema problem says instead of a secret field's value.                                                                |
 | `unknownPlaceholder`        | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field.                                                                      |
+| `movedPlaceholder`          | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"`  | One of the host's placeholders outside the field it stands in.                                                               |
 | `envReference`              | `"Read the secret from an environment variable"`                                                           | The detail of the `${…}` reference suggestion.                                                                               |
 | `fileReference`             | `"Read the secret from a file"`                                                                            | The detail of the `file:` reference suggestion.                                                                              |
 | `otherReference`            | `"A reference starting with {prefix}"`                                                                     | The detail of another reference suggestion.                                                                                  |
@@ -312,6 +313,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `editCannotShow`            | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"`                        | A value the edited language cannot show exactly (Edit-as).                                                                   |
 | `notSaved`                  | `"Not saved as {host}: {error}"`                                                                           | An edit the host's language cannot save (Edit-as).                                                                           |
 | `noNull`                    | `"{host} has no null value (at {pointer})"`                                                                | A null the host's language cannot write (Edit-as).                                                                           |
+| `noNonFinite`               | `"{host} has no infinity or NaN (at {pointer})"`                                                           | An infinity or NaN the host's language has no number for (Edit-as).                                                          |
 | `cannotEditAs`              | `"Cannot edit this {host} as {edit}: {error}"`                                                             | A host document that does not convert for editing.                                                                           |
 | `cannotSwitch`              | `"Cannot switch to {edit} yet: {error}"`                                                                   | An Edit-as switch waiting until the document converts.                                                                       |
 | `tabList`                   | `"Open files"`                                                                                             | The tab list's accessible name, unless the host gives one.                                                                   |
