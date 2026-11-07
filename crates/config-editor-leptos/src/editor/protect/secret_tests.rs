@@ -24,12 +24,12 @@ const SCHEMA: &str = r#"{
   }
 }"#;
 
-const SECRET: &str = "«secret 3f2a»";
-const PIN: &str = "«secret 0b1c»";
+pub(super) const SECRET: &str = "«secret 3f2a»";
+pub(super) const PIN: &str = "«secret 0b1c»";
 const ID: &str = "«secret 9d»";
 
 /// The same document in every language, holding three placeholders.
-fn documents() -> Vec<(Language, String)> {
+pub(super) fn documents() -> Vec<(Language, String)> {
     vec![
         (
             Language::YAML,
@@ -60,7 +60,7 @@ fn matcher() -> SecretMatcher {
     SecretMatcher::new(&SecretOptions::default())
 }
 
-fn schema() -> Value {
+pub(super) fn schema() -> Value {
     serde_json::from_str(SCHEMA).unwrap()
 }
 
@@ -79,7 +79,7 @@ fn placeholders_survive_every_conversion_and_save() {
     let schema = schema();
     let mut failures = Vec::new();
     for (host, host_text) in documents() {
-        let known = matcher().known(&host_text);
+        let known = matcher().known(host.behavior(), &host_text);
         if known.len() != 3 {
             failures.push(format!("{host}: known {known:?}"));
             continue;
@@ -95,7 +95,7 @@ fn placeholders_survive_every_conversion_and_save() {
                     continue;
                 }
             };
-            if locate(&shown, &known).len() != 3 {
+            if locate(edit.behavior(), &shown, &known).len() != 3 {
                 failures.push(format!("{host} as {edit}: tokens lost in {shown:?}"));
                 continue;
             }
@@ -157,9 +157,33 @@ const PIECES: &[&str] = &[
 ];
 
 /// Random edits in every language pair, each widened over the placeholders
-/// it touches as the editor does: no placeholder is ever cut, in the text
-/// on screen or in the saved host, and every saved one is the host's token
-/// byte-for-byte.
+/// it touches as the editor does: no real placeholder is ever cut in the
+/// text on screen, and a save cuts none.
+/// Whether the edit from `before` to `after` takes part of one of `tokens`
+/// (UTF-16 ranges in `before`) and not all of it.
+fn cuts_a_token(tokens: &[std::ops::Range<usize>], before: &str, after: &str) -> bool {
+    let old: Vec<u16> = before.encode_utf16().collect();
+    let new: Vec<u16> = after.encode_utf16().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix.min(new.len())..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let region = prefix..old.len() - suffix;
+    tokens.iter().any(|token| {
+        let inside = token.start < region.start && region.start < token.end;
+        let overlaps = region.start < token.end && token.start < region.end;
+        let covers = region.start <= token.start && token.end <= region.end;
+        if region.is_empty() {
+            inside
+        } else {
+            overlaps && !covers
+        }
+    })
+}
+
 #[test]
 fn random_edits_never_cut_a_placeholder() {
     let bundle = std::sync::Arc::new(build_schema(SCHEMA).unwrap());
@@ -167,7 +191,7 @@ fn random_edits_never_cut_a_placeholder() {
     let mut random = Random(0x2545_f491_4f6c_dd1d);
     let mut saves = 0;
     for (host, host_text) in documents() {
-        let known = matcher().known(&host_text);
+        let known = matcher().known(host.behavior(), &host_text);
         for (edit, _) in documents() {
             let bridge = Bridge::new(host, edit, Some(bundle.clone()));
             let mut shown = match &bridge {
@@ -175,7 +199,7 @@ fn random_edits_never_cut_a_placeholder() {
                 None => host_text.clone(),
             };
             let mut saved_host = host_text.clone();
-            let mut tokens = locate(&shown, &known);
+            let mut tokens = locate(edit.behavior(), &shown, &known);
             for step in 0..120 {
                 let units: Vec<u16> = shown.encode_utf16().collect();
                 let start = random.below(units.len() + 1);
@@ -188,7 +212,7 @@ fn random_edits_never_cut_a_placeholder() {
                     Some((widened, _, _)) => widened,
                     None => edited,
                 };
-                if !no_cut_tokens(&edited) {
+                if cuts_a_token(&tokens, &shown, &edited) {
                     failures.push(format!(
                         "{host} as {edit}, step {step}: {piece:?} at {start}..{end} cut a token:\n{shown}\n→\n{edited}"
                     ));
@@ -199,7 +223,7 @@ fn random_edits_never_cut_a_placeholder() {
                     continue;
                 }
                 shown = edited;
-                tokens = locate(&shown, &known);
+                tokens = locate(edit.behavior(), &shown, &known);
                 let converted = match &bridge {
                     Some(bridge) => bridge
                         .to_host(&shown, &saved_host)
@@ -207,7 +231,9 @@ fn random_edits_never_cut_a_placeholder() {
                     None => Ok(shown.clone()),
                 };
                 if let Ok(converted) = converted {
-                    if !no_cut_tokens(&converted) {
+                    // A token moved out of its field is plain text, which
+                    // the user may have edited; the conversion cuts none.
+                    if no_cut_tokens(&shown) && !no_cut_tokens(&converted) {
                         failures.push(format!(
                             "{host} as {edit}, step {step}: saved a cut token: {converted}"
                         ));
@@ -234,10 +260,10 @@ fn an_untouched_placeholder_passes_the_schema_check_in_every_language() {
     let bundle = build_schema(SCHEMA).unwrap();
     let mut failures = Vec::new();
     for (language, text) in documents() {
-        let accepted: Vec<String> = matcher()
-            .known(&text)
+        let accepted: Vec<(String, String)> = matcher()
+            .known(language.behavior(), &text)
             .into_iter()
-            .map(|(token, _)| token)
+            .map(|known| (known.token, known.pointer))
             .collect();
         let problems = validate_with(
             &text,
@@ -294,13 +320,15 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
     let schema = schema();
     let mut failures = Vec::new();
     for (language, text) in documents() {
-        let known = matcher().known(&text);
+        let known = matcher().known(language.behavior(), &text);
+        let tokens = locate(language.behavior(), &text, &known);
         let none = unknown_placeholders(
             language.behavior(),
             &text,
             &matcher(),
             &known,
-            &schema,
+            &tokens,
+            Some(&schema),
             crate::strings::default_strings(),
         );
         if !none.is_empty() {
@@ -309,12 +337,14 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
         let typed = text
             .replacen(SECRET, "«secret beef»", 1)
             .replacen('a', "«secret 77»", 1);
+        let typed_tokens = locate(language.behavior(), &typed, &known);
         let flagged = unknown_placeholders(
             language.behavior(),
             &typed,
             &matcher(),
             &known,
-            &schema,
+            &typed_tokens,
+            Some(&schema),
             crate::strings::default_strings(),
         );
         // The one in `secret`, not the look-alike in `name`.

@@ -73,6 +73,14 @@ pub(crate) fn unknown_placeholder(strings: &EditorStrings, pointer: &str) -> Str
     fill(&strings.unknown_placeholder, &[("pointer", &pointer)])
 }
 
+/// One of the host's placeholders outside the field it stands in.
+pub(crate) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &str) -> String {
+    fill(
+        &strings.moved_placeholder,
+        &[("pointer", &pointer), ("owner", &owner)],
+    )
+}
+
 /// What a reference suggestion is, in its detail.
 pub(crate) fn reference_detail(strings: &EditorStrings, prefix: &str) -> String {
     match prefix {

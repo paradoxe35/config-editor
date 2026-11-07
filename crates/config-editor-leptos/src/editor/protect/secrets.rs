@@ -11,25 +11,29 @@ use web_sys::KeyboardEvent;
 
 use super::super::edit::Edit;
 use super::super::input::edit_range;
+use super::super::language::ConfigLanguage;
 use super::super::state::{EditorState, directed_selection};
-use super::tokens::{SecretMatcher, SecretOptions, follow, locate, snap, snap_selection, widen};
+use super::tokens::{Known, SecretMatcher, SecretOptions, locate, snap, snap_selection, widen};
+
+/// A text and the language it is written in.
+type Written<'a> = (&'static dyn ConfigLanguage, &'a str);
 
 /// The secret placeholders of one editor.
 #[derive(Clone, Copy)]
 pub(crate) struct SecretState {
     pub(crate) options: StoredValue<SecretOptions>,
     pub(crate) matcher: StoredValue<Arc<SecretMatcher>>,
-    /// The tokens the host's text holds, with how often.
-    pub(crate) known: RwSignal<Vec<(String, usize)>>,
+    /// The tokens the host's text holds, each with its field and how often.
+    pub(crate) known: RwSignal<Vec<Known>>,
     /// UTF-16 ranges of the real tokens in the text on screen.
     pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
 }
 
 impl SecretState {
-    pub(crate) fn new(options: SecretOptions, host_text: &str, shown: &str) -> Self {
+    pub(crate) fn new(options: SecretOptions, host: Written<'_>, shown: Written<'_>) -> Self {
         let matcher = SecretMatcher::new(&options);
-        let known = matcher.known(host_text);
-        let tokens = locate(shown, &known);
+        let known = matcher.known(host.0, host.1);
+        let tokens = locate(shown.0, shown.1, &known);
         SecretState {
             options: StoredValue::new(options),
             matcher: StoredValue::new(Arc::new(matcher)),
@@ -38,10 +42,14 @@ impl SecretState {
         }
     }
 
-    /// The host's tokens, as text.
-    pub(crate) fn known_tokens(&self) -> Vec<String> {
-        self.known
-            .with(|known| known.iter().map(|(token, _)| token.clone()).collect())
+    /// The host's tokens, each with the field it stands in.
+    pub(crate) fn known_tokens(&self) -> Vec<(String, String)> {
+        self.known.with(|known| {
+            known
+                .iter()
+                .map(|known| (known.token.clone(), known.pointer.clone()))
+                .collect()
+        })
     }
 }
 
@@ -62,18 +70,20 @@ impl EditorState {
         }
     }
 
-    /// Follows an applied edit with the placeholders' places.
-    pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
+    /// Finds the placeholders again after an applied edit, each in its own
+    /// field: a key renamed above one, or the token pasted elsewhere, leaves
+    /// it plain; put back into its own field it is real again.
+    pub(crate) fn follow_tokens(&self, after: &str) {
         let secrets = self.protect.secrets;
-        if secrets.tokens.with_untracked(Vec::is_empty) {
+        if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
-        let (start, end) = edit_range(before, after, caret);
-        let inserted = (after.encode_utf16().count() + end - start)
-            .saturating_sub(before.encode_utf16().count());
-        secrets
-            .tokens
-            .update(|tokens| *tokens = follow(tokens, &(start..end), inserted));
+        let tokens = secrets
+            .known
+            .with_untracked(|known| locate(self.behavior(), after, known));
+        if secrets.tokens.with_untracked(|current| *current != tokens) {
+            secrets.tokens.set(tokens);
+        }
     }
 
     /// Finds the placeholders again in a text replaced whole (a host
@@ -82,9 +92,12 @@ impl EditorState {
     pub(crate) fn rescan_tokens(&self, host_changed: bool) {
         let secrets = self.protect.secrets;
         if host_changed {
-            let known = secrets
-                .matcher
-                .with_value(|matcher| self.sync.host_text.with_value(|host| matcher.known(host)));
+            let host = self.config.host_language.behavior();
+            let known = secrets.matcher.with_value(|matcher| {
+                self.sync
+                    .host_text
+                    .with_value(|text| matcher.known(host, text))
+            });
             if secrets.known.with_untracked(|current| *current != known) {
                 secrets.known.set(known);
             }
@@ -93,7 +106,9 @@ impl EditorState {
             if known.is_empty() {
                 return Vec::new();
             }
-            self.doc.text.with_untracked(|text| locate(text, known))
+            self.doc
+                .text
+                .with_untracked(|text| locate(self.behavior(), text, known))
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
@@ -104,7 +119,10 @@ impl EditorState {
     /// reloaded baseline) as real, and finds them in the text on screen.
     pub(crate) fn adopt_host_tokens(&self, host: &str) {
         let secrets = self.protect.secrets;
-        let known = secrets.matcher.with_value(|matcher| matcher.known(host));
+        let language = self.config.host_language.behavior();
+        let known = secrets
+            .matcher
+            .with_value(|matcher| matcher.known(language, host));
         if secrets.known.with_untracked(|current| *current != known) {
             secrets.known.set(known);
         }

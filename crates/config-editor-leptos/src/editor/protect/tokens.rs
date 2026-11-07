@@ -1,14 +1,47 @@
 //! Secret placeholders: tokens such as `«secret 3f2a»` the host writes in
-//! place of real secrets. Only the tokens the host gave are real; each is
-//! atomic (the caret never lands inside one, and an edit touching one
-//! replaces it whole), and its place is followed through every edit.
+//! place of real secrets. A token is real only in the field the host gave
+//! it in (the path whose value held it), at most as often as there: moved
+//! into another field (pasted, or its key renamed) it is plain text and
+//! flagged, so it can never stand for another field's secret; put back in
+//! its own field it is real again, since the value is then what the host
+//! gave. Each real token is atomic (the caret never lands inside one, and
+//! an edit touching one replaces it whole).
 
 use std::ops::Range;
 
 use leptos::prelude::Callable;
 use leptos::prelude::Callback;
 
+use super::super::language::ConfigLanguage;
+use super::super::paths::path_at;
 use super::texts;
+
+/// A token of the host's text: the field it stands in, and how often that
+/// field's value holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Known {
+    pub(crate) token: String,
+    /// JSON pointer of the field (see [`same_field`]).
+    pub(crate) pointer: String,
+    pub(crate) count: usize,
+}
+
+/// Whether two pointers name the same field, in languages that write a
+/// lone list item without its `/0` (XML, HCL blocks) or with it.
+pub(crate) fn same_field(one: &str, other: &str) -> bool {
+    let plain = |pointer: &str| {
+        let lone = format!("{pointer}/").replace("/0/", "/");
+        lone.trim_end_matches('/').to_string()
+    };
+    one == other || plain(one) == plain(other)
+}
+
+/// The pointer of the field holding the token at byte `start` of `text`.
+fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: usize) -> String {
+    path_at(behavior, text, text[..start].encode_utf16().count())
+        .map(|path| path.to_pointer())
+        .unwrap_or_default()
+}
 
 /// How the editor treats secret placeholders, for the `secrets` prop.
 ///
@@ -24,8 +57,10 @@ use super::texts;
 #[non_exhaustive]
 pub struct SecretOptions {
     /// A regular expression matching placeholder tokens (default
-    /// `«secret [0-9a-f]+»`). A token is real only when the host's own
-    /// value holds it: typed or pasted look-alikes stay plain text.
+    /// `«secret [0-9a-f]+»`). A token is real only in the field whose
+    /// value the host gave it in: anywhere else (typed, pasted, or under a
+    /// renamed key) it is plain text, and flagged when it is one of the
+    /// host's.
     pub placeholder: String,
     /// Decides which matched tokens are real placeholders, after the
     /// pattern (and before the check that the host's value holds them).
@@ -132,34 +167,59 @@ impl SecretMatcher {
             .collect()
     }
 
-    /// The tokens of the host's `text`, each once, with how often it holds
-    /// it.
-    pub(crate) fn known(&self, text: &str) -> Vec<(String, usize)> {
-        let mut known: Vec<(String, usize)> = Vec::new();
+    /// The tokens of the host's `text` (written in `behavior`), each once
+    /// per field, with how often that field holds it.
+    pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
+        let mut known: Vec<Known> = Vec::new();
         for range in self.find(text) {
+            let pointer = field_at(behavior, text, range.start);
             let token = &text[range];
-            match known.iter_mut().find(|(seen, _)| seen == token) {
-                Some((_, count)) => *count += 1,
-                None => known.push((token.to_string(), 1)),
+            match known
+                .iter_mut()
+                .find(|seen| seen.token == token && same_field(&seen.pointer, &pointer))
+            {
+                Some(seen) => seen.count += 1,
+                None => known.push(Known {
+                    token: token.to_string(),
+                    pointer,
+                    count: 1,
+                }),
             }
         }
         known
     }
 }
 
-/// UTF-16 ranges of the real tokens in `text`: each `known` token where it
-/// is written, at most as often as the host wrote it, first ones first.
-pub(crate) fn locate(text: &str, known: &[(String, usize)]) -> Vec<Range<usize>> {
+/// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
+/// each `known` token in its own field, at most as often as the host wrote
+/// it there, first ones first.
+pub(crate) fn locate(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    known: &[Known],
+) -> Vec<Range<usize>> {
     let mut found: Vec<Range<usize>> = Vec::new();
-    for (token, count) in known {
-        found.extend(
-            text.match_indices(token.as_str())
-                .take(*count)
-                .map(|(byte, token)| {
-                    let start = text[..byte].encode_utf16().count();
-                    start..start + token.encode_utf16().count()
-                }),
-        );
+    let mut tokens: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
+    tokens.sort_unstable();
+    tokens.dedup();
+    for token in tokens {
+        let mut left: Vec<(&str, usize)> = known
+            .iter()
+            .filter(|known| known.token == token)
+            .map(|known| (known.pointer.as_str(), known.count))
+            .collect();
+        for (byte, written) in text.match_indices(token) {
+            let pointer = field_at(behavior, text, byte);
+            let Some((_, count)) = left
+                .iter_mut()
+                .find(|(field, count)| *count > 0 && same_field(field, &pointer))
+            else {
+                continue;
+            };
+            *count -= 1;
+            let start = text[..byte].encode_utf16().count();
+            found.push(start..start + written.encode_utf16().count());
+        }
     }
     found.sort_by_key(|range| range.start);
     found.dedup_by(|later, earlier| later.start < earlier.end);
@@ -217,29 +277,6 @@ fn cuts(token: &Range<usize>, region: &Range<usize>) -> bool {
     overlaps && !covers
 }
 
-/// The tokens after an edit replaced `region` (UTF-16 in the old text)
-/// with `inserted_len` units: those before stay, those after shift, those
-/// it touched are gone.
-pub(crate) fn follow(
-    tokens: &[Range<usize>],
-    region: &Range<usize>,
-    inserted_len: usize,
-) -> Vec<Range<usize>> {
-    tokens
-        .iter()
-        .filter_map(|token| {
-            if token.end <= region.start {
-                Some(token.clone())
-            } else if token.start >= region.end {
-                let shift = |at: usize| at + inserted_len - region.len();
-                Some(shift(token.start)..shift(token.end))
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
 /// UTF-16 `offset` moved out of any token: to the edge it was moving
 /// towards (`forward`), or the nearest one.
 pub(crate) fn snap(tokens: &[Range<usize>], offset: usize, forward: Option<bool>) -> usize {
@@ -275,22 +312,38 @@ mod tests {
 
     const TOKEN: &str = "«secret 3f2a»";
 
+    #[cfg(all(feature = "yaml", feature = "json"))]
     #[test]
-    fn only_host_tokens_are_real_and_at_most_as_often() {
+    fn only_host_tokens_are_real_in_their_own_field_and_at_most_as_often() {
+        use super::super::super::Language;
         let matcher = SecretMatcher::new(&SecretOptions::default());
         let host = format!("a: {TOKEN}\nb: «secret zz»\n");
-        let known = matcher.known(&host);
-        assert_eq!(known, vec![(TOKEN.to_string(), 1)]);
-        let shown = format!("{{\"a\": \"{TOKEN}\", \"c\": \"{TOKEN}\"}}");
+        let yaml = Language::YAML.behavior();
+        let known = matcher.known(yaml, &host);
+        assert_eq!(
+            known,
+            vec![Known {
+                token: TOKEN.to_string(),
+                pointer: "/a".to_string(),
+                count: 1
+            }]
+        );
+        // Shown as JSON: real in `a`, plain in `c`.
+        let shown = format!("{{\"c\": \"{TOKEN}\", \"a\": \"{TOKEN}\"}}");
         let start = shown
-            .find(TOKEN)
+            .rfind(TOKEN)
             .map(|at| shown[..at].encode_utf16().count())
             .unwrap();
-        assert_eq!(locate(&shown, &known), vec![start..start + 13]);
+        let json = Language::JSON.behavior();
+        assert_eq!(locate(json, &shown, &known), vec![start..start + 13]);
         let custom = SecretMatcher::new(
             &SecretOptions::default().with_matcher(|token| token.ends_with("2a»")),
         );
-        assert_eq!(custom.known("x: «secret 11»\ny: «secret 2a»").len(), 1);
+        assert_eq!(
+            custom.known(yaml, "x: «secret 11»\ny: «secret 2a»").len(),
+            1
+        );
+        assert!(same_field("/a/0/b", "/a/b") && !same_field("/a", "/b"));
     }
 
     #[test]
@@ -326,12 +379,8 @@ mod tests {
     }
 
     #[test]
-    fn tokens_follow_edits_and_the_caret_snaps_out() {
+    fn the_caret_snaps_out_of_tokens() {
         let tokens = vec![3..16, 20..33];
-        assert_eq!(follow(&tokens, &(0..0), 2), vec![5..18, 22..35]);
-        assert_eq!(follow(&tokens, &(16..16), 1), vec![3..16, 21..34]);
-        assert_eq!(follow(&tokens, &(3..3), 1), vec![4..17, 21..34]);
-        assert_eq!(follow(&tokens, &(10..12), 0), vec![18..31]);
         assert_eq!(snap(&tokens, 5, None), 3);
         assert_eq!(snap(&tokens, 14, None), 16);
         assert_eq!(snap(&tokens, 5, Some(true)), 16);

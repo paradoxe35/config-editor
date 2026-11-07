@@ -432,8 +432,8 @@ pub(super) fn validate(
 }
 
 /// [`validate`], accepting a field whose whole value is one of `accepted`
-/// (the host's secret placeholders, standing for the current secret)
-/// whatever its schema says: no `pattern`, `format`, length or type
+/// in its own field (the host's secret placeholders, each with the field it
+/// stands for the current secret of) whatever its schema says: no `pattern`, `format`, length or type
 /// problem is reported on it. Messages never quote a secret field's value.
 pub(super) fn validate_with(
     source: &str,
@@ -441,7 +441,7 @@ pub(super) fn validate_with(
     schema_error: Option<&str>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
-    accepted: &[String],
+    accepted: &[(String, String)],
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     if !enabled {
@@ -672,7 +672,7 @@ pub(super) fn validate_with(
 
 /// Pointers of the values of `document` that are one of `accepted`.
 #[cfg(feature = "schema-validation")]
-fn accepted_pointers(document: &Value, accepted: &[String]) -> Vec<String> {
+fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
     }
@@ -680,7 +680,11 @@ fn accepted_pointers(document: &Value, accepted: &[String]) -> Vec<String> {
     let mut stack = vec![(String::new(), document)];
     while let Some((pointer, value)) = stack.pop() {
         match value {
-            Value::String(text) if accepted.iter().any(|token| token == text) => {
+            Value::String(text)
+                if accepted.iter().any(|(token, field)| {
+                    token == text && super::protect::same_field(field, &pointer)
+                }) =>
+            {
                 found.push(pointer)
             }
             Value::Object(map) => stack.extend(

@@ -37,6 +37,7 @@ pub(crate) use save::ReadOnlyChange;
 pub(crate) use suggest::{Around, adjust as adjust_suggestions};
 pub(crate) use texts::{save_refused, skipped_matches};
 pub use tokens::SecretOptions;
+pub(crate) use tokens::same_field;
 pub(crate) use view::{LineMarks, line_marks};
 
 #[cfg(all(
@@ -48,6 +49,15 @@ pub(crate) use view::{LineMarks, line_marks};
     feature = "xml"
 ))]
 mod extend_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_token_tests;
 #[cfg(all(
     test,
     feature = "yaml",

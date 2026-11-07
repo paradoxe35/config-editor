@@ -86,7 +86,13 @@ impl ProtectState {
             host_text,
         } = inputs;
         let secrets = host_text.with_value(|host| {
-            source.with_untracked(|shown| SecretState::new(secrets, host, shown))
+            source.with_untracked(|shown| {
+                SecretState::new(
+                    secrets,
+                    (host_language.behavior(), host),
+                    (edit_language.get_untracked().behavior(), shown),
+                )
+            })
         });
         let local =
             RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
@@ -280,7 +286,7 @@ impl EditorState {
     /// Follows an applied edit with what is kept by position (the host's
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
-        self.follow_tokens(before, after, caret);
+        self.follow_tokens(after);
         if self.protect.ranges.with_untracked(Vec::is_empty) {
             return;
         }

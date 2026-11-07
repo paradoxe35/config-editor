@@ -83,18 +83,21 @@ impl ProblemsState {
                     };
                     found.extend(load_problems.with(worded));
                     found.extend(conversion_problems.with(worded));
-                    if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
+                    let marking = schema
+                        .as_deref()
+                        .filter(|bundle| bundle.has_marks)
+                        .map(|bundle| &bundle.schema);
+                    let secrets = protect.secrets;
+                    if marking.is_some() || secrets.known.with(|known| !known.is_empty()) {
                         found.extend(diagnosed_text.with(|text| {
-                            protect.secrets.matcher.with_value(|matcher| {
-                                protect.secrets.known.with(|known| {
-                                    unknown_placeholders(
-                                        behavior,
-                                        text,
-                                        matcher,
-                                        known,
-                                        &bundle.schema,
-                                        strings,
-                                    )
+                            secrets.matcher.with_value(|matcher| {
+                                secrets.known.with(|known| {
+                                    secrets.tokens.with(|tokens| {
+                                        unknown_placeholders(
+                                            behavior, text, matcher, known, tokens, marking,
+                                            strings,
+                                        )
+                                    })
                                 })
                             })
                         }));

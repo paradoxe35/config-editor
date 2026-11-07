@@ -332,6 +332,8 @@ pub struct EditorStrings {
     pub secret_value: String,
     /// A placeholder the host did not give, in a secret field.
     pub unknown_placeholder: String,
+    /// One of the host's placeholders outside the field it stands in.
+    pub moved_placeholder: String,
     /// The detail of the `${…}` reference suggestion.
     pub env_reference: String,
     /// The detail of the `file:` reference suggestion.
@@ -535,6 +537,9 @@ impl Default for EditorStrings {
             secret_value: text("the secret value"),
             unknown_placeholder: text(
                 "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead",
+            ),
+            moved_placeholder: text(
+                "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text",
             ),
             env_reference: text("Read the secret from an environment variable"),
             file_reference: text("Read the secret from a file"),
