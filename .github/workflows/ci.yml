@@ -66,6 +66,8 @@ jobs:
         run: npm run typecheck
       - name: Check the README contents lists
         run: node scripts/readme-toc.mjs --check
+      - name: Check the screenshot gallery
+        run: node e2e/screenshots.mjs --check
       - name: Build the demo
         run: trunk build
       - name: End-to-end tests
