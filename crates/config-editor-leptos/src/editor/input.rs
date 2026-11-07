@@ -13,6 +13,7 @@ use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
 use super::source_area::SourceArea;
 use super::state::{EditorState, textarea_selection};
+use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
 fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceArea> {
@@ -28,7 +29,7 @@ fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceA
 /// the browser would apply it to the textarea's text, where the fold's
 /// lines are missing.
 pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
-    if state.config.read_only.get_untracked() {
+    if state.config().read_only.get_untracked() {
         event.prevent_default();
         return;
     }
@@ -50,7 +51,7 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
             state.unfold_touched(reach.0, reach.1);
             return;
         }
-        state.typing.pre_edit_selection.set_value((start, end));
+        state.typing().pre_edit_selection.set_value((start, end));
     }
 }
 
@@ -139,7 +140,7 @@ pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usiz
 
 /// An edit the browser applied (typing, paste, cut, drop, IME).
 pub(super) fn input(state: EditorState, event: &web_sys::Event) {
-    if state.config.read_only.get_untracked() {
+    if state.config().read_only.get_untracked() {
         state.show_text();
         return;
     }
@@ -149,9 +150,9 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         .unwrap_or_default();
     let (latest, latest_selection) = target_textarea(state, event)
         .map(|element| (element.value(), textarea_selection(&element)))
-        .unwrap_or_else(|| (state.doc.text.get_untracked(), (0, 0)));
-    if state.typing.input_burst.with_value(Option::is_some) {
-        state.typing.input_burst.update_value(|burst| {
+        .unwrap_or_else(|| (state.doc().text.get_untracked(), (0, 0)));
+    if state.typing().input_burst.with_value(Option::is_some) {
+        state.typing().input_burst.update_value(|burst| {
             if let Some(burst) = burst {
                 burst.events += 1;
                 burst.latest = latest;
@@ -160,12 +161,15 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         });
         return;
     }
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     // Without a `beforeinput` (`execCommand`, some synthetic events) the
     // selection is read off the change when the burst is applied.
-    let selection = state.typing.pre_edit_selection.get_value();
-    state.typing.pre_edit_selection.set_value(UNKNOWN_SELECTION);
-    state.typing.input_burst.set_value(Some(InputBurst {
+    let selection = state.typing().pre_edit_selection.get_value();
+    state
+        .typing()
+        .pre_edit_selection
+        .set_value(UNKNOWN_SELECTION);
+    state.typing().input_burst.set_value(Some(InputBurst {
         before,
         selection,
         input_type,
@@ -174,12 +178,14 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         latest,
         latest_selection,
     }));
+    // Skipped if the editor unmounts first; a flush another editor or the
+    // host starts drops it then.
     PENDING.with(|pending| {
         pending
             .borrow_mut()
-            .push(Box::new(move || flush_input(state)))
+            .push(later::guarded(state, flush_input))
     });
-    queue_microtask(flush_pending_input);
+    later::soon(state, |_| flush_pending_input());
 }
 
 thread_local! {
@@ -201,7 +207,7 @@ pub fn flush_pending_input() {
 /// Applies the pending input burst, if any: one document change, one
 /// `onChange`, one undo step.
 pub(super) fn flush_input(state: EditorState) {
-    let Some(Some(burst)) = state.typing.input_burst.try_update_value(Option::take) else {
+    let Some(Some(burst)) = state.typing().input_burst.try_update_value(Option::take) else {
         return;
     };
     if state.textarea().is_none() {
@@ -210,7 +216,7 @@ pub(super) fn flush_input(state: EditorState) {
     // What the input made, on the document as it is now: a host value
     // applied since the input (a `setValue` in the same task) gets the input
     // replayed on it, and a textarea rewritten meanwhile gets it back.
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let (value, replayed_caret) = if before == burst.before {
         (burst.latest, None)
     } else {
@@ -230,8 +236,8 @@ pub(super) fn flush_input(state: EditorState) {
     };
     // Backspace with the list open refilters it instead of closing.
     let refilter = input_type == "deleteContentBackward"
-        && state.completion.requested.get_untracked()
-        && !state.completion.suggestions.with_untracked(Vec::is_empty);
+        && state.completion().requested.get_untracked()
+        && !state.completion().suggestions.with_untracked(Vec::is_empty);
     let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
     let edit = Edit::input(
         before.clone(),
@@ -245,25 +251,25 @@ pub(super) fn flush_input(state: EditorState) {
         return;
     }
     // The text as made (widened over a placeholder it cut).
-    let value = state.doc.text.get_untracked();
-    let auto_trigger = state.config.settings.auto_trigger.get_untracked()
+    let value = state.doc().text.get_untracked();
+    let auto_trigger = state.config().settings.auto_trigger.get_untracked()
         && should_auto_trigger(&input_type, &before, &value);
     if matches!(
         input_type.as_str(),
         "insertFromPaste" | "insertFromDrop" | "deleteByCut" | "deleteByDrag"
     ) {
-        state.typing.closers.update_value(Vec::clear);
+        state.typing().closers.update_value(Vec::clear);
     }
-    state.completion.placeholder.set_value(None);
-    state.completion.active.set(0);
+    state.completion().placeholder.set_value(None);
+    state.completion().active.set(0);
     // Typed text filters the list again.
-    if state.completion.replace_word.get_untracked() {
-        state.completion.replace_word.set(false);
+    if state.completion().replace_word.get_untracked() {
+        state.completion().replace_word.set(false);
     }
     if !refilter {
-        state.completion.explicit.set(false);
+        state.completion().explicit.set(false);
     }
-    state.completion.requested.set(auto_trigger || refilter);
+    state.completion().requested.set(auto_trigger || refilter);
     state.hide_hover();
     state.hide_shown_problem();
 }
@@ -274,7 +280,7 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    if !state.completion.suggestions.with_untracked(Vec::is_empty) {
+    if !state.completion().suggestions.with_untracked(Vec::is_empty) {
         state.hide_hover();
         return;
     }
@@ -284,12 +290,12 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         f64::from(event.client_y()),
     );
     let on_protected = state.hover_protected(line, column);
-    if !state.config.settings.hover_docs.get_untracked() {
+    if !state.config().settings.hover_docs.get_untracked() {
         return;
     }
-    let info = state.doc.text.with_untracked(|text| {
+    let info = state.doc().text.with_untracked(|text| {
         state
-            .config
+            .config()
             .schema
             .with_value(|schema| key_hover(text, line, column, schema.as_deref(), state.behavior()))
     });
@@ -303,10 +309,10 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     }
     let identity = (line, info.start_column, info.key.clone());
-    if state.hover.pending.get_value().as_ref() == Some(&identity) {
+    if state.hover().pending.get_value().as_ref() == Some(&identity) {
         return;
     }
-    let shown = state.hover.card.with_untracked(|card| {
+    let shown = state.hover().card.with_untracked(|card| {
         card.as_ref().is_some_and(|card| {
             card.line == line
                 && card.info.start_column == info.start_column
@@ -317,17 +323,16 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     }
     state.hide_hover();
-    state.hover.pending.set_value(Some(identity));
-    let token = state.hover.token.get_value();
+    state.hover().pending.set_value(Some(identity));
+    let token = state.hover().token.get_value();
     let style = hover_card_style(&element, line, info.start_column);
-    schedule_hover(move || {
-        // The editor may have been unmounted while this waited.
-        if state.hover.token.try_get_value() == Some(token) {
-            let _ = state.hover.pending.try_set_value(None);
-            let _ = state
-                .hover
+    schedule_hover(state, move |state| {
+        if state.hover().token.get_value() == token {
+            state.hover().pending.set_value(None);
+            state
+                .hover()
                 .card
-                .try_set(Some(HoverCard { info, line, style }));
+                .set(Some(HoverCard { info, line, style }));
         }
     });
 }
@@ -335,11 +340,11 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
 pub(super) fn blur(state: EditorState) {
     state.close_suggestions();
     state.hide_hover();
-    state.protect.hide_tip(true);
+    state.protect().hide_tip(true);
 }
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
-    state.protect.hide_tip(false);
+    state.protect().hide_tip(false);
     // The caret never lands inside a secret placeholder.
     state.snap_to_tokens();
     state.forget_typing_aids();
@@ -347,7 +352,7 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     if let Some(element) = target_textarea(state, event) {
         let (position, _) = textarea_selection(&element);
         state.note_caret(position);
-        state.completion.active.set(0);
+        state.completion().active.set(0);
         state.close_suggestions();
         state.hide_hover();
         if from_touch(event) {
@@ -370,7 +375,7 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
         f64::from(event.client_x()),
         f64::from(event.client_y()),
     );
-    let offset = state.doc.text.with_untracked(|text| {
+    let offset = state.doc().text.with_untracked(|text| {
         super::paths::TextPosition::new(line + 1, column + 1).to_offset(text)
     });
     state.press_at(offset);
@@ -395,14 +400,14 @@ fn from_touch(event: &web_sys::MouseEvent) -> bool {
 /// or selection handles, or a script. The caret follows it (the line
 /// highlight, the caret's note, `on_path_change`).
 fn selection_change(state: EditorState) {
-    if state.typing.input_burst.with_value(Option::is_some) {
+    if state.typing().input_burst.with_value(Option::is_some) {
         return;
     }
     let Some(element) = state.textarea() else {
         return;
     };
     let (start, _) = textarea_selection(&element);
-    if start != state.doc.caret.get_untracked() {
+    if start != state.doc().caret.get_untracked() {
         state.note_caret(start);
     }
 }
@@ -418,12 +423,12 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     // Whether the list was open when the key moved the caret: ArrowUp/Down
     // with it closed are caret navigation, even when the new caret position
     // would have suggestions.
-    let list_was_open = !state.completion.suggestions.with_untracked(Vec::is_empty);
+    let list_was_open = !state.completion().suggestions.with_untracked(Vec::is_empty);
     // A selection (Ctrl+A, Shift+arrows) ends any suggestion list.
-    if start != end && state.completion.requested.get_untracked() {
+    if start != end && state.completion().requested.get_untracked() {
         state.close_suggestions();
     }
-    if start != state.doc.caret.get_untracked() {
+    if start != state.doc().caret.get_untracked() {
         state.note_caret(start);
     }
     // Caret navigation never shows suggestions. ArrowUp/Down move inside an
@@ -435,10 +440,10 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     };
     if navigation {
         state.forget_typing_aids();
-        if state.completion.requested.get_untracked() {
+        if state.completion().requested.get_untracked() {
             state.close_suggestions();
-            state.completion.explicit.set(false);
-            state.completion.active.set(0);
+            state.completion().explicit.set(false);
+            state.completion().active.set(0);
         }
     }
 }
@@ -446,8 +451,8 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
 pub(super) fn scroll(state: EditorState, event: &web_sys::Event) {
     state.hide_hover();
     if let Some(element) = target_textarea(state, event) {
-        state.view.scroll_x.set(f64::from(element.scroll_left()));
-        state.view.scroll_y.set(f64::from(element.scroll_top()));
+        state.view().scroll_x.set(f64::from(element.scroll_left()));
+        state.view().scroll_y.set(f64::from(element.scroll_top()));
     }
 }
 
@@ -456,7 +461,7 @@ pub(super) fn scroll(state: EditorState, event: &web_sys::Event) {
 pub(super) fn attach_listeners(state: EditorState) {
     Effect::new(move |_| {
         use wasm_bindgen::closure::Closure;
-        let Some(element) = state.view.textarea_ref.get() else {
+        let Some(element) = state.view().textarea_ref.get() else {
             return;
         };
         let clipboard = |handler: Box<dyn Fn(web_sys::ClipboardEvent)>| {
@@ -493,7 +498,7 @@ pub(super) fn attach_listeners(state: EditorState) {
                 clipboard(Box::new(move |_| {
                     // The composition's last input first, then the seal.
                     flush_input(state);
-                    state.doc.history.update(EditHistory::seal);
+                    state.doc().history.update(EditHistory::seal);
                 })),
             ),
         ];
@@ -531,7 +536,7 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let (line_start, line_end) = line_range(&text, start);
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut line = String::from_utf16_lossy(&units[line_start..line_end]);
@@ -542,8 +547,8 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         return;
     }
     event.prevent_default();
-    state.typing.copied_line.set_value(Some(line));
-    if !cut || state.config.read_only.get_untracked() {
+    state.typing().copied_line.set_value(Some(line));
+    if !cut || state.config().read_only.get_untracked() {
         return;
     }
     // The last line takes the newline before it, leaving no empty line.
@@ -578,7 +583,7 @@ fn copy_across_folds(
     cut: bool,
 ) {
     if !state
-        .view
+        .view()
         .projection
         .with_untracked(|projection| projection.hides_within(start, end))
     {
@@ -587,14 +592,14 @@ fn copy_across_folds(
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let units: Vec<u16> = text.encode_utf16().collect();
     let selected = String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())]);
     if clipboard.set_data("text/plain", &selected).is_err() {
         return;
     }
     event.prevent_default();
-    if !cut || state.config.read_only.get_untracked() {
+    if !cut || state.config().read_only.get_untracked() {
         return;
     }
     let (updated, _) = replace_selection(&text, start, end, "");
@@ -609,23 +614,23 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     };
     let (start, end) = textarea_selection(&element);
     // The paste lands on the whole text: the folds it touches open first.
-    if !state.config.read_only.get_untracked() {
+    if !state.config().read_only.get_untracked() {
         state.unfold_touched(start, end);
     }
     let Ok(pasted) = clipboard.get_data("text/plain") else {
         return;
     };
     if start != end
-        || state.config.read_only.get_untracked()
+        || state.config().read_only.get_untracked()
         || state
-            .typing
+            .typing()
             .copied_line
             .with_value(|line| line.as_deref() != Some(pasted.as_str()))
     {
         return;
     }
     event.prevent_default();
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let (line_start, _) = line_range(&text, start);
     let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
     let caret = start + pasted.encode_utf16().count();

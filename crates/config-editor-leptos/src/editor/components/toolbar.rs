@@ -9,7 +9,7 @@ pub(crate) fn Toolbar(state: EditorState, file_name: String, has_schema: bool) -
     view! {
         <div class="config-editor__toolbar">
             <div class="config-editor__file">
-                <span class="config-editor__file-icon">{move || state.sync.edit_language.get().file_icon()}</span>
+                <span class="config-editor__file-icon">{move || state.sync().edit_language.get().file_icon()}</span>
                 <span>{file_name}</span>
             </div>
             <div class="config-editor__toolbar-meta">

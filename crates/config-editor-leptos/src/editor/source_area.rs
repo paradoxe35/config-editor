@@ -33,8 +33,8 @@ impl SourceArea {
     /// made to the textarea's text, mapped into the document.
     pub(crate) fn value(&self) -> String {
         let current = self.element.value();
-        self.state.view.projection.with_untracked(|projection| {
-            self.state.doc.text.with_untracked(|doc| {
+        self.state.view().projection.with_untracked(|projection| {
+            self.state.doc().text.with_untracked(|doc| {
                 if projection.view(doc) == current {
                     doc.clone()
                 } else {
@@ -54,7 +54,7 @@ impl SourceArea {
         let offset = offset?;
         Ok(offset.map(|offset| {
             self.state
-                .view
+                .view()
                 .projection
                 .with_untracked(|projection| projection.to_doc(offset as usize, Side::Before))
                 as u32
@@ -63,7 +63,7 @@ impl SourceArea {
 
     fn to_view(&self, offset: u32) -> u32 {
         self.state
-            .view
+            .view()
             .projection
             .with_untracked(|projection| projection.to_view(offset as usize)) as u32
     }
@@ -147,7 +147,7 @@ impl SourceArea {
     /// on its fold's row.
     pub(crate) fn row_of_line(&self, line: usize) -> usize {
         self.state
-            .view
+            .view()
             .projection
             .with_untracked(|projection| projection.row_of_line(line))
     }
@@ -155,7 +155,7 @@ impl SourceArea {
     /// The document line (0-based) on textarea row `row`.
     pub(crate) fn line_of_row(&self, row: usize) -> usize {
         self.state
-            .view
+            .view()
             .projection
             .with_untracked(|projection| projection.line_of_row(row))
     }
@@ -166,16 +166,16 @@ impl EditorState {
     /// its text changed.
     pub(super) fn show_text(&self) -> bool {
         let projection = self.with_closed_folds_untracked(|folds| {
-            self.doc
+            self.doc()
                 .text
                 .with_untracked(|doc| Projection::new(doc, folds))
         });
         let rewritten = self
-            .view
+            .view()
             .textarea_ref
             .get_untracked()
             .is_some_and(|element| {
-                self.doc.text.with_untracked(|doc| {
+                self.doc().text.with_untracked(|doc| {
                     let view = projection.view(doc);
                     let rewrite = element.value() != view;
                     if rewrite {
@@ -185,11 +185,11 @@ impl EditorState {
                 })
             });
         if self
-            .view
+            .view()
             .projection
             .with_untracked(|shown| **shown != projection)
         {
-            self.view.projection.set(Arc::new(projection));
+            self.view().projection.set(Arc::new(projection));
         }
         rewritten
     }

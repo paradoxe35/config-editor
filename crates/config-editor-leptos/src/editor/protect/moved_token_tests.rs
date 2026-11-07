@@ -21,7 +21,7 @@ fn utf16(text: &str, byte: usize) -> usize {
 /// Replaces `range` (bytes) of the shown text with `with`, as typing or a
 /// paste would.
 fn replace(state: EditorState, range: std::ops::Range<usize>, with: &str) -> bool {
-    let before = state.doc.text.get_untracked();
+    let before = state.doc().text.get_untracked();
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
@@ -30,10 +30,10 @@ fn replace(state: EditorState, range: std::ops::Range<usize>, with: &str) -> boo
 
 /// Whether the token written at byte `at` of the shown text is real.
 fn real_at(state: EditorState, at: usize) -> bool {
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let at = utf16(&text, at);
     state
-        .protect
+        .protect()
         .secrets
         .tokens
         .with_untracked(|tokens| tokens.iter().any(|token| token.start == at))
@@ -41,10 +41,10 @@ fn real_at(state: EditorState, at: usize) -> bool {
 
 /// The warnings on placeholders of the shown text.
 fn flagged(state: EditorState, language: Language) -> Vec<String> {
-    let text = state.doc.text.get_untracked();
+    let text = state.doc().text.get_untracked();
     let matcher = SecretMatcher::new(&SecretOptions::default());
     let schema = schema();
-    state.protect.secrets.known.with_untracked(|known| {
+    state.protect().secrets.known.with_untracked(|known| {
         unknown_placeholders(
             language.behavior(),
             &text,
@@ -70,10 +70,10 @@ fn a_placeholder_is_real_only_in_its_own_field_in_every_language() {
         // their first characters, and the paste still replaces it whole.
         replace(state, pin..pin + PIN.len(), SECRET);
         let pasted = pin;
-        if !state.doc.text.get_untracked()[pin..].starts_with(SECRET) {
+        if !state.doc().text.get_untracked()[pin..].starts_with(SECRET) {
             failures.push(format!(
                 "{language}: the paste over the pin's token left {:?}",
-                state.doc.text.get_untracked()
+                state.doc().text.get_untracked()
             ));
         }
         if real_at(state, pasted) {
@@ -107,13 +107,13 @@ fn a_placeholder_is_real_only_in_its_own_field_in_every_language() {
         let key = text.find("secret").unwrap();
         replace(state, key..key + "secret".len(), "secrex");
         // An XML end tag renamed too, so the text parses again.
-        let shown = state.doc.text.get_untracked();
+        let shown = state.doc().text.get_untracked();
         if let Some(close) = shown.find("</secret>") {
             replace(state, close + 2..close + 2 + "secret".len(), "secrex");
         }
         // The pause in typing checks the placeholders' fields.
         state.recheck_tokens();
-        let shown = state.doc.text.get_untracked();
+        let shown = state.doc().text.get_untracked();
         let moved = shown.find(SECRET).unwrap();
         if real_at(state, moved) {
             failures.push(format!("{language}: real under a renamed key:\n{shown}"));

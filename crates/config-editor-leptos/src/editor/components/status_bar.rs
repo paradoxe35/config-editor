@@ -13,7 +13,7 @@ use crate::strings::{counted, counted_as, fill};
 
 #[component]
 pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
-    let diagnostics = state.problems.diagnostics;
+    let diagnostics = state.problems().diagnostics;
     let first_placed = move |_| {
         let index = diagnostics.with_untracked(|problems| {
             problems
@@ -26,11 +26,11 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     };
     // Follows `read_only`, which switches without remounting.
     let offers_completions =
-        move || state.config.settings.completions.get() && !state.config.read_only.get();
+        move || state.config().settings.completions.get() && !state.config().read_only.get();
     let problem_count =
         move || state.strings(|strings| diagnostics.with(|problems| summary(strings, problems)));
     let line_total = move || {
-        let count = state.doc.text.with(|text| line_count(text));
+        let count = state.doc().text.with(|text| line_count(text));
         state.strings(|strings| counted(&strings.lines_one, &strings.lines_other, count))
     };
     view! {
@@ -40,7 +40,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
             </span>
             <span class="config-editor__status-meta">
                 <TabFocusStatus state=state />
-                <Kept when=state.config.settings.diagnostics view=move || view! {
+                <Kept when=state.config().settings.diagnostics view=move || view! {
                     <button
                         type="button"
                         class="config-editor__diagnostic-status"
@@ -62,7 +62,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                         {problem_count}
                     </button>
                 } />
-                <Kept when=state.config.settings.diff view=move || view! { <ChangeStatus state=state /> } />
+                <Kept when=state.config().settings.diff view=move || view! { <ChangeStatus state=state /> } />
                 <span class="config-editor__line-count">{line_total}</span>
             </span>
         </div>
@@ -118,7 +118,7 @@ fn hint_pieces(strings: &EditorStrings) -> Vec<HintPiece> {
 fn TabFocusStatus(state: EditorState) -> impl IntoView {
     let turn_off = move |_| toggle_tab_focus(state);
     move || {
-        state.a11y.tab_moves_focus.get().then(|| {
+        state.a11y().tab_moves_focus.get().then(|| {
             view! {
                 <button
                     type="button"

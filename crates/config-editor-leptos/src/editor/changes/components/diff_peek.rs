@@ -20,11 +20,11 @@ pub(in crate::editor) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
     // through relays (see `reactive`).
     let follows = PeekFollows {
         style: Relay::new(move || peek_style(state)),
-        read_only: Relay::new(move || state.config.read_only.get()),
+        read_only: Relay::new(move || state.config().read_only.get()),
     };
     move || {
         state
-            .changes
+            .changes()
             .peek
             .get()
             .map(|peek| view! { <Peek state=state follows=follows peek=peek /> })
@@ -42,19 +42,19 @@ struct PeekFollows {
 /// Where the open preview goes, under its line; re-measured as the text
 /// scrolls or the layout changes.
 fn peek_style(state: EditorState) -> String {
-    let Some((line, old_count, new_count)) = state.changes.peek.with(|peek| {
+    let Some((line, old_count, new_count)) = state.changes().peek.with(|peek| {
         peek.as_ref()
             .map(|peek| (peek.line, peek.before.len(), peek.after.len()))
     }) else {
         return String::new();
     };
-    state.view.layout_revision.track();
-    state.view.scroll_y.track();
-    match (state.view.textarea_ref.get(), state.view.root_ref.get()) {
+    state.view().layout_revision.track();
+    state.view().scroll_y.track();
+    match (state.view().textarea_ref.get(), state.view().root_ref.get()) {
         (Some(editor), Some(root)) => {
             // The row the line is on, folded lines skipped.
             let row = state
-                .view
+                .view()
                 .projection
                 .with(|projection| projection.row_of_line(line.saturating_sub(1)));
             peek_popup_style(&editor, &root, row + 1, old_count, new_count)
@@ -67,22 +67,22 @@ fn peek_style(state: EditorState) -> String {
 fn close_when_edited(state: EditorState) {
     Effect::new(move |_| {
         // The preview is read untracked so closing it cannot re-trigger this.
-        state.changes.diff.track();
-        state.doc.text.track();
-        let survives = state.changes.peek.with_untracked(|peek| {
+        state.changes().diff.track();
+        state.doc().text.track();
+        let survives = state.changes().peek.with_untracked(|peek| {
             peek.as_ref().is_none_or(|peek| {
                 let current: Vec<String> = state
-                    .doc
+                    .doc()
                     .text
                     .with_untracked(|text| text.split('\n').map(str::to_string).collect());
                 state
-                    .changes
+                    .changes()
                     .diff
                     .with_untracked(|line_diff| peek_survives_edit(peek, &current, line_diff))
             })
         });
         if !survives {
-            state.changes.peek.set(None);
+            state.changes().peek.set(None);
         }
     });
 }
@@ -105,7 +105,7 @@ fn revert_label(strings: &EditorStrings, span: &Option<(Range<usize>, usize)>) -
 
 /// Closes the preview; when it had the focus, the text takes it back.
 fn close(state: EditorState) {
-    state.changes.peek.set(None);
+    state.changes().peek.set(None);
     if let Some(element) = state.textarea() {
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
@@ -143,7 +143,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
     } = peek.clone();
     let read_only = follows.read_only.read();
     let revert_ref = NodeRef::<leptos::html::Button>::new();
-    let span = state.changes.diff.with_untracked(|line_diff| {
+    let span = state.changes().diff.with_untracked(|line_diff| {
         hunk_for_peek(line_diff, &peek).map(|hunk| (hunk.current.clone(), hunk.removed))
     });
     let strings = state.strings_signal();
@@ -167,9 +167,9 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
     // Opened from the keyboard: the revert button takes the focus.
     Effect::new(move |_| {
         if let Some(button) = revert_ref.get()
-            && state.changes.focus_preview.get_value()
+            && state.changes().focus_preview.get_value()
         {
-            state.changes.focus_preview.set_value(false);
+            state.changes().focus_preview.set_value(false);
             let _ = button.focus();
         }
     });

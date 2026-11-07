@@ -30,7 +30,7 @@ fn a_switch_is_undone_and_redone_with_the_caret_on_its_field() {
             let (_owner, state) = TestEditor::new(host, text).mount();
             let heard = RwSignal::new(Vec::<Language>::new());
             state
-                .sync
+                .sync()
                 .on_edit_as_change
                 .set_value(Some(Callback::new(move |language| {
                     heard.update(|heard| heard.push(language));
@@ -40,15 +40,15 @@ fn a_switch_is_undone_and_redone_with_the_caret_on_its_field() {
                 .expect("the field")
                 .start
                 .to_offset(text);
-            state.doc.caret.set(field);
+            state.doc().caret.set(field);
             switch_to(state, edit);
             let case = format!("{host} host, switched to {edit}");
-            let shown = state.doc.text.get_untracked();
-            let caret = state.doc.caret.get_untracked();
+            let shown = state.doc().text.get_untracked();
+            let caret = state.doc().caret.get_untracked();
             let on_field = edit
                 .path_at(&shown, TextPosition::from_offset(&shown, caret))
                 .map(|path| path.to_pointer());
-            if state.sync.edit_language.get_untracked() != edit {
+            if state.sync().edit_language.get_untracked() != edit {
                 failures.push(format!("{case}: not switched"));
                 continue;
             }
@@ -58,20 +58,20 @@ fn a_switch_is_undone_and_redone_with_the_caret_on_its_field() {
             // Undo: the host's language and text again.
             let undo = state.history_edit(false).expect("the switch is a step");
             state.commit(undo);
-            if state.sync.edit_language.get_untracked() != host
-                || state.doc.text.get_untracked() != text
+            if state.sync().edit_language.get_untracked() != host
+                || state.doc().text.get_untracked() != text
             {
                 failures.push(format!(
                     "{case}: undo shows {} {:?}",
-                    state.sync.edit_language.get_untracked(),
-                    state.doc.text.get_untracked()
+                    state.sync().edit_language.get_untracked(),
+                    state.doc().text.get_untracked()
                 ));
             }
             // Redo: the switch again.
             let redo = state.history_edit(true).expect("the switch to redo");
             state.commit(redo);
-            if state.sync.edit_language.get_untracked() != edit
-                || state.doc.text.get_untracked() != shown
+            if state.sync().edit_language.get_untracked() != edit
+                || state.doc().text.get_untracked() != shown
             {
                 failures.push(format!("{case}: redo does not switch again"));
             }

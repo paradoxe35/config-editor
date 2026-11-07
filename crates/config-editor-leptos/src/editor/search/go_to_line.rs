@@ -53,7 +53,7 @@ pub(super) fn parse_position(input: &str) -> Option<(usize, Option<usize>)> {
 
 /// Opens the field and focuses it.
 pub(super) fn open(state: EditorState) {
-    let go_to = state.go_to_line;
+    let go_to = state.go_to_line();
     super::super::input::flush_input(state);
     go_to.text.set(String::new());
     go_to.open.set(true);
@@ -85,13 +85,13 @@ pub(super) fn cancel(state: EditorState) {
 /// is not a position (the field stays open).
 pub(super) fn go(state: EditorState) -> bool {
     let Some((line, column)) = state
-        .go_to_line
+        .go_to_line()
         .text
         .with_untracked(|text| parse_position(text))
     else {
         return false;
     };
-    let line = line.min(state.doc.text.with_untracked(|text| line_count(text)));
+    let line = line.min(state.doc().text.with_untracked(|text| line_count(text)));
     close(state);
     state.focus_at(line, column.unwrap_or(1));
     state.forget_typing_aids();
@@ -100,13 +100,13 @@ pub(super) fn go(state: EditorState) -> bool {
 
 /// Leaving the field (a click elsewhere) closes it.
 pub(super) fn cancel_on_blur(state: EditorState) {
-    if state.go_to_line.open.get_untracked() {
+    if state.go_to_line().open.get_untracked() {
         close(state);
     }
 }
 
 fn close(state: EditorState) {
-    let go_to = state.go_to_line;
+    let go_to = state.go_to_line();
     go_to.open.set(false);
     if let Some(widget) = go_to.widget_ref.get_untracked() {
         widget.set_hidden(true);

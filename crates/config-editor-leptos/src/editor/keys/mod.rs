@@ -22,7 +22,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     state.hide_hover();
-    state.protect.hide_tip(false);
+    state.protect().hide_tip(false);
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"
@@ -40,7 +40,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     {
         return;
     }
-    if state.config.read_only.get_untracked() {
+    if state.config().read_only.get_untracked() {
         // Navigation works as usual: Escape collapses a selection (the root
         // listener closes popups); suggestions never open.
         if event.key() == "Escape" {
@@ -57,7 +57,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || navigation::next_problem(state, event)
         || typing::toggle_comments(state, event)
         || typing::join_with_next_line(state, event)
-        || (state.config.settings.auto_closing.get_untracked()
+        || (state.config().settings.auto_closing.get_untracked()
             && typing::pairs_and_tags(state, event))
         || typing::indentation(state, event);
     if handled {
@@ -90,7 +90,7 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
     if event.key() == "Escape" {
         event.prevent_default();
         state.close_suggestions();
-        state.completion.explicit.set(false);
+        state.completion().explicit.set(false);
         super::changes::close_preview(state);
         state.hide_hover();
     }
@@ -100,7 +100,8 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
 /// save dialog; without `on_save` the browser keeps the key.
 fn save_key(state: EditorState, event: &KeyboardEvent) -> bool {
     let command = (event.ctrl_key() || event.meta_key()) && !event.alt_key() && !event.shift_key();
-    let enabled = state.editing.on_save.is_some() && state.editing.save_shortcut.get_untracked();
+    let enabled =
+        state.editing().on_save.is_some() && state.editing().save_shortcut.get_untracked();
     if !enabled || !command || !event.key().eq_ignore_ascii_case("s") {
         return false;
     }

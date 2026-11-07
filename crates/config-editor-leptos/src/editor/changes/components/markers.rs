@@ -81,7 +81,7 @@ fn PeekTrigger(
     let strings = state.strings_signal();
     let label = move || strings.with(|strings| fill(label(strings), &[("line", &line)]));
     let toggle = move |_| {
-        state.changes.peek.update(|selected| {
+        state.changes().peek.update(|selected| {
             *selected = if selected.as_ref() == Some(&peek) {
                 None
             } else {
@@ -91,7 +91,7 @@ fn PeekTrigger(
     };
     let keydown = move |event: web_sys::KeyboardEvent| {
         if event.key() == "Escape" {
-            state.changes.peek.set(None);
+            state.changes().peek.set(None);
         }
     };
     view! {

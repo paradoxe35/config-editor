@@ -12,10 +12,10 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 use super::texts::problem_text;
 use crate::EditorStrings;
+use crate::reactive::later;
 use crate::strings::fill;
 
 /// How long the caret rests before the note follows it, in milliseconds.
-#[cfg(target_arch = "wasm32")]
 const NOTE_DELAY_MS: i32 = 150;
 
 /// The one-based line and character column of UTF-16 `caret` in `text`.
@@ -70,14 +70,14 @@ pub(super) fn note(
 /// Keeps the note in step with the caret, the problems and the locks.
 pub(in crate::editor) fn connect_caret_note(state: EditorState) {
     Effect::new(move |_| {
-        state.doc.caret.track();
-        state.problems.diagnostics.track();
-        state.protect.track();
-        state.config.settings.strings.track();
-        state.a11y.note_token.update_value(|token| *token += 1);
-        let token = state.a11y.note_token.get_value();
-        later(move || {
-            if state.a11y.note_token.try_get_value() == Some(token) {
+        state.doc().caret.track();
+        state.problems().diagnostics.track();
+        state.protect().track();
+        state.config().settings.strings.track();
+        state.a11y().note_token.update_value(|token| *token += 1);
+        let token = state.a11y().note_token.get_value();
+        later::after(state, NOTE_DELAY_MS, move |state| {
+            if state.a11y().note_token.get_value() == token {
                 update_note(state);
             }
         });
@@ -86,38 +86,27 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
 
 /// Writes the note for where the caret is now.
 pub(super) fn update_note(state: EditorState) {
-    let Some(caret) = state.doc.caret.try_get_untracked() else {
+    let Some(caret) = state.doc().caret.try_get_untracked() else {
         return;
     };
     let (line, column) = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| caret_position(text, caret));
     let protected = state.protected_note(caret, true);
     let note = state.strings_untracked(|strings| {
         state
-            .problems
+            .problems()
             .diagnostics
             .with_untracked(|problems| note(strings, problems, line, column, protected))
     });
-    if state.a11y.caret_note.with_untracked(|shown| *shown != note) {
-        state.a11y.caret_note.set(note);
+    if state
+        .a11y()
+        .caret_note
+        .with_untracked(|shown| *shown != note)
+    {
+        state.a11y().caret_note.set(note);
     }
-}
-
-/// Runs `run` once the caret has rested; native unit tests have no window
-/// to time it with, so there it runs now.
-fn later(run: impl FnOnce() + 'static) {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(window) = web_sys::window() {
-        use wasm_bindgen::JsCast;
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            wasm_bindgen::closure::Closure::once_into_js(run).unchecked_ref(),
-            NOTE_DELAY_MS,
-        );
-        return;
-    }
-    run();
 }
 
 /// `Alt+Enter` on a problem with a docs link opens it in a new tab: the
@@ -127,12 +116,12 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
     if event.key() != "Enter" || !plain_alt {
         return false;
     }
-    let caret = state.doc.caret.get_untracked();
+    let caret = state.doc().caret.get_untracked();
     let (line, column) = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| caret_position(text, caret));
-    let url = state.problems.diagnostics.with_untracked(|problems| {
+    let url = state.problems().diagnostics.with_untracked(|problems| {
         problems
             .iter()
             .filter(|problem| covers(problem, line, column))
@@ -152,19 +141,19 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
 /// problem there, or what the protected text there is. A tap on a phone
 /// has no hover to show them with.
 pub(in crate::editor) fn show_at_caret(state: EditorState) {
-    let caret = state.doc.caret.get_untracked();
+    let caret = state.doc().caret.get_untracked();
     let (line, column) = state
-        .doc
+        .doc()
         .text
         .with_untracked(|text| caret_position(text, caret));
-    let problem = state.problems.diagnostics.with_untracked(|problems| {
+    let problem = state.problems().diagnostics.with_untracked(|problems| {
         problems
             .iter()
             .find(|problem| covers(problem, line, column))
             .and_then(|problem| Some((problem.line?, problem.column?)))
     });
     match problem {
-        Some(position) => state.problems.current.set(Some(position)),
+        Some(position) => state.problems().current.set(Some(position)),
         None => {
             state.hover_protected(line - 1, column - 1);
         }

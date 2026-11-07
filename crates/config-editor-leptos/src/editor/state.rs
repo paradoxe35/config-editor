@@ -1,26 +1,28 @@
 //! The editor's shared state: one `Copy` handle, passed to every component
-//! and event handler, pointing at the state's parts.
+//! and event handler, to the state's parts in the reactive arena.
 //!
 //! Each part is a small group of signals defined in and owned by the module
-//! that uses it; this module only composes them:
+//! that uses it; this module only composes them, each read through its
+//! accessor:
 //!
-//! | Field        | Type                | Module          |
-//! |--------------|---------------------|-----------------|
-//! | `config`     | [`Config`]          | here            |
-//! | `doc`        | `DocState`          | `document`      |
-//! | `sync`       | `SyncState`         | `sync`          |
-//! | `view`       | `ViewState`         | `layout`        |
-//! | `completion` | `CompletionState`   | `completion`    |
-//! | `typing`     | `TypingState`       | `typing`        |
-//! | `hover`      | `HoverState`        | `hover`         |
-//! | `problems`   | `ProblemsState`     | `problems`      |
-//! | `changes`    | `ChangesState`      | `changes`       |
-//! | `search`     | `SearchState`       | `search`        |
-//! | `go_to_line` | `GoToLine`          | `search`        |
-//! | `editing`    | `HostEditing`       | `host_editing`  |
-//! | `fold`       | `FoldState`         | `folding`       |
-//! | `protect`    | `ProtectState`      | `protect`       |
-//! | `a11y`       | `A11yState`         | `a11y`          |
+//! | Accessor       | Type                | Module          |
+//! |----------------|---------------------|-----------------|
+//! | `config()`     | [`Config`]          | here            |
+//! | `doc()`        | `DocState`          | `document`      |
+//! | `sync()`       | `SyncState`         | `sync`          |
+//! | `view()`       | `ViewState`         | `layout`        |
+//! | `completion()` | `CompletionState`   | `completion`    |
+//! | `typing()`     | `TypingState`       | `typing`        |
+//! | `hover()`      | `HoverState`        | `hover`         |
+//! | `problems()`   | `ProblemsState`     | `problems`      |
+//! | `changes()`    | `ChangesState`      | `changes`       |
+//! | `search()`     | `SearchState`       | `search`        |
+//! | `go_to_line()` | `GoToLine`          | `search`        |
+//! | `editing()`    | `HostEditing`       | `host_editing`  |
+//! | `fold()`       | `FoldState`         | `folding`       |
+//! | `protect()`    | `ProtectState`      | `protect`       |
+//! | `a11y()`       | `A11yState`         | `a11y`          |
+//! | `edit_as()`    | `EditAsState`       | `edit_as`       |
 
 use std::sync::Arc;
 
@@ -57,6 +59,7 @@ use crate::{EditorSettings, EditorStrings};
 
 /// What the editor is mounted with and keeps: the host's language, the
 /// schema, the read-only switch and the settings.
+#[derive(Clone, Copy)]
 pub(super) struct Config {
     pub(super) host_language: Language,
     pub(super) schema: StoredValue<Option<Arc<SchemaBundle>>>,
@@ -90,63 +93,103 @@ pub(super) struct Init {
     pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
 }
 
-/// The editor's state, shared by every handler: one pointer to its
-/// [`EditorFields`].
+/// The editor's state, shared by every handler: one handle to its
+/// [`EditorFields`], which live in the reactive arena.
 ///
 /// Handlers and view closures capture the state by copy, and an unoptimized
 /// (debug) wasm build keeps each copy on the stack while it builds them, so
 /// the fields held inline overflowed the stack once they reached about a
-/// kilobyte. A pointer keeps every capture at one word however many fields
+/// kilobyte. A handle keeps every capture at two words however many fields
 /// there are.
 ///
-/// The fields (small signal and stored-value handles, about 1 KB) are
-/// allocated once per mounted editor and never freed: timers and other
-/// handlers may still read them after the editor unmounts, where the handles
-/// inside answer as disposed. Anything larger than a handle (the schema, a
-/// text) lives behind one, so it is freed with the editor's reactive owner.
+/// The fields belong to the editor component's owner and go with it at
+/// unmount. Read them through the group accessors (`state.doc()`,
+/// `state.sync()`, ...), one arena lookup each: code that reads a group many
+/// times takes it once (`let doc = state.doc();`). An accessor on an editor
+/// that has unmounted panics; only deferred work can reach one, and it goes
+/// through `reactive::later`, which checks first.
 #[derive(Clone, Copy)]
-pub(super) struct EditorState(&'static EditorFields);
+pub(super) struct EditorState(StoredValue<EditorFields>);
 
-impl std::ops::Deref for EditorState {
-    type Target = EditorFields;
-
-    fn deref(&self) -> &EditorFields {
-        self.0
+/// Gone with the editor's owner: deferred work skips it then (see
+/// `reactive::later`).
+impl IsDisposed for EditorState {
+    fn is_disposed(&self) -> bool {
+        self.0.is_disposed()
     }
 }
 
-/// What an [`EditorState`] points to: its parts (see the module docs).
-pub(super) struct EditorFields {
-    pub(super) config: Config,
-    pub(super) doc: DocState,
+/// Declares the groups once: the fields of [`EditorFields`] and, on
+/// [`EditorState`], one accessor per group returning it (a `Copy` struct
+/// of handles) with the field's docs.
+macro_rules! groups {
+    ($($(#[$attr:meta])* $name:ident: $group:ty,)*) => {
+        /// What an [`EditorState`] holds: its parts (see the module docs).
+        #[derive(Clone, Copy)]
+        pub(super) struct EditorFields {
+            $($(#[$attr])* $name: $group,)*
+        }
+
+        impl EditorState {
+            $(
+                $(#[$attr])*
+                pub(super) fn $name(self) -> $group {
+                    self.0
+                        .try_with_value(|fields| fields.$name)
+                        .unwrap_or_else(|| unmounted())
+                }
+            )*
+        }
+    };
+}
+
+groups! {
+    /// What the editor was mounted with (see [`Config`]).
+    config: Config,
+    /// The text, the caret and the undo history (see `document`).
+    doc: DocState,
     /// The host's text and Edit-as (see `sync`).
-    pub(super) sync: SyncState,
-    pub(super) view: ViewState,
-    pub(super) completion: CompletionState,
-    pub(super) typing: TypingState,
-    pub(super) hover: HoverState,
-    pub(super) problems: ProblemsState,
+    sync: SyncState,
+    /// Layout, scrolling and the rendered lines (see `layout`).
+    view: ViewState,
+    /// Suggestions (see `completion`).
+    completion: CompletionState,
+    /// Bursts of typing (see `typing`).
+    typing: TypingState,
+    /// The hover card (see `hover`).
+    hover: HoverState,
+    /// The problems and the diagnosed text (see `problems`).
+    problems: ProblemsState,
     /// Changes against the baseline (see `changes`).
     #[cfg(feature = "diff")]
-    pub(super) changes: ChangesState,
+    changes: ChangesState,
     /// Find and replace (see `search`).
     #[cfg(feature = "search")]
-    pub(super) search: SearchState,
+    search: SearchState,
     /// The go-to-line field (see `search`).
     #[cfg(feature = "search")]
-    pub(super) go_to_line: GoToLine,
+    go_to_line: GoToLine,
     /// Saving, the dirty flag and baseline conflicts (see `host_editing`).
-    pub(super) editing: HostEditing,
+    editing: HostEditing,
     /// Folding (see `folding`).
     #[cfg(feature = "folding")]
-    pub(super) fold: FoldState,
+    fold: FoldState,
     /// Read-only fields and secrets (see `protect`).
-    pub(super) protect: ProtectState,
+    protect: ProtectState,
     /// Leaving with the keyboard, the caret's note, announcements (see
     /// `a11y`).
-    pub(super) a11y: A11yState,
+    a11y: A11yState,
     /// The Edit-as notice (see `edit_as`).
-    pub(super) edit_as: EditAsState,
+    edit_as: EditAsState,
+}
+
+/// A group read after the editor unmounted: a hole in `reactive::later`.
+#[cold]
+#[track_caller]
+fn unmounted() -> ! {
+    panic!(
+        "the editor's state was read after it unmounted: deferred work must go through reactive::later"
+    )
 }
 
 impl EditorState {
@@ -253,7 +296,7 @@ impl EditorState {
         );
         #[cfg(feature = "folding")]
         let fold = FoldState::new(doc.text, sync.edit_language, settings.folding);
-        let state = Self(Box::leak(Box::new(EditorFields {
+        let state = Self(StoredValue::new(EditorFields {
             #[cfg(feature = "search")]
             search: SearchState::new(doc.text),
             #[cfg(feature = "search")]
@@ -274,21 +317,21 @@ impl EditorState {
             #[cfg(feature = "folding")]
             fold,
             protect,
-        })));
+        }));
         (state, pending)
     }
 
     /// Reads the built-in texts, tracked: a view reading them shows new
     /// texts at once.
     pub(super) fn strings<R>(&self, read: impl FnOnce(&EditorStrings) -> R) -> R {
-        self.config.settings.strings.with(read)
+        self.config().settings.strings.with(read)
     }
 
     /// The built-in texts as a signal the calling view owns: what a view
     /// that comes and goes reads (see `reactive`). Call it once, while
     /// building the view.
     pub(super) fn strings_signal(&self) -> Signal<Arc<EditorStrings>> {
-        self.config.settings.strings_relay.read()
+        self.config().settings.strings_relay.read()
     }
 
     /// One built-in text as a view reads it: a closure following the
@@ -317,12 +360,12 @@ impl EditorState {
     /// Reads the built-in texts without tracking them, for a message made
     /// once (an announcement).
     pub(super) fn strings_untracked<R>(&self, read: impl FnOnce(&EditorStrings) -> R) -> R {
-        self.config.settings.strings.with_untracked(read)
+        self.config().settings.strings.with_untracked(read)
     }
 
     /// The textarea, in the document's offsets (see `folding`).
     pub(super) fn textarea(&self) -> Option<SourceArea> {
-        self.view
+        self.view()
             .textarea_ref
             .get_untracked()
             .map(|element| SourceArea::new(element, *self))
@@ -373,16 +416,27 @@ pub(super) fn directed_selection(element: &SourceArea) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod size_tests {
+mod tests {
     use super::EditorState;
 
     /// Every handler copies the state; a larger copy overflowed the stack of
     /// debug wasm builds (see [`EditorState`]).
     #[test]
-    fn the_state_handlers_copy_is_one_pointer() {
-        assert_eq!(
-            std::mem::size_of::<EditorState>(),
-            std::mem::size_of::<usize>()
-        );
+    fn the_state_handlers_copy_is_at_most_two_words() {
+        assert!(std::mem::size_of::<EditorState>() <= 2 * std::mem::size_of::<usize>());
+    }
+
+    /// Deferred work checks the state before it runs (see
+    /// `reactive::later`): it must read as gone once the editor's owner is.
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn the_state_is_not_alive_once_its_owner_is_disposed() {
+        use super::super::languages::Language;
+        use super::super::test_state::TestEditor;
+        use crate::reactive::later::Alive;
+        let (owner, state) = TestEditor::new(Language::YAML, "a: 1\n").mount();
+        assert!(state.is_alive());
+        owner.cleanup();
+        assert!(!state.is_alive());
     }
 }

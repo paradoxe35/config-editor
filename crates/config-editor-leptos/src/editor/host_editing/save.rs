@@ -15,16 +15,16 @@ impl EditorState {
     /// as a `null` for TOML): then the caret goes to the problem, whose
     /// message shows, and nothing is sent.
     pub(in crate::editor) fn save(&self) -> bool {
-        let Some(on_save) = self.editing.on_save else {
+        let Some(on_save) = self.editing().on_save else {
             return false;
         };
         super::super::input::flush_input(*self);
         match self.host_document() {
             Some(text) => {
-                self.editing.sent.update_value(|sent| sent.note(&text));
+                self.editing().sent.update_value(|sent| sent.note(&text));
                 on_save.run(SaveRequest {
                     text,
-                    language: self.config.host_language,
+                    language: self.config().host_language,
                 });
                 true
             }
@@ -40,17 +40,17 @@ impl EditorState {
     /// cannot convert.
     pub(in crate::editor) fn host_document(&self) -> Option<String> {
         if self.bridge().is_none() {
-            return Some(self.doc.text.get_untracked());
+            return Some(self.doc().text.get_untracked());
         }
-        let text = self.doc.text.get_untracked();
-        if text != self.sync.synced_edit.get_value() {
-            sync::convert_now(*self, text, self.sync.edit_language.get_untracked());
+        let text = self.doc().text.get_untracked();
+        if text != self.sync().synced_edit.get_value() {
+            sync::convert_now(*self, text, self.sync().edit_language.get_untracked());
         }
         let converted = self
-            .doc
+            .doc()
             .text
-            .with_untracked(|text| *text == self.sync.synced_edit.get_value());
-        converted.then(|| self.sync.host_text.get_value())
+            .with_untracked(|text| *text == self.sync().synced_edit.get_value());
+        converted.then(|| self.sync().host_text.get_value())
     }
 
     /// Moves to why the save was refused and shows its message, as `F8`
@@ -59,16 +59,16 @@ impl EditorState {
     /// screen; just focuses the editor without either.
     fn show_conversion_problem(&self) {
         // Checked now, not after the typing pause, so the message is there.
-        let text = self.doc.text.get_untracked();
+        let text = self.doc().text.get_untracked();
         if self
-            .problems
+            .problems()
             .diagnosed_text
             .with_untracked(|checked| *checked != text)
         {
-            self.problems.diagnosed_text.set(text.clone());
+            self.problems().diagnosed_text.set(text.clone());
         }
         let place = self
-            .sync
+            .sync()
             .conversion_problems
             .with_untracked(|problems| {
                 problems
@@ -82,7 +82,7 @@ impl EditorState {
         match place {
             Some((line, column)) => {
                 self.focus_at(line, column);
-                self.problems.current.set(Some((line, column)));
+                self.problems().current.set(Some((line, column)));
             }
             None => {
                 if let Some(element) = self.textarea() {

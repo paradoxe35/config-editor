@@ -68,9 +68,9 @@ impl EditAsState {
 impl EditorState {
     /// The notice's reasons not dismissed.
     pub(super) fn edit_as_notice(&self) -> NoticeReasons {
-        let edit = self.sync.edit_language.get();
-        let reasons = self.edit_as.reasons.get();
-        self.edit_as.dismissed.with(|(language, dismissed)| {
+        let edit = self.sync().edit_language.get();
+        let reasons = self.edit_as().reasons.get();
+        self.edit_as().dismissed.with(|(language, dismissed)| {
             if *language == edit {
                 reasons.without(*dismissed)
             } else {
@@ -82,9 +82,9 @@ impl EditorState {
     /// Hides the notice for what it says now; a reason it did not give yet
     /// shows it again.
     pub(super) fn dismiss_edit_as_notice(&self) {
-        let edit = self.sync.edit_language.get_untracked();
-        let shown = self.edit_as.reasons.get_untracked();
-        self.edit_as.dismissed.update(|(language, dismissed)| {
+        let edit = self.sync().edit_language.get_untracked();
+        let shown = self.edit_as().reasons.get_untracked();
+        self.edit_as().dismissed.update(|(language, dismissed)| {
             if *language != edit {
                 *language = edit;
                 *dismissed = NoticeReasons::default();

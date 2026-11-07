@@ -1,5 +1,7 @@
 use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
+use super::state::EditorState;
+use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -165,13 +167,10 @@ pub(super) fn reveal_offset(
     }
 }
 
-pub(super) fn schedule_hover(callback: impl FnOnce() + 'static) {
-    if let Some(window) = web_sys::window() {
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            wasm_bindgen::closure::Closure::once_into_js(callback).unchecked_ref(),
-            HOVER_DELAY_MS,
-        );
-    }
+/// Runs `callback` once the pointer has rested, if the editor is still
+/// mounted.
+pub(super) fn schedule_hover(state: EditorState, callback: impl FnOnce(EditorState) + 'static) {
+    later::after(state, HOVER_DELAY_MS, callback);
 }
 
 #[cfg(test)]

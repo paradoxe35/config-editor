@@ -8,8 +8,8 @@ use super::super::go_to_line::{self, hint};
 
 #[component]
 pub(crate) fn GoToLineWidget(state: EditorState) -> impl IntoView {
-    let go_to = state.go_to_line;
-    let lines = move || state.doc.text.with(|text| line_count(text));
+    let go_to = state.go_to_line();
+    let lines = move || state.doc().text.with(|text| line_count(text));
     let hint_id = format!("config-editor-goto-hint-{}", go_to.id);
     view! {
         <div

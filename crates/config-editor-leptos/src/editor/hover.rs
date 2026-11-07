@@ -33,7 +33,7 @@ impl EditorState {
     /// Hides a card the pointer may be on its way to (one with a link)
     /// after a moment, unless it gets there; hides any other card now.
     pub(super) fn leave_hover(&self) {
-        let reachable = self.hover.card.with_untracked(|card| {
+        let reachable = self.hover().card.with_untracked(|card| {
             card.as_ref()
                 .is_some_and(|card| card.info.docs_url.is_some())
         });
@@ -41,23 +41,20 @@ impl EditorState {
             self.hide_hover();
             return;
         }
-        let state = *self;
-        let token = self.hover.token.get_value();
-        super::positioning::schedule_hover(move || {
-            if state.hover.token.try_get_value() == Some(token)
-                && state.hover.card_entered.try_get_value() == Some(false)
-            {
+        let token = self.hover().token.get_value();
+        super::positioning::schedule_hover(*self, move |state| {
+            if state.hover().token.get_value() == token && !state.hover().card_entered.get_value() {
                 state.hide_hover();
             }
         });
     }
 
     pub(super) fn hide_hover(&self) {
-        self.hover.token.update_value(|token| *token += 1);
-        self.hover.pending.set_value(None);
-        self.hover.card_entered.set_value(false);
-        if self.hover.card.with_untracked(Option::is_some) {
-            self.hover.card.set(None);
+        self.hover().token.update_value(|token| *token += 1);
+        self.hover().pending.set_value(None);
+        self.hover().card_entered.set_value(false);
+        if self.hover().card.with_untracked(Option::is_some) {
+            self.hover().card.set(None);
         }
     }
 }

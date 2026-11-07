@@ -54,15 +54,15 @@ impl DocState {
 impl EditorState {
     /// Detects the indent unit again, for a document loaded or replaced.
     pub(super) fn redetect_indent(&self) {
-        let unit = self.doc.text.with_untracked(|text| indent_unit(text));
-        self.doc.indent.set_value(unit);
+        let unit = self.doc().text.with_untracked(|text| indent_unit(text));
+        self.doc().indent.set_value(unit);
     }
 
     /// Records where the caret is, without touching the textarea.
     pub(super) fn note_caret(&self, offset: usize) {
-        self.doc.caret.set(offset);
-        self.doc.current_line.set(
-            self.doc
+        self.doc().caret.set(offset);
+        self.doc().current_line.set(
+            self.doc()
                 .text
                 .with_untracked(|text| line_at_cursor(text, offset)),
         );
@@ -72,8 +72,8 @@ impl EditorState {
     pub(super) fn place_caret(&self, offset: usize) {
         if let Some(element) = self.textarea() {
             let _ = element.set_selection_range(offset as u32, offset as u32);
-            self.doc.text.with_untracked(|text| {
-                set_caret_visible(&element, text, offset, self.view.scroll_y)
+            self.doc().text.with_untracked(|text| {
+                set_caret_visible(&element, text, offset, self.view().scroll_y)
             });
         }
         self.note_caret(offset);
@@ -83,7 +83,7 @@ impl EditorState {
     /// view, closing popups.
     pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<usize> {
         let offset = self
-            .doc
+            .doc()
             .text
             .with_untracked(|text| offset_at(text, line, column));
         self.focus_range(offset, offset)?;
@@ -101,9 +101,9 @@ impl EditorState {
         let _ = element.set_selection_range(start as u32, end as u32);
         element.set_scroll_top(top);
         element.set_scroll_left(left);
-        self.doc
+        self.doc()
             .text
-            .with_untracked(|text| reveal_offset(&element, text, start, self.view.scroll_y));
+            .with_untracked(|text| reveal_offset(&element, text, start, self.view().scroll_y));
         self.note_caret(start);
         self.close_suggestions();
         self.hide_hover();

@@ -119,7 +119,7 @@ impl EditorState {
     /// The edit pipeline's prepare stage: an edit cutting a placeholder
     /// takes it whole, leaving just the caret.
     pub(crate) fn widen_edit(&self, edit: &mut Edit) {
-        let widened = self.protect.secrets.tokens.with_untracked(|tokens| {
+        let widened = self.protect().secrets.tokens.with_untracked(|tokens| {
             if tokens.is_empty() {
                 return None;
             }
@@ -145,7 +145,7 @@ impl EditorState {
     /// ([`Self::recheck_tokens`]): it takes a parse, too slow for every key
     /// on a large document.
     pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
@@ -210,12 +210,12 @@ impl EditorState {
     /// renamed above one, an undo through a cut), each is found again by its
     /// path: under a renamed key it is plain text.
     pub(crate) fn recheck_tokens(&self) {
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
         let behavior = self.behavior();
-        let found = self.doc.text.with_untracked(|text| {
+        let found = self.doc().text.with_untracked(|text| {
             secrets.known.with_untracked(|known| {
                 let kept = secrets
                     .tokens
@@ -234,11 +234,11 @@ impl EditorState {
     /// value, an Edit-as switch, undo); with `host_changed`, the host's text
     /// is new and says again which tokens are real.
     pub(crate) fn rescan_tokens(&self, host_changed: bool) {
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         if host_changed {
-            let host = self.config.host_language.behavior();
+            let host = self.config().host_language.behavior();
             let known = secrets.matcher.with_value(|matcher| {
-                self.sync
+                self.sync()
                     .host_text
                     .with_value(|text| matcher.known(host, text))
             });
@@ -251,7 +251,7 @@ impl EditorState {
                 return Vec::new();
             }
             secrets.matcher.with_value(|matcher| {
-                self.doc
+                self.doc()
                     .text
                     .with_untracked(|text| locate_written(matcher, text, known))
             })
@@ -267,8 +267,8 @@ impl EditorState {
     /// Takes the placeholders of `host` (a text the host gave, such as a
     /// reloaded baseline) as real, and finds them in the text on screen.
     pub(crate) fn adopt_host_tokens(&self, host: &str) {
-        let secrets = self.protect.secrets;
-        let language = self.config.host_language.behavior();
+        let secrets = self.protect().secrets;
+        let language = self.config().host_language.behavior();
         let known = secrets
             .matcher
             .with_value(|matcher| matcher.known(language, host));
@@ -282,7 +282,7 @@ impl EditorState {
     /// a vertical move) out of it: a caret to the nearest edge, a selection
     /// grown to take it whole.
     pub(crate) fn snap_to_tokens(&self) {
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         let Some(element) = self.textarea() else {
             return;
         };
@@ -303,14 +303,14 @@ impl EditorState {
     /// browser's own anchor inside a placeholder is not reliable): a press
     /// inside one is remembered, for the release to anchor at its edge.
     pub(crate) fn press_at(&self, offset: usize) {
-        let secrets = self.protect.secrets;
+        let secrets = self.protect().secrets;
         let pressed = secrets.tokens.with_untracked(|tokens| {
             tokens
                 .iter()
                 .find(|token| token.start < offset && offset < token.end)
                 .cloned()
         });
-        self.protect
+        self.protect()
             .marks
             .update_value(|marks| marks.pressed = pressed);
     }
@@ -321,7 +321,7 @@ impl EditorState {
     /// caret snaps out of it.
     pub(crate) fn release_press(&self) {
         let pressed = self
-            .protect
+            .protect()
             .marks
             .try_update_value(|marks| marks.pressed.take())
             .flatten();
@@ -373,7 +373,7 @@ impl EditorState {
             caret.saturating_sub(1)
         };
         let target = self
-            .protect
+            .protect()
             .secrets
             .tokens
             .with_untracked(|tokens| snap(tokens, step, Some(forward)));

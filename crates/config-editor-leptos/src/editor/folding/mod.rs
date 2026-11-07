@@ -78,16 +78,16 @@ impl FoldState {
 impl EditorState {
     /// Calls `f` with the closed folds, sorted (tracked).
     pub(super) fn with_closed_folds<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
-        self.fold.folded.with(|folds| f(folds))
+        self.fold().folded.with(|folds| f(folds))
     }
 
     /// Calls `f` with the closed folds, sorted (untracked).
     pub(super) fn with_closed_folds_untracked<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
-        self.fold.folded.with_untracked(|folds| f(folds))
+        self.fold().folded.with_untracked(|folds| f(folds))
     }
 }
 
 /// Switching the `folding` setting off opens every fold.
 pub(super) fn follow_settings(state: EditorState) {
-    on_switch_off(state.config.settings.folding, move || state.unfold_all());
+    on_switch_off(state.config().settings.folding, move || state.unfold_all());
 }

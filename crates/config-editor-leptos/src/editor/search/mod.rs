@@ -39,7 +39,7 @@ use matcher::{Matcher, find_matches};
 
 /// Switching the `search` or `go_to_line` setting off closes its widget.
 pub(super) fn follow_settings(state: EditorState) {
-    let settings = state.config.settings;
+    let settings = state.config().settings;
     on_switch_off(settings.search, move || dismiss(state));
     on_switch_off(settings.go_to_line, move || {
         go_to_line::cancel_on_blur(state)
@@ -48,7 +48,7 @@ pub(super) fn follow_settings(state: EditorState) {
 
 /// Escape in the text closes the find widget: `true` when it was open.
 pub(super) fn close_on_escape(state: EditorState) -> bool {
-    let open = state.search.open.get_untracked();
+    let open = state.search().open.get_untracked();
     if open {
         close(state);
     }
@@ -57,7 +57,7 @@ pub(super) fn close_on_escape(state: EditorState) -> bool {
 
 /// Whether the find widget or the go-to-line field is open.
 pub(super) fn is_open(state: EditorState) -> bool {
-    state.search.open.get_untracked() || state.go_to_line.open.get_untracked()
+    state.search().open.get_untracked() || state.go_to_line().open.get_untracked()
 }
 
 /// What the open widget found in the document.

@@ -72,23 +72,23 @@ pub(super) fn decide(key: &str, modifiers: Modifiers, context: Context) -> (Acti
 
 /// Whether anything Escape closes is open.
 fn popup_open(state: EditorState) -> bool {
-    !state.completion.suggestions.with_untracked(Vec::is_empty)
-        || state.completion.requested.get_untracked()
+    !state.completion().suggestions.with_untracked(Vec::is_empty)
+        || state.completion().requested.get_untracked()
         || super::super::search::is_open(state)
-        || state.hover.card.with_untracked(Option::is_some)
+        || state.hover().card.with_untracked(Option::is_some)
         || super::super::changes::preview_open(state)
-        || state.problems.current.with_untracked(Option::is_some)
-        || state.protect.tip_open()
+        || state.problems().current.with_untracked(Option::is_some)
+        || state.protect().tip_open()
 }
 
 /// The focus keys, first among the textarea's: `true` when the key was
 /// taken (the Tab mode switched, or Tab leaving the editor).
 pub(in crate::editor) fn focus_keys(state: EditorState, event: &KeyboardEvent) -> bool {
-    let a11y = state.a11y;
+    let a11y = state.a11y();
     let context = Context {
         tab_moves_focus: a11y.tab_moves_focus.get_untracked(),
         escaped: a11y.escaped.get_value(),
-        list_open: !state.completion.suggestions.with_untracked(Vec::is_empty),
+        list_open: !state.completion().suggestions.with_untracked(Vec::is_empty),
         popup_open: popup_open(state),
     };
     let modifiers = Modifiers {
@@ -115,8 +115,8 @@ pub(in crate::editor) fn focus_keys(state: EditorState, event: &KeyboardEvent) -
 
 /// Switches whether Tab moves the focus, and says so.
 pub(in crate::editor) fn toggle_tab_focus(state: EditorState) {
-    let on = !state.a11y.tab_moves_focus.get_untracked();
-    state.a11y.tab_moves_focus.set(on);
+    let on = !state.a11y().tab_moves_focus.get_untracked();
+    state.a11y().tab_moves_focus.set(on);
     let said = state.strings_untracked(|strings| {
         if on {
             strings.tab_focus_on.clone()
@@ -124,5 +124,5 @@ pub(in crate::editor) fn toggle_tab_focus(state: EditorState) {
             strings.tab_focus_off.clone()
         }
     });
-    state.a11y.announce(said);
+    state.a11y().announce(said);
 }
