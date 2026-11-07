@@ -1154,7 +1154,7 @@ test.describe('ValueSync without a framework', () => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
-      const { ValueSync } = await import('../config-editor/sync.js');
+      const { ValueSync } = await import('../config-editor/index.js');
       const element = document.body.appendChild(document.createElement('div'));
       const sync = new ValueSync();
       let hostValue = 'a: 1\n';

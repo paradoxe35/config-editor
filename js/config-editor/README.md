@@ -168,11 +168,10 @@ emit(text);
 ```
 
 A value sent within the last 10 seconds that comes back while newer ones are
-still on their way is taken as a late echo (`new ValueSync({ echoWindowMs })`
-changes the window). It is also available on its own, without the
-WebAssembly glue, from `@pngwasi/config-editor/sync`. Read `editor.value`
-right before `received`: it sends an
-edit made in `editAs` that is still waiting out the typing pause first.
+still on their way is taken as a late echo
+(`new ValueSync({ echoWindowMs })` changes the window). Read `editor.value`
+right before `received`: it sends an edit made in `editAs` that is still
+waiting out the typing pause first.
 
 <details>
 <summary><strong>Vue 3</strong>: a component for <code>v-model</code></summary>

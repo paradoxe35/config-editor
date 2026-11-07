@@ -11,11 +11,7 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm",
-    "./sync": {
-      "types": "./sync.d.ts",
-      "default": "./sync.js"
-    }
+    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm"
   },
   "files": [
     "index.js",
