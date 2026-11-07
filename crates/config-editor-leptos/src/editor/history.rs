@@ -137,7 +137,7 @@ impl EditHistory {
     }
 
     /// Whether there is a step to undo.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "yaml"))]
     pub(super) fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

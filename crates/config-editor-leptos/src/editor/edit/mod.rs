@@ -64,7 +64,7 @@ mod pipeline;
 mod tests;
 
 pub(super) use origin::Origin;
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml"))]
 pub(super) use pipeline::{Stage, take_trace};
 
 use leptos::prelude::*;

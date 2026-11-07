@@ -125,7 +125,16 @@ pub struct CloseRequest {
     pub dirty: bool,
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
 mod tests {
     use super::*;
 
