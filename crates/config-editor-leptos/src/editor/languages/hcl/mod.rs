@@ -174,7 +174,12 @@ impl ConfigLanguage for HclBehavior {
         {
             return serde_json::to_string(text).unwrap_or_else(|_| text.to_string());
         }
-        self.format_value(value)
+        let text = self.format_value(value);
+        if value.is_string() { super::escapes::like_written(text, written, super::escapes::Astral::Long) } else { text }
+    }
+
+    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
+        self.parse(&format!("k = {}\n", written.trim())).ok().and_then(|document| document.get("k").cloned()).as_ref() == Some(value)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

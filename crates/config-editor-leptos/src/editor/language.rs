@@ -1074,6 +1074,27 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// Whether `written` (a scalar as the language writes one in a flow
+    /// collection) reads as `value`, however it is spelled (`"caf\u00e9"`
+    /// for `"café"`). Default: never, so the value is written again.
+    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
+        let _ = (written, value);
+        false
+    }
+
+    /// The bytes of `source` a scalar's written form occupies, from the
+    /// byte `range` of its span: XML element text runs from its start tag to
+    /// its end tag, since the whitespace around it is part of the value.
+    /// Default: `range`.
+    fn written_value_range(
+        &self,
+        source: &str,
+        range: std::ops::Range<usize>,
+    ) -> std::ops::Range<usize> {
+        let _ = source;
+        range
+    }
+
     /// Where a string value that ends at byte `end` of `source` really ends
     /// for keeping it as written: XML text runs through the line break
     /// before its end tag. Default: `end`.

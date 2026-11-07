@@ -146,6 +146,7 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
 fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
     let formatted = language.format_value(value);
     comparable(language, written) == comparable(language, &formatted)
+        || (!value.is_object() && !value.is_array() && language.scalar_reads_as(written, value))
         || value.is_number()
             && super::canonical_number(written.trim())
                 .is_some_and(|number| Some(number) == super::canonical_number(&formatted))

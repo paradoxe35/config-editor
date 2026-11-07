@@ -102,12 +102,22 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         let column = line[..content_indent].chars().count() + 1;
         let end_column = column + key_raw.trim_end().chars().count();
         entries.push((path.clone(), index + 1, column, end_column));
-        let value = rest[colon + 1..].trim();
+        let value = without_node_properties(rest[colon + 1..].trim());
         if value.is_empty() || value.starts_with('#') {
             stack.push((content_indent, path));
         }
     }
     entries
+}
+
+/// `value` without the anchors and tags before it (`&base`, `!!map`): a
+/// key whose value is only those opens a block below it.
+fn without_node_properties(mut value: &str) -> &str {
+    while value.starts_with(['&', '!']) {
+        let end = value.find([' ', '\t']).unwrap_or(value.len());
+        value = value[end..].trim_start();
+    }
+    value
 }
 
 /// Span of a key written inside an inline `{ ... }` mapping. The key is found

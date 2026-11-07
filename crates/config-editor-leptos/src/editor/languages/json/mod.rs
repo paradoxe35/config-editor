@@ -108,7 +108,17 @@ impl ConfigLanguage for JsonBehavior {
     /// Without a space after any `:` or `,`, the host writes compact JSON.
     fn format_value_like(&self, value: &Value, written: &str) -> String {
         let compact = !written.contains(": ") && !written.contains(", ") && (written.contains(':') || written.contains(','));
-        if compact { serde_json::to_string(value).unwrap_or_else(|_| json_text(value)) } else { json_text(value) }
+        let text = if compact { serde_json::to_string(value).unwrap_or_else(|_| json_text(value)) } else { json_text(value) };
+        if !value.is_string() {
+            return text;
+        }
+        // A string keeps the escapes the host wrote in the one it replaces.
+        let text = super::escapes::like_written(text, written, super::escapes::Astral::SurrogatePair);
+        if written.contains("\\/") { text.replace('/', "\\/") } else { text }
+    }
+
+    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
+        serde_json::from_str::<Value>(written.trim()).ok().as_ref() == Some(value)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

@@ -169,9 +169,11 @@ pub fn ConfigEditor(
     /// Called with the document, in `language`, after every edit.
     #[prop(optional, into)]
     on_change: Option<Callback<String>>,
-    /// Called with the language being edited each time an `edit_as` switch
-    /// completes. A switch waits while the document cannot be converted yet
-    /// (TOML has no `null`), so this, not `edit_as`, is what is on screen.
+    /// Called with the language on screen each time an `edit_as` switch
+    /// completes, and when undo or redo steps back across one (a switch is
+    /// an undo step). A switch waits while the document cannot be converted
+    /// yet (TOML has no `null`): the host's language stays on screen until
+    /// then, so this, not `edit_as`, is what is shown.
     #[prop(optional, into)]
     on_edit_as_change: Option<Callback<Language>>,
     /// Called with how the document differs from `baseline` (lines added,
@@ -376,6 +378,15 @@ fn remeasure_on_window_changes(state: EditorState) {
     });
 }
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_forms_tests;
 #[cfg(all(
     test,
     feature = "yaml",

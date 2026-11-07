@@ -101,6 +101,10 @@ pub struct Language(&'static dyn ConfigLanguage);
 
 /// Declares the built-in languages: per line, the feature that enables it,
 /// its constant, and its implementation.
+// Changed strings keep the host's escapes.
+#[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
+mod escapes;
+
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {
         $(#[cfg(feature = $feature)] mod $module;)+
