@@ -134,8 +134,32 @@ impl Edit {
     }
 }
 
+/// The editor's state, shared by every handler: one pointer to its
+/// [`EditorFields`].
+///
+/// Handlers and view closures capture the state by copy, and an unoptimized
+/// (debug) wasm build keeps each copy on the stack while it builds them, so
+/// the fields held inline overflowed the stack once they reached about a
+/// kilobyte. A pointer keeps every capture at one word however many fields
+/// there are.
+///
+/// The fields (small signal and stored-value handles, about 1 KB) are
+/// allocated once per mounted editor and never freed: timers and other
+/// handlers may still read them after the editor unmounts, where the handles
+/// inside answer as disposed.
 #[derive(Clone, Copy)]
-pub(super) struct EditorState {
+pub(super) struct EditorState(&'static EditorFields);
+
+impl std::ops::Deref for EditorState {
+    type Target = EditorFields;
+
+    fn deref(&self) -> &EditorFields {
+        self.0
+    }
+}
+
+/// What an [`EditorState`] points to.
+pub(super) struct EditorFields {
     pub(super) host_language: Language,
     /// The language on screen; `edit_as` switches change it.
     pub(super) edit_language: RwSignal<Language>,
@@ -485,7 +509,7 @@ impl EditorState {
             let at = cursor.get();
             source.with(|text| path_at(behavior, text, at).unwrap_or_default())
         });
-        let state = Self {
+        let state = Self(Box::leak(Box::new(EditorFields {
             caret_path,
             search: SearchState::new(source),
             go_to_line: GoToLine::new(),
@@ -555,7 +579,7 @@ impl EditorState {
             changes: Memo::new(move |_| diff.with(ChangeSummary::of)),
             focus_preview: StoredValue::new(false),
             shown_problem: RwSignal::new(None),
-        };
+        })));
         (state, pending)
     }
 
@@ -925,4 +949,19 @@ pub(super) fn directed_selection(element: &SourceArea) -> (usize, usize) {
     let (start, end) = textarea_selection(element);
     let backward = element.selection_direction().ok().flatten().as_deref() == Some("backward");
     if backward { (end, start) } else { (start, end) }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::EditorState;
+
+    /// Every handler copies the state; a larger copy overflowed the stack of
+    /// debug wasm builds (see [`EditorState`]).
+    #[test]
+    fn the_state_handlers_copy_is_one_pointer() {
+        assert_eq!(
+            std::mem::size_of::<EditorState>(),
+            std::mem::size_of::<usize>()
+        );
+    }
 }
