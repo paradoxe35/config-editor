@@ -27,7 +27,11 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                 state
                     .editor_ref
                     .get()
-                    .map(|editor| completion_popup_style(&editor, &state.source.get(), state.cursor.get(), count))
+                    .map(|editor| {
+                        state.folds().projection.with(|projection| {
+                            completion_popup_style(&editor, projection, &state.source.get(), state.cursor.get(), count)
+                        })
+                    })
                     .unwrap_or_else(|| "visibility:hidden".to_string())
             }
         >

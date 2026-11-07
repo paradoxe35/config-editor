@@ -1,3 +1,4 @@
+use super::folding::SourceArea;
 use super::metrics::read_editor_metrics;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -23,13 +24,10 @@ pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 /// editor `min-height` in `preset.css`.
 pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
 
-/// Zero-based line and column of the textarea cell under a pointer position.
-pub(super) fn pointer_text_position(
-    element: &web_sys::HtmlTextAreaElement,
-    x: f64,
-    y: f64,
-) -> (usize, usize) {
-    let target: &web_sys::Element = element.unchecked_ref();
+/// Zero-based document line and column of the textarea cell under a
+/// pointer position.
+pub(super) fn pointer_text_position(element: &SourceArea, x: f64, y: f64) -> (usize, usize) {
+    let target: &web_sys::Element = element.element().unchecked_ref();
     let rect = target.get_bounding_client_rect();
     let metrics = read_editor_metrics(target);
     let line =
@@ -37,19 +35,16 @@ pub(super) fn pointer_text_position(
     let column = (x - rect.left() - metrics.padding_left + element.scroll_left() as f64)
         / metrics.char_width;
     (
-        line.max(0.0).floor() as usize,
+        element.line_of_row(line.max(0.0).floor() as usize),
         column.max(0.0).floor() as usize,
     )
 }
 
 /// Fixed-position style for the hover card; flips above the line when space
 /// below is short.
-pub(super) fn hover_card_style(
-    element: &web_sys::HtmlTextAreaElement,
-    line: usize,
-    column: usize,
-) -> String {
-    let target: &web_sys::Element = element.unchecked_ref();
+pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> String {
+    let target: &web_sys::Element = element.element().unchecked_ref();
+    let line = element.row_of_line(line);
     let rect = target.get_bounding_client_rect();
     let metrics = read_editor_metrics(target);
     let Some(window) = web_sys::window() else {
@@ -95,7 +90,7 @@ pub(super) fn hover_card_style(
 ///
 /// `set_selection_range` alone does not reliably scroll the textarea.
 pub(super) fn set_caret_visible(
-    editor: &web_sys::HtmlTextAreaElement,
+    editor: &SourceArea,
     text: &str,
     offset: usize,
     scroll_y: RwSignal<f64>,
@@ -107,7 +102,7 @@ pub(super) fn set_caret_visible(
 
 /// Scrolls UTF-16 `offset` into view without touching the selection.
 pub(super) fn reveal_offset(
-    editor: &web_sys::HtmlTextAreaElement,
+    editor: &SourceArea,
     text: &str,
     offset: usize,
     scroll_y: RwSignal<f64>,
@@ -119,8 +114,9 @@ pub(super) fn reveal_offset(
     let line = text[..byte_offset]
         .bytes()
         .filter(|byte| *byte == b'\n')
-        .count() as f64;
-    let target: &web_sys::Element = editor.unchecked_ref();
+        .count();
+    let line = editor.row_of_line(line) as f64;
+    let target: &web_sys::Element = editor.element().unchecked_ref();
     let metrics = read_editor_metrics(target);
     let style =
         web_sys::window().and_then(|window| window.get_computed_style(target).ok().flatten());
@@ -173,7 +169,7 @@ pub(super) fn reveal_offset(
 /// alone when already in view below `top_inset` pixels (a widget over the
 /// text), else its line centered.
 pub(super) fn reveal_centered(
-    editor: &web_sys::HtmlTextAreaElement,
+    editor: &SourceArea,
     text: &str,
     offset: usize,
     scroll_y: RwSignal<f64>,
@@ -185,8 +181,9 @@ pub(super) fn reveal_centered(
     let line = text[..byte_offset]
         .bytes()
         .filter(|byte| *byte == b'\n')
-        .count() as f64;
-    let target: &web_sys::Element = editor.unchecked_ref();
+        .count();
+    let line = editor.row_of_line(line) as f64;
+    let target: &web_sys::Element = editor.element().unchecked_ref();
     let metrics = read_editor_metrics(target);
     let current_top = editor.scroll_top() as f64;
     let client_height = editor.client_height() as f64;

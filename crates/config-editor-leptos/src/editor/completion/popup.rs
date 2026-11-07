@@ -93,6 +93,7 @@ pub(crate) fn completion_popup_geometry(
 
 pub(crate) fn completion_popup_style(
     editor: &web_sys::HtmlTextAreaElement,
+    projection: &super::super::folding::Projection,
     source: &str,
     cursor: usize,
     option_count: usize,
@@ -111,6 +112,8 @@ pub(crate) fn completion_popup_style(
         });
     let caret_x = rect.left() + metrics.padding_left + column * metrics.char_width
         - editor.scroll_left() as f64;
+    // The caret's row, folded lines skipped.
+    let line = projection.row_of_line(line);
     let caret_y = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
         - editor.scroll_top() as f64;
     let viewport_width = window

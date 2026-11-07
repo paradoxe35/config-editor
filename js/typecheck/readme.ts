@@ -33,3 +33,6 @@ const saving = new ConfigEditor(element, {
 });
 const sent: boolean = saving.save(); const unsaved: boolean = saving.isDirty;
 saving.setCallbacks({ onSave: null, onDirtyChange: null, onBaselineConflict: null });
+new ConfigEditor(element, { folding: false });
+editor.foldAll(); editor.unfoldAll();
+const folded: boolean = editor.fold(["clients"]) && editor.unfold("/web/listen");

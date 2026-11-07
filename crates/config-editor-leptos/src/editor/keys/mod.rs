@@ -4,6 +4,7 @@
 
 pub(super) mod changes;
 mod enter;
+mod folding;
 mod navigation;
 mod search;
 mod suggestions;
@@ -25,6 +26,9 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.hide_shown_problem();
     }
+    if folding::shortcuts(state, event) {
+        return;
+    }
     if navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
         || changes::go_to_change(state, event)
@@ -42,6 +46,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         }
         return;
     }
+    folding::unfold_before_edit(state, event);
     let handled = navigation::undo_redo(state, event)
         || suggestions::request(state, event)
         || navigation::next_problem(state, event)

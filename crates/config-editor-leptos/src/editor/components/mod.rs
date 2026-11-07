@@ -8,6 +8,7 @@ mod completions;
 mod diagnostics;
 mod diff_peek;
 mod find_widget;
+mod folds;
 mod go_to_line;
 mod gutter;
 mod hover_card;
@@ -23,6 +24,7 @@ pub(super) use completions::CompletionList;
 pub(super) use diagnostics::DiagnosticOverlay;
 pub(super) use diff_peek::DiffPeekPopup;
 pub(super) use find_widget::FindWidget;
+pub(super) use folds::mount_fold_layers;
 pub(super) use go_to_line::GoToLineWidget;
 pub(super) use gutter::Gutter;
 pub(super) use hover_card::{HoverCard, HoverCardView};
@@ -33,7 +35,7 @@ pub(super) use toolbar::Toolbar;
 
 use leptos::prelude::*;
 
-use super::line_rows::LineRows;
+use super::line_rows::{LineRows, RowFolds};
 use super::state::EditorState;
 
 /// Per-row signals for the gutter and code layer, kept in step with the
@@ -44,11 +46,15 @@ pub(super) fn row_states(state: EditorState) -> LineRows {
     let synced = rows.clone();
     Effect::new(move |_| {
         let line = state.current_line.get();
-        let range = state.visible_rows.get();
-        state.lines.with(|lines| {
-            state
-                .diff
-                .with(|diff| synced.sync(lines, diff, line, range))
+        state.folds().visible_lines.with(|visible| {
+            state.folds().folded.with(|closed| {
+                let folds = RowFolds { closed };
+                state.lines.with(|lines| {
+                    state
+                        .diff
+                        .with(|diff| synced.sync(lines, diff, line, visible, folds))
+                })
+            })
         });
     });
     rows

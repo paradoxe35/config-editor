@@ -255,6 +255,20 @@ fn a_language_described_by_config_gets_editing_without_code() {
     assert_eq!(ini.empty_value_slots("a = \nb = 1\n"), vec![4]);
 }
 
+/// Folding comes with the default: indentation, `config`'s brackets and
+/// comment runs, for a language with no folding code.
+#[test]
+fn a_language_without_folding_code_folds_by_its_config() {
+    use config_editor_leptos::language::FoldRange;
+    let ranges = Ini.fold_ranges("; a\n; b\n[web]\nhosts = [\n  \"a\",\n]\nlisten = 1");
+    assert_eq!(ranges, [FoldRange::new(0, 1), FoldRange::new(3, 4)]);
+    // No config at all: indentation alone.
+    assert_eq!(
+        Language::new(&DOTENV).fold_ranges("A=1\nB=\n  continued\n"),
+        [FoldRange::new(1, 2)]
+    );
+}
+
 /// A language declaring its long quote gets Ctrl+/ over a string written
 /// over lines whole, without code of its own.
 struct LongStrings;

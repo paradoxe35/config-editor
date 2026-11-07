@@ -118,7 +118,12 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
         state.scroll_y.get();
         match (state.editor_ref.get(), state.root_ref.get()) {
             (Some(editor), Some(root)) => {
-                peek_popup_style(&editor, &root, line, old_count, new_count)
+                // The row the line is on, folded lines skipped.
+                let row = state
+                    .folds()
+                    .projection
+                    .with(|projection| projection.row_of_line(line.saturating_sub(1)));
+                peek_popup_style(&editor, &root, row + 1, old_count, new_count)
             }
             _ => "visibility:hidden".to_string(),
         }

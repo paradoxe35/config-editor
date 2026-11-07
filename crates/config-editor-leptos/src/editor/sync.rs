@@ -53,18 +53,19 @@ fn follow_value(state: EditorState, value: Signal<String>) {
             // so the later `prop:value` (identical text) leaves the selection
             // alone. Writing the value scrolls the textarea, so the scroll
             // position is put back.
-            if let Some(element) = state.textarea() {
-                let (start, end) = textarea_selection(&element);
-                let (top, left) = (element.scroll_top(), element.scroll_left());
+            let kept = state.textarea().map(|element| {
+                let selection = textarea_selection(&element);
+                (selection, element.scroll_top(), element.scroll_left())
+            });
+            state.write_text(edit.clone());
+            if let (Some(element), Some(((start, end), top, left))) = (state.textarea(), kept) {
                 let map = |offset: usize| map_through_change(&current, &edit, offset);
-                element.set_value(&edit);
                 let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
                 element.set_scroll_top(top);
                 element.set_scroll_left(left);
                 state.scroll_x.set(f64::from(element.scroll_left()));
                 state.scroll_y.set(f64::from(element.scroll_top()));
             }
-            state.source.set(edit);
             state.redetect_indent();
         }
     });
@@ -370,7 +371,9 @@ fn switch_to(state: EditorState, next: Language, on_edit_as_change: Option<Callb
                 callback.run(next);
             }
             state.diagnosed_text.set(converted.clone());
-            state.source.set(converted);
+            // Another language's lines: the folds do not carry over.
+            state.folds().folded.set(Vec::new());
+            state.write_text(converted);
             state.redetect_indent();
         }
         Err(error) => {

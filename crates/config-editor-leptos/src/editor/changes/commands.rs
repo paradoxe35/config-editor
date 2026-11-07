@@ -57,9 +57,9 @@ impl EditorState {
         let Some((line, peek)) = self.diff.with_untracked(|line_diff| {
             let hunk = adjacent_change(line_diff, line_count, here, forward)?;
             let line = change_line(hunk, line_count);
-            let row = self
-                .lines
-                .with_untracked(|lines| row_state(line, lines, line_count, line_diff, 0));
+            let row = self.lines.with_untracked(|lines| {
+                row_state(line, lines, line_count, line_diff, 0, Default::default())
+            });
             let peek = if !hunk.current.is_empty() {
                 row.modified_peek.or(row.added_peek)
             } else if hunk.current.start >= line_diff.current.len() {

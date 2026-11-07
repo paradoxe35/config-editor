@@ -55,6 +55,8 @@ export interface EditorOptions {
   search?: boolean;
   /** Go to line (`Ctrl+G`). Default `true`; `false` leaves the key to the browser. */
   goToLine?: boolean;
+  /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` (`Cmd` on macOS). View only. Default `true`. */
+  folding?: boolean;
   /** Extra class on the editor root. */
   className?: string;
   /** Called with the document, in `language`, after every edit. */
@@ -335,7 +337,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 23] = [
+const OPTIONS: [&str; 24] = [
     "value",
     "language",
     "editAs",
@@ -349,6 +351,7 @@ const OPTIONS: [&str; 23] = [
     "showFooter",
     "search",
     "goToLine",
+    "folding",
     "className",
     "onChange",
     "onEditAsChange",
@@ -643,6 +646,7 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let enable_search = bool_option(&options, "search")?.unwrap_or(true);
         let enable_go_to_line = bool_option(&options, "goToLine")?.unwrap_or(true);
+        let enable_folding = bool_option(&options, "folding")?.unwrap_or(true);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
@@ -769,6 +773,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             enable_search=enable_search
                             enable_go_to_line=enable_go_to_line
+                            enable_folding=enable_folding
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized
@@ -798,6 +803,7 @@ impl ConfigEditor {
                             show_footer=show_footer
                             enable_search=enable_search
                             enable_go_to_line=enable_go_to_line
+                            enable_folding=enable_folding
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized
@@ -1100,6 +1106,39 @@ impl ConfigEditor {
     ) -> Result<bool, JsError> {
         config_editor_leptos::flush_pending_input();
         Ok(self.state.handle.reveal(path_from_js(&path)?))
+    }
+
+    /// Folds the block the field at `path` opens; `false` when there is none
+    /// to fold.
+    pub fn fold(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
+    ) -> Result<bool, JsError> {
+        config_editor_leptos::flush_pending_input();
+        Ok(self.state.handle.fold(path_from_js(&path)?))
+    }
+
+    /// Opens the folds around the field at `path`; `false` when none was
+    /// closed.
+    pub fn unfold(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FieldPath")] path: JsValue,
+    ) -> Result<bool, JsError> {
+        config_editor_leptos::flush_pending_input();
+        Ok(self.state.handle.unfold(path_from_js(&path)?))
+    }
+
+    /// Folds every block (`Ctrl+K Ctrl+0`).
+    #[wasm_bindgen(js_name = foldAll)]
+    pub fn fold_all(&self) {
+        config_editor_leptos::flush_pending_input();
+        self.state.handle.fold_all();
+    }
+
+    /// Opens every fold (`Ctrl+K Ctrl+J`).
+    #[wasm_bindgen(js_name = unfoldAll)]
+    pub fn unfold_all(&self) {
+        self.state.handle.unfold_all();
     }
 
     /// Focuses the editor, keeping its selection.
