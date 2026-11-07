@@ -101,10 +101,6 @@ The editor injects its stylesheet ([`PRESET_CSS`]) by default.
 | `on_change`         | `Fn(String)`                               | —                | Called with the document after every edit (after each typing pause while editing as another language).                   |
 | `on_edit_as_change` | `Fn(Language)`                             | —                | Called with the language on screen when an `edit_as` switch completes, and when undo or redo steps back across one. A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `on_change` as it is, with the reason shown on the value in the way. Label the language shown from this, not from `edit_as`. |
 | `on_schema_warning` | `Fn(String)`                               | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile.  |
-
-While editing as another language, edits reach `on_change` after each typing
-pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
-document from code (a Save button) to send an edit still waiting first.
 | `baseline` | `Signal<String>` | the document at mount | Text the diff gutter and the dirty flag compare against; set it to the saved text after saving. See [Saving](#saving-and-unsaved-edits). |
 | `schema` | `&str`, `String` or `Schema` | — | JSON Schema (draft 2020-12 and earlier) for diagnostics, completion and hover. Pass a compiled `Schema` to share one across editors. |
 | `read_only` | `bool` or a signal | `false` | View mode: navigation, selection, highlighting, diagnostics, diffs and hover keep working. Switches live, completions included. |
@@ -121,6 +117,10 @@ document from code (a Save button) to send an edit still waiting first.
 | `on_save` | `Fn(SaveRequest)` | — | Called on `Ctrl+S` / `Cmd+S` and `EditorHandle::save` with the document in `language`. Nothing saves by itself; without it `Ctrl+S` is the browser's. |
 | `on_dirty_change` | `Fn(bool)` | — | Called with whether the text differs from `baseline`: once on mount, then each time that changes. |
 | `on_baseline_conflict` | `Fn(BaselineConflict)` | — | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled. |
+
+While editing as another language, edits reach `on_change` after each typing
+pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
+document from code (a Save button) to send an edit still waiting first.
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`

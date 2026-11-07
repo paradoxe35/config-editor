@@ -171,7 +171,9 @@ and in both JavaScript packages' READMEs.
   gets a scene in `e2e/screenshots.mjs` and an entry in
   `e2e/screenshots-gallery.mjs`.
 
-`scripts/ci.sh docs` fails when either is stale.
+`scripts/ci.sh docs` fails when either is stale, and when a Markdown table
+is broken (`scripts/markdown-tables.mjs`: text written between a table's
+rows makes the rest render as one paragraph of `|`s).
 
 ## Tests
 
