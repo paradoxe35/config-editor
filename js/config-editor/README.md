@@ -26,6 +26,7 @@ which builds on this package.
 - [Keyboard](#keyboard)
   - [Folding](#folding)
 - [Saving and unsaved edits](#saving-and-unsaved-edits)
+- [Several documents](#several-documents)
 - [Reviewing changes](#reviewing-changes)
 - [Languages written in JavaScript](#languages-written-in-javascript)
 - [Themes](#themes)
@@ -490,7 +491,8 @@ update them with the setters when they change.
 `Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
 `Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
 reverts the change · `Ctrl+S` save (with `onSave`) · `Ctrl+Shift+[`/`Ctrl+Shift+]`
-fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything.
+fold/unfold at the caret · `Ctrl+K Ctrl+0`/`Ctrl+K Ctrl+J` fold/unfold everything ·
+`Alt+PageDown`/`Alt+PageUp` next/previous document in a `ConfigDocuments` view.
 `Cmd` works in place of `Ctrl` on macOS.
 
 ### Folding
@@ -549,6 +551,68 @@ and diffs it against the new baseline. Without unsaved edits, or when the new
 baseline is the document or a text the editor sent (`onChange`, `onSave`: a
 save coming back while the user typed on), it is taken silently. A `setValue`
 keeps the caret and the scroll position.
+
+## Several documents
+
+`ConfigDocuments` shows several files, a main config and its drop-ins, as
+VS Code-style tabs over one editor per document, each with its own language
+(from `fileName` unless given), baseline, read-only state, `editAs` and
+schema (documents with the same schema text share one compiled schema).
+
+```js
+import init, { ConfigDocuments } from "@pngwasi/config-editor";
+
+await init();
+let files = [
+  { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+  { id: "limits", fileName: "conf.d/limits.toml", value: limitsText, schema },
+  { id: "clients", fileName: "conf.d/clients.json", value: clientsText, schema, readOnly: true },
+];
+const update = (id, change) => {
+  files = files.map((file) => (file.id === id ? { ...file, ...change } : file));
+  view.setDocuments(files);
+};
+const view = new ConfigDocuments(document.getElementById("files"), {
+  documents: files,
+  onChange: (id, value) => update(id, { value }),
+  onSave: async (id, value, language) => {
+    await putFile(id, value);
+    update(id, { baseline: value }); // nothing unsaved any more
+  },
+  onClose: ({ id, dirty }) => {
+    if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
+    files = files.filter((file) => file.id !== id);
+    view.setDocuments(files);
+  },
+  onSelect: (id) => console.log("showing", id),
+});
+view.saveAll();          // saves the dirty documents; returns their ids
+view.select("limits");   // shows it and focuses its editor
+view.activeId;           // "limits"
+view.isDirty("main");
+```
+
+- You own the list: `setDocuments` adds, removes, renames and reorders. A
+  document keeps its editor while its `id` stays listed (a new `value`,
+  `baseline`, `fileName`, `readOnly` or `editAs` updates it in place; a new
+  `language` or `schema` mounts a new editor).
+- Nothing closes by itself: `onClose({ id, dirty })` asks you (close button,
+  middle click, `Delete` on a tab). Without `onClose`, tabs have no close
+  button.
+- Switching keeps each document's caret, selection, scroll position, undo
+  history, folds and find widget: an editor mounts the first time its
+  document is shown, then stays (hidden) while it is open. With ten
+  ~2000-line documents all shown, the view used about 21 MB of wasm memory
+  (1.5 to 1.9 MB per editor) and 4 MB of JS heap.
+- Keys: `←`/`→`, `Home`/`End` in the tab list (a WAI-ARIA `tablist`),
+  `Enter` into the editor, `Delete` to close; `Alt+PageDown`/`Alt+PageUp`
+  switch documents from anywhere in the view (browsers keep `Ctrl+Tab` and
+  `Ctrl+PageDown`). `Ctrl+S` saves the document being edited.
+- Other options: `activeId` (shown first), `theme`, `colors` (the `tab-*`
+  tokens style the tabs, see [Styling](#styling)), `styled`, `showFooter`,
+  `showDiff`, `saveShortcut`, `className`, `label` (the tab list's name);
+  setters `setTheme`, `setColors`, `setSaveShortcut`, `setCallbacks`, and
+  `destroy()`.
 
 ## Reviewing changes
 
@@ -672,6 +736,13 @@ preset stylesheet to serve or adapt.
 The `colors` option sets the variables per editor. The diff markers use `added`,
 `modified` and `removed` (which follows `error` unless set), and the
 footer's change count `status-changes`.
+
+The tabs of `ConfigDocuments` use `tab-bar` (the strip), `tab-bg` /
+`tab-active-bg`, `tab-text` / `tab-active-text`, `tab-border`,
+`tab-active-border` (the line over the active tab) and `tab-dirty` (the
+unsaved-changes dot); they follow `panel`, `bg`, `muted`, `text`, `border`
+and `accent` unless set, as variables on the `.config-editor-documents` root
+or through its `colors` option.
 
 ## License
 

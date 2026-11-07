@@ -13,11 +13,15 @@
 //! - `?schema=protected` — the protected-fields fixture (read-only fields,
 //!   secrets with their placeholders) and its document;
 //!   `&lock=/name,/listen` locks more fields as the host.
+//! - `?documents` — several files as tabs (`ConfigDocuments`), see
+//!   `documents_demo`.
 
 use config_editor_leptos::{
     ConfigEditor, ConfigEditorToolbar, EditorTheme, FieldPath, Language, SaveRequest,
 };
 use leptos::prelude::*;
+
+mod documents_demo;
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
@@ -149,6 +153,15 @@ fn key(language: Language) -> &'static str {
 
 fn main() {
     console_error_panic_hook::set_once();
+    let flags = query_flags();
+    if let Some(mode) = flags
+        .iter()
+        .find(|pair| *pair == "documents" || pair.starts_with("documents="))
+    {
+        let many = mode == "documents=many";
+        leptos::mount::mount_to_body(move || documents_demo::view(many));
+        return;
+    }
     leptos::mount::mount_to_body(|| {
         let flags = query_flags();
         let language = query_value(&flags, "language")

@@ -54,3 +54,20 @@ const blocks: LineRange[] = foldRanges("json", '{\n  "web": {\n    "http": 80\n 
 const yaml: LanguageInfo = languageInfo("yml"); const fileLanguage: string | null = languageForFile("deploy/main.tf");
 const nord: ThemeInfo = themeInfo("nord"); const css: string = presetCss();
 void [onScreen, folds, counted, data, hcl, where, at, blocks, yaml, fileLanguage, nord, css];
+// Several documents.
+import { ConfigDocuments, type DocumentSpec } from "@pngwasi/config-editor";
+declare function putFile(id: string, text: string): Promise<void>; declare const mainText: string;
+let files: DocumentSpec[] = [{ id: "main", fileName: "burrow.yaml", value: mainText, schema: schemaText, readOnly: false }];
+const update = (id: string, change: Partial<DocumentSpec>) => {
+  files = files.map((file) => (file.id === id ? { ...file, ...change } : file));
+  view.setDocuments(files);
+};
+const view = new ConfigDocuments(element, {
+  documents: files,
+  onChange: (id, value) => update(id, { value }),
+  onSave: async (id, value, language) => { await putFile(id, value); update(id, { baseline: value }); void language; },
+  onClose: ({ id, dirty }) => { if (dirty) return; files = files.filter((file) => file.id !== id); view.setDocuments(files); },
+  onSelect: (id) => console.log(id),
+});
+const savedIds: string[] = view.saveAll(); const shown: boolean = view.select("limits"); const active: string | undefined = view.activeId; const dirtyMain: boolean = view.isDirty("main");
+view.setCallbacks({ onSave: null }); view.setTheme("nord"); view.setColors({ "tab-dirty": "#ffcc66" }); view.destroy();

@@ -231,12 +231,89 @@ export interface CustomLanguage {
 }
 "#;
 
+#[wasm_bindgen(typescript_custom_section)]
+const DOCUMENT_TYPES: &str = r#"
+/** One open document of a `ConfigDocuments` view. */
+export interface DocumentSpec {
+  /** Identifies the document across `setDocuments` calls and in every callback. Unique in the list. */
+  id: string;
+  /** The tab's label (a file name or path); its extension gives the language when `language` is not set. */
+  fileName: string;
+  /** The text, in the document's language. A new one updates the editor, keeping the caret. */
+  value: string;
+  /** Default: from `fileName`'s extension, else `"yaml"`. A new language mounts a new editor. */
+  language?: LanguageName;
+  /** Text to diff against and to tell unsaved edits by. Default: `value` as the document was added. */
+  baseline?: string;
+  /** View mode for this document; switches live. */
+  readOnly?: boolean;
+  /** JSON Schema as JSON text; documents with the same text share one compiled schema. An invalid schema is reported inline. */
+  schema?: string;
+  /** Edit in another language than `language`; switches live. */
+  editAs?: LanguageName;
+}
+
+/** What `onClose` receives: the user asked to close a document. Nothing closes by itself: remove it from the list (asking first when `dirty`). */
+export interface CloseRequest {
+  id: string;
+  /** Whether it has unsaved edits (its text differs from its baseline). */
+  dirty: boolean;
+}
+
+export interface DocumentsOptions {
+  /** The open documents, in tab order. */
+  documents: DocumentSpec[];
+  /** The document shown first. Default: the first one. */
+  activeId?: string;
+  theme?: ThemeName;
+  /** Color overrides, the `tab-*` tokens included (`tab-bar`, `tab-bg`, `tab-active-bg`, `tab-text`, `tab-active-text`, `tab-border`, `tab-active-border`, `tab-dirty`). */
+  colors?: ThemeColorMap;
+  /** Inject the preset stylesheet (once for the whole view). Default `true`. */
+  styled?: boolean;
+  /** Show each editor's status footer. Default `false`. */
+  showFooter?: boolean;
+  /** Line changes against each document's baseline. Default `true`. */
+  showDiff?: boolean;
+  /** Whether `Ctrl+S` / `Cmd+S` saves the document being edited (with `onSave`). Default `true`. */
+  saveShortcut?: boolean;
+  /** Extra class on the view's root. */
+  className?: string;
+  /** The tab list's accessible name. Default `"Open files"`. */
+  label?: string;
+  /** Called with a document's id when it becomes the active one (a tab, `Alt+PageDown` / `Alt+PageUp`, `select()`, or the active one closing). */
+  onSelect?: (id: string) => void;
+  /** Called when the user asks to close a document (close button, middle click, `Delete` on its tab). Without it, tabs have no close button. */
+  onClose?: (request: CloseRequest) => void;
+  /** Called with a document's id and text after every edit: store it as the document's `value`. */
+  onChange?: (id: string, value: string) => void;
+  /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `save(id)` / `saveAll()`. */
+  onSave?: (id: string, value: string, language: LanguageName) => void;
+  /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
+  onDirtyChange?: (id: string, dirty: boolean) => void;
+}
+
+/** Callbacks of a `ConfigDocuments` to replace: a function replaces, `null` removes, absent keeps. */
+export interface DocumentsCallbackUpdate {
+  onSelect?: ((id: string) => void) | null;
+  onClose?: ((request: CloseRequest) => void) | null;
+  onChange?: ((id: string, value: string) => void) | null;
+  onSave?: ((id: string, value: string, language: LanguageName) => void) | null;
+  onDirtyChange?: ((id: string, dirty: boolean) => void) | null;
+}
+"#;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "EditorOptions")]
     pub type EditorOptions;
     #[wasm_bindgen(typescript_type = "CallbackUpdate")]
     pub type EditorUpdate;
+    #[wasm_bindgen(typescript_type = "DocumentsOptions")]
+    pub type DocumentsOptions;
+    #[wasm_bindgen(typescript_type = "DocumentSpec[]")]
+    pub type DocumentList;
+    #[wasm_bindgen(typescript_type = "DocumentsCallbackUpdate")]
+    pub type DocumentsUpdate;
     #[wasm_bindgen(typescript_type = "CustomLanguage")]
     pub type CustomLanguage;
     #[wasm_bindgen(typescript_type = "ThemeColorMap")]

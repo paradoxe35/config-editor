@@ -222,6 +222,14 @@ impl From<Schema> for SchemaSource {
     }
 }
 
+impl Schema {
+    /// Whether both are handles on one compiled schema (clones of each
+    /// other), not merely equal ones.
+    pub(crate) fn shares(&self, other: &Schema) -> bool {
+        std::sync::Arc::ptr_eq(&self.bundle, &other.bundle)
+    }
+}
+
 impl SchemaSource {
     pub(super) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
         match self {
