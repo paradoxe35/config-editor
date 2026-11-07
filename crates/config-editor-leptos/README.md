@@ -24,7 +24,6 @@ method and headless function here has a JS option, method or function there
 `e2e/tests/api-parity.spec.mjs` checks it.
 
 <!-- toc -->
-
 ## Contents
 
 - [Install](#install)
