@@ -93,6 +93,8 @@ test.describe('memory', () => {
   test('editors destroyed and freed give their memory back', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     const grown = await growths(browserPage, {
+      // The allocator settles into its pages over the first few dozen mounts.
+      warmUp: 40,
       cycles: 200,
       cycle: () =>
         browserPage.evaluate(async () => {

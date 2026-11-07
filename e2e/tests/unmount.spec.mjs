@@ -132,10 +132,10 @@ test('documents view destroyed while its next frame waits', async ({ page: brows
   await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
   await browserPage.evaluate((value) => {
     const view = window.documentsView;
-    view.setDocuments([
+    view.update({ documents: [
       { id: 'a', fileName: 'a.yaml', value },
       { id: 'b', fileName: 'b.yaml', value },
-    ]);
+    ] });
   }, TEXT);
   await expect(browserPage.locator('.config-editor__input')).toHaveCount(1);
   // A switch (the tab scrolled into view and focused next frame) and a
@@ -143,7 +143,7 @@ test('documents view destroyed while its next frame waits', async ({ page: brows
   await browserPage.evaluate((value) => {
     const view = window.documentsView;
     view.select('b');
-    view.setDocuments([{ id: 'b', fileName: 'b.yaml', value }]);
+    view.update({ documents: [{ id: 'b', fileName: 'b.yaml', value }] });
     view.destroy();
   }, TEXT);
   await expect(browserPage.locator('.config-editor-documents__tab')).toHaveCount(0);
