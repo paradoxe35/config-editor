@@ -5,7 +5,8 @@
 //! The shared part, computed per text on screen in any language:
 //! - `marks`: what the schema marks on each field;
 //! - `locate`, `locks`: where each protected field is written (by path,
-//!   with everything inside a container);
+//!   with everything inside a container); `carry`: the locks moved
+//!   through an edit leaving the text unparseable;
 //! - `guard`: one check every edit passes, whatever made it;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
@@ -15,6 +16,7 @@
 //! - `view`: the gutter lock and muted values of each line;
 //! - `texts`: the built-in texts.
 
+mod carry;
 mod components;
 mod guard;
 mod hooks;
@@ -38,6 +40,15 @@ pub(crate) use marks::mentions_marks;
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::save_refused;
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod broken_tests;
 #[cfg(all(
     test,
     feature = "schema-validation",

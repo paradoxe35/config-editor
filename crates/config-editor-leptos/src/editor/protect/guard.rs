@@ -16,10 +16,14 @@
 //!   host's parser may let the last one win).
 //!
 //! Formatting around a locked field stays free: blank lines, trailing
-//! spaces, comments after the value, and re-indenting where indentation
-//! carries no structure (JSON, TOML, HCL, XML). In YAML a changed indent
-//! moves the field, which the parsed check refuses.
+//! spaces, comments after the value, and whitespace inside it (a space
+//! after `:` or `=`, re-indenting where indentation carries no structure:
+//! JSON, TOML, HCL, XML) while the text parses and every locked value reads
+//! as pinned. In YAML a locked line's indent cannot change. While the text
+//! does not parse, a locked stretch keeps its text exactly, and a YAML
+//! plain value takes nothing glued onto it (`abc<`).
 
+use std::cell::OnceCell;
 use std::ops::Range;
 
 use serde_json::Value;
@@ -73,39 +77,62 @@ pub(crate) fn check(
         .take_while(|(a, b)| a == b)
         .count();
     let lines = LineIndex::new(before);
-    // An edit changing several places (Replace All, a comment toggle over
-    // lines): a stretch on lines it left whole is kept too.
-    let unchanged = std::cell::OnceCell::new();
-    let kept = |range: &Range<usize>| {
-        kept(range, &old, &new, prefix, suffix)
-            || unchanged
-                .get_or_init(|| unchanged_lines(before, after))
-                .as_ref()
-                .is_some_and(|same: &Vec<bool>| {
-                    (lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1)))
-                        .all(|line| same.get(line).copied().unwrap_or(false))
-                })
-    };
-    for lock in &protected.locks {
-        if !lock.ranges.iter().all(kept) {
-            return Err(Blocked {
-                reason: lock.reason.clone(),
-                holds: false,
-            });
-        }
-        if !lock.guards.iter().all(kept) {
-            return Err(Blocked {
-                reason: lock.reason.clone(),
-                holds: true,
-            });
-        }
-    }
     // The region the edit replaced, read as narrowly as the texts allow.
     let tail = suffix
         .min(old.len() - prefix.min(old.len()))
         .min(new.len() - prefix.min(new.len()));
     let region = prefix.min(old.len())..old.len() - tail;
     let new_region = prefix.min(new.len())..new.len() - tail;
+    let edited = OnceCell::new();
+    let parsed = || {
+        edited
+            .get_or_init(|| codec::read(behavior, after, reading_schema).ok())
+            .as_ref()
+    };
+    // An edit changing several places (Replace All, a comment toggle over
+    // lines): a stretch on lines it left whole is kept too.
+    let unchanged = OnceCell::new();
+    let lines_kept = |range: &Range<usize>| {
+        unchanged
+            .get_or_init(|| unchanged_lines(before, after))
+            .as_ref()
+            .is_some_and(|same: &Vec<bool>| {
+                (lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1)))
+                    .all(|line| same.get(line).copied().unwrap_or(false))
+            })
+    };
+    // Without a parse to compare, a character typed next to a YAML plain
+    // value joins it, punctuation included (`abc<`, `2[x]`).
+    let strict = || behavior.plain_scalars() && parsed().is_none();
+    let kept = |range: &Range<usize>| {
+        kept(range, &old, &new, prefix, suffix, &strict) || lines_kept(range)
+    };
+    // Whitespace changed inside a locked field (an indent, a space after
+    // `:`), which leaves every locked value as it was.
+    let reformat = OnceCell::new();
+    let reformat_only = || {
+        *reformat.get_or_init(|| {
+            without_whitespace(&old[region.clone()]) == without_whitespace(&new[new_region.clone()])
+                && parsed().is_some_and(|document| pins_hold(document, protected).is_none())
+                && (!behavior.indent_is_structure()
+                    || indents(behavior, before) == indents(behavior, after))
+        })
+    };
+    for lock in &protected.locks {
+        let free = || lock.pointer.is_some() && reformat_only();
+        if !lock.ranges.iter().all(kept) && !free() {
+            return Err(Blocked {
+                reason: lock.reason.clone(),
+                holds: false,
+            });
+        }
+        if !lock.guards.iter().all(kept) && !free() {
+            return Err(Blocked {
+                reason: lock.reason.clone(),
+                holds: true,
+            });
+        }
+    }
     let pointed: Vec<&Lock> = protected
         .locks
         .iter()
@@ -114,22 +141,22 @@ pub(crate) fn check(
     if pointed.is_empty() {
         return Ok(());
     }
-    if let Ok(edited) = codec::read(behavior, after, reading_schema) {
+    if let Some(edited) = parsed() {
         // The edited text parses: every locked value must read as it was
         // pinned, wherever the edit was (a TOML `[web.sub]` table added at
         // the end changes `web`).
-        for (pointer, value) in &protected.pins {
-            if edited.pointer(pointer) != Some(value) {
+        return match pins_hold(edited, protected) {
+            None => Ok(()),
+            Some(pointer) => {
                 let lock = pointed
                     .iter()
-                    .find(|lock| lock.pointer.as_deref() == Some(pointer.as_str()));
-                return Err(Blocked {
+                    .find(|lock| lock.pointer.as_deref() == Some(pointer));
+                Err(Blocked {
                     reason: lock.map_or(Reason::Field, |lock| lock.reason.clone()),
                     holds: false,
-                });
+                })
             }
-        }
-        return Ok(());
+        };
     }
     // The edited text does not parse, so its values cannot be compared.
     // Nothing may be written where it would join a locked field once it
@@ -165,7 +192,7 @@ pub(crate) fn check(
             && !lock
                 .ranges
                 .iter()
-                .all(|range| indent_kept(range, &old, &new, prefix, suffix))
+                .all(|range| indent_kept(range, &old, &new, prefix, suffix) || lines_kept(range))
         {
             return Err(Blocked {
                 reason: lock.reason.clone(),
@@ -264,13 +291,20 @@ fn unchanged_lines(before: &str, after: &str) -> Option<Vec<bool>> {
 
 /// Whether `range` of the old text survives the edit untouched: it lies in
 /// the common prefix or suffix, and nothing new is glued onto its ends.
-fn kept(range: &Range<usize>, old: &[u16], new: &[u16], prefix: usize, suffix: usize) -> bool {
+fn kept(
+    range: &Range<usize>,
+    old: &[u16],
+    new: &[u16],
+    prefix: usize,
+    suffix: usize,
+    strict: &dyn Fn() -> bool,
+) -> bool {
     if range.start >= range.end {
         return true;
     }
     let last = old[range.end - 1];
     let in_prefix =
-        range.end <= prefix && neighbour_ok(last, old.get(range.end), new.get(range.end));
+        range.end <= prefix && neighbour_ok(last, old.get(range.end), new.get(range.end), strict);
     if in_prefix {
         return true;
     }
@@ -279,17 +313,57 @@ fn kept(range: &Range<usize>, old: &[u16], new: &[u16], prefix: usize, suffix: u
         let shifted = range.start + new.len() - old.len();
         let before = range.start.checked_sub(1).and_then(|at| old.get(at));
         let after = shifted.checked_sub(1).and_then(|at| new.get(at));
-        return neighbour_ok(old[range.start], before, after);
+        return neighbour_ok(old[range.start], before, after, strict);
     }
     false
 }
 
 /// A character next to a locked stretch (whose character on that side is
 /// `edge`) may change only to one that cannot join it: whitespace,
-/// punctuation, or nothing. Next to a stretch ending in a blank or
-/// punctuation, anything may go.
-fn neighbour_ok(edge: u16, old: Option<&u16>, new: Option<&u16>) -> bool {
-    old == new || !glues(edge) || new.is_none_or(|unit| !glues(*unit))
+/// punctuation (only whitespace when `strict`), or nothing. Next to a
+/// stretch ending in a blank or punctuation, anything may go.
+fn neighbour_ok(
+    edge: u16,
+    old: Option<&u16>,
+    new: Option<&u16>,
+    strict: &dyn Fn() -> bool,
+) -> bool {
+    old == new
+        || !glues(edge)
+        || new.is_none_or(|unit| !glues(*unit) && (is_blank(*unit) || !strict()))
+}
+
+fn is_blank(unit: u16) -> bool {
+    char::from_u32(u32::from(unit)).is_some_and(char::is_whitespace)
+}
+
+/// The first locked field whose value in `document` differs from the one
+/// pinned, if any.
+fn pins_hold<'a>(document: &Value, protected: &'a Protected) -> Option<&'a str> {
+    protected
+        .pins
+        .iter()
+        .find(|(pointer, value)| document.pointer(pointer) != Some(value))
+        .map(|(pointer, _)| pointer.as_str())
+}
+
+fn without_whitespace(units: &[u16]) -> Vec<u16> {
+    units
+        .iter()
+        .copied()
+        .filter(|unit| !is_blank(*unit))
+        .collect()
+}
+
+/// The indent of each line holding code (not blank, not only a comment).
+fn indents<'a>(behavior: &dyn ConfigLanguage, text: &'a str) -> Vec<&'a str> {
+    text.lines()
+        .filter_map(|line| {
+            let indent = line.len() - line.trim_start().len();
+            let code = !line.trim().is_empty() && behavior.comment_start(line) != Some(indent);
+            code.then(|| &line[..indent])
+        })
+        .collect()
 }
 
 /// Whether a character written next to text would read as part of it.

@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::super::codec;
 use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, key_range};
+use super::carry::Moves;
 use super::locate::{LineIndex, extent, lookup, within};
 use super::marks::{SchemaMarks, schema_marks};
 use super::texts::Reason;
@@ -55,6 +56,9 @@ pub(crate) struct Protected {
     /// The fields the schema marked read-only in the last text that parsed,
     /// with their reasons: still located while the text does not parse.
     pub(crate) marked: Vec<(String, Reason)>,
+    /// The text the locks were found in, to move them through an edit that
+    /// leaves the next text unparseable.
+    pub(crate) text: String,
     /// Which text from the host the locks follow (see
     /// `ProtectState::trust_text`): pins are carried only within one.
     pub(crate) epoch: u64,
@@ -151,8 +155,33 @@ pub(crate) fn protect(
         })
         .cloned()
         .collect();
+    let moves = carried.map(|previous| Moves::new(&previous.text, text));
     for (pointer, reason) in outer {
-        let Some(found) = extent(behavior, text, &lines, document.as_ref(), &pointer) else {
+        // A text that does not parse: the lock of the text before, moved
+        // through the edit, when the edit kept its text.
+        let moved = carried.zip(moves.as_ref()).and_then(|(previous, moves)| {
+            let lock = previous
+                .locks
+                .iter()
+                .find(|lock| lock.pointer.as_deref() == Some(pointer.as_str()))?;
+            moves.lock(lock)
+        });
+        if let Some(lock) = moved {
+            protected.locks.push(Lock { reason, ..lock });
+            continue;
+        }
+        // Else located in the text, with what is inside it as the parsed
+        // text (or the value pinned in the last one that parsed) has it.
+        let value = match (&document, carried) {
+            (Some(document), _) => lookup(document, &pointer),
+            (None, Some(previous)) => previous
+                .pins
+                .iter()
+                .find(|(pinned, _)| *pinned == pointer)
+                .map(|(_, value)| value),
+            (None, None) => None,
+        };
+        let Some(found) = extent(behavior, text, &lines, value, &pointer) else {
             continue;
         };
         protected.locks.push(Lock {
@@ -181,6 +210,7 @@ pub(crate) fn protect(
     };
     protected.marked = marked;
     protected.document = document;
+    protected.text = text.to_string();
     protected
 }
 

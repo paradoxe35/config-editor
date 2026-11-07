@@ -222,6 +222,14 @@ impl ConfigLanguage for YamlBehavior {
         true
     }
 
+    fn indent_is_structure(&self) -> bool {
+        true
+    }
+
+    fn plain_scalars(&self) -> bool {
+        true
+    }
+
     fn comment_start(&self, line: &str) -> Option<usize> {
         line_comment_start(line)
     }

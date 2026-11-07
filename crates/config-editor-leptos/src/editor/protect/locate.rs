@@ -100,17 +100,17 @@ pub(crate) struct Extent {
 const MAX_DESCENDANTS: usize = 2000;
 
 /// Where the field at `pointer` is written in `text`, with everything
-/// inside it when `document` (the parsed text) has it as a container.
+/// inside it when its `value` is a container.
 pub(crate) fn extent(
     behavior: &dyn ConfigLanguage,
     text: &str,
     lines: &LineIndex<'_>,
-    document: Option<&Value>,
+    value: Option<&Value>,
     pointer: &str,
 ) -> Option<Extent> {
     let mut ranges = vec![lines.range(field_range(behavior, text, pointer)?)];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
-    if let Some(value) = document.and_then(|document| lookup(document, pointer)) {
+    if let Some(value) = value {
         let mut inside = Vec::new();
         descendants(value, pointer.to_string(), &mut inside);
         for child in inside.iter().take(MAX_DESCENDANTS) {

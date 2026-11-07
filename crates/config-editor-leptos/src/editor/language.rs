@@ -883,6 +883,20 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// Whether indentation is structure (YAML: a key's indent says which
+    /// block it belongs to). A read-only field's lines then keep their
+    /// indent; where it is not (the default), re-indenting them stays free.
+    fn indent_is_structure(&self) -> bool {
+        false
+    }
+
+    /// Whether values may be written unquoted to the end of their line
+    /// (YAML plain scalars), so any character typed right next to one,
+    /// punctuation included, joins it. Default: no, punctuation ends a value.
+    fn plain_scalars(&self) -> bool {
+        false
+    }
+
     /// The span of the key at the JSON pointer `pointer`, for diagnostics.
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         let _ = (source, pointer);

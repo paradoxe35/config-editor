@@ -157,7 +157,7 @@ fn read_only_fields_are_located_in_every_language() {
 
 /// The edits of the matrix, written for each language: what they do, the
 /// edited text, and whether it must be refused.
-fn edits(language: Language, text: &str) -> Vec<(&'static str, Option<String>, bool)> {
+pub(super) fn edits(language: Language, text: &str) -> Vec<(&'static str, Option<String>, bool)> {
     let replace = |from: &str, to: &str| text.contains(from).then(|| text.replacen(from, to, 1));
     let label = language.label();
     let (id_line, a_line, comment, new_in_meta, new_line_before_id, new_at_end) = match label {
@@ -363,6 +363,30 @@ fn whitespace_and_comments_around_a_locked_value_stay_free() {
             "<id>abc</id>\n",
             "<id>abc</id> <!-- note -->\n",
         ),
+        // Whitespace inside a locked field or block.
+        (Language::YAML, "id: abc", "id:  abc"),
+        (Language::YAML, "  a: 1\n", "  a: 1 \n"),
+        (Language::YAML, "  a: 1\n", "  a: 1\n\n"),
+        (Language::YAML, "  a: 1\n", "  a: 1\n  \n"),
+        (Language::JSON, "    \"a\": 1", "     \"a\": 1"),
+        (Language::JSON, "    \"b\": 2", "   \"b\": 2"),
+        (Language::JSON, "\"a\": 1", "\"a\":  1"),
+        (Language::JSON, "\"a\": 1", "\"a\" : 1"),
+        (Language::JSON, "\"id\": \"abc\"", "\"id\":  \"abc\""),
+        (Language::JSON, "\"b\": 2\n", "\"b\": 2 \n"),
+        (Language::TOML, "a = 1", " a = 1"),
+        (Language::TOML, "a = 1", "a  = 1"),
+        (Language::TOML, "id = \"abc\"", "id  = \"abc\""),
+        (Language::TOML, "b = 2\n", "b = 2 \n"),
+        (Language::TOML, "[meta]", "[ meta ]"),
+        (Language::HCL, "  a = 1", "   a = 1"),
+        (Language::HCL, "  a = 1", " a = 1"),
+        (Language::HCL, "a = 1", "a  = 1"),
+        (Language::HCL, "id = \"abc\"", "id  = \"abc\""),
+        (Language::XML, "  <a>1</a>", "   <a>1</a>"),
+        (Language::XML, "  <a>1</a>", "<a>1</a>"),
+        (Language::XML, "<b>2</b>\n", "<b>2</b> \n"),
+        (Language::XML, "</id>\n", "</id> \n"),
     ];
     let mut failures = Vec::new();
     for (language, from, to) in cases {
@@ -372,20 +396,53 @@ fn whitespace_and_comments_around_a_locked_value_stay_free() {
             .unwrap()
             .1;
         let protected = locks_of(language, text, &[], &[]);
-        if !allowed(language, text, &text.replacen(from, to, 1), &protected) {
+        let edited = text.replacen(from, to, 1);
+        if edited == text || !allowed(language, text, &edited, &protected) {
             failures.push(format!("{language}: {from:?} → {to:?} refused"));
         }
     }
-    // In YAML the indent is structure: indenting the field moves it.
-    let (language, text) = documents().remove(0);
-    let protected = locks_of(language, text, &[], &[]);
-    if allowed(
-        language,
-        text,
-        &text.replacen("id: abc", "  id: abc", 1),
-        &protected,
-    ) {
-        failures.push("YAML: indenting a locked field was allowed".to_string());
+    // Whitespace that changes a value, a key or (in YAML, where the indent
+    // is structure) a locked line's indent stays refused.
+    let refused = [
+        (Language::YAML, "id: abc", "  id: abc"),
+        (Language::YAML, "  a: 1\n  b: 2", "    a: 1\n    b: 2"),
+        (Language::YAML, "  b: 2", "   b: 2"),
+        (Language::YAML, "  b: 2", " b: 2"),
+        (Language::YAML, "id: abc", "id: a bc"),
+        (Language::JSON, "\"abc\"", "\"a bc\""),
+        (Language::JSON, "\"abc\"", "\"abc \""),
+        (Language::JSON, "\"a\"", "\"a \""),
+        (Language::TOML, "\"abc\"", "\" abc\""),
+        (Language::TOML, "a = 1", "a b = 1"),
+        (Language::HCL, "\"abc\"", "\"ab c\""),
+        (Language::XML, "<id>abc</id>", "<id>a bc</id>"),
+    ];
+    for (language, from, to) in refused {
+        let text = documents()
+            .into_iter()
+            .find(|(known, _)| *known == language)
+            .unwrap()
+            .1;
+        let protected = locks_of(language, text, &[], &[]);
+        let edited = text.replacen(from, to, 1);
+        if edited == text || allowed(language, text, &edited, &protected) {
+            failures.push(format!("{language}: {from:?} → {to:?} allowed"));
+        }
+    }
+    // A host's range is text, not a field: whitespace in it stays refused.
+    for (language, text) in documents() {
+        let start = text.find("abc").unwrap();
+        let protected = protect(
+            language.behavior(),
+            text,
+            Sources {
+                ranges: &[start..start + 3],
+                ..Sources::default()
+            },
+        );
+        if allowed(language, text, &text.replacen("abc", "a bc", 1), &protected) {
+            failures.push(format!("{language}: whitespace in a host range allowed"));
+        }
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
@@ -492,22 +549,22 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
 }
 
 /// A small fixed-seed generator, so a failure always reproduces.
-struct Random(u64);
+pub(super) struct Random(pub(super) u64);
 
 impl Random {
-    fn next(&mut self) -> u64 {
+    pub(super) fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         self.0
     }
 
-    fn below(&mut self, bound: usize) -> usize {
+    pub(super) fn below(&mut self, bound: usize) -> usize {
         (self.next() % bound.max(1) as u64) as usize
     }
 }
 
-const PIECES: &[&str] = &[
+pub(super) const PIECES: &[&str] = &[
     "a",
     "1",
     " ",
@@ -540,10 +597,10 @@ const PIECES: &[&str] = &[
     "id = 1\n",
 ];
 
-const WORDS: &[&str] = &["abc", "abd", "x", "81", "id", "meta", "9", "a", "zz"];
+pub(super) const WORDS: &[&str] = &["abc", "abd", "x", "81", "id", "meta", "9", "a", "zz"];
 
 /// UTF-16 ranges of the alphanumeric runs of `units`.
-fn words(units: &[u16]) -> Vec<(usize, usize)> {
+pub(super) fn words(units: &[u16]) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     let mut start = None;
     for (at, unit) in units.iter().chain(std::iter::once(&0)).enumerate() {

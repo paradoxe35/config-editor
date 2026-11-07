@@ -739,11 +739,15 @@ view! {
   read-only block is refused whole: the text stays as it was, and a short
   tooltip at the caret says why. Replace All replaces the other matches and
   reports how many it skipped.
-- Formatting around a locked field stays free: blank lines, trailing
-  spaces, a comment after the value, punctuation next to it (`,` in JSON),
-  and re-indenting where indentation is not structure (JSON, TOML, HCL,
-  XML). In YAML, where the indent says which block a key belongs to,
-  changing a locked line's indent is refused.
+- Formatting around and inside a locked field stays free: blank lines,
+  trailing spaces, a comment after the value, punctuation next to it (`,`
+  in JSON), a space after `:` or `=`, and re-indenting where indentation is
+  not structure (JSON, TOML, HCL, XML). In YAML, where the indent says
+  which block a key belongs to, changing a locked line's indent is refused.
+  A host's read-only range is text: nothing in it changes.
+- A syntax error anywhere keeps every lock: while the document does not
+  parse, locked text stays exactly as it was, and the edit that repairs
+  the syntax goes through.
 - Suggestions leave read-only keys and values out. Inside a read-only
   region (browsing it with `Ctrl+Space`) they are listed, with the reason as
   their detail.

@@ -470,8 +470,10 @@ editor.setReadOnlyPaths(["/limits", "/tls/cert"]); // at runtime
   inside a deleted selection or parent block) or add to a read-only block
   are refused: the text stays, and a tooltip at the caret says why. Replace
   All skips matches in read-only text and says how many.
-- Whitespace, comments and punctuation around a locked field stay free;
-  in YAML a locked line's indent cannot change (it is structure).
+- Whitespace, comments and punctuation around a locked field stay free
+  (also whitespace inside it, such as a space after `:`); in YAML a locked
+  line's indent cannot change (it is structure). A syntax error anywhere
+  keeps every lock until it is repaired.
 - Suggestions leave read-only keys out (inside a read-only block they are
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
