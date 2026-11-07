@@ -206,7 +206,13 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
-        noyalib::to_string(value).map_err(|error| error.to_string())
+        use super::super::codec::non_finite::Floats;
+        noyalib::to_string(&Floats(value)).map_err(|error| error.to_string())
+    }
+
+    /// `.inf`, `-.inf` and `.nan`.
+    fn writes_non_finite(&self) -> bool {
+        true
     }
 
     fn comment_start(&self, line: &str) -> Option<usize> {

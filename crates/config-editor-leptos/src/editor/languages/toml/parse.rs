@@ -27,13 +27,12 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
 
 /// A TOML value in the shared data model: dates and times are their TOML
 /// text (`1979-05-27`), not serde's private wrapper object; `nan` and
-/// infinities, which JSON cannot hold, are `null`.
+/// infinities are held as `codec::non_finite` holds them.
 fn toml_to_json(value: &toml::Value) -> Value {
     match value {
         toml::Value::String(text) => Value::String(text.clone()),
         toml::Value::Integer(number) => Value::from(*number),
-        toml::Value::Float(number) => serde_json::Number::from_f64(*number)
-            .map_or(Value::Null, Value::Number),
+        toml::Value::Float(number) => super::super::super::codec::non_finite::float_value(*number),
         toml::Value::Boolean(flag) => Value::Bool(*flag),
         toml::Value::Datetime(datetime) => Value::String(datetime.to_string()),
         toml::Value::Array(items) => Value::Array(items.iter().map(toml_to_json).collect()),

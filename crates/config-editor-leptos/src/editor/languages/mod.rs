@@ -63,6 +63,15 @@ mod fold_matrix;
 mod nested_tests;
 #[cfg(all(
     test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod non_finite_matrix;
+#[cfg(all(
+    test,
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",
@@ -216,12 +225,16 @@ impl Language {
         self.0.parse(source)
     }
 
-    /// Renders a data model value as a document in this language.
+    /// Renders a data model value as a document in this language, only when
+    /// the document reads back as exactly that value (the same check as a
+    /// conversion's `losses`).
     ///
     /// # Errors
     ///
     /// [`ConvertError::Unsupported`] when the language cannot express the
-    /// value (TOML has no `null`).
+    /// value (TOML has no `null`), or would read it back differently (XML
+    /// has no empty or nested lists and reads a one-item list as its item;
+    /// JSON, HCL and XML have no infinity or NaN).
     ///
     /// ```
     /// # #[cfg(feature = "hcl")] {
@@ -231,7 +244,7 @@ impl Language {
     /// # }
     /// ```
     pub fn serialize(self, value: &Value) -> Result<String, ConvertError> {
-        codec::serialize(self.0, value, None)
+        codec::serialize_exact(self.0, value)
     }
 
     /// Converts a document from this language to `target`. The result lists

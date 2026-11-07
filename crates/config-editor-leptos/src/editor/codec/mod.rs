@@ -5,10 +5,12 @@
 mod flow;
 mod kept_inline;
 mod lists;
+pub(super) mod non_finite;
 mod renames;
 mod reorder;
 mod steps;
 
+pub use non_finite::{float_of, float_value};
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
 pub(super) use reorder::patch_reorder;
 pub(super) use steps::steps;
@@ -91,12 +93,41 @@ pub(super) fn serialize(
     value: &Value,
     previous: Option<&str>,
 ) -> Result<String, ConvertError> {
+    // A language without infinities writes them as text, which reads back
+    // as a string: a loss (see `non_finite`).
+    let value = if language.writes_non_finite() {
+        std::borrow::Cow::Borrowed(value)
+    } else {
+        non_finite::as_text(value)
+    };
     let mut text = language
-        .serialize(value, previous)
+        .serialize(&value, previous)
         .map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');
     Ok(text)
+}
+
+/// Serializes `value` in `language` only when the document reads back as
+/// exactly `value`: the check `render` makes for a conversion's losses, so
+/// writing data and converting a document agree on what a language holds.
+pub(super) fn serialize_exact(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+) -> Result<String, ConvertError> {
+    let Conversion { text, losses } = render(value, language, None, None)?;
+    let Some((first, rest)) = losses.split_first() else {
+        return Ok(text);
+    };
+    let more = if rest.is_empty() {
+        String::new()
+    } else {
+        format!(", and {} more: {}", rest.len(), rest.join(", "))
+    };
+    Err(ConvertError::Unsupported(format!(
+        "{} cannot write this value so that it reads back the same{more} (at {first})",
+        language.info().label
+    )))
 }
 
 pub(super) fn convert(
@@ -122,7 +153,7 @@ pub(super) fn patch_scalars(
     schema: Option<&Value>,
 ) -> Option<String> {
     // Whatever the language cannot express must still be refused, even when
-    // a patch would read back equal (TOML writes null as `nan`).
+    // a patch would read back equal.
     language.serialize(new, Some(previous)).ok()?;
     let mut changes = Vec::new();
     scalar_changes(old, new, String::new(), &mut changes)?;

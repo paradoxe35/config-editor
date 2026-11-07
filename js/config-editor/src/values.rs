@@ -50,13 +50,7 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
         return Ok(Value::Bool(flag));
     }
     if let Some(number) = value.as_f64() {
-        // Whole numbers stay integers (5, not 5.0), as JSON.parse reads them.
-        if number.fract() == 0.0 && number.abs() < 9.007_199_254_740_992e15 {
-            return Ok(Value::from(number as i64));
-        }
-        return serde_json::Number::from_f64(number)
-            .map(Value::Number)
-            .ok_or_else(|| format!("{number} is not a JSON number"));
+        return Ok(number_from_js(number));
     }
     if let Some(text) = value.as_string() {
         return Ok(Value::String(text));
@@ -69,6 +63,15 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
             .map(Value::Array);
     }
     if value.is_object() && !value.is_function() {
+        if !is_plain_object(value) {
+            let name = Reflect::get(value, &JsValue::from_str("constructor"))
+                .ok()
+                .and_then(|constructor| string_field(&constructor, "name"))
+                .unwrap_or_else(|| "an object".to_string());
+            return Err(format!(
+                "it holds a {name}, which is not plain data (pass a plain object, an array, or a string such as a date's toISOString())"
+            ));
+        }
         let mut map = serde_json::Map::new();
         for entry in Object::entries(value.unchecked_ref()).iter() {
             let pair: Array = entry.unchecked_into();
@@ -82,6 +85,33 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
         return Ok(Value::Object(map));
     }
     Err("it holds a value JSON cannot (undefined, a function, a symbol, or a bigint)".to_string())
+}
+
+/// A JavaScript number in the data model. A whole number is an integer
+/// (5, not 5.0), as `JSON.parse` reads it, also past 2^53 where the number
+/// is still exactly that integer (`1e16` is 10000000000000000); infinities
+/// and `NaN` are the numbers YAML and TOML write (`.inf`, `nan`).
+fn number_from_js(number: f64) -> Value {
+    /// 2^63 and 2^64, the ends of `i64` and `u64`.
+    const I64_END: f64 = 9_223_372_036_854_775_808.0;
+    const U64_END: f64 = 18_446_744_073_709_551_616.0;
+    if number.fract() == 0.0 {
+        if (-I64_END..I64_END).contains(&number) {
+            return Value::from(number as i64);
+        }
+        if (0.0..U64_END).contains(&number) {
+            return Value::from(number as u64);
+        }
+    }
+    config_editor_leptos::float_value(number)
+}
+
+/// Whether `value` is a plain object (`{…}` or `Object.create(null)`), not
+/// a `Date`, `Map`, `Set` or class instance, whose own fields are not its
+/// data.
+fn is_plain_object(value: &JsValue) -> bool {
+    let prototype = Object::get_prototype_of(value);
+    prototype.is_null() || Object::get_prototype_of(&prototype).is_null()
 }
 
 #[derive(Serialize)]
@@ -258,10 +288,37 @@ pub(crate) fn to_js<T: Serialize>(value: &T) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
-/// A JSON value as plain JavaScript data, as `JSON.parse` reads it (numbers
-/// past 2^53 lose precision there too).
+/// A data model value as plain JavaScript data, as `JSON.parse` reads it
+/// (integers past 2^53 lose precision there too), with infinities and NaN
+/// as `Infinity`, `-Infinity` and `NaN`.
 pub(crate) fn json_to_js(value: &Value) -> JsValue {
-    js_sys::JSON::parse(&value.to_string()).unwrap_or(JsValue::NULL)
+    let text = value.to_string();
+    // The noncharacter that starts a non-finite number (rare: walk only then).
+    if text.contains('\u{FDD0}') {
+        return data_to_js(value);
+    }
+    js_sys::JSON::parse(&text).unwrap_or(JsValue::NULL)
+}
+
+fn data_to_js(value: &Value) -> JsValue {
+    if let Some(number) = config_editor_leptos::float_of(value) {
+        return JsValue::from_f64(number);
+    }
+    match value {
+        Value::Null => JsValue::NULL,
+        Value::Bool(flag) => JsValue::from_bool(*flag),
+        Value::String(text) => JsValue::from_str(text),
+        Value::Array(items) => items.iter().map(data_to_js).collect::<Array>().into(),
+        Value::Object(map) => {
+            let object = Object::new();
+            for (key, item) in map {
+                let _ = Reflect::set(&object, &JsValue::from_str(key), &data_to_js(item));
+            }
+            object.into()
+        }
+        // Numbers are taken by `float_of` above.
+        Value::Number(_) => JsValue::NULL,
+    }
 }
 
 /// A string index argument: a non-negative integer.

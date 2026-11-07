@@ -19,7 +19,12 @@ pub(super) fn yaml_key_for_completion(key: &str) -> Option<String> {
     }
 }
 
+use super::super::super::codec::non_finite;
+
 pub(super) fn yaml_value(value: &Value) -> String {
+    if let Some(name) = non_finite::name(value) {
+        return format!(".{name}").replace(".-", "-.");
+    }
     match value {
         Value::String(value) if is_plain_identifier(value) => value.clone(),
         Value::String(value) => serde_json::to_string(value).unwrap_or_else(|_| value.clone()),

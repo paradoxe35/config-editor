@@ -193,7 +193,8 @@ impl ConfigLanguage for TomlBehavior {
         if let Some(pointer) = first_pointer(value, &Value::is_null) {
             return Err(format!("TOML has no null value (at {pointer})"));
         }
-        let rendered = toml::to_string(value).map_err(|error| error.to_string())?;
+        let rendered = toml::to_string(&super::super::codec::non_finite::Floats(value))
+            .map_err(|error| error.to_string())?;
         // Tables the host wrote as dotted keys are written that way again.
         Ok(match previous {
             Some(previous) => {
@@ -208,6 +209,11 @@ impl ConfigLanguage for TomlBehavior {
         })
     }
 
+
+    /// `inf`, `-inf` and `nan`.
+    fn writes_non_finite(&self) -> bool {
+        true
+    }
 
     fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
         folding::toml_fold_ranges(source, &self.config(), &self.string_body_lines(source))

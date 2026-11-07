@@ -5,7 +5,11 @@ use super::*;
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
     let parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
-    noyalib::from_str_with_config(source, &parser_config).map_err(|error| {
+    // Read through `Parsed`, which keeps `.inf` and `.nan` (a plain `Value`
+    // would turn them into `null`).
+    noyalib::from_str_with_config(source, &parser_config)
+        .map(|parsed: super::super::super::codec::non_finite::Parsed| parsed.0)
+        .map_err(|error| {
         let line_count = source.split('\n').count().max(1);
         let location = error.location();
         let line = location

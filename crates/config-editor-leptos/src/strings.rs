@@ -370,6 +370,8 @@ pub struct EditorStrings {
     pub not_saved: String,
     /// A null the host's language cannot write (Edit-as).
     pub no_null: String,
+    /// An infinity or NaN the host's language has no number for (Edit-as).
+    pub no_non_finite: String,
     /// A host document that does not convert for editing.
     pub cannot_edit_as: String,
     /// An Edit-as switch waiting until the document converts.
@@ -555,6 +557,7 @@ impl Default for EditorStrings {
             ),
             not_saved: text("Not saved as {host}: {error}"),
             no_null: text("{host} has no null value (at {pointer})"),
+            no_non_finite: text("{host} has no infinity or NaN (at {pointer})"),
             cannot_edit_as: text("Cannot edit this {host} as {edit}: {error}"),
             cannot_switch: text("Cannot switch to {edit} yet: {error}"),
             tab_list: text("Open files"),

@@ -190,6 +190,15 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "deps = [\n  \"click\",  # cli\n  \"rich\",\n]\nlisten = 1 # l\n",
         ),
+        // Infinities and NaN, which only YAML and TOML can write.
+        (
+            Language::YAML,
+            "# c\nrate: .inf # r\nlow: -.inf\nodd: .nan\nlisten: 1\nlimits:\n  max_pending: 5\n",
+        ),
+        (
+            Language::TOML,
+            "# c\nrate = inf # r\nlow = -inf\nodd = nan\nlisten = 1\n\n[limits]\nmax_pending = 5\n",
+        ),
     ]
 }
 

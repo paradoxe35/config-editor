@@ -523,9 +523,12 @@ pub(super) fn validate_with(
                 .iter()
                 .any(|pointer| path == pointer || path.starts_with(&format!("{pointer}/")))
         };
+        // Infinities and NaN are numbers to the schema (see `non_finite`).
+        let validated = super::codec::non_finite::for_validation(&document);
+        let restore = matches!(validated, std::borrow::Cow::Owned(_));
         let mut diagnostics = schema
             .validator
-            .iter_errors(&document)
+            .iter_errors(&validated)
             .flat_map(|top| {
                 specific_errors(&top)
                     .into_iter()
@@ -581,6 +584,11 @@ pub(super) fn validate_with(
                         } else if instance.chars().count() > MAX_QUOTED_VALUE {
                             let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
                             message.replacen(&instance, &format!("{short}…"), 1)
+                        } else {
+                            message
+                        };
+                        let message = if restore {
+                            super::codec::non_finite::restore_in_message(&message)
                         } else {
                             message
                         };

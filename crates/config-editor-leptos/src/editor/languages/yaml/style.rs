@@ -5,6 +5,8 @@ use super::*;
 
 /// `value` written where `written` was. Anything the style cannot hold is
 /// written as [`yaml_value`] does.
+use super::super::super::codec::non_finite;
+
 pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &str) -> String {
     // A value made empty again is written as YAML writes an empty value
     // (`key:`), unless the host spells its nulls out.
@@ -14,6 +16,9 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
     let Value::String(text) = value else {
         return yaml_value(value);
     };
+    if non_finite::name(value).is_some() {
+        return yaml_value(value);
+    }
     let written = written.trim_start();
     let reads_back = |candidate: &str| {
         // Both as a block value and inside a flow collection.

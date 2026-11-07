@@ -874,6 +874,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Err(format!("{} documents cannot be written", self.info().label))
     }
 
+    /// Whether the language has numbers for infinity and NaN, which
+    /// [`serialize`](Self::serialize) then writes from the values
+    /// [`float_value`](crate::float_value) makes. Without them (the default)
+    /// they reach `serialize` as the text `inf`, `-inf` or `nan`, and a
+    /// conversion reports them as values the language cannot hold.
+    fn writes_non_finite(&self) -> bool {
+        false
+    }
+
     /// The span of the key at the JSON pointer `pointer`, for diagnostics.
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         let _ = (source, pointer);

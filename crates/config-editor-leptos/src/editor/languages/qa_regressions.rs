@@ -828,8 +828,8 @@ fn span_lookups_on_large_documents_are_fast() {
     let document = serde_json::json!({
         "clients": clients,
         "web": {"letsencrypt": {"email": "a@b.c", "dns": [
-            {"domains": ["a.example"], "wait_secs": 60},
-            {"domains": ["b.example"], "wait_secs": 120}
+            {"domains": ["a.example", "c.example"], "wait_secs": 60},
+            {"domains": ["b.example", "d.example"], "wait_secs": 120}
         ]}}
     });
     for language in Language::ALL {

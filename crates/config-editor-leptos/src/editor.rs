@@ -60,7 +60,7 @@ mod theme;
 mod typing;
 
 pub use changes::{ChangeSummary, unified_diff};
-pub use codec::{Conversion, ConvertError};
+pub use codec::{Conversion, ConvertError, float_of, float_value};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{
     Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,

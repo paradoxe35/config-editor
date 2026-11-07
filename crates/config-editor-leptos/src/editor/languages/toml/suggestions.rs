@@ -609,6 +609,9 @@ pub(super) fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
 
 /// Non-string scalars render as JSON, which TOML also accepts.
 pub(super) fn toml_text(value: &Value) -> String {
+    if let Some(name) = super::super::super::codec::non_finite::name(value) {
+        return name.to_string();
+    }
     match value {
         // Always quoted: a bare string could read back as a date or number.
         Value::String(text) => serde_json::to_string(text).unwrap_or_else(|_| text.clone()),
@@ -617,7 +620,7 @@ pub(super) fn toml_text(value: &Value) -> String {
             format!("[{}]", items.join(", "))
         }
         Value::Object(map) => toml_inline_table(&Value::Object(map.clone())),
-        // TOML has no null; `nan` reads back through `serde_json` as `null`.
+        // TOML has no null (a save refuses one); a suggestion writes `nan`.
         Value::Null => "nan".to_string(),
         _ => value.to_string(),
     }

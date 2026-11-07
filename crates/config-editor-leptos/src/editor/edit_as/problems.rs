@@ -17,6 +17,9 @@ pub(in crate::editor) enum SaveError {
     /// A `null` at `pointer` the host's language would read back as
     /// something else (XML writes it as empty text).
     NoNull { pointer: String },
+    /// An infinity or NaN at `pointer` the host's language has no number
+    /// for (JSON, HCL and XML would write it as text).
+    NoNonFinite { pointer: String },
     /// The save would change a read-only value.
     ReadOnly(ReadOnlyChange),
 }
@@ -39,7 +42,7 @@ impl SaveError {
                     .unwrap_or("")
                     .to_string()
             }
-            SaveError::NoNull { pointer } => pointer.clone(),
+            SaveError::NoNull { pointer } | SaveError::NoNonFinite { pointer } => pointer.clone(),
             SaveError::ReadOnly(change) => change.pointer.clone(),
         }
     }
@@ -50,6 +53,10 @@ impl SaveError {
             SaveError::Convert(error) => error.to_string(),
             SaveError::NoNull { pointer } => fill(
                 &strings.no_null,
+                &[("host", &host.label()), ("pointer", pointer)],
+            ),
+            SaveError::NoNonFinite { pointer } => fill(
+                &strings.no_non_finite,
                 &[("host", &host.label()), ("pointer", pointer)],
             ),
             SaveError::ReadOnly(change) => {

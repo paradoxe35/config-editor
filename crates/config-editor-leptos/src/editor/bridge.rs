@@ -100,6 +100,14 @@ impl Bridge {
         {
             return Err(SaveError::NoNull { pointer });
         }
+        // So is an infinity or NaN the host has no number for (it would
+        // write it as text).
+        if let Some(pointer) =
+            codec::first_pointer(&value, &|value| codec::non_finite::name(value).is_some())
+            && target.pointer(&pointer) != value.pointer(&pointer)
+        {
+            return Err(SaveError::NoNonFinite { pointer });
+        }
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
