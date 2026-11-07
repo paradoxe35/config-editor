@@ -2,6 +2,10 @@ import init, {
   type ChangeSummary,
   ConfigEditor as Editor,
   type EditorOptions,
+  type EditorPath,
+  type EditorRange,
+  type FieldPath,
+  type HostDiagnostic,
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
@@ -31,7 +35,12 @@ export type {
   Conversion,
   CustomLanguage,
   Diagnostic,
+  EditorPath,
+  EditorRange,
+  FieldPath,
+  HostDiagnostic,
   LanguageName,
+  Severity,
   ThemeColorMap,
   ThemeName,
 } from "@pngwasi/config-editor";
@@ -93,6 +102,17 @@ export interface ConfigEditorProps {
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
+  /**
+   * Called with the path of what the caret is on each time it changes (and
+   * once on mount), for a breadcrumb. The path is computed only while set.
+   */
+  onPathChange?: (path: EditorPath) => void;
+  /**
+   * Problems the host found (a server's validation), by path or range, shown
+   * next to the editor's own and marked as the host's. A new list replaces
+   * the previous one; only the markers update.
+   */
+  hostDiagnostics?: HostDiagnostic[];
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Text the diff gutter compares against. */
@@ -135,6 +155,16 @@ export interface ConfigEditorHandle {
    * they are the same.
    */
   unifiedDiff(context?: number): string;
+  /** The path of what the caret is on, or `null` before the editor mounts. */
+  readonly currentPath: EditorPath | null;
+  /** Where the field at `path` is written in the text on screen, or `null`. */
+  rangeOf(path: FieldPath): EditorRange | null;
+  /** The path at a string index of the text on screen, or `null`. */
+  pathAt(offset: number): EditorPath | null;
+  /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
+  reveal(path: FieldPath): boolean;
+  /** Focuses the editor, keeping its selection. */
+  focus(): void;
 }
 
 /**
@@ -185,6 +215,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       }
     };
 
+    const followPath = (path: EditorPath) => latest.current.onPathChange?.(path);
+
     // Construction-time options re-mount; everything else is set live below.
     useEffect(() => {
       let cancelled = false;
@@ -223,6 +255,8 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
           onChangeSummary: (summary) => latest.current.onChangeSummary?.(summary),
+          onPathChange: current.onPathChange ? followPath : undefined,
+          hostDiagnostics: current.hostDiagnostics,
         };
         try {
           editor.current = new Editor(host.current, options);
@@ -324,6 +358,28 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
 
+    const hostDiagnostics = JSON.stringify(props.hostDiagnostics ?? []);
+    useEffect(() => {
+      guard((instance) => instance.setHostDiagnostics(JSON.parse(hostDiagnostics) as HostDiagnostic[]));
+    }, [mounted, hostDiagnostics]);
+
+    const followsPath = props.onPathChange !== undefined;
+    useEffect(() => {
+      guard((instance) => instance.setCallbacks({ onPathChange: followsPath ? followPath : null }));
+    }, [mounted, followsPath]);
+
+    // Runs `query` on the editor; `fallback` before it mounts or when it throws.
+    const ask = <T,>(query: (instance: Editor) => T, fallback: T): T => {
+      const instance = editor.current;
+      if (!instance) return fallback;
+      try {
+        return query(instance);
+      } catch (error) {
+        report(error);
+        return fallback;
+      }
+    };
+
     useImperativeHandle(
       ref,
       () => ({
@@ -341,6 +397,13 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         get editor() {
           return editor.current;
         },
+        get currentPath() {
+          return ask((instance) => instance.currentPath, null);
+        },
+        rangeOf: (path: FieldPath) => ask((instance) => instance.rangeOf(path), null),
+        pathAt: (offset: number) => ask((instance) => instance.pathAt(offset), null),
+        reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
+        focus: () => guard((instance) => instance.focus()),
         setValue(value: string) {
           if (typeof value !== "string") {
             report(new TypeError("setValue needs a string"));

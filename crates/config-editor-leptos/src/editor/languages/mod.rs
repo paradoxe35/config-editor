@@ -13,6 +13,7 @@
 
 use super::codec::{self, Conversion, ConvertError};
 use super::language::{ConfigLanguage, LanguageInfo, ParseError};
+use super::paths::{self, FieldPath, TextPosition, TextRange};
 use serde_json::Value;
 
 #[cfg(all(
@@ -234,6 +235,47 @@ impl Language {
     /// ```
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
         codec::convert(source, self.0, target.0, None, None)
+    }
+
+    /// Where the field at `path` is written in `source`: its key and value
+    /// when they share a line (`listen: 7835`), the key alone when the value
+    /// is a block below it (an object or list over several lines), the value
+    /// alone for an array item; the root is the whole text. `None` when the
+    /// document has no such field.
+    ///
+    /// ```
+    /// # #[cfg(all(feature = "yaml", feature = "toml"))] {
+    /// use config_editor_leptos::{Language, TextPosition};
+    /// let text = "web:\n  http: 80\n";
+    /// let range = Language::YAML.range_of(text, "/web/http").unwrap();
+    /// assert_eq!(range.start, TextPosition::new(2, 3));
+    /// assert_eq!(range.slice(text), "http: 80");
+    /// let toml = "[web]\nhttp = 80\n";
+    /// assert_eq!(Language::TOML.range_of(toml, "/web/http").unwrap().slice(toml), "http = 80");
+    /// # }
+    /// ```
+    pub fn range_of(self, source: &str, path: impl Into<FieldPath>) -> Option<TextRange> {
+        paths::field_range(self.0, source, &path.into().to_pointer())
+    }
+
+    /// The path of what `position` is on in `source`: the key under or just
+    /// before it, else the value or container holding it (the root at the
+    /// top level). `None` past the end of the text.
+    ///
+    /// ```
+    /// # #[cfg(feature = "yaml")] {
+    /// use config_editor_leptos::{FieldPath, Language, TextPosition};
+    /// let text = "web:\n  http: 80\n";
+    /// let path = Language::YAML.path_at(text, TextPosition::new(2, 10)).unwrap();
+    /// assert_eq!(path, FieldPath::from("/web/http"));
+    /// # }
+    /// ```
+    pub fn path_at(self, source: &str, position: TextPosition) -> Option<FieldPath> {
+        let lines = source.split('\n').count();
+        if position.line > lines {
+            return None;
+        }
+        paths::path_at(self.0, source, position.to_offset(source))
     }
 
     pub(super) fn behavior(self) -> &'static dyn ConfigLanguage {

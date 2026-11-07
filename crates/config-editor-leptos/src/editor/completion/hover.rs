@@ -23,6 +23,25 @@ pub(crate) fn key_hover(
     behavior: &dyn ConfigLanguage,
 ) -> Option<KeyHover> {
     let bundle = schema?;
+    let (path, key, start_column) = hovered_key(source, line_index, column, behavior)?;
+    let parent = &path[..path.len() - 1];
+    let root = &bundle.schema;
+    let schemas = schema_at_path(root, &path, behavior.repetition() != Repetition::None);
+    if schemas.is_empty() {
+        return None;
+    }
+    key_docs(bundle, parent, key, start_column, schemas, behavior)
+}
+
+/// The key under character `column` of zero-based `line_index`: its path in
+/// the document, the key, and the column it starts at. Hover docs and the
+/// caret's path (see `paths`) both read it.
+pub(crate) fn hovered_key(
+    source: &str,
+    line_index: usize,
+    column: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line_start: usize = source
         .split('\n')
         .take(line_index)
@@ -57,12 +76,20 @@ pub(crate) fn key_hover(
         }
         container
     };
-    let parent = &path[..path.len() - 1];
+    (!path.is_empty()).then_some((path, key, start_column))
+}
+
+/// The hover docs of `key` (a property of the object at `parent`), from the
+/// `schemas` that describe it.
+fn key_docs(
+    bundle: &SchemaBundle,
+    parent: &[SchemaPathSegment],
+    key: String,
+    start_column: usize,
+    schemas: Vec<&Value>,
+    behavior: &dyn ConfigLanguage,
+) -> Option<KeyHover> {
     let root = &bundle.schema;
-    let schemas = schema_at_path(root, &path, behavior.repetition() != Repetition::None);
-    if schemas.is_empty() {
-        return None;
-    }
     let branches: Vec<&Value> = schemas
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))

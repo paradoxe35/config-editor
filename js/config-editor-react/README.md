@@ -57,6 +57,8 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `editAs` | `string \| null` | — | Show and edit the document in another language; it is saved back in `language`, keeping its comments. |
 | `onEditAsChange` | `(language: string) => void` | — | Called when an `editAs` switch completes (a switch waits while the document cannot convert, e.g. a `null` to TOML). |
 | `onChangeSummary` | `(summary: ChangeSummary) => void` | — | Called with `{ added, removed, modified, hunks }` against `baseline`, on mount and whenever it changes. |
+| `onPathChange` | `(path: EditorPath) => void` | — | Called with the path of what the caret is on (`{ pointer: "/web/listen", segments: ["web", "listen"] }`) each time it changes, for a breadcrumb. The path is computed only while this is set. |
+| `hostDiagnostics` | `HostDiagnostic[]` | — | Problems the host found (a server's validation): `{ path \| range, severity?, message, code?, source?, docsUrl? }`, shown with the editor's own; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#host-diagnostics). Updates live; only the markers change. |
 | `schema` | `string` | — | JSON Schema as JSON text: completion, hover docs and validation. |
 | `baseline` | `string` | initial value | Text the diff gutter compares against; set it to the saved text to clear the diff. |
 | `theme` | `string` | `"vscode-dark"` | A theme slug; see `themes()` and the list in the [`@pngwasi/config-editor` README](../config-editor/README.md#themes). |
@@ -68,7 +70,7 @@ loadConfigEditor({ module_or_path: wasmUrl });
 | `className`, `style` | | — | Class and style of the container `<div>`. |
 | `onError` | `(error: unknown) => void` | `console.error` | Errors from loading or from a prop the editor rejects (unknown language, theme or color token, invalid schema). They never unmount your tree. |
 
-`value`, `editAs`, `theme`, `colors`, `readOnly` and `baseline` update the
+`value`, `editAs`, `theme`, `colors`, `readOnly`, `baseline`, `hostDiagnostics` and `onPathChange` update the
 live editor. `language`, `schema`, `fileName`, `showToolbar`, `showFooter`
 and `editorClassName` re-create it; the document and its diff baseline carry
 over, undo history starts over.
@@ -92,12 +94,26 @@ import { ConfigEditor, type ConfigEditorHandle } from "@pngwasi/config-editor-re
 
 const ref = useRef<ConfigEditorHandle>(null);
 <ConfigEditor ref={ref} defaultValue={initial} />;
+<ConfigEditor value={text} onChange={setText}
+  hostDiagnostics={[{ path: "/web/listen", message: "port 80 is taken", source: "server" }]} />;
 
 ref.current?.value;   // the current document
 ref.current?.editor;  // the underlying @pngwasi/config-editor instance, once mounted
 ref.current?.setValue(saved); // replace the document, always; onChange reports it
 ref.current?.unifiedDiff(); // the `diff -u` of the baseline against the document
+
+// Paths: a JSON pointer or keys and indices, the same in every language.
+ref.current?.reveal("/web/listen");       // scroll to it, select it, focus; false if absent
+ref.current?.rangeOf(["web", "listen"]);  // { start, end, startLine, startColumn, endLine, endColumn } | null
+ref.current?.pathAt(42);                   // { pointer, segments } | null, at a string index
+ref.current?.currentPath;                  // the caret's path
+ref.current?.focus();
 ```
+
+Ranges and indices refer to the text on screen (the `editAs` language while
+editing as another one). `reveal` selects the key and its value when they
+share a line, the key alone when the value is a block below it, and the
+value alone for a list item.
 
 ## Other exports
 
@@ -113,6 +129,7 @@ Re-exported from `@pngwasi/config-editor`; call them after
 | `languages()`, `themes()`, `colorTokens()` | Accepted names. |
 
 Types: `ConfigEditorProps`, `ConfigEditorHandle`, `ChangeSummary`, `Diagnostic`, `Conversion`,
+`FieldPath`, `EditorPath`, `EditorRange`, `HostDiagnostic`, `Severity`,
 `CustomLanguage`, `LanguageName`, `ThemeName`, `ThemeColorMap`.
 
 ```tsx

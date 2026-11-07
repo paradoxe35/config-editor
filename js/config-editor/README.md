@@ -77,6 +77,8 @@ throws, and an unknown option name is reported in the console.
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
 | `onChangeSummary` | `(summary: ChangeSummary) => void` | —          | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                  |
+| `hostDiagnostics` | `HostDiagnostic[]`        | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                     |
+| `onPathChange`   | `(path: EditorPath) => void` | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                  |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -92,13 +94,65 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                         |
+| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
+| `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
+| `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
+
+### Host diagnostics
+
+When a server validates the document, show its problems with the editor's own:
+
+```ts
+editor.setHostDiagnostics([
+  { path: "/web/listen", severity: "error", message: "port 80 is taken",
+    code: "E_PORT", source: "burrow", docsUrl: "https://example.com/docs/ports" },
+  { range: { startLine: 4, startColumn: 1, endColumn: 19 }, severity: "hint", message: "consider TLS" },
+  { severity: "warning", message: "restart needed to apply" }, // the whole document
+]);
+```
+
+- `path` (a JSON pointer or keys and indices) is marked where the field is
+  written and follows it through edits and `editAs`. `range` is in the
+  document (`value`, in `language`): string indices `{ start, end }` or
+  one-based `{ startLine, startColumn, endLine?, endColumn? }`; it shows
+  unplaced while editing as another language. With neither, or when the field
+  is missing, the problem shows in the footer.
+- `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`;
+  colors `error`, `warning`, `info` and `hint` in `colors`.
+- `F8` stops at them, the footer counts them, and the hover message adds
+  `source` (default `"host"`), `code` and "Open docs ↗": a click on the
+  message opens `docsUrl`.
+- Where the host marks the same text as one of the editor's own problems,
+  only the host's shows. A new list replaces the previous one; only the
+  markers update. An invalid entry throws, naming its index.
+
+### Paths
+
+A path names a field the same way in every language: a JSON pointer
+(`"/web/hosts/1"`) or its keys and indices (`["web", "hosts", 1]`).
+
+```ts
+editor.reveal("/web/listen");     // scroll to it, select it, focus; false when absent
+editor.rangeOf(["web", "listen"]);
+// { start: 31, end: 43, startLine: 3, startColumn: 3, endLine: 3, endColumn: 15 } or null
+editor.pathAt(35);                // { pointer: "/web/listen", segments: ["web", "listen"] } or null
+editor.currentPath;               // the caret's path
+new ConfigEditor(element, { onPathChange: (path) => (crumb.textContent = path.pointer || "/") });
+```
+
+`start`/`end` and `pathAt`'s index are string indices into the text on screen
+(the `editAs` language while editing as another one), as `selectionStart`
+counts; lines and columns are one-based. `reveal` and `rangeOf` cover the key
+and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`),
+the key alone when the value is a block below it, and the value alone for a
+list item. `pathAt` gives the key under or just before the index, else the
+value or container holding it (`""` at the top level).
 
 ## Functions
 
@@ -119,7 +173,7 @@ interface Diagnostic {
   column?: number;
   endColumn?: number;
   message: string;
-  severity: "error" | "warning";
+  severity: "error" | "warning" | "info" | "hint";
 }
 ```
 

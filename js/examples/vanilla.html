@@ -22,6 +22,8 @@
       <label><input id="read-only" type="checkbox" /> Read-only</label>
       <button id="replace" type="button">Replace value</button>
       <button id="destroy" type="button">Destroy</button>
+      <button id="reveal" type="button">Go to insecure_plaintext</button>
+      <code id="breadcrumb"></code>
     </header>
     <div id="editor"></div>
     <pre id="saved"></pre>
@@ -85,6 +87,7 @@
         showFooter: true,
         onChange: (text) => (saved.textContent = text),
         onEditAsChange: (language) => (document.body.dataset.editing = language),
+        onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
       });
       window.editor = editor;
       window.configEditor = { validate };
@@ -96,6 +99,7 @@
       document.getElementById("read-only").onchange = (event) => editor.setReadOnly(event.target.checked);
       document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");
       document.getElementById("destroy").onclick = () => editor.destroy();
+      document.getElementById("reveal").onclick = () => editor.reveal("/insecure_plaintext");
       document.body.dataset.ready = "true";
     </script>
   </body>

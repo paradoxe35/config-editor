@@ -116,7 +116,6 @@ fn is_more_note(problem: &Diagnostic) -> bool {
 /// "2 errors, 1 warning · …": the counts, then an unplaced problem's
 /// message or a hint.
 fn summary(problems: &[Diagnostic]) -> String {
-    let plural = |count: usize| if count == 1 { "" } else { "s" };
     // The note that more problems follow is not one of them: the counts say
     // "20+" instead.
     let more = problems.iter().any(is_more_note);
@@ -124,20 +123,33 @@ fn summary(problems: &[Diagnostic]) -> String {
         .iter()
         .filter(|problem| !is_more_note(problem))
         .collect();
-    let warnings = counted
-        .iter()
-        .filter(|problem| problem.severity == Severity::Warning)
-        .count();
-    let errors = counted.len() - warnings;
+    let count_of = |severity: Severity| {
+        counted
+            .iter()
+            .filter(|problem| problem.severity == severity)
+            .count()
+    };
     let plus = if more { "+" } else { "" };
-    let count = match (errors, warnings) {
-        (0, 0) => return "No errors".to_string(),
-        (errors, 0) => format!("{errors}{plus} error{}", plural(errors)),
-        (0, warnings) => format!("{warnings}{plus} warning{}", plural(warnings)),
-        (errors, warnings) => format!(
-            "{errors} error{}, {warnings} warning{}{plus}",
-            plural(errors),
-            plural(warnings)
+    let counts: Vec<(usize, &str, &str)> = [
+        (Severity::Error, "error", "errors"),
+        (Severity::Warning, "warning", "warnings"),
+        (Severity::Info, "info", "info"),
+        (Severity::Hint, "hint", "hints"),
+    ]
+    .into_iter()
+    .map(|(severity, one, many)| (count_of(severity), one, many))
+    .filter(|(count, _, _)| *count > 0)
+    .collect();
+    let named = |(count, one, many): (usize, &str, &str)| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    let count = match counts.as_slice() {
+        [] => return "No errors".to_string(),
+        // "20+ errors"; with several kinds the "+" ends the list.
+        [(count, _, many)] if more => format!("{count}+ {many}"),
+        _ => format!(
+            "{}{plus}",
+            counts.into_iter().map(named).collect::<Vec<_>>().join(", ")
         ),
     };
     if more {
@@ -146,5 +158,68 @@ fn summary(problems: &[Diagnostic]) -> String {
     match problems.iter().find(|problem| problem.line.is_none()) {
         Some(unplaced) => format!("{count} · {}", unplaced.message),
         None => format!("{count} · hover or focus underlined text"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::diagnostics::{Diagnostic, Severity};
+    use super::summary;
+
+    fn placed(severity: Severity) -> Diagnostic {
+        Diagnostic {
+            line: Some(1),
+            column: Some(1),
+            end_column: Some(2),
+            severity,
+            ..Diagnostic::default()
+        }
+    }
+
+    #[test]
+    fn every_severity_is_counted() {
+        let cases: [(&[Severity], &str); 5] = [
+            (&[], "No errors"),
+            (&[Severity::Error, Severity::Error], "2 errors"),
+            (&[Severity::Warning], "1 warning"),
+            (&[Severity::Info, Severity::Info], "2 info"),
+            (
+                &[
+                    Severity::Hint,
+                    Severity::Error,
+                    Severity::Info,
+                    Severity::Warning,
+                    Severity::Hint,
+                ],
+                "1 error, 1 warning, 1 info, 2 hints",
+            ),
+        ];
+        let mut failures = Vec::new();
+        for (severities, expected) in cases {
+            let problems: Vec<Diagnostic> = severities.iter().copied().map(placed).collect();
+            let found = summary(&problems);
+            if !found.starts_with(expected) {
+                failures.push(format!(
+                    "{severities:?}: expected {expected:?}, found {found:?}"
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn a_cut_list_says_more_follow() {
+        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
+        problems.push(Diagnostic {
+            message: "Only the first 20 problems are shown; more follow.".to_string(),
+            severity: Severity::Warning,
+            ..Diagnostic::default()
+        });
+        assert_eq!(
+            summary(&problems),
+            "20+ errors · only the first 20 are shown"
+        );
+        problems.insert(0, placed(Severity::Hint));
+        assert!(summary(&problems).starts_with("20 errors, 1 hint+"));
     }
 }

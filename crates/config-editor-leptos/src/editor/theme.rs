@@ -121,6 +121,10 @@ pub enum ThemeColor {
     Error,
     /// Warning underlines.
     Warning,
+    /// Info underlines.
+    Info,
+    /// Hint underlines.
+    Hint,
     /// Toolbar text.
     ToolbarText,
     /// Line numbers.
@@ -230,6 +234,8 @@ impl ThemeColor {
         Self::Accent,
         Self::Error,
         Self::Warning,
+        Self::Info,
+        Self::Hint,
         Self::ToolbarText,
         Self::LineNumber,
         Self::LineNumberActive,
@@ -291,6 +297,8 @@ impl ThemeColor {
             Self::Accent => "--config-editor-accent",
             Self::Error => "--config-editor-error",
             Self::Warning => "--config-editor-warning",
+            Self::Info => "--config-editor-info",
+            Self::Hint => "--config-editor-hint",
             Self::ToolbarText => "--config-editor-toolbar-text",
             Self::LineNumber => "--config-editor-line-number",
             Self::LineNumberActive => "--config-editor-line-active",

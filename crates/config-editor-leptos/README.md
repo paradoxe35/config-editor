@@ -85,6 +85,9 @@ document from code (a Save button) to send an edit still waiting first.
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
 | `show_diff`                    | `bool`                                     | `true`           | Added, modified and removed line markers with a before/after preview and "Revert this change".                                       |
 | `on_change_summary`            | `Fn(ChangeSummary)`                        | —                | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.              |
+| `handle`                       | `EditorHandle`                             | —                | Find fields, follow the caret and jump to a field from the host; see [Paths and positions](#paths-and-positions).                   |
+| `on_path_change`               | `Fn(FieldPath)`                            | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb.                             |
+| `host_diagnostics`             | `Signal<Vec<HostDiagnostic>>`              | —                | Problems the host found (a server's validation), by path or range, shown with the editor's own; see [Host diagnostics](#host-diagnostics). |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -140,6 +143,80 @@ view! {
 }
 ```
 
+## Paths and positions
+
+A [`FieldPath`] names a field the same way in every language: a JSON pointer
+(`"/web/hosts/1"`) or segments (`FieldPath::root().key("web").key("hosts").index(1)`).
+An [`EditorHandle`] passed as `handle` maps paths to the text on screen and
+back, and jumps to fields:
+
+```rust
+use config_editor_leptos::{ConfigEditor, EditorHandle, FieldPath};
+
+let editor = EditorHandle::new();
+let crumb = RwSignal::new(FieldPath::root());
+view! {
+    <nav>{move || crumb.get().to_pointer()}</nav>
+    <button on:click=move |_| { editor.reveal("/web/listen"); }>"Go to web.listen"</button>
+    <ConfigEditor handle=editor on_path_change=move |path| crumb.set(path) value=text />
+}
+```
+
+| `EditorHandle` method  | Description                                                                                                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `range_of(path)`       | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item. |
+| `path_at(position)`    | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                         |
+| `current_path()`       | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                       |
+| `reveal(path)`         | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                      |
+| `focus()`, `text()`    | Focus the editor; the text on screen.                                                                                                                                                         |
+
+Positions (`TextPosition`: one-based `line` and character `column`) refer to
+the text on screen, which is the `edit_as` language while editing as another
+one; paths are the same in every language. Before the editor mounts the
+handle answers `None`. The same lookups work headless:
+`Language::YAML.range_of(text, "/web/http")` and
+`Language::YAML.path_at(text, TextPosition::new(2, 5))`. A language of your
+own gets them from its `key_span`, `value_span`, `hover_key` and
+`completion_context`.
+
+## Host diagnostics
+
+When a server validates the document, pass its problems as
+`host_diagnostics`. Each points at a field by path (preferred: it follows the
+field through edits and `edit_as`) or at a range of the host's text, or at
+the whole document:
+
+```rust
+use config_editor_leptos::{ConfigEditor, HostDiagnostic, Severity};
+
+let problems = RwSignal::new(Vec::new());
+// After the server answered:
+problems.set(vec![
+    HostDiagnostic::at_path("/web/listen", Severity::Error, "port 80 is taken")
+        .with_code("E_PORT")
+        .with_source("burrow")
+        .with_docs_url("https://example.com/docs/ports"),
+    HostDiagnostic::document(Severity::Warning, "restart needed to apply"),
+]);
+view! { <ConfigEditor value=text host_diagnostics=problems show_footer=true /> }
+```
+
+- They are marked where the field is written, as schema problems are (the
+  value, or the key of a block), next to the editor's own problems: `F8` /
+  `Shift+F8` stop at them, the footer counts them, and the hover message
+  adds who reported them, the code, and "Open docs ↗" (a click on the
+  message opens `docs_url`). What cannot be placed (a missing field, a range
+  while editing as another language, the whole document) shows in the footer.
+- Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
+  (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
+  and `-hint` (`ThemeColor::Info`, `ThemeColor::Hint`).
+- Each problem shows once: where the host marks the same text as one of the
+  editor's own, only the host's shows. A new list replaces the previous one,
+  and only the markers update.
+- Every `Diagnostic` says where it came from (`origin`:
+  `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
+  `docs_url`.
+
 ## Keyboard
 
 | Keys                                         | Action                                                                           |
@@ -189,10 +266,12 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions. |
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share.                                                                                                                                         |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
+| `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                          |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
 | `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                  |
 | `ChangeSummary`                            | `added`, `removed`, `modified` lines and `hunks` (separate changes), as the diff gutter counts them; `ChangeSummary::between(baseline, current)`, `is_empty()`.                                                                                             |
-| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`).                                                                                                                                    |
+| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, and for host problems `code`, `source`, `docs_url`.                                                                    |
+| `HostDiagnostic`, `DiagnosticTarget`       | A problem the host found, by path, range or for the whole document; see [Host diagnostics](#host-diagnostics).                                                                                                                                                |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
 | `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
 | `ParseError`                               | `message`, `line`, `column`.                                                                                                                                                                                                                                |

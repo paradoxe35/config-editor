@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   ConfigEditor,
   type ConfigEditorHandle,
+  type HostDiagnostic,
   loadConfigEditor,
   themes,
 } from "@pngwasi/config-editor-react";
@@ -44,6 +45,8 @@ function App({ schema }: { schema: string }) {
   const [readOnly, setReadOnly] = useState(false);
   const [editing, setEditing] = useState("yaml");
   const [changes, setChanges] = useState("");
+  const [path, setPath] = useState("");
+  const [hostProblems, setHostProblems] = useState<HostDiagnostic[]>([]);
   const [themeNames, setThemeNames] = useState<string[]>([]);
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
@@ -109,8 +112,23 @@ function App({ schema }: { schema: string }) {
         <button id="rename" type="button" onClick={() => setFileName((name) => `renamed-${name}`)}>
           Rename (re-mounts)
         </button>
+        <button id="reveal" type="button" onClick={() => handle.current?.reveal(["public_address"])}>
+          Go to public_address
+        </button>
+        <button
+          id="host-problems"
+          type="button"
+          onClick={() =>
+            setHostProblems((shown) =>
+              shown.length ? [] : [{ path: "/listen", severity: "warning", message: "port in use", source: "server" }],
+            )
+          }
+        >
+          Server problems
+        </button>
         <span id="editing">{editing}</span>
         <span id="changes">{changes}</span>
+        <code id="breadcrumb">{path}</code>
       </header>
       <ConfigEditor
         ref={handle}
@@ -133,6 +151,8 @@ function App({ schema }: { schema: string }) {
         onChangeSummary={(summary) =>
           setChanges(`${summary.hunks} changes: +${summary.added} ~${summary.modified} -${summary.removed}`)
         }
+        onPathChange={(next) => setPath(next.pointer || "/")}
+        hostDiagnostics={hostProblems}
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}

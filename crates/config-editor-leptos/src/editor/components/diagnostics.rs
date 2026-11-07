@@ -1,9 +1,10 @@
 //! Underlines for problems, each with its message as a tooltip.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use super::super::completion::visual_column;
-use super::super::diagnostics::{Diagnostic, Severity};
+use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::metrics::read_editor_metrics;
 use super::super::state::EditorState;
 
@@ -50,12 +51,32 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
     // Rendered columns, so tabs (two columns wide) do not shift the underline.
     let left = visual_column(&before);
     let visual_width = visual_column(&format!("{before}{marked}")) - left;
-    let warning = diagnostic.severity == Severity::Warning;
+    let severity = diagnostic.severity;
+    let from_host = diagnostic.origin == DiagnosticOrigin::Host;
+    let detail = detail(&diagnostic);
+    let docs_url = diagnostic.docs_url.clone();
+    let has_docs = docs_url.is_some();
+    let aria_label = format!(
+        "{} {}{} on line {line}: {}",
+        state.label(),
+        severity.as_str(),
+        diagnostic
+            .source
+            .as_deref()
+            .filter(|_| from_host)
+            .map(|source| format!(" from {source}"))
+            .unwrap_or_default(),
+        diagnostic.message,
+    );
     Some(view! {
         <button
             type="button"
             class="config-editor__diagnostic-marker"
-            class:config-editor__diagnostic-marker-warning=warning
+            class:config-editor__diagnostic-marker-warning=severity == Severity::Warning
+            class:config-editor__diagnostic-marker-info=severity == Severity::Info
+            class:config-editor__diagnostic-marker-hint=severity == Severity::Hint
+            class:config-editor__diagnostic-marker-host=from_host
+            class:config-editor__diagnostic-marker-docs=has_docs
             class:config-editor__diagnostic-marker-eof=at_end
             class:config-editor__diagnostic-marker-shown=move || state.shown_problem.get() == Some((line, column))
             // Near the top of the viewport (not of the document), the message
@@ -67,13 +88,9 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
                 (line as f64 - 1.0) * line_height - state.scroll_y.get() < 3.0 * line_height
             }
             tabindex="-1"
-            aria-label=format!(
-                "{} {} on line {line}: {}",
-                state.label(),
-                if warning { "warning" } else { "error" },
-                diagnostic.message,
-            )
+            aria-label=aria_label
             data-message=diagnostic.message
+            data-detail=detail
             style=format!(
                 "left: {left}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
                 line.saturating_sub(1),
@@ -84,13 +101,54 @@ fn marker(state: EditorState, text: &str, diagnostic: Diagnostic) -> Option<impl
             style:--config-editor-diagnostic-tooltip-shift=move || tooltip_placement(state, left).0
             style:--config-editor-diagnostic-tooltip-width=move || tooltip_placement(state, left).1
             on:mousedown=|event| event.prevent_default()
-            on:click=move |_| {
-                state.focus_at(line, column);
-            }
+            on:click=move |event| on_marker_click(state, &event, line, column, docs_url.as_deref())
         >
             <span>{marked}</span>
         </button>
     })
+}
+
+/// The line under a host problem's message: who reported it, its code, and
+/// a docs link (the message itself opens it).
+fn detail(diagnostic: &Diagnostic) -> Option<String> {
+    if diagnostic.origin != DiagnosticOrigin::Host {
+        return None;
+    }
+    let parts: Vec<&str> = [
+        diagnostic.source.as_deref(),
+        diagnostic.code.as_deref(),
+        diagnostic.docs_url.as_ref().map(|_| "Open docs ↗"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    Some(parts.join(" · "))
+}
+
+/// A click on the underline moves the caret there; one on the message of a
+/// problem with docs (drawn outside the underline's box) opens them.
+fn on_marker_click(
+    state: EditorState,
+    event: &web_sys::MouseEvent,
+    line: usize,
+    column: usize,
+    docs_url: Option<&str>,
+) {
+    let on_message = event
+        .current_target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .is_some_and(|marker| {
+            let rect = marker.get_bounding_client_rect();
+            let y = f64::from(event.client_y());
+            y < rect.top() || y > rect.bottom()
+        });
+    if let (true, Some(url)) = (on_message, docs_url) {
+        if let Some(window) = web_sys::window() {
+            let _ = window.open_with_url_and_target_and_features(url, "_blank", "noopener");
+        }
+        return;
+    }
+    state.focus_at(line, column);
 }
 
 /// `(shift, width)` CSS lengths for a message starting at visual column

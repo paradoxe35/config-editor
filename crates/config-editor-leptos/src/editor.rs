@@ -18,8 +18,10 @@ mod completion;
 mod components;
 mod diagnostics;
 mod diff;
+mod handle;
 mod highlight;
 mod history;
+mod host_diagnostics;
 mod inline;
 mod input;
 pub use input::flush_pending_input;
@@ -30,6 +32,7 @@ pub mod language;
 mod languages;
 mod line_rows;
 mod metrics;
+mod paths;
 mod positioning;
 mod state;
 mod sync;
@@ -38,9 +41,14 @@ mod theme;
 pub use changes::{ChangeSummary, unified_diff};
 pub use codec::{Conversion, ConvertError};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
-pub use diagnostics::{Diagnostic, Schema, SchemaError, SchemaSource, Severity, check_syntax};
+pub use diagnostics::{
+    Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
+};
+pub use handle::EditorHandle;
+pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
+pub use paths::{FieldPath, TextPosition, TextRange};
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use components::{
@@ -154,6 +162,21 @@ pub fn ConfigEditor(
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
+    /// A handle the host keeps to find fields, follow the caret and jump to
+    /// a field; see [`EditorHandle`].
+    #[prop(optional)]
+    handle: Option<EditorHandle>,
+    /// Problems the host found (a server's validation), by path or range,
+    /// shown next to the editor's own and marked as the host's. A new list
+    /// replaces the previous one; only the markers update. See
+    /// [`HostDiagnostic`].
+    #[prop(optional, into)]
+    host_diagnostics: Option<Signal<Vec<HostDiagnostic>>>,
+    /// Called with the path of what the caret is on each time it changes
+    /// (and once on mount), for a breadcrumb: `/web/listen`, or the root at
+    /// the top level.
+    #[prop(optional, into)]
+    on_path_change: Option<Callback<FieldPath>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -185,6 +208,7 @@ pub fn ConfigEditor(
         read_only,
         features,
         host_on_change: on_change,
+        host_diagnostics: host_diagnostics.unwrap_or_default(),
     });
     sync::connect(
         state,
@@ -199,6 +223,12 @@ pub fn ConfigEditor(
         changes::report_changes(state, callback);
     }
     input::attach_listeners(state);
+    if let Some(handle) = handle {
+        handle.attach(state);
+    }
+    if let Some(on_path_change) = on_path_change {
+        Effect::new(move |_| on_path_change.run(state.caret_path.get()));
+    }
     remeasure_on_window_changes(state);
     let rows = components::row_states(state);
     let file_name = file_name

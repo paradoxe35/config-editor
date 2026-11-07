@@ -17,11 +17,13 @@ use super::components::HoverCard;
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity, shift_diagnostics, validate};
 use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
 use super::history::{EditHistory, Selection, Snapshot};
+use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
-use super::positioning::set_caret_visible;
+use super::paths::{FieldPath, path_at};
+use super::positioning::{reveal_offset, set_caret_visible};
 
 /// Rows rendered above and below the visible ones, so fast scrolling does
 /// not show blank lines before the next frame.
@@ -73,6 +75,8 @@ pub(super) struct Init {
     /// The host's `on_change`; edits reach it directly or through the
     /// Edit-as conversion (see `sync`).
     pub(super) host_on_change: Option<Callback<String>>,
+    /// The host's own problems (see `host_diagnostics`).
+    pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
 }
 
 /// A programmatic edit, applied with [`EditorState::commit`].
@@ -218,6 +222,9 @@ pub(super) struct EditorState {
     pub(super) shown_problem: RwSignal<Option<(usize, usize)>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
+    /// The path of what the caret is on (see `paths::path_at`). Lazy: only
+    /// computed while something reads it (`on_path_change`, a handle).
+    pub(super) caret_path: Memo<FieldPath>,
 }
 
 impl EditorState {
@@ -235,6 +242,7 @@ impl EditorState {
             read_only,
             features,
             host_on_change,
+            host_diagnostics,
         } = init;
         let mut load_problem = Vec::new();
         let mut pending = None;
@@ -296,12 +304,24 @@ impl EditorState {
                 found
             })
         };
+        // The host's problems, placed on the text validation saw; a new list
+        // from the host re-places only these, not the editor's own.
+        let host_placed = Memo::new(move |_| {
+            if !features.diagnostics {
+                return Vec::new();
+            }
+            let edit = edit_language.get();
+            host_diagnostics.with(|problems| {
+                diagnosed_text
+                    .with(|text| place_host(edit.behavior(), text, problems, edit == host_language))
+            })
+        });
         // Until validation catches up with an edit, markers move with the
         // lines the edit shifted, so they never sit on the wrong text.
         let diagnostics = Memo::new(move |_| {
             let checked = diagnosed_text.get();
-            source
-                .with(|current| validated.with(|found| shift_diagnostics(&checked, current, found)))
+            let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
+            source.with(|current| shift_diagnostics(&checked, current, &found))
         });
         let suggestions = Memo::new(move |_| {
             if !suggestions_requested.get() {
@@ -403,7 +423,13 @@ impl EditorState {
         let string_bodies = Memo::new(move |_| {
             source.with(|text| edit_language.get().behavior().string_body_lines(text))
         });
+        let caret_path = Memo::new(move |_| {
+            let behavior = edit_language.get().behavior();
+            let at = cursor.get();
+            source.with(|text| path_at(behavior, text, at).unwrap_or_default())
+        });
         let state = Self {
+            caret_path,
             string_bodies,
             host_language,
             edit_language,
@@ -640,24 +666,30 @@ impl EditorState {
     /// Focuses the editor with the caret at `line`:`column`, scrolled into
     /// view, closing popups.
     pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<usize> {
-        let element = self.textarea()?;
         let offset = self
             .source
             .with_untracked(|text| offset_at(text, line, column));
+        self.focus_range(offset, offset)?;
+        Some(offset)
+    }
+
+    /// Focuses the editor with UTF-16 `start..end` selected, its start
+    /// scrolled into view, closing popups.
+    pub(super) fn focus_range(&self, start: usize, end: usize) -> Option<()> {
+        let element = self.textarea()?;
         // Focusing scrolls back to the old caret; keep the view where the
         // user clicked (a line number, an underline), then reveal if needed.
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus();
-        let _ = element.set_selection_range(offset as u32, offset as u32);
+        let _ = element.set_selection_range(start as u32, end as u32);
         element.set_scroll_top(top);
         element.set_scroll_left(left);
         self.source
-            .with_untracked(|text| set_caret_visible(&element, text, offset, self.scroll_y));
-        self.cursor.set(offset);
-        self.current_line.set(line);
+            .with_untracked(|text| reveal_offset(&element, text, start, self.scroll_y));
+        self.note_caret(start);
         self.close_suggestions();
         self.hide_hover();
-        Some(offset)
+        Some(())
     }
 
     /// Moves to diagnostic `index`, which must have a position.
