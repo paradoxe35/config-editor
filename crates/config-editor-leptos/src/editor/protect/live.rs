@@ -56,6 +56,8 @@ pub(crate) struct ProtectState {
     pub(crate) protected: Memo<Arc<Protected>>,
     pub(crate) tip: RwSignal<Option<Tip>>,
     tip_token: StoredValue<u64>,
+    /// Counts the texts the host gave (see [`Self::trust_text`]).
+    epoch: StoredValue<u64>,
     /// Secret placeholders (see `secrets`).
     pub(crate) secrets: SecretState,
 }
@@ -88,8 +90,15 @@ impl ProtectState {
         });
         let local =
             RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
+        let epoch = StoredValue::new(0u64);
         let protected = Memo::new_with_compare(
-            move |_| {
+            move |previous: Option<&Arc<Protected>>| {
+                let epoch = epoch.get_value();
+                // Values pinned in an earlier text of the same host text and
+                // language carry over a text that does not parse.
+                let previous = previous
+                    .map(Arc::as_ref)
+                    .filter(|previous| previous.epoch == epoch);
                 let edit = edit_language.get();
                 let reading = schema.as_deref().map(|bundle| &bundle.schema);
                 let marking = schema
@@ -117,7 +126,7 @@ impl ProtectState {
                     Vec::new()
                 };
                 source.with(|text| {
-                    Arc::new(protect(
+                    let mut protected = protect(
                         edit.behavior(),
                         text,
                         Sources {
@@ -125,12 +134,21 @@ impl ProtectState {
                             reading_schema: reading,
                             paths: &fields,
                             ranges: &local_ranges,
+                            previous,
                         },
-                    ))
+                    );
+                    protected.epoch = epoch;
+                    Arc::new(protected)
                 })
             },
             |old, new| match (old, new) {
-                (Some(old), Some(new)) => old.locks != new.locks || old.secret != new.secret,
+                (Some(old), Some(new)) => {
+                    old.locks != new.locks
+                        || old.secret != new.secret
+                        || old.pins != new.pins
+                        || old.marked != new.marked
+                        || old.epoch != new.epoch
+                }
                 _ => true,
             },
         );
@@ -141,8 +159,16 @@ impl ProtectState {
             protected,
             tip: RwSignal::new(None),
             tip_token: StoredValue::new(0),
+            epoch,
             secrets,
         }
+    }
+
+    /// Takes the next text as the host's own (a controlled value, a reload,
+    /// an Edit-as switch): the locked values are read from it afresh, never
+    /// carried from the text it replaces.
+    pub(crate) fn trust_text(&self) {
+        self.epoch.update_value(|epoch| *epoch += 1);
     }
 
     /// Shows `message` at `offset` for a moment.
@@ -312,6 +338,7 @@ impl EditorState {
                     reading_schema: reading,
                     paths: &paths,
                     ranges: &ranges,
+                    previous: None,
                 },
             );
             check_save(behavior, reading, old, new, &pointers)

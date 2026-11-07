@@ -7,8 +7,13 @@
 //! - it glues text onto a locked stretch's ends (`port: 80` → `port: 808`,
 //!   `xport: 80`); whitespace and punctuation next to it are free;
 //! - the document still parses afterwards and a locked field's value there
-//!   differs (it moved under another parent, a comment took it, a line
-//!   added below joined a locked block).
+//!   differs from the value pinned when the lock was last read (it moved
+//!   under another parent, a comment took it, a line added below joined a
+//!   locked block, a TOML table or dotted key added elsewhere extended it);
+//! - the document does not parse afterwards and the edit adds a line that
+//!   would join a locked field once it does: a line whose path is inside
+//!   it, or a second key holding it (duplicates are errors here, but a
+//!   host's parser may let the last one win).
 //!
 //! Formatting around a locked field stays free: blank lines, trailing
 //! spaces, comments after the value, and re-indenting where indentation
@@ -21,7 +26,8 @@ use serde_json::Value;
 
 use super::super::codec;
 use super::super::language::ConfigLanguage;
-use super::locate::LineIndex;
+use super::super::paths::path_at;
+use super::locate::{LineIndex, within};
 use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
@@ -99,32 +105,68 @@ pub(crate) fn check(
         .min(old.len() - prefix.min(old.len()))
         .min(new.len() - prefix.min(new.len()));
     let region = prefix.min(old.len())..old.len() - tail;
-    let near: Vec<&Lock> = protected
+    let new_region = prefix.min(new.len())..new.len() - tail;
+    let pointed: Vec<&Lock> = protected
         .locks
         .iter()
-        .filter(|lock| lock.pointer.is_some() && is_near(lock, &region, &lines))
+        .filter(|lock| lock.pointer.is_some())
         .collect();
-    if near.is_empty() {
+    if pointed.is_empty() {
         return Ok(());
     }
-    let compared = protected.document.as_ref().and_then(|document| {
-        let edited = codec::read(behavior, after, reading_schema).ok()?;
-        Some((document, edited))
-    });
-    for lock in near {
-        let unchanged = match &compared {
-            Some((document, edited)) => {
-                let pointer = lock.pointer.as_deref().unwrap_or_default();
-                document.pointer(pointer) == edited.pointer(pointer)
+    if let Ok(edited) = codec::read(behavior, after, reading_schema) {
+        // The edited text parses: every locked value must read as it was
+        // pinned, wherever the edit was (a TOML `[web.sub]` table added at
+        // the end changes `web`).
+        for (pointer, value) in &protected.pins {
+            if edited.pointer(pointer) != Some(value) {
+                let lock = pointed
+                    .iter()
+                    .find(|lock| lock.pointer.as_deref() == Some(pointer.as_str()));
+                return Err(Blocked {
+                    reason: lock.map_or(Reason::Field, |lock| lock.reason.clone()),
+                    holds: false,
+                });
             }
-            // Without a parse to compare, a locked line keeps its indent:
-            // in YAML it is structure.
-            None => lock
+        }
+        return Ok(());
+    }
+    // The edited text does not parse, so its values cannot be compared.
+    // Nothing may be written where it would join a locked field once it
+    // parses (a key half typed inside a locked block, a duplicate of a
+    // locked key or of a key holding one): the edit may not add a line
+    // whose path is inside a locked field, or which names a key holding it.
+    let new_lines = LineIndex::new(after);
+    for lock in &pointed {
+        let pointer = lock.pointer.as_deref().unwrap_or_default();
+        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>| {
+            joining_lines(behavior, text, lines, region, pointer)
+        };
+        let (Some(was), Some(now)) = (
+            count(before, &lines, &region),
+            count(after, &new_lines, &new_region),
+        ) else {
+            return Err(Blocked {
+                reason: lock.reason.clone(),
+                holds: false,
+            });
+        };
+        if now > was {
+            return Err(Blocked {
+                reason: lock.reason.clone(),
+                holds: false,
+            });
+        }
+    }
+    // Without a parse to compare, a locked line keeps its indent: in YAML
+    // it is structure.
+    for lock in pointed {
+        if is_near(lock, &region, &lines)
+            && !lock
                 .ranges
                 .iter()
-                .all(|range| indent_kept(range, &old, &new, prefix, suffix)),
-        };
-        if !unchanged {
+                .all(|range| indent_kept(range, &old, &new, prefix, suffix))
+        {
             return Err(Blocked {
                 reason: lock.reason.clone(),
                 holds: false,
@@ -132,6 +174,48 @@ pub(crate) fn check(
         }
     }
     Ok(())
+}
+
+/// Lines of an edited region checked one by one at most; a larger edit
+/// leaving the text unreadable next to a lock is refused.
+const MAX_REGION_LINES: usize = 2000;
+
+/// How many lines touching `region` of `text` would join the field at
+/// `pointer`: lines whose path is inside it, and lines naming a key that
+/// holds it (a second `web:` above a locked `web/port`). Blank and comment
+/// lines join nothing. `None` when the region is too large to check.
+fn joining_lines(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    region: &Range<usize>,
+    pointer: &str,
+) -> Option<usize> {
+    let first = lines.line_of(region.start);
+    let last = lines.line_of(region.end);
+    if last - first > MAX_REGION_LINES {
+        return None;
+    }
+    let mut count = 0;
+    for line in first..=last {
+        let content = lines.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        if content.trim().is_empty() || behavior.comment_start(content) == Some(indent) {
+            continue;
+        }
+        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
+        let Some(path) = path_at(behavior, text, at) else {
+            continue;
+        };
+        let path = path.to_pointer();
+        let holds = !path.is_empty()
+            && within(behavior, pointer, &path)
+            && !within(behavior, &path, pointer);
+        if holds || within(behavior, &path, pointer) {
+            count += 1;
+        }
+    }
+    Some(count)
 }
 
 /// Whether the text from its line's start to a locked stretch (its indent)

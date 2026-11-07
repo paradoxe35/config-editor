@@ -47,6 +47,15 @@ pub(crate) use view::{LineMarks, line_marks};
     feature = "hcl",
     feature = "xml"
 ))]
+mod extend_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod secret_tests;
 #[cfg(all(
     test,

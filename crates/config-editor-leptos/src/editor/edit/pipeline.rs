@@ -70,6 +70,9 @@ impl EditorState {
             }),
             _ => None,
         };
+        if changed && !edit.origin.is_checked() {
+            self.protect.trust_text();
+        }
         let rewritten = self.write_text(edit.text.clone());
         if edit.origin.redetects_indent() {
             self.redetect_indent();

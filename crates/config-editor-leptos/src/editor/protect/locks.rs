@@ -47,6 +47,17 @@ pub(crate) struct Protected {
     pub(crate) document: Option<Value>,
     /// Pointers of the secret fields written in the text.
     pub(crate) secret: Vec<String>,
+    /// Each locked field's value, as the last text that parsed held it:
+    /// carried through texts that do not parse (a key half typed), so an
+    /// edit that makes the text parse again is compared with the value the
+    /// lock was given, not with nothing.
+    pub(crate) pins: Vec<(String, Value)>,
+    /// The fields the schema marked read-only in the last text that parsed,
+    /// with their reasons: still located while the text does not parse.
+    pub(crate) marked: Vec<(String, Reason)>,
+    /// Which text from the host the locks follow (see
+    /// `ProtectState::trust_text`): pins are carried only within one.
+    pub(crate) epoch: u64,
 }
 
 impl Protected {
@@ -72,6 +83,9 @@ pub(crate) struct Sources<'a> {
     pub(crate) paths: &'a [FieldPath],
     /// Read-only UTF-16 ranges of this text the host gave.
     pub(crate) ranges: &'a [Range<usize>],
+    /// The locks of the text before, whose marks and pinned values carry
+    /// over when this text does not parse.
+    pub(crate) previous: Option<&'a Protected>,
 }
 
 /// The locks of `text`, written in `behavior`.
@@ -103,15 +117,20 @@ pub(crate) fn protect(
     }
     let lines = LineIndex::new(text);
     let document = codec::read(behavior, text, sources.reading_schema).ok();
+    let carried = sources.previous.filter(|_| document.is_none());
     let marks = match (sources.marking_schema, &document) {
         (Some(schema), Some(document)) => schema_marks(document, schema),
         _ => SchemaMarks::default(),
     };
-    let mut fields: Vec<(String, Reason)> = marks
-        .read_only
-        .into_iter()
-        .map(|(pointer, reason)| (pointer, reason.map_or(Reason::Field, Reason::Given)))
-        .collect();
+    let marked: Vec<(String, Reason)> = match carried {
+        Some(previous) => previous.marked.clone(),
+        None => marks
+            .read_only
+            .into_iter()
+            .map(|(pointer, reason)| (pointer, reason.map_or(Reason::Field, Reason::Given)))
+            .collect(),
+    };
+    let mut fields = marked.clone();
     for path in sources.paths {
         let pointer = path.to_pointer();
         let written = document
@@ -144,7 +163,23 @@ pub(crate) fn protect(
             reason,
         });
     }
-    protected.secret = marks.secret;
+    protected.pins = match (carried, &document) {
+        (Some(previous), _) => previous.pins.clone(),
+        (None, Some(document)) => protected
+            .locks
+            .iter()
+            .filter_map(|lock| {
+                let pointer = lock.pointer.as_ref()?;
+                Some((pointer.clone(), lookup(document, pointer)?.clone()))
+            })
+            .collect(),
+        (None, None) => Vec::new(),
+    };
+    protected.secret = match carried {
+        Some(previous) => previous.secret.clone(),
+        None => marks.secret,
+    };
+    protected.marked = marked;
     protected.document = document;
     protected
 }

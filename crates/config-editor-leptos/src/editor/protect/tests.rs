@@ -32,7 +32,7 @@ const SCHEMA: &str = r#"{
 }"#;
 
 /// The same document in every language: `id` and `meta` are read-only.
-fn documents() -> Vec<(Language, &'static str)> {
+pub(super) fn documents() -> Vec<(Language, &'static str)> {
     vec![
         (
             Language::YAML,
@@ -57,7 +57,7 @@ fn documents() -> Vec<(Language, &'static str)> {
     ]
 }
 
-fn schema() -> Value {
+pub(super) fn schema() -> Value {
     serde_json::from_str(SCHEMA).unwrap()
 }
 
@@ -76,6 +76,22 @@ fn locks_of(
             reading_schema: Some(&schema),
             paths,
             ranges,
+            previous: None,
+        },
+    )
+}
+
+/// The locks of `text` after an edit from the text `previous` protected.
+fn locks_after(language: Language, text: &str, previous: &Protected) -> Protected {
+    let schema = schema();
+    protect(
+        language.behavior(),
+        text,
+        Sources {
+            marking_schema: Some(&schema),
+            reading_schema: Some(&schema),
+            previous: Some(previous),
+            ..Sources::default()
         },
     )
 }
@@ -419,6 +435,7 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
             reading_schema: Some(&schema),
             paths: &[],
             ranges: &[],
+            previous: None,
         };
         let pointers = locked_pointers(language.behavior(), text, sources);
         let behavior = language.behavior();
@@ -491,8 +508,36 @@ impl Random {
 }
 
 const PIECES: &[&str] = &[
-    "a", "1", " ", "\n", ":", "=", "\"", "{", "}", "<", ">", "/", "#", ",", "id", "abc", "x: 2\n",
-    "  ", "meta", "[meta]\n", "</id>", "<id>", "c = 3\n",
+    "a",
+    "1",
+    " ",
+    "\n",
+    ":",
+    "=",
+    "\"",
+    "{",
+    "}",
+    "<",
+    ">",
+    "/",
+    "#",
+    ",",
+    "id",
+    "abc",
+    "x: 2\n",
+    "  ",
+    "meta",
+    "[meta]\n",
+    "</id>",
+    "<id>",
+    "c = 3\n",
+    "  c: 3\n",
+    "[meta.sub]\n",
+    "meta.c = 3\n",
+    "<id>x</id>",
+    "\"id\": 1,",
+    "id: x\n",
+    "id = 1\n",
 ];
 
 const WORDS: &[&str] = &["abc", "abd", "x", "81", "id", "meta", "9", "a", "zz"];
@@ -535,8 +580,12 @@ fn random_edits_never_change_a_read_only_value() {
                 None => host_text.to_string(),
             };
             let mut saved_host = host_text.to_string();
-            for step in 0..250 {
-                let protected = locks_of(edit, &shown, &[], &[]);
+            let original = codec::read(edit.behavior(), &shown, Some(&schema)).unwrap();
+            // The last text that parsed, and how many edits ago.
+            let mut readable = shown.clone();
+            let mut unreadable_for = 0;
+            let mut protected = locks_of(edit, &shown, &[], &[]);
+            for step in 0..500 {
                 let units: Vec<u16> = shown.encode_utf16().collect();
                 let (start, end, piece) = if random.below(2) == 0 {
                     // A word replaced by another, which mostly keeps the
@@ -555,14 +604,9 @@ fn random_edits_never_change_a_read_only_value() {
                 if !allowed(edit, &shown, &edited, &protected) {
                     continue;
                 }
-                if let (Some(before), Ok(after)) = (
-                    protected.document.as_ref(),
-                    codec::read(edit.behavior(), &edited, Some(&schema)),
-                ) {
+                if let Ok(after) = codec::read(edit.behavior(), &edited, Some(&schema)) {
                     for pointer in ["/id", "/meta"] {
-                        if before.pointer(pointer).is_some()
-                            && before.pointer(pointer) != after.pointer(pointer)
-                        {
+                        if original.pointer(pointer) != after.pointer(pointer) {
                             failures.push(format!(
                                 "{host} as {edit}, step {step}: {pointer} changed by {piece:?} at {start}..{end}:\n{shown}\n→\n{edited}"
                             ));
@@ -570,12 +614,23 @@ fn random_edits_never_change_a_read_only_value() {
                     }
                 }
                 applied += 1;
-                // Text that no longer parses is fixed by the user: only the
-                // edits that keep it readable go on.
-                if codec::read(edit.behavior(), &edited, Some(&schema)).is_err() {
+                // Edits go on through texts that do not parse (a key half
+                // typed), the locks carried as the editor carries them;
+                // after a few the user is taken to fix the text.
+                let previous = std::mem::take(&mut protected);
+                protected = locks_after(edit, &edited, &previous);
+                shown = edited;
+                if codec::read(edit.behavior(), &shown, Some(&schema)).is_err() {
+                    unreadable_for += 1;
+                    if unreadable_for > 4 {
+                        shown = readable.clone();
+                        protected = locks_of(edit, &shown, &[], &[]);
+                        unreadable_for = 0;
+                    }
                     continue;
                 }
-                shown = edited;
+                unreadable_for = 0;
+                readable = shown.clone();
                 // Saved as the editor saves: converted, then checked.
                 let converted = match &bridge {
                     Some(bridge) => bridge
@@ -592,6 +647,7 @@ fn random_edits_never_change_a_read_only_value() {
                         reading_schema: Some(&schema),
                         paths: &[],
                         ranges: &[],
+                        previous: None,
                     },
                 );
                 if check_save(
