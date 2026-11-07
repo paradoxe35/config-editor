@@ -144,6 +144,19 @@ impl ConfigLanguage for HclBehavior {
         hcl_text(value)
     }
 
+    /// A heredoc (`<<EOT` … `EOT`) stays one while its text ends with a line
+    /// break and holds no line equal to its terminator.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        if let (Some(text), Some(header)) = (value.as_str(), written.lines().next().filter(|line| line.starts_with("<<")))
+            && let Some(terminator) = written.lines().last().filter(|_| written.lines().count() > 1)
+            && text.ends_with('\n')
+            && !text.lines().any(|line| line.trim() == terminator.trim())
+        {
+            return format!("{header}\n{text}{terminator}");
+        }
+        self.format_value(value)
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         key_at_column(line, column)
     }

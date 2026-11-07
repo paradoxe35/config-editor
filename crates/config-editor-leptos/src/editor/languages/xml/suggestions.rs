@@ -552,7 +552,13 @@ pub(super) fn escape_text(text: &str) -> String {
 }
 
 pub(super) fn escape_attribute(text: &str) -> String {
-    escape_text(text).replace('"', "&quot;")
+    // Line breaks and tabs as references: an attribute value's own are read
+    // as spaces.
+    escape_text(text)
+        .replace('"', "&quot;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;")
+        .replace('\t', "&#9;")
 }
 
 /// The byte range of the name in the end tag matching the start tag at

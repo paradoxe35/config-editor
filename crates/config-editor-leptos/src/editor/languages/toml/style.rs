@@ -79,9 +79,10 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
             index += 1;
             continue;
         }
-        // The shortest dotted prefix that covers this table: its keys go to
-        // that prefix's table, written under the whole remaining path.
-        let target = (0..segments.len()).find_map(|split| {
+        // The deepest table holding a dotted prefix that covers this table:
+        // its keys go there, written under the remaining path (never to a
+        // shallower table, which would define a headed table twice).
+        let target = (0..segments.len()).rev().find_map(|split| {
             let (table, rest) = segments.split_at(split);
             (1..=rest.len())
                 .any(|end| dotted.contains(&(table.to_vec(), rest[..end].to_vec())))

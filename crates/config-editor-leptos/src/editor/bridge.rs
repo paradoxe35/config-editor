@@ -87,17 +87,44 @@ impl Bridge {
         let Ok(target) = codec::read(host, &rendered.text, self.shape()) else {
             return Ok(rendered);
         };
+        // A null the host would read back as something else (XML writes it
+        // as empty text) is refused, as TOML refuses it: the save waits.
+        if let Some(pointer) = codec::first_pointer(&value, &serde_json::Value::is_null)
+            && target.pointer(&pointer).is_some_and(|read| !read.is_null())
+        {
+            return Err(ConvertError::Unsupported(format!(
+                "{} has no null value (at {pointer})",
+                self.host.label()
+            )));
+        }
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
-        let patched = codec::patch_reorder(host, previous_host, &old, &target, self.shape())
-            .or_else(|| codec::patch_scalars(host, previous_host, &old, &target, self.shape()))
-            .or_else(|| codec::patch_renames(host, previous_host, &old, &target, self.shape()))
+        let shape = self.shape();
+        // The patches that change only what one edit touched.
+        let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
+            codec::patch_reorder(host, previous, old, target, shape)
+                .or_else(|| codec::patch_scalars(host, previous, old, target, shape))
+                .or_else(|| codec::patch_renames(host, previous, old, target, shape))
+                .or_else(|| codec::patch_scalar_to_container(host, previous, old, target, shape))
+                .or_else(|| codec::patch_inline(host, previous, old, target, shape))
+        };
+        let patched = precise(previous_host, &old, &target)
+            // Several edits in one save: one step at a time.
             .or_else(|| {
-                codec::patch_scalar_to_container(host, previous_host, &old, &target, self.shape())
+                let steps = codec::steps(&old, &target);
+                if steps.is_empty() {
+                    return None;
+                }
+                let (mut text, mut current) = (previous_host.to_string(), old.clone());
+                for step in steps {
+                    text = precise(&text, &current, &step)
+                        .or_else(|| codec::patch_structure(host, &text, &current, &step, shape))?;
+                    current = step;
+                }
+                Some(text)
             })
-            .or_else(|| codec::patch_inline(host, previous_host, &old, &target, self.shape()))
-            .or_else(|| codec::patch_structure(host, previous_host, &old, &target, self.shape()));
+            .or_else(|| codec::patch_structure(host, previous_host, &old, &target, shape));
         Ok(match patched {
             Some(text) => Conversion {
                 text,
@@ -727,7 +754,7 @@ mod structural_saves {
         let saved = save(Language::HCL, Language::YAML, hcl, |shown| {
             shown.replace("public_address: |\n  ab", "public_address: |\n  cd")
         });
-        assert_eq!(saved, "public_address = \"cd\\n\"\n\n# after\nlisten = 1\n");
+        assert_eq!(saved, "public_address = <<EOT\ncd\nEOT\n\n# after\nlisten = 1\n");
         let yaml = "public_address: >- # c\n  ab\nlisten: 1\n";
         let saved = save(Language::YAML, Language::JSON, yaml, |shown| {
             shown.replace("\"ab\"", "\"cd\"")

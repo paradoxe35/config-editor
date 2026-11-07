@@ -626,3 +626,117 @@ fn round_10_saves_change_only_the_edit() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+#[test]
+fn round_11_saves_change_only_the_edit() {
+    use serde_json::{Value, json};
+    let mut failures = Vec::new();
+    // The edits are made on the value (through a JSON view), all before one
+    // save; the host must change only where the value did.
+    let mut check = |name: &str, host: Language, text: &str, change: &dyn Fn(&mut Value), expected: &str| {
+        // JSON text is YAML too: a JSON host is edited through a YAML view.
+        let edit = if host == Language::JSON { Language::YAML } else { Language::JSON };
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let mut value: Value = edit.parse(&shown).unwrap();
+        change(&mut value);
+        let changed = serde_json::to_string_pretty(&value).unwrap();
+        match bridge.to_host(&changed, text) {
+            Ok(saved) if saved.text == expected => {}
+            Ok(saved) => failures.push(format!("{name}:\n--- expected\n{expected}--- saved\n{}\n{:?}", saved.text, saved.text)),
+            Err(error) => failures.push(format!("{name}: {error:?}")),
+        }
+    };
+    let remove = |value: &mut Value, path: &[&str], key: &str| {
+        let mut at = value;
+        for segment in path {
+            at = &mut at[*segment];
+        }
+        let map = at.as_object_mut().unwrap();
+        let rebuilt: serde_json::Map<String, Value> = std::mem::take(map).into_iter().filter(|(name, _)| name != key).collect();
+        *map = rebuilt;
+    };
+    // H1: YAML hosts indented other than by two spaces.
+    check("H1 indentless", Language::YAML, "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n",
+        &|v| v["self"]["allow"].as_array_mut().unwrap().push(json!("b")),
+        "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n  - b\n");
+    check("H1 four-space map", Language::YAML, "# h\npool:\n    min_idle: 4\n\"listen\": 1\n",
+        &|v| v["pool"]["max_idle"] = json!(1),
+        "# h\npool:\n    min_idle: 4\n    max_idle: 1\n\"listen\": 1\n");
+    check("H1 four-space list", Language::YAML, "# h\nallow:\n    - a\n",
+        &|v| v["allow"].as_array_mut().unwrap().push(json!("b")),
+        "# h\nallow:\n    - a\n    - b\n");
+    check("H1 spaced dashes", Language::YAML, "# h\nallow:\n-   a\n",
+        &|v| v["allow"].as_array_mut().unwrap().push(json!("b")),
+        "# h\nallow:\n-   a\n-   b\n");
+    // H2: two edits in one save, one of them structural.
+    check("H2 flow kept", Language::YAML, "listen: 1\nudp: {max_peers: 2}\npool:\n  min_idle: 1\n",
+        &|v| {
+            v["udp"]["max_peers"] = json!(3);
+            v["pool"]["max_idle"] = json!(1);
+        },
+        "listen: 1\nudp: {max_peers: 3}\npool:\n  min_idle: 1\n  max_idle: 1\n");
+    check("H2 delete and edit", Language::YAML, "listen: 1 # l\nudp: {max_peers: 2}\n",
+        &|v| {
+            remove(v, &[], "listen");
+            v["udp"]["max_peers"] = json!(3);
+        },
+        "udp: {max_peers: 3}\n");
+    // H3: a list append and another edit in one save.
+    check("H3 TOML", Language::TOML, "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n]\n",
+        &|v| {
+            v["listen"] = json!(2);
+            v["self"]["allow"].as_array_mut().unwrap().push(json!("b"));
+        },
+        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\n[self]\nallow = [\n  \"a\", # only\n  \"b\",\n]\n");
+    check("H3 HCL", Language::HCL, "# head\nlisten = 1 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n  ]\n}\n",
+        &|v| {
+            v["listen"] = json!(2);
+            v["self"]["allow"].as_array_mut().unwrap().push(json!("b"));
+        },
+        "# head\nlisten = 2 # l\nudp = { max_peers = 2 }\n\nself {\n  allow = [\n    \"a\", # only\n    \"b\",\n  ]\n}\n");
+    // H4: a multi-line string in a table under a parent with dotted keys.
+    let toml = "listen = 1\nservices.web.target = 80\n\n[services.db]\nhealth_check.path = '''\n/lit\n'''\nclient = \"acme\"\n";
+    check("H4", Language::TOML, toml, &|v| v["listen"] = json!(2), &toml.replace("listen = 1", "listen = 2"));
+    // H5, H6: XML attribute values that need escaping.
+    let xml = "<!-- head -->\n<beta secret=\"s2\" max_connections=\"2\"></beta>\n<!-- tail -->\n";
+    for (value, written) in [("a&b", "a&amp;b"), ("a\"b", "a&quot;b"), ("a<b", "a&lt;b"), ("a\nb", "a&#10;b")] {
+        check(&format!("H5 {value:?}"), Language::XML, xml, &|v| v["beta"]["secret"] = json!(value),
+            &xml.replace("secret=\"s2\"", &format!("secret=\"{written}\"")));
+    }
+    // H7: XML text ending in a line break.
+    let xml = "<!-- c -->\n<beta>\n  <secret>k1\nk2\n</secret>\n</beta>\n<listen>1</listen>\n";
+    check("H7 edit", Language::XML, xml, &|v| v["beta"]["secret"] = json!("k3"),
+        "<!-- c -->\n<beta>\n  <secret>k3\n</secret>\n</beta>\n<listen>1</listen>\n");
+    check("H7 delete", Language::XML, xml, &|v| remove(v, &[], "beta"), "<!-- c -->\n<listen>1</listen>\n");
+    // MEDIUM: an HCL heredoc keeps its form; a YAML flow list its spacing.
+    check("M heredoc", Language::HCL, "# c\nsecret = <<EOT\nabc\nEOT\nlisten = 1\n", &|v| v["secret"] = json!("abd\n"),
+        "# c\nsecret = <<EOT\nabd\nEOT\nlisten = 1\n");
+    let yaml = "allow: [ 10.0.0.0/8 ,\"192.168.0.0/16\",   '172.16.0.0/12' ]\n";
+    check("M flow spacing", Language::YAML, yaml, &|v| v["allow"].as_array_mut().unwrap().push(json!("1.1.1.1/32")),
+        "allow: [ 10.0.0.0/8 ,\"192.168.0.0/16\",   '172.16.0.0/12',   '1.1.1.1/32' ]\n");
+    // LOW: compact JSON stays compact.
+    check("L compact", Language::JSON, "{\"tcp\":{\"nodelay\":true}}\n", &|v| v["tcp"]["keepalive"] = json!({"secs": 1}),
+        "{\"tcp\":{\"nodelay\":true,\"keepalive\":{\"secs\":1}}}\n");
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Round 11: XML element text decodes character references, as attribute
+/// values do, and a null an XML host cannot hold is refused, not saved as an
+/// empty element.
+#[test]
+fn xml_text_decodes_references_and_refuses_null() {
+    let value = Language::XML.parse("<secret>a&#10;b&#65;&#x42;</secret>\n").unwrap();
+    assert_eq!(value["secret"], "a\nbAB");
+    let bridge = Bridge::new(Language::XML, Language::YAML, None).unwrap();
+    let host = "<public_address>x</public_address>\n<listen>1</listen>\n";
+    assert!(bridge.to_host("public_address: null\nlisten: 1\n", host).is_err());
+}
+
+/// Round 11: `<` in an XML attribute value is not well-formed XML, so it is
+/// a syntax error, never read (or saved) as if it were.
+#[test]
+fn a_raw_less_than_in_an_xml_attribute_is_a_syntax_error() {
+    assert!(Language::XML.parse("<beta secret=\"a<b\"/>\n").is_err());
+    assert!(Language::XML.parse("<beta secret=\"a&lt;b\"/>\n").is_ok());
+}

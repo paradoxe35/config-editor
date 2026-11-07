@@ -685,3 +685,12 @@ fn a_tag_ending_right_after_a_name_splits_into_finite_tokens() {
     assert_eq!(inner.len(), 1, "{inner:?}");
     assert_eq!(&source[inner[0].start..inner[0].end], "no");
 }
+
+/// Round 11: a document nested far deeper than the parser reads is planned
+/// in linear memory (its lines are looked up for string bodies on every
+/// render).
+#[test]
+fn a_very_deep_document_is_planned_without_quadratic_memory() {
+    let source = format!("{}{}", "<a>".repeat(20000), "</a>".repeat(20000));
+    assert!(XmlBehavior.string_body_lines(&source).is_empty());
+}

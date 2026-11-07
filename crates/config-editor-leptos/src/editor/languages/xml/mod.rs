@@ -98,6 +98,11 @@ impl ConfigLanguage for XmlBehavior {
         xml_name_span(source, pointer).map(Span::from)
     }
 
+    /// Lines inside element text written over several lines.
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        text_body_lines(source)
+    }
+
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         xml_value_span(source, pointer).map(Span::from)
     }
@@ -131,6 +136,20 @@ impl ConfigLanguage for XmlBehavior {
 
     fn format_value(&self, value: &Value) -> String {
         xml_text(value)
+    }
+
+    /// Escaped for where it goes: a quoted attribute value keeps its quotes,
+    /// element text escapes `&` and `<`.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        let text = xml_text(value);
+        match written.chars().next() {
+            Some(quote @ ('"' | '\'')) if written.len() >= 2 && written.ends_with(quote) => {
+                let escaped = escape_attribute(&text);
+                let escaped = if quote == '\'' { escaped.replace('\'', "&apos;") } else { escaped };
+                format!("{quote}{escaped}{quote}")
+            }
+            _ => escape_text(&text),
+        }
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
@@ -205,7 +224,12 @@ impl ConfigLanguage for XmlBehavior {
                 }
             }
         }
-        Ok(out)
+        // Empty elements the host closes with an end tag (`<x a="1"></x>`)
+        // are written that way again, not as `<x a="1"/>`.
+        Ok(match previous {
+            Some(previous) => with_end_tags_of(&out, previous),
+            None => out,
+        })
     }
 
     fn comment_start(&self, line: &str) -> Option<usize> {

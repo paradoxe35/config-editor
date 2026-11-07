@@ -114,6 +114,29 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "# head\n# more\nlisten: 1\nallow:\n  - a/8 # A\n  # private\n  - 'c/8'\n  - \"e/8\"\nsecret: >-\n  s1\nhealth_check: {path: /h, interval_secs: 3}\nflow: [ 'a/8', \"b/8\" ]   # flow\n",
         ),
+        // Round 11 shapes: YAML indented other than by two spaces, XML
+        // attributes and text over lines, heredocs, four-space JSON, a
+        // multi-line string under a headed table beside dotted keys.
+        (
+            Language::YAML,
+            "# head\nlisten: 1 # port\nself:\n  allow:\n  - a\n  - b\npool:\n    min_idle: 4 # m\n    max: 2\nlist:\n-   x\n-   y\n",
+        ),
+        (
+            Language::XML,
+            "<!-- head -->\n<beta secret=\"s2\" max_connections=\"2\"></beta>\n<clients>\n  <acme>\n    <secret>k1\nk2\n</secret>\n  </acme>\n</clients>\n<listen>1</listen> <!-- l -->\n",
+        ),
+        (
+            Language::HCL,
+            "# head\nsecret = <<EOT\nabc\nEOT\nlisten = 1 # l\nself {\n  allow = [\"a\", \"b\"]\n}\n",
+        ),
+        (
+            Language::JSON,
+            "{\n    \"listen\": 1,\n    \"self\": {\n        \"allow\": [\"a\"]\n    }\n}\n",
+        ),
+        (
+            Language::TOML,
+            "listen = 1\nservices.web.target = 80\n\n[services.db]\nhealth_check.path = '''\n/lit\n'''\nclient = \"acme\"\n",
+        ),
     ]
 }
 
@@ -150,9 +173,11 @@ enum Op {
     AddItem,
     DeleteItem,
     ReorderItems,
+    /// A value changed and an entry added, in one save.
+    TwoEdits,
 }
 
-const OPS: [Op; 9] = [
+const OPS: [Op; 10] = [
     Op::AddKey,
     Op::ChangeScalar,
     Op::DeleteKey,
@@ -162,6 +187,7 @@ const OPS: [Op; 9] = [
     Op::AddItem,
     Op::DeleteItem,
     Op::ReorderItems,
+    Op::TwoEdits,
 ];
 
 /// Every pointer in `value` with its value, parents first.
@@ -208,6 +234,7 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             Op::ReorderItems => item
                 .as_array()
                 .is_some_and(|items| items.len() > 1 && items.iter().any(|other| *other != items[0])),
+            Op::TwoEdits => !item.is_object() && !item.is_array(),
         })
         .collect();
     if candidates.is_empty() {
@@ -227,8 +254,10 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             *edited.pointer_mut(&pointer)? = match item {
                 Value::Number(_) => json!(serial + 100),
                 Value::Bool(flag) => json!(!flag),
-                // A slash: plain in YAML, but not a bare identifier.
-                _ => json!(format!("changed/{serial}")),
+                // A slash: plain in YAML, but not a bare identifier; and
+                // characters each language must escape.
+                _ if serial.is_multiple_of(2) => json!(format!("changed/{serial}")),
+                _ => json!(format!("a&b<\"c {serial}")),
             };
         }
         Op::DeleteKey | Op::RenameKey => {
@@ -261,6 +290,18 @@ fn apply(value: &Value, op: Op, random: &mut Random, serial: usize) -> Option<(V
             edited.pointer_mut(&pointer)?.as_array_mut()?.remove(0);
         }
         Op::ReorderItems => edited.pointer_mut(&pointer)?.as_array_mut()?.reverse(),
+        Op::TwoEdits => {
+            *edited.pointer_mut(&pointer)? = match item {
+                Value::Number(_) => json!(serial + 100),
+                Value::Bool(flag) => json!(!flag),
+                _ => json!(format!("changed/{serial}")),
+            };
+            // And an entry added in another place, when there is one.
+            let structural = if serial.is_multiple_of(2) { Op::AddItem } else { Op::AddKey };
+            let (with_entry, _) = apply(&edited, structural, random, serial + 1)
+                .or_else(|| apply(&edited, Op::AddKey, random, serial + 1))?;
+            edited = with_entry;
+        }
     }
     (edited != *value).then_some((edited, label))
 }
@@ -401,6 +442,7 @@ fn check(
             | Op::RenameKey
             | Op::ScalarToContainer
             | Op::ReorderItems
+            | Op::TwoEdits
     ) {
         let kept = comments(host, &saved);
         let lost: Vec<String> = comments(host, host_text)

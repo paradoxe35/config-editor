@@ -7,9 +7,11 @@ mod kept_inline;
 mod lists;
 mod renames;
 mod reorder;
+mod steps;
 
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
 pub(super) use reorder::patch_reorder;
+pub(super) use steps::steps;
 
 use super::completion::conform_arrays;
 use super::inline::matching_close;
@@ -433,6 +435,27 @@ fn patch_lines(
     let mut replacing: Option<usize> = None;
     let mut edits = myers_edits(&rendered_old, &rendered_new)?;
     slide_deletions_up(&mut edits, &rendered_old);
+    // Each inserted line indented as the host indents (four spaces, a list
+    // at its key's column, `-   item`), from the matched lines above it.
+    let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
+    {
+        let (host_unit, rendered_unit) = (super::commands::indent_unit(previous), super::commands::indent_unit(&before));
+        let (mut old_at, mut new_at) = (0, 0);
+        for edit in &edits {
+            match edit {
+                DiffEdit::Equal => {
+                    old_at += 1;
+                    new_at += 1;
+                }
+                DiffEdit::Delete => old_at += 1,
+                DiffEdit::Insert => {
+                    written_new[new_at] =
+                        in_host_indentation(rendered_new[new_at], &rendered_old[..old_at], &place[..old_at], &host, &host_unit, &rendered_unit);
+                    new_at += 1;
+                }
+            }
+        }
+    }
     for edit in edits {
         match edit {
             DiffEdit::Equal => {
@@ -476,7 +499,7 @@ fn patch_lines(
                         None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
                     },
                 };
-                inserted[slot].push(rendered_new[new_index]);
+                inserted[slot].push(written_new[new_index].as_str());
                 new_index += 1;
             }
         }
@@ -582,6 +605,54 @@ fn patch_lines(
         patched.push('\n');
     }
     Some(patched)
+}
+
+/// `line` (rendered by the host's serializer) indented as the host would:
+/// at the host indent of the nearest matched line above with the same
+/// rendered indent (a sibling), else one host unit per rendered unit below
+/// the nearest shallower one (its parent); a list item takes the sibling's
+/// spacing after its dash.
+fn in_host_indentation(
+    line: &str,
+    rendered_old: &[&str],
+    place: &[Option<usize>],
+    host: &[&str],
+    host_unit: &str,
+    rendered_unit: &str,
+) -> String {
+    let indent = |text: &str| text.len() - text.trim_start_matches([' ', '\t']).len();
+    let content = line.trim_start_matches([' ', '\t']);
+    if content.is_empty() {
+        return line.to_string();
+    }
+    let wanted = indent(line);
+    let placed = || {
+        (0..rendered_old.len())
+            .rev()
+            .filter_map(|index| Some((rendered_old[index], host[place[index]?])))
+            .filter(|(rendered, _)| !rendered.trim().is_empty())
+    };
+    let dash_gap = |text: &str| {
+        let content = text.trim_start_matches([' ', '\t']);
+        content.strip_prefix('-').filter(|rest| rest.starts_with(' ')).map(|rest| rest.len() - rest.trim_start_matches(' ').len())
+    };
+    let (prefix, content) = if let Some((_, sibling)) = placed().find(|(rendered, _)| indent(rendered) == wanted) {
+        let mut content = content.to_string();
+        if let (Some(_), Some(gap)) = (dash_gap(line), dash_gap(sibling)) {
+            content = format!("-{}{}", " ".repeat(gap), content[1..].trim_start_matches(' '));
+        }
+        (sibling[..indent(sibling)].to_string(), content)
+    } else if let Some((rendered, parent)) = placed().find(|(rendered, _)| indent(rendered) < wanted) {
+        let levels = (wanted - indent(rendered)) / rendered_unit.len().max(1);
+        let extra = (wanted - indent(rendered)) % rendered_unit.len().max(1);
+        (
+            format!("{}{}{}", &parent[..indent(parent)], host_unit.repeat(levels), " ".repeat(extra)),
+            content.to_string(),
+        )
+    } else {
+        return line.to_string();
+    };
+    format!("{prefix}{content}")
 }
 
 /// A removed run of lines between two blank lines (or after a blank line at
@@ -697,6 +768,15 @@ fn slide_deletions_up(edits: &mut [super::diff::DiffEdit], old: &[&str]) {
 /// without its trailing comment (as the language finds it).
 fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
     let code = line[..comment_start(language, line)].trim();
+    // A list item's dash, however far its text is spaced from it (`-   a`).
+    let respaced;
+    let code = match code.strip_prefix('-').filter(|rest| rest.starts_with([' ', '\t'])) {
+        Some(rest) => {
+            respaced = format!("- {}", rest.trim_start());
+            respaced.as_str()
+        }
+        None => code,
+    };
     let unquoted = code.replace(['"', '\''], "");
     // A line of quotes alone (a multi-line string's `"""`) still is a line.
     if unquoted.is_empty() {

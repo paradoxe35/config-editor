@@ -219,6 +219,10 @@ pub(super) fn open_element(
             other => syntax_error(source, start, other.to_string()),
         })?;
         let key = attribute.key.into_inner().to_string();
+        // Not well-formed XML, though the reader would take it.
+        if attribute.value.contains('<') {
+            return Err(syntax_error(source, start, format!("\"<\" must be written &lt; in an attribute value (<{name} {key}=…>)")));
+        }
         let value = attribute
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| syntax_error(source, start, error.to_string()))?;
@@ -338,8 +342,8 @@ pub(super) fn resolve_reference(name: &str) -> Option<String> {
     if let Some(character) = named_entity(name) {
         return Some(character.to_string());
     }
-    let numeric = numeric_entity(name.strip_prefix('#')?)?;
-    Some(numeric.to_string())
+    // `numeric_entity` takes the reference with its `#` (`#65`, `#x41`).
+    Some(numeric_entity(name)?.to_string())
 }
 
 pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>) -> ParseError {
@@ -385,6 +389,23 @@ fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
     LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
     spans
+}
+
+/// Lines wholly inside element text spanning lines: after its first line,
+/// through its last unless that line goes on with markup.
+pub(super) fn text_body_lines(source: &str) -> Vec<std::ops::Range<usize>> {
+    let line_of = |byte: usize| source[..byte].matches('\n').count();
+    document_spans(source)
+        .1
+        .iter()
+        .filter(|(_, start, end)| !source[*start..].starts_with(['"', '\'']) && source[*start..*end].contains('\n'))
+        .map(|(_, start, end)| {
+            let rest_of_line = source[*end..].split('\n').next().unwrap_or("");
+            let last = line_of(*end) + usize::from(rest_of_line.trim().is_empty());
+            line_of(*start) + 1..last
+        })
+        .filter(|lines| !lines.is_empty())
+        .collect()
 }
 
 pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {

@@ -74,6 +74,9 @@ pub(super) struct PlannedNode {
 /// Computes document paths for every element before any span is recorded, so
 /// repeated siblings can be numbered consistently with the arrays `build_value`
 /// folds them into, and so the config root can be skipped.
+/// Elements deeper than this get no path (the parser refuses past 128).
+const MAX_PLANNED_DEPTH: usize = 256;
+
 pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
     let mut nodes: Vec<PlannedNode> = Vec::new();
     let mut stack: Vec<usize> = Vec::new();
@@ -128,11 +131,19 @@ pub(super) fn plan_paths(source: &str, tokens: &[Token]) -> PathPlan {
     }
     let mut ordinal: HashMap<(Option<usize>, String), usize> = HashMap::new();
     let mut paths = vec![Vec::new(); nodes.len()];
+    let mut paths_depth = vec![0usize; nodes.len()];
     for id in 0..nodes.len() {
         if Some(id) == wrapper {
             continue;
         }
         let node = &nodes[id];
+        // Deeper than the parser reads (a syntax error anyway), no path:
+        // copying every ancestor's path would grow with the square of depth.
+        let depth = node.parent.map_or(0, |parent| paths_depth[parent] + 1);
+        paths_depth[id] = depth;
+        if depth > MAX_PLANNED_DEPTH {
+            continue;
+        }
         // Elements are created parent-first, so the parent's path is ready.
         let mut path = node
             .parent
@@ -259,19 +270,33 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
                     frames.pop();
                 } else if let Some(position) = frames.iter().rposition(|frame| frame.name == name) {
                     frames.truncate(position);
+                } else {
+                    // A misspelled end tag closes the innermost element, as
+                    // in the path plan.
+                    frames.pop();
                 }
             }
             Kind::Text { quoted } => {
                 if quoted {
                     // Quoted values are recorded by `record_attribute_values`.
                 } else if !is_partial {
-                    let text = source[token.start..token.end].trim();
+                    let raw = &source[token.start..token.end];
+                    let text = raw.trim();
                     if !text.is_empty()
                         && let Some(frame) = frames.last()
                         && !frame.path.is_empty()
                     {
-                        scan.value_spans
-                            .push((strings(&frame.path), token.start, token.end));
+                        let path = strings(&frame.path);
+                        let start = token.start + (raw.len() - raw.trim_start().len());
+                        let end = start + text.len();
+                        // Text over several lines is one value: its span runs
+                        // from its first line to its last.
+                        match scan.value_spans.last_mut() {
+                            Some((last, _, last_end)) if *last == path && source[*last_end..start].trim().is_empty() => {
+                                *last_end = end;
+                            }
+                            _ => scan.value_spans.push((path, start, end)),
+                        }
                     }
                 }
             }

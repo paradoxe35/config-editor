@@ -249,3 +249,50 @@ pub(super) fn one_line_children(value: &Value) -> Option<String> {
     }
     Some(out)
 }
+
+/// The element paths (indices left out) `source` writes as an empty element
+/// with an end tag (`<beta a="1"></beta>`).
+fn empty_with_end_tag(source: &str) -> std::collections::HashSet<Vec<String>> {
+    let tokens = tokenize(source);
+    let plan = plan_paths(source, &tokens);
+    let mut found = std::collections::HashSet::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if matches!(token.kind, Kind::OpenTag { .. })
+            && !source[..token.end].ends_with("/>")
+            && tokens.get(index + 1).is_some_and(|next| matches!(next.kind, Kind::EndTag) && next.start == token.end)
+            && let Some(path) = plan.path_of(token.start)
+        {
+            found.insert(strings(path).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect());
+        }
+    }
+    found
+}
+
+/// `rendered` with each self-closing element `previous` writes with an end
+/// tag written with one.
+pub(super) fn with_end_tags_of(rendered: &str, previous: &str) -> String {
+    let wanted = empty_with_end_tag(previous);
+    if wanted.is_empty() {
+        return rendered.to_string();
+    }
+    let tokens = tokenize(rendered);
+    let plan = plan_paths(rendered, &tokens);
+    let mut out = rendered.to_string();
+    for token in tokens.iter().rev() {
+        if matches!(token.kind, Kind::OpenTag { .. })
+            && rendered[..token.end].ends_with("/>")
+            && let Some(path) = plan.path_of(token.start)
+        {
+            let path: Vec<String> = strings(path).into_iter().filter(|segment| segment.parse::<usize>().is_err()).collect();
+            if wanted.contains(&path) {
+                let name = token_name(rendered, token);
+                let mut close = token.end - 2;
+                while close > token.start && rendered[..close].ends_with(' ') {
+                    close -= 1;
+                }
+                out.replace_range(close..token.end, &format!("></{name}>"));
+            }
+        }
+    }
+    out
+}

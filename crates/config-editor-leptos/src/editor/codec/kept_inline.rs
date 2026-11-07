@@ -132,12 +132,18 @@ pub(super) fn hide(
         // Only strings whose text is in one of the bodies: a span lookup per
         // string of a large host is too slow.
         strings.retain(|pointer| {
-            let first_line = old
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .and_then(|text| text.lines().find(|line| !line.trim().is_empty()))
-                .map(str::trim);
-            first_line.is_some_and(|line| bodies.iter().any(|body| body.contains(line)))
+            old.pointer(pointer).and_then(Value::as_str).is_some_and(|text| {
+                text.contains('\n')
+                    && text
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .any(|line| bodies.iter().any(|body| body.contains(line)))
+            }) || old.pointer(pointer).and_then(Value::as_str).is_some_and(|text| {
+                // A folded block (`>-`) holds one line of text over lines.
+                let line = text.trim();
+                !line.is_empty() && bodies.iter().any(|body| body.contains(line))
+            })
         });
         let spans = language.value_spans(previous, &strings);
         for (pointer, span) in strings.into_iter().zip(spans) {
@@ -150,6 +156,12 @@ pub(super) fn hide(
             range.end = super::through_triple_quote(previous, range.clone());
             while range.end > range.start && previous[..range.end].ends_with('\n') {
                 range.end -= 1;
+            }
+            // Element text ending in a line break before its end tag
+            // (`k2\n</secret>`): the break goes with it.
+            let rest = &previous[range.end..];
+            if rest.trim_start().starts_with("</") {
+                range.end += rest.len() - rest.trim_start().len();
             }
             if !inside_found && previous[range.clone()].contains('\n') {
                 found.push((pointer, OneLine { range: range.clone(), written: String::new(), value: range }));

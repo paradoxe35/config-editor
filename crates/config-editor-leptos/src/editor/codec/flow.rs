@@ -16,55 +16,85 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
         _ => return None,
     };
     let inner = written.strip_prefix(open)?.strip_suffix(close)?;
-    let items = split_items(inner)?;
-    let first = items.first()?;
-    // The spacing just inside the brackets, and after each comma.
-    let lead = &inner[..inner.len() - inner.trim_start().len()];
-    let trail = &inner[inner.trim_end().len()..];
-    let gap = items
-        .get(1)
-        .map_or(" ", |item| &item[..item.len() - item.trim_start().len()]);
-    let items: Vec<&str> = items.iter().map(|item| item.trim()).collect();
+    let raw = split_items(inner)?;
+    if raw.is_empty() {
+        return None;
+    }
+    // Each item with the spacing written around it; the space just inside
+    // the brackets stays there.
+    let last = raw.len() - 1;
+    let lead = &raw[0][..raw[0].len() - raw[0].trim_start().len()];
+    let trail = &raw[last][raw[last].trim_end().len()..];
+    let items: Vec<(&str, &str, &str)> = raw
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let text = item.trim();
+            let start = item.len() - item.trim_start().len();
+            let end = item.trim_end().len();
+            let before = if index == 0 { "" } else { &item[..start] };
+            let after = if index == last { "" } else { &item[end..] };
+            (before, text, after)
+        })
+        .collect();
+    // The spacing a new item takes: the item before it's, else none in a
+    // compact container (`{"a":1}`), else one space.
+    let compact = lead.is_empty() && !items[0].1.contains(": ") && !items[0].1.contains(" =");
+    let gap = |position: usize| -> &str {
+        match items.get(position.min(last)) {
+            Some((before, _, _)) if position > 0 && !before.is_empty() => before,
+            _ if items.len() > 1 => items[1].0,
+            _ if compact => "",
+            _ => " ",
+        }
+    };
     let mut out: Vec<String> = Vec::new();
+    let place = |out: &mut Vec<String>, before: &str, text: String, after: &str| {
+        let before = if out.is_empty() { "" } else if before.is_empty() { gap(out.len()) } else { before };
+        out.push(format!("{before}{text}{after}"));
+    };
     match value {
         Value::Object(map) => {
-            let entries: Vec<(String, &str, &str)> = items
-                .iter()
-                .map(|item| entry_parts(item))
-                .collect::<Option<_>>()?;
-            let model = entries.first()?;
+            let entries: Vec<(String, &str, &str)> =
+                items.iter().map(|(_, item, _)| entry_parts(item)).collect::<Option<_>>()?;
+            let (_, model_head, model_value) = entries.first()?;
             for (key, child) in map {
-                let old = entries.iter().find(|(name, _, _)| name == key);
-                let text = match old {
-                    Some((_, head, written)) => format!("{head}{}", item_text(language, child, written)),
-                    None => {
-                        let (_, head, written) = model;
-                        let separator = &head[head.trim_end_matches([' ', '\t', ':', '=']).len()..];
-                        let quoted = head.starts_with(['"', '\'']) || !is_bare(key);
-                        let key = if quoted { serde_json::to_string(key).ok()? } else { key.clone() };
-                        format!("{key}{separator}{}", fresh_text(language, child, written))
+                match entries.iter().position(|(name, _, _)| name == key) {
+                    Some(at) => {
+                        let (_, head, old) = &entries[at];
+                        let (before, _, after) = items[at];
+                        place(&mut out, before, format!("{head}{}", item_text(language, child, old)), after);
                     }
-                };
-                out.push(text);
+                    None => {
+                        let separator = &model_head[model_head.trim_end_matches([' ', '\t', ':', '=']).len()..];
+                        let quoted = model_head.starts_with(['"', '\'']) || !is_bare(key);
+                        let key = if quoted { serde_json::to_string(key).ok()? } else { key.clone() };
+                        let text = fresh_text(language, child, model_value, written);
+                        place(&mut out, "", format!("{key}{separator}{text}"), "");
+                    }
+                }
             }
         }
         Value::Array(values) => {
             let mut used = vec![false; items.len()];
             for (index, child) in values.iter().enumerate() {
                 let wanted = comparable(language, &language.format_value(child));
-                let reused = (0..items.len()).find(|at| !used[*at] && comparable(language, items[*at]) == wanted);
-                let text = match reused {
+                let reused = (0..items.len()).find(|at| !used[*at] && comparable(language, items[*at].1) == wanted);
+                match reused {
                     Some(at) => {
                         used[at] = true;
-                        items[at].to_string()
+                        let (before, text, after) = items[at];
+                        place(&mut out, before, text.to_string(), after);
                     }
                     // In place of the item that was there, else like the last.
                     None => match items.get(index) {
-                        Some(written) if !used[index] => item_text(language, child, written),
-                        _ => fresh_text(language, child, items.last().unwrap_or(first)),
+                        Some((before, text, after)) if !used[index] => {
+                            used[index] = true;
+                            place(&mut out, before, item_text(language, child, text), after);
+                        }
+                        _ => place(&mut out, "", fresh_text(language, child, items[last].1, written), ""),
                     },
-                };
-                out.push(text);
+                }
             }
         }
         _ => return None,
@@ -72,7 +102,7 @@ pub(super) fn restyle(language: &dyn ConfigLanguage, value: &Value, written: &st
     if out.is_empty() {
         return Some(format!("{open}{close}"));
     }
-    Some(format!("{open}{lead}{}{trail}{close}", out.join(&format!(",{gap}"))))
+    Some(format!("{open}{lead}{}{trail}{close}", out.join(",")))
 }
 
 /// `value` where the item `written` was: nested one-line containers are
@@ -84,10 +114,11 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
     restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written))
 }
 
-/// A new item, written like its sibling `model` when both are scalars.
-fn fresh_text(language: &dyn ConfigLanguage, value: &Value, model: &str) -> String {
+/// A new item, written like its sibling `model` when both are scalars, and
+/// a container like the one it goes in (`container`: compact JSON stays so).
+fn fresh_text(language: &dyn ConfigLanguage, value: &Value, model: &str, container: &str) -> String {
     if value.is_object() || value.is_array() || model.starts_with(['{', '[']) {
-        language.format_value(value)
+        language.format_value_like(value, container)
     } else {
         language.format_value_like(value, model)
     }
