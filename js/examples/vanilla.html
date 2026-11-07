@@ -85,6 +85,8 @@
       window.conflicts = [];
       const initial = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
       saved.textContent = initial;
+      // For tests: `?options={...}` adds or overrides constructor options.
+      const extra = JSON.parse(new URLSearchParams(location.search).get("options") ?? "{}");
       const editor = new ConfigEditor(document.getElementById("editor"), {
         language: "yaml",
         value: initial,
@@ -104,6 +106,7 @@
         },
         onDirtyChange: (dirty) => (document.getElementById("dirty").textContent = dirty ? "unsaved" : "saved"),
         onBaselineConflict: (event) => window.conflicts.push(event),
+        ...extra,
       });
       window.editor = editor;
       window.configEditor = { validate };
