@@ -346,6 +346,12 @@ export interface EditorStrings {
    */
   keepMineTitle?: string;
   /**
+   * How to reach the notice's choices from the keyboard, shown on it (and announced with it).
+   *
+   * @default "F6 moves to the choices and back."
+   */
+  baselineChangedKeys?: string;
+  /**
    * The find widget's accessible name.
    *
    * @default "Find and replace"
@@ -708,7 +714,7 @@ export interface EditorStrings {
   /**
    * The link under a host problem's message.
    *
-   * @default "Open docs ↗"
+   * @default "Open docs ↗ (Alt+Enter)"
    */
   openDocs?: string;
   /**
@@ -753,6 +759,18 @@ export interface EditorStrings {
    * @default "{severity} {position} of {total}{source}: {message}"
    */
   problemPosition?: string;
+  /**
+   * After a problem's text for screen readers: its `{code}` (from the host).
+   *
+   * @default " Code {code}."
+   */
+  problemCode?: string;
+  /**
+   * After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it.
+   *
+   * @default " Documentation: {url} (Alt+Enter opens it)."
+   */
+  problemDocs?: string;
   /**
    * An underlined problem's accessible name.
    *

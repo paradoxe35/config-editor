@@ -25,17 +25,33 @@ fn source_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
         .unwrap_or_default()
 }
 
+/// " Code E12. Documentation: https://… (Alt+Enter opens it).": a host
+/// problem's code and docs link, which the pointer sees under its message.
+fn links_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
+    let code = problem
+        .code
+        .as_deref()
+        .filter(|_| problem.origin == DiagnosticOrigin::Host)
+        .map(|code| fill(&strings.problem_code, &[("code", &code)]));
+    let docs = problem
+        .docs_url
+        .as_deref()
+        .map(|url| fill(&strings.problem_docs, &[("url", &url)]));
+    code.into_iter().chain(docs).collect()
+}
+
 /// "Error: …", "Warning from burrow: …": a problem as a screen reader
-/// hears it.
+/// hears it, with its code and docs link.
 pub(super) fn problem_text(strings: &EditorStrings, problem: &Diagnostic) -> String {
-    fill(
+    let text = fill(
         &strings.problem,
         &[
             ("severity", &severity_name(strings, problem.severity)),
             ("source", &source_part(strings, problem)),
             ("message", &problem.message),
         ],
-    )
+    );
+    text + &links_part(strings, problem)
 }
 
 /// "Error 2 of 5: …": the problem F8 moved to, of the `total` placed ones.
@@ -45,7 +61,7 @@ pub(in crate::editor) fn problem_announcement(
     position: usize,
     total: usize,
 ) -> String {
-    fill(
+    let text = fill(
         &strings.problem_position,
         &[
             ("severity", &severity_name(strings, problem.severity)),
@@ -54,7 +70,8 @@ pub(in crate::editor) fn problem_announcement(
             ("source", &source_part(strings, problem)),
             ("message", &problem.message),
         ],
-    )
+    );
+    text + &links_part(strings, problem)
 }
 
 /// "YAML Error on line 3: …": an underlined problem's accessible name.

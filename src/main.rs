@@ -19,15 +19,18 @@
 //!   `documents_demo`.
 
 use config_editor_leptos::{
-    ConfigEditor, ConfigEditorToolbar, EditorSettings, EditorTheme, FieldPath, Language,
-    SaveRequest,
+    ConfigEditor, ConfigEditorToolbar, EditorSettings, FieldPath, Language, SaveRequest,
 };
 use leptos::prelude::*;
 
 mod documents_demo;
+mod output_panel;
 mod settings_panel;
+mod theme_picker;
 
+use output_panel::{HostState, OutputPanel};
 use settings_panel::SettingsPanel;
+use theme_picker::ThemePicker;
 
 const YAML_SAMPLE: &str = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
 const JSON_SAMPLE: &str = "{\n  \"listen\": 7835,\n  \"public_address\": \"tunnel.example.com\",\n  \"insecure_plaintext\": false\n}\n";
@@ -94,19 +97,6 @@ fn page_sample() -> Option<&'static str> {
     let window = web_sys::window()?;
     let value = web_sys::js_sys::Reflect::get(&window, &"configEditorSample".into()).ok()?;
     Some(value.as_string()?.leak())
-}
-
-/// The server's version after another client changed it: the first number
-/// goes up by one (`listen: 7835` becomes `7836`), else a line is added.
-fn changed_on_server(text: &str) -> String {
-    let Some(start) = text.find(|c: char| c.is_ascii_digit()) else {
-        return format!("{text}\n");
-    };
-    let end = text[start..]
-        .find(|c: char| !c.is_ascii_digit())
-        .map_or(text.len(), |length| start + length);
-    let number: u64 = text[start..end].parse().unwrap_or(0);
-    format!("{}{}{}", &text[..start], number + 1, &text[end..])
 }
 
 /// The page's query flags (`language=json`, `sample=large`, `readonly`).
@@ -229,17 +219,24 @@ fn main() {
             .unwrap_or_default();
         let schema_warnings = RwSignal::new(Vec::<String>::new());
 
-        let baseline = RwSignal::new(sample.to_string());
-        let saved = RwSignal::new(sample.to_string());
         // Host-controlled editing: what was saved, whether there are unsaved
         // edits, and the baseline conflicts seen (for the e2e tests).
-        let saves = RwSignal::new(0usize);
-        let dirty = RwSignal::new(false);
-        let conflicts = RwSignal::new(Vec::<String>::new());
-        let server_change = move |_| {
-            // Another client saved: the server's version moves on.
-            baseline.update(|text| *text = changed_on_server(text));
+        let host = HostState {
+            read_only,
+            saved: RwSignal::new(sample.to_string()),
+            baseline: RwSignal::new(sample.to_string()),
+            dirty: RwSignal::new(false),
+            saves: RwSignal::new(0),
+            conflicts: RwSignal::new(Vec::new()),
         };
+        let HostState {
+            saved,
+            baseline,
+            dirty,
+            saves,
+            conflicts,
+            ..
+        } = host;
         let save = move |request: SaveRequest| {
             saved.set(request.text.clone());
             baseline.set(request.text);
@@ -279,7 +276,7 @@ fn main() {
                         <span>{toolbar_file}</span>
                     </div>
                     <label class="demo__picker">
-                        "File"
+                        <span class="demo__picker-label">"File"</span>
                         <select
                             class="demo__select demo__language-select"
                             aria-label="Stored config language"
@@ -297,7 +294,7 @@ fn main() {
                         </select>
                     </label>
                     <label class="demo__picker">
-                        "Edit as"
+                        <span class="demo__picker-label">"Edit as"</span>
                         <select
                             class="demo__select demo__edit-select"
                             aria-label="Editing language"
@@ -322,7 +319,7 @@ fn main() {
                         </select>
                     </label>
                     <label class="demo__picker">
-                        "Sample"
+                        <span class="demo__picker-label">"Sample"</span>
                         <select
                             class="demo__select demo__sample-select"
                             aria-label="Sample config"
@@ -332,24 +329,7 @@ fn main() {
                             <option value="large" selected=large_sample>"Large (~2000 lines)"</option>
                         </select>
                     </label>
-                    <label class="demo__picker">
-                        "Theme"
-                        <select
-                            class="demo__select demo__theme-select"
-                            aria-label="Editor theme"
-                            on:change=move |event| {
-                                let theme = event_target_value(&event).parse().unwrap_or_default();
-                                settings.update(|settings| settings.theme = theme);
-                            }
-                        >
-                            {EditorTheme::ALL
-                                .iter()
-                                .map(|option| view! {
-                                    <option value=option.as_str()>{option.label()}</option>
-                                })
-                                .collect_view()}
-                        </select>
-                    </label>
+                    <ThemePicker settings=settings />
                     <button
                         class="config-editor__action-button"
                         type="button"
@@ -378,39 +358,10 @@ fn main() {
                     read_only=read_only
                     read_only_paths=locked
                 />
-                <ul class="demo__schema-warnings">
+                <ul class="demo__schema-warnings" hidden=move || schema_warnings.with(Vec::is_empty)>
                     {move || schema_warnings.get().into_iter().map(|warning| view! { <li>{warning}</li> }).collect_view()}
                 </ul>
-                <details class="demo__output">
-                    <summary class="demo__summary">
-                        <span>{format!("Saved value ({language}) — what on_change sends the host")}</span>
-                        <span class="demo__host">
-                            <label class="demo__picker">
-                                <input
-                                    type="checkbox"
-                                    class="demo__read-only"
-                                    prop:checked=move || read_only.get()
-                                    on:change=move |event| read_only.set(event_target_checked(&event))
-                                />
-                                "Read-only"
-                            </label>
-                            <button class="demo__button demo__server-change" type="button" on:click=server_change>
-                                "Server change"
-                            </button>
-                            <button
-                                class="demo__button demo__host-edit"
-                                type="button"
-                                on:click=move |_| saved.update(|text| *text = changed_on_server(text))
-                            >
-                                "Host edit"
-                            </button>
-                            <span class="demo__host-status" title="Unsaved changes" data-dirty=move || dirty.get().to_string() data-saves=move || saves.get().to_string() data-conflicts=move || conflicts.get().join(",")>
-                                {move || if dirty.get() { "●" } else { "" }}
-                            </span>
-                        </span>
-                    </summary>
-                    <pre class="demo__output-text">{move || saved.get()}</pre>
-                </details>
+                <OutputPanel host=host language=language.to_string() />
             </div>
         }
     })

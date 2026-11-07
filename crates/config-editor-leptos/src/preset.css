@@ -37,7 +37,8 @@
   --config-editor-line-number: #858585;
   --config-editor-file-icon-bg: #8a6e2f;
   --config-editor-file-icon-text: #fff;
-  --config-editor-control-disabled-text: #777777;
+  /* Disabled: the control's text part way to its background, in every theme. */
+  --config-editor-control-disabled-text: color-mix(in srgb, var(--config-editor-control-text) 60%, var(--config-editor-control-bg));
   --config-editor-focus-ring: #75beff;
   --config-editor-diff-focus-ring: #ffffff;
   --config-editor-diff-peek-divider: #383838;
@@ -51,6 +52,9 @@
   --config-editor-completion-detail: #a7a7a7;
   --config-editor-completion-icon-border: #6b6b6b;
   --config-editor-completion-icon-text: #bdbdbd;
+  /* Matched letters on the selected suggestion: the accent toward the
+     label's color, so they stay readable on the selection. */
+  --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent) 50%, var(--config-editor-completion-key));
   --config-editor-scrollbar-thumb: #686868;
   --config-editor-status-error: #f48771;
   --config-editor-status-changes: var(--config-editor-modified);
@@ -63,12 +67,13 @@
   --config-editor-input-bg: #3c3c3c;
   --config-editor-input-border: #3c3c3c;
   --config-editor-toggle-active: rgb(36 137 219 / 51%);
-  --config-editor-locked: var(--config-editor-muted);
+  /* Read-only values: dimmer than the text, readable as text (4.5:1). */
+  --config-editor-locked: color-mix(in srgb, var(--config-editor-muted) 45%, var(--config-editor-text));
   --config-editor-secret-chip: rgb(204 167 0 / 16%);
   --config-editor-secret-chip-border: rgb(204 167 0 / 55%);
   --config-editor-fold-toggle: var(--config-editor-line-number);
   --config-editor-fold-chip: color-mix(in srgb, var(--config-editor-muted) 24%, transparent);
-  --config-editor-fold-chip-text: var(--config-editor-muted);
+  --config-editor-fold-chip-text: color-mix(in srgb, var(--config-editor-muted) 50%, var(--config-editor-text));
   --config-editor-tab-bar: var(--config-editor-panel);
   --config-editor-tab-bg: var(--config-editor-panel);
   --config-editor-tab-active-bg: var(--config-editor-bg);
@@ -163,6 +168,10 @@
   font: 12px ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
+
+/* A host's button in the toolbar keeps its own height (the row stretches
+   the file name's underline, not buttons). */
+.config-editor__toolbar > .config-editor__action-button { align-self: center; }
 
 .config-editor__action-button:hover:not(:disabled) {
   background: var(--config-editor-raised-hover);
@@ -269,7 +278,7 @@
   /* A column for the markers (a lock or key, then the problem dot), the
      longest line number (`--config-editor-gutter-digits`, set from the line
      count, at least 3), then the padding before the text. */
-  --config-editor-marker-column: 22px;
+  --config-editor-marker-column: 24px;
   --config-editor-gutter-padding: 13px;
   width: calc(
     var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
@@ -304,7 +313,7 @@
 .config-editor__line-number-error::before {
   position: absolute;
   top: 8px;
-  left: calc(var(--config-editor-marker-column) - 7px);
+  left: calc(var(--config-editor-marker-column) - 9px);
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -316,7 +325,7 @@
 .config-editor__lock-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 18px);
+  left: calc(var(--config-editor-marker-column) - 20px);
   width: 9px;
   height: 10px;
   background: var(--config-editor-locked);
@@ -328,7 +337,7 @@
 .config-editor__secret-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 18px);
+  left: calc(var(--config-editor-marker-column) - 20px);
   width: 10px;
   height: 10px;
   background: var(--config-editor-secret-chip-border);
@@ -850,13 +859,17 @@
 
 .config-editor__goto[hidden] { display: none; }
 
-.config-editor__goto-input {
+/* Scoped to the widget: the shared `find-input` rule below drops borders. */
+.config-editor__goto .config-editor__goto-input {
   border: 1px solid var(--config-editor-input-border);
   border-radius: 3px;
   background: var(--config-editor-input-bg);
 }
 
-.config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+.config-editor__goto .config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+
+/* Lined up with the field's text (its border and padding). */
+.config-editor__goto-hint { padding: 0 7px; }
 
 /* Find matches sit under the textarea and the highlighted text, like the
    selection, so the text keeps its colors. */
@@ -1202,6 +1215,9 @@
 }
 
 .config-editor__completion-match { color: var(--config-editor-accent); }
+.config-editor__completion-active .config-editor__completion-match {
+  color: var(--config-editor-completion-match-active);
+}
 
 .config-editor__completion--deprecated .config-editor__completion-key {
   text-decoration: line-through;
@@ -1452,7 +1468,6 @@
 .config-editor[data-theme="obsidian"],
 .config-editor-documents[data-theme="obsidian"],
 :where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
-  --config-editor-control-disabled-text: var(--config-editor-control-text);
   --config-editor-diff-removed-bg: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
   --config-editor-diff-removed-text: var(--config-editor-text);
   --config-editor-diff-current-bg: color-mix(in srgb, var(--config-editor-modified) 12%, transparent);
@@ -1461,6 +1476,12 @@
   --config-editor-completion-key: var(--config-editor-raised-text);
   --config-editor-completion-type: var(--config-editor-raised-muted);
   --config-editor-completion-detail: var(--config-editor-raised-muted);
+  --config-editor-completion-icon-text: var(--config-editor-raised-muted);
+  --config-editor-completion-icon-border: color-mix(in srgb, var(--config-editor-raised-muted) 55%, transparent);
+  --config-editor-diff-peek-divider: var(--config-editor-raised-border);
+  /* The accent: VS Code Dark's light blue fades on a light background. */
+  --config-editor-focus-ring: var(--config-editor-accent);
+  --config-editor-diff-focus-ring: var(--config-editor-focus-ring);
   --config-editor-search-match: color-mix(in srgb, var(--config-editor-warning) 32%, transparent);
   --config-editor-search-match-current: color-mix(in srgb, var(--config-editor-accent) 38%, transparent);
   --config-editor-search-match-current-border: var(--config-editor-accent);
@@ -1501,9 +1522,65 @@
 @media (max-width: 600px) {
   .config-editor__toolbar { padding: 0 10px; }
   .config-editor__gutter {
-    --config-editor-marker-column: 21px;
+    --config-editor-marker-column: 23px;
     --config-editor-gutter-padding: 10px;
   }
   .config-editor__schema-state { font-size: 0; }
   .config-editor__status-meta { gap: 5px; }
+}
+
+/* Touch screens: every control is at least 24×24px to a finger (WCAG
+   2.5.8), the small marks through a larger invisible hit area. The gutter
+   widens so the change bars' and the chevrons' areas stay apart. */
+@media (pointer: coarse) {
+  .config-editor__gutter:not(.config-editor__gutter-folding) {
+    padding-right: calc(var(--config-editor-gutter-padding) + 11px);
+    width: calc(
+      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+        var(--config-editor-gutter-padding) + 11px
+    );
+  }
+  .config-editor__gutter.config-editor__gutter-folding {
+    --config-editor-fold-gutter: 24px;
+    padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
+    width: calc(
+      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+        var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
+    );
+  }
+  .config-editor__fold-toggle {
+    right: calc(-24px - var(--config-editor-fold-gutter));
+    top: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2);
+    height: max(24px, var(--config-editor-line-height));
+  }
+  .config-editor__fold-toggle::before { left: 9px; }
+  /* The bar's area: from the number's edge to the chevrons, 24px tall. */
+  .config-editor__diff-marker-added::after,
+  .config-editor__diff-marker-modified::after {
+    top: -1px;
+    right: -15px;
+    bottom: -1px;
+    left: -6px;
+  }
+  .config-editor__diff-deleted::after {
+    position: absolute;
+    top: -6px;
+    right: -15px;
+    width: 24px;
+    height: 24px;
+    content: "";
+  }
+  .config-editor__diagnostic-status,
+  .config-editor__change-status,
+  .config-editor__tab-focus-status,
+  .config-editor__notice-button,
+  .config-editor__action-button {
+    min-height: 24px;
+  }
+  .config-editor__find-toggle,
+  .config-editor__find-button {
+    min-width: 24px;
+    height: 24px;
+  }
+  .config-editor__fold-chip { min-width: 24px; }
 }

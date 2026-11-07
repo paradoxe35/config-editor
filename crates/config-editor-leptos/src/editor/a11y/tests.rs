@@ -366,6 +366,29 @@ fn f8_announces_the_problem_with_its_place_in_the_list() {
     );
 }
 
+/// A host problem's code and docs link reach the keyboard too: the caret
+/// note and the F8 announcement say them, as the pointer sees them under the
+/// message.
+#[test]
+fn a_host_problems_code_and_docs_are_in_the_note_and_the_announcement() {
+    let strings = crate::EditorStrings::default();
+    let mut port = problem(2, Some(1), Some(7));
+    port.message = "port 7835 is taken.".to_string();
+    port.origin = DiagnosticOrigin::Host;
+    port.source = Some("burrow".to_string());
+    port.code = Some("E12".to_string());
+    port.docs_url = Some("https://example.com/docs/ports".to_string());
+    let said = " Code E12. Documentation: https://example.com/docs/ports (Alt+Enter opens it).";
+    assert_eq!(
+        problem_announcement(&strings, &port, 1, 1),
+        format!("Error 1 of 1 from burrow: port 7835 is taken.{said}")
+    );
+    assert_eq!(
+        note(&strings, std::slice::from_ref(&port), 2, 3, None),
+        format!("Error from burrow: port 7835 is taken.{said}")
+    );
+}
+
 /// A field the host locks, in every language: the caret on its value (and
 /// just past it) is described by the lock's reason, the caret on another
 /// field is not.

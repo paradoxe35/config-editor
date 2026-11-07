@@ -2,6 +2,10 @@
 //! (the e2e tests toggle them and check the caret and undo stay). The list
 //! comes from the settings' own JSON keys, so a new setting shows up here
 //! by itself.
+//!
+//! A button opens the list, not a `<details>`: a closed `<details>`
+//! anywhere on the page makes Chrome select text in a large textarea in
+//! quadratic time (see the crate README, "Large documents").
 
 use config_editor_leptos::EditorSettings;
 use leptos::prelude::*;
@@ -54,10 +58,26 @@ pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
             </label>
         }
     };
+    let open = RwSignal::new(false);
     view! {
-        <details class="demo__settings">
-            <summary class="demo__settings-toggle">"Settings"</summary>
-            <div class="demo__settings-list">{keys.into_iter().map(switch).collect_view()}</div>
-        </details>
+        <div class="demo__settings">
+            <button
+                class="demo__settings-toggle"
+                type="button"
+                aria-expanded=move || open.get().to_string()
+                aria-controls="demo-settings-list"
+                on:click=move |_| toggle(open)
+            >
+                "Settings"
+            </button>
+            <div id="demo-settings-list" class="demo__settings-list" hidden=move || !open.get()>
+                {keys.into_iter().map(switch).collect_view()}
+            </div>
+        </div>
     }
+}
+
+/// Opens or closes a disclosure.
+pub fn toggle(open: RwSignal<bool>) {
+    open.update(|open| *open = !*open);
 }
