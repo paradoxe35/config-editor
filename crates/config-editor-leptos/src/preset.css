@@ -190,6 +190,46 @@
 
 .config-editor__notice[hidden] { display: none; }
 
+/* Editing as another language: a quiet line under the toolbar. */
+.config-editor__edit-as-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  border-left: 3px solid var(--config-editor-accent);
+  background: var(--config-editor-panel);
+  color: var(--config-editor-muted);
+  font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__edit-as-notice[hidden] { display: none; }
+
+.config-editor__edit-as-notice-message { flex: 1; min-width: 0; }
+
+.config-editor__edit-as-notice-dismiss {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: 14px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.config-editor__edit-as-notice-dismiss:hover {
+  background: var(--config-editor-raised-hover);
+  color: var(--config-editor-raised-text);
+}
+
+.config-editor__edit-as-notice-dismiss:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: -2px;
+}
+
 .config-editor__notice-detail { color: var(--config-editor-raised-muted); }
 
 .config-editor__notice-actions { display: flex; gap: 6px; }

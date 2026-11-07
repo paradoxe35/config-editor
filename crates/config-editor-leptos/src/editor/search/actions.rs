@@ -12,6 +12,8 @@ use super::super::state::{EditorState, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
 use super::{SearchOptions, SearchResults};
+use crate::EditorStrings;
+use crate::strings::{counted, fill};
 
 /// Longest selection taken as the query when the widget opens.
 const SEED_MAX_CHARS: usize = 200;
@@ -215,9 +217,7 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let Some(replaced) = replace::replace_all_except(&before, &matcher, &replacement, &skip) else {
         if matcher.find_from(&before, 0).is_some() {
-            search
-                .notice
-                .set(Some(super::super::protect::NOTHING_REPLACED.to_string()));
+            search.notice.set(Some(SearchNotice::NothingReplaced));
         }
         return;
     };
@@ -230,42 +230,61 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     }
     let count = replaced.count;
     search.current.set(None);
-    let skipped = if replaced.skipped > 0 {
-        super::super::protect::skipped_matches(replaced.skipped)
-    } else {
-        String::new()
-    };
-    search.notice.set(Some(format!(
-        "Replaced {count} {}{skipped}",
-        if count == 1 {
-            "occurrence"
-        } else {
-            "occurrences"
-        }
-    )));
+    search.notice.set(Some(SearchNotice::Replaced {
+        count,
+        skipped: replaced.skipped,
+    }));
 }
 
 /// The match count for the widget: "3 of 12", "No results", or the
 /// pattern's error.
 pub(in crate::editor) fn count_label(
+    strings: &EditorStrings,
     results: &SearchResults,
     current: Option<usize>,
     query_empty: bool,
 ) -> String {
     if results.error.is_some() {
-        return "Invalid pattern".to_string();
+        return strings.invalid_pattern.clone();
     }
     if query_empty || results.matches.is_empty() {
-        return "No results".to_string();
+        return strings.no_results.clone();
     }
     let total = if results.capped {
         format!("{MAX_MATCHES}+")
     } else {
         results.matches.len().to_string()
     };
-    match current.filter(|index| *index < results.matches.len()) {
-        Some(index) => format!("{} of {total}", index + 1),
-        None => format!("? of {total}"),
+    let current = current
+        .filter(|index| *index < results.matches.len())
+        .map_or_else(|| "?".to_string(), |index| (index + 1).to_string());
+    fill(
+        &strings.match_position,
+        &[("current", &current), ("total", &total)],
+    )
+}
+
+/// What the last Replace All did, said in place of the match count.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::editor) enum SearchNotice {
+    /// `count` matches replaced, `skipped` left in protected text.
+    Replaced { count: usize, skipped: usize },
+    /// Every match is in read-only text.
+    NothingReplaced,
+}
+
+impl SearchNotice {
+    pub(in crate::editor) fn text(&self, strings: &EditorStrings) -> String {
+        match self {
+            SearchNotice::Replaced { count, skipped } => {
+                let mut text = counted(&strings.replaced_one, &strings.replaced_other, *count);
+                if *skipped > 0 {
+                    text.push_str(&super::super::protect::skipped_matches(strings, *skipped));
+                }
+                text
+            }
+            SearchNotice::NothingReplaced => strings.nothing_replaced.clone(),
+        }
     }
 }
 

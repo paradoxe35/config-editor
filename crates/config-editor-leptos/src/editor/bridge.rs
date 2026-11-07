@@ -8,6 +8,7 @@
 use super::Language;
 use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
+use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::language::ConfigLanguage;
 use std::sync::Arc;
 
@@ -54,7 +55,7 @@ impl Bridge {
         &self,
         edit_text: &str,
         previous_host: &str,
-    ) -> Result<Conversion, ConvertError> {
+    ) -> Result<Conversion, SaveError> {
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
                 text: String::new(),
@@ -65,7 +66,12 @@ impl Bridge {
             .map_err(ConvertError::Parse)?;
         let host = self.host.behavior();
         let Ok(old) = codec::read(host, previous_host, self.shape()) else {
-            return codec::render(&edited, host, Some(previous_host), self.shape());
+            return Ok(codec::render(
+                &edited,
+                host,
+                Some(previous_host),
+                self.shape(),
+            )?);
         };
         // Only what the user changed is saved: the edit is compared with the
         // host value as the edit language showed it, so values that language
@@ -92,10 +98,7 @@ impl Bridge {
         if let Some(pointer) = codec::first_pointer(&value, &serde_json::Value::is_null)
             && target.pointer(&pointer).is_some_and(|read| !read.is_null())
         {
-            return Err(ConvertError::Unsupported(format!(
-                "{} has no null value (at {pointer})",
-                self.host.label()
-            )));
+            return Err(SaveError::NoNull { pointer });
         }
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
@@ -145,65 +148,68 @@ impl Bridge {
     pub(super) fn problems(
         &self,
         edit_text: &str,
-        result: &Result<Conversion, ConvertError>,
-    ) -> Vec<Diagnostic> {
-        let host = self.host.label();
+        result: &Result<Conversion, SaveError>,
+    ) -> Vec<EditAsProblem> {
+        let host = self.host;
         match result {
             Ok(conversion) => conversion
                 .losses
                 .iter()
-                .map(|pointer| {
-                    located(
-                        self.edit.behavior(),
-                        edit_text,
-                        pointer,
-                        format!("{pointer}: {host} cannot keep this value exactly; it reads back differently"),
-                        Severity::Warning,
-                    )
+                .map(|pointer| EditAsProblem {
+                    at: located(self.edit.behavior(), edit_text, pointer, Severity::Warning),
+                    text: EditAsText::HostCannotKeep {
+                        pointer: pointer.clone(),
+                        host,
+                    },
                 })
                 .collect(),
-            Err(ConvertError::Parse(_)) => Vec::new(),
-            Err(error @ ConvertError::Unsupported(message)) => vec![locate_error(
-                self.edit.behavior(),
-                edit_text,
-                error,
-                format!("Not saved as {host}: {message}"),
-            )],
+            Err(SaveError::Convert(ConvertError::Parse(_))) => Vec::new(),
+            Err(error) => vec![EditAsProblem {
+                at: locate_error(self.edit.behavior(), edit_text, error),
+                text: EditAsText::NotSaved {
+                    host,
+                    error: error.clone(),
+                },
+            }],
         }
     }
 
-    /// The error shown when the host's text cannot be converted for editing.
     /// A warning on each value the edit language cannot show exactly (XML has
     /// no nested or empty lists): editing it there may change it.
-    pub(super) fn view_problems(&self, shown: &Conversion) -> Vec<Diagnostic> {
-        let edit = self.edit.label();
+    pub(super) fn view_problems(&self, shown: &Conversion) -> Vec<EditAsProblem> {
         shown
             .losses
             .iter()
-            .map(|pointer| {
-                located(
+            .map(|pointer| EditAsProblem {
+                at: located(
                     self.edit.behavior(),
                     &shown.text,
                     pointer,
-                    format!("{pointer}: {edit} cannot show this value exactly; editing it here may change it"),
                     Severity::Warning,
-                )
+                ),
+                text: EditAsText::EditCannotShow {
+                    pointer: pointer.clone(),
+                    edit: self.edit,
+                },
             })
             .collect()
     }
 
-    pub(super) fn load_problem(&self, error: &ConvertError) -> Diagnostic {
-        Diagnostic {
-            line: Some(1),
-            column: Some(1),
-            end_column: Some(2),
-            message: format!(
-                "Cannot edit this {} as {}: {error}",
-                self.host.label(),
-                self.edit.label()
-            ),
-            severity: Severity::Error,
-            ..Diagnostic::default()
+    /// The error shown when the host's text cannot be converted for editing.
+    pub(super) fn load_problem(&self, error: &ConvertError) -> EditAsProblem {
+        EditAsProblem {
+            at: Diagnostic {
+                line: Some(1),
+                column: Some(1),
+                end_column: Some(2),
+                severity: Severity::Error,
+                ..Diagnostic::default()
+            },
+            text: EditAsText::CannotEditAs {
+                host: self.host,
+                edit: self.edit,
+                error: error.clone(),
+            },
         }
     }
 }
@@ -291,29 +297,23 @@ fn merge_changes(
     }
 }
 
-/// A diagnostic for a conversion error, on the value it names
-/// (`… (at /pointer)`) when the message carries one.
+/// Where an error is, on the value it names (`… (at /pointer)`) when it
+/// names one.
 pub(super) fn locate_error(
     behavior: &dyn ConfigLanguage,
     source: &str,
-    error: &ConvertError,
-    message: String,
+    error: &SaveError,
 ) -> Diagnostic {
-    let text = error.to_string();
-    let pointer = text
-        .rsplit_once("(at ")
-        .and_then(|(_, rest)| rest.strip_suffix(')'))
-        .unwrap_or("");
-    located(behavior, source, pointer, message, Severity::Error)
+    located(behavior, source, &error.pointer(), Severity::Error)
 }
 
-/// A diagnostic on the value at `pointer` in `source`, or on the document's
-/// first content when the value has no span.
+/// A place on the value at `pointer` in `source`, or on the document's
+/// first content when the value has no span (the message is left for the
+/// problem to word).
 fn located(
     behavior: &dyn ConfigLanguage,
     source: &str,
     pointer: &str,
-    message: String,
     severity: Severity,
 ) -> Diagnostic {
     // A value missing from the text (the view dropped it) is placed on its
@@ -335,7 +335,6 @@ fn located(
         line: span.map(|span| span.line),
         column: span.map(|span| span.start_column),
         end_column: span.map(|span| span.end_column),
-        message,
         severity,
         ..Diagnostic::default()
     }
@@ -382,8 +381,16 @@ fn in_order_of(value: serde_json::Value, order: &serde_json::Value) -> serde_jso
 ))]
 mod tests {
     use super::super::Language;
-    use super::super::diagnostics::Severity;
+    use super::super::diagnostics::{Diagnostic, Severity};
+    use super::super::edit_as::EditAsProblem;
     use super::Bridge;
+
+    fn worded(problems: Vec<EditAsProblem>) -> Vec<Diagnostic> {
+        problems
+            .iter()
+            .map(|problem| problem.worded(crate::strings::default_strings()))
+            .collect()
+    }
 
     #[test]
     fn the_same_language_needs_no_bridge() {
@@ -408,7 +415,7 @@ mod tests {
         let bridge = Bridge::new(Language::XML, Language::YAML, None).unwrap();
         let edit = "hosts:\n  - only.example\nport: 80\n";
         let result = bridge.to_host(edit, "");
-        let problems = bridge.problems(edit, &result);
+        let problems = worded(bridge.problems(edit, &result));
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].severity, Severity::Warning);
         assert_eq!(problems[0].line, Some(1));
@@ -425,7 +432,7 @@ mod tests {
         let edit = "{\n  \"https\": null\n}\n";
         let result = bridge.to_host(edit, "");
         assert!(result.is_err());
-        let problems = bridge.problems(edit, &result);
+        let problems = worded(bridge.problems(edit, &result));
         assert_eq!(problems[0].severity, Severity::Error);
         assert!(
             problems[0].message.starts_with("Not saved as TOML"),
@@ -649,6 +656,13 @@ mod tests {
 mod structural_saves {
     use super::*;
 
+    fn worded(problems: Vec<EditAsProblem>) -> Vec<Diagnostic> {
+        problems
+            .iter()
+            .map(|problem| problem.worded(crate::strings::default_strings()))
+            .collect()
+    }
+
     /// The host text saved after `change` is made to the shown text.
     fn save(
         host: Language,
@@ -779,7 +793,7 @@ mod structural_saves {
         let shown = bridge
             .to_edit("listen: 1\nx:\n  - [1, 2]\n  - [3]\nallow: []\n")
             .unwrap();
-        let warnings = bridge.view_problems(&shown);
+        let warnings = worded(bridge.view_problems(&shown));
         let messages: Vec<&str> = warnings
             .iter()
             .map(|warning| warning.message.as_str())
@@ -958,7 +972,7 @@ mod structural_saves {
         let shown = bridge
             .to_edit("{\"listen\": 99999, \"self\": {\"allow\": []}}")
             .unwrap();
-        let warnings = bridge.view_problems(&shown);
+        let warnings = worded(bridge.view_problems(&shown));
         let allow = warnings
             .iter()
             .find(|warning| warning.message.starts_with("/self/allow"))

@@ -86,10 +86,12 @@ mod documents;
 mod editor;
 mod reactive;
 mod settings;
+mod strings;
 
 pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};
 pub use editor::language;
 pub use settings::EditorSettings;
+pub use strings::{EditorStrings, StringsProblem};
 
 pub use editor::{
     BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,

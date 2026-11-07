@@ -185,6 +185,7 @@ const CRATE_EXPORTS = {
   DiagnosticTarget: { js: 'HostDiagnostic', kind: 'type' },
   EditorHandle: { js: 'ConfigEditor', kind: 'class' },
   EditorSettings: { js: 'EditorSettings', kind: 'type' },
+  EditorStrings: { js: 'EditorStrings', kind: 'type' },
   EditorTheme: { js: 'ThemeName', kind: 'type' },
   FieldPath: { js: 'FieldPath', kind: 'type' },
   HostDiagnostic: { js: 'HostDiagnostic', kind: 'type' },
@@ -196,6 +197,7 @@ const CRATE_EXPORTS = {
   SchemaError: { exempt: 'thrown as an `Error` with its message' },
   SchemaSource: { js: 'schema', kind: 'option' },
   SecretOptions: { js: 'SecretOptions', kind: 'type' },
+  StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
   Severity: { js: 'Severity', kind: 'type' },
   TextPosition: { js: 'EditorRange', kind: 'type' },
   TextRange: { js: 'EditorRange', kind: 'type' },
@@ -250,10 +252,10 @@ const camelCase = (name) => name.replace(/_(\w)/g, (_, letter) => letter.toUpper
 function crateExports() {
   const source = crate('lib.rs');
   const names = [];
-  for (const [, list] of source.matchAll(/^pub use (?:editor|documents|settings)::\{([^}]*)\};/gm)) {
+  for (const [, list] of source.matchAll(/^pub use (?:editor|documents|settings|strings)::\{([^}]*)\};/gm)) {
     names.push(...list.split(',').map((name) => name.trim()).filter(Boolean));
   }
-  for (const [, name] of source.matchAll(/^pub use (?:editor|documents|settings)::(\w+);/gm)) names.push(name);
+  for (const [, name] of source.matchAll(/^pub use (?:editor|documents|settings|strings)::(\w+);/gm)) names.push(name);
   return names;
 }
 

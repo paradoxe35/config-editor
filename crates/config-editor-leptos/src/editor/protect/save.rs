@@ -12,7 +12,12 @@ use super::super::paths::field_range;
 use super::locate::LineIndex;
 use super::locks::{Sources, protect};
 use super::marks::escape;
-use super::texts;
+
+/// A save that would change the read-only value at `pointer`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReadOnlyChange {
+    pub(crate) pointer: String,
+}
 
 /// The pointers of the fields `ranges` (UTF-16, in `text`) cover: each
 /// field written there whose range overlaps one, outermost first.
@@ -99,7 +104,7 @@ pub(crate) fn check_save(
     old: &str,
     new: &str,
     pointers: &[String],
-) -> Result<(), String> {
+) -> Result<(), ReadOnlyChange> {
     if pointers.is_empty() {
         return Ok(());
     }
@@ -113,7 +118,9 @@ pub(crate) fn check_save(
             None => true,
         };
         if changed {
-            return Err(texts::save_refused(pointer));
+            return Err(ReadOnlyChange {
+                pointer: pointer.clone(),
+            });
         }
     }
     Ok(())

@@ -25,6 +25,7 @@ pub(super) fn rendered_lines(
     diagnostics: Memo<Vec<Diagnostic>>,
     diff: Memo<LineDiff>,
     protect: ProtectState,
+    strings: Memo<crate::EditorStrings>,
 ) -> Memo<Vec<RenderedLine>> {
     Memo::new(move |_| {
         let error_lines: std::collections::HashSet<usize> = diagnostics.with(|errors| {
@@ -37,10 +38,14 @@ pub(super) fn rendered_lines(
         text.with(|text| {
             let marks = protect.protected.with(|protected| {
                 protect.secrets.tokens.with(|tokens| {
-                    protect
-                        .secrets
-                        .options
-                        .with_value(|options| line_marks(text, protected, tokens, &options.hint))
+                    strings.with(|strings| {
+                        let hint = protect
+                            .secrets
+                            .options
+                            .with_value(|options| options.hint.clone())
+                            .unwrap_or_else(|| strings.secret_hint.clone());
+                        line_marks(text, protected, tokens, &hint, strings)
+                    })
                 })
             });
             diff.with(|line_diff| {
@@ -153,14 +158,12 @@ pub(super) fn row_state(
             .map(|before| DiffPeek {
                 line,
                 kind: PeekKind::Modified,
-                title: "Modified line".to_string(),
                 before: vec![before.clone()],
                 after: vec![text.clone()],
             }),
         added_peek: (change == DiffKind::Added).then(|| DiffPeek {
             line,
             kind: PeekKind::Added,
-            title: "Added line".to_string(),
             before: Vec::new(),
             after: vec![text.clone()],
         }),
@@ -172,7 +175,6 @@ pub(super) fn row_state(
             .then(|| DiffPeek {
                 line,
                 kind: PeekKind::Removed,
-                title: "Removed lines".to_string(),
                 before: line_diff
                     .deleted_lines_before
                     .get(index)
@@ -183,7 +185,6 @@ pub(super) fn row_state(
         deleted_after_peek: (line == line_count && line_diff.deleted_after).then(|| DiffPeek {
             line,
             kind: PeekKind::RemovedAtEnd,
-            title: "Removed lines at end of document".to_string(),
             before: line_diff.deleted_lines_after.clone(),
             after: Vec::new(),
         }),

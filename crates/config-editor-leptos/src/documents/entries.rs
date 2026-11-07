@@ -7,11 +7,13 @@ use leptos::prelude::*;
 
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
+use crate::EditorStrings;
 use crate::reactive::{Relay, detached_owner};
 use crate::{
     EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, SecretOptions,
     TextRange,
 };
+use std::sync::Arc;
 
 /// One open document: what its tab and editor read. The editor mounts the
 /// first time the document is shown (`visited`) and then stays mounted, so
@@ -155,6 +157,8 @@ pub(super) struct Follows {
     pub(super) focus_editor: Relay<Option<String>>,
     /// The view's settings, for every document without its own.
     pub(super) settings: Relay<EditorSettings>,
+    /// The view's built-in texts (the tabs').
+    pub(super) strings: Relay<Arc<EditorStrings>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -218,6 +222,9 @@ impl Documents {
                 active: Relay::new(move || active.get()),
                 focus_editor: Relay::new(move || focus_editor.get()),
                 settings: Relay::new(move || settings.get()),
+                strings: Relay::new(move || {
+                    Arc::new(settings.with(|settings| settings.strings.clone()))
+                }),
             },
             root: NodeRef::new(),
             strip: NodeRef::new(),
@@ -225,6 +232,16 @@ impl Documents {
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
         }
+    }
+
+    /// One of the view's built-in texts, as a view reads it: through a
+    /// signal the calling view owns (see `reactive`).
+    pub(super) fn text(
+        self,
+        pick: fn(&EditorStrings) -> &String,
+    ) -> impl Fn() -> String + Copy + Send + Sync + 'static {
+        let strings = self.follows.strings.read();
+        move || strings.with(|strings| pick(strings).clone())
     }
 
     /// The ids of the open documents, in order.

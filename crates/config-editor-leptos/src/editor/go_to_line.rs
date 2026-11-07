@@ -114,12 +114,13 @@ fn close(state: EditorState) {
 }
 
 /// The field's hint: the range of lines, or what is wrong with the text.
-pub(super) fn hint(text: &str, lines: usize) -> String {
-    if text.trim().is_empty() || parse_position(text).is_some() {
-        format!("Line 1–{lines}, or line:column")
+pub(super) fn hint(strings: &crate::EditorStrings, text: &str, lines: usize) -> String {
+    let template = if text.trim().is_empty() || parse_position(text).is_some() {
+        &strings.go_to_line_hint
     } else {
-        format!("Type a line number between 1 and {lines}")
-    }
+        &strings.go_to_line_invalid
+    };
+    crate::strings::fill(template, &[("lines", &lines)])
 }
 
 #[cfg(test)]
@@ -160,8 +161,12 @@ mod tests {
 
     #[test]
     fn the_hint_says_what_to_type() {
-        assert_eq!(hint("", 40), "Line 1–40, or line:column");
-        assert_eq!(hint("3:4", 40), "Line 1–40, or line:column");
-        assert_eq!(hint("abc", 40), "Type a line number between 1 and 40");
+        let strings = crate::EditorStrings::default();
+        assert_eq!(hint(&strings, "", 40), "Line 1–40, or line:column");
+        assert_eq!(hint(&strings, "3:4", 40), "Line 1–40, or line:column");
+        assert_eq!(
+            hint(&strings, "abc", 40),
+            "Type a line number between 1 and 40"
+        );
     }
 }

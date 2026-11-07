@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 
 use super::super::completion::visual_column;
 use super::super::diff::DiffKind;
-use super::super::folding::texts;
+use super::super::folding::texts::{self, fold_label};
 use super::super::state::EditorState;
 use crate::reactive::KeyedList;
 
@@ -141,10 +141,9 @@ pub(crate) fn mount_fold_layers(state: EditorState) {
 fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
     let line = item.line;
     let closed = item.closed_end.is_some();
-    let label = match item.closed_end {
-        Some(end) => texts::unfold_label(line + 1, end + 1),
-        None => texts::fold_label(line + 1),
-    };
+    let closed_end = item.closed_end;
+    let strings = state.strings_signal();
+    let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
     let toggle = move |_: web_sys::MouseEvent| state.toggle_fold(line);
     let top = format!(
         "top: calc({} * var(--config-editor-line-height));",
@@ -158,14 +157,14 @@ fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
             data-line=line + 1
             style=top.clone()
             tabindex="-1"
-            aria-label=label.clone()
+            aria-label=label
             aria-expanded=(!closed).to_string()
             title=label
             on:mousedown=keep_focus
             on:click=toggle
         ></button>
         {item.hidden_change.then(|| view! {
-            <span class="config-editor__fold-changes" data-line=line + 1 style=top title=texts::HIDDEN_CHANGES></span>
+            <span class="config-editor__fold-changes" data-line=line + 1 style=top title=state.text(|strings| &strings.folded_changes)></span>
         })}
     }
 }
@@ -190,7 +189,9 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
 #[component]
 fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     let line = item.line;
-    let label = texts::unfold_label(line + 1, item.closed_end.unwrap_or(line) + 1);
+    let closed_end = Some(item.closed_end.unwrap_or(line));
+    let strings = state.strings_signal();
+    let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
     let open = move |_: web_sys::MouseEvent| {
         state.unfold_line(line);
     };
@@ -205,7 +206,7 @@ fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
                 item.row,
             )
             tabindex="-1"
-            aria-label=label.clone()
+            aria-label=label
             title=label
             on:mousedown=keep_focus
             on:click=open

@@ -8,11 +8,13 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{Diagnostic, SchemaBundle, shift_diagnostics, validate_with};
+use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::languages::Language;
 use super::protect::{ProtectState, unknown_placeholders};
 use super::state::EditorState;
 use super::sync::SyncState;
+use crate::EditorStrings;
 
 /// The problems part of the editor state.
 #[derive(Clone, Copy)]
@@ -36,6 +38,8 @@ pub(super) struct Sources {
     /// The `show_diagnostics` setting.
     pub(super) enabled: Memo<bool>,
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
+    /// The built-in texts the editor's own problems are worded with.
+    pub(super) strings: Memo<EditorStrings>,
 }
 
 impl ProblemsState {
@@ -48,6 +52,7 @@ impl ProblemsState {
             schema_error,
             enabled,
             host_diagnostics,
+            strings,
         } = sources;
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
@@ -57,30 +62,46 @@ impl ProblemsState {
             // The host's placeholders stand for the current secrets.
             let accepted = protect.secrets.known_tokens();
             let behavior = edit_language.get().behavior();
-            let mut found = diagnosed_text.with(|text| {
-                validate_with(
-                    text,
-                    schema.as_deref(),
-                    schema_error.as_deref(),
-                    enabled,
-                    behavior,
-                    &accepted,
-                )
-            });
-            if enabled {
-                found.extend(load_problems.get());
-                found.extend(conversion_problems.get());
-                if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
-                    found.extend(diagnosed_text.with(|text| {
-                        protect.secrets.matcher.with_value(|matcher| {
-                            protect.secrets.known.with(|known| {
-                                unknown_placeholders(behavior, text, matcher, known, &bundle.schema)
+            strings.with(|strings| {
+                let mut found = diagnosed_text.with(|text| {
+                    validate_with(
+                        text,
+                        schema.as_deref(),
+                        schema_error.as_deref(),
+                        enabled,
+                        behavior,
+                        &accepted,
+                        strings,
+                    )
+                });
+                if enabled {
+                    let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
+                        problems
+                            .iter()
+                            .map(|problem| problem.worded(strings))
+                            .collect()
+                    };
+                    found.extend(load_problems.with(worded));
+                    found.extend(conversion_problems.with(worded));
+                    if let Some(bundle) = schema.as_deref().filter(|bundle| bundle.has_marks) {
+                        found.extend(diagnosed_text.with(|text| {
+                            protect.secrets.matcher.with_value(|matcher| {
+                                protect.secrets.known.with(|known| {
+                                    unknown_placeholders(
+                                        behavior,
+                                        text,
+                                        matcher,
+                                        known,
+                                        &bundle.schema,
+                                        strings,
+                                    )
+                                })
                             })
-                        })
-                    }));
+                        }));
+                    }
                 }
-            }
-            found
+                found
+            })
         });
         // The host's problems, placed on the text validation saw; a new list
         // from the host re-places only these, not the editor's own.

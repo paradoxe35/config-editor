@@ -18,7 +18,6 @@ mod handle;
 mod keys;
 mod model;
 mod plan;
-mod texts;
 
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};
@@ -119,7 +118,8 @@ pub fn ConfigDocuments(
     /// Extra class on the view's root for host styles.
     #[prop(optional, into)]
     class: Option<String>,
-    /// The tab list's accessible name. Default "Open files".
+    /// The tab list's accessible name; unset, the `tabList` text of the
+    /// `strings` setting ("Open files").
     #[prop(optional, into)]
     label: Option<String>,
     /// A handle the host keeps to switch documents, save them and reach
@@ -151,7 +151,6 @@ pub fn ConfigDocuments(
     if let Some(handle) = handle {
         handle.attach(documents_view);
     }
-    let label = label.unwrap_or_else(|| texts::TAB_LIST_LABEL.to_string());
     let root_class = format!("config-editor-documents {}", class.unwrap_or_default());
     let keydown =
         move |event: web_sys::KeyboardEvent| keys::on_root_keydown(documents_view, &event);
@@ -179,7 +178,7 @@ pub fn ConfigDocuments(
             <div class="config-editor-documents__panels">
                 <KeyedList each=panels key=|entry| entry.serial children=panel />
                 <Show when=empty>
-                    <p class="config-editor-documents__empty">{texts::NO_DOCUMENTS}</p>
+                    <p class="config-editor-documents__empty">{documents_view.text(|strings| &strings.no_documents)}</p>
                 </Show>
             </div>
         </div>

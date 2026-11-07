@@ -192,23 +192,27 @@ fn the_count_reads_like_vs_code() {
         capped,
         error: None,
     };
-    assert_eq!(count_label(&results, Some(1), false), "2 of 3");
-    assert_eq!(count_label(&results, None, false), "? of 3");
+    let strings = crate::EditorStrings::default();
+    assert_eq!(count_label(&strings, &results, Some(1), false), "2 of 3");
+    assert_eq!(count_label(&strings, &results, None, false), "? of 3");
     // A stale index (the document changed) is not shown.
-    assert_eq!(count_label(&results, Some(7), false), "? of 3");
+    assert_eq!(count_label(&strings, &results, Some(7), false), "? of 3");
     assert_eq!(
-        count_label(&SearchResults::default(), None, false),
+        count_label(&strings, &SearchResults::default(), None, false),
         "No results"
     );
     assert_eq!(
-        count_label(&SearchResults::default(), None, true),
+        count_label(&strings, &SearchResults::default(), None, true),
         "No results"
     );
     let invalid = SearchResults {
         error: Some("unclosed group".into()),
         ..SearchResults::default()
     };
-    assert_eq!(count_label(&invalid, None, false), "Invalid pattern");
+    assert_eq!(
+        count_label(&strings, &invalid, None, false),
+        "Invalid pattern"
+    );
     let many = "a ".repeat(MAX_MATCHES + 1);
     let (matches, capped) = find_matches(&many, &matcher);
     let results = SearchResults {
@@ -216,5 +220,8 @@ fn the_count_reads_like_vs_code() {
         capped,
         error: None,
     };
-    assert_eq!(count_label(&results, Some(0), false), "1 of 10000+");
+    assert_eq!(
+        count_label(&strings, &results, Some(0), false),
+        "1 of 10000+"
+    );
 }

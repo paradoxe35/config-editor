@@ -1,62 +1,77 @@
-//! The built-in texts of keyboard and screen-reader access, in one place.
+//! How keyboard and screen-reader access words problems, from the
+//! `strings` setting.
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
-
-/// Announced when `Ctrl+M` turns Tab focus moving on.
-pub(super) const TAB_FOCUS_ON: &str =
-    "Tab moves focus: Tab and Shift+Tab now leave the editor. Ctrl+M to indent with Tab again.";
-
-/// Announced when `Ctrl+M` turns it off again.
-pub(super) const TAB_FOCUS_OFF: &str =
-    "Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab.";
-
-/// The footer's indicator while Tab moves focus.
-pub(in crate::editor) const TAB_FOCUS_LABEL: &str = "Tab moves focus";
-
-/// Its tooltip; clicking it turns the mode off.
-pub(in crate::editor) const TAB_FOCUS_TITLE: &str = "Tab moves focus (Ctrl+M to indent with Tab)";
+use crate::EditorStrings;
+use crate::strings::fill;
 
 /// "Error", "Warning", "Info", "Hint".
-fn severity_name(severity: Severity) -> &'static str {
+pub(in crate::editor) fn severity_name(strings: &EditorStrings, severity: Severity) -> &str {
     match severity {
-        Severity::Error => "Error",
-        Severity::Warning => "Warning",
-        Severity::Info => "Info",
-        Severity::Hint => "Hint",
+        Severity::Error => &strings.error,
+        Severity::Warning => &strings.warning,
+        Severity::Info => &strings.info,
+        Severity::Hint => &strings.hint,
     }
 }
 
-/// " from burrow" for a host problem that names its source.
-fn source_suffix(problem: &Diagnostic) -> String {
+/// " from burrow" for a host problem that names its source, else nothing.
+fn source_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
     problem
         .source
         .as_deref()
         .filter(|_| problem.origin == DiagnosticOrigin::Host)
-        .map(|source| format!(" from {source}"))
+        .map(|source| fill(&strings.problem_source, &[("source", &source)]))
         .unwrap_or_default()
 }
 
 /// "Error: …", "Warning from burrow: …": a problem as a screen reader
 /// hears it.
-pub(super) fn problem_text(problem: &Diagnostic) -> String {
-    format!(
-        "{}{}: {}",
-        severity_name(problem.severity),
-        source_suffix(problem),
-        problem.message
+pub(super) fn problem_text(strings: &EditorStrings, problem: &Diagnostic) -> String {
+    fill(
+        &strings.problem,
+        &[
+            ("severity", &severity_name(strings, problem.severity)),
+            ("source", &source_part(strings, problem)),
+            ("message", &problem.message),
+        ],
     )
 }
 
 /// "Error 2 of 5: …": the problem F8 moved to, of the `total` placed ones.
 pub(in crate::editor) fn problem_announcement(
+    strings: &EditorStrings,
     problem: &Diagnostic,
     position: usize,
     total: usize,
 ) -> String {
-    format!(
-        "{} {position} of {total}{}: {}",
-        severity_name(problem.severity),
-        source_suffix(problem),
-        problem.message
+    fill(
+        &strings.problem_position,
+        &[
+            ("severity", &severity_name(strings, problem.severity)),
+            ("position", &position),
+            ("total", &total),
+            ("source", &source_part(strings, problem)),
+            ("message", &problem.message),
+        ],
+    )
+}
+
+/// "YAML Error on line 3: …": an underlined problem's accessible name.
+pub(in crate::editor) fn problem_marker(
+    strings: &EditorStrings,
+    language: &str,
+    problem: &Diagnostic,
+    line: usize,
+) -> String {
+    fill(
+        &strings.problem_marker,
+        &[
+            ("language", &language),
+            ("severity", &severity_name(strings, problem.severity)),
+            ("source", &source_part(strings, problem)),
+            ("line", &line),
+            ("message", &problem.message),
+        ],
     )
 }

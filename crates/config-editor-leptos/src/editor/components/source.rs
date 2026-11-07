@@ -19,7 +19,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
                     state.fold.projection.with(|projection| projection.rows()),
                 )
             }
-            aria-label=move || format!("{} source", state.label())
+            aria-label=state.language_text(|strings| &strings.source_label)
             aria-autocomplete=move || (!read_only.get()).then_some("list")
             aria-haspopup=move || (!read_only.get()).then_some("listbox")
             aria-expanded=move || (!state.completion.suggestions.with(Vec::is_empty)).to_string()

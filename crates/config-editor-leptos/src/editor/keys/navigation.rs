@@ -161,10 +161,12 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         state.go_to_diagnostic(index);
         // "Error 2 of 5: …" for screen readers, which do not see the
         // message the marker shows.
-        let said = state.problems.diagnostics.with_untracked(|problems| {
-            problems
-                .get(index)
-                .map(|problem| problem_announcement(problem, position + 1, positioned.len()))
+        let said = state.strings_untracked(|strings| {
+            state.problems.diagnostics.with_untracked(|problems| {
+                problems.get(index).map(|problem| {
+                    problem_announcement(strings, problem, position + 1, positioned.len())
+                })
+            })
         });
         if let Some(said) = said {
             state.a11y.announce(said);

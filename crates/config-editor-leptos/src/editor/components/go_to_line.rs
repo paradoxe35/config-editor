@@ -15,16 +15,16 @@ pub(crate) fn GoToLineWidget(state: EditorState) -> impl IntoView {
         <div
             class="config-editor__goto"
             role="dialog"
-            aria-label="Go to line"
+            aria-label=state.text(|strings| &strings.go_to_line)
             node_ref=go_to.widget_ref
             prop:hidden=move || !go_to.open.get()
         >
             <input
                 type="text"
                 class="config-editor__find-input config-editor__goto-input"
-                aria-label="Go to line"
+                aria-label=state.text(|strings| &strings.go_to_line)
                 aria-describedby=hint_id.clone()
-                placeholder="line or line:column"
+                placeholder=state.text(|strings| &strings.go_to_line_placeholder)
                 spellcheck="false"
                 autocomplete="off"
                 node_ref=go_to.input_ref
@@ -34,7 +34,7 @@ pub(crate) fn GoToLineWidget(state: EditorState) -> impl IntoView {
                 on:blur=move |_| go_to_line::cancel_on_blur(state)
             />
             <span id=hint_id class="config-editor__goto-hint" aria-live="polite">
-                {move || go_to.text.with(|text| hint(text, lines()))}
+                {move || state.strings(|strings| go_to.text.with(|text| hint(strings, text, lines())))}
             </span>
         </div>
     }

@@ -17,9 +17,8 @@ use super::super::state::EditorState;
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
-use super::save::{check_save, locked_pointers, range_pointers};
+use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::texts;
 use super::tokens::SecretOptions;
 
 /// How long a refused edit's tooltip stays, in milliseconds.
@@ -226,7 +225,7 @@ impl EditorState {
                     )
                 })
             })
-            .map_err(|Blocked { reason }| reason)
+            .map_err(|blocked: Blocked| self.strings_untracked(|strings| blocked.message(strings)))
     }
 
     /// Finds again what is kept by position in a text replaced whole (see
@@ -289,7 +288,7 @@ impl EditorState {
 
     /// Refuses an Edit-as save from the host's `old` text to `new` that would
     /// change a read-only value.
-    pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), String> {
+    pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), ReadOnlyChange> {
         self.config.schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
             let marking = schema
@@ -342,11 +341,7 @@ impl EditorState {
     /// secret placeholder's hint, or why a read-only field is read-only.
     /// With `ends`, an offset just at either end of it counts (the caret
     /// beside it).
-    pub(crate) fn protected_note(
-        &self,
-        offset: usize,
-        ends: bool,
-    ) -> Option<(&'static str, String)> {
+    pub(crate) fn protected_note(&self, offset: usize, ends: bool) -> Option<(String, String)> {
         let covers = |range: &Range<usize>| {
             range.start <= offset && (offset < range.end || (ends && offset == range.end))
         };
@@ -355,17 +350,24 @@ impl EditorState {
             .tokens
             .with_untracked(|tokens| tokens.iter().any(covers))
         {
-            return Some((
-                texts::SECRET_LABEL,
-                secrets.options.with_value(|options| options.hint.clone()),
-            ));
+            return Some(self.strings_untracked(|strings| {
+                let hint = secrets
+                    .options
+                    .with_value(|options| options.hint.clone())
+                    .unwrap_or_else(|| strings.secret_hint.clone());
+                (strings.secret_label.clone(), hint)
+            }));
         }
         self.protect.protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .find(|lock| lock.ranges.iter().any(covers))
-                .map(|lock| (texts::LOCK_LABEL, lock.reason.clone()))
+                .map(|lock| {
+                    self.strings_untracked(|strings| {
+                        (strings.read_only_label.clone(), lock.reason.text(strings))
+                    })
+                })
         })
     }
 

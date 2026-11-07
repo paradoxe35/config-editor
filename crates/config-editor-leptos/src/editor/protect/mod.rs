@@ -33,10 +33,9 @@ pub(crate) use marks::mentions_marks;
 #[cfg(feature = "schema-validation")]
 pub(crate) use marks::schema_marks;
 pub(crate) use problems::unknown_placeholders;
+pub(crate) use save::ReadOnlyChange;
 pub(crate) use suggest::{Around, adjust as adjust_suggestions};
-#[cfg(feature = "schema-validation")]
-pub(crate) use texts::SECRET_VALUE;
-pub(crate) use texts::{NOTHING_REPLACED, skipped_matches};
+pub(crate) use texts::{save_refused, skipped_matches};
 pub use tokens::SecretOptions;
 pub(crate) use view::{LineMarks, line_marks};
 

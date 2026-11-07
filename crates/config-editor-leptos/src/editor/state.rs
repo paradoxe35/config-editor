@@ -31,6 +31,7 @@ use super::changes::ChangesState;
 use super::completion::{self, CompletionState};
 use super::diagnostics::SchemaBundle;
 use super::document::DocState;
+use super::edit_as::EditAsState;
 use super::folding::{FoldState, Projection, SourceArea};
 use super::go_to_line::GoToLine;
 use super::history::Selection;
@@ -48,7 +49,7 @@ use super::protect::{Inputs, ProtectInit, ProtectState};
 use super::search::SearchState;
 use super::sync::SyncState;
 use super::typing::TypingState;
-use crate::EditorSettings;
+use crate::{EditorSettings, EditorStrings};
 
 /// What the editor is mounted with and keeps: the host's language, the
 /// schema, the read-only switch and the settings.
@@ -136,6 +137,8 @@ pub(super) struct EditorFields {
     /// Leaving with the keyboard, the caret's note, announcements (see
     /// `a11y`).
     pub(super) a11y: A11yState,
+    /// The Edit-as notice (see `edit_as`).
+    pub(super) edit_as: EditAsState,
 }
 
 impl EditorState {
@@ -196,9 +199,16 @@ impl EditorState {
                 schema_error,
                 enabled: settings.diagnostics,
                 host_diagnostics,
+                strings: settings.strings,
             },
             &sync,
             protect,
+        );
+        let edit_as = EditAsState::new(
+            host_language,
+            sync.edit_language,
+            problems.diagnosed_text,
+            sync.host_text,
         );
         let string_bodies = string_bodies(doc.text, sync.edit_language);
         let completion = CompletionState::new(completion::Sources {
@@ -210,6 +220,7 @@ impl EditorState {
             enabled: settings.completions,
             protect,
             string_bodies,
+            strings: settings.strings,
         });
         let editing = HostEditing::new(
             host_editing::Init {
@@ -228,7 +239,13 @@ impl EditorState {
         let projection = RwSignal::new(Arc::new(Projection::new(&shown, &[])));
         let view = ViewState::new(
             projection,
-            rendered_lines(doc.text, problems.diagnostics, changes.diff, protect),
+            rendered_lines(
+                doc.text,
+                problems.diagnostics,
+                changes.diff,
+                protect,
+                settings.strings,
+            ),
             string_bodies,
         );
         let fold = FoldState::new(
@@ -244,6 +261,7 @@ impl EditorState {
             typing: TypingState::new(),
             hover: HoverState::new(),
             a11y: A11yState::new(),
+            edit_as,
             config,
             doc,
             sync,
@@ -256,6 +274,48 @@ impl EditorState {
             protect,
         })));
         (state, pending)
+    }
+
+    /// Reads the built-in texts, tracked: a view reading them shows new
+    /// texts at once.
+    pub(super) fn strings<R>(&self, read: impl FnOnce(&EditorStrings) -> R) -> R {
+        self.config.settings.strings.with(read)
+    }
+
+    /// The built-in texts as a signal the calling view owns: what a view
+    /// that comes and goes reads (see `reactive`). Call it once, while
+    /// building the view.
+    pub(super) fn strings_signal(&self) -> Signal<Arc<EditorStrings>> {
+        self.config.settings.strings_relay.read()
+    }
+
+    /// One built-in text as a view reads it: a closure following the
+    /// `strings` setting through the view's own signal.
+    pub(super) fn text(
+        self,
+        pick: fn(&EditorStrings) -> &String,
+    ) -> impl Fn() -> String + Copy + Send + Sync + 'static {
+        let strings = self.strings_signal();
+        move || strings.with(|strings| pick(strings).clone())
+    }
+
+    /// A built-in text naming the language on screen (`{language}`), as a
+    /// view reads it.
+    pub(super) fn language_text(
+        self,
+        pick: fn(&EditorStrings) -> &String,
+    ) -> impl Fn() -> String + Copy + Send + Sync + 'static {
+        let strings = self.strings_signal();
+        move || {
+            let language = self.label();
+            strings.with(|strings| crate::strings::fill(pick(strings), &[("language", &language)]))
+        }
+    }
+
+    /// Reads the built-in texts without tracking them, for a message made
+    /// once (an announcement).
+    pub(super) fn strings_untracked<R>(&self, read: impl FnOnce(&EditorStrings) -> R) -> R {
+        self.config.settings.strings.with_untracked(read)
     }
 
     /// The textarea, in the document's offsets (see `folding`).

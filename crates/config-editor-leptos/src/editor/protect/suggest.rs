@@ -12,6 +12,7 @@ use super::locate::within;
 use super::locks::Protected;
 use super::marks::marks_at;
 use super::texts;
+use crate::EditorStrings;
 
 /// What the suggestions are adjusted for.
 pub(crate) struct Around<'a> {
@@ -23,6 +24,7 @@ pub(crate) struct Around<'a> {
     pub(crate) host_paths: &'a [FieldPath],
     pub(crate) protected: &'a Protected,
     pub(crate) prefixes: &'a [String],
+    pub(crate) strings: &'a EditorStrings,
 }
 
 /// `options` without what a protected field rules out, or the reference
@@ -84,14 +86,14 @@ fn lock_reason(around: &Around<'_>, path: &[SchemaPathSegment]) -> Option<String
     if let Some(schema) = around.schema
         && let (Some(reason), _) = marks_at(schema, path, repeats)
     {
-        return Some(reason.unwrap_or_else(|| texts::DEFAULT_REASON.to_string()));
+        return Some(reason.unwrap_or_else(|| around.strings.read_only_field.clone()));
     }
     let pointer = FieldPath::from(path.to_vec()).to_pointer();
     around
         .host_paths
         .iter()
         .any(|locked| within(around.behavior, &pointer, &locked.to_pointer()))
-        .then(|| texts::DEFAULT_REASON.to_string())
+        .then(|| around.strings.read_only_field.clone())
 }
 
 /// The reference forms, written as the language writes a string value, the
@@ -123,8 +125,8 @@ fn references(
             let insert = format!("{leading}{written}");
             Some(Completion {
                 matched: match_ranges(&label, typed),
-                detail: texts::reference_detail(prefix),
-                type_label: texts::REFERENCE_TYPE.to_string(),
+                detail: texts::reference_detail(around.strings, prefix),
+                type_label: around.strings.reference_type.clone(),
                 cursor_offset: format!("{leading}{}", &written[..caret])
                     .encode_utf16()
                     .count(),
@@ -136,6 +138,7 @@ fn references(
                 renames: false,
                 deprecated: false,
                 fills: Vec::new(),
+                closes_tag: false,
                 label,
             })
         })

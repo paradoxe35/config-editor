@@ -3,10 +3,12 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
+use super::super::a11y::problem_marker;
 use super::super::completion::visual_column;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::metrics::read_editor_metrics;
 use super::super::state::EditorState;
+use crate::EditorStrings;
 use crate::reactive::Relay;
 
 /// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
@@ -50,13 +52,15 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
     view! {
         <div
             class="config-editor__diagnostic-overlay"
-            aria-label=move || format!("Inline {} diagnostics", state.label())
+            aria-label=state.language_text(|strings| &strings.problems_label)
             style:transform=move || format!("translate({}px, {}px)", -state.view.scroll_x.get(), -state.view.scroll_y.get())
         >
             {move || {
                 let text = state.doc.text.get();
                 let projection = state.fold.projection.get();
                 let followed = follows.read();
+                // New texts redraw the underlines' names and details.
+                state.config.settings.strings.track();
                 state
                     .problems.diagnostics
                     .get()
@@ -104,21 +108,11 @@ fn marker(
     let visual_width = visual_column(&format!("{before}{marked}")) - left;
     let severity = diagnostic.severity;
     let from_host = diagnostic.origin == DiagnosticOrigin::Host;
-    let detail = detail(&diagnostic);
+    let detail = state.strings_untracked(|strings| detail(strings, &diagnostic));
     let docs_url = diagnostic.docs_url.clone();
     let has_docs = docs_url.is_some();
-    let aria_label = format!(
-        "{} {}{} on line {line}: {}",
-        state.label(),
-        severity.as_str(),
-        diagnostic
-            .source
-            .as_deref()
-            .filter(|_| from_host)
-            .map(|source| format!(" from {source}"))
-            .unwrap_or_default(),
-        diagnostic.message,
-    );
+    let aria_label = state
+        .strings_untracked(|strings| problem_marker(strings, state.label(), &diagnostic, line));
     Some(view! {
         <button
             type="button"
@@ -161,14 +155,17 @@ fn marker(
 
 /// The line under a host problem's message: who reported it, its code, and
 /// a docs link (the message itself opens it).
-fn detail(diagnostic: &Diagnostic) -> Option<String> {
+fn detail(strings: &EditorStrings, diagnostic: &Diagnostic) -> Option<String> {
     if diagnostic.origin != DiagnosticOrigin::Host {
         return None;
     }
     let parts: Vec<&str> = [
         diagnostic.source.as_deref(),
         diagnostic.code.as_deref(),
-        diagnostic.docs_url.as_ref().map(|_| "Open docs ↗"),
+        diagnostic
+            .docs_url
+            .as_ref()
+            .map(|_| strings.open_docs.as_str()),
     ]
     .into_iter()
     .flatten()

@@ -10,7 +10,7 @@ use super::super::language::ConfigLanguage;
 use super::super::paths::{FieldPath, key_range};
 use super::locate::{LineIndex, extent, lookup, within};
 use super::marks::{SchemaMarks, schema_marks};
-use super::texts;
+use super::texts::Reason;
 
 /// One locked field or range of the text on screen.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,7 +25,7 @@ pub(crate) struct Lock {
     /// The keys of the fields holding it: renaming one would move it.
     pub(crate) guards: Vec<Range<usize>>,
     /// Why it is read-only, shown on hover and when an edit is refused.
-    pub(crate) reason: String,
+    pub(crate) reason: Reason,
 }
 
 impl Lock {
@@ -94,7 +94,7 @@ pub(crate) fn protect(
                 key: None,
                 ranges: vec![range],
                 guards: Vec::new(),
-                reason: texts::RANGE_REASON.to_string(),
+                reason: Reason::Range,
             });
         }
     }
@@ -107,15 +107,10 @@ pub(crate) fn protect(
         (Some(schema), Some(document)) => schema_marks(document, schema),
         _ => SchemaMarks::default(),
     };
-    let mut fields: Vec<(String, String)> = marks
+    let mut fields: Vec<(String, Reason)> = marks
         .read_only
         .into_iter()
-        .map(|(pointer, reason)| {
-            (
-                pointer,
-                reason.unwrap_or_else(|| texts::DEFAULT_REASON.to_string()),
-            )
-        })
+        .map(|(pointer, reason)| (pointer, reason.map_or(Reason::Field, Reason::Given)))
         .collect();
     for path in sources.paths {
         let pointer = path.to_pointer();
@@ -123,12 +118,12 @@ pub(crate) fn protect(
             .as_ref()
             .is_none_or(|document| lookup(document, &pointer).is_some());
         if written && !fields.iter().any(|(known, _)| *known == pointer) {
-            fields.push((pointer, texts::DEFAULT_REASON.to_string()));
+            fields.push((pointer, Reason::Field));
         }
     }
     // A field inside another locked one is covered by it.
     fields.sort();
-    let outer: Vec<(String, String)> = fields
+    let outer: Vec<(String, Reason)> = fields
         .iter()
         .filter(|(pointer, _)| {
             !fields

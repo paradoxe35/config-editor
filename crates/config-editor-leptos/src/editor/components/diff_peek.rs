@@ -8,7 +8,10 @@ use super::super::changes::hunk_for_peek;
 use super::super::diff::{DiffPeek, peek_popup_style, peek_survives_edit};
 use super::super::keys::changes::go_to_change;
 use super::super::state::EditorState;
+use crate::EditorStrings;
 use crate::reactive::Relay;
+use crate::strings::fill;
+use std::ops::Range;
 
 #[component]
 pub(crate) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
@@ -84,23 +87,19 @@ fn close_when_edited(state: EditorState) {
     });
 }
 
-/// "Revert lines 3–5": the lines of the change a revert restores, which
-/// may be more than the one line the preview shows.
-fn revert_label(state: EditorState, peek: &DiffPeek) -> String {
-    let span = state.changes.diff.with_untracked(|line_diff| {
-        hunk_for_peek(line_diff, peek).map(|hunk| (hunk.current.clone(), hunk.removed))
-    });
+/// "Revert this change (lines 3–5)": the lines of the change a revert
+/// restores, which may be more than the one line the preview shows.
+fn revert_label(strings: &EditorStrings, span: &Option<(Range<usize>, usize)>) -> String {
     match span {
-        Some((lines, _)) if lines.len() > 1 => format!(
-            "Revert this change (lines {}–{}) (R)",
-            lines.start + 1,
-            lines.end
+        Some((lines, _)) if lines.len() > 1 => fill(
+            &strings.revert_lines_title,
+            &[("first", &(lines.start + 1)), ("last", &lines.end)],
         ),
-        Some((lines, removed)) if lines.len() == 1 && removed > 0 => format!(
-            "Revert this change (line {} and the removed lines) (R)",
-            lines.start + 1
+        Some((lines, removed)) if lines.len() == 1 && *removed > 0 => fill(
+            &strings.revert_line_and_removed_title,
+            &[("line", &(lines.start + 1))],
         ),
-        _ => "Revert this change (R)".to_string(),
+        _ => strings.revert_title.clone(),
     }
 }
 
@@ -138,14 +137,33 @@ fn on_peek_keydown(state: EditorState, peek: &DiffPeek, event: &KeyboardEvent) {
 fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoView {
     let DiffPeek {
         line,
-        title,
         before,
         after,
         ..
     } = peek.clone();
     let read_only = follows.read_only.read();
     let revert_ref = NodeRef::<leptos::html::Button>::new();
-    let label = revert_label(state, &peek);
+    let span = state.changes.diff.with_untracked(|line_diff| {
+        hunk_for_peek(line_diff, &peek).map(|hunk| (hunk.current.clone(), hunk.removed))
+    });
+    let strings = state.strings_signal();
+    let label = Signal::derive(move || strings.with(|strings| revert_label(strings, &span)));
+    let titled = {
+        let peek = peek.clone();
+        move |pick: fn(&EditorStrings) -> &String| {
+            let peek = peek.clone();
+            move || {
+                strings.with(|strings| {
+                    fill(
+                        pick(strings),
+                        &[("title", &peek.title(strings)), ("line", &line)],
+                    )
+                })
+            }
+        }
+    };
+    let heading = titled(|strings| &strings.preview_heading);
+    let dialog_label = titled(|strings| &strings.preview_label);
     // Opened from the keyboard: the revert button takes the focus.
     Effect::new(move |_| {
         if let Some(button) = revert_ref.get()
@@ -166,27 +184,27 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
         <section
             class="config-editor__diff-peek"
             role="dialog"
-            aria-label=format!("{title}, line {line}")
+            aria-label=dialog_label
             style=style
             on:keydown=keydown
         >
             <header class="config-editor__diff-peek-header">
-                <strong>{format!("{title} · line {line}")}</strong>
+                <strong>{heading}</strong>
                 <span class="config-editor__diff-peek-actions">
                     {move || (!read_only.get()).then(|| view! {
                         <button
                             type="button"
                             class="config-editor__diff-peek-revert"
-                            aria-label=label.clone()
-                            title=label.clone()
+                            aria-label=label
+                            title=label
                             node_ref=revert_ref
                             on:click=revert.clone()
-                        >"Revert"</button>
+                        >{state.text(|strings| &strings.revert)}</button>
                     })}
                     <button
                         type="button"
                         class="config-editor__diff-peek-close"
-                        aria-label="Close change preview"
+                        aria-label=state.text(|strings| &strings.close_preview)
                         on:click=close_click
                     >"×"</button>
                 </span>
@@ -194,13 +212,13 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
             <div class="config-editor__diff-peek-columns">
                 {(!before.is_empty()).then(|| view! {
                     <section class="config-editor__diff-peek-side">
-                        <h3>"Before"</h3>
+                        <h3>{state.text(|strings| &strings.before)}</h3>
                         {peek_lines(before, "−", "config-editor__diff-peek-removed")}
                     </section>
                 })}
                 {(!after.is_empty()).then(|| view! {
                     <section class="config-editor__diff-peek-side">
-                        <h3>"Current"</h3>
+                        <h3>{state.text(|strings| &strings.current)}</h3>
                         {peek_lines(after, "+", "config-editor__diff-peek-current")}
                     </section>
                 })}

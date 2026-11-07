@@ -4,10 +4,12 @@ use leptos::prelude::*;
 
 use crate::reactive::Kept;
 
-use super::super::a11y::{TAB_FOCUS_LABEL, TAB_FOCUS_TITLE, toggle_tab_focus};
+use super::super::a11y::toggle_tab_focus;
 use super::super::changes::ChangeSummary;
-use super::super::diagnostics::{Diagnostic, Severity};
-use super::super::state::EditorState;
+use super::super::diagnostics::{Diagnostic, MORE_PROBLEMS_CODE, Severity};
+use super::super::state::{EditorState, line_count};
+use crate::EditorStrings;
+use crate::strings::{counted, counted_as, fill};
 
 #[component]
 pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
@@ -25,12 +27,16 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
     // Follows `read_only`, which switches without remounting.
     let offers_completions =
         move || state.config.settings.completions.get() && !state.config.read_only.get();
+    let problem_count =
+        move || state.strings(|strings| diagnostics.with(|problems| summary(strings, problems)));
+    let line_total = move || {
+        let count = state.doc.text.with(|text| line_count(text));
+        state.strings(|strings| counted(&strings.lines_one, &strings.lines_other, count))
+    };
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
-                {move || offers_completions().then(|| view! {
-                    <span><kbd>Ctrl</kbd><span>"+"</span><kbd>Space</kbd><span>"for suggestions"</span></span>
-                })}
+                {move || offers_completions().then(|| view! { <SuggestionsHint state=state /> })}
             </span>
             <span class="config-editor__status-meta">
                 <TabFocusStatus state=state />
@@ -53,19 +59,58 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
                         }
                         on:click=first_placed
                     >
-                        {move || diagnostics.with(|problems| summary(problems))}
+                        {problem_count}
                     </button>
                 } />
                 <Kept when=state.config.settings.diff view=move || view! { <ChangeStatus state=state /> } />
-                <span class="config-editor__line-count">
-                    {move || {
-                        let count = state.doc.text.with(|text| text.split('\n').count());
-                        format!("{count} {}", if count == 1 { "line" } else { "lines" })
-                    }}
-                </span>
+                <span class="config-editor__line-count">{line_total}</span>
             </span>
         </div>
     }
+}
+
+/// "Ctrl + Space for suggestions": the `suggestionsHint` text with the
+/// `suggestionsKey` chord drawn as keys where it says `{key}`.
+#[component]
+fn SuggestionsHint(state: EditorState) -> impl IntoView {
+    let strings = state.strings_signal();
+    let pieces = move || strings.with(|strings| hint_pieces(strings));
+    move || {
+        pieces()
+            .into_iter()
+            .map(|piece| match piece {
+                HintPiece::Key(key) => view! { <kbd>{key}</kbd> }.into_any(),
+                HintPiece::Text(text) => view! { <span>{text}</span> }.into_any(),
+            })
+            .collect_view()
+    }
+}
+
+/// A piece of the suggestions hint.
+#[derive(Debug, PartialEq)]
+enum HintPiece {
+    Key(String),
+    Text(String),
+}
+
+/// The hint as text and keys: "Ctrl", "+", "Space", "for suggestions".
+fn hint_pieces(strings: &EditorStrings) -> Vec<HintPiece> {
+    let hint = &strings.suggestions_hint;
+    let (before, after) = hint.split_once("{key}").unwrap_or(("", hint.as_str()));
+    let mut pieces = Vec::new();
+    let text = |text: &str| {
+        let text = text.trim();
+        (!text.is_empty()).then(|| HintPiece::Text(text.to_string()))
+    };
+    pieces.extend(text(before));
+    for (index, key) in strings.suggestions_key.split('+').enumerate() {
+        if index > 0 {
+            pieces.push(HintPiece::Text("+".to_string()));
+        }
+        pieces.push(HintPiece::Key(key.trim().to_string()));
+    }
+    pieces.extend(text(after));
+    pieces
 }
 
 /// "Tab moves focus" while `Ctrl+M` is on; clicking it turns it off.
@@ -78,10 +123,10 @@ fn TabFocusStatus(state: EditorState) -> impl IntoView {
                 <button
                     type="button"
                     class="config-editor__tab-focus-status"
-                    title=TAB_FOCUS_TITLE
+                    title=state.text(|strings| &strings.tab_focus_title)
                     on:click=turn_off
                 >
-                    {TAB_FOCUS_LABEL}
+                    {state.text(|strings| &strings.tab_focus)}
                 </button>
             }
         })
@@ -92,6 +137,7 @@ fn TabFocusStatus(state: EditorState) -> impl IntoView {
 #[component]
 fn ChangeStatus(state: EditorState) -> impl IntoView {
     let changes = state.changes.summary;
+    let strings = state.strings_signal();
     let next_change = move |_| state.go_to_change(true, false);
     move || {
         let summary = changes.get();
@@ -100,10 +146,10 @@ fn ChangeStatus(state: EditorState) -> impl IntoView {
                 <button
                     type="button"
                     class="config-editor__change-status"
-                    title=change_details(&summary)
+                    title=move || strings.with(|strings| change_details(strings, &summary))
                     on:click=next_change
                 >
-                    {change_count(&summary)}
+                    {move || strings.with(|strings| change_count(strings, &summary))}
                 </button>
             }
         })
@@ -111,87 +157,122 @@ fn ChangeStatus(state: EditorState) -> impl IntoView {
 }
 
 /// "2 changes".
-fn change_count(summary: &ChangeSummary) -> String {
-    let plural = if summary.hunks == 1 { "" } else { "s" };
-    format!("{} change{plural}", summary.hunks)
+fn change_count(strings: &EditorStrings, summary: &ChangeSummary) -> String {
+    counted(&strings.changes_one, &strings.changes_other, summary.hunks)
 }
 
 /// "1 added, 2 modified, 1 removed lines · Alt+F5 for the next".
-fn change_details(summary: &ChangeSummary) -> String {
+fn change_details(strings: &EditorStrings, summary: &ChangeSummary) -> String {
     let parts: Vec<String> = [
-        (summary.added, "added"),
-        (summary.modified, "modified"),
-        (summary.removed, "removed"),
+        (summary.added, &strings.changed_added),
+        (summary.modified, &strings.changed_modified),
+        (summary.removed, &strings.changed_removed),
     ]
     .into_iter()
     .filter(|(count, _)| *count > 0)
-    .map(|(count, what)| format!("{count} {what}"))
+    .map(|(count, template)| fill(template, &[("count", &count)]))
     .collect();
-    let lines = if summary.added + summary.modified + summary.removed == 1 {
-        "line"
+    let lines = summary.added + summary.modified + summary.removed;
+    let template = if lines == 1 {
+        &strings.change_details_one
     } else {
-        "lines"
+        &strings.change_details_other
     };
-    format!("{} {lines} · Alt+F5 for the next", parts.join(", "))
+    fill(template, &[("lines", &parts.join(", "))])
 }
 
 /// The note `validate` adds when it cut the list.
 fn is_more_note(problem: &Diagnostic) -> bool {
-    problem.line.is_none() && problem.message.ends_with("more follow.")
+    problem.code.as_deref() == Some(MORE_PROBLEMS_CODE)
 }
 
 /// "2 errors, 1 warning · …": the counts, then an unplaced problem's
 /// message or a hint.
-fn summary(problems: &[Diagnostic]) -> String {
+fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
     // The note that more problems follow is not one of them: the counts say
     // "20+" instead.
     let more = problems.iter().any(is_more_note);
-    let counted: Vec<&Diagnostic> = problems
+    let counted_problems: Vec<&Diagnostic> = problems
         .iter()
         .filter(|problem| !is_more_note(problem))
         .collect();
     let count_of = |severity: Severity| {
-        counted
+        counted_problems
             .iter()
             .filter(|problem| problem.severity == severity)
             .count()
     };
-    let plus = if more { "+" } else { "" };
-    let counts: Vec<(usize, &str, &str)> = [
-        (Severity::Error, "error", "errors"),
-        (Severity::Warning, "warning", "warnings"),
-        (Severity::Info, "info", "info"),
-        (Severity::Hint, "hint", "hints"),
+    let counts: Vec<(usize, &String, &String)> = [
+        (Severity::Error, &strings.errors_one, &strings.errors_other),
+        (
+            Severity::Warning,
+            &strings.warnings_one,
+            &strings.warnings_other,
+        ),
+        (Severity::Info, &strings.infos_one, &strings.infos_other),
+        (Severity::Hint, &strings.hints_one, &strings.hints_other),
     ]
     .into_iter()
-    .map(|(severity, one, many)| (count_of(severity), one, many))
+    .map(|(severity, one, other)| (count_of(severity), one, other))
     .filter(|(count, _, _)| *count > 0)
     .collect();
-    let named = |(count, one, many): (usize, &str, &str)| {
-        format!("{count} {}", if count == 1 { one } else { many })
-    };
     let count = match counts.as_slice() {
-        [] => return "No errors".to_string(),
+        [] => return strings.no_problems.clone(),
         // "20+ errors"; with several kinds the "+" ends the list.
-        [(count, _, many)] if more => format!("{count}+ {many}"),
-        _ => format!(
-            "{}{plus}",
-            counts.into_iter().map(named).collect::<Vec<_>>().join(", ")
-        ),
+        [(count, one, other)] if more => counted_as(one, other, *count, &format!("{count}+")),
+        _ => {
+            let listed: Vec<String> = counts
+                .iter()
+                .map(|(count, one, other)| counted(one, other, *count))
+                .collect();
+            format!("{}{}", listed.join(", "), if more { "+" } else { "" })
+        }
     };
-    if more {
-        return format!("{count} · only the first {} are shown", counted.len());
-    }
-    match problems.iter().find(|problem| problem.line.is_none()) {
-        Some(unplaced) => format!("{count} · {}", unplaced.message),
-        None => format!("{count} · hover or focus underlined text"),
-    }
+    let detail = if more {
+        fill(&strings.problems_cut, &[("count", &counted_problems.len())])
+    } else {
+        match problems.iter().find(|problem| problem.line.is_none()) {
+            Some(unplaced) => unplaced.message.clone(),
+            None => strings.problems_hint.clone(),
+        }
+    };
+    format!("{count} · {detail}")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::diagnostics::{Diagnostic, Severity};
-    use super::summary;
+    use super::super::super::diagnostics::{Diagnostic, MORE_PROBLEMS_CODE, Severity};
+    use super::{HintPiece, hint_pieces, summary};
+    use crate::EditorStrings;
+
+    #[test]
+    fn the_hint_draws_its_chord_as_keys_where_it_says() {
+        let text = |text: &str| HintPiece::Text(text.to_string());
+        let key = |key: &str| HintPiece::Key(key.to_string());
+        assert_eq!(
+            hint_pieces(&EditorStrings::default()),
+            [
+                key("Ctrl"),
+                text("+"),
+                key("Space"),
+                text("for suggestions")
+            ]
+        );
+        let german = EditorStrings {
+            suggestions_hint: "Vorschläge mit {key}".into(),
+            suggestions_key: "Strg+Leertaste".into(),
+            ..EditorStrings::default()
+        };
+        assert_eq!(
+            hint_pieces(&german),
+            [
+                text("Vorschläge mit"),
+                key("Strg"),
+                text("+"),
+                key("Leertaste")
+            ]
+        );
+    }
 
     fn placed(severity: Severity) -> Diagnostic {
         Diagnostic {
@@ -205,6 +286,7 @@ mod tests {
 
     #[test]
     fn every_severity_is_counted() {
+        let strings = EditorStrings::default();
         let cases: [(&[Severity], &str); 5] = [
             (&[], "No errors"),
             (&[Severity::Error, Severity::Error], "2 errors"),
@@ -224,7 +306,7 @@ mod tests {
         let mut failures = Vec::new();
         for (severities, expected) in cases {
             let problems: Vec<Diagnostic> = severities.iter().copied().map(placed).collect();
-            let found = summary(&problems);
+            let found = summary(&strings, &problems);
             if !found.starts_with(expected) {
                 failures.push(format!(
                     "{severities:?}: expected {expected:?}, found {found:?}"
@@ -234,19 +316,61 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    #[test]
-    fn a_cut_list_says_more_follow() {
-        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
-        problems.push(Diagnostic {
+    fn more_note() -> Diagnostic {
+        Diagnostic {
             message: "Only the first 20 problems are shown; more follow.".to_string(),
             severity: Severity::Warning,
+            code: Some(MORE_PROBLEMS_CODE.to_string()),
             ..Diagnostic::default()
-        });
+        }
+    }
+
+    #[test]
+    fn a_cut_list_says_more_follow() {
+        let strings = EditorStrings::default();
+        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
+        problems.push(more_note());
         assert_eq!(
-            summary(&problems),
+            summary(&strings, &problems),
             "20+ errors · only the first 20 are shown"
         );
         problems.insert(0, placed(Severity::Hint));
-        assert!(summary(&problems).starts_with("20 errors, 1 hint+"));
+        assert!(summary(&strings, &problems).starts_with("20 errors, 1 hint+"));
+    }
+
+    /// Translated texts: the counts pick their singular or plural text, and
+    /// the cut list is told apart by its code, whatever its message says.
+    #[test]
+    fn counts_follow_the_strings_setting() {
+        let strings = EditorStrings {
+            no_problems: "Keine Fehler".into(),
+            errors_one: "{count} Fehler".into(),
+            errors_other: "{count} Fehler (viele)".into(),
+            warnings_one: "{count} Warnung".into(),
+            problems_hint: "Zeiger auf Unterstrichenes".into(),
+            problems_cut: "nur die ersten {count}".into(),
+            ..EditorStrings::default()
+        };
+        assert_eq!(summary(&strings, &[]), "Keine Fehler");
+        assert_eq!(
+            summary(&strings, &[placed(Severity::Error)]),
+            "1 Fehler · Zeiger auf Unterstrichenes"
+        );
+        assert_eq!(
+            summary(
+                &strings,
+                &[placed(Severity::Error), placed(Severity::Warning)]
+            ),
+            "1 Fehler, 1 Warnung · Zeiger auf Unterstrichenes"
+        );
+        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
+        problems.push(Diagnostic {
+            message: "Nur die ersten 20".into(),
+            ..more_note()
+        });
+        assert_eq!(
+            summary(&strings, &problems),
+            "20+ Fehler (viele) · nur die ersten 20"
+        );
     }
 }

@@ -5,22 +5,29 @@ use super::language::Span;
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
+use crate::EditorStrings;
+use crate::strings::{default_strings, fill};
+
 #[cfg(feature = "schema-validation")]
 const MAX_DIAGNOSTICS: usize = 20;
+
+/// The [`Diagnostic::code`] of the note that the problem list was cut.
+pub(super) const MORE_PROBLEMS_CODE: &str = "config-editor/more-problems";
 
 /// The first [`MAX_DIAGNOSTICS`] of `diagnostics`, and when there are more,
 /// one without a position saying so (the footer shows it), so a cut list is
 /// never taken for the whole one.
 #[cfg(feature = "schema-validation")]
-fn capped(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
     if diagnostics.len() > MAX_DIAGNOSTICS {
         diagnostics.truncate(MAX_DIAGNOSTICS);
         diagnostics.push(Diagnostic {
             line: None,
             column: None,
             end_column: None,
-            message: format!("Only the first {MAX_DIAGNOSTICS} problems are shown; more follow."),
+            message: fill(&strings.problems_more, &[("count", &MAX_DIAGNOSTICS)]),
             severity: Severity::Warning,
+            code: Some(MORE_PROBLEMS_CODE.to_string()),
             ..Diagnostic::default()
         });
     }
@@ -44,12 +51,12 @@ pub(super) struct SchemaBundle {
     validator: jsonschema::Validator,
 }
 
+/// The compiled schema, or why `schema_text` is no JSON Schema (worded by
+/// the `invalidSchema` text where it is shown).
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
-    let schema: Value = serde_json::from_str(schema_text)
-        .map_err(|error| format!("Invalid JSON Schema: {error}"))?;
+    let schema: Value = serde_json::from_str(schema_text).map_err(|error| error.to_string())?;
     #[cfg(feature = "schema-validation")]
-    let validator = jsonschema::validator_for(&schema)
-        .map_err(|error| format!("Invalid JSON Schema: {error}"))?;
+    let validator = jsonschema::validator_for(&schema).map_err(|error| error.to_string())?;
     let warnings = super::completion::unsupported_patterns(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
     let has_marks = super::protect::mentions_marks(&schema);
@@ -251,7 +258,12 @@ impl Schema {
             .map(|bundle| Schema {
                 bundle: std::sync::Arc::new(bundle),
             })
-            .map_err(SchemaError)
+            .map_err(|error| {
+                SchemaError(fill(
+                    &default_strings().invalid_schema,
+                    &[("error", &error)],
+                ))
+            })
     }
 
     /// What the editor cannot use in this schema, one message each, such as
@@ -268,7 +280,8 @@ impl Schema {
         &self.bundle.warnings
     }
 
-    /// Syntax and schema diagnostics for `source`, as the editor shows them.
+    /// Syntax and schema diagnostics for `source`, as the editor shows them
+    /// (the editor's own messages in English, the `strings` defaults).
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
         validate(source, Some(&self.bundle), None, true, language.behavior())
     }
@@ -407,7 +420,15 @@ pub(super) fn validate(
     enabled: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Diagnostic> {
-    validate_with(source, schema, schema_error, enabled, behavior, &[])
+    validate_with(
+        source,
+        schema,
+        schema_error,
+        enabled,
+        behavior,
+        &[],
+        default_strings(),
+    )
 }
 
 /// [`validate`], accepting a field whose whole value is one of `accepted`
@@ -421,6 +442,7 @@ pub(super) fn validate_with(
     enabled: bool,
     behavior: &dyn ConfigLanguage,
     accepted: &[String],
+    strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     if !enabled {
         return Vec::new();
@@ -476,14 +498,14 @@ pub(super) fn validate_with(
             line: None,
             column: None,
             end_column: None,
-            message: error.to_string(),
+            message: fill(&strings.invalid_schema, &[("error", &error)]),
             severity: Severity::Error,
             ..Diagnostic::default()
         }];
     }
 
     let deprecated = schema
-        .map(|schema| deprecation_warnings(&document, schema, source, behavior))
+        .map(|schema| deprecation_warnings(&document, schema, source, behavior, strings))
         .unwrap_or_default();
     // Without `schema-validation` no check could reject a placeholder.
     #[cfg(not(feature = "schema-validation"))]
@@ -515,31 +537,47 @@ pub(super) fn validate_with(
                         let message = match error.kind() {
                             ValidationErrorKind::AnyOf { context }
                             | ValidationErrorKind::OneOfNotValid { context } => {
-                                expected_types(error, context).unwrap_or_else(|| error.to_string())
+                                expected_types(error, context, strings)
+                                    .unwrap_or_else(|| error.to_string())
                             }
                             // Every allowed value, not "or 2 other candidates".
                             ValidationErrorKind::Enum { options } => match options.as_array() {
-                                Some(options) => format!(
-                                    "{} is not one of {}",
-                                    error.instance(),
-                                    options
-                                        .iter()
-                                        .map(Value::to_string)
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
+                                Some(options) => fill(
+                                    &strings.not_one_of,
+                                    &[
+                                        ("value", &error.instance()),
+                                        (
+                                            "allowed",
+                                            &options
+                                                .iter()
+                                                .map(Value::to_string)
+                                                .collect::<Vec<_>>()
+                                                .join(", "),
+                                        ),
+                                    ],
                                 ),
                                 None => error.to_string(),
                             },
-                            _ => error.to_string().replacen(
-                                " is not of types ",
-                                " is not of type ",
-                                1,
-                            ),
+                            ValidationErrorKind::Type { .. } => {
+                                let message = error.to_string();
+                                listed_types(&message)
+                                    .map(|types| {
+                                        fill(
+                                            &strings.wrong_type,
+                                            &[
+                                                ("value", &error.instance()),
+                                                ("types", &types.join(", ")),
+                                            ],
+                                        )
+                                    })
+                                    .unwrap_or(message)
+                            }
+                            _ => error.to_string(),
                         };
                         // A large value is abbreviated rather than quoted whole.
                         let instance = error.instance().to_string();
                         let message = if inside(&path, &secrets) {
-                            message.replace(&instance, super::protect::SECRET_VALUE)
+                            message.replace(&instance, &strings.secret_value)
                         } else if instance.chars().count() > MAX_QUOTED_VALUE {
                             let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
                             message.replacen(&instance, &format!("{short}…"), 1)
@@ -571,11 +609,12 @@ pub(super) fn validate_with(
                                         let place = if parent.is_empty() { "/" } else { parent };
                                         let message = if key == "#text" {
                                             // XML mixed content: text beside child elements.
-                                            format!(
-                                                "{place}: text is not allowed here, only elements"
-                                            )
+                                            fill(&strings.text_not_allowed, &[("pointer", &place)])
                                         } else {
-                                            format!("{place}: '{key}' is not allowed here")
+                                            fill(
+                                                &strings.key_not_allowed,
+                                                &[("pointer", &place), ("key", key)],
+                                            )
                                         };
                                         (span, message)
                                     })
@@ -618,7 +657,7 @@ pub(super) fn validate_with(
             .take(MAX_DIAGNOSTICS + 1)
             .collect::<Vec<_>>();
         diagnostics.extend(deprecated);
-        return capped(diagnostics);
+        return capped(diagnostics, strings);
     }
     deprecated
 }
@@ -662,6 +701,7 @@ fn deprecation_warnings(
     bundle: &SchemaBundle,
     source: &str,
     behavior: &dyn ConfigLanguage,
+    strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     if !bundle.has_deprecated {
         return Vec::new();
@@ -671,15 +711,25 @@ fn deprecation_warnings(
         .filter_map(|found| {
             let span = super::codec::inline_location(behavior, source, &found.pointer, true)
                 .or_else(|| behavior.key_span(source, &found.pointer))?;
-            let instead = found
-                .message
-                .map(|message| format!(". {message}"))
-                .unwrap_or_default();
+            let message = match &found.message {
+                Some(instead) => fill(
+                    &strings.key_deprecated_instead,
+                    &[
+                        ("pointer", &found.pointer),
+                        ("key", &found.key),
+                        ("message", instead),
+                    ],
+                ),
+                None => fill(
+                    &strings.key_deprecated,
+                    &[("pointer", &found.pointer), ("key", &found.key)],
+                ),
+            };
             Some(Diagnostic {
                 line: Some(span.line),
                 column: Some(span.start_column),
                 end_column: Some(span.end_column),
-                message: format!("{}: '{}' is deprecated{instead}", found.pointer, found.key),
+                message,
                 severity: Severity::Warning,
                 ..Diagnostic::default()
             })
@@ -694,25 +744,42 @@ fn deprecation_warnings(
 fn expected_types(
     error: &ValidationError<'_>,
     branches: &[Vec<ValidationError<'_>>],
+    strings: &EditorStrings,
 ) -> Option<String> {
     let mut types: Vec<String> = Vec::new();
     for nested in branches.iter().flatten() {
         if !matches!(nested.kind(), ValidationErrorKind::Type { .. }) {
             return None;
         }
-        let message = nested.to_string();
-        let listed = message
-            .split_once(" is not of type")
-            .map(|(_, rest)| rest)?;
-        let listed = listed.strip_prefix('s').unwrap_or(listed);
-        for name in listed.split(',') {
-            let name = name.trim().to_string();
-            if !name.is_empty() && !types.contains(&name) {
+        for name in listed_types(&nested.to_string())? {
+            if !types.contains(&name) {
                 types.push(name);
             }
         }
     }
-    (!types.is_empty()).then(|| format!("{} is not of type {}", error.instance(), types.join(", ")))
+    (!types.is_empty()).then(|| {
+        fill(
+            &strings.wrong_type,
+            &[("value", &error.instance()), ("types", &types.join(", "))],
+        )
+    })
+}
+
+/// The types a validator's type message lists: `"integer"` and `"string"`
+/// from `true is not of types "integer", "string"`.
+#[cfg(feature = "schema-validation")]
+fn listed_types(message: &str) -> Option<Vec<String>> {
+    let listed = message
+        .split_once(" is not of type")
+        .map(|(_, rest)| rest)?;
+    let listed = listed.strip_prefix('s').unwrap_or(listed);
+    Some(
+        listed
+            .split(',')
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .collect(),
+    )
 }
 
 /// The errors to show for `error`: inside `anyOf`/`oneOf`, every error of the

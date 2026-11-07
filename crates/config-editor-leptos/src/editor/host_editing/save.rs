@@ -59,7 +59,7 @@ impl EditorState {
         let place = self.sync.conversion_problems.with_untracked(|problems| {
             problems
                 .iter()
-                .find_map(|problem| Some((problem.line?, problem.column?)))
+                .find_map(|problem| Some((problem.at.line?, problem.at.column?)))
         });
         match place {
             Some((line, column)) => {

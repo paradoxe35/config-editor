@@ -7,6 +7,7 @@ use web_sys::KeyboardEvent;
 
 use super::super::search::{self, SearchOptions};
 use super::super::state::EditorState;
+use crate::EditorStrings;
 
 #[component]
 pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
@@ -17,7 +18,7 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
         <div
             class="config-editor__find"
             role="search"
-            aria-label="Find and replace"
+            aria-label=state.text(|strings| &strings.find_widget)
             node_ref=search.widget_ref
             prop:hidden=move || !search.open.get()
             on:keydown=move |event| widget_keys(state, &event)
@@ -27,8 +28,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     type="button"
                     class="config-editor__find-button config-editor__find-expand"
                     class:config-editor__find-expand-open=move || search.replacing.get()
-                    aria-label="Toggle replace"
-                    title="Toggle replace (Ctrl+H)"
+                    aria-label=state.text(|strings| &strings.toggle_replace)
+                    title=state.text(|strings| &strings.toggle_replace_title)
                     aria-expanded=move || search.replacing.get().to_string()
                     prop:hidden=move || !editable()
                     on:click=move |_| toggle_replace(state)
@@ -39,8 +40,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     <input
                         type="text"
                         class="config-editor__find-input"
-                        aria-label="Find"
-                        placeholder="Find"
+                        aria-label=state.text(|strings| &strings.find)
+                        placeholder=state.text(|strings| &strings.find)
                         spellcheck="false"
                         autocomplete="off"
                         aria-invalid=move || invalid().to_string()
@@ -50,9 +51,9 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                         on:input=move |event| query_input(state, event_target_value(&event))
                         on:keydown=move |event| query_keys(state, &event)
                     />
-                    <OptionToggle state=state label="Match case" text="Aa" shortcut="Alt+C" read=|options| options.case_sensitive flip=flip_case />
-                    <OptionToggle state=state label="Match whole word" text="ab" shortcut="Alt+W" read=|options| options.whole_word flip=flip_word />
-                    <OptionToggle state=state label="Use regular expression" text=".*" shortcut="Alt+R" read=|options| options.regex flip=flip_regex />
+                    <OptionToggle state=state label=|strings| &strings.match_case title=|strings| &strings.match_case_title text="Aa" read=|options| options.case_sensitive flip=flip_case />
+                    <OptionToggle state=state label=|strings| &strings.whole_word title=|strings| &strings.whole_word_title text="ab" read=|options| options.whole_word flip=flip_word />
+                    <OptionToggle state=state label=|strings| &strings.use_regex title=|strings| &strings.use_regex_title text=".*" read=|options| options.regex flip=flip_regex />
                 </div>
                 <span
                     class="config-editor__find-count"
@@ -68,8 +69,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     <button
                         type="button"
                         class="config-editor__find-button"
-                        aria-label="Previous match"
-                        title="Previous match (Shift+Enter)"
+                        aria-label=state.text(|strings| &strings.previous_match)
+                        title=state.text(|strings| &strings.previous_match_title)
                         on:click=move |_| search::step(state, true)
                     >
                         "↑"
@@ -77,8 +78,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     <button
                         type="button"
                         class="config-editor__find-button"
-                        aria-label="Next match"
-                        title="Next match (Enter)"
+                        aria-label=state.text(|strings| &strings.next_match)
+                        title=state.text(|strings| &strings.next_match_title)
                         on:click=move |_| search::step(state, false)
                     >
                         "↓"
@@ -86,8 +87,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     <button
                         type="button"
                         class="config-editor__find-button"
-                        aria-label="Close"
-                        title="Close (Escape)"
+                        aria-label=state.text(|strings| &strings.close)
+                        title=state.text(|strings| &strings.close_title)
                         on:click=move |_| search::close(state)
                     >
                         "×"
@@ -102,8 +103,8 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                 <input
                     type="text"
                     class="config-editor__find-input config-editor__replace-input"
-                    aria-label="Replace"
-                    placeholder="Replace"
+                    aria-label=state.text(|strings| &strings.replace)
+                    placeholder=state.text(|strings| &strings.replace)
                     spellcheck="false"
                     autocomplete="off"
                     node_ref=search.replace_ref
@@ -114,19 +115,19 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                 <button
                     type="button"
                     class="config-editor__find-button config-editor__find-text-button"
-                    title="Replace (Enter)"
+                    title=state.text(|strings| &strings.replace_title)
                     on:click=move |_| search::replace_current(state)
                 >
-                    "Replace"
+                    {state.text(|strings| &strings.replace)}
                 </button>
                 <button
                     type="button"
                     class="config-editor__find-button config-editor__find-text-button"
-                    aria-label="Replace all"
-                    title="Replace all (Ctrl+Alt+Enter)"
+                    aria-label=state.text(|strings| &strings.replace_all_label)
+                    title=state.text(|strings| &strings.replace_all_title)
                     on:click=move |_| search::replace_all(state)
                 >
-                    "All"
+                    {state.text(|strings| &strings.replace_all)}
                 </button>
             </div>
         </div>
@@ -137,9 +138,10 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
 #[component]
 fn OptionToggle(
     state: EditorState,
-    label: &'static str,
+    label: fn(&EditorStrings) -> &String,
+    title: fn(&EditorStrings) -> &String,
+    /// The toggle's face: a symbol (`Aa`, `.*`), not a word.
     text: &'static str,
-    shortcut: &'static str,
     read: fn(&SearchOptions) -> bool,
     flip: fn(&mut SearchOptions),
 ) -> impl IntoView {
@@ -149,8 +151,8 @@ fn OptionToggle(
             type="button"
             class="config-editor__find-toggle"
             class:config-editor__find-toggle-on=pressed
-            aria-label=label
-            title=format!("{label} ({shortcut})")
+            aria-label=state.text(label)
+            title=state.text(title)
             aria-pressed=move || pressed().to_string()
             on:click=move |_| search::toggle_option(state, flip)
         >
@@ -174,13 +176,15 @@ fn flip_regex(options: &mut SearchOptions) {
 fn count_text(state: EditorState) -> String {
     let search = state.search;
     if let Some(notice) = search.notice.get() {
-        return notice;
+        return state.strings(|strings| notice.text(strings));
     }
     let query_empty = search.query.with(String::is_empty);
     let current = search.current.get();
-    search
-        .results
-        .with(|results| search::count_label(results, current, query_empty))
+    state.strings(|strings| {
+        search
+            .results
+            .with(|results| search::count_label(strings, results, current, query_empty))
+    })
 }
 
 fn query_input(state: EditorState, value: String) {

@@ -31,6 +31,7 @@ method and headless function here has a JS option, method or function there
 - [`<ConfigEditor>` props](#configeditor-props)
   - [Settings](#settings)
   - [Editing in another language](#editing-in-another-language)
+  - [Built-in texts](#built-in-texts)
   - [Changes against the baseline](#changes-against-the-baseline)
   - [Saving and unsaved edits](#saving-and-unsaved-edits)
 - [Several documents](#several-documents)
@@ -170,6 +171,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 | `go_to_line` | `true` | Go to line (`Ctrl+G`). Off, the key is left to the browser. |
 | `folding` | `true` | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. |
 | `save_shortcut` | `true` | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves. |
+| `strings` | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`. |
 
 <!-- settings:end -->
 
@@ -191,6 +193,197 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   are flagged as warnings on the value.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
+- A notice under the toolbar (`role="status"`, dismissible) says what the
+  edited language does not show or keep: the host file's comments and
+  formatting are not shown there and a save keeps them; comments typed there
+  are never saved (the data a conversion carries has none), whatever the
+  pair of languages. It shows only when the host's text has comments or the
+  edited text does; its texts are `editAsHostComments`,
+  `editAsTypedComments` and `editAsTypedCommentsNone` of the `strings`
+  setting.
+
+### Built-in texts
+
+Every text the editor writes itself (hints, tooltips, notices and their
+buttons, footer counts, accessible names and announcements, the messages of
+the problems it words) is a field of `EditorStrings`, the `strings` setting,
+in English by default. Give only the texts to change:
+
+```rust
+let settings = EditorSettings {
+    strings: EditorStrings {
+        no_problems: "Keine Fehler".into(),
+        errors_one: "{count} Fehler".into(),
+        errors_other: "{count} Fehler".into(),
+        find: "Suchen".into(),
+        ..EditorStrings::default()
+    },
+    ..EditorSettings::default()
+};
+```
+
+Texts change live, like the other settings. Placeholders are written in
+braces (`{count}`, `{line}`); a text takes the placeholders of its default
+(`EditorStrings::check` lists any other, and the editor warns about them in
+the console). Counts come in pairs, `…_one` for 1 and `…_other` for any other
+count. Texts the host or the schema gives (read-only reasons, a secret hint,
+descriptions) and what parsers and the schema validator report are shown as
+they come.
+
+<!-- strings:start -->
+
+<!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
+
+| Field | Default | |
+|---|---|---|
+| `suggestions_hint` | `"{key} for suggestions"` | The footer's suggestions hint; `{key}` is where the chord goes. |
+| `suggestions_key` | `"Ctrl+Space"` | The chord that opens suggestions, as the footer draws it: keys between `+`. |
+| `no_problems` | `"No errors"` | The footer's problem count when there are none. |
+| `errors_one` | `"{count} error"` | One error, in the footer's problem count. |
+| `errors_other` | `"{count} errors"` | Several errors, in the footer's problem count. |
+| `warnings_one` | `"{count} warning"` | One warning, in the footer's problem count. |
+| `warnings_other` | `"{count} warnings"` | Several warnings, in the footer's problem count. |
+| `infos_one` | `"{count} info"` | One info, in the footer's problem count. |
+| `infos_other` | `"{count} info"` | Several infos, in the footer's problem count. |
+| `hints_one` | `"{count} hint"` | One hint, in the footer's problem count. |
+| `hints_other` | `"{count} hints"` | Several hints, in the footer's problem count. |
+| `problems_hint` | `"hover or focus underlined text"` | After the problem count when every problem has its place. |
+| `problems_cut` | `"only the first {count} are shown"` | After the problem count when the list was cut; `{count}` is how many are shown. |
+| `problems_more` | `"Only the first {count} problems are shown; more follow."` | The problem that says the list was cut, after `{count}` problems. |
+| `changes_one` | `"{count} change"` | The footer's change count against the baseline, for one change. |
+| `changes_other` | `"{count} changes"` | The footer's change count, for several changes. |
+| `change_details_one` | `"{lines} line · Alt+F5 for the next"` | The change count's tooltip when one line changed; `{lines}` lists the added, modified and removed counts. |
+| `change_details_other` | `"{lines} lines · Alt+F5 for the next"` | The change count's tooltip when several lines changed. |
+| `changed_added` | `"{count} added"` | Added lines, in the change count's tooltip. |
+| `changed_modified` | `"{count} modified"` | Modified lines, in the change count's tooltip. |
+| `changed_removed` | `"{count} removed"` | Removed lines, in the change count's tooltip. |
+| `lines_one` | `"{count} line"` | The footer's line count, for one line. |
+| `lines_other` | `"{count} lines"` | The footer's line count, for several lines. |
+| `tab_focus` | `"Tab moves focus"` | The footer's indicator while Tab moves the focus. |
+| `tab_focus_title` | `"Tab moves focus (Ctrl+M to indent with Tab)"` | Its tooltip; clicking it turns the mode off. |
+| `tab_focus_on` | `"Tab moves focus: Tab and Shift+Tab now leave the editor. Ctrl+M to indent with Tab again."` | Announced when `Ctrl+M` makes Tab move the focus. |
+| `tab_focus_off` | `"Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."` | Announced when `Ctrl+M` makes Tab indent again. |
+| `schema_connected` | `"Schema connected"` | The toolbar's schema state. |
+| `edit_as_host_comments` | `"The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."` | The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps. |
+| `edit_as_typed_comments` | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."` | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments. |
+| `edit_as_typed_comments_none` | `"Comments typed in {edit} are not saved: {host} has no comments."` | The same when the host's language has no comments (JSON). |
+| `edit_as_dismiss` | `"Dismiss"` | The Edit-as notice's close button. |
+| `baseline_changed` | `"The file changed on the server."` | The notice shown when the host's baseline changes under unsaved edits. |
+| `baseline_changed_detail` | `"Reload it, losing your changes, or keep your text and compare it with the new version."` | What the notice's choices do, after its message. |
+| `reload` | `"Reload"` | The notice's button that takes the new baseline as the text. |
+| `reload_title` | `"Replace your text with the new version (Ctrl+Z brings yours back)"` | Its tooltip. |
+| `keep_mine` | `"Keep mine"` | The notice's button that keeps the text against the new baseline. |
+| `keep_mine_title` | `"Keep your text; the changes are now shown against the new version (Escape)"` | Its tooltip. |
+| `find_widget` | `"Find and replace"` | The find widget's accessible name. |
+| `toggle_replace` | `"Toggle replace"` | The button showing the replace row. |
+| `toggle_replace_title` | `"Toggle replace (Ctrl+H)"` | Its tooltip. |
+| `find` | `"Find"` | The query field's accessible name and placeholder. |
+| `match_case` | `"Match case"` | The match-case toggle. |
+| `match_case_title` | `"Match case (Alt+C)"` | Its tooltip. |
+| `whole_word` | `"Match whole word"` | The whole-word toggle. |
+| `whole_word_title` | `"Match whole word (Alt+W)"` | Its tooltip. |
+| `use_regex` | `"Use regular expression"` | The regular-expression toggle. |
+| `use_regex_title` | `"Use regular expression (Alt+R)"` | Its tooltip. |
+| `previous_match` | `"Previous match"` | The previous-match button. |
+| `previous_match_title` | `"Previous match (Shift+Enter)"` | Its tooltip. |
+| `next_match` | `"Next match"` | The next-match button. |
+| `next_match_title` | `"Next match (Enter)"` | Its tooltip. |
+| `close` | `"Close"` | The find widget's close button. |
+| `close_title` | `"Close (Escape)"` | Its tooltip. |
+| `replace` | `"Replace"` | The replacement field's accessible name and placeholder, and the button replacing the current match. |
+| `replace_title` | `"Replace (Enter)"` | The replace button's tooltip. |
+| `replace_all` | `"All"` | The replace-all button. |
+| `replace_all_label` | `"Replace all"` | Its accessible name. |
+| `replace_all_title` | `"Replace all (Ctrl+Alt+Enter)"` | Its tooltip. |
+| `match_position` | `"{current} of {total}"` | The match count: match `{current}` of `{total}`. |
+| `no_results` | `"No results"` | The match count when nothing matches. |
+| `invalid_pattern` | `"Invalid pattern"` | The match count when the regular expression is invalid. |
+| `replaced_one` | `"Replaced {count} occurrence"` | After Replace All, for one match. |
+| `replaced_other` | `"Replaced {count} occurrences"` | After Replace All, for several. |
+| `replace_skipped` | `"; skipped {count} in read-only text or secret placeholders"` | Added when Replace All left matches in protected text alone. |
+| `nothing_replaced` | `"Every match is in read-only text; nothing was replaced"` | After Replace All when every match is in read-only text. |
+| `go_to_line` | `"Go to line"` | The go-to-line field's accessible name. |
+| `go_to_line_placeholder` | `"line or line:column"` | Its placeholder. |
+| `go_to_line_hint` | `"Line 1–{lines}, or line:column"` | Its hint: the range of lines. |
+| `go_to_line_invalid` | `"Type a line number between 1 and {lines}"` | Its hint when the text is no position. |
+| `added_line` | `"Added line"` | The change preview's title for an added line. |
+| `modified_line` | `"Modified line"` | For a modified line. |
+| `removed_lines` | `"Removed lines"` | For removed lines. |
+| `removed_lines_at_end` | `"Removed lines at end of document"` | For lines removed after the last one. |
+| `show_added` | `"Show added line {line}"` | The gutter marker of an added line. |
+| `show_added_title` | `"Show added line"` | Its tooltip. |
+| `show_modified` | `"Show before and after for modified line {line}"` | The gutter marker of a modified line. |
+| `show_modified_title` | `"Show before and after"` | Its tooltip. |
+| `show_removed` | `"Show removed lines before line {line}"` | The gutter marker of removed lines. |
+| `show_removed_title` | `"Show removed lines"` | Its tooltip, and that of lines removed at the end. |
+| `show_removed_at_end` | `"Show removed lines at end of document"` | The gutter marker of lines removed after the last one. |
+| `preview_heading` | `"{title} · line {line}"` | The change preview's heading: its `{title}` and `{line}`. |
+| `preview_label` | `"{title}, line {line}"` | The change preview's accessible name. |
+| `revert` | `"Revert"` | The preview's revert button. |
+| `revert_title` | `"Revert this change (R)"` | Its tooltip, for a one-line change. |
+| `revert_lines_title` | `"Revert this change (lines {first}–{last}) (R)"` | Its tooltip, for a change over lines `{first}` to `{last}`. |
+| `revert_line_and_removed_title` | `"Revert this change (line {line} and the removed lines) (R)"` | Its tooltip, for a changed line with removed lines. |
+| `close_preview` | `"Close change preview"` | The preview's close button. |
+| `before` | `"Before"` | The preview's column of the baseline's lines. |
+| `current` | `"Current"` | The preview's column of the current lines. |
+| `fold` | `"Fold line {line}"` | The chevron of an open range. |
+| `unfold` | `"Unfold lines {first}–{last}"` | The chevron or chip of a closed fold. |
+| `folded_changes` | `"Folded lines have changes"` | A closed fold's line number when it hides changes or problems. |
+| `required` | `"required"` | The hover card's mark of a required key. |
+| `deprecated` | `"deprecated"` | The hover card's mark of a deprecated key. |
+| `default_value` | `"Default"` | The hover card's default row. |
+| `examples` | `"Examples"` | The hover card's examples row. |
+| `documentation` | `"Documentation"` | The hover card's link to the schema's documentation. |
+| `open_docs` | `"Open docs ↗"` | The link under a host problem's message. |
+| `error` | `"Error"` | An error, as a screen reader hears it. |
+| `warning` | `"Warning"` | A warning, as a screen reader hears it. |
+| `info` | `"Info"` | An info, as a screen reader hears it. |
+| `hint` | `"Hint"` | A hint, as a screen reader hears it. |
+| `problem_source` | `" from {source}"` | Who reported a host problem: the `{source}` of the problem texts below (empty for the editor's own problems). |
+| `problem` | `"{severity}{source}: {message}"` | A problem at the caret, for screen readers. |
+| `problem_position` | `"{severity} {position} of {total}{source}: {message}"` | Announced on `F8`: problem `{position}` of `{total}`. |
+| `problem_marker` | `"{language} {severity}{source} on line {line}: {message}"` | An underlined problem's accessible name. |
+| `protected_note` | `"{label}: {message}"` | What protected text at the caret is, for screen readers: its `{label}` and `{message}`. |
+| `source_label` | `"{language} source"` | The text area. |
+| `suggestions_label` | `"{language} suggestions"` | The suggestions list. |
+| `problems_label` | `"Inline {language} diagnostics"` | The layer of underlined problems. |
+| `editor_label` | `"{language} editor"` | The editor's frame. |
+| `read_only_field` | `"This field is read-only"` | Why a field is read-only when neither the schema nor the host says. |
+| `read_only_text` | `"This text is read-only"` | Why text in a read-only range the host gave cannot change. |
+| `holds_read_only` | `"Holds a read-only field: {reason}"` | Why renaming or moving the key above a read-only field is refused. |
+| `save_refused` | `"{pointer} is read-only and this change would alter it"` | A save refused because it would change a read-only value. |
+| `read_only_label` | `"Read-only"` | The gutter lock's label, before the reason. |
+| `secret_label` | `"Secret placeholder"` | The gutter key's label, before the hint. |
+| `secret_hint` | `"Keeps the current secret unless you replace it"` | The hover text of a secret placeholder, unless the host gives one. |
+| `secret_value` | `"the secret value"` | What a schema problem says instead of a secret field's value. |
+| `unknown_placeholder` | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"` | A placeholder the host did not give, in a secret field. |
+| `env_reference` | `"Read the secret from an environment variable"` | The detail of the `${…}` reference suggestion. |
+| `file_reference` | `"Read the secret from a file"` | The detail of the `file:` reference suggestion. |
+| `other_reference` | `"A reference starting with {prefix}"` | The detail of another reference suggestion. |
+| `reference_type` | `"reference"` | The type column of a reference suggestion. |
+| `closes_tag` | `"Closes <{name}>"` | The detail of the end tag XML suggests. |
+| `end_tag` | `"end tag"` | Its type column. |
+| `key_not_allowed` | `"{pointer}: '{key}' is not allowed here"` | A key the schema does not allow. |
+| `text_not_allowed` | `"{pointer}: text is not allowed here, only elements"` | Text in an element the schema wants elements in (XML). |
+| `key_deprecated` | `"{pointer}: '{key}' is deprecated"` | A deprecated key. |
+| `key_deprecated_instead` | `"{pointer}: '{key}' is deprecated. {message}"` | A deprecated key whose schema says what to use instead. |
+| `not_one_of` | `"{value} is not one of {allowed}"` | A value not among the allowed ones. |
+| `wrong_type` | `"{value} is not of type {types}"` | A value of none of the accepted types. |
+| `invalid_schema` | `"Invalid JSON Schema: {error}"` | A schema that does not compile. |
+| `host_cannot_keep` | `"{pointer}: {host} cannot keep this value exactly; it reads back differently"` | A value the host's language reads back differently (Edit-as). |
+| `edit_cannot_show` | `"{pointer}: {edit} cannot show this value exactly; editing it here may change it"` | A value the edited language cannot show exactly (Edit-as). |
+| `not_saved` | `"Not saved as {host}: {error}"` | An edit the host's language cannot save (Edit-as). |
+| `no_null` | `"{host} has no null value (at {pointer})"` | A null the host's language cannot write (Edit-as). |
+| `cannot_edit_as` | `"Cannot edit this {host} as {edit}: {error}"` | A host document that does not convert for editing. |
+| `cannot_switch` | `"Cannot switch to {edit} yet: {error}"` | An Edit-as switch waiting until the document converts. |
+| `tab_list` | `"Open files"` | The tab list's accessible name, unless the host gives one. |
+| `no_documents` | `"No open files"` | Shown in place of an editor while no document is open. |
+| `close_tab` | `"Close {name}"` | A tab's close button. |
+| `close_tab_title` | `"Close (Delete)"` | Its tooltip. |
+| `unsaved` | `"unsaved changes"` | The dirty dot's tooltip, and what a tab's accessible name adds for it. |
+| `read_only_tab` | `"read-only"` | What a read-only document's tab adds to its accessible name. |
+
+<!-- strings:end -->
 
 ### Changes against the baseline
 
@@ -753,7 +946,8 @@ The same engine without the component:
 use config_editor_leptos::{check_syntax, Language, Schema};
 
 let schema = Schema::compile(include_str!("schema.json"))?;
-// At most 20; past that, a last one without a position says more follow.
+// At most 20; past that, a last one without a position says more follow
+// (its `code` is "config-editor/more-problems").
 let problems = schema.validate(Language::TOML, &text); // Vec<Diagnostic>
 let syntax_only = check_syntax(Language::JSON, &text);
 

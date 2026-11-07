@@ -64,6 +64,9 @@ pub(super) struct Completion {
     /// after the caret ([`stop_ranges`]) and Tab selects each in turn, as a
     /// snippet's placeholders.
     pub(super) fills: Vec<(String, String)>,
+    /// The end tag XML suggests for the element `label` names: its detail
+    /// and type are worded when shown (the `closesTag` and `endTag` texts).
+    pub(super) closes_tag: bool,
 }
 
 #[cfg(test)]

@@ -11,6 +11,8 @@ use super::super::diagnostics::Diagnostic;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::state::EditorState;
 use super::texts::problem_text;
+use crate::EditorStrings;
+use crate::strings::fill;
 
 /// How long the caret rests before the note follows it, in milliseconds.
 #[cfg(target_arch = "wasm32")]
@@ -45,16 +47,22 @@ pub(super) fn covers(problem: &Diagnostic, line: usize, column: usize) -> bool {
 /// The note for the caret at one-based `line`:`column`: each problem on
 /// it, then what the protected text there is.
 pub(super) fn note(
+    strings: &EditorStrings,
     problems: &[Diagnostic],
     line: usize,
     column: usize,
-    protected: Option<(&str, String)>,
+    protected: Option<(String, String)>,
 ) -> String {
     problems
         .iter()
         .filter(|problem| covers(problem, line, column))
-        .map(problem_text)
-        .chain(protected.map(|(label, message)| format!("{label}: {message}")))
+        .map(|problem| problem_text(strings, problem))
+        .chain(protected.map(|(label, message)| {
+            fill(
+                &strings.protected_note,
+                &[("label", &label), ("message", &message)],
+            )
+        }))
         .collect::<Vec<_>>()
         .join(". ")
 }
@@ -66,6 +74,7 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
         state.problems.diagnostics.track();
         state.protect.protected.track();
         state.protect.secrets.tokens.track();
+        state.config.settings.strings.track();
         state.a11y.note_token.update_value(|token| *token += 1);
         let token = state.a11y.note_token.get_value();
         later(move || {
@@ -86,10 +95,12 @@ pub(super) fn update_note(state: EditorState) {
         .text
         .with_untracked(|text| caret_position(text, caret));
     let protected = state.protected_note(caret, true);
-    let note = state
-        .problems
-        .diagnostics
-        .with_untracked(|problems| note(problems, line, column, protected));
+    let note = state.strings_untracked(|strings| {
+        state
+            .problems
+            .diagnostics
+            .with_untracked(|problems| note(strings, problems, line, column, protected))
+    });
     if state.a11y.caret_note.with_untracked(|shown| *shown != note) {
         state.a11y.caret_note.set(note);
     }

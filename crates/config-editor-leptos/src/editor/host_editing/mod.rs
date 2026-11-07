@@ -8,7 +8,6 @@
 
 mod conflict;
 mod save;
-pub(super) mod texts;
 
 #[cfg(test)]
 mod tests;

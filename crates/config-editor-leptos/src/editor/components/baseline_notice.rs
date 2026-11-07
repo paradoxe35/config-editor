@@ -4,7 +4,6 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::host_editing::texts;
 use super::super::state::EditorState;
 
 #[component]
@@ -23,27 +22,27 @@ pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
             on:keydown=keydown
         >
             <span class="config-editor__notice-message">
-                <strong>{texts::BASELINE_CHANGED}</strong>
+                <strong>{state.text(|strings| &strings.baseline_changed)}</strong>
                 " "
-                <span class="config-editor__notice-detail">{texts::BASELINE_CHANGED_DETAIL}</span>
+                <span class="config-editor__notice-detail">{state.text(|strings| &strings.baseline_changed_detail)}</span>
             </span>
             <span class="config-editor__notice-actions">
                 <button
                     type="button"
                     class="config-editor__notice-button config-editor__notice-reload"
-                    title=texts::RELOAD_TITLE
+                    title=state.text(|strings| &strings.reload_title)
                     on:click=reload
                 >
-                    {texts::RELOAD}
+                    {state.text(|strings| &strings.reload)}
                 </button>
                 <button
                     type="button"
                     class="config-editor__notice-button config-editor__notice-keep"
-                    title=texts::KEEP_MINE_TITLE
+                    title=state.text(|strings| &strings.keep_mine_title)
                     node_ref=editing.keep_mine_ref
                     on:click=keep_mine
                 >
-                    {texts::KEEP_MINE}
+                    {state.text(|strings| &strings.keep_mine)}
                 </button>
             </span>
         </div>

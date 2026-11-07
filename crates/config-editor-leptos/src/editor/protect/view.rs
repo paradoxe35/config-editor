@@ -8,6 +8,7 @@ use super::super::keyboard::utf16_to_byte_index;
 use super::locate::LineIndex;
 use super::locks::Protected;
 use super::texts;
+use crate::EditorStrings;
 
 /// What one line shows of protected text.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub(crate) fn line_marks(
     protected: &Protected,
     tokens: &[Range<usize>],
     hint: &str,
+    strings: &EditorStrings,
 ) -> Vec<LineMarks> {
     if protected.is_empty() && tokens.is_empty() {
         return Vec::new();
@@ -54,7 +56,7 @@ pub(crate) fn line_marks(
     let lines = LineIndex::new(text);
     let mut marks = vec![LineMarks::default(); lines.line_count()];
     for lock in &protected.locks {
-        let label = format!("{}: {}", texts::LOCK_LABEL, lock.reason);
+        let label = lock.reason.label(strings);
         for range in &lock.ranges {
             for (piece, line) in pieces(range, lock.key.as_ref(), &lines) {
                 let bounds = lines.line_bounds(line);
@@ -68,7 +70,7 @@ pub(crate) fn line_marks(
             }
         }
     }
-    let key_label = format!("{}: {hint}", texts::SECRET_LABEL);
+    let key_label = texts::secret_label(strings, hint);
     for token in tokens {
         for (piece, line) in pieces(token, None, &lines) {
             let bounds = lines.line_bounds(line);
@@ -133,7 +135,13 @@ mod tests {
             })
             .collect();
         let started = std::time::Instant::now();
-        let marks = line_marks(&text, &Protected::default(), &tokens, "hint");
+        let marks = line_marks(
+            &text,
+            &Protected::default(),
+            &tokens,
+            "hint",
+            &crate::EditorStrings::default(),
+        );
         let took = started.elapsed();
         let byte_start = "  secret: ".len();
         let expected = byte_start..byte_start + "«secret 3f2a»".len();

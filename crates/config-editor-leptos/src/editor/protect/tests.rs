@@ -107,7 +107,7 @@ fn read_only_fields_are_located_in_every_language() {
         if !id.contains("id") || !id.contains("abc") {
             failures.push(format!("{language}: /id covers {id:?}"));
         }
-        if protected.locks[0].reason != "Set by the server" {
+        if protected.locks[0].reason != super::texts::Reason::Given("Set by the server".into()) {
             failures.push(format!(
                 "{language}: reason {:?}",
                 protected.locks[0].reason

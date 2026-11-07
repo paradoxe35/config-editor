@@ -9,7 +9,7 @@
 //!   points at, updated a moment after the caret stops.
 //! - `announce`: one polite live region for short messages (the Tab mode,
 //!   "Error 2 of 5: …" on F8).
-//! - `texts`: the built-in texts.
+//! - `texts`: how problems are worded for screen readers.
 
 mod caret_note;
 mod focus;
@@ -17,7 +17,7 @@ mod texts;
 
 pub(super) use caret_note::{connect_caret_note, show_at_caret};
 pub(super) use focus::{focus_keys, toggle_tab_focus};
-pub(super) use texts::{TAB_FOCUS_LABEL, TAB_FOCUS_TITLE, problem_announcement};
+pub(super) use texts::{problem_announcement, problem_marker};
 
 use leptos::prelude::*;
 
