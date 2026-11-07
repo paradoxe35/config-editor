@@ -76,6 +76,15 @@ throws, and an unknown option name is reported in the console.
 | `search`         | `boolean`                    | `true`           | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`, as in VS Code). `false` leaves those keys to the browser.                                                                                                         |
 | `goToLine`       | `boolean`                    | `true`           | Go to line (`Ctrl+G`): `line` or `line:column`. `false` leaves the key to the browser.                                                                                                                        |
 | `folding`        | `boolean`                    | `true`           | Folding by structure: gutter chevrons, `…` on folded lines, and the folding keys; see [Folding](#folding).                                                                                                    |
+| `showDiff`       | `boolean`                    | `true`           | Line changes against `baseline` in the gutter, with `Alt+F5` / `Alt+F3` between them. `onChangeSummary` stays at zero without it.                                                                             |
+| `showDiagnostics` | `boolean`                   | `true`           | Syntax and schema problems inline, in the footer and on hover (`F8` between them). `validate()` still reports them.                                                                                          |
+| `completions`    | `boolean`                    | `true`           | Schema completion; `false` offers no suggestions, `Ctrl+Space` included.                                                                                                                                      |
+| `autoTriggerCompletions` | `boolean`            | `true`           | Open suggestions while typing and after accepting a key; `false` opens them only with `Ctrl+Space`.                                                                                                           |
+| `hoverDocs`      | `boolean`                    | `true`           | Schema docs (description, type, default, examples) when hovering a key.                                                                                                                                       |
+| `highlighting`   | `boolean`                    | `true`           | Syntax colors.                                                                                                                                                                                                |
+| `autoClosing`    | `boolean`                    | `true`           | Auto-close quotes and brackets, wrap a selection in them, delete an empty pair on Backspace.                                                                                                                  |
+| `styled`         | `boolean`                    | `true`           | Inject the preset stylesheet. `false` leaves the `config-editor__*` markup to your styles; `presetCss()` returns the preset to start from. See [Styling](#styling).                                          |
+| `saveShortcut`   | `boolean`                    | `true`           | Whether `Ctrl+S` / `Cmd+S` saves (with `onSave` set); `false` leaves the key to the browser and only `save()` saves. Switches live with `setSaveShortcut`.                                                    |
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
@@ -90,6 +99,20 @@ throws, and an unknown option name is reported in the console.
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
 
+`value`, `baseline`, `editAs`, `theme`, `colors`, `readOnly`, `saveShortcut`,
+`hostDiagnostics` and the callbacks change live through the setters below.
+The other options (`language`, `schema`, `fileName`, the toolbar, footer and
+feature switches, `styled`, `className`) are fixed for the editor's life:
+create a new one to change them (the React component does it for you).
+
+```ts
+// A plain viewer: no colors, no diff, no suggestions, no popups.
+new ConfigEditor(element, {
+  value: text, readOnly: true,
+  highlighting: false, showDiff: false, completions: false, hoverDocs: false, showDiagnostics: false,
+});
+```
+
 ### Instance members
 
 | Member                                         | Description                                                                                                                                                                              |
@@ -101,13 +124,16 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
+| `setSaveShortcut(boolean)`                     | Whether `Ctrl+S` / `Cmd+S` saves (see the `saveShortcut` option).                                                                                                                         |
 | `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary?, onPathChange?, onSave?, onDirtyChange?, onBaselineConflict? })` | Replace callbacks; `null` removes one, an absent key keeps it. |
 | `save()`                                       | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). |
 | `isDirty` (getter)                             | Whether the document differs from the baseline. |
 | `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `setHostDiagnostics(list)`                     | Replace the host's problems; `[]` clears them. See [Host diagnostics](#host-diagnostics).                                                                                                 |
 | `rangeOf(path)`, `pathAt(index)`, `currentPath`, `reveal(path)`, `focus()` | Paths and positions; see [Paths](#paths).                                                                                                   |
+| `text` (getter)                                | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                  |
 | `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding). |
+| `foldedLines` (getter)                         | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                             |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
@@ -172,6 +198,16 @@ value or container holding it (`""` at the top level).
 | `validate(language, text, schema?)` | `Diagnostic[]`     | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                    |
 | `convert(from, text, to, schema?)`  | `{ text, losses }` | Convert between languages. `losses` lists JSON pointers of values the target reads back differently. Throws when the text does not parse or the target cannot express it. With a schema, a lone XML element where it expects a list converts as a one-item list. |
 | `unifiedDiff(baseline, current, context?)` | `string`    | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                   |
+| `changeSummary(baseline, current)`  | `ChangeSummary`    | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                    |
+| `parse(language, text)`             | `unknown`          | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. Throws the first syntax error, with its line and column.                                                       |
+| `serialize(language, value)`        | `string`           | Plain data as a document. Throws when the value is not JSON data or the language cannot express it (TOML has no `null`).                                                                                                                                        |
+| `rangeOf(language, text, path)`     | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                 |
+| `pathAt(language, text, index)`     | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                     |
+| `foldRanges(language, text)`        | `LineRange[]`      | The blocks that fold, one-based `{ startLine, endLine }` (`startLine` stays visible), as the gutter chevrons offer them.                                                                                                                                         |
+| `languageInfo(name)`                | `LanguageInfo`     | `{ name, label, icon, extensions, defaultFileName }` of a language name or extension (`"yml"` gives `name: "yaml"`). Throws on an unknown one.                                                                                                                    |
+| `languageForFile(path)`             | `string \| null`   | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                                                                                                                                            |
+| `themeInfo(name)`                   | `ThemeInfo`        | `{ name, label }` of a theme slug (`"nord"` gives `"Nord"`), for a picker.                                                                                                                                                                                       |
+| `presetCss()`                       | `string`           | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                |
 | `schemaWarnings(schema)`            | `string[]`         | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                   |
 | `languages()`                       | `string[]`         | Built-in and registered language names.                                                                                                                                                                                                                          |
 | `themes()`                          | `string[]`         | Theme slugs.                                                                                                                                                                                                                                                     |
@@ -200,6 +236,16 @@ validate("json", '{"insecure_plaintext": "yes"}', schemaText);
 
 convert("yaml", "listen: 7835\n", "toml");
 // { text: "listen = 7835\n", losses: [] }
+
+parse("toml", "[web]\nhttp = 80\n");          // { web: { http: 80 } }
+serialize("hcl", { web: { http: 80 } });       // "web {\n  http = 80\n}\n"
+rangeOf("yaml", "web:\n  http: 80\n", "/web/http");
+// { start: 7, end: 15, startLine: 2, startColumn: 3, endLine: 2, endColumn: 11 }
+foldRanges("json", '{\n  "web": {\n    "http": 80\n  }\n}');
+// [{ startLine: 1, endLine: 4 }, { startLine: 2, endLine: 3 }]
+languageForFile("deploy/main.tf");             // "hcl"
+languageInfo("yml");
+// { name: "yaml", label: "YAML", icon: "Y", extensions: ["yaml", "yml"], defaultFileName: "untitled.yaml" }
 ```
 
 ## Binding to a framework
@@ -529,7 +575,11 @@ specificity, so a plain rule in your stylesheet overrides any theme:
 }
 ```
 
-The `colors` option does the same per editor. The diff markers use `added`,
+With `styled: false` the editor injects nothing, and its markup
+(`config-editor__*` classes) is yours to style; `presetCss()` returns the
+preset stylesheet to serve or adapt.
+
+The `colors` option sets the variables per editor. The diff markers use `added`,
 `modified` and `removed` (which follows `error` unless set), and the
 footer's change count `status-changes`.
 

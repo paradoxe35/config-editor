@@ -8,6 +8,7 @@ import init, {
   type FieldPath,
   type HostDiagnostic,
   type LanguageName,
+  type LineRange,
   type ThemeColorMap,
   type ThemeName,
   ValueSync,
@@ -23,13 +24,23 @@ import {
 } from "react";
 
 export {
+  changeSummary,
+  colorTokens,
   convert,
+  foldRanges,
+  languageForFile,
+  languageInfo,
   languages,
+  parse,
+  pathAt,
+  presetCss,
+  rangeOf,
   registerLanguage,
   schemaWarnings,
+  serialize,
+  themeInfo,
   themes,
   unifiedDiff,
-  colorTokens,
   validate,
 } from "@pngwasi/config-editor";
 export type {
@@ -42,9 +53,12 @@ export type {
   EditorRange,
   FieldPath,
   HostDiagnostic,
+  LanguageInfo,
   LanguageName,
+  LineRange,
   Severity,
   ThemeColorMap,
+  ThemeInfo,
   ThemeName,
 } from "@pngwasi/config-editor";
 
@@ -148,6 +162,24 @@ export interface ConfigEditorProps {
   goToLine?: boolean;
   /** Folding by structure: gutter chevrons, `Ctrl+Shift+[` / `Ctrl+Shift+]`, `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`. View only. Default `true`. Changing it re-mounts. */
   folding?: boolean;
+  /** Line changes against `baseline` in the gutter. Default `true`. Changing it re-mounts. */
+  showDiff?: boolean;
+  /** Syntax and schema problems inline, in the footer and on hover. Default `true`. Changing it re-mounts. */
+  showDiagnostics?: boolean;
+  /** Schema completion (`Ctrl+Space`). Default `true`. Changing it re-mounts. */
+  completions?: boolean;
+  /** Open suggestions while typing; `false` opens them only with `Ctrl+Space`. Default `true`. Changing it re-mounts. */
+  autoTriggerCompletions?: boolean;
+  /** Schema docs when hovering a key. Default `true`. Changing it re-mounts. */
+  hoverDocs?: boolean;
+  /** Syntax colors. Default `true`. Changing it re-mounts. */
+  highlighting?: boolean;
+  /** Auto-close quotes and brackets. Default `true`. Changing it re-mounts. */
+  autoClosing?: boolean;
+  /** Inject the preset stylesheet; `false` leaves the `config-editor__*` markup to your styles (see `presetCss()`). Default `true`. Changing it re-mounts. */
+  styled?: boolean;
+  /** Whether `Ctrl+S` / `Cmd+S` saves (with `onSave`); `false` leaves it to the browser and only `ref.save()` saves. Default `true`. Updates live. */
+  saveShortcut?: boolean;
   /** Class on the editor root (inside the container). */
   editorClassName?: string;
   /** Class and style of the container element. */
@@ -192,6 +224,10 @@ export interface ConfigEditorHandle {
   fold(path: FieldPath): boolean;
   /** Opens the folds around the field at `path`; `false` when none was closed. */
   unfold(path: FieldPath): boolean;
+  /** The text on screen (in the `editAs` language while editing as another), which `rangeOf` and `pathAt` index into; `""` before the editor mounts. */
+  readonly text: string;
+  /** The folded blocks, one-based `{ startLine, endLine }` (`startLine` stays visible). */
+  readonly foldedLines: LineRange[];
   /** Folds every block. */
   foldAll(): void;
   /** Opens every fold. */
@@ -288,6 +324,15 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           search: current.search,
           goToLine: current.goToLine,
           folding: current.folding,
+          showDiff: current.showDiff,
+          showDiagnostics: current.showDiagnostics,
+          completions: current.completions,
+          autoTriggerCompletions: current.autoTriggerCompletions,
+          hoverDocs: current.hoverDocs,
+          highlighting: current.highlighting,
+          autoClosing: current.autoClosing,
+          styled: current.styled,
+          saveShortcut: current.saveShortcut,
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
@@ -363,6 +408,14 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       props.search,
       props.goToLine,
       props.folding,
+      props.showDiff,
+      props.showDiagnostics,
+      props.completions,
+      props.autoTriggerCompletions,
+      props.hoverDocs,
+      props.highlighting,
+      props.autoClosing,
+      props.styled,
       props.editorClassName,
       retry,
     ]);
@@ -409,6 +462,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     useEffect(() => {
       guard((instance) => instance.setReadOnly(props.readOnly ?? false));
     }, [mounted, props.readOnly]);
+
+    useEffect(() => {
+      guard((instance) => instance.setSaveShortcut(props.saveShortcut ?? true));
+    }, [mounted, props.saveShortcut]);
 
     const hostDiagnostics = JSON.stringify(props.hostDiagnostics ?? []);
     useEffect(() => {
@@ -463,6 +520,12 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         reveal: (path: FieldPath) => ask((instance) => instance.reveal(path), false),
         fold: (path: FieldPath) => ask((instance) => instance.fold(path), false),
         unfold: (path: FieldPath) => ask((instance) => instance.unfold(path), false),
+        get text() {
+          return ask((instance) => instance.text, "");
+        },
+        get foldedLines() {
+          return ask((instance) => instance.foldedLines, [] as LineRange[]);
+        },
         foldAll: () => guard((instance) => instance.foldAll()),
         unfoldAll: () => guard((instance) => instance.unfoldAll()),
         focus: () => guard((instance) => instance.focus()),

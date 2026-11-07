@@ -18,7 +18,10 @@ headless API for the same parsing, validation, and conversion.
   documents of thousands of lines.
 
 For JavaScript and React, see [`@pngwasi/config-editor`] and
-[`@pngwasi/config-editor-react`]; they wrap this crate.
+[`@pngwasi/config-editor-react`]; they wrap this crate. Every prop, handle
+method and headless function here has a JS option, method or function there
+(and a React prop, ref member or export), or a documented reason not to:
+`e2e/tests/api-parity.spec.mjs` checks it.
 
 ## Install
 
