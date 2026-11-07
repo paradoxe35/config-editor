@@ -15,16 +15,10 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
         <div
             class="config-editor__gutter"
             class:config-editor__gutter-folding=state.config.features.folding
-            // Wide enough for the longest line number beside the diagnostic
-            // dot (52px fits four digits) and the fold chevrons.
-            style:width=move || {
-                let digits = state.doc.text.with(|text| line_count(text)).to_string().len();
-                (digits > 4).then(|| {
-                    format!(
-                        "calc(52px + var(--config-editor-fold-gutter, 0px) + {}ch)",
-                        digits - 4
-                    )
-                })
+            // As wide as the longest line number (at least three digits);
+            // the stylesheet adds the marker column and the padding.
+            style:--config-editor-gutter-digits=move || {
+                state.doc.text.with(|text| line_count(text)).to_string().len().max(3).to_string()
             }
         >
             <div

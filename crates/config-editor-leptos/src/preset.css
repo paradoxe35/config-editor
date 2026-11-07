@@ -226,7 +226,15 @@
   position: relative;
   z-index: 5;
   background: var(--config-editor-bg);
-  width: 52px;
+  /* A column for the markers (a lock or key, then the problem dot), the
+     longest line number (`--config-editor-gutter-digits`, set from the line
+     count, at least 3), then the padding before the text. */
+  --config-editor-marker-column: 22px;
+  --config-editor-gutter-padding: 13px;
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding)
+  );
   flex: 0 0 auto;
   /* Its rows never size it: it stretches to the textarea, so resizing the
      textarea (or a short document) sets the editor's height. */
@@ -234,7 +242,8 @@
   align-self: stretch;
   min-height: 0;
   overflow: hidden;
-  padding: var(--config-editor-padding-top) 13px var(--config-editor-padding-bottom) 0;
+  padding: var(--config-editor-padding-top) var(--config-editor-gutter-padding)
+    var(--config-editor-padding-bottom) 0;
   color: var(--config-editor-line-number);
   text-align: right;
   user-select: none;
@@ -255,7 +264,7 @@
 .config-editor__line-number-error::before {
   position: absolute;
   top: 8px;
-  left: 8px;
+  left: calc(var(--config-editor-marker-column) - 7px);
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -267,7 +276,7 @@
 .config-editor__lock-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: 0;
+  left: calc(var(--config-editor-marker-column) - 18px);
   width: 9px;
   height: 10px;
   background: var(--config-editor-locked);
@@ -279,7 +288,7 @@
 .config-editor__secret-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: 0;
+  left: calc(var(--config-editor-marker-column) - 18px);
   width: 10px;
   height: 10px;
   background: var(--config-editor-secret-chip-border);
@@ -548,8 +557,11 @@
    hovered (always on touch screens and on folded lines). */
 .config-editor__gutter.config-editor__gutter-folding {
   --config-editor-fold-gutter: 14px;
-  width: calc(52px + var(--config-editor-fold-gutter));
-  padding-right: calc(13px + var(--config-editor-fold-gutter));
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
+  );
+  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter));
 }
 
 .config-editor__fold-toggle {
@@ -1417,10 +1429,9 @@
 
 @media (max-width: 600px) {
   .config-editor__toolbar { padding: 0 10px; }
-  .config-editor__gutter { width: 40px; padding-right: 10px; }
-  .config-editor__gutter.config-editor__gutter-folding {
-    width: calc(40px + var(--config-editor-fold-gutter));
-    padding-right: calc(10px + var(--config-editor-fold-gutter));
+  .config-editor__gutter {
+    --config-editor-marker-column: 21px;
+    --config-editor-gutter-padding: 10px;
   }
   .config-editor__schema-state { font-size: 0; }
   .config-editor__status-meta { gap: 5px; }
