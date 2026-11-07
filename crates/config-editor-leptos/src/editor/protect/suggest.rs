@@ -58,7 +58,10 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
             );
         }
     }
-    let browsing = around.protected.lock_at(around.cursor).is_some();
+    // Browsing a read-only region: on its text, or on a new line inside a
+    // read-only block (whose keys would all be read-only).
+    let browsing = around.protected.lock_at(around.cursor).is_some()
+        || (!context.path.is_empty() && lock_reason(around, &context.path).is_some());
     options
         .into_iter()
         .filter_map(|mut option| {

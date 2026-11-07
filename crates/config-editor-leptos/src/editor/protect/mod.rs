@@ -42,6 +42,16 @@ pub(crate) use view::{LineMarks, line_marks};
 
 #[cfg(all(
     test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod browse_tests;
+#[cfg(all(
+    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",
