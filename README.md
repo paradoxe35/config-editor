@@ -9,6 +9,7 @@ React.
 ![Schema completion in YAML](docs/screenshots/completion.png)
 
 <!-- toc -->
+
 ## Contents
 
 - [Features](#features)

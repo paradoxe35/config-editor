@@ -64,7 +64,8 @@ function contents(lines) {
     const anchor = count ? `${base}-${count}` : base;
     return `${level === 3 ? '  ' : ''}- [${label(text)}](#${anchor})`;
   });
-  return [START, TITLE, '', ...items, END];
+  // The blank line after the marker is Prettier's, so formatting leaves it.
+  return [START, '', TITLE, '', ...items, END];
 }
 
 function updated(text) {

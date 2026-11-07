@@ -88,6 +88,13 @@ step_optional() {
 step_docs() {
   node scripts/readme-toc.mjs --check
   node scripts/markdown-tables.mjs
+  # Markdown is formatted by Prettier (the version pinned in js/package.json),
+  # as an editor's format-on-save does; the generators write its output.
+  if [[ ! -x js/node_modules/.bin/prettier ]]; then
+    echo "run 'cd js && npm ci' first (Prettier checks the Markdown)" >&2
+    return 1
+  fi
+  git ls-files '*.md' | xargs js/node_modules/.bin/prettier --check --log-level warn
   node e2e/screenshots.mjs --check
 }
 
