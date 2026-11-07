@@ -39,7 +39,7 @@ const PROBLEMS = [
     message: 'port in use',
     code: 'E_PORT',
     source: 'burrow',
-    docsUrl: 'about:blank#ports',
+    docsUrl: 'https://example.com/docs/ports',
   },
   { path: ['public_address'], severity: 'info', message: 'resolves to 10.0.0.1' },
   { range: { startLine: 4, startColumn: 1, endColumn: 19 }, severity: 'hint', message: 'consider TLS' },
