@@ -5,6 +5,7 @@ import init, {
   type ThemeColorMap,
   type ThemeName,
 } from "@pngwasi/config-editor";
+import { ValueSync } from "@pngwasi/config-editor/sync";
 import {
   forwardRef,
   useEffect,
@@ -33,20 +34,6 @@ export type {
 
 type InitInput = Parameters<typeof init>[0];
 
-/** `onChange` values remembered as still on their way back. */
-const MAX_PENDING = 1000;
-/** How long a sent value can come back as a late echo. */
-const ECHO_WINDOW_MS = 10_000;
-
-/** A short stand-in for a document: its length and a 32-bit FNV-1a hash. */
-function fingerprint(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `${text.length}:${hash >>> 0}`;
-}
 let loading: Promise<unknown> | undefined;
 // Whether the load running was given a URL.
 let loadingWithInput = false;
@@ -161,17 +148,10 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // (theme, colors, editAs) changes, as a re-mount prop change would.
     const [retry, setRetry] = useState(0);
     const failed = useRef(false);
-    // Values sent through onChange that the parent has not passed back yet,
-    // oldest first. A parent applying them late must not roll the document
-    // back: an echo with newer values still pending is stale. Any other
-    // `value` (a revert, a reset) is the parent's own and is applied.
-    // Kept as fingerprints with the time sent: a fast typist against a slow
-    // parent has many in flight, and an echo older than `ECHO_WINDOW_MS`
-    // counts as the parent's own value again (a parent that skipped a
-    // render for an unchanged value never sends it).
-    const pending = useRef<{ print: string; sent: number }[]>([]);
-    // Values still on their way when `ref.setValue` replaced the document.
-    const superseded = useRef<{ print: string; sent: number }[]>([]);
+    // Tells the parent's own values (applied) from late echoes of what the
+    // editor sent (skipped, so the document never rolls back); shared with
+    // every framework wrapper (`@pngwasi/config-editor/sync`).
+    const sync = useRef(new ValueSync());
     // The `value` prop as last handled: a re-mount re-runs the value effect,
     // and an unchanged prop is not a new value from the parent.
     const handledValue = useRef<string | undefined>(undefined);
@@ -228,8 +208,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           className: current.editorClassName,
           onChange: (value) => {
             if (carried.current) carried.current.value = value;
-            pending.current.push({ print: fingerprint(value), sent: Date.now() });
-            if (pending.current.length > MAX_PENDING) pending.current.shift();
+            sync.current.sent(value);
             latest.current.onChange?.(value);
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
@@ -244,7 +223,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             // The `value` prop still holds what the parent had before the
             // reset reaches it: not a new value of its own.
             handledValue.current = latest.current.value;
-            pending.current.push({ print: fingerprint(value), sent: Date.now() });
+            sync.current.sent(value);
             latest.current.onChange?.(value);
           }
           setMounted((count) => count + 1);
@@ -289,39 +268,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         // First: an Edit-as edit still waiting out the typing pause is sent
         // now (reading `value` does), so its echo is told apart like any.
         const current = instance.value;
-        const now = Date.now();
-        pending.current = pending.current.filter((echo) => now - echo.sent < ECHO_WINDOW_MS);
-        const print = fingerprint(value);
-        // A value sent before a `ref.setValue` reset is a late echo of what
-        // the reset replaced: skipped, so the reset sticks.
-        const replaced = superseded.current.findIndex((echo) => echo.print === print && now - echo.sent < ECHO_WINDOW_MS);
-        if (replaced >= 0) {
-          superseded.current.splice(0, replaced + 1);
-          // The parent's state took that old value: tell it the document
-          // again, so both end on the reset.
-          if (superseded.current.length === 0 && current !== value) {
-            pending.current.push({ print: fingerprint(current), sent: now });
-            latest.current.onChange?.(current);
-          }
-          return;
-        }
-        // Echoes come back in the order they were sent, so this is the oldest
-        // pending copy (a typo fixed sends the same text twice: `a`, `ab`,
-        // `a`). A parent applying only the latest value leaves older copies
-        // pending until the echo window ends: a reset to such a text in the
-        // meantime is taken for its echo (`ref.setValue` always applies).
-        const sent = pending.current.findIndex((echo) => echo.print === print);
-        if (sent >= 0) {
-          // The parent caught up to this emission; newer ones may follow.
-          pending.current.splice(0, sent + 1);
-          if (pending.current.length > 0) return;
-        } else {
-          // The parent's own value: the editor's values still on their way
-          // are late echoes of what it replaced, skipped when they come.
-          superseded.current = [...superseded.current, ...pending.current];
-          pending.current = [];
-        }
-        if (current !== value) instance.setValue(value);
+        const { apply, report } = sync.current.received(value, current);
+        if (apply !== null) instance.setValue(apply);
+        if (report !== null) latest.current.onChange?.(report);
       });
     }, [mounted, props.value]);
 
@@ -373,8 +322,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
           // An Edit-as edit still waiting is sent first, so it is superseded
           // with the others below.
           void editor.current?.value;
-          superseded.current = [...superseded.current, ...pending.current];
-          pending.current = [];
+          sync.current.supersede();
           if (carried.current) carried.current.value = value;
           if (!editor.current) {
             reset.current = value;
@@ -385,7 +333,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             instance.setValue(value);
             // The parent's state follows the reset: it is reported like an
             // edit, and its echo is recognised like one.
-            pending.current.push({ print: fingerprint(value), sent: Date.now() });
+            sync.current.sent(value);
             latest.current.onChange?.(value);
           });
         },

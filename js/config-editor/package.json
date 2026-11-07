@@ -11,13 +11,19 @@
       "types": "./pkg/config_editor.d.ts",
       "default": "./pkg/config_editor.js"
     },
-    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm"
+    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm",
+    "./sync": {
+      "types": "./sync.d.ts",
+      "default": "./sync.js"
+    }
   },
   "files": [
     "pkg/config_editor.js",
     "pkg/config_editor.d.ts",
     "pkg/config_editor_bg.wasm",
     "pkg/config_editor_bg.wasm.d.ts",
+    "sync.js",
+    "sync.d.ts",
     "README.md",
     "LICENSE"
   ],

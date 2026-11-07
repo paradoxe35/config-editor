@@ -1148,3 +1148,49 @@ test.describe('round 13', () => {
     await expect(input(browserPage)).not.toHaveValue(/78359/);
   });
 });
+
+test.describe('ValueSync without a framework', () => {
+  test('a binding with a slow host never rolls back, and applies the host’s own value', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const { ValueSync } = await import('../config-editor/sync.js');
+      const element = document.body.appendChild(document.createElement('div'));
+      const sync = new ValueSync();
+      let hostValue = 'a: 1\n';
+      const editor = new module.ConfigEditor(element, {
+        value: hostValue,
+        // A slow host: each value comes back as the bound value 300 ms later.
+        onChange: (text) => {
+          sync.sent(text);
+          setTimeout(() => {
+            hostValue = text;
+            const { apply, report } = sync.received(text, editor.value);
+            if (apply !== null) editor.setValue(apply);
+            if (report !== null) hostValue = report;
+          }, 300);
+        },
+      });
+      const textarea = element.querySelector('textarea');
+      textarea.focus();
+      const shown = [];
+      for (const letter of 'xyz') {
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        document.execCommand('insertText', false, letter);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        shown.push(textarea.value);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const typed = editor.value;
+      // The host's own value (a reset): applied.
+      const { apply } = sync.received('reset: 1\n', editor.value);
+      if (apply !== null) editor.setValue(apply);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { shown, typed, host: hostValue, reset: editor.value };
+    });
+    expect(result.shown).toEqual(['a: 1\nx', 'a: 1\nxy', 'a: 1\nxyz']);
+    expect(result.typed).toBe('a: 1\nxyz');
+    expect(result.host).toBe('a: 1\nxyz');
+    expect(result.reset).toBe('reset: 1\n');
+  });
+});

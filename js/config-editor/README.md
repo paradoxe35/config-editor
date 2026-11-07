@@ -134,6 +134,45 @@ convert("yaml", "listen: 7835\n", "toml");
 // { text: "listen = 7835\n", losses: [] }
 ```
 
+## Binding to a framework
+
+A framework that binds the document two ways (Vue's `v-model`, Svelte's
+`bind:value`, Angular's `ControlValueAccessor`, Solid signals) passes every
+edit back in as its value, sometimes late and several at a time. Applying
+such an echo with `setValue` would roll the document back. `ValueSync`, from
+`@pngwasi/config-editor/sync`, tells the host's own values (a reset, a loaded
+file: applied) from echoes (skipped). The React package is built on it.
+
+```ts
+import { ConfigEditor } from "@pngwasi/config-editor";
+import { ValueSync } from "@pngwasi/config-editor/sync";
+
+const sync = new ValueSync();
+const editor = new ConfigEditor(element, {
+  value,
+  onChange: (text) => {
+    sync.sent(text); // before telling the host
+    emit(text);
+  },
+});
+
+// Whenever the bound value changes:
+const { apply, report } = sync.received(newValue, editor.value);
+if (apply !== null) editor.setValue(apply);
+if (report !== null) emit(report); // the host took a stale echo: correct it
+
+// Replacing the document from code, whatever is in flight:
+sync.supersede();
+editor.setValue(text);
+sync.sent(text);
+emit(text);
+```
+
+A value sent within the last 10 seconds that comes back while newer ones are
+still on their way is taken as a late echo (`new ValueSync({ echoWindowMs })`
+changes the window). Read `editor.value` right before `received`: it sends an
+edit made in `editAs` that is still waiting out the typing pause first.
+
 ## Keyboard
 
 `Ctrl+Space` suggestions · `Enter`/`Tab` accept · `Tab`/`Shift+Tab` indent ·
