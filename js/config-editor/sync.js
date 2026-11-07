@@ -43,7 +43,11 @@ export class ValueSync {
    * Call `sent` for the new document after, when the host is told about it.
    */
   supersede() {
-    this.superseded = [...this.superseded, ...this.pending];
+    // Bounded like `pending`: echoes older than the window never come.
+    const now = Date.now();
+    this.superseded = [...this.superseded, ...this.pending]
+      .filter((echo) => now - echo.sent < this.echoWindowMs)
+      .slice(-this.maxPending);
     this.pending = [];
   }
 

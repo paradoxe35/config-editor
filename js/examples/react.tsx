@@ -11,7 +11,11 @@ import {
 // `?late-load` loads it only after the component's own load (from its
 // default URL, which fails here) has failed: the editor still mounts.
 const lateLoad = new URLSearchParams(location.search).has("late-load");
+// `?double-load` passes a wrong URL, then the right one, while the first
+// still loads: the editor mounts from the second.
+const doubleLoad = new URLSearchParams(location.search).has("double-load");
 const wasm = { module_or_path: "../config-editor/pkg/config_editor_bg.wasm" };
+if (doubleLoad) void loadConfigEditor({ module_or_path: "../config-editor/pkg/missing.wasm" }).catch(() => {});
 const ready = lateLoad
   ? new Promise((resolve) => setTimeout(resolve, 800)).then(() => loadConfigEditor(wasm))
   : loadConfigEditor(wasm);
@@ -43,6 +47,8 @@ function App({ schema }: { schema: string }) {
   const handle = useRef<ConfigEditorHandle>(null);
   // For tests: the ref, as an app would read it.
   (window as unknown as { editorHandle: typeof handle }).editorHandle = handle;
+  // For tests: a re-mount prop changed without moving focus.
+  (window as unknown as { renameFile: () => void }).renameFile = () => setFileName((name) => `renamed-${name}`);
   // For tests: the parent's own state setter.
   (window as unknown as { setParentValue: typeof setValue }).setParentValue = setValue;
   useEffect(() => {

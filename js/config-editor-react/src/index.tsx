@@ -35,8 +35,6 @@ export type {
 type InitInput = Parameters<typeof init>[0];
 
 let loading: Promise<unknown> | undefined;
-// Whether the load running was given a URL.
-let loadingWithInput = false;
 // Editors whose own load failed, retried when a later load succeeds.
 const onLoaded = new Set<() => void>();
 
@@ -47,9 +45,9 @@ const onLoaded = new Set<() => void>();
  */
 export function loadConfigEditor(input?: InitInput): Promise<unknown> {
   // A failed load is not kept: calling again (with the right URL) retries.
-  // A URL given while a load without one runs: tried when that one fails.
-  if (loading && input !== undefined && !loadingWithInput) {
-    loadingWithInput = true;
+  // A URL given while a load runs: tried when that one fails (a wrong URL,
+  // or the default one, followed by the right one).
+  if (loading && input !== undefined) {
     const previous = loading;
     loading = previous.catch(() => init(input)).then(
       (value) => {
@@ -58,13 +56,11 @@ export function loadConfigEditor(input?: InitInput): Promise<unknown> {
       },
       (error: unknown) => {
         loading = undefined;
-        loadingWithInput = false;
         throw error;
       },
     );
     return loading;
   }
-  loadingWithInput ||= input !== undefined;
   loading ??= init(input).then(
     (value) => {
       for (const retry of [...onLoaded]) retry();
@@ -72,7 +68,6 @@ export function loadConfigEditor(input?: InitInput): Promise<unknown> {
     },
     (error: unknown) => {
       loading = undefined;
-      loadingWithInput = false;
       throw error;
     },
   );
@@ -158,6 +153,9 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
     // What a re-mount (language, schema, … changed) starts from, so an
     // uncontrolled document and its diff baseline survive it.
     const carried = useRef<{ value: string; baseline: string } | null>(null);
+    // Where the caret was when a re-mount took the editor away while it had
+    // focus: the new one takes focus and the caret back, so typing goes on.
+    const carriedFocus = useRef<{ start: number; end: number; scrollTop: number } | null>(null);
     // A `ref.setValue` made while there is no editor (before the first
     // mount, or while a re-mount has failed): applied and reported on mount.
     const reset = useRef<string | null>(null);
@@ -216,6 +214,14 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
         try {
           editor.current = new Editor(host.current, options);
           failed.current = false;
+          const focus = carriedFocus.current;
+          carriedFocus.current = null;
+          const textarea = host.current.querySelector("textarea");
+          if (focus && textarea) {
+            textarea.focus();
+            textarea.setSelectionRange(focus.start, focus.end);
+            textarea.scrollTop = focus.scrollTop;
+          }
           // A reset made before there was an editor reaches the parent now.
           if (reset.current !== null) {
             const value = reset.current;
@@ -238,6 +244,14 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
       return () => {
         cancelled = true;
         onLoaded.delete(retryOnLoad);
+        const textarea = host.current?.querySelector("textarea");
+        if (editor.current && textarea && document.activeElement === textarea) {
+          carriedFocus.current = {
+            start: textarea.selectionStart,
+            end: textarea.selectionEnd,
+            scrollTop: textarea.scrollTop,
+          };
+        }
         // destroy() first: it saves an edit still waiting to convert.
         editor.current?.destroy();
         if (editor.current && carried.current) carried.current.value = editor.current.value;

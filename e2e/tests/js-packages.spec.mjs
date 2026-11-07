@@ -1205,3 +1205,25 @@ test.describe('package entry', () => {
     expect(names).toEqual(['default', 'initSync', 'ConfigEditor', 'convert', 'validate', 'registerLanguage', 'ValueSync']);
   });
 });
+
+test.describe('round 14', () => {
+  test('react: a re-mount prop changed while typing keeps focus, caret and keystrokes', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html'));
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+End');
+    await browserPage.keyboard.type('xy');
+    await browserPage.evaluate(() => window.renameFile());
+    await browserPage.waitForTimeout(300);
+    await browserPage.keyboard.type('zw');
+    await expect(input(browserPage)).toHaveValue(/xyzw$/);
+    expect(await browserPage.evaluate(() => document.activeElement?.tagName)).toBe('TEXTAREA');
+    await expect(saved(browserPage)).toContainText('xyzw');
+  });
+
+  test('react: a wrong wasm URL followed by the right one while the first loads still mounts', async ({ page: browserPage }) => {
+    await browserPage.goto(page('react.html') + '?double-load');
+    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
+  });
+});
