@@ -102,6 +102,23 @@ for (const [language, marker, offset, key] of WHITESPACE) {
   });
 }
 
+test.describe('yaml: suggestions inside a read-only block', () => {
+  setupEditor(test, '?schema=protected');
+
+  test('show the reason, and accepting one changes nothing', async ({ page }) => {
+    // On a locked key's text (the block holds every key it may).
+    await caretAt(page, '  max: 10', 4);
+    const before = await editor(page).value();
+    await page.keyboard.press('Control+Space');
+    const popup = page.locator('.config-editor__completions');
+    await expect(popup).toBeVisible();
+    await expect(popup).toContainText('Set by your plan');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    expect(await editor(page).value()).toBe(before);
+  });
+});
+
 test.describe('yaml: a locked line', () => {
   setupEditor(test, '?schema=protected');
 

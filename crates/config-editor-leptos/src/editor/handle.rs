@@ -82,9 +82,32 @@ impl EditorHandle {
         self.state.try_with(Option::is_some).unwrap_or(false)
     }
 
-    /// The text on screen.
+    /// The text on screen, in the language on screen (the Edit-as language
+    /// while editing as another one); use [`value`](Self::value) for the
+    /// host's document.
     pub fn text(&self) -> Option<String> {
         self.editor()?.doc().text.try_get_untracked()
+    }
+
+    /// The document in the host's language, with pending edits applied: a
+    /// pending Edit-as edit is converted first (and reaches `on_change`
+    /// first), as [`save`](Self::save) does. `None` before the editor
+    /// mounts, and while an Edit-as edit cannot be written in the host's
+    /// language (invalid text, or a value the language cannot hold).
+    pub fn value(&self) -> Option<String> {
+        self.editor()?.host_document()
+    }
+
+    /// The unified diff (`diff -u`) of the baseline against
+    /// [`value`](Self::value), both in the host's language, with `context`
+    /// unchanged lines around each change; empty when they are the same.
+    /// `None` when `value` is. Needs the `diff` feature.
+    #[cfg(feature = "diff")]
+    pub fn unified_diff(&self, context: usize) -> Option<String> {
+        let state = self.editor()?;
+        let current = state.host_document()?;
+        let baseline = state.editing().baseline.try_get_untracked()?;
+        Some(super::changes::unified_diff(&baseline, &current, context))
     }
 
     /// Where the field at `path` is written: its key and value when they share

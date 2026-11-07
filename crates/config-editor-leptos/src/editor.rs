@@ -379,6 +379,8 @@ fn remeasure_on_window_changes(state: EditorState) {
     window_listener(&["resize", "scroll"], bump);
 }
 
+#[cfg(all(test, feature = "yaml"))]
+mod handle_tests;
 #[cfg(all(
     test,
     feature = "yaml",

@@ -507,6 +507,37 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
 `raised-border`, `raised-text`, `raised-muted`, `warning`, `control-bg` and
 `control-text`.
 
+### Embedding
+
+- **Fixed at mount:** `language`, `schema` and `secrets` are read when the
+  editor mounts. To change one, mount the editor again (key it on the
+  schema, for example) and pass the current value, so the text is kept; the
+  undo history starts over.
+- **Which text to send:** `EditorHandle::value()` is the document in your
+  language, pending edits applied; `EditorHandle::text()` is what is on
+  screen, which while editing as another language is that language. Send
+  `value()` (or what `on_change` gave you) to a server.
+  `EditorHandle::unified_diff(context)` is the `diff -u` of the baseline
+  against `value()`, in your language (`diff` feature).
+- **Saving:** `save()` and `Ctrl+S` apply pending edits first. A Save
+  button of your own that reads your own copy of the value calls
+  `flush_pending_edits()` first.
+- **Read-only fields and secrets need the `protect` feature** (on by
+  default). Without it the props compile, do nothing, and log a console
+  warning; the schema's `readOnly`, `writeOnly` and `x-secret` marks are
+  ignored.
+- **Host problems** spanning several lines are marked on their first line;
+  the footer and `F8` show the whole message.
+
+```rust
+let editor = EditorHandle::new();
+let send = move |_| {
+    if let Some(document) = editor.value() {
+        upload(document); // in the host's language, also while editing as another
+    }
+};
+```
+
 ## Several documents
 
 `<ConfigDocuments>` shows several files in one view, a main config and its

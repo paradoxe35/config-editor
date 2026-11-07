@@ -18,7 +18,6 @@ impl EditorState {
         let Some(on_save) = self.editing().on_save else {
             return false;
         };
-        super::super::input::flush_input(*self);
         match self.host_document() {
             Some(text) => {
                 self.editing().sent.update_value(|sent| sent.note(&text));
@@ -35,10 +34,12 @@ impl EditorState {
         }
     }
 
-    /// The document in the host's language now, converting a pending Edit-as
-    /// edit (which reaches `on_change` first); `None` when the text on screen
+    /// The document in the host's language now, taking typed input the
+    /// browser sent in this task and converting a pending Edit-as edit
+    /// (which reaches `on_change` first); `None` when the text on screen
     /// cannot convert.
     pub(in crate::editor) fn host_document(&self) -> Option<String> {
+        super::super::input::flush_input(*self);
         if self.bridge().is_none() {
             return Some(self.doc().text.get_untracked());
         }

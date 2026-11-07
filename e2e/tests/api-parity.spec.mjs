@@ -85,6 +85,8 @@ const HANDLE = {
   new: { exempt: '`new ConfigEditor(element, options)` mounts and returns the instance' },
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
   text: { member: 'text' },
+  value: { member: 'value' },
+  unified_diff: { member: 'unifiedDiff' },
   range_of: { member: 'rangeOf' },
   path_at: { member: 'pathAt' },
   current_path: { member: 'currentPath' },
@@ -222,6 +224,8 @@ const CRATE_EXPORTS = {
   check_syntax: { tool: 'validate' },
   float_of: { exempt: 'JS data holds `Infinity` and `NaN` as numbers: `parse` gives them as they are' },
   float_value: { exempt: 'JS data holds `Infinity` and `NaN` as numbers: `serialize` takes them as they are' },
+  string_of: { exempt: 'JS strings are plain strings: `parse` gives them as written' },
+  string_value: { exempt: 'JS strings are plain strings: `serialize` takes them as written' },
   flush_pending_edits: { exempt: 'every JS member that reads or replaces the document flushes first' },
   unified_diff: { tool: 'unifiedDiff' },
 };

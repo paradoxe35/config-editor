@@ -864,7 +864,12 @@ editing as another language, an edit still waiting out the typing pause is
 converted first; when it cannot be written in `language` (invalid, or a
 `null` for TOML), nothing is sent, `save()` returns `false`, and the caret
 goes to the problem. The document is dirty while it differs from `baseline`
-(the document at mount when no `baseline` is given).
+(the document at mount when no `baseline` is given). Embedding notes (what
+is fixed at mount, which text to send, flushing before your own Save
+button) are in the crate's
+[Embedding](https://crates.io/crates/config-editor-leptos#embedding)
+section: `editor.value` is the document in `language`, `editor.text` the
+text on screen.
 
 ```js
 const editor = new ConfigEditor(element, {

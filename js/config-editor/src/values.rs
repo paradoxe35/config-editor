@@ -53,7 +53,7 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
         return Ok(number_from_js(number));
     }
     if let Some(text) = value.as_string() {
-        return Ok(Value::String(text));
+        return Ok(config_editor_leptos::string_value(text));
     }
     if Array::is_array(value) {
         return Array::from(value)
@@ -351,7 +351,9 @@ fn data_to_js(value: &Value) -> JsValue {
     match value {
         Value::Null => JsValue::NULL,
         Value::Bool(flag) => JsValue::from_bool(*flag),
-        Value::String(text) => JsValue::from_str(text),
+        Value::String(text) => {
+            JsValue::from_str(config_editor_leptos::string_of(value).unwrap_or(text))
+        }
         Value::Array(items) => items.iter().map(data_to_js).collect::<Array>().into(),
         Value::Object(map) => {
             let object = Object::new();
