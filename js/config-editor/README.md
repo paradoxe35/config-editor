@@ -76,6 +76,7 @@ throws, and an unknown option name is reported in the console.
 | `className`      | `string`                     | —                | Extra class on the editor root.                                                                                                                                                                               |
 | `onChange`       | `(value: string) => void`    | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                        |
 | `onEditAsChange` | `(language: string) => void` | —                | Called when an `editAs` switch completes. A switch waits while the document cannot convert yet (TOML has no `null`).                                                                                          |
+| `onChangeSummary` | `(summary: ChangeSummary) => void` | —          | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                  |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -91,7 +92,8 @@ An unknown language, theme or color token, or an invalid schema, throws an
 | `setTheme(name \| null)`                       | Switch theme; `null` returns to the default.                                                                                                                                             |
 | `setColors(colors)`                            | Replace the color overrides (`{}` clears them).                                                                                                                                          |
 | `setReadOnly(boolean)`                         | Toggle view mode.                                                                                                                                                                        |
-| `setCallbacks({ onChange?, onEditAsChange? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                                           |
+| `setCallbacks({ onChange?, onEditAsChange?, onChangeSummary? })` | Replace callbacks; `null` removes one, an absent key keeps it.                                                                                                         |
+| `unifiedDiff(context?)`                        | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same.                                         |
 | `destroy()`                                    | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                       |
 | `free()`                                       | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen reports `null pointer passed to rust`). |
 
@@ -105,6 +107,7 @@ break the editor.
 | `init(input?)`                      | `Promise`          | Load the WebAssembly (default export).                                                                                                                                                                                                                           |
 | `validate(language, text, schema?)` | `Diagnostic[]`     | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                    |
 | `convert(from, text, to, schema?)`  | `{ text, losses }` | Convert between languages. `losses` lists JSON pointers of values the target reads back differently. Throws when the text does not parse or the target cannot express it. With a schema, a lone XML element where it expects a list converts as a one-item list. |
+| `unifiedDiff(baseline, current, context?)` | `string`    | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                   |
 | `languages()`                       | `string[]`         | Built-in and registered language names.                                                                                                                                                                                                                          |
 | `themes()`                          | `string[]`         | Theme slugs.                                                                                                                                                                                                                                                     |
 | `colorTokens()`                     | `string[]`         | Tokens accepted by `colors`.                                                                                                                                                                                                                                     |
@@ -282,8 +285,26 @@ update them with the setters when they change.
 
 `Ctrl+Space` suggestions · `Enter`/`Tab` accept · `Tab`/`Shift+Tab` indent ·
 `Ctrl+/` comment · `Ctrl+Z`/`Ctrl+Y` undo/redo · `F8` next problem ·
-`Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close.
+`Ctrl+Enter`/`Ctrl+Shift+Enter` new line below/above · `Escape` close ·
+`Alt+F5`/`Shift+Alt+F5` next/previous change against the baseline ·
+`Alt+F3`/`Shift+Alt+F3` the same, opening its preview, where `Enter` or `R`
+reverts the change.
 `Cmd` works in place of `Ctrl` on macOS.
+
+## Reviewing changes
+
+The gutter marks added, modified and removed lines against `baseline`; a
+marker opens the lines before and now with **Revert** (one undo step,
+reported through `onChange`). For your own review screen:
+
+```js
+const editor = new ConfigEditor(element, {
+  value: saved,
+  onChangeSummary: ({ hunks }) => (reviewButton.disabled = hunks === 0),
+});
+reviewButton.onclick = () => showPatch(editor.unifiedDiff());
+// After saving: editor.setBaseline(editor.value) clears the changes.
+```
 
 ## Languages written in JavaScript
 
@@ -385,7 +406,9 @@ specificity, so a plain rule in your stylesheet overrides any theme:
 }
 ```
 
-The `colors` option does the same per editor.
+The `colors` option does the same per editor. The diff markers use `added`,
+`modified` and `removed` (which follows `error` unless set), and the
+footer's change count `status-changes`.
 
 ## License
 

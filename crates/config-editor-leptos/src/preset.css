@@ -10,6 +10,7 @@
   --config-editor-line-active: #c6c6c6;
   --config-editor-added: #89d185;
   --config-editor-modified: #75beff;
+  --config-editor-removed: var(--config-editor-error);
   --config-editor-raised: #252526;
   --config-editor-raised-border: #454545;
   --config-editor-raised-text: #d4d4d4;
@@ -50,6 +51,7 @@
   --config-editor-completion-icon-text: #bdbdbd;
   --config-editor-scrollbar-thumb: #686868;
   --config-editor-status-error: #f48771;
+  --config-editor-status-changes: var(--config-editor-modified);
   --config-editor-popup-shadow: rgb(0 0 0 / 35%);
   --config-editor-peek-shadow: rgb(0 0 0 / 45%);
   --config-editor-hover-shadow: rgba(0, 0, 0, 0.28);
@@ -213,13 +215,15 @@
 }
 
 .config-editor__diff-marker-added { background: var(--config-editor-added); }
+.config-editor__diff-marker-modified { background: var(--config-editor-modified); }
 
+.config-editor__diff-marker-added,
 .config-editor__diff-marker-modified {
-  background: var(--config-editor-modified);
   cursor: pointer;
   transition: width 100ms ease, right 100ms ease, box-shadow 100ms ease;
 }
 
+.config-editor__diff-marker-added::after,
 .config-editor__diff-marker-modified::after {
   position: absolute;
   top: 0;
@@ -229,10 +233,22 @@
   content: "";
 }
 
+.config-editor__diff-marker-added:hover,
+.config-editor__diff-marker-added:focus-visible,
 .config-editor__diff-marker-modified:hover,
 .config-editor__diff-marker-modified:focus-visible {
   right: -10px;
   width: 5px;
+}
+
+.config-editor__diff-marker-added:hover,
+.config-editor__diff-marker-added:focus-visible {
+  background: var(--config-editor-added);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-added) 70%, transparent);
+}
+
+.config-editor__diff-marker-modified:hover,
+.config-editor__diff-marker-modified:focus-visible {
   background: var(--config-editor-modified);
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-modified) 70%, transparent);
 }
@@ -262,7 +278,7 @@
   width: 3px;
   height: 3px;
   border-radius: 1px;
-  background: var(--config-editor-error);
+  background: var(--config-editor-removed);
   content: "";
   transition: height 100ms ease, top 100ms ease, box-shadow 100ms ease;
 }
@@ -276,8 +292,8 @@
 .config-editor__diff-deleted:focus-visible::before {
   top: 3px;
   height: 5px;
-  background: var(--config-editor-error);
-  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-error) 65%, transparent);
+  background: var(--config-editor-removed);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-removed) 65%, transparent);
 }
 
 .config-editor__diff-deleted-after:hover::before,
@@ -332,6 +348,20 @@
 
 .config-editor__diff-peek-header button:hover,
 .config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
+
+.config-editor__diff-peek-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+
+.config-editor__diff-peek-header .config-editor__diff-peek-revert {
+  width: auto;
+  padding: 0 8px;
+  border: 1px solid var(--config-editor-raised-border);
+  font: 12px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__diff-peek-header .config-editor__diff-peek-revert:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
 
 .config-editor__diff-peek-columns {
   display: grid;
@@ -740,6 +770,25 @@
 }
 
 .config-editor__diagnostic-status-error { color: var(--config-editor-status-error); }
+
+/* "2 changes": status text that jumps to the next change. */
+.config-editor__change-status {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--config-editor-status-changes);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.config-editor__change-status:hover { text-decoration: underline; }
+
+.config-editor__change-status:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
 
 :where(.config-editor[data-theme="vscode-light"]) {
   --config-editor-bg: #ffffff;

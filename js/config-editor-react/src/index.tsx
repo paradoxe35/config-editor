@@ -1,10 +1,12 @@
 import init, {
+  type ChangeSummary,
   ConfigEditor as Editor,
   type EditorOptions,
   type LanguageName,
   type ThemeColorMap,
   type ThemeName,
   ValueSync,
+  unifiedDiff as diffTexts,
 } from "@pngwasi/config-editor";
 import {
   forwardRef,
@@ -20,10 +22,12 @@ export {
   languages,
   registerLanguage,
   themes,
+  unifiedDiff,
   colorTokens,
   validate,
 } from "@pngwasi/config-editor";
 export type {
+  ChangeSummary,
   Conversion,
   CustomLanguage,
   Diagnostic,
@@ -87,6 +91,8 @@ export interface ConfigEditorProps {
   editAs?: LanguageName | null;
   /** Called when an `editAs` switch completes. */
   onEditAsChange?: (language: LanguageName) => void;
+  /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
+  onChangeSummary?: (summary: ChangeSummary) => void;
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema?: string;
   /** Text the diff gutter compares against. */
@@ -123,6 +129,12 @@ export interface ConfigEditorHandle {
    * goes through here.
    */
   setValue(value: string): void;
+  /**
+   * The unified diff (`diff -u`) of the baseline against the document, with
+   * `context` unchanged lines around each change (default 3); empty when
+   * they are the same.
+   */
+  unifiedDiff(context?: number): string;
 }
 
 /**
@@ -210,6 +222,7 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             latest.current.onChange?.(value);
           },
           onEditAsChange: (language) => latest.current.onEditAsChange?.(language),
+          onChangeSummary: (summary) => latest.current.onChangeSummary?.(summary),
         };
         try {
           editor.current = new Editor(host.current, options);
@@ -350,6 +363,19 @@ export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(
             sync.current.sent(value);
             latest.current.onChange?.(value);
           });
+        },
+        unifiedDiff(context?: number) {
+          if (editor.current) return editor.current.unifiedDiff(context);
+          // While a re-mount has failed: the document and baseline kept for
+          // it (no diff while the module has not loaded).
+          const value =
+            reset.current ?? carried.current?.value ?? latest.current.value ?? latest.current.defaultValue ?? "";
+          try {
+            return diffTexts(carried.current?.baseline ?? latest.current.baseline ?? value, value, context);
+          } catch (error) {
+            report(error);
+            return "";
+          }
         },
       }),
       [],

@@ -2,6 +2,7 @@
 //! returns `true` when it took the key, and [`on_keydown`] stops there; the
 //! order below is the order keys are matched in.
 
+pub(super) mod changes;
 mod enter;
 mod navigation;
 mod suggestions;
@@ -23,7 +24,10 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.hide_shown_problem();
     }
-    if navigation::smart_home(state, event) || navigation::keep_placeholder(state, event) {
+    if navigation::smart_home(state, event)
+        || navigation::keep_placeholder(state, event)
+        || changes::go_to_change(state, event)
+    {
         return;
     }
     if state.read_only.get_untracked() {

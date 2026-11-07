@@ -69,11 +69,14 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
         >
             <span aria-hidden="true">{line}</span>
             {move || {
-                row.with(|row| row.change == DiffKind::Added).then(|| view! {
-                    <span
-                        class="config-editor__diff-marker config-editor__diff-marker-added"
-                        aria-hidden="true"
-                    ></span>
+                row.with(|row| row.added_peek.clone()).map(|peek| view! {
+                    <PeekTrigger
+                        state=state
+                        peek=peek
+                        class="config-editor__diff-marker config-editor__diff-marker-added config-editor__diff-change-trigger"
+                        label=format!("Show added line {line}")
+                        title="Show added line"
+                    />
                 })
             }}
             {move || {
@@ -122,22 +125,28 @@ fn PeekTrigger(
     label: String,
     title: &'static str,
 ) -> impl IntoView {
+    let toggle = move |_| {
+        state.selected_diff_peek.update(|selected| {
+            *selected = if selected.as_ref() == Some(&peek) {
+                None
+            } else {
+                Some(peek.clone())
+            };
+        });
+    };
+    let keydown = move |event: web_sys::KeyboardEvent| {
+        if event.key() == "Escape" {
+            state.selected_diff_peek.set(None);
+        }
+    };
     view! {
         <button
             type="button"
             class=class
             aria-label=label
             title=title
-            on:click=move |_| {
-                state.selected_diff_peek.update(|selected| {
-                    *selected = if selected.as_ref() == Some(&peek) { None } else { Some(peek.clone()) };
-                });
-            }
-            on:keydown=move |event: web_sys::KeyboardEvent| {
-                if event.key() == "Escape" {
-                    state.selected_diff_peek.set(None);
-                }
-            }
+            on:click=toggle
+            on:keydown=keydown
         ></button>
     }
 }

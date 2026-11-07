@@ -3,6 +3,7 @@ use super::positioning::{
     FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_GAP, POPUP_MARGIN,
 };
 use std::borrow::Cow;
+use std::ops::Range;
 use wasm_bindgen::JsCast;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,16 +13,42 @@ pub(super) enum DiffKind {
     Modified,
 }
 
-#[derive(Clone, PartialEq)]
+/// Which gutter marker a change preview belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PeekKind {
+    Modified,
+    Added,
+    /// Lines removed before `line`.
+    Removed,
+    /// Lines removed after the last line (`line`).
+    RemovedAtEnd,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct DiffPeek {
     pub(super) line: usize,
+    pub(super) kind: PeekKind,
     pub(super) title: String,
     pub(super) before: Vec<String>,
     pub(super) after: Vec<String>,
 }
 
+/// One change against the baseline: a run of current lines that replaced
+/// some baseline lines (either side may be empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Hunk {
+    /// The current lines it covers, zero-based. Empty for lines only
+    /// removed: they were before line `current.start`.
+    pub(super) current: Range<usize>,
+    /// The baseline lines those replaced, exactly: reverting writes them back.
+    pub(super) baseline: Vec<String>,
+    pub(super) added: usize,
+    pub(super) modified: usize,
+    pub(super) removed: usize,
+}
+
 /// Whether an open change preview still shows live content after an edit:
-/// the same deleted hunk, or a still-modified line whose text matches the
+/// the same deleted hunk, or a still-changed line whose text matches the
 /// snapshot (so a line inserted above, shifting the anchor, dismisses it).
 pub(super) fn peek_survives_edit(
     peek: &DiffPeek,
@@ -29,27 +56,32 @@ pub(super) fn peek_survives_edit(
     line_diff: &LineDiff,
 ) -> bool {
     let index = peek.line.saturating_sub(1);
-    if peek.after.is_empty() {
-        if line_diff
-            .deleted_before
+    let line_is = |kind: DiffKind| {
+        line_diff
+            .current
             .get(index)
             .copied()
-            .unwrap_or(false)
-            && line_diff.deleted_lines_before.get(index) == Some(&peek.before)
-        {
-            return true;
+            .unwrap_or(DiffKind::Unchanged)
+            == kind
+            && current.get(index) == peek.after.first()
+    };
+    match peek.kind {
+        PeekKind::Modified => line_is(DiffKind::Modified),
+        PeekKind::Added => line_is(DiffKind::Added),
+        PeekKind::Removed => {
+            line_diff
+                .deleted_before
+                .get(index)
+                .copied()
+                .unwrap_or(false)
+                && line_diff.deleted_lines_before.get(index) == Some(&peek.before)
         }
-        return peek.line == current.len()
-            && line_diff.deleted_after
-            && line_diff.deleted_lines_after == peek.before;
+        PeekKind::RemovedAtEnd => {
+            peek.line == current.len()
+                && line_diff.deleted_after
+                && line_diff.deleted_lines_after == peek.before
+        }
     }
-    line_diff
-        .current
-        .get(index)
-        .copied()
-        .unwrap_or(DiffKind::Unchanged)
-        == DiffKind::Modified
-        && current.get(index) == peek.after.first()
 }
 
 #[derive(Clone, PartialEq)]
@@ -60,6 +92,8 @@ pub(super) struct LineDiff {
     pub(super) modified_before: Vec<Option<String>>,
     pub(super) deleted_after: bool,
     pub(super) deleted_lines_after: Vec<String>,
+    /// The changes, in document order.
+    pub(super) hunks: Vec<Hunk>,
 }
 
 impl LineDiff {
@@ -72,6 +106,7 @@ impl LineDiff {
             modified_before: vec![None; line_count],
             deleted_after: false,
             deleted_lines_after: Vec::new(),
+            hunks: Vec::new(),
         }
     }
 }
@@ -314,7 +349,7 @@ fn backtrack_myers(
 
 /// The textarea turns CRLF into LF on the first edit, so both sides are
 /// compared as LF to keep every line from showing as modified.
-fn normalize_newlines(text: &str) -> Cow<'_, str> {
+pub(super) fn normalize_newlines(text: &str) -> Cow<'_, str> {
     if text.contains('\r') {
         Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
     } else {
@@ -322,13 +357,78 @@ fn normalize_newlines(text: &str) -> Cow<'_, str> {
     }
 }
 
+/// The lines of an LF text, none for an empty one: an empty baseline has no
+/// line to modify, so everything typed into it is added (and reverting it
+/// gives the empty text back).
+pub(super) fn document_lines(text: &str) -> Vec<&str> {
+    if text.is_empty() {
+        Vec::new()
+    } else {
+        text.split('\n').collect()
+    }
+}
+
+/// LCS table cells past which the diff switches to Myers.
+const LCS_MAX_CELLS: usize = 1_000_000;
+
+/// The edits turning `old` into `new`, without a common prefix or suffix
+/// (the callers trim those): an exact LCS when small, Myers up to its depth
+/// cap, else one delete-then-insert block.
+pub(super) fn middle_edits(old: &[&str], new: &[&str]) -> Vec<DiffEdit> {
+    let cell_count = (old.len() + 1).saturating_mul(new.len() + 1);
+    if cell_count > LCS_MAX_CELLS {
+        if let Some(edits) = myers_edits(old, new) {
+            return edits;
+        }
+        let mut edits = Vec::with_capacity(old.len() + new.len());
+        edits.extend(std::iter::repeat_n(DiffEdit::Delete, old.len()));
+        edits.extend(std::iter::repeat_n(DiffEdit::Insert, new.len()));
+        return edits;
+    }
+    let columns = new.len() + 1;
+    let mut lcs = vec![0u32; cell_count];
+    for old_index in (0..old.len()).rev() {
+        for new_index in (0..new.len()).rev() {
+            let index = old_index * columns + new_index;
+            lcs[index] = if old[old_index] == new[new_index] {
+                1 + lcs[(old_index + 1) * columns + new_index + 1]
+            } else {
+                lcs[(old_index + 1) * columns + new_index].max(lcs[index + 1])
+            };
+        }
+    }
+    let mut edits = Vec::with_capacity(old.len() + new.len());
+    let (mut old_index, mut new_index) = (0, 0);
+    while old_index < old.len() || new_index < new.len() {
+        if old_index < old.len() && new_index < new.len() && old[old_index] == new[new_index] {
+            edits.push(DiffEdit::Equal);
+            old_index += 1;
+            new_index += 1;
+        } else if old_index < old.len()
+            && (new_index == new.len()
+                || lcs[(old_index + 1) * columns + new_index]
+                    >= lcs[old_index * columns + new_index + 1])
+        {
+            edits.push(DiffEdit::Delete);
+            old_index += 1;
+        } else {
+            edits.push(DiffEdit::Insert);
+            new_index += 1;
+        }
+    }
+    edits
+}
+
 pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
     let current_ends_with_newline = current.ends_with('\n') || current.ends_with('\r');
     let baseline_ends_with_newline = baseline.ends_with('\n') || baseline.ends_with('\r');
     let baseline = normalize_newlines(baseline);
     let current = normalize_newlines(current);
-    let baseline: Vec<_> = baseline.split('\n').collect();
-    let current: Vec<_> = current.split('\n').collect();
+    if baseline.is_empty() && current.is_empty() {
+        return LineDiff::empty(1);
+    }
+    let baseline = document_lines(&baseline);
+    let current = document_lines(&current);
     // When both end in a newline, their trailing empty lines pair up, so added
     // blank lines are marked before it rather than at the end.
     let baseline_eof_slot = baseline
@@ -342,6 +442,7 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
     let mut modified_before = vec![None; current.len()];
     let mut deleted_after = false;
     let mut deleted_lines_after = Vec::new();
+    let mut hunks = Vec::new();
     let mut prefix = 0;
     while prefix < baseline.len()
         && prefix < current.len()
@@ -361,49 +462,7 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
 
     let old_middle = &baseline[prefix..baseline.len() - suffix];
     let new_middle = &current[prefix..current.len() - suffix];
-    let cell_count = (old_middle.len() + 1).saturating_mul(new_middle.len() + 1);
-    let mut edits = Vec::new();
-    if cell_count <= 1_000_000 {
-        let columns = new_middle.len() + 1;
-        let mut lcs = vec![0u32; cell_count];
-        for old_index in (0..old_middle.len()).rev() {
-            for new_index in (0..new_middle.len()).rev() {
-                let index = old_index * columns + new_index;
-                lcs[index] = if old_middle[old_index] == new_middle[new_index] {
-                    1 + lcs[(old_index + 1) * columns + new_index + 1]
-                } else {
-                    lcs[(old_index + 1) * columns + new_index].max(lcs[index + 1])
-                };
-            }
-        }
-
-        let (mut old_index, mut new_index) = (0, 0);
-        while old_index < old_middle.len() || new_index < new_middle.len() {
-            if old_index < old_middle.len()
-                && new_index < new_middle.len()
-                && old_middle[old_index] == new_middle[new_index]
-            {
-                edits.push(DiffEdit::Equal);
-                old_index += 1;
-                new_index += 1;
-            } else if old_index < old_middle.len()
-                && (new_index == new_middle.len()
-                    || lcs[(old_index + 1) * columns + new_index]
-                        >= lcs[old_index * columns + new_index + 1])
-            {
-                edits.push(DiffEdit::Delete);
-                old_index += 1;
-            } else {
-                edits.push(DiffEdit::Insert);
-                new_index += 1;
-            }
-        }
-    } else if let Some(myers) = myers_edits(old_middle, new_middle) {
-        edits = myers;
-    } else {
-        edits.extend(std::iter::repeat_n(DiffEdit::Delete, old_middle.len()));
-        edits.extend(std::iter::repeat_n(DiffEdit::Insert, new_middle.len()));
-    }
+    let edits = middle_edits(old_middle, new_middle);
 
     let mut new_index = prefix;
     let mut old_index = 0;
@@ -415,6 +474,7 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
             edit_index += 1;
             continue;
         }
+        let hunk_start = new_index;
         let mut deleted = Vec::new();
         let mut inserted = Vec::new();
         while edit_index < edits.len() && !matches!(edits[edit_index], DiffEdit::Equal) {
@@ -444,19 +504,22 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
         for index in inserted.iter().skip(paired) {
             changes[*index] = DiffKind::Added;
         }
-        let paired_old_indices: std::collections::HashSet<usize> = pairable_deleted
+        let removed_lines: Vec<String> = pairable_deleted
             .iter()
-            .take(paired)
-            .map(|(index, _)| *index)
+            .skip(paired)
+            .map(|(_, line)| line.clone())
             .collect();
-        let removed_lines: Vec<String> = deleted
-            .into_iter()
-            .filter(|(old_line_index, _)| {
-                Some(*old_line_index) != baseline_eof_slot
-                    && !paired_old_indices.contains(old_line_index)
-            })
-            .map(|(_, line)| line)
-            .collect();
+        // A hunk that only drops the baseline's final newline shows nothing,
+        // so it is not a change either.
+        if !inserted.is_empty() || !removed_lines.is_empty() {
+            hunks.push(Hunk {
+                current: hunk_start..new_index,
+                baseline: deleted.iter().map(|(_, line)| line.clone()).collect(),
+                added: inserted.len() - paired,
+                modified: paired,
+                removed: removed_lines.len(),
+            });
+        }
         if !removed_lines.is_empty() {
             if new_index >= current.len() {
                 deleted_after = true;
@@ -475,6 +538,7 @@ pub(super) fn diff_lines(baseline: &str, current: &str) -> LineDiff {
         modified_before,
         deleted_after,
         deleted_lines_after,
+        hunks,
     }
 }
 
@@ -614,6 +678,7 @@ mod tests {
     fn modified_peek(line: usize, before: &str, after: &str) -> DiffPeek {
         DiffPeek {
             line,
+            kind: PeekKind::Modified,
             title: "Modified line".to_string(),
             before: vec![before.to_string()],
             after: vec![after.to_string()],
@@ -678,6 +743,7 @@ mod tests {
         assert!(diff.deleted_before[1]);
         let peek = DiffPeek {
             line: 2,
+            kind: PeekKind::Removed,
             title: "Removed lines".to_string(),
             before: vec!["gone: 1".to_string()],
             after: Vec::new(),
@@ -715,6 +781,7 @@ mod tests {
         assert!(diff.deleted_after);
         let peek = DiffPeek {
             line: 1,
+            kind: PeekKind::RemovedAtEnd,
             title: "Removed lines at end of document".to_string(),
             before: vec!["gone one".to_string(), "gone two".to_string()],
             after: Vec::new(),

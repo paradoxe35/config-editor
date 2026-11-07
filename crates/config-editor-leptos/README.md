@@ -12,7 +12,8 @@ headless API for the same parsing, validation, and conversion.
   edits are saved back in the file's own language, keeping its comments.
 - **Editing:** schema completion with formatted inserts, auto-closing pairs
   and XML end tags, comment toggling, smart indentation, undo/redo, a diff
-  gutter against a baseline, read-only mode, and eleven bundled themes.
+  gutter against a baseline (with per-change revert, a change count and a
+  unified diff), read-only mode, and eleven bundled themes.
 - **Large files:** only visible rows are rendered; typing stays fast in
   documents of thousands of lines.
 
@@ -82,7 +83,8 @@ document from code (a Save button) to send an edit still waiting first.
 | `enable_hover_docs`            | `bool`                                     | `true`           | Schema description, type, default and examples when hovering a key.                                                                  |
 | `enable_highlighting`          | `bool`                                     | `true`           | Syntax colors.                                                                                                                       |
 | `enable_auto_closing`          | `bool`                                     | `true`           | Close brackets, quotes and XML tags; wrap selections; delete empty pairs.                                                            |
-| `show_diff`                    | `bool`                                     | `true`           | Added, modified and deleted line markers with a before/after preview.                                                                |
+| `show_diff`                    | `bool`                                     | `true`           | Added, modified and removed line markers with a before/after preview and "Revert this change".                                       |
+| `on_change_summary`            | `Fn(ChangeSummary)`                        | —                | Called with the lines added, removed and modified against `baseline`, and the number of changes, whenever that changes.              |
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
 `ConfigEditorToolbar` / `ConfigEditorFooter`, which take the same `theme`
@@ -107,6 +109,37 @@ and `colors` so they match the editor.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
 
+### Changes against the baseline
+
+The gutter marks added lines (green bar), modified lines (blue bar) and
+removed lines (a red mark between the lines around them). Clicking a marker
+opens a preview of the lines before and now, with **Revert**: it restores
+the baseline lines of that whole change as one edit (one undo step, sent
+through `on_change`, converted back while editing as another language). The
+footer shows the number of changes; clicking it moves to the next one.
+
+```rust
+use config_editor_leptos::{unified_diff, ChangeSummary, ConfigEditor, Language};
+
+let saved = RwSignal::new(load());
+let text = RwSignal::new(saved.get_untracked());
+let changes = RwSignal::new(ChangeSummary::default());
+view! {
+    <ConfigEditor
+        language=Language::YAML
+        value=text
+        baseline=saved
+        on_change=move |next| text.set(next)
+        on_change_summary=move |summary| changes.set(summary)
+    />
+    <button disabled=move || changes.get().is_empty()>
+        {move || format!("Review {} changes", changes.get().hunks)}
+    </button>
+    // For a review dialog: `diff -u` output, 3 lines of context.
+    <pre>{move || unified_diff(&saved.get(), &text.get(), 3)}</pre>
+}
+```
+
 ## Keyboard
 
 | Keys                                         | Action                                                                           |
@@ -120,6 +153,9 @@ and `colors` so they match the editor.
 | `Ctrl+/`                                     | Toggle comments                                                                  |
 | `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                       |
 | `F8` / `Shift+F8`                            | Next / previous problem                                                          |
+| `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                      |
+| `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert             |
+| `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)         |
 | `Home`                                       | First non-blank character, then the line start                                   |
 | `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                             |
 | `Escape`                                     | Close popups, then collapse the selection                                        |
@@ -154,6 +190,8 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`. Cheap to clone and share.                                                                                                                                         |
 | `SchemaSource`                             | What the `schema` prop takes: JSON text or a `Schema`.                                                                                                                                                                                                      |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
+| `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                  |
+| `ChangeSummary`                            | `added`, `removed`, `modified` lines and `hunks` (separate changes), as the diff gutter counts them; `ChangeSummary::between(baseline, current)`, `is_empty()`.                                                                                             |
 | `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error` / `Warning`).                                                                                                                                    |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
 | `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
@@ -281,7 +319,12 @@ let brand = ThemeColors::new()
 ```
 
 The same tokens are CSS variables (`--config-editor-key`, …), so a stylesheet
-can set them too.
+can set them too. The diff colors are `Added`, `Modified` and `Removed`
+(`--config-editor-added`, `--config-editor-modified`,
+`--config-editor-removed`, which follows `Error` unless set), the line
+backgrounds `AddedLine` and `ModifiedLine`, the preview's `DiffRemoved*` and
+`DiffCurrent*`, and the footer's change count `StatusChanges`
+(`--config-editor-status-changes`, which follows `Modified` unless set).
 
 ## Cargo features
 
