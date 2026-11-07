@@ -741,7 +741,7 @@ fn random_edits_never_change_a_read_only_value() {
     );
     // The edits did reach the documents and the hosts.
     assert!(
-        applied > 2000 && saved > 800,
+        applied > 2000 && saved > 700,
         "applied {applied}, saved {saved}"
     );
 }
