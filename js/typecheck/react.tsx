@@ -15,3 +15,16 @@ await loadConfigEditor();
 const problems = validate("toml", text, schema);
 convert("yaml", text, "json");
 const patch: string = unifiedDiff("a\n", "b\n", 3);
+// Saving.
+declare function putConfig(text: string): Promise<void>;
+export function Saving() {
+  const [saved, setSaved] = useState("a: 1\n");
+  const [text, setText] = useState(saved);
+  const [, setDirty] = useState(false);
+  const ref = useRef<ConfigEditorHandle>(null);
+  const sent: boolean | undefined = ref.current?.save(); const dirty: boolean | undefined = ref.current?.isDirty;
+  void sent; void dirty;
+  return (<ConfigEditor ref={ref} value={text} onChange={setText} baseline={saved}
+    onSave={async (next) => { await putConfig(next); setSaved(next); }} onDirtyChange={setDirty}
+    onBaselineConflict={(event) => console.log(event)} />);
+}

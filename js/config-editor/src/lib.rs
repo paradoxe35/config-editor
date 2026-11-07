@@ -12,8 +12,9 @@ use config_editor_leptos::language::{
     Token, TokenKind, Tokens,
 };
 use config_editor_leptos::{
-    ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath, HostDiagnostic,
-    Language, Schema, SchemaSource, Severity, TextPosition, TextRange, ThemeColor, ThemeColors,
+    BaselineConflict, ChangeSummary, ConfigEditor as Editor, EditorHandle, EditorTheme, FieldPath,
+    HostDiagnostic, Language, SaveRequest, Schema, SchemaSource, Severity, TextPosition, TextRange,
+    ThemeColor, ThemeColors,
 };
 use js_sys::{Array, Function, Object, Reflect};
 use leptos::prelude::*;
@@ -68,7 +69,22 @@ export interface EditorOptions {
   hostDiagnostics?: HostDiagnostic[];
   /** Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile. Without it, each is a console warning. */
   onSchemaWarning?: (message: string) => void;
+  /** Called when the user presses `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) or you call `save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's. */
+  onSave?: (value: string, language: LanguageName) => void;
+  /** Called with whether the document differs from `baseline`: once on mount, then each time that changes. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Called when a new `baseline` arrives under unsaved edits (the editor asks the user to reload or keep their text), and when that is settled. */
+  onBaselineConflict?: (event: BaselineConflict) => void;
 }
+
+/**
+ * A baseline conflict's progress: `"opened"` (the notice asks the user),
+ * `"reloaded"` (the document is the new baseline, reported through
+ * `onChange`), `"kept-mine"` (the document stays, diffed against the new
+ * baseline), `"settled"` (the document came to equal the new baseline, or the
+ * baseline was set back).
+ */
+export type BaselineConflict = "opened" | "reloaded" | "kept-mine" | "settled";
 
 /** A problem the host found, by `path` (preferred: it follows the field through edits and `editAs`) or `range`; with neither, it is about the whole document. */
 export interface HostDiagnostic {
@@ -94,6 +110,9 @@ export interface CallbackUpdate {
   onEditAsChange?: ((language: LanguageName) => void) | null;
   onChangeSummary?: ((summary: ChangeSummary) => void) | null;
   onPathChange?: ((path: EditorPath) => void) | null;
+  onSave?: ((value: string, language: LanguageName) => void) | null;
+  onDirtyChange?: ((dirty: boolean) => void) | null;
+  onBaselineConflict?: ((event: BaselineConflict) => void) | null;
 }
 
 /** How the document differs from the baseline, by lines, as the diff gutter shows it. */
@@ -287,8 +306,17 @@ thread_local! {
 
 /// Calls a host callback; an exception it throws is logged, not swallowed.
 fn call_host(callback: &Function, argument: &JsValue) {
+    call_host_with(callback, std::slice::from_ref(argument));
+}
+
+/// [`call_host`] with several arguments.
+fn call_host_with(callback: &Function, arguments: &[JsValue]) {
     IN_CALLBACK.with(|depth| depth.set(depth.get() + 1));
-    let result = callback.call1(&JsValue::NULL, argument);
+    let result = match arguments {
+        [first, second] => callback.call2(&JsValue::NULL, first, second),
+        [first] => callback.call1(&JsValue::NULL, first),
+        _ => callback.call0(&JsValue::NULL),
+    };
     IN_CALLBACK.with(|depth| depth.set(depth.get() - 1));
     if let Err(error) = result {
         web_sys::console::error_2(
@@ -307,7 +335,7 @@ fn string_field(object: &JsValue, name: &str) -> Option<String> {
 }
 
 /// The constructor's options, for the unknown-option warning.
-const OPTIONS: [&str; 20] = [
+const OPTIONS: [&str; 23] = [
     "value",
     "language",
     "editAs",
@@ -328,6 +356,9 @@ const OPTIONS: [&str; 20] = [
     "onPathChange",
     "hostDiagnostics",
     "onSchemaWarning",
+    "onSave",
+    "onDirtyChange",
+    "onBaselineConflict",
 ];
 
 /// Logs a warning for each option the editor does not know (`readonly` for
@@ -357,6 +388,9 @@ const CALLBACK_KEYS: &[&str] = &[
     "onEditAsChange",
     "onChangeSummary",
     "onPathChange",
+    "onSave",
+    "onDirtyChange",
+    "onBaselineConflict",
 ];
 
 /// A console warning for each key of `object` not in `known`, with the
@@ -498,6 +532,11 @@ struct State {
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     on_change_summary: StoredValue<Option<Function>, LocalStorage>,
     on_path_change: StoredValue<Option<Function>, LocalStorage>,
+    on_save: StoredValue<Option<Function>, LocalStorage>,
+    /// Whether `onSave` is set: only then does `Ctrl+S` save.
+    saves: RwSignal<bool>,
+    on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
+    on_baseline_conflict: StoredValue<Option<Function>, LocalStorage>,
     /// Whether `onPathChange` is set: only then is the caret's path computed.
     follows_path: RwSignal<bool>,
     handle: EditorHandle,
@@ -608,6 +647,9 @@ impl ConfigEditor {
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
         let on_path_change = function_option(&options, "onPathChange")?;
+        let on_save = function_option(&options, "onSave")?;
+        let on_dirty_change = function_option(&options, "onDirtyChange")?;
+        let on_baseline_conflict = function_option(&options, "onBaselineConflict")?;
         let host_diagnostics = match field(&options, "hostDiagnostics") {
             list if list.is_undefined() || list.is_null() => Vec::new(),
             list => host_diagnostics_from(&list, &value)?,
@@ -633,6 +675,10 @@ impl ConfigEditor {
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_change_summary: StoredValue::new_local(on_change_summary),
             on_path_change: StoredValue::new_local(on_path_change),
+            saves: RwSignal::new(on_save.is_some()),
+            on_save: StoredValue::new_local(on_save),
+            on_dirty_change: StoredValue::new_local(on_dirty_change),
+            on_baseline_conflict: StoredValue::new_local(on_baseline_conflict),
             handle: EditorHandle::new(),
             host_diagnostics: RwSignal::new(host_diagnostics),
         });
@@ -664,6 +710,28 @@ impl ConfigEditor {
                         call_host(&callback, &to_js(&ChangeSummaryOut::from(summary)));
                     }
                 };
+                let saved = move |request: SaveRequest| {
+                    if let Some(callback) = state.on_save.try_get_value().flatten() {
+                        call_host_with(
+                            &callback,
+                            &[
+                                JsValue::from_str(&request.text),
+                                JsValue::from_str(&request.language.label().to_lowercase()),
+                            ],
+                        );
+                    }
+                };
+                let dirty_changed = move |dirty: bool| {
+                    if let Some(callback) = state.on_dirty_change.try_get_value().flatten() {
+                        call_host(&callback, &JsValue::from_bool(dirty));
+                    }
+                };
+                let conflicted = move |event: BaselineConflict| {
+                    if let Some(callback) = state.on_baseline_conflict.try_get_value().flatten() {
+                        call_host(&callback, &JsValue::from_str(conflict_name(event)));
+                    }
+                };
+                let save_shortcut = Signal::derive(move || state.saves.get());
                 follow_path(state);
                 let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
                 let warn_with = StoredValue::new_local(on_schema_warning.clone());
@@ -704,6 +772,10 @@ impl ConfigEditor {
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized
+                            on_save=saved
+                            enable_save_shortcut=save_shortcut
+                            on_dirty_change=dirty_changed
+                            on_baseline_conflict=conflicted
                             handle=state.handle
                             host_diagnostics=host_diagnostics
                             on_schema_warning=schema_warning
@@ -729,6 +801,10 @@ impl ConfigEditor {
                             on_change=changed
                             on_edit_as_change=switched
                             on_change_summary=summarized
+                            on_save=saved
+                            enable_save_shortcut=save_shortcut
+                            on_dirty_change=dirty_changed
+                            on_baseline_conflict=conflicted
                             handle=state.handle
                             host_diagnostics=host_diagnostics
                         />
@@ -867,7 +943,7 @@ impl ConfigEditor {
         Ok(())
     }
 
-    /// Replaces the change callbacks (`onChange`, `onEditAsChange`).
+    /// Replaces callbacks (`onChange`, `onSave`, …; see `CallbackUpdate`).
     #[wasm_bindgen(js_name = setCallbacks)]
     pub fn set_callbacks(&self, callbacks: EditorUpdate) -> Result<(), JsError> {
         // Input the browser sent in this task first (see `flush_pending_input`).
@@ -898,6 +974,19 @@ impl ConfigEditor {
         let on_edit_as_change = read("onEditAsChange")?;
         let on_change_summary = read("onChangeSummary")?;
         let on_path_change = read("onPathChange")?;
+        let on_save = read("onSave")?;
+        let on_dirty_change = read("onDirtyChange")?;
+        let on_baseline_conflict = read("onBaselineConflict")?;
+        if let Some(callback) = on_save {
+            let _ = self.state.saves.try_set(callback.is_some());
+            let _ = self.state.on_save.try_set_value(callback);
+        }
+        if let Some(callback) = on_dirty_change {
+            let _ = self.state.on_dirty_change.try_set_value(callback);
+        }
+        if let Some(callback) = on_baseline_conflict {
+            let _ = self.state.on_baseline_conflict.try_set_value(callback);
+        }
         if let Some(callback) = on_change {
             let _ = self.state.on_change.try_set_value(callback);
         }
@@ -1016,6 +1105,25 @@ impl ConfigEditor {
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
         self.state.handle.focus();
+    }
+
+    /// Saves as `Ctrl+S` does: calls `onSave` with the document in
+    /// `language`. `false` when nothing was sent: without `onSave`, after
+    /// `destroy`, or while an `editAs` edit cannot convert back (the caret
+    /// goes to the problem).
+    pub fn save(&self) -> bool {
+        config_editor_leptos::flush_pending_input();
+        if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
+            return false;
+        }
+        untrack(|| self.state.handle.save())
+    }
+
+    /// Whether the document differs from the baseline.
+    #[wasm_bindgen(getter, js_name = isDirty)]
+    pub fn is_dirty(&self) -> bool {
+        config_editor_leptos::flush_pending_input();
+        untrack(|| self.state.handle.is_dirty())
     }
 
     /// Unmounts the editor. The instance cannot be used afterwards. An edit
@@ -1220,6 +1328,16 @@ fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRange, String> 
 
 /// Calls `onPathChange` with the caret's path each time it changes, while one
 /// is set (only then is the path computed).
+/// A conflict event's name in JavaScript.
+fn conflict_name(event: BaselineConflict) -> &'static str {
+    match event {
+        BaselineConflict::Opened => "opened",
+        BaselineConflict::Reloaded => "reloaded",
+        BaselineConflict::KeptMine => "kept-mine",
+        _ => "settled",
+    }
+}
+
 fn follow_path(state: State) {
     Effect::new(move |_| {
         if !state.follows_path.get() {

@@ -40,6 +40,29 @@
   white-space: pre;
 }
 
+.demo__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.demo__summary > span:first-child { flex: 1; }
+/* `display: flex` drops the disclosure marker: draw it. */
+.demo__summary > span:first-child::before { content: "▸ "; }
+.demo__output[open] > .demo__summary > span:first-child::before { content: "▾ "; }
+.demo__host { display: flex; align-items: center; gap: 8px; }
+.demo__button {
+  padding: 0 6px;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 4px;
+  background: var(--config-editor-panel);
+  color: var(--config-editor-text);
+  font: 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+.demo__host-status { min-width: 1ch; color: var(--config-editor-modified); }
+
 @media (max-width: 600px) {
   .demo__toolbar { gap: 8px; padding: 0 8px; }
   .demo__toolbar .config-editor__file > span:not(.config-editor__file-icon) { display: none; }

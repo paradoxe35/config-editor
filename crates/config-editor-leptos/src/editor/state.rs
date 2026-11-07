@@ -19,6 +19,9 @@ use super::diff::{DiffKind, DiffPeek, LineDiff, diff_lines};
 use super::go_to_line::GoToLine;
 use super::history::{EditHistory, Selection, Snapshot};
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
+use super::host_editing::{
+    BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent, shown_baseline,
+};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
@@ -72,8 +75,9 @@ pub(super) struct Init {
     pub(super) schema_error: Option<String>,
     /// The host's text (controlled value or initial value).
     pub(super) host_text: String,
-    /// The host's diff baseline, in the host language.
-    pub(super) baseline: Signal<String>,
+    /// The host's diff baseline at mount, in the host language (see
+    /// `host_editing` for later ones).
+    pub(super) baseline: String,
     pub(super) read_only: Signal<bool>,
     pub(super) features: Features,
     /// The host's `on_change`; edits reach it directly or through the
@@ -81,6 +85,9 @@ pub(super) struct Init {
     pub(super) host_on_change: Option<Callback<String>>,
     /// The host's own problems (see `host_diagnostics`).
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
+    pub(super) on_save: Option<Callback<SaveRequest>>,
+    pub(super) save_shortcut: Signal<bool>,
+    pub(super) on_baseline_conflict: Option<Callback<BaselineConflict>>,
 }
 
 /// A programmatic edit, applied with [`EditorState::commit`].
@@ -239,6 +246,11 @@ pub(super) struct EditorState {
     pub(super) search: SearchState,
     /// The go-to-line field (see `go_to_line`).
     pub(super) go_to_line: GoToLine,
+    /// Saving, the dirty flag and baseline conflicts (see `host_editing`),
+    /// read through [`Self::editing`]. Stored rather than held: the state is
+    /// copied into every handler, and a larger copy overflowed the wasm stack
+    /// of debug builds.
+    host_editing: StoredValue<HostEditing>,
 }
 
 impl EditorState {
@@ -257,7 +269,14 @@ impl EditorState {
             features,
             host_on_change,
             host_diagnostics,
+            on_save,
+            save_shortcut,
+            on_baseline_conflict,
         } = init;
+        // What reaches the host is remembered: a baseline equal to it is the
+        // user's own work coming back (see `host_editing`).
+        let sent = StoredValue::new(SentTexts::default());
+        let host_on_change = host_on_change.map(|callback| noting_sent(sent, callback));
         let mut load_problem = Vec::new();
         let mut pending = None;
         let mut shown = host_text.clone();
@@ -346,7 +365,7 @@ impl EditorState {
                 cursor.get(),
                 explicit_request.get(),
                 schema.as_deref(),
-                features.completions,
+                features.completions && !read_only.get(),
                 edit_language.get_untracked().behavior(),
                 replace_word.get(),
             )
@@ -357,8 +376,11 @@ impl EditorState {
             host_text.clone(),
             shown.clone(),
         )));
+        let baseline = RwSignal::new(normalize_newlines(baseline));
+        let host_text_store = StoredValue::new(host_text.clone());
+        let synced_edit = StoredValue::new(shown.clone());
         let shown_baseline = Memo::new(move |_| {
-            let host = normalize_newlines(baseline.get());
+            let host = baseline.get();
             let edit = edit_language.get();
             // Usually the baseline is the host text a switch just converted.
             let cached = shown_cache.with_value(|cache| {
@@ -370,12 +392,15 @@ impl EditorState {
             if let Some(shown) = cached {
                 return shown;
             }
-            match Bridge::new(host_language, edit, schema_store.get_value()) {
-                Some(bridge) => bridge
-                    .to_edit(&host)
-                    .map_or(host, |conversion| conversion.text),
-                None => host,
-            }
+            let bridge = Bridge::new(host_language, edit, schema_store.get_value());
+            host_text_store.with_value(|host_text| {
+                synced_edit.with_value(|synced| {
+                    shown_baseline(bridge.as_ref(), &host, (host_text, synced))
+                })
+            })
+        });
+        let dirty = Memo::new(move |_| {
+            source.with(|text| shown_baseline.with(|baseline| text != baseline))
         });
         let diff = Memo::new(move |_| {
             source.with(|text| {
@@ -446,6 +471,14 @@ impl EditorState {
             caret_path,
             search: SearchState::new(source),
             go_to_line: GoToLine::new(),
+            host_editing: StoredValue::new(HostEditing::new(
+                baseline,
+                dirty,
+                sent,
+                on_save,
+                save_shortcut,
+                on_baseline_conflict,
+            )),
             string_bodies,
             host_language,
             edit_language,
@@ -459,8 +492,8 @@ impl EditorState {
             indent: StoredValue::new(super::commands::indent_unit(&shown)),
             on_change,
             host_on_change,
-            host_text: StoredValue::new(host_text),
-            synced_edit: StoredValue::new(shown),
+            host_text: host_text_store,
+            synced_edit,
             synced_hosts: StoredValue::new(Vec::new()),
             diagnosed_text,
             load_problems,
@@ -517,6 +550,16 @@ impl EditorState {
                 host.to_string()
             }
         }
+    }
+
+    /// Saving, the dirty flag and baseline conflicts (see `host_editing`).
+    pub(super) fn editing(&self) -> HostEditing {
+        self.host_editing.get_value()
+    }
+
+    /// [`Self::editing`], or `None` once the editor is gone.
+    pub(super) fn try_editing(&self) -> Option<HostEditing> {
+        self.host_editing.try_get_value()
     }
 
     /// The language on screen.

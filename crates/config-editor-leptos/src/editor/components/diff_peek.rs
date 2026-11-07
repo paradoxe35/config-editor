@@ -140,14 +140,14 @@ fn Peek(state: EditorState, peek: DiffPeek) -> impl IntoView {
             <header class="config-editor__diff-peek-header">
                 <strong>{format!("{title} · line {line}")}</strong>
                 <span class="config-editor__diff-peek-actions">
-                    {(!state.read_only.get_untracked()).then(|| view! {
+                    {move || (!state.read_only.get()).then(|| view! {
                         <button
                             type="button"
                             class="config-editor__diff-peek-revert"
                             aria-label=label.clone()
-                            title=label
+                            title=label.clone()
                             node_ref=revert_ref
-                            on:click=revert
+                            on:click=revert.clone()
                         >"Revert"</button>
                     })}
                     <button

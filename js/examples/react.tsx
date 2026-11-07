@@ -36,6 +36,11 @@ const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address
 
 function App({ schema }: { schema: string }) {
   const [value, setValue] = useState(initialText);
+  // The version last saved on the server; saves and other clients move it.
+  const [baseline, setBaseline] = useState(initialText);
+  const [dirty, setDirty] = useState(false);
+  const [saves, setSaves] = useState<string[]>([]);
+  const [conflicts, setConflicts] = useState<string[]>([]);
   const lateTimer = useRef<ReturnType<typeof setTimeout>>();
   // The value before the latest edit, for the parent-side revert button.
   const previous = useRef(value);
@@ -126,6 +131,15 @@ function App({ schema }: { schema: string }) {
         >
           Server problems
         </button>
+        <button id="server-change" type="button" onClick={() => setBaseline((text) => text.replace("7835", "7836"))}>
+          Change on server
+        </button>
+        <button id="save" type="button" onClick={() => handle.current?.save()}>
+          Save
+        </button>
+        <span id="dirty">{dirty ? "unsaved" : "saved"}</span>
+        <span id="saves" data-count={saves.length}>{saves.at(-1) ?? ""}</span>
+        <span id="conflicts">{conflicts.join(",")}</span>
         <span id="editing">{editing}</span>
         <span id="changes">{changes}</span>
         <code id="breadcrumb">{path}</code>
@@ -153,6 +167,13 @@ function App({ schema }: { schema: string }) {
         }
         onPathChange={(next) => setPath(next.pointer || "/")}
         hostDiagnostics={hostProblems}
+        baseline={baseline}
+        onSave={(text) => {
+          setSaves((all) => [...all, text]);
+          setBaseline(text);
+        }}
+        onDirtyChange={setDirty}
+        onBaselineConflict={(event) => setConflicts((all) => [...all, event])}
         theme={theme}
         readOnly={readOnly}
         colors={{ key: "#ffcc66" }}

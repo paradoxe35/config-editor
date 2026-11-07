@@ -48,14 +48,21 @@ fn follow_value(state: EditorState, value: Signal<String>) {
         state.synced_hosts.update_value(Vec::clear);
         let current = state.source.get_untracked();
         if current != edit {
-            // Keep the caret on the same text: write the new value here and
-            // map the caret through the change, so the later `prop:value`
-            // (identical text) leaves the selection alone.
+            // Keep the caret on the same text and the view where it was:
+            // write the new value here and map the caret through the change,
+            // so the later `prop:value` (identical text) leaves the selection
+            // alone. Writing the value scrolls the textarea, so the scroll
+            // position is put back.
             if let Some(element) = state.textarea() {
                 let (start, end) = textarea_selection(&element);
+                let (top, left) = (element.scroll_top(), element.scroll_left());
                 let map = |offset: usize| map_through_change(&current, &edit, offset);
                 element.set_value(&edit);
                 let _ = element.set_selection_range(map(start) as u32, map(end) as u32);
+                element.set_scroll_top(top);
+                element.set_scroll_left(left);
+                state.scroll_x.set(f64::from(element.scroll_left()));
+                state.scroll_y.set(f64::from(element.scroll_top()));
             }
             state.source.set(edit);
             state.redetect_indent();
@@ -151,7 +158,7 @@ pub fn flush_pending_edits() {
 }
 
 /// [`convert_edits`]' work for `text` edited as `language`.
-fn convert_now(state: EditorState, text: String, language: Language) {
+pub(super) fn convert_now(state: EditorState, text: String, language: Language) {
     {
         let Some(bridge) = state.bridge_to(language) else {
             state.conversion_problems.set(Vec::new());
@@ -194,7 +201,7 @@ fn convert_now(state: EditorState, text: String, language: Language) {
 /// Edited texts remembered with their host text (see `synced_hosts`).
 const SYNCED_HOSTS_KEPT: usize = 64;
 
-fn remember_synced(state: EditorState, edit: String, host: String) {
+pub(super) fn remember_synced(state: EditorState, edit: String, host: String) {
     state.synced_hosts.update_value(|saved| {
         saved.retain(|(known, _)| *known != edit);
         saved.push((edit, host));

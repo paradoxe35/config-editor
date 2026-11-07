@@ -23,6 +23,8 @@
       <button id="replace" type="button">Replace value</button>
       <button id="destroy" type="button">Destroy</button>
       <button id="reveal" type="button">Go to insecure_plaintext</button>
+      <button id="server-change" type="button">Change on server</button>
+      <span id="dirty"></span>
       <code id="breadcrumb"></code>
     </header>
     <div id="editor"></div>
@@ -76,6 +78,8 @@
       });
 
       const saved = document.getElementById("saved");
+      window.saves = [];
+      window.conflicts = [];
       const initial = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
       saved.textContent = initial;
       const editor = new ConfigEditor(document.getElementById("editor"), {
@@ -88,6 +92,14 @@
         onChange: (text) => (saved.textContent = text),
         onEditAsChange: (language) => (document.body.dataset.editing = language),
         onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
+        // Explicit saves only: the saved text becomes the new baseline.
+        onSave: (text, language) => {
+          window.saves.push({ text, language });
+          baseline = text;
+          editor.setBaseline(text);
+        },
+        onDirtyChange: (dirty) => (document.getElementById("dirty").textContent = dirty ? "unsaved" : "saved"),
+        onBaselineConflict: (event) => window.conflicts.push(event),
       });
       window.editor = editor;
       window.configEditor = { validate };
@@ -99,6 +111,12 @@
       document.getElementById("read-only").onchange = (event) => editor.setReadOnly(event.target.checked);
       document.getElementById("replace").onclick = () => editor.setValue("listen: 9000\n");
       document.getElementById("destroy").onclick = () => editor.destroy();
+      // Another client saved: the server's version moves on.
+      let baseline = initial;
+      document.getElementById("server-change").onclick = () => {
+        baseline = baseline.replace("7835", "7836");
+        editor.setBaseline(baseline);
+      };
       document.getElementById("reveal").onclick = () => editor.reveal("/insecure_plaintext");
       document.body.dataset.ready = "true";
     </script>
