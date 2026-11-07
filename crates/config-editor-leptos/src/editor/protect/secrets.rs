@@ -14,7 +14,10 @@ use super::super::input::edit_range;
 use super::super::language::ConfigLanguage;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
-use super::tokens::{Known, SecretMatcher, locate, snap, snap_selection, widen};
+use super::tokens::{
+    Known, SecretMatcher, follow, held_in_fields, locate, locate_written, snap, snap_selection,
+    widen,
+};
 
 /// A text and the language it is written in.
 type Written<'a> = (&'static dyn ConfigLanguage, &'a str);
@@ -36,7 +39,14 @@ impl SecretState {
     pub(crate) fn new(options: SecretOptions, host: Written<'_>, shown: Written<'_>) -> Self {
         let matcher = SecretMatcher::new(&options);
         let known = matcher.known(host.0, host.1);
-        let tokens = locate(shown.0, shown.1, &known);
+        // By text, then by path only if the document says they are not all
+        // in their fields.
+        let written = locate_written(shown.1, &known);
+        let tokens = if in_their_fields(shown.0, shown.1, &known, &written) {
+            written
+        } else {
+            locate(shown.0, shown.1, &known)
+        };
         SecretState {
             options: StoredValue::new(options),
             matcher: StoredValue::new(Arc::new(matcher)),
@@ -55,6 +65,41 @@ impl SecretState {
                 .collect()
         })
     }
+}
+
+/// UTF-16 `range` of `text`, as a string.
+fn utf16_slice(text: &str, range: Range<usize>) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    String::from_utf16_lossy(&units[range.start.min(units.len())..range.end.min(units.len())])
+}
+
+/// Whether `followed` (UTF-16 ranges of `text`) are each a token in its own
+/// field: the parsed document holds every known token in its field as often
+/// as the ranges show it. A text that does not parse keeps them as they
+/// are, until it parses again.
+fn in_their_fields(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    known: &[Known],
+    followed: &[Range<usize>],
+) -> bool {
+    let Ok(document) = behavior.parse(text) else {
+        return true;
+    };
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let written = |range: &Range<usize>| {
+        String::from_utf16_lossy(&units[range.start.min(units.len())..range.end.min(units.len())])
+    };
+    let mut tokens: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
+    tokens.sort_unstable();
+    tokens.dedup();
+    tokens.into_iter().all(|token| {
+        let shown = followed
+            .iter()
+            .filter(|range| written(range) == token)
+            .count();
+        shown == held_in_fields(&document, known, token)
+    })
 }
 
 /// Whether `after` is `before` with the UTF-16 range `start..end` replaced.
@@ -91,18 +136,60 @@ impl EditorState {
         }
     }
 
-    /// Finds the placeholders again after an applied edit, each in its own
-    /// field: a key renamed above one, or the token pasted elsewhere, leaves
-    /// it plain; put back into its own field it is real again.
-    pub(crate) fn follow_tokens(&self, after: &str) {
+    /// Follows an applied edit with the placeholders: they move with the
+    /// text; an edit writing a token's text (a paste) finds each again by its
+    /// path, so one put back into its own field is real again and one put in
+    /// another field is not. Whether each is still in its own field after
+    /// other edits (a key renamed above one) is checked at the typing pause
+    /// ([`Self::recheck_tokens`]): it takes a parse, too slow for every key
+    /// on a large document.
+    pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
         let secrets = self.protect.secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
-        let tokens = secrets
-            .known
-            .with_untracked(|known| locate(self.behavior(), after, known));
+        let (start, end) = edit_range(before, after, caret);
+        let inserted_len = (after.encode_utf16().count() + end - start)
+            .saturating_sub(before.encode_utf16().count());
+        let followed = secrets
+            .tokens
+            .with_untracked(|tokens| follow(tokens, &(start..end), inserted_len));
+        let behavior = self.behavior();
+        let tokens = secrets.known.with_untracked(|known| {
+            let inserted = utf16_slice(after, start..start + inserted_len);
+            let writes_token = known.iter().any(|known| inserted.contains(&known.token));
+            if writes_token {
+                locate(behavior, after, known)
+            } else {
+                followed
+            }
+        });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
+            secrets.tokens.set(tokens);
+        }
+    }
+
+    /// At a pause in typing: when the document no longer holds each of the
+    /// host's tokens in its own field where the placeholders are (a key
+    /// renamed above one, an undo through a cut), each is found again by its
+    /// path: under a renamed key it is plain text.
+    pub(crate) fn recheck_tokens(&self) {
+        let secrets = self.protect.secrets;
+        if secrets.known.with_untracked(Vec::is_empty) {
+            return;
+        }
+        let behavior = self.behavior();
+        let found = self.doc.text.with_untracked(|text| {
+            secrets.known.with_untracked(|known| {
+                let kept = secrets
+                    .tokens
+                    .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens));
+                (!kept).then(|| locate(behavior, text, known))
+            })
+        });
+        if let Some(tokens) = found
+            && secrets.tokens.with_untracked(|current| *current != tokens)
+        {
             secrets.tokens.set(tokens);
         }
     }
@@ -129,11 +216,14 @@ impl EditorState {
             }
             self.doc
                 .text
-                .with_untracked(|text| locate(self.behavior(), text, known))
+                .with_untracked(|text| locate_written(text, known))
         });
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
         }
+        // Where each is: checked now, which takes one parse when they are
+        // all in their fields.
+        self.recheck_tokens();
     }
 
     /// Takes the placeholders of `host` (a text the host gave, such as a

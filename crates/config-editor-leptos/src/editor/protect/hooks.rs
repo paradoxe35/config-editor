@@ -87,11 +87,9 @@ impl ProtectState {
         strings: &EditorStrings,
     ) -> Vec<Diagnostic> {
         self.secrets.matcher.with_value(|matcher| {
-            self.secrets.known.with(|known| {
-                self.secrets.tokens.with(|tokens| {
-                    unknown_placeholders(behavior, text, matcher, known, tokens, schema, strings)
-                })
-            })
+            self.secrets
+                .known
+                .with(|known| unknown_placeholders(behavior, text, matcher, known, schema, strings))
         })
     }
 

@@ -228,9 +228,17 @@ fn offsets(text: &str, ranges: &[TextRange]) -> Vec<Range<usize>> {
 }
 
 impl EditorState {
-    /// Places the host's ranges again each time the host changes them.
+    /// Places the host's ranges again each time the host changes them, and
+    /// checks the placeholders' fields at each pause in typing (when the
+    /// diagnostics catch up with the text).
     pub(crate) fn connect_protection(&self) {
         let state = *self;
+        Effect::new(move |previous: Option<()>| {
+            state.problems.diagnosed_text.track();
+            if previous.is_some() {
+                state.recheck_tokens();
+            }
+        });
         Effect::new(move |previous: Option<()>| {
             state.protect.host_ranges.track();
             if previous.is_some() {
@@ -284,7 +292,7 @@ impl EditorState {
     /// Follows an applied edit with what is kept by position (the host's
     /// ranges, the secret placeholders).
     pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
-        self.follow_tokens(after);
+        self.follow_tokens(before, after, caret);
         if self.protect.ranges.with_untracked(Vec::is_empty) {
             return;
         }

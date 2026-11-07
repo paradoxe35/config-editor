@@ -322,13 +322,11 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
     let mut failures = Vec::new();
     for (language, text) in documents() {
         let known = matcher().known(language.behavior(), &text);
-        let tokens = locate(language.behavior(), &text, &known);
         let none = unknown_placeholders(
             language.behavior(),
             &text,
             &matcher(),
             &known,
-            &tokens,
             Some(&schema),
             crate::strings::default_strings(),
         );
@@ -338,13 +336,11 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
         let typed = text
             .replacen(SECRET, "«secret beef»", 1)
             .replacen('a', "«secret 77»", 1);
-        let typed_tokens = locate(language.behavior(), &typed, &known);
         let flagged = unknown_placeholders(
             language.behavior(),
             &typed,
             &matcher(),
             &known,
-            &typed_tokens,
             Some(&schema),
             crate::strings::default_strings(),
         );

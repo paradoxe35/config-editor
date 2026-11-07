@@ -14,6 +14,7 @@ use leptos::prelude::Callback;
 
 use super::super::language::ConfigLanguage;
 use super::super::paths::{path_at, same_field};
+use super::marks::escape;
 
 /// A token of the host's text: the field it stands in, and how often that
 /// field's value holds it.
@@ -68,25 +69,103 @@ impl SecretMatcher {
 
     /// The tokens of the host's `text` (written in `behavior`), each once
     /// per field, with how often that field holds it.
+    ///
+    /// Read off the parsed document (one parse, whatever the number of
+    /// tokens); a text that does not parse is read token by token instead.
     pub(crate) fn known(&self, behavior: &dyn ConfigLanguage, text: &str) -> Vec<Known> {
         let mut known: Vec<Known> = Vec::new();
-        for range in self.find(text) {
-            let pointer = field_at(behavior, text, range.start);
-            let token = &text[range];
-            match known
-                .iter_mut()
-                .find(|seen| seen.token == token && same_field(&seen.pointer, &pointer))
-            {
-                Some(seen) => seen.count += 1,
-                None => known.push(Known {
-                    token: token.to_string(),
-                    pointer,
-                    count: 1,
-                }),
+        let mut add = |token: &str, pointer: String| match known
+            .iter_mut()
+            .find(|seen| seen.token == token && same_field(&seen.pointer, &pointer))
+        {
+            Some(seen) => seen.count += 1,
+            None => known.push(Known {
+                token: token.to_string(),
+                pointer,
+                count: 1,
+            }),
+        };
+        match behavior.parse(text) {
+            Ok(document) => {
+                let mut stack = vec![(String::new(), &document)];
+                while let Some((pointer, value)) = stack.pop() {
+                    match value {
+                        serde_json::Value::String(written) => {
+                            for range in self.find(written) {
+                                add(&written[range], pointer.clone());
+                            }
+                        }
+                        serde_json::Value::Array(items) => stack.extend(
+                            items
+                                .iter()
+                                .enumerate()
+                                .rev()
+                                .map(|(index, item)| (format!("{pointer}/{index}"), item)),
+                        ),
+                        serde_json::Value::Object(map) => stack.extend(
+                            map.iter()
+                                .rev()
+                                .map(|(key, item)| (format!("{pointer}/{}", escape(key)), item)),
+                        ),
+                        _ => {}
+                    }
+                }
+            }
+            Err(_) => {
+                for range in self.find(text) {
+                    let pointer = field_at(behavior, text, range.start);
+                    add(&text[range], pointer);
+                }
             }
         }
         known
     }
+}
+
+/// UTF-16 ranges of the known tokens written in `text`, each as often as
+/// the host wrote it, first ones first, without asking where each is (a
+/// text replaced whole: an undo, a switch); the pause in typing then checks
+/// they are in their fields (`EditorState::recheck_tokens`).
+pub(crate) fn locate_written(text: &str, known: &[Known]) -> Vec<Range<usize>> {
+    let mut tokens: Vec<(&str, usize)> = Vec::new();
+    for known in known {
+        match tokens.iter_mut().find(|(token, _)| *token == known.token) {
+            Some((_, count)) => *count += known.count,
+            None => tokens.push((&known.token, known.count)),
+        }
+    }
+    let mut found: Vec<Range<usize>> = Vec::new();
+    for (token, count) in tokens {
+        found.extend(
+            text.match_indices(token)
+                .take(count)
+                .map(|(byte, written)| {
+                    let start = text[..byte].encode_utf16().count();
+                    start..start + written.encode_utf16().count()
+                }),
+        );
+    }
+    found.sort_by_key(|range| range.start);
+    found.dedup_by(|later, earlier| later.start < earlier.end);
+    found
+}
+
+/// How many times the parsed `document` holds `token` in the fields the
+/// host gave it in (`known`), at most as often as there.
+pub(crate) fn held_in_fields(document: &serde_json::Value, known: &[Known], token: &str) -> usize {
+    known
+        .iter()
+        .filter(|known| known.token == token)
+        .map(|known| {
+            let value = document.pointer(&known.pointer).or_else(|| {
+                let lone = format!("{}/", known.pointer).replace("/0/", "/");
+                document.pointer(lone.trim_end_matches('/'))
+            });
+            value
+                .and_then(serde_json::Value::as_str)
+                .map_or(0, |value| value.matches(token).count().min(known.count))
+        })
+        .sum()
 }
 
 /// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
@@ -174,6 +253,29 @@ fn cuts(token: &Range<usize>, region: &Range<usize>) -> bool {
     let overlaps = region.start < token.end && token.start < region.end;
     let covers = region.start <= token.start && token.end <= region.end;
     overlaps && !covers
+}
+
+/// The tokens after an edit replaced `region` (UTF-16 in the old text)
+/// with `inserted_len` units: those before stay, those after shift, those
+/// it touched are gone.
+pub(crate) fn follow(
+    tokens: &[Range<usize>],
+    region: &Range<usize>,
+    inserted_len: usize,
+) -> Vec<Range<usize>> {
+    tokens
+        .iter()
+        .filter_map(|token| {
+            if token.end <= region.start {
+                Some(token.clone())
+            } else if token.start >= region.end {
+                let shift = |at: usize| at + inserted_len - region.len();
+                Some(shift(token.start)..shift(token.end))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// UTF-16 `offset` moved out of any token: to the edge it was moving

@@ -45,20 +45,17 @@ fn flagged(state: EditorState, language: Language) -> Vec<String> {
     let matcher = SecretMatcher::new(&SecretOptions::default());
     let schema = schema();
     state.protect.secrets.known.with_untracked(|known| {
-        state.protect.secrets.tokens.with_untracked(|tokens| {
-            unknown_placeholders(
-                language.behavior(),
-                &text,
-                &matcher,
-                known,
-                tokens,
-                Some(&schema),
-                crate::strings::default_strings(),
-            )
-            .into_iter()
-            .map(|problem| problem.message)
-            .collect()
-        })
+        unknown_placeholders(
+            language.behavior(),
+            &text,
+            &matcher,
+            known,
+            Some(&schema),
+            crate::strings::default_strings(),
+        )
+        .into_iter()
+        .map(|problem| problem.message)
+        .collect()
     })
 }
 
@@ -109,6 +106,13 @@ fn a_placeholder_is_real_only_in_its_own_field_in_every_language() {
         let (_owner, state) = TestEditor::new(language, &text).mount();
         let key = text.find("secret").unwrap();
         replace(state, key..key + "secret".len(), "secrex");
+        // An XML end tag renamed too, so the text parses again.
+        let shown = state.doc.text.get_untracked();
+        if let Some(close) = shown.find("</secret>") {
+            replace(state, close + 2..close + 2 + "secret".len(), "secrex");
+        }
+        // The pause in typing checks the placeholders' fields.
+        state.recheck_tokens();
         let shown = state.doc.text.get_untracked();
         let moved = shown.find(SECRET).unwrap();
         if real_at(state, moved) {
