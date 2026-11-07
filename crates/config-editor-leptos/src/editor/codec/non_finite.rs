@@ -129,6 +129,7 @@ fn reserved_shape(text: &str) -> bool {
 /// `value` with each string read as [`string_value`] holds it: for a
 /// parser that reads strings only (JSON, HCL, XML), applied to what it
 /// read.
+#[cfg(any(feature = "json", feature = "hcl", feature = "xml"))]
 pub(crate) fn escape_strings(value: Value) -> Value {
     if !marked(&value) {
         return value;
@@ -147,6 +148,7 @@ pub(crate) fn escape_strings(value: Value) -> Value {
 
 /// `value` with each string as a writer writes it ([`written`]), for a
 /// serde writer that takes the whole value.
+#[cfg(feature = "json")]
 pub(crate) fn unescape_strings(value: &Value) -> Cow<'_, Value> {
     replaced(value, &|text| Value::String(written(text).to_string()))
 }

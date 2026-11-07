@@ -860,6 +860,9 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     }
 
     /// The document as the shared data model, or its first syntax error.
+    /// Strings are built with [`string_value`](crate::string_value), and
+    /// infinities and NaN with [`float_value`](crate::float_value), so the
+    /// two never read as each other.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
 
     /// The document for `value`, keeping the framing of `previous` (this
