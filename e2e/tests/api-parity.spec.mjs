@@ -14,8 +14,9 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...path) => readFileSync(join(root, ...path), 'utf8');
 const crate = (path) => read('crates', 'config-editor-leptos', 'src', ...path.split('/'));
+// `alloc_stats.rs` is a debugging aid behind a cargo feature, never published.
 const jsSources = readdirSync(join(root, 'js', 'config-editor', 'src'))
-  .filter((name) => name.endsWith('.rs'))
+  .filter((name) => name.endsWith('.rs') && name !== 'alloc_stats.rs')
   .map((name) => read('js', 'config-editor', 'src', name))
   .join('\n');
 const react = read('js', 'config-editor-react', 'src', 'index.tsx');

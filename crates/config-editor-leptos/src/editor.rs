@@ -46,7 +46,7 @@ mod protect;
 mod search;
 mod state;
 mod sync;
-#[cfg(test)]
+#[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod theme;
 mod typing;
@@ -363,7 +363,7 @@ pub fn ConfigEditor(
                 {show_toolbar.then(|| view! { <Toolbar state=state file_name=file_name has_schema=has_schema /> })}
                 <BaselineNotice state=state />
                 <div class="config-editor__surface">
-                    <Gutter state=state rows=rows.clone() />
+                    <Gutter state=state rows=rows />
                     <div class="config-editor__input-wrap">
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />

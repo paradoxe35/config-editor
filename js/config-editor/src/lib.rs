@@ -13,8 +13,12 @@
 //! - `options`, `values`, `host_diagnostics`, `protect`: reading what JavaScript passes
 //!   and shaping what it gets back.
 //! - `typings`: the TypeScript declarations wasm-bindgen cannot derive.
+//! - `alloc_stats` (feature `alloc-stats`): heap statistics for hunting
+//!   leaks.
 #![cfg(target_arch = "wasm32")]
 
+#[cfg(feature = "alloc-stats")]
+mod alloc_stats;
 mod catalog;
 mod documents;
 mod documents_view;

@@ -7,6 +7,7 @@ use leptos::prelude::*;
 
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
+use crate::reactive::{Relay, detached_owner};
 use crate::{EditorHandle, EditorTheme, Language, SaveRequest, ThemeColors};
 
 /// One open document: what its tab and editor read. The editor mounts the
@@ -30,13 +31,15 @@ pub(super) struct Entry {
     /// Shown at least once: its editor is mounted.
     pub(super) visited: RwSignal<bool>,
     pub(super) handle: EditorHandle,
-    /// Owns the signals above; disposed after the document closes.
+    /// Owns the signals above; disposed after the document closes, or with
+    /// the view. No owner records it as a child: the view's owner lives on
+    /// while documents open and close (see `reactive`).
     owner: Owner,
 }
 
 impl Entry {
-    fn create(parent: &Owner, document: &Document, setup: Setup, serial: u64) -> Self {
-        let owner = parent.child();
+    fn create(document: &Document, setup: Setup, serial: u64) -> Self {
+        let owner = detached_owner();
         let baseline = document
             .baseline
             .clone()
@@ -120,7 +123,7 @@ pub(super) struct Callbacks {
     pub(super) on_dirty_change: Option<Callback<(String, bool)>>,
 }
 
-/// What every editor of the view is built with.
+/// What every editor of the view is built with (the view's own props).
 #[derive(Clone, Copy)]
 pub(super) struct EditorOptions {
     pub(super) theme: Signal<EditorTheme>,
@@ -128,6 +131,18 @@ pub(super) struct EditorOptions {
     pub(super) save_shortcut: Signal<bool>,
     pub(super) show_footer: bool,
     pub(super) show_diff: bool,
+}
+
+/// The view's state that each document's tab, panel and editor follow.
+/// They come and go with their document, so they read it through relays
+/// (see `reactive`).
+#[derive(Clone, Copy)]
+pub(super) struct Follows {
+    pub(super) active: Relay<Option<String>>,
+    pub(super) focus_editor: Relay<Option<String>>,
+    pub(super) theme: Relay<EditorTheme>,
+    pub(super) colors: Relay<Option<ThemeColors>>,
+    pub(super) save_shortcut: Relay<bool>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -152,14 +167,13 @@ pub(super) struct Documents {
     pub(super) focus_editor: RwSignal<Option<String>>,
     pub(super) callbacks: Callbacks,
     pub(super) options: EditorOptions,
+    pub(super) follows: Follows,
     pub(super) root: NodeRef<Div>,
     pub(super) strip: NodeRef<Div>,
     /// Unique per view, for DOM ids.
     pub(super) prefix: u32,
     next_serial: StoredValue<u64>,
     schemas: StoredValue<SchemaCache, LocalStorage>,
-    /// Owns the entries' signals.
-    owner: StoredValue<Owner, LocalStorage>,
 }
 
 thread_local! {
@@ -173,18 +187,35 @@ impl Documents {
             next.set(prefix.wrapping_add(1));
             prefix
         });
+        let entries = RwSignal::new_local(Vec::<Entry>::new());
+        let active = RwSignal::new(None);
+        let focus_editor = RwSignal::new(None);
+        // Entries are no owner's children: they go with the view here.
+        on_cleanup(move || {
+            if let Some(entries) = entries.try_get_untracked() {
+                for entry in entries {
+                    entry.owner.cleanup();
+                }
+            }
+        });
         Self {
-            entries: RwSignal::new_local(Vec::new()),
-            active: RwSignal::new(None),
-            focus_editor: RwSignal::new(None),
+            entries,
+            active,
+            focus_editor,
             callbacks,
             options,
+            follows: Follows {
+                active: Relay::new(move || active.get()),
+                focus_editor: Relay::new(move || focus_editor.get()),
+                theme: Relay::new(move || options.theme.get()),
+                colors: Relay::new(move || options.colors.get()),
+                save_shortcut: Relay::new(move || options.save_shortcut.get()),
+            },
             root: NodeRef::new(),
             strip: NodeRef::new(),
             prefix,
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
-            owner: StoredValue::new_local(Owner::current().unwrap_or_default()),
         }
     }
 
@@ -242,7 +273,6 @@ impl Documents {
                 .collect();
             reconcile(&old, &new)
         };
-        let owner = self.owner.get_value();
         let mut entries = Vec::with_capacity(documents.len());
         let mut added = Vec::new();
         for ((document, setup), fate) in documents.iter().zip(setups).zip(fates) {
@@ -260,12 +290,12 @@ impl Documents {
                     if document.baseline.is_none() {
                         document.baseline = Some(old.baseline.get_untracked());
                     }
-                    let entry = Entry::create(&owner, &document, setup, self.serial());
+                    let entry = Entry::create(&document, setup, self.serial());
                     entry.dirty.set(old.dirty.get_untracked());
                     entries.push(entry);
                 }
                 Fate::Add => {
-                    let entry = Entry::create(&owner, document, setup, self.serial());
+                    let entry = Entry::create(document, setup, self.serial());
                     added.push(entry.clone());
                     entries.push(entry);
                 }

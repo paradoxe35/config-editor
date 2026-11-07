@@ -6,6 +6,7 @@ use web_sys::WheelEvent;
 
 use super::super::entries::{Documents, Entry};
 use super::DocumentTab;
+use crate::reactive::KeyedList;
 
 #[component]
 pub(in crate::documents) fn TabStrip(documents: Documents, label: String) -> impl IntoView {
@@ -33,7 +34,7 @@ pub(in crate::documents) fn TabStrip(documents: Documents, label: String) -> imp
             node_ref=documents.strip
             on:wheel=wheel
         >
-            <For each=tabs key=|entry| entry.serial children=tab />
+            <KeyedList each=tabs key=|entry| entry.serial children=tab />
         </div>
     }
 }

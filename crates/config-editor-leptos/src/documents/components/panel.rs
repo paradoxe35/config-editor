@@ -12,10 +12,9 @@ use crate::{ConfigEditor, Language, SaveRequest};
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
     let id = StoredValue::new(entry.id.clone());
+    let active = documents.follows.active.read();
     let shown = Memo::new(move |_| {
-        documents
-            .active
-            .with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
+        active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
     focus_when_mounted(documents, &entry);
     let visited = entry.visited;
@@ -50,10 +49,9 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
 fn focus_when_mounted(documents: Documents, entry: &Entry) {
     let id = entry.id.clone();
     let handle = entry.handle;
+    let focus_editor = documents.follows.focus_editor.read();
     Effect::new(move |_| {
-        let wanted = documents
-            .focus_editor
-            .with(|wanted| wanted.as_deref() == Some(id.as_str()));
+        let wanted = focus_editor.with(|wanted| wanted.as_deref() == Some(id.as_str()));
         if !wanted || !handle.is_mounted() {
             return;
         }
@@ -67,7 +65,10 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
 /// document's id.
 fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     let Documents {
-        callbacks, options, ..
+        callbacks,
+        options,
+        follows,
+        ..
     } = documents;
     let id = StoredValue::new(entry.id.clone());
     let value = entry.value;
@@ -98,12 +99,12 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             read_only=entry.read_only
             nostrip:schema=schema
             file_name=entry.file_name.get_untracked()
-            theme=options.theme
-            colors=options.colors
+            theme=follows.theme.read()
+            colors=follows.colors.read()
             styled=false
             show_footer=options.show_footer
             show_diff=options.show_diff
-            enable_save_shortcut=options.save_shortcut
+            enable_save_shortcut=follows.save_shortcut.read()
             on_change=changed
             nostrip:on_save=saved
             on_dirty_change=dirty_changed

@@ -37,30 +37,59 @@ pub(super) use toolbar::Toolbar;
 
 use leptos::prelude::*;
 
-use super::line_rows::{LineRows, RowFolds};
+use super::line_rows::{Highlighting, LineRows, RowFolds, RowInputs};
 use super::state::EditorState;
 
-/// Per-row signals for the gutter and code layer, kept in step with the
-/// document, diagnostics, diff, caret line and visible range (see
-/// `line_rows`).
+/// Per-row state for the gutter and code layer, kept in step with the
+/// document, diagnostics, diff, caret line, folds, highlighting and visible
+/// range (see `line_rows`).
 pub(super) fn row_states(state: EditorState) -> LineRows {
     let rows = LineRows::new();
-    let synced = rows.clone();
     Effect::new(move |_| {
-        let line = state.doc.current_line.get();
-        state.fold.visible_lines.with(|visible| {
-            state.fold.folded.with(|closed| {
-                let folds = RowFolds { closed };
-                state.view.lines.with(|lines| {
-                    state
-                        .changes
-                        .diff
-                        .with(|diff| synced.sync(lines, diff, line, visible, folds))
-                })
-            })
-        });
+        state
+            .fold
+            .visible_lines
+            .with(|visible| with_row_inputs(state, |inputs| rows.sync(inputs, visible)));
     });
     rows
+}
+
+/// Calls `f` with what the rows' states are built from (tracked).
+pub(super) fn with_row_inputs<R>(state: EditorState, f: impl FnOnce(&RowInputs<'_>) -> R) -> R {
+    let active_line = state.doc.current_line.get();
+    let language = state
+        .config
+        .features
+        .highlighting
+        .then(|| state.sync.edit_language.get());
+    state.fold.folded.with(|closed| {
+        state.view.string_bodies.with(|string_bodies| {
+            state.view.lines.with(|rows| {
+                state.changes.diff.with(|line_diff| {
+                    f(&RowInputs {
+                        rows,
+                        line_diff,
+                        active_line,
+                        folds: RowFolds { closed },
+                        highlighting: Highlighting {
+                            language,
+                            string_bodies,
+                        },
+                    })
+                })
+            })
+        })
+    })
+}
+
+/// The state signal of row `index`, owned by the calling row.
+pub(super) fn row_state_for(
+    state: EditorState,
+    rows: LineRows,
+    index: usize,
+) -> RwSignal<super::line_rows::RowUiState> {
+    // Untracked: a row subscribes only to its own signal (see `line_rows`).
+    untrack(|| with_row_inputs(state, |inputs| rows.state_for(index, inputs)))
 }
 
 /// The spacer above the rendered rows, keeping their positions.

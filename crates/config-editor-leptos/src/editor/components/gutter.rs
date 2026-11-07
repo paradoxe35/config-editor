@@ -5,9 +5,10 @@ use leptos::prelude::*;
 
 use super::super::commands::line_range;
 use super::super::diff::{DiffKind, DiffPeek};
-use super::super::line_rows::{LineRows, RowFolds, RowUiState};
+use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
-use super::RowSpacer;
+use super::{RowSpacer, row_state_for};
+use crate::reactive::KeyedList;
 
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
@@ -32,10 +33,10 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
                 style:transform=move || format!("translateY(-{}px)", state.view.scroll_y.get())
             >
                 <RowSpacer state=state />
-                <For
+                <KeyedList
                     each=move || state.fold.visible_lines.get()
                     key=|index| *index
-                    children=move |index| view! { <LineNumber state=state rows=rows.clone() index=index /> }
+                    children=move |index| view! { <LineNumber state=state rows=rows index=index /> }
                 />
             </div>
         </div>
@@ -45,16 +46,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
 #[component]
 fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
     let line = index + 1;
-    // Subscribe only to the row's own signal (see `line_rows`).
-    let active = state.doc.current_line.get_untracked();
-    // Borrow, never clone: cloning the whole document per new row made large
-    // pastes quadratic.
-    let row = state.view.lines.with_untracked(|lines| {
-        state
-            .changes
-            .diff
-            .with_untracked(|diff| rows.state_for(index, lines, diff, active, RowFolds::default()))
-    });
+    let row = row_state_for(state, rows, index);
     let select_line = move |_| {
         // A line number selects its whole line, as in VS Code.
         let Some(offset) = state.focus_at(line, 1) else {

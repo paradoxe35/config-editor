@@ -25,3 +25,18 @@ Screenshots from the run are written to `test-results/screens/`.
   undo/redo, Tab and comment shortcuts, bracket pairing, diagnostics and their
   tooltips, the diff gutter with Apply changes, theme font consistency, and hover on
   nested and dynamic keys.
+- `tests/memory.spec.mjs`: memory over many cycles, through the npm package:
+  editors mounted and destroyed, a long document scrolled and folded, underlines
+  and suggestion lists redrawn, documents opened and closed in `ConfigDocuments`,
+  and the React component remounting. WebAssembly memory never shrinks, so each
+  test measures its growth after a warm-up.
+
+## Hunting leaks
+
+Build the npm package with the `alloc-stats` feature (see
+`js/config-editor/src/alloc_stats.rs`) to read the heap from the page:
+`__allocStats()` gives the live bytes and allocations, `__allocSizes()` the live
+allocations per size (diff two snapshots around repeated work), and
+`__allocTrack([sizes])` then `__allocSites()` the stacks that allocated what is
+still live. Most leaks so far were views that come and go subscribing to state
+that stays; see `crates/config-editor-leptos/src/reactive`.

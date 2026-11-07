@@ -23,6 +23,7 @@ mod texts;
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};
 
+use crate::reactive::KeyedList;
 use crate::{EditorTheme, PRESET_CSS, SaveRequest, ThemeColors};
 use components::{DocumentPanel, TabStrip};
 use entries::{Callbacks, Documents, EditorOptions, Entry};
@@ -189,7 +190,7 @@ pub fn ConfigDocuments(
             {styled.then(|| view! { <style>{PRESET_CSS}</style> })}
             <TabStrip documents=documents_view label=label />
             <div class="config-editor-documents__panels">
-                <For each=panels key=|entry| entry.serial children=panel />
+                <KeyedList each=panels key=|entry| entry.serial children=panel />
                 <Show when=empty>
                     <p class="config-editor-documents__empty">{texts::NO_DOCUMENTS}</p>
                 </Show>
