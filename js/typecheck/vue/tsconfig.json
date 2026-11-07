@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom"],
+    "types": [],
+    "paths": {
+      "@pngwasi/config-editor": ["../../config-editor/index.d.ts"],
+      "@pngwasi/config-editor-vue": ["../../config-editor-vue/dist/index.d.ts"]
+    }
+  },
+  "vueCompilerOptions": {
+    "strictTemplates": true
+  },
+  "include": ["*.vue"]
+}

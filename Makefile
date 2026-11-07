@@ -38,7 +38,7 @@ demo: ## Build the demo (debug, what the e2e tests load)
 demo-release: ## Build the demo optimized (what the screenshots use)
 	trunk build --release
 
-packages: ## Build the npm packages and their example pages
+packages: ## Build the npm packages (vanilla, React, Vue, Svelte) and their example pages
 	cd js && npm run build
 
 examples: ## Bundle only the example pages (after `make packages` once)
@@ -82,7 +82,7 @@ optional: ## Each optional feature off, then all of them off
 docs: ## Generated docs current and well formed (contents, gallery, tables, Prettier)
 	scripts/ci.sh docs
 
-typecheck: ## Type-check the TypeScript examples of the READMEs
+typecheck: ## Type-check the READMEs' examples (tsc, vue-tsc, svelte-check) and the Svelte package
 	cd js && npm run typecheck
 
 e2e: build e2e-only ## Build, then run the browser tests
@@ -108,4 +108,4 @@ sizes: ## Measure the wasm sizes and rewrite the crate README's table
 
 clean: ## Remove build outputs (cargo target, demo, npm builds, test results)
 	cargo clean
-	rm -rf dist e2e/.standalone e2e/test-results js/config-editor/pkg js/config-editor-react/dist js/examples/dist
+	rm -rf dist e2e/.standalone e2e/test-results js/config-editor/pkg js/config-editor-react/dist js/config-editor-vue/dist js/config-editor-svelte/dist js/examples/dist

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { editor, pointAt, setupEditor } from './helpers.mjs';
+import { editor, FRAMEWORK_PAGES, pointAt, setupEditor } from './helpers.mjs';
 
 // Secret placeholders against the protected-fields fixture
 // (`?schema=protected`): `tls.key` (writeOnly, minLength and pattern) and
@@ -205,7 +205,7 @@ test.describe('secret placeholders while editing as another language', () => {
 const examples = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(examples, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
 
-for (const name of ['vanilla.html', 'react.html']) {
+for (const name of ['vanilla.html', ...FRAMEWORK_PAGES]) {
   test.describe(`secret placeholders in ${name}`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');
 

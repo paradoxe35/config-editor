@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Every setting of `EditorSettings` switches live on the example pages:
-// vanilla (`setSettings`), React (props), and the documents view, vanilla
-// (`setSettings` on the view) and React (its props). Live means the editor
+// vanilla (`setSettings`), React, Vue and Svelte (props), and the documents view, vanilla
+// (`setSettings` on the view) and each framework's (its props). Live means the editor
 // is not mounted again: the textarea stays the same element, the caret
 // stays where it was and the typing before the switch is undone after it.
 // Also: a document's own settings over the view's, and reaching a
@@ -17,7 +17,10 @@ const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
 
 test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
-const PAGES = ['vanilla.html', 'react.html', 'documents.html', 'documents-react.html'];
+// The framework pages (React, Vue, Svelte) share their controls and `window` hooks.
+const FRAMEWORKS = ['react.html', 'vue.html', 'svelte.html'];
+const DOCUMENTS_FRAMEWORKS = ['documents-react.html', 'documents-vue.html', 'documents-svelte.html'];
+const PAGES = ['vanilla.html', ...FRAMEWORKS, 'documents.html', ...DOCUMENTS_FRAMEWORKS];
 const isDocuments = (name) => name.startsWith('documents');
 
 async function open(page, name) {
@@ -45,7 +48,7 @@ async function setSettings(page, name, partial) {
   await page.evaluate(
     ([name, partial]) => {
       if (name === 'vanilla.html') window.editor.setSettings({ ...window.editor.settings, ...partial });
-      else if (name === 'react.html') window.setExtraProps((props) => ({ ...props, ...partial }));
+      else if (!name.startsWith('documents')) window.setExtraProps((props) => ({ ...props, ...partial }));
       else if (name === 'documents.html') window.documentsView.setSettings({ ...window.documentsView.settings, ...partial });
       else window.setViewSettings((settings) => ({ ...settings, ...partial }));
     },
@@ -57,9 +60,9 @@ async function setSettings(page, name, partial) {
       page.evaluate(
         ([name, partial]) => {
           const instance =
-            name === 'react.html'
+            !name.startsWith('documents') && name !== 'vanilla.html'
               ? window.editorHandle.current?.editor
-              : name === 'documents-react.html'
+              : name.startsWith('documents-')
                 ? window.documentsHandle.current?.instance
                 : window.editor ?? window.documentsView;
           const settings = instance?.settings ?? {};
@@ -228,7 +231,7 @@ for (const name of PAGES) {
       const saves = () =>
         page.evaluate((name) => {
           if (name === 'vanilla.html') return window.saves.length;
-          if (name === 'react.html') return Number(document.getElementById('saves').dataset.count);
+          if (!name.startsWith('documents')) return Number(document.getElementById('saves').dataset.count);
           return (document.getElementById('log').textContent.match(/^save /gm) ?? []).length;
         }, name);
       await mark(page, name);
@@ -247,7 +250,7 @@ for (const name of PAGES) {
   });
 }
 
-for (const name of ['documents.html', 'documents-react.html']) {
+for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORKS]) {
   test.describe(`${name}: a document's own settings and editor`, () => {
     test('a document\'s settings go over the view\'s and follow them', async ({ page }) => {
       const errors = await open(page, name);

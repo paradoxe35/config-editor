@@ -99,8 +99,13 @@ extends the generated `EditorSettings` type.
 `readOnlyPaths`, `readOnlyRanges`, every setting, `onPathChange`, `onSave` and
 the other callbacks update the live editor (the caret, undo history and folds
 stay). `language`, `schema`, `fileName`, `editorClassName` and the `secrets`
-patterns re-create it; the document and its diff baseline carry over, undo
-history starts over.
+patterns re-create it; the document and its diff baseline carry over (and
+the caret, when the editor had focus), undo history starts over. The
+component is a thin wrapper around `EditorBinding` from
+`@pngwasi/config-editor`, shared with the
+[Vue](https://www.npmjs.com/package/@pngwasi/config-editor-vue) and
+[Svelte](https://www.npmjs.com/package/@pngwasi/config-editor-svelte)
+packages: the three behave the same.
 
 ### Settings
 

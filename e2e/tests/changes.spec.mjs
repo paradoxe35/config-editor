@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { editor, setupEditor } from './helpers.mjs';
+import { editor, FRAMEWORK_PAGES, setupEditor } from './helpers.mjs';
 
 // Changes against the baseline: the gutter markers, the footer count,
 // "Revert this change" from the preview (mouse, Enter, R), Alt+F5 / Alt+F3,
@@ -250,13 +250,15 @@ test.describe('js packages', () => {
     expect(errors).toEqual([]);
   });
 
-  test('react: onChangeSummary and ref.unifiedDiff', async ({ page }) => {
-    const errors = await open(page, 'react.html');
-    await caretAt(page, 1, true);
-    await page.keyboard.type('X');
-    await expect(page.locator('#changes')).toHaveText('1 changes: +0 ~1 -0');
-    const patch = await page.evaluate(() => window.editorHandle.current.unifiedDiff(0));
-    expect(patch).toMatch(/^--- baseline\n\+\+\+ current\n@@ -1 \+1 @@\n-.*\n\+.*X\n$/);
-    expect(errors).toEqual([]);
-  });
+  for (const name of FRAMEWORK_PAGES) {
+    test(`${name}: onChangeSummary and the instance's unifiedDiff`, async ({ page }) => {
+      const errors = await open(page, name);
+      await caretAt(page, 1, true);
+      await page.keyboard.type('X');
+      await expect(page.locator('#changes')).toHaveText('1 changes: +0 ~1 -0');
+      const patch = await page.evaluate(() => window.editorHandle.current.unifiedDiff(0));
+      expect(patch).toMatch(/^--- baseline\n\+\+\+ current\n@@ -1 \+1 @@\n-.*\n\+.*X\n$/);
+      expect(errors).toEqual([]);
+    });
+  }
 });

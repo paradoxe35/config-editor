@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { FRAMEWORK_PAGES } from './helpers.mjs';
 
 // Memory over many cycles of what hosts do all day: mount and destroy
 // editors, scroll and fold long documents, open and close documents, and
@@ -42,7 +43,7 @@ async function open(browserPage, name) {
 /** The WebAssembly memory's size, in bytes. */
 async function wasmBytes(browserPage) {
   return browserPage.evaluate(async () => {
-    if (window.reactApi) return (await window.reactApi.loadConfigEditor()).memory.buffer.byteLength;
+    if (window.packageApi) return (await window.packageApi.loadConfigEditor()).memory.buffer.byteLength;
     const module = await import('../config-editor/pkg/config_editor.js');
     return (await module.default()).memory.buffer.byteLength;
   });
@@ -214,20 +215,36 @@ test.describe('memory', () => {
     expect(errors).toEqual([]);
   });
 
-  test('the React component remounting gives the old editor back', async ({ page: browserPage }) => {
-    await browserPage.goto(page('react.html'));
-    await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
-    await browserPage.locator('.config-editor__input').waitFor();
-    const grown = await growth(browserPage, {
-      cycles: 40,
-      cycle: async (round) => {
-        // A new file name mounts a new editor.
-        await browserPage.evaluate((name) => window.setExtraProps({ fileName: name }), `file${round}.yaml`);
-        await expect(browserPage.locator('.config-editor__toolbar')).toContainText(`file${round}.yaml`);
-      },
+  for (const name of FRAMEWORK_PAGES) {
+    test(`the ${name} component remounting gives the old editor back`, async ({ page: browserPage }) => {
+      const errors = await open(browserPage, name);
+      const grown = await growth(browserPage, {
+        cycles: 40,
+        cycle: async (round) => {
+          // A new file name mounts a new editor.
+          await browserPage.evaluate((name) => window.setExtraProps({ fileName: name }), `file${round}.yaml`);
+          await expect(browserPage.locator('.config-editor__toolbar')).toContainText(`file${round}.yaml`);
+        },
+      });
+      expect(grown).toBeLessThanOrEqual(128 * KB);
+      expect(errors).toEqual([]);
     });
-    expect(grown).toBeLessThanOrEqual(128 * KB);
-  });
+
+    test(`the ${name} component unmounted and mounted again gives its editor back`, async ({ page: browserPage }) => {
+      const errors = await open(browserPage, name);
+      const grown = await growth(browserPage, {
+        cycles: 40,
+        cycle: async () => {
+          await browserPage.evaluate(() => window.setShown(false));
+          await expect(browserPage.locator('.config-editor__input')).toHaveCount(0);
+          await browserPage.evaluate(() => window.setShown(true));
+          await expect(browserPage.locator('.config-editor__input')).toHaveCount(1);
+        },
+      });
+      expect(grown).toBeLessThanOrEqual(128 * KB);
+      expect(errors).toEqual([]);
+    });
+  }
 });
 
 // --- Soak: every interactive surface, many times over. -------------------

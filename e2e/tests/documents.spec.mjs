@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { setupEditor } from './helpers.mjs';
+import { DOCUMENTS_FRAMEWORK_PAGES, setupEditor } from './helpers.mjs';
 
 // Several documents as tabs (`ConfigDocuments`), on the demo's `?documents`
 // page: `main` (burrow.yaml), `limits` (conf.d/limits.toml) and `clients`
@@ -349,7 +349,7 @@ const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
 const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
 
-for (const name of ['documents.html', 'documents-react.html']) {
+for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
   test.describe(`JS example ${name}`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');
 

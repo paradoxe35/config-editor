@@ -1,5 +1,10 @@
 import { expect } from '@playwright/test';
 
+// The framework packages' example pages (js/examples): the same controls,
+// ids, query flags and `window` hooks on each, so a test of one runs on all.
+export const FRAMEWORK_PAGES = ['react.html', 'vue.html', 'svelte.html'];
+export const DOCUMENTS_FRAMEWORK_PAGES = ['documents-react.html', 'documents-vue.html', 'documents-svelte.html'];
+
 // Registers the per-test setup shared by every editor spec: a fresh page,
 // collection of page errors, and a failure if the page threw anything.
 // `query` selects the demo mode, for example '?language=json'.

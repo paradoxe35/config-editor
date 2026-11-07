@@ -7,12 +7,18 @@ import { fileURLToPath } from 'node:url';
 // `ConfigEditor` and `ConfigDocuments`, method of `EditorHandle`,
 // `DocumentsHandle`, `Document`, `Language`, `ChangeSummary`, `Schema` and
 // `EditorTheme`, and item re-exported from the crate root has a
-// JavaScript counterpart (an option, a method, a function or a type) and a
-// React one (a prop, a ref member or a re-export), or an exemption saying
-// why not. `EditorSettings` is not mapped by hand: its TypeScript type is
-// generated from the struct (js/config-editor/tests/settings.rs checks it
-// is current); here every field must be in it, and the JS options and React
-// props must extend it. Reads the sources only: no build, no browser.
+// JavaScript counterpart (an option, a method, a function or a type) and one
+// in each framework package, React, Vue and Svelte (a prop or event, an
+// instance member or a re-export), or an exemption saying why not. The
+// framework components are thin wrappers around the bindings of
+// `@pngwasi/config-editor` (js/config-editor/binding.js): every JS option
+// must reach the editor through the binding's props, and every binding prop
+// must be a prop of each component (under its framework's name: Vue's
+// `modelValue`, …). `EditorSettings` is not mapped by hand: its TypeScript
+// type is generated from the struct (js/config-editor/tests/settings.rs
+// checks it is current); here every field must be in it, and the JS options
+// and each component's props must extend it. Reads the sources only: no
+// build, no browser.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...path) => readFileSync(join(root, ...path), 'utf8');
@@ -22,13 +28,15 @@ const jsSources = readdirSync(join(root, 'js', 'config-editor', 'src'))
   .filter((name) => name.endsWith('.rs') && name !== 'alloc_stats.rs')
   .map((name) => read('js', 'config-editor', 'src', name))
   .join('\n');
-const react = read('js', 'config-editor-react', 'src', 'index.tsx');
+const bindingJs = read('js', 'config-editor', 'binding.js');
+const bindingTypes = read('js', 'config-editor', 'binding.d.ts');
 
-// --- The mapping: Rust name → JS name → React name, or an exemption. -------
+// --- The mapping: Rust name → JS name → binding prop, or an exemption. -----
 //
 // `js` names an option (props), a method of the `ConfigEditor` class
 // (handle), or an exported function or type (everything else, as `kind`
-// says). `react` defaults to the same name; `react: null` needs `reactWhy`.
+// says). `prop` is the binding's (and React's) name for an option, by
+// default the same; each framework renames a few (FRAMEWORKS below).
 
 const PROPS = {
   language: { js: 'language' },
@@ -38,14 +46,14 @@ const PROPS = {
   baseline: { js: 'baseline' },
   schema: { js: 'schema' },
   file_name: { js: 'fileName' },
-  class: { js: 'className', react: 'editorClassName' },
+  class: { js: 'className', prop: 'editorClassName' },
   settings: { js: 'EditorSettings', kind: 'extends' },
   on_change: { js: 'onChange' },
   on_edit_as_change: { js: 'onEditAsChange' },
   on_change_summary: { js: 'onChangeSummary' },
   on_schema_warning: { js: 'onSchemaWarning' },
   read_only: { js: 'readOnly' },
-  handle: { exempt: 'the `ConfigEditor` instance (React: its ref) is the handle' },
+  handle: { exempt: 'the `ConfigEditor` instance (a component: its instance API) is the handle' },
   host_diagnostics: { js: 'hostDiagnostics' },
   on_path_change: { js: 'onPathChange' },
   on_save: { js: 'onSave' },
@@ -56,17 +64,15 @@ const PROPS = {
   secrets: { js: 'secrets' },
 };
 
-// React props with no JS option of their own.
-const REACT_ONLY_PROPS = {
+// Binding props (so every component's) with no JS option of their own.
+const BINDING_ONLY_PROPS = {
   defaultValue: 'the uncontrolled initial document (JS: `value`)',
-  className: 'the class of the container `<div>` the component renders',
-  style: 'the style of that container',
   onError: 'mount and prop errors, which JS throws instead',
 };
 
 const HANDLE = {
   new: { exempt: '`new ConfigEditor(element, options)` mounts and returns the handle' },
-  is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (React: `ref.current.editor`)' },
+  is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
   text: { js: 'text' },
   range_of: { js: 'rangeOf' },
   path_at: { js: 'pathAt' },
@@ -127,20 +133,18 @@ const DOCUMENTS_PROPS = {
   on_save: { js: 'onSave' },
   on_dirty_change: { js: 'onDirtyChange' },
   settings: { js: 'EditorSettings', kind: 'extends' },
-  class: { js: 'className', react: 'viewClassName' },
+  class: { js: 'className', prop: 'viewClassName' },
   label: { js: 'label' },
-  handle: { exempt: 'the `ConfigDocuments` instance (React: its ref) is the handle' },
+  handle: { exempt: 'the `ConfigDocuments` instance (a component: its instance API) is the handle' },
 };
 
-const DOCUMENTS_REACT_ONLY_PROPS = {
-  className: 'the class of the container `<div>` the component renders',
-  style: 'the style of that container',
+const DOCUMENTS_BINDING_ONLY_PROPS = {
   onError: 'mount and prop errors, which JS throws instead',
 };
 
 const DOCUMENTS_HANDLE = {
   new: { exempt: '`new ConfigDocuments(element, options)` mounts and returns the handle' },
-  is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (React: `ref.current.instance`)' },
+  is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `instance`)' },
   active: { js: 'activeId' },
   select: { js: 'select' },
   editor: { js: 'editor' },
@@ -339,41 +343,204 @@ function jsPackage() {
   };
 }
 
-// --- Reading the React package. --------------------------------------------
+// --- Reading the bindings (js/config-editor/binding.js, binding.d.ts). -----
 
+/** Members of `export interface <name>` in `source` (quoted names unquoted). */
 function members(source, name) {
-  const body = block(source, source.indexOf(`export interface ${name}`));
-  return new Set([...body.matchAll(/^  (?:readonly )?(\w+)\??[:(]/gm)].map(([, member]) => member));
+  const body = block(source, source.search(new RegExp(`export interface ${name}\\b`)));
+  return new Set([...body.matchAll(/^  (?:readonly )?(\w+|"[^"]+")\??[:(]/gm)].map(([, member]) => member.replaceAll('"', '')));
 }
 
-function reactPackage() {
-  const exported = new Set();
-  for (const [, list] of react.matchAll(/^export (?:type )?\{([^}]*)\} from "@pngwasi\/config-editor";/gm)) {
-    for (const name of list.split(',')) if (name.trim()) exported.add(name.trim());
-  }
-  for (const [, name] of react.matchAll(/^export (?:const|function|interface|type) (\w+)/gm)) exported.add(name);
-  const forwardedIn = (type) =>
-    new Set([...block(react, react.indexOf(`const options: ${type} = {`)).matchAll(/^ {10}(\w+)[:,]/gm)].map(([, name]) => name));
-  const spreads = (type) => block(react, react.indexOf(`const options: ${type} = {`)).includes('...settings,');
+/** The `readonly` members (getters) of `export interface <name>`. */
+function getters(source, name) {
+  const body = block(source, source.search(new RegExp(`export interface ${name}\\b`)));
+  return new Set([...body.matchAll(/^  readonly (\w+)\??:/gm)].map(([, member]) => member));
+}
+
+function bindingPackage() {
+  const classBody = (name) => block(bindingJs, bindingJs.indexOf(`export class ${name} `));
+  const options = (body, type) => block(body, body.indexOf(`return new ${type}(element, {`));
+  const handle = (body) => block(body, body.indexOf('return {', body.indexOf('#handle() {')));
+  const names = (body) => new Set([...body.matchAll(/^ {6}(?:get )?(\w+)(?:[:,(]| \()/gm)].map(([, name]) => name));
+  const editor = classBody('EditorBinding');
+  const documents = classBody('DocumentsBinding');
+  // The settings are read by the generated list of their keys and spread
+  // into the options.
+  const settingsRead = /for \(const key of Object\.keys\(SETTING_TYPES\)\)/.test(bindingJs);
   return {
+    props: members(bindingTypes, 'EditorBindingProps'),
+    documentsProps: members(bindingTypes, 'DocumentsBindingProps'),
+    forwarded: names(options(editor, 'ConfigEditor')),
+    documentsForwarded: names(options(documents, 'ConfigDocuments')),
     extendsSettings: {
-      options: /export interface ConfigEditorProps extends EditorSettings \{/.test(react) && spreads('EditorOptions'),
-      documents: /export interface ConfigDocumentsProps extends EditorSettings \{/.test(react) && spreads('DocumentsOptions'),
+      options:
+        /export interface EditorBindingProps extends EditorSettings \{/.test(bindingTypes) &&
+        options(editor, 'ConfigEditor').includes('...settings,') &&
+        settingsRead,
+      documents:
+        /export interface DocumentsBindingProps extends EditorSettings \{/.test(bindingTypes) &&
+        options(documents, 'ConfigDocuments').includes('...settings,') &&
+        settingsRead,
     },
-    props: members(react, 'ConfigEditorProps'),
-    handle: members(react, 'ConfigEditorHandle'),
-    exported,
-    forwarded: forwardedIn('EditorOptions'),
-    documentsProps: members(react, 'ConfigDocumentsProps'),
-    documentsHandle: members(react, 'ConfigDocumentsHandle'),
-    documentsForwarded: forwardedIn('DocumentsOptions'),
+    handle: members(bindingTypes, 'ConfigEditorHandle'),
+    handleGetters: getters(bindingTypes, 'ConfigEditorHandle'),
+    documentsHandle: members(bindingTypes, 'ConfigDocumentsHandle'),
+    documentsHandleGetters: getters(bindingTypes, 'ConfigDocumentsHandle'),
+    handleImplemented: names(handle(editor)),
+    documentsHandleImplemented: names(handle(documents)),
   };
 }
+
+const binding = bindingPackage();
+
+// --- Reading the framework packages. ---------------------------------------
+
+/** Every name an entry file exports (re-exports, `default as`, declarations). */
+function exportsOf(source) {
+  const exported = new Set();
+  for (const [, list] of source.matchAll(/^export (?:type )?\{([^}]*)\} from "[^"]+";/gm)) {
+    for (const item of list.split(',')) if (item.trim()) exported.add(item.trim().split(/\s+/).at(-1));
+  }
+  for (const [, name] of source.matchAll(/^export (?:const|function|interface|type|class) (\w+)/gm)) exported.add(name);
+  return exported;
+}
+
+/** The keys of the object literal `const <name> = {` in `source`. */
+function objectKeys(source, name) {
+  const body = block(source, source.indexOf(`const ${name} = {`));
+  return new Set([...body.matchAll(/^  (\w+): /gm)].map(([, key]) => key));
+}
+
+const capitalized = (name) => name[0].toUpperCase() + name.slice(1);
+
+// Each framework: where its sources are, how it names a binding prop
+// (`rename`: binding name → its own), its props with no binding counterpart
+// (`only`, with the reason), and how it reads (props, instance API, exports,
+// and how it hands its props to the binding).
+const FRAMEWORKS = {
+  React: {
+    path: 'js/config-editor-react/src/index.tsx',
+    rename: {},
+    documentsRename: {},
+    only: {
+      className: 'the class of the container `<div>` the component renders',
+      style: 'the style of that container',
+    },
+    documentsOnly: {
+      className: 'the class of the container `<div>` the component renders',
+      style: 'the style of that container',
+    },
+    read() {
+      const source = read('js', 'config-editor-react', 'src', 'index.tsx');
+      // The ref is the binding's handle, the props go to it as they are.
+      const wired = (type) =>
+        source.includes(`new ${type}("config-editor-react", props)`) &&
+        source.split('useEffect(() => binding.current!.update(props));').length === 3 &&
+        source.split('useImperativeHandle(ref, () => binding.current!.handle, []);').length === 3;
+      return {
+        props: members(source, 'ConfigEditorProps'),
+        documentsProps: members(source, 'ConfigDocumentsProps'),
+        handle: wired('EditorBinding') ? binding.handle : new Set(),
+        documentsHandle: wired('DocumentsBinding') ? binding.documentsHandle : new Set(),
+        exported: exportsOf(source),
+        extendsSettings: {
+          options: /export interface ConfigEditorProps extends EditorSettings \{/.test(source),
+          documents: /export interface ConfigDocumentsProps extends EditorSettings \{/.test(source),
+        },
+        wiring: [
+          ...(wired('EditorBinding') ? [] : ['ConfigEditor must create an `EditorBinding`, update it with its props and expose its handle as the ref']),
+          ...(wired('DocumentsBinding') ? [] : ['ConfigDocuments must create a `DocumentsBinding`, update it with its props and expose its handle as the ref']),
+        ],
+      };
+    },
+  },
+  Vue: {
+    path: 'js/config-editor-vue/src',
+    rename: { value: 'modelValue', onChange: 'update:modelValue', editorClassName: 'editorClass' },
+    documentsRename: { viewClassName: 'viewClass' },
+    // `class`, `style` and other attributes fall through to the component's
+    // `<div>`, as Vue does for every component: no props of their own.
+    only: {},
+    documentsOnly: {},
+    read() {
+      const editor = read('js', 'config-editor-vue', 'src', 'ConfigEditor.ts');
+      const documents = read('js', 'config-editor-vue', 'src', 'ConfigDocuments.ts');
+      const settings = read('js', 'config-editor-vue', 'src', 'settings.ts');
+      const emits = new Set([...block(editor, editor.indexOf('emits: {')).matchAll(/^ {4}"?([\w:]+)"?: /gm)].map(([, name]) => name));
+      const fromSettingTypes = /Object\.entries\(SETTING_TYPES\)/.test(settings);
+      const wiring = [];
+      for (const [source, what, snippets] of [
+        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-vue")', 'value: modelValue', 'editorClassName: editorClass', 'emit("update:modelValue", value)', '...rest', 'expose(binding.handle)', 'deep: true']],
+        [documents, 'ConfigDocuments', ['new DocumentsBinding("config-editor-vue")', 'viewClassName: viewClass', '...rest', 'expose(binding.handle)', 'deep: true']],
+      ]) {
+        for (const snippet of snippets) if (!source.includes(snippet)) wiring.push(`${what}: \`${snippet}\` is missing from how it hands its props to the binding`);
+      }
+      return {
+        props: new Set([...objectKeys(editor, 'editorProps'), ...emits]),
+        documentsProps: objectKeys(documents, 'documentsProps'),
+        handle: editor.includes('expose(binding.handle)') ? binding.handle : new Set(),
+        documentsHandle: documents.includes('expose(binding.handle)') ? binding.documentsHandle : new Set(),
+        exported: exportsOf(read('js', 'config-editor-vue', 'src', 'index.ts')),
+        extendsSettings: {
+          options: editor.includes('{ ...editorProps, ...settingProps }') && fromSettingTypes,
+          documents: documents.includes('{ ...documentsProps, ...settingProps }') && fromSettingTypes,
+        },
+        wiring,
+      };
+    },
+  },
+  Svelte: {
+    path: 'js/config-editor-svelte/src',
+    rename: { editorClassName: 'editorClass' },
+    documentsRename: { viewClassName: 'viewClass' },
+    only: {
+      class: 'the class of the container `<div>` the component renders',
+      style: 'the style of that container',
+    },
+    documentsOnly: {
+      class: 'the class of the container `<div>` the component renders',
+      style: 'the style of that container',
+    },
+    read() {
+      const types = read('js', 'config-editor-svelte', 'src', 'types.ts');
+      const editor = read('js', 'config-editor-svelte', 'src', 'ConfigEditor.svelte');
+      const documents = read('js', 'config-editor-svelte', 'src', 'ConfigDocuments.svelte');
+      // Svelte exports functions: a getter of the handle is `get<Name>()`
+      // (`isDirty()` keeps its name).
+      const exportedFunctions = (source) => new Set([...source.matchAll(/^ {2}export function (\w+)/gm)].map(([, name]) => name));
+      const svelteName = (member, readonly) => (readonly.has(member) && !/^is[A-Z]/.test(member) ? `get${capitalized(member)}` : member);
+      const instance = (source, handle, readonly) => {
+        const functions = exportedFunctions(source);
+        return new Set([...handle].filter((member) => functions.has(svelteName(member, readonly))));
+      };
+      const wiring = [];
+      for (const [source, what, snippets] of [
+        [editor, 'ConfigEditor', ['new EditorBinding("config-editor-svelte")', 'value: hostValue,', '{ ...rest, value: hostValue, editorClassName: editorClass, onChange: changed }', 'readAll(props);']],
+        [documents, 'ConfigDocuments', ['new DocumentsBinding("config-editor-svelte")', '{ ...rest, viewClassName: viewClass }', 'readAll(props);']],
+      ]) {
+        for (const snippet of snippets) if (!source.includes(snippet)) wiring.push(`${what}: \`${snippet}\` is missing from how it hands its props to the binding`);
+      }
+      return {
+        props: members(types, 'ConfigEditorProps'),
+        documentsProps: members(types, 'ConfigDocumentsProps'),
+        handle: instance(editor, binding.handle, binding.handleGetters),
+        documentsHandle: instance(documents, binding.documentsHandle, binding.documentsHandleGetters),
+        exported: exportsOf(read('js', 'config-editor-svelte', 'src', 'index.ts')),
+        extendsSettings: {
+          options: /export interface ConfigEditorProps extends EditorSettings \{/.test(types),
+          documents: /export interface ConfigDocumentsProps extends EditorSettings \{/.test(types),
+        },
+        wiring,
+      };
+    },
+  },
+};
+
+const frameworks = Object.entries(FRAMEWORKS).map(([name, framework]) => ({ name, ...framework, ...framework.read() }));
 
 // --- The checks. -----------------------------------------------------------
 
 const js = jsPackage();
-const reactSide = reactPackage();
 
 // Where options and methods are looked up: the editor's, or the documents
 // view's.
@@ -381,18 +548,25 @@ const EDITOR_SIDE = {
   options: () => js.options,
   typedOptions: () => js.typedOptions,
   methods: () => js.methods,
-  props: () => reactSide.props,
-  handle: () => reactSide.handle,
-  extends: () => js.extendsSettings.options && reactSide.extendsSettings.options,
+  bindingProps: () => binding.props,
+  bindingHandle: () => binding.handle,
+  props: (framework) => framework.props,
+  handle: (framework) => framework.handle,
+  rename: (framework, prop) => framework.rename[prop] ?? prop,
+  extends: () => js.extendsSettings.options && binding.extendsSettings.options && frameworks.every((framework) => framework.extendsSettings.options),
   optionsWhere: 'EDITOR_OPTIONS and the EditorOptions typings',
 };
 const DOCUMENTS_SIDE = {
   options: () => js.documentsOptions,
   typedOptions: () => js.typedDocumentsOptions,
   methods: () => js.documentsMethods,
-  props: () => reactSide.documentsProps,
-  handle: () => reactSide.documentsHandle,
-  extends: () => js.extendsSettings.documents && reactSide.extendsSettings.documents,
+  bindingProps: () => binding.documentsProps,
+  bindingHandle: () => binding.documentsHandle,
+  props: (framework) => framework.documentsProps,
+  handle: (framework) => framework.documentsHandle,
+  rename: (framework, prop) => framework.documentsRename[prop] ?? prop,
+  extends: () =>
+    js.extendsSettings.documents && binding.extendsSettings.documents && frameworks.every((framework) => framework.extendsSettings.documents),
   optionsWhere: 'DOCUMENTS_OPTIONS and the DocumentsOptions typings',
 };
 
@@ -408,12 +582,16 @@ function check(table, items, what, kindOf, side = EDITOR_SIDE) {
     const kind = entry.kind ?? kindOf;
     if (kind === 'setting') {
       if (!js.typedSettings.has(entry.js)) problems.push(`${what} \`${item}\`: setting \`${entry.js}\` is missing from EditorSettings`);
-      if (!reactSide.extendsSettings.options) problems.push(`${what} \`${item}\`: the React props must extend \`EditorSettings\``);
+      for (const framework of frameworks) {
+        if (!framework.extendsSettings.options) problems.push(`${what} \`${item}\`: the ${framework.name} props must extend \`EditorSettings\``);
+      }
       continue;
     }
     if (kind === 'extends') {
       if (!side.extends()) {
-        problems.push(`${what} \`${item}\`: the JS options and the React props must extend \`${entry.js}\` (and the React component spread \`...settings\` into its options)`);
+        problems.push(
+          `${what} \`${item}\`: the JS options, the binding's props and every component's props must extend \`${entry.js}\` (the binding spreading \`...settings\` into the options)`,
+        );
       }
       if (!js.types.has(entry.js)) problems.push(`${what} \`${item}\`: type \`${entry.js}\` is missing from the typings`);
       continue;
@@ -429,21 +607,26 @@ function check(table, items, what, kindOf, side = EDITOR_SIDE) {
       const where = kind === 'option' ? side.optionsWhere : kind === 'type' ? 'the TypeScript typings' : 'the wasm_bindgen exports';
       problems.push(`${what} \`${item}\`: JS ${kind} \`${entry.js}\` is missing from ${where} of js/config-editor/src`);
     }
-    if (entry.react === null) {
-      if (!entry.reactWhy) problems.push(`${what} \`${item}\`: \`react: null\` needs a \`reactWhy\``);
-      continue;
+    const prop = entry.prop ?? entry.js;
+    if (kind === 'option' && !side.bindingProps().has(prop)) {
+      problems.push(`${what} \`${item}\`: binding prop \`${prop}\` is missing from js/config-editor/binding.d.ts`);
     }
-    const reactName = entry.react ?? entry.js;
-    const inReact = {
-      option: side.props().has(reactName),
-      method: side.handle().has(reactName),
-      function: reactSide.exported.has(reactName),
-      class: reactSide.exported.has(reactName),
-      type: reactSide.exported.has(reactName),
-    }[kind];
-    if (!inReact) {
-      const where = { option: 'prop', method: 'ref member' }[kind] ?? 'export';
-      problems.push(`${what} \`${item}\`: React ${where} \`${reactName}\` is missing from js/config-editor-react/src/index.tsx`);
+    if (kind === 'method' && !side.bindingHandle().has(entry.js)) {
+      problems.push(`${what} \`${item}\`: handle member \`${entry.js}\` is missing from js/config-editor/binding.d.ts`);
+    }
+    for (const framework of frameworks) {
+      const name = kind === 'option' ? side.rename(framework, prop) : entry.js;
+      const has = {
+        option: side.props(framework).has(name),
+        method: side.handle(framework).has(name),
+        function: framework.exported.has(name),
+        class: framework.exported.has(name),
+        type: framework.exported.has(name),
+      }[kind];
+      if (!has) {
+        const where = { option: 'prop', method: 'instance member' }[kind] ?? 'export';
+        problems.push(`${what} \`${item}\`: ${framework.name} ${where} \`${name}\` is missing from ${framework.path}`);
+      }
     }
   }
   for (const item of Object.keys(table)) {
@@ -465,6 +648,65 @@ const groups = [
   ['Document method', DOCUMENT, rust.document, 'type'],
 ];
 
+/**
+ * Every JS option (`options`) is passed by the binding (`forwarded`) under
+ * its binding prop, which every component has under its own name; every
+ * binding prop and component prop maps back to an option or is exempted.
+ */
+function optionProblems({ table, options, forwarded, bindingProps, bindingOnly, frameworkProps, rename, only, where }) {
+  const toProp = new Map(
+    Object.values(table)
+      .filter((entry) => !entry.exempt)
+      .map((entry) => [entry.js, entry.prop ?? entry.js]),
+  );
+  const problems = [];
+  for (const option of options) {
+    const prop = toProp.get(option);
+    if (!prop) {
+      problems.push(`JS option \`${option}\` has no Rust prop in the mapping (${where})`);
+      continue;
+    }
+    if (!forwarded.has(option)) problems.push(`JS option \`${option}\` is not passed by the binding (js/config-editor/binding.js)`);
+    if (!bindingProps.has(prop)) problems.push(`JS option \`${option}\` has no binding prop \`${prop}\` (js/config-editor/binding.d.ts)`);
+    for (const framework of frameworks) {
+      const name = rename(framework, prop);
+      if (!frameworkProps(framework).has(name)) problems.push(`JS option \`${option}\` has no ${framework.name} prop \`${name}\``);
+    }
+  }
+  const mapped = new Set(toProp.values());
+  for (const prop of bindingProps) {
+    if (!mapped.has(prop) && !(prop in bindingOnly)) problems.push(`binding prop \`${prop}\` maps to no JS option: add it to the mapping or its exemptions`);
+  }
+  for (const framework of frameworks) {
+    const back = new Map([...bindingProps].map((prop) => [rename(framework, prop), prop]));
+    for (const prop of frameworkProps(framework)) {
+      if (!back.has(prop) && !(prop in only(framework))) {
+        problems.push(`${framework.name} prop \`${prop}\` maps to no binding prop: rename it in FRAMEWORKS, or add it to its \`only\` with the reason`);
+      }
+    }
+    for (const prop of bindingProps) {
+      if (!frameworkProps(framework).has(rename(framework, prop))) problems.push(`binding prop \`${prop}\` has no ${framework.name} prop \`${rename(framework, prop)}\``);
+    }
+  }
+  return problems;
+}
+
+/** Every JS method (but `jsOnly`) is a handle member, implemented by the binding and in every component's instance API. */
+function methodProblems({ methods, jsOnly, handle, implemented, frameworkHandle }) {
+  const problems = [];
+  for (const name of methods) {
+    if (name in jsOnly) continue;
+    if (!handle.has(name)) problems.push(`JS method \`${name}\` has no handle member (js/config-editor/binding.d.ts)`);
+  }
+  for (const name of handle) {
+    if (!implemented.has(name)) problems.push(`handle member \`${name}\` is not implemented by the binding's \`#handle()\``);
+    for (const framework of frameworks) {
+      if (!frameworkHandle(framework).has(name)) problems.push(`handle member \`${name}\` is not in the ${framework.name} instance API (${framework.path})`);
+    }
+  }
+  return problems;
+}
+
 test.describe('API parity between the Rust crate and the JS packages', () => {
   test('every EditorSettings field is in the generated TypeScript type', () => {
     expect(rust.settings).toContain('folding');
@@ -482,7 +724,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(problems).toEqual([]);
   });
 
-  test('the Rust side was read', () => {
+  test('the Rust side, the bindings and every framework were read', () => {
     // A parser that silently finds nothing would pass everything.
     expect(rust.props).toContain('settings');
     expect(rust.handle).toContain('reveal');
@@ -495,13 +737,26 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(js.methods.has('reveal')).toBe(true);
     expect(js.functions.has('validate')).toBe(true);
     expect(js.types.has('EditorOptions')).toBe(true);
-    expect(reactSide.props.has('readOnly')).toBe(true);
-    expect(reactSide.handle.has('reveal')).toBe(true);
-    expect(reactSide.exported.has('validate')).toBe(true);
+    expect(binding.props.has('readOnly')).toBe(true);
+    expect(binding.forwarded.has('readOnly')).toBe(true);
+    expect(binding.handle.has('reveal')).toBe(true);
+    expect(binding.handleGetters.has('isDirty')).toBe(true);
+    expect(binding.handleImplemented.has('isDirty')).toBe(true);
+    expect(binding.documentsForwarded.has('onClose')).toBe(true);
+    expect(frameworks.map((framework) => framework.name)).toEqual(['React', 'Vue', 'Svelte']);
+    for (const framework of frameworks) {
+      expect(framework.props.has('readOnly'), framework.name).toBe(true);
+      expect(framework.handle.has('reveal'), framework.name).toBe(true);
+      expect(framework.handle.has('isDirty'), framework.name).toBe(true);
+      expect(framework.exported.has('validate'), framework.name).toBe(true);
+      expect(framework.exported.has('ConfigEditor'), framework.name).toBe(true);
+      expect(framework.documentsProps.has('onClose'), framework.name).toBe(true);
+      expect(framework.documentsHandle.has('saveAll'), framework.name).toBe(true);
+    }
   });
 
   for (const [what, table, items, kind, side] of groups) {
-    test(`every ${what} is mapped to JS and React, or exempted`, () => {
+    test(`every ${what} is mapped to JS and every framework, or exempted`, () => {
       expect(check(table, items, what, kind, side)).toEqual([]);
     });
   }
@@ -512,32 +767,32 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(rust.document).toContain('read_only');
     expect(js.documentsOptions.has('onClose')).toBe(true);
     expect(js.documentsMethods.has('saveAll')).toBe(true);
-    expect(reactSide.documentsProps.has('onClose')).toBe(true);
-    expect(reactSide.documentsHandle.has('saveAll')).toBe(true);
   });
 
-  test('the documents options: list, typings, React props and forwarding agree', () => {
-    const toReact = new Map(
-      Object.values(DOCUMENTS_PROPS)
-        .filter((entry) => !entry.exempt)
-        .map((entry) => [entry.js, entry.react ?? entry.js]),
-    );
+  test('every component hands its props to its binding and exposes its handle', () => {
+    expect(frameworks.flatMap((framework) => framework.wiring.map((problem) => `${framework.name}: ${problem}`))).toEqual([]);
+  });
+
+  test('the documents options: list, typings, binding, and every component\'s props agree', () => {
     const problems = [
       ...[...js.documentsOptions].filter((name) => !js.typedDocumentsOptions.has(name)).map((name) => `option \`${name}\` is in DOCUMENTS_OPTIONS but not typed in DocumentsOptions`),
       ...[...js.typedDocumentsOptions].filter((name) => !js.documentsOptions.has(name)).map((name) => `option \`${name}\` is typed in DocumentsOptions but not in DOCUMENTS_OPTIONS`),
+      ...optionProblems({
+        table: DOCUMENTS_PROPS,
+        options: js.documentsOptions,
+        forwarded: binding.documentsForwarded,
+        bindingProps: binding.documentsProps,
+        bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
+        frameworkProps: (framework) => framework.documentsProps,
+        rename: DOCUMENTS_SIDE.rename,
+        only: (framework) => framework.documentsOnly,
+        where: 'DOCUMENTS_PROPS',
+      }),
     ];
-    for (const option of js.documentsOptions) {
-      const prop = toReact.get(option);
-      if (!prop) problems.push(`JS option \`${option}\` has no Rust prop in the mapping (DOCUMENTS_PROPS)`);
-      else if (!reactSide.documentsProps.has(prop)) problems.push(`JS option \`${option}\` has no React prop \`${prop}\``);
-      if (!reactSide.documentsForwarded.has(option)) problems.push(`JS option \`${option}\` is not passed by the React component's \`options\``);
-    }
-    const mapped = new Set(toReact.values());
-    for (const prop of reactSide.documentsProps) {
-      if (!mapped.has(prop) && !(prop in DOCUMENTS_REACT_ONLY_PROPS)) {
-        problems.push(`React prop \`${prop}\` maps to no documents option: add it to DOCUMENTS_PROPS or DOCUMENTS_REACT_ONLY_PROPS`);
-      }
-    }
+    expect(problems).toEqual([]);
+  });
+
+  test('every JS documents method is in every component\'s instance API', () => {
     const jsOnly = {
       destroy: 'the component unmounts the view itself',
       setDocuments: 'the `documents` prop',
@@ -545,10 +800,15 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       setSettings: 'the setting props',
       setCallbacks: 'callback props',
     };
-    for (const name of js.documentsMethods) {
-      if (!reactSide.documentsHandle.has(name) && !(name in jsOnly)) problems.push(`JS method \`${name}\` has no React ref member`);
-    }
-    expect(problems).toEqual([]);
+    expect(
+      methodProblems({
+        methods: js.documentsMethods,
+        jsOnly,
+        handle: binding.documentsHandle,
+        implemented: binding.documentsHandleImplemented,
+        frameworkHandle: (framework) => framework.documentsHandle,
+      }),
+    ).toEqual([]);
   });
 
   test('the option list and the EditorOptions typings name the same options', () => {
@@ -559,32 +819,25 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(problems).toEqual([]);
   });
 
-  test('every JS option has a React prop that reaches the editor, and every React prop maps to an option', () => {
-    const toReact = new Map(
-      Object.values(PROPS)
-        .filter((entry) => !entry.exempt && entry.react !== null)
-        .map((entry) => [entry.js, entry.react ?? entry.js]),
-    );
-    const problems = [];
-    for (const option of js.options) {
-      const prop = toReact.get(option);
-      if (!prop) problems.push(`JS option \`${option}\` has no Rust prop in the mapping (PROPS)`);
-      else if (!reactSide.props.has(prop)) problems.push(`JS option \`${option}\` has no React prop \`${prop}\``);
-      if (!reactSide.forwarded.has(option)) problems.push(`JS option \`${option}\` is not passed by the React component's \`options\``);
-    }
-    const mapped = new Set(toReact.values());
-    for (const prop of reactSide.props) {
-      if (!mapped.has(prop) && !(prop in REACT_ONLY_PROPS)) {
-        problems.push(`React prop \`${prop}\` maps to no JS option: add it to PROPS or REACT_ONLY_PROPS`);
-      }
-    }
-    expect(problems).toEqual([]);
+  test('every JS option reaches the editor through the binding and is a prop of every component, and back', () => {
+    expect(
+      optionProblems({
+        table: PROPS,
+        options: js.options,
+        forwarded: binding.forwarded,
+        bindingProps: binding.props,
+        bindingOnly: BINDING_ONLY_PROPS,
+        frameworkProps: (framework) => framework.props,
+        rename: EDITOR_SIDE.rename,
+        only: (framework) => framework.only,
+        where: 'PROPS',
+      }),
+    ).toEqual([]);
   });
 
-  test('every JS instance member has a React ref member', () => {
+  test('every JS instance member is in every component\'s instance API', () => {
     const jsOnly = {
       destroy: 'the component unmounts the editor itself',
-      setValue: 'a ref member too, with React semantics',
       setBaseline: 'the `baseline` prop',
       setEditAs: 'the `editAs` prop',
       settings: 'the setting props',
@@ -595,17 +848,28 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       setReadOnlyPaths: 'the `readOnlyPaths` prop',
       setReadOnlyRanges: 'the `readOnlyRanges` prop',
     };
-    const problems = [...js.methods]
-      .filter((name) => !reactSide.handle.has(name) && !(name in jsOnly))
-      .map((name) => `JS method \`${name}\` has no React ref member`);
-    expect(problems).toEqual([]);
+    expect(
+      methodProblems({
+        methods: js.methods,
+        jsOnly,
+        handle: binding.handle,
+        implemented: binding.handleImplemented,
+        frameworkHandle: (framework) => framework.handle,
+      }),
+    ).toEqual([]);
   });
 
-  test('every JS function and public type is re-exported by the React package', () => {
-    const problems = [...js.functions, ...js.types]
-      .filter((name) => !['ConfigEditor', 'EditorOptions', 'CallbackUpdate'].includes(name))
-      .filter((name) => !reactSide.exported.has(name))
-      .map((name) => `\`${name}\` is not re-exported by js/config-editor-react/src/index.tsx`);
+  test('every JS function and public type is re-exported by every framework package', () => {
+    const problems = [];
+    for (const framework of frameworks) {
+      for (const name of [...js.functions, ...js.types, 'loadConfigEditor', 'ConfigEditorHandle', 'ConfigDocumentsHandle']) {
+        if (['ConfigEditor', 'ConfigDocuments', 'EditorOptions', 'CallbackUpdate'].includes(name)) continue;
+        if (!framework.exported.has(name)) problems.push(`\`${name}\` is not re-exported by ${framework.path}`);
+      }
+      for (const name of ['ConfigEditor', 'ConfigDocuments', 'ConfigEditorProps', 'ConfigDocumentsProps']) {
+        if (!framework.exported.has(name)) problems.push(`\`${name}\` (the component or its props) is not exported by ${framework.path}`);
+      }
+    }
     expect(problems).toEqual([]);
   });
 });

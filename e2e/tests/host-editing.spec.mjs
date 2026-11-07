@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { editor, scrollToLine, setupEditor } from './helpers.mjs';
+import { editor, FRAMEWORK_PAGES, scrollToLine, setupEditor } from './helpers.mjs';
 
 // Host-controlled editing: the read-only switch, explicit saves (Ctrl+S),
 // the dirty flag, the scroll kept on a host's value update, and the notice
@@ -358,7 +358,7 @@ async function open(page, name) {
   return errors;
 }
 
-for (const name of ['vanilla.html', 'react.html', 'react.html?late', 'react.html?slow']) {
+for (const name of ['vanilla.html', ...FRAMEWORK_PAGES.flatMap((page) => [page, `${page}?late`, `${page}?slow`])]) {
   test.describe(`${name}: host-controlled editing`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');
 

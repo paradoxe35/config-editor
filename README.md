@@ -3,8 +3,8 @@
 A lightweight, VS Code–style editor for configuration files that runs in the
 browser. It edits **YAML, JSON, TOML, HCL and XML**, and one JSON Schema
 drives completion, hover docs and validation in all of them. Written in Rust
-and compiled to WebAssembly, with packages for Leptos, plain JavaScript and
-React.
+and compiled to WebAssembly, with packages for Leptos, plain JavaScript,
+React, Vue and Svelte.
 
 ![Schema completion in YAML](docs/screenshots/completion.png)
 
@@ -17,6 +17,8 @@ React.
   - [Leptos](#leptos)
   - [JavaScript](#javascript)
   - [React](#react)
+  - [Vue](#vue)
+  - [Svelte](#svelte)
 - [Repository layout](#repository-layout)
 - [Development](#development)
 - [Releasing](#releasing)
@@ -64,13 +66,19 @@ More: [every feature in screenshots](docs/screenshots/README.md).
 
 ## Packages
 
-| Package                                                  | For                                            | Install                                                           |
-| -------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
-| [`config-editor-leptos`](crates/config-editor-leptos)    | Leptos (Rust) apps, plus a headless Rust API   | `cargo add config-editor-leptos`                                  |
-| [`@pngwasi/config-editor`](js/config-editor)             | Any web page or framework (vanilla JavaScript) | `npm install @pngwasi/config-editor`                              |
-| [`@pngwasi/config-editor-react`](js/config-editor-react) | React                                          | `npm install @pngwasi/config-editor-react @pngwasi/config-editor` |
+| Package                                                    | For                                            | Install                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| [`config-editor-leptos`](crates/config-editor-leptos)      | Leptos (Rust) apps, plus a headless Rust API   | `cargo add config-editor-leptos`                                   |
+| [`@pngwasi/config-editor`](js/config-editor)               | Any web page or framework (vanilla JavaScript) | `npm install @pngwasi/config-editor`                               |
+| [`@pngwasi/config-editor-react`](js/config-editor-react)   | React                                          | `npm install @pngwasi/config-editor-react @pngwasi/config-editor`  |
+| [`@pngwasi/config-editor-vue`](js/config-editor-vue)       | Vue 3                                          | `npm install @pngwasi/config-editor-vue @pngwasi/config-editor`    |
+| [`@pngwasi/config-editor-svelte`](js/config-editor-svelte) | Svelte 5                                       | `npm install @pngwasi/config-editor-svelte @pngwasi/config-editor` |
 
-Each package's README documents its full API.
+Each package's README documents its full API. The React, Vue and Svelte
+components are thin wrappers around the same bindings in
+`@pngwasi/config-editor` (live props, re-mounts, a bound value no late echo
+rolls back), so they behave the same and have the same props, events and
+instance API, each in its framework's idiom.
 
 ### Leptos
 
@@ -136,8 +144,47 @@ function Settings({ schema }: { schema: string }) {
 }
 ```
 
-Vue and Svelte wrappers are planned, built on `@pngwasi/config-editor` like
-the React one.
+### Vue
+
+```sh
+npm install @pngwasi/config-editor-vue @pngwasi/config-editor
+```
+
+```vue
+<script setup lang="ts">
+import { ref } from "vue";
+import { ConfigEditor } from "@pngwasi/config-editor-vue";
+
+defineProps<{ schema: string }>();
+const text = ref("listen: 7835\n");
+</script>
+
+<template>
+  <ConfigEditor
+    v-model="text"
+    language="yaml"
+    :schema="schema"
+    @save="upload"
+  />
+</template>
+```
+
+### Svelte
+
+```sh
+npm install @pngwasi/config-editor-svelte @pngwasi/config-editor
+```
+
+```svelte
+<script lang="ts">
+  import { ConfigEditor } from "@pngwasi/config-editor-svelte";
+
+  let { schema }: { schema: string } = $props();
+  let text = $state("listen: 7835\n");
+</script>
+
+<ConfigEditor bind:value={text} language="yaml" {schema} onSave={upload} />
+```
 
 ## Repository layout
 
@@ -145,7 +192,9 @@ the React one.
 crates/config-editor-leptos/   the editor: Leptos component and headless API (pure Rust)
 js/config-editor/              wasm-bindgen bindings → @pngwasi/config-editor
 js/config-editor-react/        React wrapper → @pngwasi/config-editor-react
-js/examples/                   vanilla and React example pages
+js/config-editor-vue/          Vue 3 wrapper → @pngwasi/config-editor-vue
+js/config-editor-svelte/       Svelte 5 wrapper → @pngwasi/config-editor-svelte
+js/examples/                   vanilla, React, Vue and Svelte example pages (the e2e tests open them)
 src/, index.html, demo.css     the demo app (trunk)
 e2e/                           Playwright end-to-end tests
 docs/screenshots/              a screenshot of every feature (e2e/screenshots.mjs)
@@ -187,10 +236,10 @@ node scripts/readme-toc.mjs
 ## Releasing
 
 Versions are kept in step: `crates/config-editor-leptos/Cargo.toml`,
-`js/config-editor/package.json` and `js/config-editor-react/package.json`.
+`js/config-editor/package.json` and the React, Vue and Svelte packages' (`js/config-editor-*/package.json`, each peer-depending on `^` that version).
 Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which checks that the tag matches those versions, runs the tests, and
-publishes the crate to crates.io and both packages to npm. It needs the
+publishes the crate to crates.io and the four packages to npm. It needs the
 repository secrets `CARGO_REGISTRY_TOKEN` and `NPM_TOKEN`.
 
 ```sh

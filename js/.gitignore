@@ -1,3 +1,5 @@
 /node_modules
 /config-editor-react/dist
+/config-editor-vue/dist
+/config-editor-svelte/dist
 /examples/dist

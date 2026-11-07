@@ -35,9 +35,9 @@ const slow = new URLSearchParams(location.search).has("slow");
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
 // For tests: `?props={...}` adds or overrides props, and `setExtraProps`
-// changes them later; `reactApi` is the package's exports.
+// changes them later; `packageApi` is the package's exports.
 const initialExtra = JSON.parse(new URLSearchParams(location.search).get("props") ?? "{}") as ConfigEditorProps;
-(window as unknown as { reactApi: typeof api }).reactApi = api;
+(window as unknown as { packageApi: typeof api }).packageApi = api;
 const initialText = "# Burrow server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -70,6 +70,9 @@ function App({ schema }: { schema: string }) {
   (window as unknown as { renameFile: () => void }).renameFile = () => setFileName((name) => `renamed-${name}`);
   // For tests: the parent's own state setter.
   (window as unknown as { setParentValue: typeof setValue }).setParentValue = setValue;
+  // For tests: unmounting and mounting the component again.
+  const [shown, setShown] = useState(true);
+  (window as unknown as { setShown: typeof setShown }).setShown = setShown;
   useEffect(() => {
     void ready.then(() => setThemeNames(themes() as unknown as string[]));
   }, []);
@@ -165,6 +168,7 @@ function App({ schema }: { schema: string }) {
         <span id="changes">{changes}</span>
         <code id="breadcrumb">{path}</code>
       </header>
+      {shown && (
       <ConfigEditor
         ref={handle}
         language="yaml"
@@ -206,6 +210,7 @@ function App({ schema }: { schema: string }) {
         showFooter
         {...extra}
       />
+      )}
       <pre id="saved">{value}</pre>
     </>
   );

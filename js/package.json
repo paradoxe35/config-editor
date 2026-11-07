@@ -3,19 +3,26 @@
   "private": true,
   "workspaces": [
     "config-editor",
-    "config-editor-react"
+    "config-editor-react",
+    "config-editor-vue",
+    "config-editor-svelte"
   ],
   "scripts": {
-    "build": "npm run build --workspace @pngwasi/config-editor && npm run build --workspace @pngwasi/config-editor-react && npm run examples",
-    "examples": "esbuild examples/react.tsx examples/load-retry.ts examples/documents-react.tsx --bundle --format=esm --jsx=automatic --target=es2022 --outdir=examples/dist",
-    "typecheck": "tsc -p typecheck"
+    "build": "npm run build --workspace @pngwasi/config-editor && npm run build --workspace @pngwasi/config-editor-react --workspace @pngwasi/config-editor-vue --workspace @pngwasi/config-editor-svelte && npm run examples",
+    "examples": "node examples/build.mjs",
+    "typecheck": "tsc -p typecheck && vue-tsc -p typecheck/vue && svelte-check --workspace config-editor-svelte --fail-on-warnings && svelte-check --workspace typecheck/svelte --fail-on-warnings"
   },
   "devDependencies": {
+    "@sveltejs/package": "^2.5.0",
     "@types/react": "^19.1.0",
     "esbuild": "^0.25.0",
     "prettier": "3.7.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "typescript": "^5.8.0"
+    "svelte": "^5.40.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.8.0",
+    "vue": "^3.5.0",
+    "vue-tsc": "^3.1.0"
   }
 }

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { FRAMEWORK_PAGES } from './helpers.mjs';
 
 // The path <-> position API (`rangeOf`, `pathAt`, `reveal`, `onPathChange`)
 // through the npm packages' example pages. Build them first with
@@ -134,9 +135,9 @@ test.describe('vanilla.html', () => {
   });
 });
 
-test.describe('react.html', () => {
+for (const name of FRAMEWORK_PAGES) test.describe(name, () => {
   test('ref.reveal, ref.rangeOf, ref.pathAt and onPathChange', async ({ page: browserPage }) => {
-    const errors = await open(browserPage, 'react.html');
+    const errors = await open(browserPage, name);
     await browserPage.locator('#reveal').click();
     await expect.poll(() => selection(browserPage)).toEqual({ text: 'public_address: tunnel.example.com', focused: true });
     await expect(breadcrumb(browserPage)).toHaveText('/public_address');

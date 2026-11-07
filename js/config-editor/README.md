@@ -26,6 +26,7 @@ which builds on this package.
   - [Paths](#paths)
 - [Functions](#functions)
 - [Binding to a framework](#binding-to-a-framework)
+  - [`ValueSync`](#valuesync)
 - [Keyboard](#keyboard)
   - [Leaving the editor and screen readers](#leaving-the-editor-and-screen-readers)
   - [Folding](#folding)
@@ -85,6 +86,9 @@ await init({ module_or_path: "/assets/config_editor_bg.wasm" });
 ```
 
 Call `init()` once, before creating editors or calling any other function.
+`loadConfigEditor(input?)` is `init` loaded once for the whole page, however
+many callers ask (the framework components call it): a failed load is
+forgotten, so calling it again with the right URL retries.
 
 ## `new ConfigEditor(element, options)`
 
@@ -597,12 +601,64 @@ languageInfo("yml");
 
 ## Binding to a framework
 
+React, Vue and Svelte have packages of their own, built on what this
+section describes:
+
+| Package                                                                                        | Component                                                     |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`@pngwasi/config-editor-react`](https://www.npmjs.com/package/@pngwasi/config-editor-react)   | `<ConfigEditor value onChange />`, a ref for the instance API |
+| [`@pngwasi/config-editor-vue`](https://www.npmjs.com/package/@pngwasi/config-editor-vue)       | `<ConfigEditor v-model @save />`, a template ref              |
+| [`@pngwasi/config-editor-svelte`](https://www.npmjs.com/package/@pngwasi/config-editor-svelte) | `<ConfigEditor bind:value onSave />`, exported functions      |
+
+For another framework (Angular, Solid, Lit, …), `EditorBinding` is what
+those components do, written once: feed it the component's props and it
+decides what each change means. Settings and most props apply live (the
+caret, undo history and folds stay); `language`, `schema`, `fileName`,
+`editorClassName` and the `secrets` patterns re-mount the editor, carrying
+the document, its baseline and the caret over; the bound value goes through
+`ValueSync` (below), so a late echo never rolls the document back; a mount
+that failed on a bad prop is retried when a prop changes; the WebAssembly
+loads once (`loadConfigEditor`); and `handle` is the instance API
+(`ConfigEditorHandle`: `value`, `setValue`, `reveal`, `save`, `isDirty`, …).
+
+```ts
+import { EditorBinding } from "@pngwasi/config-editor";
+
+const binding = new EditorBinding("my-framework-config-editor");
+// When the component's element exists (props named as React's:
+// `value`, `onChange`, `editorClassName`, every setting, …):
+binding.attach(element, {
+  value,
+  onChange: (text) => emit(text),
+  language: "yaml",
+});
+// After every change of the props (unchanged ones cost nothing):
+binding.update({
+  value,
+  onChange: (text) => emit(text),
+  language: "yaml",
+  theme,
+});
+// The instance API, for the component's users:
+binding.handle.reveal("/web/listen");
+// On unmount: the editor is destroyed and freed.
+binding.detach();
+```
+
+`DocumentsBinding` does the same for a `ConfigDocuments` view (`label`,
+`viewClassName` and whether `onClose` is set re-mount). `SETTING_TYPES` is
+every setting's key and type, generated from the Rust struct, readable
+before the WebAssembly loads (Vue declares its props from it).
+
+### `ValueSync`
+
 A framework that binds the document two ways (Vue's `v-model`, Svelte's
 `bind:value`, Angular's `ControlValueAccessor`, Solid signals) passes every
 edit back in as its value, sometimes late and several at a time. Applying
 such an echo with `setValue` would roll the document back. `ValueSync` tells
 the host's own values (a reset, a loaded file: applied) from echoes
-(skipped). The React package is built on it.
+(skipped). `EditorBinding` is built on it; use it alone to bind the value
+your own way.
 
 ```ts
 import { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
@@ -632,112 +688,10 @@ A value sent within the last 10 seconds that comes back while newer ones are
 still on their way is taken as a late echo
 (`new ValueSync({ echoWindowMs })` changes the window). Read `editor.value`
 right before `received`: it sends an edit made in `editAs` that is still
-waiting out the typing pause first.
-
-<details>
-<summary><strong>Vue 3</strong>: a component for <code>v-model</code></summary>
-
-```vue
-<!-- ConfigField.vue: <ConfigField v-model="text" /> -->
-<script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import init, { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
-
-const model = defineModel<string>({ required: true });
-const host = ref<HTMLElement>();
-const sync = new ValueSync();
-let editor: ConfigEditor | undefined;
-let unmounted = false;
-
-onMounted(async () => {
-  await init();
-  if (unmounted || !host.value) return;
-  editor = new ConfigEditor(host.value, {
-    language: "yaml",
-    value: model.value,
-    onChange: (text) => {
-      sync.sent(text);
-      model.value = text;
-    },
-  });
-});
-
-// The bound value changed: an echo of an edit, or the parent's own value.
-watch(model, (value) => {
-  if (!editor) return;
-  const { apply, report } = sync.received(value, editor.value);
-  if (apply !== null) editor.setValue(apply);
-  if (report !== null) model.value = report;
-});
-
-onBeforeUnmount(() => {
-  unmounted = true;
-  editor?.destroy(); // sends an edit still waiting to the parent first
-  editor?.free();
-});
-</script>
-
-<template>
-  <div ref="host" />
-</template>
-```
-
-</details>
-
-<details>
-<summary><strong>Svelte 5</strong>: a component for <code>bind:value</code></summary>
-
-```svelte
-<!-- ConfigField.svelte: <ConfigField bind:value={text} /> -->
-<script lang="ts">
-  import { onMount } from "svelte";
-  import init, { ConfigEditor, ValueSync } from "@pngwasi/config-editor";
-
-  let { value = $bindable("") }: { value?: string } = $props();
-  let host: HTMLDivElement;
-  let editor: ConfigEditor | undefined = $state();
-  const sync = new ValueSync();
-
-  onMount(() => {
-    let unmounted = false;
-    init().then(() => {
-      if (unmounted) return;
-      editor = new ConfigEditor(host, {
-        language: "yaml",
-        value,
-        onChange: (text) => {
-          sync.sent(text);
-          value = text;
-        },
-      });
-    });
-    return () => {
-      unmounted = true;
-      editor?.destroy();
-      editor?.free();
-    };
-  });
-
-  // The bound value changed: an echo of an edit, or the parent's own value.
-  $effect(() => {
-    const next = value;
-    if (!editor) return;
-    const { apply, report } = sync.received(next, editor.value);
-    if (apply !== null) editor.setValue(apply);
-    if (report !== null) value = report;
-  });
-</script>
-
-<div bind:this={host}></div>
-```
-
-</details>
-
-Angular (a `ControlValueAccessor`: `writeValue` is `received`, the
-registered change function is called after `sent`) and Solid (an effect on
-the value signal) follow the same three calls. Pass the other options
-(`schema`, `theme`, `editAs`, …) as you would without a framework, and
-update them with the setters when they change.
+waiting out the typing pause first. Feed `received` the value as the host
+has it: a component that also writes the bound value itself (Svelte's
+`bind:value`) reads the parent's value apart from its own write, or the
+host's late echoes would be hidden.
 
 ## Keyboard
 

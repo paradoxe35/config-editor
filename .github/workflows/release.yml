@@ -1,8 +1,8 @@
 name: Release
 
 # Push a tag like `v0.1.0` to publish config-editor-leptos to crates.io and
-# @pngwasi/config-editor and @pngwasi/config-editor-react to npm. The tag must
-# match the version in all three manifests.
+# @pngwasi/config-editor and its React, Vue and Svelte packages to npm. The tag
+# must match the version in every manifest.
 #
 # Repository secrets: CARGO_REGISTRY_TOKEN (crates.io) and NPM_TOKEN (an npm
 # automation token with publish rights to the @pngwasi scope).
@@ -32,15 +32,21 @@ jobs:
         run: |
           crate=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/config-editor-leptos/Cargo.toml | head -1)
           vanilla=$(node -p 'require("./js/config-editor/package.json").version')
-          react=$(node -p 'require("./js/config-editor-react/package.json").version')
-          peer=$(node -p 'require("./js/config-editor-react/package.json").peerDependencies["@pngwasi/config-editor"]')
-          echo "crate=$crate vanilla=$vanilla react=$react peer=$peer"
-          if [ "$crate" != "$vanilla" ] || [ "$crate" != "$react" ]; then
+          echo "crate=$crate vanilla=$vanilla"
+          if [ "$crate" != "$vanilla" ]; then
             echo "::error::versions differ"; exit 1
           fi
-          if [ "$peer" != "^$crate" ]; then
-            echo "::error::@pngwasi/config-editor-react must peer-depend on ^$crate"; exit 1
-          fi
+          for wrapper in react vue svelte; do
+            version=$(node -p "require('./js/config-editor-$wrapper/package.json').version")
+            peer=$(node -p "require('./js/config-editor-$wrapper/package.json').peerDependencies['@pngwasi/config-editor']")
+            echo "$wrapper=$version peer=$peer"
+            if [ "$crate" != "$version" ]; then
+              echo "::error::@pngwasi/config-editor-$wrapper is $version, not $crate"; exit 1
+            fi
+            if [ "$peer" != "^$crate" ]; then
+              echo "::error::@pngwasi/config-editor-$wrapper must peer-depend on ^$crate"; exit 1
+            fi
+          done
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$crate" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} does not match version $crate"; exit 1
           fi
@@ -96,7 +102,7 @@ jobs:
       - name: Build
         working-directory: js
         run: npm ci && npm run build
-      - name: Publish @pngwasi/config-editor, then @pngwasi/config-editor-react
+      - name: Publish @pngwasi/config-editor, then its React, Vue and Svelte packages
         working-directory: js
         run: |
           flags="--access public"
@@ -107,5 +113,7 @@ jobs:
           fi
           npm publish --workspace @pngwasi/config-editor $flags
           npm publish --workspace @pngwasi/config-editor-react $flags
+          npm publish --workspace @pngwasi/config-editor-vue $flags
+          npm publish --workspace @pngwasi/config-editor-svelte $flags
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

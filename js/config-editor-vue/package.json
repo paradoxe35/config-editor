@@ -1,0 +1,52 @@
+{
+  "name": "@pngwasi/config-editor-vue",
+  "version": "0.1.0",
+  "description": "Vue 3 component for config-editor: schema-aware YAML, JSON, TOML, HCL and XML editing",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@pngwasi/config-editor": "^0.1.0",
+    "vue": "^3.3.0"
+  },
+  "license": "MIT",
+  "keywords": [
+    "config",
+    "editor",
+    "vue",
+    "yaml",
+    "json",
+    "toml",
+    "hcl",
+    "xml",
+    "json-schema",
+    "wasm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paradoxe35/config-editor.git",
+    "directory": "js/config-editor-vue"
+  },
+  "homepage": "https://github.com/paradoxe35/config-editor#readme",
+  "bugs": {
+    "url": "https://github.com/paradoxe35/config-editor/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

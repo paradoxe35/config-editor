@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { pointAt } from './helpers.mjs';
+import { FRAMEWORK_PAGES, pointAt } from './helpers.mjs';
 
 // The Rust API brought to the JS packages: the component's on/off props as
-// options (vanilla) and props (React), the handle's `text` and
+// options (vanilla) and props (React, Vue, Svelte), the handle's `text` and
 // `foldedLines`, and the headless functions, for every language. Run
 // against the built packages (`npm run build` in js/).
 const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
@@ -16,7 +16,7 @@ test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
 const PAGES = {
   'vanilla.html': (options) => `?options=${encodeURIComponent(JSON.stringify(options))}`,
-  'react.html': (options) => `?props=${encodeURIComponent(JSON.stringify(options))}`,
+  ...Object.fromEntries(FRAMEWORK_PAGES.map((name) => [name, (options) => `?props=${encodeURIComponent(JSON.stringify(options))}`])),
 };
 
 async function open(page, name, options = {}) {
@@ -121,7 +121,7 @@ for (const name of Object.keys(PAGES)) {
       await open(page, name, { styled: false });
       await expect(page.locator('.config-editor style')).toHaveCount(0);
       const css = await page.evaluate(async () =>
-        (window.reactApi ?? (await import('../config-editor/pkg/config_editor.js'))).presetCss(),
+        (window.packageApi ?? (await import('../config-editor/pkg/config_editor.js'))).presetCss(),
       );
       expect(css).toContain('.config-editor');
       expect(css).toContain('--config-editor-bg');
@@ -230,10 +230,10 @@ test.describe('headless functions, every language', () => {
     });
   }
 
-  test('the same answers as the editor, and from the React package', async ({ page }) => {
-    await open(page, 'react.html');
+  for (const name of FRAMEWORK_PAGES) test(`the same answers as the editor, and from the ${name} package`, async ({ page }) => {
+    await open(page, name);
     const result = await page.evaluate(() => {
-      const api = window.reactApi;
+      const api = window.packageApi;
       const handle = window.editorHandle.current;
       const text = handle.text;
       const index = text.indexOf('7835');

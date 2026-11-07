@@ -100,14 +100,28 @@ editor that a host could do without becomes such a feature, and
 `EditorSettings` (`src/settings.rs`) defines every on/off setting once, with
 its doc comment and default. The TypeScript type and the settings tables in
 the READMEs are generated from it (`UPDATE_GENERATED=1 cargo test -p
-config-editor-js --test settings`); React's props extend that type. Every
-setting updates live, and switching one off cleans up after itself.
+config-editor-js --test settings`), and so is `js/config-editor/setting-types.js`
+(every key and its type, from which Vue declares its props); React's and
+Svelte's props extend that type. Every setting updates live, and switching
+one off cleans up after itself.
 
-### The JS and React packages follow the Rust API
+### The JS and framework packages follow the Rust API
 
 `e2e/tests/api-parity.spec.mjs` fails when a public Rust prop, handle method
-or exported function has no JS and React counterpart: add it to both, or to
-its exemptions with the reason.
+or exported function has no JS counterpart and none in each framework
+package (React, Vue, Svelte): add it, or add it to its exemptions with the
+reason.
+
+What a framework component does with an editor is written once, in
+`EditorBinding` and `DocumentsBinding` (`js/config-editor/binding.js`): which
+props apply live and which re-mount, the bound value through `ValueSync`,
+focus and caret carried through a re-mount, retries, the one WebAssembly
+load, the instance API. The React, Vue and Svelte components only hand it
+their props (renamed to their idiom) and expose its handle, so a fix there
+fixes all three. A new option goes into the binding (its props and the
+options it passes) and then into each component's props; the shared
+component tests (`e2e/tests/framework-cases.mjs`) run on each framework's
+example page, which have the same controls, ids and `window` hooks.
 
 ### Every built-in text comes from the strings setting
 
@@ -162,7 +176,8 @@ still works.
 ### Documentation
 
 Every public feature is documented with an example in the crate's README
-and in both JavaScript packages' READMEs.
+and in the READMEs of the JavaScript package and of the React, Vue and Svelte
+packages.
 
 ## Generated docs
 
