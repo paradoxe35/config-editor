@@ -5,7 +5,7 @@ use config_editor_leptos::{EditorTheme, Language, PRESET_CSS};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::languages::REGISTERED;
+use crate::languages::{REGISTERED, language_for_path};
 use crate::typings::{LanguageInfos, NameResult, ThemeInfos};
 use crate::values::{text_arg, to_js};
 
@@ -66,18 +66,7 @@ pub fn language_for_file(
     #[wasm_bindgen(unchecked_param_type = "string")] path: JsValue,
 ) -> Result<NameResult, JsError> {
     let path = text_arg(&path, "path")?;
-    let registered = path.rsplit_once('.').and_then(|(_, extension)| {
-        REGISTERED.with(|languages| {
-            languages.borrow().values().copied().find(|language| {
-                language
-                    .extensions()
-                    .iter()
-                    .any(|known| known.eq_ignore_ascii_case(extension))
-            })
-        })
-    });
-    Ok(registered
-        .or_else(|| Language::from_path(&path))
+    Ok(language_for_path(&path)
         .map_or(JsValue::NULL, |language| {
             JsValue::from_str(&language_name(language))
         })

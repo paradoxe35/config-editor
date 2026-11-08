@@ -168,6 +168,15 @@ pub(super) fn parsed_keys(
 /// [`ConfigLanguage::property_insert`] from `insertKey(key, kind)`; `null`
 /// leaves the key out. Lines after the first are indented as the caret's
 /// line.
+/// Whether UTF-16 `caret` falls between the two halves of a character of
+/// `text` (a surrogate pair).
+fn splits_character(text: &str, caret: usize) -> bool {
+    text.encode_utf16()
+        .nth(caret.wrapping_sub(1))
+        .is_some_and(|unit| (0xD800..0xDC00).contains(&unit))
+        && caret < units(text)
+}
+
 pub(super) fn insert_key(
     language: &JsLanguage,
     key: &str,
@@ -192,7 +201,7 @@ pub(super) fn insert_key(
         };
         let text = field(result, "text").as_string().ok_or(())?;
         let caret = index(&field(result, "caret"))
-            .filter(|caret| *caret <= units(&text))
+            .filter(|caret| *caret <= units(&text) && !splits_character(&text, *caret))
             .ok_or(())?;
         Ok(Some((text, caret)))
     };
@@ -201,7 +210,9 @@ pub(super) fn insert_key(
         Err(()) => {
             language.warn(
                 "insertKey",
-                &format!("must return {INSERT_SHAPE} (caret within text) or null"),
+                &format!(
+                    "must return {INSERT_SHAPE} (caret within text, between characters) or null"
+                ),
             );
             return None;
         }

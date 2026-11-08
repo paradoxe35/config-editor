@@ -23,7 +23,9 @@ use crate::values::{field, json_from_js, string_field, to_js};
 /// and hover: through its optional `contextAt`, `insertKey` and `keyAt`
 /// callbacks, each one in place of its part of the flat default that its
 /// `separators` give (one `KEY=value` entry per line; see
-/// [`LanguageConfig::flat_completion_context`]). Constructs written over
+/// [`LanguageConfig::flat_completion_context`]). A flat language without
+/// `keySpan` / `valueSpan` has its fields found on their lines; any other
+/// has its read-only fields checked by value alone. Constructs written over
 /// lines come from `multilineRanges`.
 pub(super) struct JsLanguage {
     pub(super) definition: JsValue,
@@ -89,6 +91,13 @@ impl JsLanguage {
     /// Whether the definition has the method `name`.
     pub(super) fn has(&self, name: &str) -> bool {
         self.method(name).is_some()
+    }
+
+    /// Whether the language is flat (`separators` and no `contextAt`: one
+    /// `KEY=value` entry per line), so its fields are found on their lines
+    /// when it gives no `keySpan` / `valueSpan`.
+    fn is_flat(&self) -> bool {
+        !self.config.separators.is_empty() && !self.has("contextAt")
     }
 
     /// The `multilineRanges` of `source`, called once per text.
@@ -200,11 +209,23 @@ impl ConfigLanguage for JsLanguage {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("keySpan", source, pointer)
+        if self.has("keySpan") {
+            self.span("keySpan", source, pointer)
+        } else if self.is_flat() {
+            self.config.flat_key_span(source, pointer)
+        } else {
+            None
+        }
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("valueSpan", source, pointer)
+        if self.has("valueSpan") {
+            self.span("valueSpan", source, pointer)
+        } else if self.is_flat() {
+            self.config.flat_value_span(source, pointer)
+        } else {
+            None
+        }
     }
 
     fn highlight(&self, line: &str) -> Vec<Token> {

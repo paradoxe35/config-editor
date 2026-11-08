@@ -1030,6 +1030,12 @@ export interface EditorStrings {
    */
   cannotSwitch?: string;
   /**
+   * An Edit-as switch refused: the host's language or the other one cannot write documents.
+   *
+   * @default "Cannot edit as {edit}: {error}"
+   */
+  switchRefused?: string;
+  /**
    * XML text beside child elements, which no other language can show (Edit-as).
    *
    * @default "{pointer}: text beside child elements cannot be shown in another language"

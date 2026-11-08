@@ -12,6 +12,7 @@ use super::super::super::diff::{DiffEdit, myers_edits};
 use super::super::super::language::ConfigLanguage;
 use super::super::locate::LineIndex;
 use super::super::locks::Protected;
+use super::content::{content_areas, in_locked_content};
 use super::pins::{all_pinned, pins_hold};
 use super::spacing::between_tokens;
 use super::stretch::{is_blank, kept};
@@ -39,6 +40,7 @@ pub(super) struct Edited<'a> {
     unchanged: OnceCell<Option<Vec<bool>>>,
     reformat: OnceCell<bool>,
     spacing: OnceCell<bool>,
+    content: OnceCell<Vec<Range<usize>>>,
 }
 
 impl<'a> Edited<'a> {
@@ -81,6 +83,7 @@ impl<'a> Edited<'a> {
             unchanged: OnceCell::new(),
             reformat: OnceCell::new(),
             spacing: OnceCell::new(),
+            content: OnceCell::new(),
         }
     }
 
@@ -149,12 +152,35 @@ impl<'a> Edited<'a> {
             if new_end < self.new_region.end || end < self.region.end {
                 return false;
             }
+            let old = String::from_utf16_lossy(&self.old[start..end]);
+            // Each character's UTF-16 offset in the text before.
+            let offsets: Vec<usize> = old
+                .chars()
+                .scan(start, |at, character| {
+                    let here = *at;
+                    *at += character.len_utf16();
+                    Some(here)
+                })
+                .chain([end])
+                .collect();
+            let locks = &self.protected.locks;
+            let content = |from: usize, to: usize| {
+                in_locked_content(self.content_areas(), locks, offsets[from], offsets[to])
+            };
             between_tokens(
                 self.behavior,
-                &String::from_utf16_lossy(&self.old[start..end]),
+                &old,
                 &String::from_utf16_lossy(&self.new[start..new_end]),
+                &content,
             )
         })
+    }
+
+    /// Where whatever is typed in the text before is content (see
+    /// `content`), read once.
+    pub(super) fn content_areas(&self) -> &[Range<usize>] {
+        self.content
+            .get_or_init(|| content_areas(self.behavior, self.before, &self.lines))
     }
 
     /// Without a parse to compare, a character typed next to a YAML plain

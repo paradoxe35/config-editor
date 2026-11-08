@@ -98,6 +98,9 @@ pub(in crate::editor) enum EditAsText {
         host: Language,
         error: SaveError,
     },
+    /// A switch refused for good: one of the languages cannot write
+    /// documents (`error` says which).
+    SwitchRefused { edit: Language, error: String },
 }
 
 impl EditAsText {
@@ -132,6 +135,10 @@ impl EditAsText {
                     ("edit", &edit.label()),
                     ("error", &error.text(strings, *host)),
                 ],
+            ),
+            EditAsText::SwitchRefused { edit, error } => fill(
+                &strings.switch_refused,
+                &[("edit", &edit.label()), ("error", error)],
             ),
         }
     }

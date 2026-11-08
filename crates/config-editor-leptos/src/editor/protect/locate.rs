@@ -111,7 +111,21 @@ pub(crate) fn extent(
     written: Option<&[Written]>,
     pointer: &str,
 ) -> Option<Extent> {
-    let mut ranges = vec![lines.range(field_range(behavior, text, pointer)?)];
+    // A value written over lines (a TOML `"""` string, a YAML quoted or
+    // plain scalar, an HCL heredoc) is a construct starting in its span:
+    // read only when the value may be one.
+    let over_lines =
+        value.is_none_or(|value| !value.is_number() && !value.is_boolean() && !value.is_null());
+    let constructs = if over_lines {
+        construct_ranges(behavior, text)
+    } else {
+        Vec::new()
+    };
+    let written_range = |pointer: &str| {
+        field_range(behavior, text, pointer)
+            .map(|range| over_constructs(lines.range(range), &constructs))
+    };
+    let mut ranges = vec![written_range(pointer)?];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
     // Lines written inside it, each from its indent to its last character.
     for field in written.unwrap_or_default() {
@@ -128,8 +142,8 @@ pub(crate) fn extent(
         let mut inside = Vec::new();
         descendants(value, pointer.to_string(), &mut inside);
         for child in inside.iter().take(MAX_DESCENDANTS) {
-            if let Some(range) = field_range(behavior, text, child) {
-                ranges.push(lines.range(range));
+            if let Some(range) = written_range(child) {
+                ranges.push(range);
             }
         }
         if value.as_str().is_some_and(|text| text.contains('\n')) || value.is_object() {
@@ -200,6 +214,51 @@ fn add_string_bodies(
             ranges.push(start..end);
         }
     }
+}
+
+/// UTF-16 ranges of the constructs `text` writes over lines (see
+/// `ConfigLanguage::multiline_constructs`).
+fn construct_ranges(behavior: &dyn ConfigLanguage, text: &str) -> Vec<Range<usize>> {
+    let constructs = behavior.multiline_constructs(text);
+    if constructs.is_empty() {
+        return Vec::new();
+    }
+    let mut bytes: Vec<(usize, usize)> = constructs
+        .iter()
+        .map(|construct| (construct.range.start, construct.range.end))
+        .filter(|(start, end)| start < end && *end <= text.len())
+        .collect();
+    bytes.sort_unstable();
+    // One pass over the text, the offsets in order.
+    let mut marks: Vec<usize> = bytes
+        .iter()
+        .flat_map(|(start, end)| [*start, *end])
+        .collect();
+    marks.sort_unstable();
+    marks.dedup();
+    let mut units = Vec::with_capacity(marks.len());
+    let (mut byte, mut unit) = (0, 0);
+    for mark in &marks {
+        unit += text[byte..*mark].encode_utf16().count();
+        byte = *mark;
+        units.push(unit);
+    }
+    let to_units = |at: usize| units[marks.partition_point(|mark| *mark < at)];
+    bytes
+        .into_iter()
+        .map(|(start, end)| to_units(start)..to_units(end))
+        .collect()
+}
+
+/// `range` (a field's span, on one line) carried to the end of the
+/// construct over lines that starts inside it: the rest of the value.
+fn over_constructs(range: Range<usize>, constructs: &[Range<usize>]) -> Range<usize> {
+    let end = constructs
+        .iter()
+        .filter(|construct| range.start <= construct.start && construct.start <= range.end)
+        .map(|construct| construct.end)
+        .fold(range.end, usize::max);
+    range.start..end
 }
 
 fn byte_of(text: &str, offset: usize) -> usize {
@@ -281,7 +340,8 @@ pub(crate) fn within(behavior: &dyn ConfigLanguage, path: &str, pointer: &str) -
 }
 
 /// The last range carried over the closers of containers it opened (`}`,
-/// `]`, an XML end tag), so deleting one cannot unmake the field.
+/// `]`, an XML end tag, with the element's text before it), so deleting
+/// one cannot unmake the field.
 fn close(behavior: &dyn ConfigLanguage, text: &str, ranges: &mut [Range<usize>], markup: bool) {
     let (Some(first), Some(last)) = (ranges.first().cloned(), ranges.last_mut()) else {
         return;
@@ -299,9 +359,13 @@ fn close(behavior: &dyn ConfigLanguage, text: &str, ranges: &mut [Range<usize>],
         let skipped = rest.len() - rest.trim_start().len();
         let rest = &rest[skipped..];
         let closer = if markup {
-            rest.starts_with("</")
-                .then(|| behavior.closing_markup_len(rest))
+            // The element's own text before its end tag (over lines too).
+            let text_len = rest.find('<').unwrap_or(rest.len());
+            let tag = &rest[text_len..];
+            tag.starts_with("</")
+                .then(|| behavior.closing_markup_len(tag))
                 .flatten()
+                .map(|length| text_len + length)
         } else {
             pairs
                 .iter()

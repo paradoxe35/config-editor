@@ -80,6 +80,13 @@ pub(crate) fn host_diagnostic_from(
     };
     diagnostic.code = optional("code")?;
     diagnostic.source = optional("source")?;
+    if diagnostic
+        .source
+        .as_deref()
+        .is_some_and(|source| source.trim().is_empty())
+    {
+        return Err("source must name who reported the problem (got an empty string)".to_string());
+    }
     diagnostic.docs_url = optional("docsUrl")?;
     if let Some(url) = &diagnostic.docs_url
         && !config_editor_leptos::js_support::is_web_url(url)

@@ -233,7 +233,7 @@ and `editAsTypedCommentsNone`.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (159 texts)</summary>
+<summary>Every text and its default (160 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -389,6 +389,7 @@ and `editAsTypedCommentsNone`.
 | `noNonFinite`               | `"{host} has no infinity or NaN (at {pointer})"`                                                                                     | An infinity or NaN the host's language has no number for (Edit-as).                                                                                                                                                                            |
 | `cannotEditAs`              | `"Cannot edit this {host} as {edit}: {error}"`                                                                                       | A host document that does not convert for editing.                                                                                                                                                                                             |
 | `cannotSwitch`              | `"Cannot switch to {edit} yet: {error}"`                                                                                             | An Edit-as switch waiting until the document converts.                                                                                                                                                                                         |
+| `switchRefused`             | `"Cannot edit as {edit}: {error}"`                                                                                                   | An Edit-as switch refused: the host's language or the other one cannot write documents.                                                                                                                                                        |
 | `mixedContent`              | `"{pointer}: text beside child elements cannot be shown in another language"`                                                        | XML text beside child elements, which no other language can show (Edit-as).                                                                                                                                                                    |
 | `tabList`                   | `"Open files"`                                                                                                                       | The tab list's accessible name, unless the host gives one.                                                                                                                                                                                     |
 | `noDocuments`               | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
@@ -932,7 +933,9 @@ save coming back while the user typed on), it is taken silently. A new
 
 `ConfigDocuments` shows several files, a main config and its drop-ins, as
 VS Code-style tabs over one editor per document, each with its own language
-(from `fileName` unless given), baseline, read-only state, `editAs`,
+(from `fileName` unless given, registered languages included, as
+`languageForFile` reads it; a file no language claims opens in the default
+language, with a console warning), baseline, read-only state, `editAs`,
 schema (documents with the same schema text share one compiled schema) and,
 optionally, settings, host problems and read-only fields.
 
@@ -1091,7 +1094,8 @@ const env = registerLanguage({
   },
   keySpan(text, pointer) {
     // Optional: { line, startColumn, endColumn } (one-based) of the key at a
-    // JSON pointer, so schema problems are underlined.
+    // JSON pointer, so schema problems are underlined. A flat language
+    // (separators, no contextAt) without it finds keys on their lines.
   },
   valueSpan(text, pointer) {
     /* optional, like keySpan for the value; Edit-as saves edit values in place with it */
@@ -1117,7 +1121,19 @@ convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 A registered language gets schema validation (placed with `keySpan` and
 `valueSpan`), conversion to and from every other language, and Edit-as;
 `comments`, `brackets` and `separators` add comment toggling,
-bracket-aware Enter, and key/value editing. Built-in names cannot be
+bracket-aware Enter, and key/value editing. A language without `serialize`
+reads documents but cannot write them, so it is never edited as another
+language nor another as it: `editAs` either way throws
+`editAs: <label> cannot write documents`.
+
+Read-only fields (`readOnly` in the schema, `readOnlyPaths`) hold in every
+registered language. Where the language says where a field is written
+(`keySpan` / `valueSpan`, or a flat language's lines), its value is muted,
+the gutter shows a lock, and an edit on it is refused as it is made. A
+language that cannot say still keeps the field: an edit after which the text
+parses with the field's value changed is refused (while the text does not
+parse, the edit that makes it parse again is checked). Secret placeholders
+are found by their text and need nothing from the language. Built-in names cannot be
 replaced, and a registered language cannot take another's name or extension
 (`registerLanguage` throws); registering the same label again replaces it
 for new editors. Its name is the label lowercased (`"Énv"` → `"énv"`).

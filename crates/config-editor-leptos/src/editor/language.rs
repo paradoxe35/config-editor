@@ -1617,6 +1617,19 @@ pub fn over_whole_strings(
     if inside[last] && last + 1 < lines.len() && closes(last + 1) {
         last += 1;
     }
+    // Strings the language gives whole (`multiline_strings`): every line
+    // of one the lines touch, its opening and closing lines included.
+    let byte_line = |byte: usize| source[..byte.min(source.len())].matches('\n').count();
+    for range in behavior.multiline_strings(source) {
+        let (opens, closes) = (
+            byte_line(range.start),
+            byte_line(range.end.saturating_sub(1).max(range.start)),
+        );
+        if opens <= last && first <= closes {
+            first = first.min(opens);
+            last = last.max(closes);
+        }
+    }
     if (first, last) == (first_line, last_line) {
         return (start, end);
     }
@@ -1629,6 +1642,75 @@ pub fn over_whole_strings(
 
 #[cfg(test)]
 mod tests {
+    /// `key = value` lines, `#` comments, `'''` strings over lines, given
+    /// only as `multiline_strings` (as a registered language's
+    /// `multilineRanges` gives them).
+    struct Tiny;
+
+    impl super::ConfigLanguage for Tiny {
+        fn info(&self) -> super::LanguageInfo {
+            super::LanguageInfo {
+                label: "Tiny",
+                icon: "T",
+                extensions: &[],
+            }
+        }
+
+        fn config(&self) -> super::LanguageConfig {
+            super::LanguageConfig {
+                line_comments: &["#"],
+                separators: &["="],
+                ..super::LanguageConfig::default()
+            }
+        }
+
+        fn parse(&self, _source: &str) -> Result<serde_json::Value, super::ParseError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn multiline_strings(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+            let mut ranges = Vec::new();
+            let mut from = 0;
+            while let Some(open) = source[from..].find("'''") {
+                let start = from + open;
+                let end = source[start + 3..]
+                    .find("'''")
+                    .map_or(source.len(), |close| start + 3 + close + 3);
+                ranges.push(start..end);
+                from = end;
+            }
+            ranges
+        }
+    }
+
+    #[test]
+    fn comment_toggling_takes_a_given_multiline_string_whole() {
+        use super::ConfigLanguage;
+        let source = "a = 1\nname = '''multi\n# not a comment\nhost = x\nend'''\nb = 2\n";
+        let commented =
+            "a = 1\n# name = '''multi\n# # not a comment\n# host = x\n# end'''\nb = 2\n";
+        let mut failures = Vec::new();
+        for marker in ["name = '''", "# not", "host = x", "end'''"] {
+            let at = source.find(marker).unwrap() + 2;
+            let toggled = Tiny
+                .toggle_comments(source, at, at)
+                .map(|(text, _, _)| text);
+            if toggled.as_deref() != Some(commented) {
+                failures.push(format!("caret in {marker:?}: {toggled:?}"));
+            }
+        }
+        let outside = source.find("b = 2").unwrap();
+        let toggled = Tiny
+            .toggle_comments(source, outside, outside)
+            .map(|(text, _, _)| text);
+        if toggled.as_deref()
+            != Some("a = 1\nname = '''multi\n# not a comment\nhost = x\nend'''\n# b = 2\n")
+        {
+            failures.push(format!("caret outside: {toggled:?}"));
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
     #[test]
     fn pointer_segments_unescape_in_order() {
         use super::pointer_segments;

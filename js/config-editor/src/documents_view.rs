@@ -2,11 +2,12 @@
 //! one editor per document) mounted into an element, `update` writing the
 //! signals it reads.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use config_editor_leptos::{
     CloseRequest, ConfigDocuments as DocumentsView, Document, DocumentsHandle, EditorSettings,
-    SaveRequest, SecretOptions,
+    Language, SaveRequest, SecretOptions,
 };
 use js_sys::{Array, Function, Object};
 use leptos::prelude::*;
@@ -17,7 +18,7 @@ use crate::catalog::language_name;
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::host_diagnostics::host_diagnostics_from;
-use crate::languages::{language_named, writable_edit_as};
+use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
 use crate::options::{
     bool_option, function_option, string_option, warn_unknown_keys, warn_unknown_options,
@@ -72,6 +73,20 @@ struct Listed {
 /// stay JSON text: the view compiles each distinct text once and shares it.
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id (`secrets`), as its editor reads them when it mounts.
+/// A console warning, once per file name, that no language claims
+/// `file_name`'s extension, so the document opens in `fallback`.
+fn warn_unclaimed(file_name: &str, fallback: Language) {
+    thread_local! {
+        static WARNED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    }
+    if WARNED.with(|warned| warned.borrow_mut().insert(file_name.to_string())) {
+        web_sys::console::warn_1(&JsValue::from_str(&format!(
+            "config-editor: no language claims the extension of {file_name:?}; it opens as {}. Give the document a `language`, or register one for the extension",
+            fallback.label()
+        )));
+    }
+}
+
 fn documents_from(
     list: &JsValue,
     view: &EditorSettings,
@@ -97,9 +112,16 @@ fn documents_from(
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
         let value = optional_text(&field(&item, "value"), &name("value"))?.unwrap_or_default();
         let mut document = Document::new(id, file_name, value);
-        if let Some(language) = optional_text(&field(&item, "language"), &name("language"))? {
-            document = document.language(language_named(&language)?);
-        }
+        document = match optional_text(&field(&item, "language"), &name("language"))? {
+            Some(language) => document.language(language_named(&language)?),
+            None => match language_for_path(&document.file_name) {
+                Some(language) => document.language(language),
+                None => {
+                    warn_unclaimed(&document.file_name, document.resolved_language());
+                    document
+                }
+            },
+        };
         if let Some(baseline) = optional_text(&field(&item, "baseline"), &name("baseline"))? {
             document = document.baseline(baseline);
         }
@@ -110,7 +132,8 @@ fn documents_from(
             document = document.schema(schema);
         }
         if let Some(edit_as) = optional_text(&field(&item, "editAs"), &name("editAs"))? {
-            let edit_as = writable_edit_as(language_named(&edit_as)?)?;
+            let edit_as =
+                writable_edit_as(document.resolved_language(), language_named(&edit_as)?)?;
             if edit_as != document.resolved_language() {
                 document = document.edit_as(edit_as);
             }

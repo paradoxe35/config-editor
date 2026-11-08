@@ -530,6 +530,24 @@ fn switch_languages(state: EditorState, host: Host) {
 
 pub(super) fn switch_to(state: EditorState, next: Language) {
     let current = state.sync().edit_language.get_untracked();
+    let host = state.config().host_language;
+    // Either language unable to write documents: the switch could never
+    // be saved (from the host's language) or shown (into the other), so it
+    // is refused at once, not left pending.
+    if next != host
+        && let Some(error) = [host, next].into_iter().find_map(cannot_write)
+    {
+        state.sync().pending_switch.set(None);
+        let text = state.doc().text.get_untracked();
+        state.sync().load_problems.set(vec![EditAsProblem {
+            at: bridge::locate_error(current.behavior(), &text, &SaveError::from(error.clone())),
+            text: EditAsText::SwitchRefused {
+                edit: next,
+                error: error.to_string(),
+            },
+        }]);
+        return;
+    }
     let text = state.doc().text.get_untracked();
     let host_text = state.sync().host_text.get_value();
     let host_text_before = host_text.clone();
@@ -622,6 +640,14 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             }]);
         }
     }
+}
+
+/// Why `language` cannot write documents, when it cannot (a language
+/// registered with `parse` alone).
+pub(super) fn cannot_write(language: Language) -> Option<codec::ConvertError> {
+    language
+        .serialize(&serde_json::Value::Object(serde_json::Map::new()))
+        .err()
 }
 
 /// Where the field the caret is on in `before` (in its language) is written

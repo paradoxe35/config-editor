@@ -104,9 +104,11 @@ pub(crate) struct Protected {
     /// The document of the last text that parsed, carried through texts
     /// that do not parse (within one text from the host).
     pub(crate) parsed: Option<Arc<Value>>,
-    /// Locked fields written in this text (it does not parse, see
-    /// `Placed::Unplaced`) that could not be found in it: checked, as every
-    /// lock, when an edit makes the text parse.
+    /// Locked fields written in this text that could not be found in it
+    /// (see `Placed::Unplaced`): in a text that does not parse, checked, as
+    /// every lock, when an edit makes the text parse; in one that parses (a
+    /// language that cannot say where a field is written), pinned, so every
+    /// edit whose text parses with another value is refused.
     pub(crate) unplaced: Vec<(String, Reason)>,
     /// Pointers of the secret fields written in the text.
     pub(crate) secret: Vec<String>,
@@ -195,7 +197,7 @@ pub(crate) fn protect(
             Placed::Absent => {}
         }
     }
-    protected.pins = placer.into_pins(&protected.locks);
+    protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
     protected.secret = fields::secret(&reading, carried, marks.secret);
     protected.marked = marked;
     protected.document = reading.into_document().map(Arc::new);

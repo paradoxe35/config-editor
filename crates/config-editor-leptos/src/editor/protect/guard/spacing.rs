@@ -3,7 +3,8 @@
 //! two tokens of a line (after `:`, before `=`, inside `[ a ]`), a line's
 //! indent where indentation carries no structure, trailing space and blank
 //! lines leave every value as it was; space inside a token (a string, a
-//! YAML plain value, a key) or an XML text, at its edges too, changes it.
+//! YAML plain value, a key) or an XML text, at its edges too, or inside a
+//! locked value written over lines, changes it.
 
 use std::cell::RefCell;
 
@@ -12,8 +13,15 @@ use super::super::super::language::ConfigLanguage;
 
 /// Whether `new` is `old` with whitespace changed only between tokens.
 /// Both are whole lines (the edited ones), so each starts a line; in YAML
-/// a line keeps its indent.
-pub(super) fn between_tokens(behavior: &dyn ConfigLanguage, old: &str, new: &str) -> bool {
+/// a line keeps its indent. `content` says whether the whitespace between
+/// two characters of `old` (indices) is a locked value's content (a string
+/// over lines, an XML text), which never changes.
+pub(super) fn between_tokens(
+    behavior: &dyn ConfigLanguage,
+    old: &str,
+    new: &str,
+    content: &dyn Fn(usize, usize) -> bool,
+) -> bool {
     let old_bytes: Vec<usize> = old.char_indices().map(|(byte, _)| byte).collect();
     let old_chars: Vec<char> = old.chars().collect();
     let new_chars: Vec<char> = new.chars().collect();
@@ -56,7 +64,10 @@ pub(super) fn between_tokens(behavior: &dyn ConfigLanguage, old: &str, new: &str
             && (old_chars[at_old - 1] == '<'
                 || (old_chars[at_old - 1] == '/' && at_old > 1 && old_chars[at_old - 2] == '<'));
         if run_old != run_new
-            && (in_text || opens_tag || !free(behavior, &tokens, previous, next, run_old, run_new))
+            && (in_text
+                || opens_tag
+                || content(at_old, next_old)
+                || !free(behavior, &tokens, previous, next, run_old, run_new))
         {
             return false;
         }

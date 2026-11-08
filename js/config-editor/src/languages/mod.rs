@@ -30,27 +30,44 @@ pub(crate) fn language_named(name: &str) -> Result<Language, JsError> {
         return Ok(language);
     }
     // A registered language's file extension names it too, as `yml` does.
-    let extension = key.trim_start_matches('.');
-    if let Some(language) = REGISTERED.with(|languages| {
-        languages.borrow().values().copied().find(|language| {
-            language
-                .extensions()
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(extension))
-        })
-    }) {
+    if let Some(language) = registered_for_extension(key.trim_start_matches('.')) {
         return Ok(language);
     }
     name.parse::<Language>()
         .map_err(|error| JsError::new(&error.to_string()))
 }
 
-/// `language` if documents can be written in it: an `editAs` target must.
-pub(crate) fn writable_edit_as(language: Language) -> Result<Language, JsError> {
-    language
-        .serialize(&Value::Object(serde_json::Map::new()))
-        .map(|_| language)
-        .map_err(|error| JsError::new(&format!("editAs: {error}")))
+/// The registered language claiming `extension`, if any.
+fn registered_for_extension(extension: &str) -> Option<Language> {
+    REGISTERED.with(|languages| {
+        languages.borrow().values().copied().find(|language| {
+            language
+                .extensions()
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(extension))
+        })
+    })
+}
+
+/// The language of a file, from its extension (`"config/app.yml"` →
+/// YAML), registered languages first; `None` when none claims it.
+pub(crate) fn language_for_path(path: &str) -> Option<Language> {
+    path.rsplit_once('.')
+        .and_then(|(_, extension)| registered_for_extension(extension))
+        .or_else(|| Language::from_path(path))
+}
+
+/// `edit` if editing a `host` document as it can be saved: both languages
+/// must write documents (`edit` to show it, `host` to save it), unless
+/// `edit` is the host's own.
+pub(crate) fn writable_edit_as(host: Language, edit: Language) -> Result<Language, JsError> {
+    let languages: &[Language] = if edit == host { &[] } else { &[edit, host] };
+    for language in languages {
+        language
+            .serialize(&Value::Object(serde_json::Map::new()))
+            .map_err(|error| JsError::new(&format!("editAs: {error}")))?;
+    }
+    Ok(edit)
 }
 
 /// Keys a `registerLanguage` definition can hold.

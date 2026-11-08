@@ -1,8 +1,10 @@
 //! Where each locked field is in the text, tried in order: in a text that
 //! does not parse, the lock of the text before moved through the edit,
 //! else the stand-in's lock (its value pinned); else located by its path
-//! (or under its own key); else, in a text that does not parse, held as a
-//! field not found until it parses.
+//! (or under its own key); else held as a field not found: in a text that
+//! does not parse, until it parses; in one that parses (a language that
+//! cannot locate fields), by its value alone, every edit then compared with
+//! it (`guard`).
 
 use std::ops::Range;
 
@@ -73,16 +75,20 @@ impl<'r, 'a> Placer<'r, 'a> {
     }
 
     /// The values to pin: in a text that parses, each placed lock's value
-    /// there; else those carried and pinned while placing.
-    pub(super) fn into_pins(self, locks: &[Lock]) -> Vec<(String, Value)> {
+    /// there, and each field held unplaced; else those carried and pinned
+    /// while placing.
+    pub(super) fn into_pins(
+        self,
+        locks: &[Lock],
+        unplaced: &[(String, Reason)],
+    ) -> Vec<(String, Value)> {
         match &self.reading.document {
             None => self.pins,
             Some(document) => locks
                 .iter()
-                .filter_map(|lock| {
-                    let pointer = lock.pointer.as_ref()?;
-                    Some((pointer.clone(), lookup(document, pointer)?.clone()))
-                })
+                .filter_map(|lock| lock.pointer.as_ref())
+                .chain(unplaced.iter().map(|(pointer, _)| pointer))
+                .filter_map(|pointer| Some((pointer.clone(), lookup(document, pointer)?.clone())))
                 .collect(),
         }
     }
@@ -145,14 +151,17 @@ impl<'r, 'a> Placer<'r, 'a> {
         })
     }
 
-    /// Whether a field not found is held until the text parses: in a text
-    /// that does not parse, when it was found or held so in the text
-    /// before, or written in the last text that parsed or the stand-in.
-    /// Else it is not written (a path the text never had): nothing to keep
-    /// until the text parses, where `guard::repair` reads it again.
+    /// Whether a field not found is held: in a text that parses, when the
+    /// document has it (the language could not say where it is written:
+    /// its value is pinned, and an edit changing it refused); in a text
+    /// that does not parse, until it does, when it was found or held so in
+    /// the text before, or written in the last text that parsed or the
+    /// stand-in. Else it is not written (a path the text never had):
+    /// nothing to keep until the text parses, where `guard::repair` reads
+    /// it again.
     fn held(&self, pointer: &str) -> bool {
-        if self.reading.document.is_some() {
-            return false;
+        if let Some(document) = &self.reading.document {
+            return lookup(document, pointer).is_some();
         }
         let has = |document: &Value| lookup(document, pointer).is_some();
         let last = self.carried.and_then(|previous| previous.parsed.as_deref());

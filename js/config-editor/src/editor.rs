@@ -110,7 +110,7 @@ impl ConfigEditor {
             None => Language::default(),
         };
         let edit_as = string_option(&options, "editAs")?
-            .map(|name| language_named(&name).and_then(writable_edit_as))
+            .map(|name| language_named(&name).and_then(|edit| writable_edit_as(language, edit)))
             .transpose()?
             .filter(|edit| *edit != language);
         let settings = settings_from(&options)?;
@@ -150,6 +150,7 @@ impl ConfigEditor {
         let owner = Owner::new();
         let secrets = owner.with(|| secrets_from(&field(&options, "secrets")))?;
         let state = owner.with(|| State {
+            language,
             value: RwSignal::new(value.clone()),
             baseline: RwSignal::new(baseline),
             edit_as: RwSignal::new(edit_as),
@@ -258,7 +259,7 @@ impl ConfigEditor {
                     Ok(None)
                 } else {
                     language_named(&text_arg(&language, "editAs")?)
-                        .and_then(writable_edit_as)
+                        .and_then(|edit| writable_edit_as(self.state.language, edit))
                         .map(Some)
                 }
             })

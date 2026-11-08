@@ -301,6 +301,16 @@ pub(crate) fn path_from_js(value: &JsValue) -> Result<FieldPath, JsError> {
                 "a JSON pointer starts with \"/\" (got {pointer:?}; \"\" is the whole document)"
             )));
         }
+        // Inside a segment `~` escapes only `~0` (`~`) and `~1` (`/`).
+        if let Some(at) = pointer
+            .match_indices('~')
+            .map(|(at, _)| at)
+            .find(|at| !matches!(pointer.as_bytes().get(at + 1), Some(b'0' | b'1')))
+        {
+            return Err(JsError::new(&format!(
+                "a JSON pointer escapes only ~0 (~) and ~1 (/) (got {pointer:?}, at {at})"
+            )));
+        }
         return Ok(FieldPath::from(pointer));
     }
     if !Array::is_array(value) {

@@ -84,6 +84,12 @@ pub(crate) fn locked_pointers(
         .locks
         .iter()
         .filter_map(|lock| lock.pointer.clone())
+        .chain(
+            protected
+                .unplaced
+                .iter()
+                .map(|(pointer, _)| pointer.clone()),
+        )
         .collect();
     if !sources.ranges.is_empty() {
         let document = match protected.document {

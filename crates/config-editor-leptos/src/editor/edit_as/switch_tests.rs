@@ -5,6 +5,7 @@
 use leptos::prelude::*;
 
 use super::super::edit::After;
+use super::super::language::{ConfigLanguage, LanguageInfo, ParseError};
 use super::super::languages::Language;
 use super::super::paths::TextPosition;
 use super::super::sync::switch_to;
@@ -133,4 +134,59 @@ fn undoing_a_switch_restores_the_caret_and_redo_keeps_its_column() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A language registered with `parse` alone: it reads documents but cannot
+/// write them.
+struct ParseOnly;
+
+impl ConfigLanguage for ParseOnly {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "ParseOnly",
+            icon: "P",
+            extensions: &[],
+        }
+    }
+
+    fn parse(&self, _source: &str) -> Result<serde_json::Value, ParseError> {
+        Ok(serde_json::json!({"listen": 1}))
+    }
+}
+
+static PARSE_ONLY: ParseOnly = ParseOnly;
+
+#[test]
+fn a_switch_from_or_into_a_language_that_cannot_write_is_refused_at_once() {
+    let parse_only = Language::new(&PARSE_ONLY);
+    let strings = crate::EditorStrings::default();
+    let mut failures = Vec::new();
+    for (host, edit, text) in [
+        (parse_only, Language::YAML, "anything"),
+        (Language::YAML, parse_only, sample(Language::YAML)),
+    ] {
+        let (_owner, state) = TestEditor::new(host, text).mount();
+        switch_to(state, edit);
+        let case = format!("{host} host, switched to {edit}");
+        if state.sync().edit_language.get_untracked() != host
+            || state.doc().text.get_untracked() != text
+        {
+            failures.push(format!("{case}: switched"));
+        }
+        if state.sync().pending_switch.get_untracked().is_some() {
+            failures.push(format!("{case}: left pending"));
+        }
+        let said: Vec<String> = state
+            .sync()
+            .load_problems
+            .get_untracked()
+            .iter()
+            .map(|problem| problem.worded(&strings).message)
+            .collect();
+        let expected = format!("Cannot edit as {edit}: ParseOnly documents cannot be written");
+        if said != [expected] {
+            failures.push(format!("{case}: says {said:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

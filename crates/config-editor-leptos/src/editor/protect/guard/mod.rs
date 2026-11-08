@@ -26,10 +26,13 @@
 //! as pinned. In YAML a locked line's indent cannot change. While the text
 //! does not parse, a locked stretch keeps its text exactly but for
 //! whitespace between its tokens (`spacing`: the same formatting, a space
-//! inside a string or a YAML plain value excepted), and a YAML plain value
-//! takes nothing glued onto it (`abc<`).
+//! inside a string or a YAML plain value excepted), a YAML plain value
+//! takes nothing glued onto it (`abc<`); nor does a locked value's content
+//! written over lines or as XML text, whose whitespace is content too
+//! (`content`).
 
 mod closers;
+mod content;
 mod edit;
 mod hiding;
 mod joining;
@@ -47,6 +50,7 @@ use super::locate::LineIndex;
 use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
+use content::glued_to_content;
 use edit::Edited;
 use hiding::hidden;
 use joining::{is_near, joining_lines, near_lines, span};
@@ -115,7 +119,7 @@ pub(crate) fn check(
         if protected.document.is_none() {
             return repair::repair_keeps_locks(&edit, edited);
         }
-        pins_still_hold(edited, protected, &pointed)?;
+        pins_still_hold(edited, protected)?;
         pointed.retain(|lock| !is_pinned(protected, lock));
     }
     if pointed.is_empty() || edit.spacing_only() {
@@ -138,6 +142,9 @@ fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
         if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
             return Err(refused(&lock.reason));
         }
+        if glued_to_content(edit, lock) {
+            return Err(refused(&lock.reason));
+        }
         if !lock.guards.iter().all(|range| edit.kept(range)) && !free() {
             return Err(Blocked {
                 reason: lock.reason.clone(),
@@ -151,21 +158,25 @@ fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
 
 /// The edited text parses, as the text before did: every locked value must
 /// read as it was pinned, wherever the edit was (a TOML `[web.sub]` table
-/// added at the end changes `web`).
-fn pins_still_hold(
-    edited: &Value,
-    protected: &Protected,
-    pointed: &[&Lock],
-) -> Result<(), Blocked> {
+/// added at the end changes `web`), the fields the language could not
+/// locate included.
+fn pins_still_hold(edited: &Value, protected: &Protected) -> Result<(), Blocked> {
     let Some(pointer) = pins_hold(edited, protected) else {
         return Ok(());
     };
-    let lock = pointed
+    let reason = protected
+        .locks
         .iter()
-        .find(|lock| lock.pointer.as_deref() == Some(pointer));
-    Err(refused(
-        &lock.map_or(Reason::Field, |lock| lock.reason.clone()),
-    ))
+        .find(|lock| lock.pointer.as_deref() == Some(pointer))
+        .map(|lock| &lock.reason)
+        .or_else(|| {
+            protected
+                .unplaced
+                .iter()
+                .find(|(known, _)| known == pointer)
+                .map(|(_, reason)| reason)
+        });
+    Err(refused(reason.unwrap_or(&Reason::Field)))
 }
 
 /// The values cannot be compared (the edited text does not parse, or the

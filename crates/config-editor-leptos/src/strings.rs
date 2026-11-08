@@ -414,6 +414,9 @@ pub struct EditorStrings {
     pub cannot_edit_as: String,
     /// An Edit-as switch waiting until the document converts.
     pub cannot_switch: String,
+    /// An Edit-as switch refused: the host's language or the other one
+    /// cannot write documents.
+    pub switch_refused: String,
     /// XML text beside child elements, which no other language can show
     /// (Edit-as).
     pub mixed_content: String,
@@ -618,6 +621,7 @@ impl Default for EditorStrings {
             no_non_finite: text("{host} has no infinity or NaN (at {pointer})"),
             cannot_edit_as: text("Cannot edit this {host} as {edit}: {error}"),
             cannot_switch: text("Cannot switch to {edit} yet: {error}"),
+            switch_refused: text("Cannot edit as {edit}: {error}"),
             mixed_content: text(
                 "{pointer}: text beside child elements cannot be shown in another language",
             ),

@@ -45,6 +45,8 @@ pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
 /// The live state a mounted editor reads; `update` writes it.
 #[derive(Clone, Copy)]
 pub(crate) struct State {
+    /// The host's language, which `editAs` switches from.
+    pub(crate) language: Language,
     pub(crate) value: RwSignal<String>,
     pub(crate) baseline: RwSignal<String>,
     pub(crate) edit_as: RwSignal<Option<Language>>,

@@ -45,6 +45,8 @@ pub(crate) use texts::save_refused;
 
 #[cfg(all(test, feature = "yaml"))]
 mod pattern_tests;
+#[cfg(test)]
+mod spanless_tests;
 
 #[cfg(all(
     test,
@@ -55,6 +57,15 @@ mod pattern_tests;
     feature = "xml"
 ))]
 mod arrival_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod broken_multiline_tests;
 #[cfg(all(
     test,
     feature = "yaml",

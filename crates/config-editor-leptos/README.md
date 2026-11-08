@@ -278,7 +278,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (159 texts)</summary>
+<summary>Every text and its default (160 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -434,6 +434,7 @@ they come.
 | `no_non_finite`                 | `"{host} has no infinity or NaN (at {pointer})"`                                                                                     | An infinity or NaN the host's language has no number for (Edit-as).                                                                                                                                                                            |
 | `cannot_edit_as`                | `"Cannot edit this {host} as {edit}: {error}"`                                                                                       | A host document that does not convert for editing.                                                                                                                                                                                             |
 | `cannot_switch`                 | `"Cannot switch to {edit} yet: {error}"`                                                                                             | An Edit-as switch waiting until the document converts.                                                                                                                                                                                         |
+| `switch_refused`                | `"Cannot edit as {edit}: {error}"`                                                                                                   | An Edit-as switch refused: the host's language or the other one cannot write documents.                                                                                                                                                        |
 | `mixed_content`                 | `"{pointer}: text beside child elements cannot be shown in another language"`                                                        | XML text beside child elements, which no other language can show (Edit-as).                                                                                                                                                                    |
 | `tab_list`                      | `"Open files"`                                                                                                                       | The tab list's accessible name, unless the host gives one.                                                                                                                                                                                     |
 | `no_documents`                  | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
@@ -1264,12 +1265,19 @@ const ENV: Language = Language::new(&DOTENV);
 | Method                                                                          | Adds                                                            |
 | ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `info`, `parse` (required)                                                      | Name, icon, extensions; syntax errors and the data model        |
-| `serialize`                                                                     | Conversion into the language (Edit-as target)                   |
-| `key_span`, `value_span`                                                        | Positions for schema diagnostics                                |
+| `serialize`                                                                     | Conversion into the language (Edit-as, either way)              |
+| `key_span`, `value_span`                                                        | Positions for schema diagnostics and read-only fields           |
 | `completion_context`, `existing_keys`, `property_insert`, `format_value`        | Schema completion; see [below](#completion-and-hover)           |
 | `hover_key`                                                                     | Hover docs                                                      |
 | `highlight`, `comments`, `multiline_strings`                                    | Syntax colors, comments and strings over several lines included |
 | `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
+
+Read-only fields hold in a language without spans too: the editor then
+compares the field's value on every edit whose text parses, and refuses one
+that changes it (with spans the field is also muted, locked in the gutter,
+and refused as it is typed on). A language without `serialize` is never
+edited as another language, nor another as it: the switch is refused with
+the reason.
 
 ### Completion and hover
 

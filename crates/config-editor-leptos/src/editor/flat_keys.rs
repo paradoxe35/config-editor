@@ -8,7 +8,9 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use super::keyboard::utf16_to_byte_index;
-use super::language::{CompletionContext, LanguageConfig, SchemaPathSegment};
+use super::language::{
+    CompletionContext, LanguageConfig, SchemaPathSegment, Span, pointer_segments,
+};
 
 impl LanguageConfig {
     /// The separator a flat language writes after a new key: its first
@@ -218,6 +220,92 @@ impl LanguageConfig {
         }
     }
 
+    /// [`ConfigLanguage::key_span`](super::language::ConfigLanguage::key_span)
+    /// for a flat language: the key of a top-level `pointer` on the last
+    /// line naming it (a later entry wins). `None` for a nested pointer or
+    /// without separators.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::{LanguageConfig, Span};
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// let span = env.flat_key_span("A=1\nexport PORT = 80\n", "/PORT").unwrap();
+    /// assert_eq!((span.line, span.start_column, span.end_column), (2, 8, 12));
+    /// ```
+    pub fn flat_key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        let (line, entry) = self.flat_entry(source, pointer)?;
+        Some(Span {
+            line,
+            start_column: entry.key.0,
+            end_column: entry.key.1,
+        })
+    }
+
+    /// [`ConfigLanguage::value_span`](super::language::ConfigLanguage::value_span)
+    /// for a flat language: the value of a top-level `pointer` on the last
+    /// line naming it, from the first character after the separator's
+    /// spaces to the line's last one that is not blank. `None` for a nested
+    /// pointer, an empty value, or without separators.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::{LanguageConfig, Span};
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// let span = env.flat_value_span("PORT = 80 \n", "/PORT").unwrap();
+    /// assert_eq!((span.line, span.start_column, span.end_column), (1, 8, 10));
+    /// assert_eq!(env.flat_value_span("PORT=\n", "/PORT"), None);
+    /// ```
+    pub fn flat_value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+        let (line, entry) = self.flat_entry(source, pointer)?;
+        let (start, end) = entry.value?;
+        Some(Span {
+            line,
+            start_column: start,
+            end_column: end,
+        })
+    }
+
+    /// The last line writing the top-level `pointer`: its one-based number
+    /// and where its key and value are.
+    fn flat_entry(&self, source: &str, pointer: &str) -> Option<(usize, FlatEntry)> {
+        let [key] = pointer_segments(pointer).try_into().ok()?;
+        source
+            .split('\n')
+            .enumerate()
+            .filter_map(|(index, line)| {
+                let entry = self.flat_line(line)?;
+                (entry.name == key).then_some((index + 1, entry))
+            })
+            .last()
+    }
+
+    /// One line's entry, columns one-based in characters.
+    fn flat_line(&self, line: &str) -> Option<FlatEntry> {
+        let indent = line.len() - line.trim_start().len();
+        let code = &line[indent..];
+        if self.is_comment_line(code) {
+            return None;
+        }
+        let (at, separator) = self.first_separator(code)?;
+        let written = code[..at].trim_end();
+        let name = written
+            .rsplit(char::is_whitespace)
+            .next()
+            .unwrap_or(written);
+        if name.is_empty() {
+            return None;
+        }
+        let column = |byte: usize| line[..byte].chars().count() + 1;
+        let key_start = indent + written.len() - name.len();
+        let after = indent + at + separator.len();
+        let rest = &line[after..];
+        let value_start = after + rest.len() - rest.trim_start().len();
+        let value_end = after + rest.trim_end().len();
+        Some(FlatEntry {
+            name: name.to_string(),
+            key: (column(key_start), column(key_start + name.len())),
+            value: (value_start < value_end).then(|| (column(value_start), column(value_end))),
+        })
+    }
+
     fn is_comment_line(&self, code: &str) -> bool {
         self.line_comments
             .iter()
@@ -231,6 +319,14 @@ impl LanguageConfig {
             .filter_map(|separator| code.find(separator).map(|at| (at, *separator)))
             .min_by_key(|(at, separator)| (*at, usize::MAX - separator.len()))
     }
+}
+
+/// A flat line's entry: its key's name, and the columns of the key and of
+/// the value (none when empty).
+struct FlatEntry {
+    name: String,
+    key: (usize, usize),
+    value: Option<(usize, usize)>,
 }
 
 #[cfg(test)]
