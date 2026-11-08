@@ -58,10 +58,14 @@ body { margin: 0; }
 }
 .demo__settings-toggle::after { margin-left: 7px; color: var(--config-editor-raised-muted); }
 .demo__settings-toggle[aria-expanded="true"]::after { transform: translateY(1px) rotate(-135deg); }
+/* Opens under the button's right end; the demo moves it sideways to stay
+   inside the window (see settings_panel.rs). */
 .demo__settings-list {
   position: absolute;
   right: 0;
   z-index: 20;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
   display: grid;
   gap: 4px;
   padding: 8px;
@@ -128,11 +132,22 @@ body { margin: 0; }
   .demo__check,
   .demo__setting { min-height: 24px; }
   .demo__check input,
-  .demo__setting input { width: 18px; height: 18px; }
+  .demo__setting input { width: 24px; height: 24px; margin: 0; }
+}
+
+/* The file's name gives way first (it is longest while editing as another
+   language, "burrow.yaml (editing as JSON)"), so the toolbar keeps one row. */
+.demo__toolbar .config-editor__file { flex: 1 1 0; flex-wrap: nowrap; min-width: 14ch; }
+.demo__toolbar .config-editor__file > span:not(.config-editor__file-icon) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 600px) {
   .demo__toolbar { gap: 8px; padding: 0 8px; }
+  .demo__toolbar .config-editor__file { flex: 0 0 auto; min-width: 0; }
   .demo__toolbar .config-editor__file > span:not(.config-editor__file-icon) { display: none; }
   /* The selects keep their names (aria-label) and whole options. */
   .demo__picker-label { display: none; }

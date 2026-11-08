@@ -1583,4 +1583,10 @@
     height: 24px;
   }
   .config-editor__fold-chip { min-width: 24px; }
+  /* The chip is a line tall; its hit area is 24px. */
+  .config-editor__fold-chip::before {
+    position: absolute;
+    inset: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2) 0;
+    content: "";
+  }
 }

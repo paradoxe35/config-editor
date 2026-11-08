@@ -10,6 +10,11 @@ use super::super::state::{EditorState, textarea_selection};
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
+    // Alt+Enter opens a problem's docs (see `a11y::open_docs_key`); with
+    // none at the caret it does nothing, as in VS Code.
+    if event.alt_key() {
+        return;
+    }
     let Some(element) = state.textarea() else {
         return;
     };

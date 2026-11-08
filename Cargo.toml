@@ -12,7 +12,7 @@ resolver = "3"
 console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.23", features = ["csr"] }
 config-editor-leptos = { path = "crates/config-editor-leptos" }
-web-sys = { version = "0.3", features = ["History", "Location", "Window"] }
+web-sys = { version = "0.3", features = ["DomRect", "Element", "History", "HtmlElement", "KeyboardEvent", "Location", "Node", "PointerEvent", "Window"] }
 serde_json = "1"
 
 # Keep the editor responsive while developing: dependencies (schema validation,

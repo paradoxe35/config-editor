@@ -387,6 +387,12 @@ fn a_host_problems_code_and_docs_are_in_the_note_and_the_announcement() {
         note(&strings, std::slice::from_ref(&port), 2, 3, None),
         format!("Error from burrow: port 7835 is taken.{said}")
     );
+    // A message without its full stop gets one before the code.
+    port.message = "port 7835 is taken".to_string();
+    assert_eq!(
+        problem_announcement(&strings, &port, 1, 1),
+        format!("Error 1 of 1 from burrow: port 7835 is taken.{said}")
+    );
 }
 
 /// A field the host locks, in every language: the caret on its value (and

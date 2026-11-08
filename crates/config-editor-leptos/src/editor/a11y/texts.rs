@@ -40,6 +40,15 @@ fn links_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
     code.into_iter().chain(docs).collect()
 }
 
+/// `text` and then the problem's code and docs link, as sentences of their
+/// own after a message that does not end one.
+fn with_links(strings: &EditorStrings, problem: &Diagnostic, text: String) -> String {
+    let links = links_part(strings, problem);
+    let ended = text.trim_end().ends_with(['.', '!', '?']);
+    let stop = if links.is_empty() || ended { "" } else { "." };
+    text + stop + &links
+}
+
 /// "Error: …", "Warning from burrow: …": a problem as a screen reader
 /// hears it, with its code and docs link.
 pub(super) fn problem_text(strings: &EditorStrings, problem: &Diagnostic) -> String {
@@ -51,7 +60,7 @@ pub(super) fn problem_text(strings: &EditorStrings, problem: &Diagnostic) -> Str
             ("message", &problem.message),
         ],
     );
-    text + &links_part(strings, problem)
+    with_links(strings, problem, text)
 }
 
 /// "Error 2 of 5: …": the problem F8 moved to, of the `total` placed ones.
@@ -71,7 +80,7 @@ pub(in crate::editor) fn problem_announcement(
             ("message", &problem.message),
         ],
     );
-    text + &links_part(strings, problem)
+    with_links(strings, problem, text)
 }
 
 /// "YAML Error on line 3: …": an underlined problem's accessible name.
