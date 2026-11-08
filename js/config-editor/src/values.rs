@@ -124,8 +124,14 @@ pub(crate) struct DiagnosticOut {
     column: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     end_column: Option<usize>,
+    /// Only for a marker over several lines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_line: Option<usize>,
     message: String,
     severity: &'static str,
+    /// Only on a deprecated key's warning (`true`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    deprecated: bool,
 }
 
 impl From<Diagnostic> for DiagnosticOut {
@@ -134,8 +140,10 @@ impl From<Diagnostic> for DiagnosticOut {
             line: problem.line,
             column: problem.column,
             end_column: problem.end_column,
+            end_line: problem.end_line,
             message: problem.message,
             severity: problem.severity.as_str(),
+            deprecated: problem.deprecated,
         }
     }
 }

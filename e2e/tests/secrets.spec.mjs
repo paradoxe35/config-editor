@@ -132,8 +132,10 @@ test.describe('secret placeholders', () => {
     await page.keyboard.type('«secret beef»');
     await page.waitForTimeout(400);
     await expect(page.locator('.config-editor__diagnostic-marker')).not.toHaveCount(0);
+    // One problem says so (its message also shows on the underline of a
+    // problem at the same place, whose message lists both).
     await expect(
-      page.locator('.config-editor__diagnostic-marker[data-message*="unknown secret placeholder"]'),
+      page.locator('.config-editor__diagnostic-marker[aria-label*="unknown secret placeholder"]'),
     ).toHaveCount(1);
     // Problems with a secret field never quote what was typed there.
     const messages = await page

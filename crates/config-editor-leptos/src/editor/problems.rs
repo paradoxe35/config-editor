@@ -9,7 +9,9 @@ use leptos::prelude::*;
 
 use super::diagnostics::{Diagnostic, SchemaBundle, capped, shift_diagnostics, validate_with};
 use super::edit_as::EditAsProblem;
-use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
+use super::host_diagnostics::{
+    HostDiagnostic, RangeText, merge as merge_host, place as place_host,
+};
 use super::languages::Language;
 use super::protect::ProtectState;
 use super::state::EditorState;
@@ -26,6 +28,9 @@ pub(super) struct ProblemsState {
     /// The problem F8 moved to, `(line, column)`: its message shows until the
     /// next key, click or edit.
     pub(super) current: RwSignal<Option<(usize, usize)>>,
+    /// The problem F8 went to last and the caret it left: from there the
+    /// next press goes on (several problems at one place each get a turn).
+    pub(super) walked: StoredValue<Option<(Diagnostic, usize)>>,
 }
 
 /// What the problems are found from.
@@ -56,6 +61,7 @@ impl ProblemsState {
         } = sources;
         let diagnosed_text = RwSignal::new(shown);
         let edit_language = sync.edit_language;
+        let host_text = sync.host_text;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let validated = Memo::new(move |_| {
             let enabled = enabled.get();
@@ -81,6 +87,7 @@ impl ProblemsState {
                             .map(|problem| problem.worded(strings))
                             .collect()
                     };
+                    found.extend(protect.placeholder_pattern_problem(strings));
                     found.extend(load_problems.with(worded));
                     found.extend(conversion_problems.with(worded));
                     let marking = schema
@@ -114,8 +121,26 @@ impl ProblemsState {
             }
             let edit = edit_language.get();
             host_diagnostics.with(|problems| {
-                diagnosed_text
-                    .with(|text| place_host(edit.behavior(), text, problems, edit == host_language))
+                strings.with(|strings| {
+                    diagnosed_text.with(|text| {
+                        if edit == host_language {
+                            place_host(
+                                edit.behavior(),
+                                text,
+                                problems,
+                                RangeText::OnScreen,
+                                strings,
+                            )
+                        } else {
+                            // The host's text matching the text checked (it
+                            // follows every conversion back).
+                            host_text.with_value(|host| {
+                                let ranges = RangeText::Host(host_language.behavior(), host);
+                                place_host(edit.behavior(), text, problems, ranges, strings)
+                            })
+                        }
+                    })
+                })
             })
         });
         // Until validation catches up with an edit, markers move with the
@@ -129,6 +154,7 @@ impl ProblemsState {
             diagnosed_text,
             diagnostics,
             current: RwSignal::new(None),
+            walked: StoredValue::new(None),
         }
     }
 }

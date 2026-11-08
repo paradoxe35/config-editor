@@ -29,6 +29,7 @@ use std::fmt;
 /// A converted document, and the values the target language could not carry
 /// exactly. Empty `losses` means the conversion round-trips.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Conversion {
     /// The document in the target language.
     pub text: String,

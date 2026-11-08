@@ -5,11 +5,12 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::a11y::problem_announcement;
-use super::super::commands::{cycle_offset, offset_at, smart_home as home_target};
+use super::super::commands::smart_home as home_target;
 use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
+use super::super::problem_walk::{next_stop, stops};
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 
 /// Smart Home: the first non-blank character, then the line start.
@@ -143,34 +144,38 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         state.problems().diagnosed_text.set(text);
     }
     let here = state.doc().caret.get_untracked();
-    let mut positioned: Vec<(usize, usize)> = state.doc().text.with_untracked(|text| {
-        state.problems().diagnostics.with_untracked(|problems| {
-            problems
-                .iter()
-                .enumerate()
-                .filter_map(|(index, problem)| {
-                    Some((offset_at(text, problem.line?, problem.column?), index))
-                })
-                .collect()
+    let problems = state.problems();
+    let (stops, last) = state.doc().text.with_untracked(|text| {
+        problems.diagnostics.with_untracked(|found| {
+            let stops = stops(text, found);
+            // Where the last press left off, if the caret is still there.
+            let last = problems.walked.with_value(|walked| {
+                let (problem, _) = walked.as_ref().filter(|(_, caret)| *caret == here)?;
+                stops
+                    .iter()
+                    .position(|stop| found.get(stop.index) == Some(problem))
+            });
+            (stops, last)
         })
     });
-    positioned.sort_unstable();
-    let offsets: Vec<usize> = positioned.iter().map(|(offset, _)| *offset).collect();
-    if let Some(position) = cycle_offset(&offsets, here, event.shift_key()) {
-        let index = positioned[position].1;
-        state.go_to_diagnostic(index);
-        // "Error 2 of 5: …" for screen readers, which do not see the
-        // message the marker shows.
-        let said = state.strings_untracked(|strings| {
-            state.problems().diagnostics.with_untracked(|problems| {
-                problems.get(index).map(|problem| {
-                    problem_announcement(strings, problem, position + 1, positioned.len())
-                })
+    let Some(position) = next_stop(&stops, here, last, event.shift_key()) else {
+        return true;
+    };
+    let index = stops[position].index;
+    state.go_to_diagnostic(index);
+    let caret = state.doc().caret.get_untracked();
+    // "Error 2 of 5: …" for screen readers, which do not see the message
+    // the marker shows (an unplaced problem has none).
+    let said = state.strings_untracked(|strings| {
+        problems.diagnostics.with_untracked(|found| {
+            found.get(index).map(|problem| {
+                problems.walked.set_value(Some((problem.clone(), caret)));
+                problem_announcement(strings, problem, position + 1, stops.len())
             })
-        });
-        if let Some(said) = said {
-            state.a11y().announce(said);
-        }
+        })
+    });
+    if let Some(said) = said {
+        state.a11y().announce(said);
     }
     true
 }

@@ -1,5 +1,7 @@
 //! Underlines for problems, each with its message as a tooltip.
 
+use std::collections::HashMap;
+
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -10,6 +12,9 @@ use super::super::metrics::read_editor_metrics;
 use super::super::state::EditorState;
 use crate::EditorStrings;
 use crate::reactive::Relay;
+use segments::{Segment, segments};
+
+mod segments;
 
 /// Widest a diagnostic message gets, in pixels (`max-width` in preset.css).
 const TOOLTIP_MAX_WIDTH: f64 = 360.0;
@@ -101,19 +106,31 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                 state.config().settings.strings.track();
                 // Each underline finds its line here, not by counting lines.
                 let lines: Vec<&str> = text.split('\n').collect();
-                state
-                    .problems().diagnostics
-                    .get()
-                    .into_iter()
-                    .filter_map(|diagnostic| {
+                let problems = state.problems().diagnostics.get();
+                let messages = messages_by_place(&problems);
+                problems
+                    .iter()
+                    // Thousands of a host's problems would slow every key:
+                    // all are counted and walked with F8, these drawn.
+                    .take(MAX_DRAWN)
+                    .flat_map(|diagnostic| {
+                        let message = diagnostic
+                            .line
+                            .zip(diagnostic.column)
+                            .and_then(|place| messages.get(&place))
+                            .cloned()
+                            .unwrap_or_else(|| diagnostic.message.clone());
                         // A folded line's problem shows on the fold's line
                         // in the gutter, not as an underline.
-                        let line = diagnostic.line?.saturating_sub(1);
-                        if projection.is_hidden(line) {
-                            return None;
-                        }
-                        let line_text = lines.get(line).copied().unwrap_or("");
-                        marker(state, followed, line_text, diagnostic, projection.row_of_line(line))
+                        segments(diagnostic, &lines, |line| projection.is_hidden(line))
+                            .into_iter()
+                            .filter_map(|segment| {
+                                let line_text = lines.get(segment.line - 1).copied().unwrap_or("");
+                                let row = projection.row_of_line(segment.line - 1);
+                                let drawn = Drawn { diagnostic, message: message.clone(), segment, row };
+                                marker(state, followed, line_text, drawn)
+                            })
+                            .collect::<Vec<_>>()
                     })
                     .collect_view()
             }}
@@ -121,38 +138,83 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
     }
 }
 
-/// The underline for `diagnostic`, drawn on textarea row `row`.
+/// Most problems underlined; past them they are still counted, listed and
+/// reached with F8.
+const MAX_DRAWN: usize = 200;
+
+/// For each place (line, column) where several problems start, all their
+/// messages, the most serious first, one per line: hovering any of their
+/// underlines (drawn on top of each other) shows every one.
+fn messages_by_place(problems: &[Diagnostic]) -> HashMap<(usize, usize), String> {
+    let mut by_place: HashMap<(usize, usize), Vec<&Diagnostic>> = HashMap::new();
+    for problem in problems.iter().take(MAX_DRAWN) {
+        if let Some(place) = problem.line.zip(problem.column) {
+            by_place.entry(place).or_default().push(problem);
+        }
+    }
+    by_place
+        .into_iter()
+        .filter(|(_, here)| here.len() > 1)
+        .map(|(place, mut here)| {
+            here.sort_by_key(|problem| problem.severity as u8);
+            let messages: Vec<&str> = here
+                .iter()
+                .map(|problem| problem.message.as_str())
+                .collect();
+            (place, messages.join("\n"))
+        })
+        .collect()
+}
+
+/// One underline to draw: a problem's part on one of its lines.
+struct Drawn<'a> {
+    diagnostic: &'a Diagnostic,
+    /// Its message, with those of the problems starting at the same place.
+    message: String,
+    segment: Segment,
+    /// The textarea row it is drawn on.
+    row: usize,
+}
+
+/// The underline `drawn`. Only the first underline of a problem over
+/// several lines is named for screen readers and shows the message after
+/// F8; the others show it on hover.
 fn marker(
     state: EditorState,
     followed: Followed,
     line_text: &str,
-    diagnostic: Diagnostic,
-    row: usize,
+    drawn: Drawn<'_>,
 ) -> Option<impl IntoView + use<>> {
+    let Drawn {
+        diagnostic,
+        message,
+        segment,
+        row,
+    } = drawn;
     let line = diagnostic.line?;
     let column = diagnostic.column?;
-    let width = diagnostic
-        .end_column
-        .unwrap_or(column + 1)
-        .saturating_sub(column)
-        .max(1);
+    let first = segment.first;
+    let width = segment.end_column.saturating_sub(segment.column).max(1);
     let marked: String = line_text
         .chars()
-        .skip(column.saturating_sub(1))
+        .skip(segment.column.saturating_sub(1))
         .take(width)
         .collect();
     let at_end = marked.is_empty();
-    let before: String = line_text.chars().take(column.saturating_sub(1)).collect();
+    let before: String = line_text
+        .chars()
+        .take(segment.column.saturating_sub(1))
+        .collect();
     // Rendered columns, so tabs (two columns wide) do not shift the underline.
     let left = visual_column(&before);
     let visual_width = visual_column(&format!("{before}{marked}")) - left;
     let severity = diagnostic.severity;
     let from_host = diagnostic.origin == DiagnosticOrigin::Host;
-    let detail = state.strings_untracked(|strings| detail(strings, &diagnostic));
+    let detail = state.strings_untracked(|strings| detail(strings, diagnostic));
     let docs_url = diagnostic.docs_url.clone();
     let has_docs = docs_url.is_some();
-    let aria_label = state
-        .strings_untracked(|strings| problem_marker(strings, state.label(), &diagnostic, line));
+    let aria_label =
+        state.strings_untracked(|strings| problem_marker(strings, state.label(), diagnostic, line));
     Some(view! {
         <button
             type="button"
@@ -163,7 +225,9 @@ fn marker(
             class:config-editor__diagnostic-marker-host=from_host
             class:config-editor__diagnostic-marker-docs=has_docs
             class:config-editor__diagnostic-marker-eof=at_end
-            class:config-editor__diagnostic-marker-shown=move || followed.shown.get() == Some((line, column))
+            class:config-editor__diagnostic-marker-deprecated=diagnostic.deprecated
+            class:config-editor__diagnostic-marker-continued=!first
+            class:config-editor__diagnostic-marker-shown=move || first && followed.shown.get() == Some((line, column))
             // Near the top of the viewport (not of the document), the message
             // opens below its line.
             class:config-editor__diagnostic-marker-near-top=move || {
@@ -172,7 +236,8 @@ fn marker(
             }
             tabindex="-1"
             aria-label=aria_label
-            data-message=diagnostic.message
+            aria-hidden=(!first).then_some("true")
+            data-message=message
             data-detail=detail
             style=format!(
                 "left: {left}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",

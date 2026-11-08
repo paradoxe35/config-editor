@@ -40,6 +40,7 @@ const ELSEWHERE = {
   replaceSkipped: 'needs protected matches: search tests',
   nothingReplaced: 'as replaceSkipped',
   invalidPattern: 'unit tested with count_label',
+  invalidPlaceholder: 'an unusable secrets pattern: protect pattern_tests (JS throws before mounting)',
   oneOf: 'needs an object oneOf before any option matches (a schema problem, whose hover takes its place): choices_matrix',
   editAsTypedCommentsNone: 'a JSON host: edit_as tests',
   addedLine: 'a modified line is previewed here; diff tests',

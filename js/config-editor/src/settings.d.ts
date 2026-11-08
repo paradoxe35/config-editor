@@ -952,6 +952,18 @@ export interface EditorStrings {
    */
   invalidSchema?: string;
   /**
+   * A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.
+   *
+   * @default "secrets.placeholder: {error}"
+   */
+  invalidPlaceholder?: string;
+  /**
+   * A host's problem with a field the editor cannot find in the text, listed with the field's path.
+   *
+   * @default "{path}: {message}"
+   */
+  problemAtPath?: string;
+  /**
    * A value the host's language reads back differently (Edit-as).
    *
    * @default "{pointer}: {host} cannot keep this value exactly; it reads back differently"
@@ -1087,6 +1099,9 @@ export type ThemeColorToken =
   | "file-icon-bg"
   | "file-icon-text"
   | "status-error"
+  | "status-warning"
+  | "status-info"
+  | "status-hint"
   | "status-changes"
   | "diff-focus-ring"
   | "diff-peek-divider"

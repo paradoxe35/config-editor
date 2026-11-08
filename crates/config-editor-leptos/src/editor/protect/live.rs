@@ -87,6 +87,10 @@ impl ProtectState {
         let paths = init.paths.unwrap_or_default();
         let ranges = init.ranges.unwrap_or_default();
         let secrets = init.secrets.unwrap_or_default();
+        if let Err(error) = secrets.check_placeholder() {
+            // Also a document problem: no token is a placeholder meanwhile.
+            leptos::logging::error!("config-editor: secrets.placeholder: {error}");
+        }
         let Inputs {
             source,
             edit_language,

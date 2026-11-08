@@ -4,9 +4,26 @@
 use super::super::Language;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::paths::{TextPosition, TextRange};
-use super::{HostDiagnostic, merge, place};
+use super::{HostDiagnostic, RangeText, merge};
+use crate::strings::default_strings;
 
-const DOCUMENTS: [(Language, &str); 5] = [
+/// [`super::place`] with the default texts.
+fn place(
+    behavior: &dyn super::super::language::ConfigLanguage,
+    source: &str,
+    problems: &[HostDiagnostic],
+    on_screen: bool,
+) -> Vec<Diagnostic> {
+    let ranges = if on_screen {
+        RangeText::OnScreen
+    } else {
+        // No host text holds a field at any range.
+        RangeText::Host(Language::YAML.behavior(), "")
+    };
+    super::place(behavior, source, problems, ranges, default_strings())
+}
+
+pub(super) const DOCUMENTS: [(Language, &str); 5] = [
     (
         Language::YAML,
         "listen: 7835\nweb:\n  http: 80\n  hosts:\n    - a.example\n    - b.example\n",
@@ -30,15 +47,25 @@ const DOCUMENTS: [(Language, &str); 5] = [
 ];
 
 /// The text a diagnostic underlines.
-fn marked(text: &str, diagnostic: &Diagnostic) -> Option<String> {
-    let line = text.split('\n').nth(diagnostic.line? - 1)?;
-    let column = diagnostic.column?;
-    let end = diagnostic.end_column?;
-    Some(line.chars().skip(column - 1).take(end - column).collect())
+pub(super) fn marked(text: &str, diagnostic: &Diagnostic) -> Option<String> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let (line, column) = (diagnostic.line?, diagnostic.column?);
+    let (end_line, end) = (diagnostic.last_line()?, diagnostic.end_column?);
+    let covered: Vec<String> = (line..=end_line)
+        .map(|at| {
+            let chars: Vec<char> = lines.get(at - 1).copied().unwrap_or("").chars().collect();
+            let from = if at == line { column - 1 } else { 0 };
+            let to = if at == end_line { end - 1 } else { chars.len() };
+            chars[from.min(chars.len())..to.min(chars.len()).max(from.min(chars.len()))]
+                .iter()
+                .collect()
+        })
+        .collect();
+    Some(covered.join("\n"))
 }
 
 #[track_caller]
-fn report(failures: Vec<String>) {
+pub(super) fn report(failures: Vec<String>) {
     assert!(
         failures.is_empty(),
         "{} failing case(s):\n{}",
@@ -63,13 +90,13 @@ fn paths_are_marked_where_the_field_is_written_in_every_language() {
                 Some("b.example"),
             ],
         ),
-        // A block is marked on its key, or on the brace opening it where the
-        // editor's own schema problems are marked too.
+        // A block is marked on its key, never on the brace opening it (QA 18:
+        // JSON underlined only `{`).
         (
             "/web",
             [
                 Some("web"),
-                Some("{"),
+                Some("\"web\""),
                 Some("[web]"),
                 Some("web"),
                 Some("web"),
@@ -120,7 +147,7 @@ fn host_problems_keep_their_details_and_show_once() {
 }
 
 #[test]
-fn ranges_are_marked_on_their_first_line_only_on_the_host_text() {
+fn ranges_are_marked_only_on_the_host_text() {
     let text = "listen: 7835\nweb:\n  http: 80\n";
     let range = |line, column, end_line, end_column| {
         TextRange::new(
@@ -130,8 +157,9 @@ fn ranges_are_marked_on_their_first_line_only_on_the_host_text() {
     };
     let cases = [
         (range(1, 9, 1, 13), Some("7835")),
-        // Over several lines: to the end of the first.
-        (range(2, 1, 3, 5), Some("web:")),
+        // Over several lines: from the start on the first (the end line
+        // keeps the rest, see `range_tests`).
+        (range(2, 1, 3, 5), Some("web:\n  ht")),
         // Empty: one character.
         (range(3, 3, 3, 3), Some("h")),
         // Past the end of its line: clamped.
@@ -239,4 +267,39 @@ fn whole_document_and_root_problems_are_unplaced() {
         placed.iter().all(|problem| problem.line.is_none()),
         "{placed:?}"
     );
+}
+
+#[test]
+fn unplaced_problems_at_a_field_name_its_path_in_every_language() {
+    let at = |path: &str, severity, message: &str| HostDiagnostic::at_path(path, severity, message);
+    let problems = [
+        at("/nope", Severity::Error, "must be set"),
+        at("/other/x", Severity::Error, "must be set"),
+        at("/nope", Severity::Warning, "must be set"),
+        // Placed ones are at their field: the message as the host wrote it.
+        at("/listen", Severity::Error, "must be set"),
+        // The root and the whole document have no path to name.
+        at("", Severity::Error, "root problem"),
+        HostDiagnostic::document(Severity::Error, "rejected"),
+    ];
+    let mut failures = Vec::new();
+    for (language, text) in DOCUMENTS {
+        let placed = place(language.behavior(), text, &problems, true);
+        let shown: Vec<(bool, &str)> = placed
+            .iter()
+            .map(|problem| (problem.line.is_some(), problem.message.as_str()))
+            .collect();
+        let expected = [
+            (false, "/nope: must be set"),
+            (false, "/other/x: must be set"),
+            (false, "/nope: must be set"),
+            (true, "must be set"),
+            (false, "root problem"),
+            (false, "rejected"),
+        ];
+        if shown != expected {
+            failures.push(format!("{language}: {shown:?}"));
+        }
+    }
+    report(failures);
 }

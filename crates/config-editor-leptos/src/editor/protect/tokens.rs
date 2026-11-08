@@ -50,10 +50,15 @@ pub(crate) struct SecretMatcher {
 }
 
 impl SecretMatcher {
-    /// `None` pattern when it does not compile: no token is ever real then.
+    /// `None` pattern when it cannot be used (it does not compile, or
+    /// matches empty text, see [`SecretOptions::check_placeholder`]): no
+    /// token is ever real then.
     pub(crate) fn new(options: &SecretOptions) -> Self {
         SecretMatcher {
-            pattern: regex_lite::Regex::new(&options.placeholder).ok(),
+            pattern: options
+                .check_placeholder()
+                .ok()
+                .and_then(|()| regex_lite::Regex::new(&options.placeholder).ok()),
             is_placeholder: options.is_placeholder,
             last: std::sync::Mutex::new(None),
         }

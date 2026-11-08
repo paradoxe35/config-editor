@@ -1,11 +1,11 @@
 //! Problems the host reports (a server's validation): [`HostDiagnostic`],
 //! placed in the text by path or range and shown with the editor's own.
 
-use serde_json::Value;
+use super::diagnostics::{Diagnostic, Severity};
+use super::paths::{FieldPath, TextRange};
 
-use super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
-use super::language::ConfigLanguage;
-use super::paths::{FieldPath, TextRange, problem_span};
+mod place;
+pub(super) use place::{RangeText, place};
 
 /// Where a [`HostDiagnostic`] points.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -14,8 +14,9 @@ pub enum DiagnosticTarget {
     /// A field, wherever the document writes it: the same in every language,
     /// so it follows the field through edits and `edit_as`.
     Path(FieldPath),
-    /// A stretch of the host's text (in the host's `language`). While editing
-    /// as another language it cannot be placed, and shows unplaced.
+    /// A stretch of the host's text (in the host's `language`), over one line
+    /// or several. While editing as another language it marks the field the
+    /// range starts in (unplaced when it starts in none).
     Range(TextRange),
     /// The whole document: shown in the footer.
     Document,
@@ -33,6 +34,7 @@ pub enum DiagnosticTarget {
 /// assert_eq!(problem.code.as_deref(), Some("E_PORT"));
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HostDiagnostic {
     /// What the problem is about.
     pub target: DiagnosticTarget,
@@ -102,83 +104,6 @@ impl HostDiagnostic {
     }
 }
 
-/// `problems` as diagnostics on `source` (the text on screen, in `behavior`):
-/// a path where the field is written, as schema problems are marked (the
-/// value, or the key of a block); a range on its first line, when
-/// `ranges_apply` (the text on screen is the host's). What cannot be placed
-/// has no position and shows in the footer. Duplicates show once.
-pub(super) fn place(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    problems: &[HostDiagnostic],
-    ranges_apply: bool,
-) -> Vec<Diagnostic> {
-    if problems.is_empty() {
-        return Vec::new();
-    }
-    let document = problems
-        .iter()
-        .any(|problem| matches!(problem.target, DiagnosticTarget::Path(_)))
-        .then(|| behavior.parse(source).ok())
-        .flatten();
-    let mut placed: Vec<Diagnostic> = Vec::new();
-    for problem in problems {
-        let position = match &problem.target {
-            DiagnosticTarget::Path(path) => {
-                let pointer = path.to_pointer();
-                let written_as_block = match document
-                    .as_ref()
-                    .and_then(|document| document.pointer(&pointer))
-                {
-                    Some(Value::Object(map)) => !map.is_empty(),
-                    Some(Value::Array(items)) => !items.is_empty(),
-                    _ => false,
-                };
-                if path.is_root() {
-                    None
-                } else {
-                    problem_span(behavior, source, &pointer, false, written_as_block)
-                        .map(|span| (span.line, span.start_column, span.end_column))
-                }
-            }
-            DiagnosticTarget::Range(range) if ranges_apply => on_first_line(source, *range),
-            DiagnosticTarget::Range(_) | DiagnosticTarget::Document => None,
-        };
-        let diagnostic = Diagnostic {
-            line: position.map(|(line, _, _)| line),
-            column: position.map(|(_, column, _)| column),
-            end_column: position.map(|(_, _, end)| end),
-            message: problem.message.clone(),
-            severity: problem.severity,
-            origin: DiagnosticOrigin::Host,
-            code: problem.code.clone(),
-            source: Some(problem.source.clone().unwrap_or_else(|| "host".to_string())),
-            // A link opens only a web page (never `javascript:`).
-            docs_url: problem.docs_url.clone().filter(|url| is_web_url(url)),
-        };
-        if !placed.contains(&diagnostic) {
-            placed.push(diagnostic);
-        }
-    }
-    placed
-}
-
-/// `(line, column, end_column)` of `range`'s part on its first line, kept
-/// inside the text; `None` when it starts past the last line.
-fn on_first_line(source: &str, range: TextRange) -> Option<(usize, usize, usize)> {
-    let line = range.start.line.max(1);
-    let text = source.split('\n').nth(line - 1)?;
-    let width = text.chars().count() + 1;
-    let start = range.start.column.clamp(1, width);
-    let end = if range.end.line > line {
-        width
-    } else {
-        range.end.column.clamp(start, width)
-    };
-    // An empty range still marks one character.
-    Some((line, start, end.max(start + 1)))
-}
-
 /// The editor's `own` problems and the host's, each problem once: where the
 /// host marks the same text (an overlapping marker on the same line), only
 /// the host's shows, as its text is what the host acts on.
@@ -206,6 +131,15 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
         .collect()
 }
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod range_tests;
 #[cfg(all(
     test,
     feature = "yaml",

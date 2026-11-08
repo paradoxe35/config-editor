@@ -203,6 +203,12 @@ pub enum ThemeColor {
     FileIconText,
     /// Footer error count.
     StatusError,
+    /// Footer warning count.
+    StatusWarning,
+    /// Footer info count.
+    StatusInfo,
+    /// Footer hint count.
+    StatusHint,
     /// Footer change count (by default the `Modified` color).
     StatusChanges,
     /// Focused diff marker outline.
@@ -318,6 +324,9 @@ impl ThemeColor {
         Self::FileIconBackground,
         Self::FileIconText,
         Self::StatusError,
+        Self::StatusWarning,
+        Self::StatusInfo,
+        Self::StatusHint,
         Self::StatusChanges,
         Self::DiffFocusRing,
         Self::DiffPeekDivider,
@@ -410,6 +419,9 @@ impl ThemeColor {
             Self::FileIconBackground => "--config-editor-file-icon-bg",
             Self::FileIconText => "--config-editor-file-icon-text",
             Self::StatusError => "--config-editor-status-error",
+            Self::StatusWarning => "--config-editor-status-warning",
+            Self::StatusInfo => "--config-editor-status-info",
+            Self::StatusHint => "--config-editor-status-hint",
             Self::StatusChanges => "--config-editor-status-changes",
             Self::DiffFocusRing => "--config-editor-diff-focus-ring",
             Self::DiffPeekDivider => "--config-editor-diff-peek-divider",
