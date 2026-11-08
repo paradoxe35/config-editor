@@ -109,10 +109,16 @@ pub(super) fn highlight(line: &str) -> Vec<Token> {
         let after_equals = &code[equals + 1..];
         let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
         let scalar_start = equals + 1 + gap_len;
+        tokens.push(code_start + start, code_start + end, TokenKind::Key);
+        // An array or inline table: its elements, as on its lines after.
+        if code[scalar_start..].starts_with(['[', '{']) {
+            let value_start = code_start + scalar_start;
+            super::constructs::value_tokens(&line[value_start..], value_start, &mut tokens);
+            return tokens.finish();
+        }
         // Includes any whitespace before the comment.
         let (scalar, trailing) = split_toml_comment(&code[scalar_start..]);
         let scalar_end = scalar_start + scalar.len();
-        tokens.push(code_start + start, code_start + end, TokenKind::Key);
         tokens.push(code_start + scalar_start, code_start + scalar_end, scalar_kind(scalar));
         if let Some(trailing) = trailing {
             tokens.push(

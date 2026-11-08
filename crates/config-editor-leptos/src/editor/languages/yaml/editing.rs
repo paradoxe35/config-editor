@@ -253,6 +253,11 @@ pub(super) fn highlight(line: &str) -> Vec<Token> {
 /// Tokens for `value`, which starts at byte `offset` of the line.
 pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
     let scalar_start = offset + value.len() - value.trim_start().len();
+    // A flow collection: its entries, as on its lines after.
+    if value.trim_start().starts_with(['[', '{']) {
+        super::constructs::flow_tokens(value.trim_start(), scalar_start, tokens);
+        return;
+    }
     let (scalar, comment) = split_yaml_comment(value.trim_start());
     let scalar_end = scalar_start + scalar.len();
     tokens.push(scalar_start, scalar_end, scalar_kind(scalar));

@@ -1363,7 +1363,21 @@ fn values_are_classed_as_literal_string_or_value() {
         value_kind("a: \"x\""),
         run(Some(TokenKind::String), "\"x\"")
     );
-    assert_eq!(value_kind("a: [1, 2]"), run(Some(TokenKind::Value), "[1, 2]"));
+    // A flow collection is colored entry by entry.
+    assert_eq!(
+        highlighted("a: [1, x]"),
+        vec![
+            run(Some(TokenKind::Key), "a"),
+            run(Some(TokenKind::Punctuation), ":"),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "["),
+            run(Some(TokenKind::Literal), "1"),
+            run(Some(TokenKind::Punctuation), ","),
+            run(None, " "),
+            run(Some(TokenKind::Value), "x"),
+            run(Some(TokenKind::Punctuation), "]"),
+        ]
+    );
 }
 
 #[test]

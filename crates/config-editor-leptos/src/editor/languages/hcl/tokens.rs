@@ -114,22 +114,30 @@ pub(super) fn run_end(source: &str, start: usize, keep: impl Fn(char) -> bool) -
 }
 
 /// End byte of the string opening at `start`, and whether its closing quote is
-/// present. A string ends at its closing quote or at the line end.
+/// present. A string ends at its closing quote or at the line end; a
+/// template sequence in it (`"${ "}" }"`, `"%{ if x }"`) is read whole, its
+/// own strings included, so a quote or comment marker inside one neither
+/// closes the string nor opens a comment. `$${` and `%%{` are literal.
 pub(super) fn string_end(source: &str, start: usize) -> (usize, bool) {
-    let mut escaped = false;
-    for (offset, character) in source[start + 1..].char_indices() {
-        if character == '\n' {
-            return (start + 1 + offset, false);
-        }
-        if escaped {
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
+    let line_end = line_end(source, start + 1);
+    let line = &source[..line_end];
+    let mut index = start + 1;
+    while index < line_end {
+        let rest = &line[index..];
+        let character = rest.chars().next().unwrap_or('\0');
+        if character == '\\' {
+            index += 1 + rest[1..].chars().next().map_or(0, char::len_utf8);
         } else if character == '"' {
-            return (start + 1 + offset + 1, true);
+            return (index + 1, true);
+        } else if rest.starts_with("$${") || rest.starts_with("%%{") {
+            index += 3;
+        } else if rest.starts_with("${") || rest.starts_with("%{") {
+            index = template_end(line, index);
+        } else {
+            index += character.len_utf8();
         }
     }
-    (source.len(), false)
+    (line_end, false)
 }
 
 /// Byte end of the heredoc opening at `start` (`<<MARKER` / `<<-MARKER`),
@@ -170,31 +178,25 @@ pub(super) fn heredoc_end(source: &str, start: usize) -> Option<usize> {
 }
 
 /// Byte end of the `${ ... }` / `%{ ... }` template opening at `start`,
-/// skipping nested braces and quoted strings.
+/// skipping nested braces and quoted strings (templates in those included).
 pub(super) fn template_end(source: &str, start: usize) -> usize {
     let mut depth = 0;
     let mut index = start;
-    let mut quote = None;
-    let mut escaped = false;
     while index < source.len() {
         let character = source[index..].chars().next().unwrap_or('\0');
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
+        match character {
+            '"' => {
+                index = string_end(source, index).0;
+                continue;
             }
-        } else if matches!(character, '"' | '\'') {
-            quote = Some(character);
-        } else if character == '{' {
-            depth += 1;
-        } else if character == '}' {
-            depth -= 1;
-            if depth == 0 {
-                return index + 1;
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index + 1;
+                }
             }
+            _ => {}
         }
         index += character.len_utf8();
     }

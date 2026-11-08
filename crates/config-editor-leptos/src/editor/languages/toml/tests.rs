@@ -391,8 +391,8 @@ fn keys_and_equals_color_the_key_and_leave_the_separator_plain() {
 }
 
 #[test]
-fn quoted_values_and_inline_tables_and_arrays_are_strings() {
-    for value in ["\"hi\"", "'hi'", "{ a = 1 }", "[1, 2]", "\"\"\"open"] {
+fn quoted_values_are_strings() {
+    for value in ["\"hi\"", "'hi'", "\"\"\"open"] {
         let line = format!("k = {value}");
         assert_eq!(
             colored(&line),
@@ -404,6 +404,42 @@ fn quoted_values_and_inline_tables_and_arrays_are_strings() {
             "{line}"
         );
     }
+}
+
+/// Arrays and inline tables are colored element by element, as their lines
+/// are when they go on over several (see `highlight::spanning`).
+#[test]
+fn arrays_and_inline_tables_are_colored_element_by_element() {
+    use TokenKind::*;
+    assert_eq!(
+        colored("k = { a = 1 }"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " = "),
+            run(Some(Punctuation), "{"),
+            run(None, " "),
+            run(Some(Key), "a"),
+            run(None, " = "),
+            run(Some(Literal), "1"),
+            run(None, " "),
+            run(Some(Punctuation), "}"),
+        ]
+    );
+    assert_eq!(
+        colored("k = [1, \"x\"] # c"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " = "),
+            run(Some(Punctuation), "["),
+            run(Some(Literal), "1"),
+            run(Some(Punctuation), ","),
+            run(None, " "),
+            run(Some(String), "\"x\""),
+            run(Some(Punctuation), "]"),
+            run(None, " "),
+            run(Some(Comment), "# c"),
+        ]
+    );
 }
 
 #[test]

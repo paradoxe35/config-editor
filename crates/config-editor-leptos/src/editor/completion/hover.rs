@@ -245,8 +245,21 @@ fn property_hover(
                 .and_then(Value::as_array)
                 .is_some_and(|required| required.iter().any(|name| name.as_str() == Some(&key)))
         });
+    // A key of `oneOf`/`anyOf` options of the object holding it: the
+    // option it is in (or those offering it), and its schema there.
+    let parent_choices = ChoicesAt::in_object(&schema_at_path(root, parent, repeats), root, || {
+        object_at(source, parent, behavior)
+    });
+    let holding = parent_choices.holding(&key);
+    let type_label = if holding.is_empty() {
+        schema_type_label(schemas[0], root, "property")
+    } else {
+        let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
+        type_label_of_all(&schemas, root, "property")
+    };
     let choice = ChoicesAt::in_object(&schemas, root, || object_at(source, path, behavior))
         .hover()
+        .or_else(|| parent_choices.key_hover(&key))
         // The option's description when it is not the property's own.
         .and_then(|choice| match choice {
             ChoiceHover::Matched(mut doc) => {
@@ -260,7 +273,7 @@ fn property_hover(
     Some(KeyHover {
         key,
         start_column,
-        type_label: schema_type_label(schemas[0], root, "property"),
+        type_label,
         title,
         description,
         default,

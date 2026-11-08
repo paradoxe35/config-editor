@@ -14,6 +14,7 @@ mod editing;
 mod style;
 mod block_scalar;
 mod plain;
+mod constructs;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 // The fold ranges (the `folding` feature).
@@ -26,7 +27,7 @@ use hover::*;
 use editing::*;
 
 use super::super::commands::indent_unit;
-use super::super::highlight::{Token, TokenKind, Tokens};
+use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use super::super::inline::{caret_value_end, 
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
     statement_start, entry_follows, in_front_of_inline_entry,
@@ -305,6 +306,19 @@ impl ConfigLanguage for YamlBehavior {
         bodies.extend(plain);
         bodies.sort_by_key(|range| range.start);
         bodies
+    }
+
+    /// Quoted scalars, plain scalars' continuation lines, and flow
+    /// collections over lines.
+    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
+        constructs::multiline_constructs(source, &self.string_body_lines(source))
+    }
+
+    /// The inside of a flow collection: its entries.
+    fn highlight_continued(&self, text: &str) -> Vec<Token> {
+        let mut tokens = Tokens::new();
+        constructs::flow_tokens(text, 0, &mut tokens);
+        tokens.finish()
     }
 }
 

@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 
-pub(super) mod comment_lines;
+pub(super) mod spanning;
 
 /// What a highlighted run of text is. Each kind maps to one CSS class
 /// (`config-editor__key`, `config-editor__string`, …), so every theme colors
@@ -55,6 +55,55 @@ impl Token {
     pub fn new(start: usize, end: usize, kind: TokenKind) -> Self {
         Token { start, end, kind }
     }
+}
+
+/// A construct a language writes over several lines, as
+/// [`ConfigLanguage::multiline_constructs`] reports it.
+///
+/// [`ConfigLanguage::multiline_constructs`]: crate::language::ConfigLanguage::multiline_constructs
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultilineConstruct {
+    /// Its byte range in the document.
+    pub range: std::ops::Range<usize>,
+    /// How its lines past the first are colored.
+    pub kind: ConstructKind,
+}
+
+impl MultilineConstruct {
+    /// A construct over `range` colored as one kind of token.
+    pub fn colored(range: std::ops::Range<usize>, kind: TokenKind) -> Self {
+        MultilineConstruct {
+            range,
+            kind: ConstructKind::Colored(kind),
+        }
+    }
+
+    /// Structure over `range`.
+    pub fn structure(range: std::ops::Range<usize>) -> Self {
+        MultilineConstruct {
+            range,
+            kind: ConstructKind::Structure,
+        }
+    }
+}
+
+/// How the lines of a [`MultilineConstruct`] past its first are colored, up
+/// to its end; the rest of its last line is colored by
+/// [`ConfigLanguage::highlight`].
+///
+/// [`ConfigLanguage::highlight`]: crate::language::ConfigLanguage::highlight
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ConstructKind {
+    /// As one kind of token: a string, a YAML plain scalar's continuation
+    /// lines ([`TokenKind::Value`]), CDATA text.
+    Colored(TokenKind),
+    /// As structure, by [`ConfigLanguage::highlight_continued`]: a TOML
+    /// array, a YAML flow collection, an XML start tag with its attributes
+    /// over lines. Comments and strings inside it are colored as those.
+    ///
+    /// [`ConfigLanguage::highlight_continued`]: crate::language::ConfigLanguage::highlight_continued
+    Structure,
 }
 
 /// Collects tokens while a highlighter walks a line, in order and without

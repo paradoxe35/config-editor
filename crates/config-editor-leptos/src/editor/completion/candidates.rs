@@ -142,10 +142,9 @@ pub(super) fn property_completions(
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
-        // A key of a `oneOf`/`anyOf` option names it; the matched option's
-        // keys come first.
+        // A key of `oneOf`/`anyOf` options names them (the matched one
+        // alone when it has the key); the matched option's keys come first.
         let choice = choices.of(branch);
-        let title = choice.and_then(|(choice, _)| choice.doc.title.clone());
         let bonus = if choice.is_some_and(|(_, matched)| matched) {
             MATCHED_CHOICE_BONUS
         } else {
@@ -189,12 +188,22 @@ pub(super) fn property_completions(
             };
             let (cursor_offset, selected) =
                 default_selection(&insert, cursor_offset, property, root);
+            let holding = choices.holding(key);
+            let (title, type_label) = if holding.is_empty() {
+                (None, schema_type_label(property, root, "property"))
+            } else {
+                let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
+                (
+                    choices.titles_holding(key),
+                    type_label_of_all(&schemas, root, "property"),
+                )
+            };
             candidates.push((
                 score,
                 Completion {
                     label: key.clone(),
                     detail: ValueDoc {
-                        title: title.clone(),
+                        title,
                         description: property
                             .get("description")
                             .and_then(Value::as_str)
@@ -202,7 +211,7 @@ pub(super) fn property_completions(
                     }
                     .detail()
                     .unwrap_or_default(),
-                    type_label: schema_type_label(property, root, "property"),
+                    type_label,
                     insert,
                     start,
                     end,
