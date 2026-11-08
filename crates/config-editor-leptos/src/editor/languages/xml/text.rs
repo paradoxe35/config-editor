@@ -46,6 +46,9 @@ pub(super) fn element_text_like(text: &str, written: &str) -> String {
     let (Some(open), Some(close)) = (written.find("<![CDATA["), written.rfind("]]>")) else {
         return escape_element_text(text);
     };
+    if text.contains('\r') {
+        return escape_element_text(text);
+    }
     let lead = &written[..open];
     let trail = &written[close + 3..];
     if lead.trim().is_empty()
@@ -83,25 +86,28 @@ pub(super) fn comparable_text(code: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(text)
 }
 
-/// `text` escaped as element content: `&`, `<`, and the `>` of a `]]>`.
+/// `text` escaped as element content: `&`, `<`, the `>` of a `]]>`, and a
+/// carriage return (readers read a raw one before a line break as nothing).
 pub(super) fn escape_element_text(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace("]]>", "]]&gt;")
+        .replace('\r', "&#13;")
 }
 
-/// One character of written text: what it reads as, how it is written (a
-/// reference such as `&#233;`, or itself), and the CDATA section holding it.
+/// One piece of written text: the character it reads as (none for a
+/// comment or processing instruction, which read as nothing), how it is
+/// written (a reference such as `&#233;`, or itself), and the CDATA section
+/// holding it.
 struct Unit<'a> {
-    read: char,
+    read: Option<char>,
     written: &'a str,
     section: Option<usize>,
 }
 
 /// `written` (element text, or an attribute value without its quotes) read
-/// one character at a time; `None` when it holds markup other than CDATA (a
-/// comment, a child element). An attribute value reads its own line breaks
-/// and tabs as spaces.
+/// one piece at a time; `None` when it holds a child element. An attribute
+/// value reads its own line breaks and tabs as spaces.
 fn units(written: &str, attribute: bool) -> Option<Vec<Unit<'_>>> {
     let mut out = Vec::new();
     let mut sections = 0;
@@ -113,10 +119,20 @@ fn units(written: &str, attribute: bool) -> Option<Vec<Unit<'_>>> {
             let start = at + "<![CDATA[".len();
             for (offset, read) in body[..close].char_indices() {
                 let from = start + offset;
-                out.push(Unit { read, written: &written[from..from + read.len_utf8()], section: Some(sections) });
+                out.push(Unit { read: Some(read), written: &written[from..from + read.len_utf8()], section: Some(sections) });
             }
             sections += 1;
             at = start + close + "]]>".len();
+            continue;
+        }
+        // A comment or processing instruction among the text: kept, read
+        // as nothing.
+        if !attribute
+            && let Some((open, close)) = [("<!--", "-->"), ("<?", "?>")].into_iter().find(|(open, _)| rest.starts_with(open))
+        {
+            let length = rest[open.len()..].find(close)? + open.len() + close.len();
+            out.push(Unit { read: None, written: &rest[..length], section: None });
+            at += length;
             continue;
         }
         if rest.starts_with('<') {
@@ -126,37 +142,53 @@ fn units(written: &str, attribute: bool) -> Option<Vec<Unit<'_>>> {
             && let Some(semi) = rest[1..rest.len().min(12)].find(';')
             && let Some(read) = named_entity(&rest[1..1 + semi]).or_else(|| numeric_entity(&rest[1..1 + semi]))
         {
-            out.push(Unit { read, written: &rest[..semi + 2], section: None });
+            out.push(Unit { read: Some(read), written: &rest[..semi + 2], section: None });
             at += semi + 2;
             continue;
         }
         let read = rest.chars().next()?;
         let length = read.len_utf8();
         let shown = if attribute && matches!(read, '\n' | '\t' | '\r') { ' ' } else { read };
-        out.push(Unit { read: shown, written: &rest[..length], section: None });
+        out.push(Unit { read: Some(shown), written: &rest[..length], section: None });
         at += length;
     }
     Some(out)
 }
 
 /// `text` written over `written` keeping what did not change as the host
-/// wrote it: the common start and end keep their references and CDATA
-/// sections, and the changed middle is written by `escape`, or inside CDATA
-/// where it replaces or extends CDATA text. `None` when `written` holds
-/// other markup.
+/// wrote it: the common start and end keep their references, CDATA
+/// sections, comments and processing instructions, and the changed middle
+/// is written by `escape`, or inside CDATA where it replaces or extends
+/// CDATA text; a comment inside the change stays, after it. `None` when
+/// `written` holds a child element.
 fn spliced(text: &str, written: &str, attribute: bool, escape: &dyn Fn(&str) -> String) -> Option<String> {
     let units = units(written, attribute)?;
+    // The units that read as a character.
+    let chars: Vec<usize> = units.iter().enumerate().filter(|(_, unit)| unit.read.is_some()).map(|(index, _)| index).collect();
+    let read = |index: usize| units[chars[index]].read;
     let new: Vec<char> = text.chars().collect();
-    let prefix = units.iter().zip(&new).take_while(|(unit, read)| unit.read == **read).count();
-    let room = (units.len() - prefix).min(new.len() - prefix);
-    let suffix = units.iter().rev().zip(new.iter().rev()).take(room).take_while(|(unit, read)| unit.read == **read).count();
-    let removed = &units[prefix..units.len() - suffix];
+    let prefix = (0..chars.len().min(new.len())).take_while(|&index| read(index) == Some(new[index])).count();
+    let room = (chars.len() - prefix).min(new.len() - prefix);
+    let suffix = (0..room).take_while(|&back| read(chars.len() - 1 - back) == Some(new[new.len() - 1 - back])).count();
+    // The kept start runs through its last character (or the comments
+    // before the first), the kept end from its first (or the comments
+    // after the last).
+    let keep_start = match prefix {
+        0 => chars.first().copied().unwrap_or(units.len()),
+        _ => chars[prefix - 1] + 1,
+    };
+    let keep_end = match suffix {
+        0 => chars.last().map_or(units.len(), |last| last + 1).max(keep_start),
+        _ => chars[chars.len() - suffix],
+    };
+    let removed: Vec<&Unit<'_>> = units[keep_start..keep_end].iter().filter(|unit| unit.read.is_some()).collect();
+    let kept_markers: Vec<&Unit<'_>> = units[keep_start..keep_end].iter().filter(|unit| unit.read.is_none()).collect();
     let middle: String = new[prefix..new.len() - suffix].iter().collect();
     // What the middle sits beside: the text's edge, plain text, or a CDATA
     // section.
     let side = |unit: Option<&Unit<'_>>| unit.map(|unit| unit.section.ok_or(()));
-    let before = side(prefix.checked_sub(1).map(|index| &units[index]));
-    let after = side(units.get(units.len() - suffix).filter(|_| suffix > 0));
+    let before = side(prefix.checked_sub(1).map(|index| &units[chars[index]]));
+    let after = side((suffix > 0).then(|| &units[chars[chars.len() - suffix]]));
     let section = match removed.first().map(|unit| unit.section) {
         Some(Some(first)) if removed.iter().all(|unit| unit.section == Some(first)) => Some(first),
         _ => match (before, after) {
@@ -166,7 +198,9 @@ fn spliced(text: &str, written: &str, attribute: bool, escape: &dyn Fn(&str) -> 
         },
     };
     let middle_written = match section {
-        Some(_) if middle.contains("]]>") => return None,
+        // CDATA has no escapes: a carriage return in it would be read as
+        // nothing.
+        Some(_) if middle.contains("]]>") || middle.contains('\r') => return None,
         Some(_) => middle,
         None => escape(&middle),
     };
@@ -187,11 +221,11 @@ fn spliced(text: &str, written: &str, attribute: bool, escape: &dyn Fn(&str) -> 
         }
         out.push_str(piece);
     };
-    for unit in &units[..prefix] {
+    for unit in &units[..keep_start] {
         push(&mut out, unit.section, unit.written);
     }
     push(&mut out, section, &middle_written);
-    for unit in &units[units.len() - suffix..] {
+    for unit in kept_markers.into_iter().chain(&units[keep_end..]) {
         push(&mut out, unit.section, unit.written);
     }
     if open.is_some() {

@@ -41,35 +41,56 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
     let mut stack: Vec<(usize, Vec<String>)> = Vec::new();
     let mut counts: std::collections::HashMap<(Vec<String>, usize), usize> =
         std::collections::HashMap::new();
+    // The indentation a block scalar's text runs past: its lines are text,
+    // not keys or items.
+    let mut block_owner: Option<usize> = None;
     for (index, raw_line) in source.lines().enumerate() {
         let line = raw_line.trim_end_matches('\r');
         let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if let Some(owner) = block_owner {
+            if trimmed.is_empty() || indent > owner {
+                continue;
+            }
+            block_owner = None;
+        }
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let indent = line.len() - trimmed.len();
         let mut rest = trimmed;
         let mut content_indent = indent;
 
+        // Each dash opens an item, several on one line in a compact nested
+        // sequence (`- - a`).
         let mut array_item_path = None;
-        if rest == "-" || rest.starts_with("- ") {
-            while stack.last().is_some_and(|(level, _)| *level >= indent) {
+        let mut item_indent = indent;
+        while rest == "-" || rest.starts_with("- ") {
+            if let Some(path) = array_item_path.take() {
+                // An outer item of a compact sequence: on this line.
+                let column = line[..item_indent].chars().count() + 1;
+                entries.push((path, index + 1, column, column + 1));
+            }
+            while stack.last().is_some_and(|(level, _)| *level >= item_indent) {
                 stack.pop();
             }
             let parent = stack
                 .last()
                 .map(|(_, path)| path.clone())
                 .unwrap_or_default();
-            let count = counts.entry((parent.clone(), indent)).or_default();
+            let count = counts.entry((parent.clone(), item_indent)).or_default();
             let mut item_path = parent;
             item_path.push(count.to_string());
             *count += 1;
             let after_dash = rest.strip_prefix('-').unwrap_or_default();
             let content = after_dash.trim_start();
-            content_indent = indent + 1 + after_dash.len() - content.len();
+            content_indent = item_indent + 1 + after_dash.len() - content.len();
             array_item_path = Some(item_path.clone());
-            stack.push((indent, item_path));
+            stack.push((item_indent, item_path));
             rest = content;
+            if is_block_scalar(without_node_properties(code_before_comment(rest).trim())) {
+                block_owner = Some(item_indent);
+            }
+            item_indent = content_indent;
         }
 
         if rest.is_empty() {
@@ -79,7 +100,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             }
             continue;
         }
-        let Some(colon) = rest.find(':') else {
+        let Some(colon) = key_colon(rest) else {
             if let Some(path) = array_item_path {
                 let column = line[..content_indent].chars().count() + 1;
                 let end_column = column + rest.chars().count();
@@ -109,9 +130,38 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         let value = without_node_properties(rest[colon + 1..].trim());
         if value.is_empty() || value.starts_with('#') {
             stack.push((content_indent, path));
+        } else if is_block_scalar(code_before_comment(value).trim()) {
+            block_owner = Some(content_indent);
         }
     }
     entries
+}
+
+/// The colon after a mapping key in `rest` (a line's content after its
+/// dashes): the first one followed by a space or the line's end, after a
+/// quoted key's closing quote, before a comment; none in a scalar such as
+/// `12:30` or a flow collection.
+fn key_colon(rest: &str) -> Option<usize> {
+    if without_node_properties(rest).starts_with(['[', '{']) {
+        return None;
+    }
+    let from = match rest.chars().next() {
+        Some(quote @ ('"' | '\'')) => {
+            let mut escaped = false;
+            let close = rest[1..].char_indices().find(|&(_, character)| {
+                let closes = character == quote && !escaped;
+                escaped = quote == '"' && character == '\\' && !escaped;
+                closes
+            })?;
+            1 + close.0 + 1
+        }
+        _ => 0,
+    };
+    let code = code_before_comment(rest);
+    code.get(from..)?
+        .match_indices(':')
+        .map(|(at, _)| from + at)
+        .find(|&at| code[at + 1..].chars().next().is_none_or(char::is_whitespace))
 }
 
 /// `value` without the anchors and tags before it (`&base`, `!!map`): a
@@ -192,38 +242,39 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     }
     // Only block-structured entries have a value slot on their line. Inline
     // mapping keys resolve through `yaml_span_for_path`, which points at the key.
-    let line_number = yaml_path_lines(source)
+    let (line_number, key_column) = yaml_path_lines(source)
         .into_iter()
         .find(|(candidate, _, _, _)| *candidate == wanted)
-        .map(|(_, line, _, _)| line)?;
+        .map(|(_, line, column, _)| (line, column))?;
     let line = source.lines().nth(line_number.saturating_sub(1))?;
-    // The value ends before a trailing `# comment`.
+    // The key starts after the line's indentation and dashes (ASCII), so its
+    // column is its byte offset; the value ends before a trailing comment.
+    let key_start = line.char_indices().nth(key_column - 1)?.0;
+    let colon = key_start + key_colon(&line[key_start..])?;
     let line = line_comment_start(line).map_or(line, |start| &line[..start]);
-    let (key, raw_value) = line.split_once(':')?;
+    let raw_value = line.get(colon + 1..)?;
     let value_start = raw_value.len() - raw_value.trim_start().len();
     let value = raw_value.trim();
-    let column = key.chars().count() + raw_value[..value_start].chars().count() + 2;
+    let column = line[..colon + 1 + value_start].chars().count() + 1;
     if value.is_empty() || value.starts_with('#') {
         return Some((line_number, column, column + 1));
     }
-    if let Some(end) = block_scalar_end(source, line_number, value) {
+    // A block's text is indented past its key.
+    if let Some(end) = block_scalar_end(source, line_number, value, key_start) {
         return Some((line_number, column, end));
     }
     Some((line_number, column, column + value.chars().count()))
 }
 
 /// The end column of a block scalar (`|`, `>-`, `&a |2`) opened by `value`
-/// on line `line_number`: it runs through its indented lines below, the
-/// column counting on past this line, as a heredoc's does. `None` when
-/// `value` opens none.
-fn block_scalar_end(source: &str, line_number: usize, value: &str) -> Option<usize> {
+/// on line `line_number`: it runs through its lines below indented past
+/// `owner_indent` (its key's or its dash's column), the column counting on
+/// past this line, as a heredoc's does. `None` when `value` opens none.
+fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent: usize) -> Option<usize> {
     if !is_block_scalar(&value[node_properties_len(value)..]) {
         return None;
     }
     let full_line = source.lines().nth(line_number - 1)?;
-    // The body is indented past the line's own indentation (its key's, or
-    // its dash's).
-    let owner_indent = full_line.len() - full_line.trim_start().len();
     let mut end_chars = full_line.chars().count() + 1;
     let mut text_end = full_line.chars().count();
     for next in source.lines().skip(line_number) {
@@ -241,54 +292,28 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str) -> Option<usi
 }
 
 /// The value of block sequence item `wanted` (`.../certificates/0`): the text
-/// after its `- `, found under the parent key's line.
+/// after its `- `, on its own line or after an outer item's dash (`- - a`).
 pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
-    let (last, parent) = wanted.split_last()?;
-    let index: usize = last.parse().ok()?;
-    let parent_line = if parent.is_empty() {
-        0
-    } else {
-        yaml_path_lines(source)
-            .into_iter()
-            .find(|(candidate, _, _, _)| candidate.as_slice() == parent)
-            .map(|(_, line, _, _)| line)?
-    };
-    let lines: Vec<&str> = source.lines().collect();
-    let parent_indent = lines
-        .get(parent_line.wrapping_sub(1))
-        .map_or(0, |line| line.len() - line.trim_start().len());
-    let mut dash_indent = None;
-    let mut seen = 0;
-    for (number, line) in lines.iter().enumerate().skip(parent_line) {
-        let content = line.trim_start();
-        if content.is_empty() || content.starts_with('#') {
-            continue;
-        }
-        let indent = line.len() - content.len();
-        if parent_line > 0 && indent <= parent_indent && !content.starts_with('-') {
-            break;
-        }
-        if !(content == "-" || content.starts_with("- ")) {
-            continue;
-        }
-        match dash_indent {
-            None => dash_indent = Some(indent),
-            Some(level) if indent < level => break,
-            Some(level) if indent > level => continue,
-            Some(_) => {}
-        }
-        if seen == index {
-            let value = content[1..].trim_start();
-            let value = line_comment_start(value).map_or(value, |start| value[..start].trim_end());
-            let column = line[..line.len() - content[1..].trim_start().len()].chars().count() + 1;
-            if let Some(end) = block_scalar_end(source, number + 1, value) {
-                return Some((number + 1, column, end));
-            }
-            return Some((number + 1, column, column + value.chars().count().max(1)));
-        }
-        seen += 1;
+    let (last, _) = wanted.split_last()?;
+    last.parse::<usize>().ok()?;
+    let (line_number, column) = yaml_path_lines(source)
+        .into_iter()
+        .find(|(candidate, _, _, _)| candidate.as_slice() == wanted)
+        .map(|(_, line, column, _)| (line, column))?;
+    let line = source.lines().nth(line_number - 1)?;
+    // After the line's indentation and dashes (ASCII): the column is a byte
+    // offset. An item holding a map (`- k: v`) has a key there.
+    let start = line.char_indices().nth(column - 1).map_or(line.len(), |(at, _)| at);
+    let content = &line[start..];
+    if key_colon(content).is_some() || content.starts_with("- ") || content == "-" {
+        return None;
     }
-    None
+    let dash = line[..start].trim_end().len().checked_sub(1)?;
+    let value = line_comment_start(content).map_or(content, |comment| &content[..comment]).trim_end();
+    if let Some(end) = block_scalar_end(source, line_number, value, dash) {
+        return Some((line_number, column, end));
+    }
+    Some((line_number, column, column + value.chars().count().max(1)))
 }
 
 pub(super) fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {

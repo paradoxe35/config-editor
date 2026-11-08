@@ -149,12 +149,15 @@ impl ConfigLanguage for HclBehavior {
     }
 
     /// A heredoc (`<<EOT` … `EOT`) stays one while its text ends with a line
-    /// break and holds no line equal to its terminator.
+    /// break, holds no line equal to its terminator, and no carriage return
+    /// or other control character (a heredoc has no escapes, and readers
+    /// drop a raw one before a line break): else a quoted string.
     fn format_value_like(&self, value: &Value, written: &str) -> String {
         if let (Some(text), Some(header)) = (value.as_str(), written.lines().next().filter(|line| line.starts_with("<<")))
             && let Some(terminator) = written.lines().last().filter(|_| written.lines().count() > 1)
             && text.ends_with('\n')
             && !text.lines().any(|line| line.trim() == terminator.trim())
+            && !text.chars().any(|character| character.is_control() && !matches!(character, '\t' | '\n'))
         {
             return format!("{header}\n{text}{terminator}");
         }

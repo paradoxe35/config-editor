@@ -310,10 +310,11 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
                     let path = strings(&frame.path);
                     let start = token.start + (raw.len() - raw.trim_start().len());
                     let end = start + text.len();
-                    // Text over several lines is one value: its span runs
-                    // from its first line to its last.
+                    // Text over several lines, or around comments and
+                    // processing instructions, is one value: its span runs
+                    // from its first piece to its last.
                     match scan.value_spans.last_mut() {
-                        Some((last, _, last_end)) if *last == path && source[*last_end..start].trim().is_empty() => {
+                        Some((last, _, last_end)) if *last == path && only_comments(&source[*last_end..start]) => {
                             *last_end = end;
                         }
                         _ => scan.value_spans.push((path, start, end)),
@@ -332,6 +333,22 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
         scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
     }
     scan
+}
+
+/// Whether `gap` holds only whitespace, comments and processing
+/// instructions.
+fn only_comments(gap: &str) -> bool {
+    let mut rest = gap.trim_start();
+    while !rest.is_empty() {
+        let Some((open, close)) = [("<!--", "-->"), ("<?", "?>")].into_iter().find(|(open, _)| rest.starts_with(open)) else {
+            return false;
+        };
+        let Some(end) = rest[open.len()..].find(close) else {
+            return false;
+        };
+        rest = rest[open.len() + end + close.len()..].trim_start();
+    }
+    true
 }
 
 /// Byte length of the tag name: `<prefix:name` counts only after the colon.

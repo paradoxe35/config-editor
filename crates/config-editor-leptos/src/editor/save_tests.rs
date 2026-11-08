@@ -362,7 +362,7 @@ fn round_8_saves_change_only_the_edit() {
         Language::TOML,
         Language::YAML,
         toml,
-        &|s| s.replace("  - y\n", "  - y\n  - z\n"),
+        &|s| s.replace("  - \"y\"\n", "  - \"y\"\n  - z\n"),
         "# c\nallow = [\n  \"x\", # x\n  \"y\",\n  \"z\",\n]\nlisten = 1 # l\n",
     );
     check(
