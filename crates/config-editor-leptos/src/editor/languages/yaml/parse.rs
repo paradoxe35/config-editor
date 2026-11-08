@@ -352,9 +352,12 @@ pub(super) fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, u
     None
 }
 
+/// A key's path, line, and first and last columns (see [`yaml_path_lines`]).
+type PathLine = (Vec<String>, usize, usize, usize);
+
 /// [`yaml_path_lines`] of `source`, read once for all the spans a batch
 /// of problems asks for (see `paths::batch_cached`).
-fn path_lines(source: &str) -> std::rc::Rc<Vec<(Vec<String>, usize, usize, usize)>> {
+fn path_lines(source: &str) -> std::rc::Rc<Vec<PathLine>> {
     crate::editor::paths::batch_cached(source, || yaml_path_lines(source))
 }
 
