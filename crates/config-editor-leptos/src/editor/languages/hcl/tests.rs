@@ -694,24 +694,33 @@ fn a_name_written_in_two_forms_is_reported_not_dropped() {
     }
 }
 
-/// A schema problem's key in a large document: the path of each body is
-/// read through the header that opens it, not a search through every
-/// header for each attribute (quadratic: 150 ms of a 300 ms task over 24
-/// problems at 8000 lines).
+/// A schema problem's key in a large document: the problems' keys are read
+/// in one batch (as the editor places them, `paths::with_spans`), the
+/// document read once for all, not a search through every header for each
+/// attribute (quadratic: 150 ms of a 300 ms task over 24 problems at 8000
+/// lines).
 #[test]
 fn key_spans_in_a_large_document_take_no_search_per_header() {
+    use crate::editor::work_count::{Work, counted};
     let source: String = (0..3_000)
         .map(|index| format!("client_{index} {{\n  secret = \"s{index}\"\n  max = {index}\n}}\n"))
         .collect();
     let pointers: Vec<String> = (2_976..3_000).map(|index| format!("/client_{index}/max")).collect();
-    let (took, spans) = crate::editor::test_timing::best_of(3, || {
-        pointers
-            .iter()
-            .map(|pointer| HclBehavior.key_span(&source, pointer))
-            .collect::<Vec<_>>()
-    });
+    let spans_of = || {
+        crate::editor::paths::with_spans(&HclBehavior, &source, &pointers, || {
+            pointers
+                .iter()
+                .map(|pointer| crate::editor::paths::memo_key_span(&HclBehavior, &source, pointer))
+                .collect::<Vec<_>>()
+        })
+    };
+    let (spans, reads) = counted(Work::DocumentRead, spans_of);
     assert!(spans.iter().all(Option::is_some), "{spans:?}");
     assert_eq!(spans[0].map(|span| span.line), Some(2_976 * 4 + 3));
+    assert!(reads <= 2, "24 key spans read the document {reads} times");
+    // And the one read stays linear: a few milliseconds here, seconds when
+    // each attribute searches every header.
+    let (took, _) = crate::editor::test_timing::best_of(3, spans_of);
     assert!(took.as_millis() < 200, "24 key spans in {took:?}");
 }
 
