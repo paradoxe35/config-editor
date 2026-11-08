@@ -154,6 +154,7 @@ const CONFIG_LANGUAGE = {
   mixed_content: { exempt: SAVE_FORMS },
   detach_shared: { exempt: SAVE_FORMS },
   tags: { exempt: SAVE_FORMS },
+  has_processing_instructions: { exempt: RUST_ONLY_REFINEMENT },
   comparable_line: { exempt: SAVE_FORMS },
   value_properties_len: { exempt: SAVE_FORMS },
   reference_len: { exempt: SAVE_FORMS },
