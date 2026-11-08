@@ -9,7 +9,9 @@ import { editor, setupEditor } from './helpers.mjs';
 // growing with the square of the lines for such a command, so the editor is
 // measured against a bare textarea given the same text: applying it once
 // per line took 4–5 times as long as the bare textarea (47 s for 3000
-// lines); now it takes about as long.
+// lines); then it took about as long. Since QA round 20 the editor cancels
+// the textarea's own insert and applies the text once itself, faster than
+// the bare textarea (see problems-timing.spec.mjs).
 
 const LINES = 2000;
 

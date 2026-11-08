@@ -4,6 +4,7 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::super::super::positioning::PopupFrame;
 use super::super::super::state::EditorState;
 use super::super::hunk_for_peek;
 use super::super::keys::go_to_change;
@@ -57,7 +58,14 @@ fn peek_style(state: EditorState) -> String {
                 .view()
                 .projection
                 .with(|projection| projection.row_of_line(line.saturating_sub(1)));
-            peek_popup_style(&editor, &root, row + 1, old_count, new_count)
+            peek_popup_style(
+                &PopupFrame::measure(state),
+                &editor,
+                &root,
+                row + 1,
+                old_count,
+                new_count,
+            )
         }
         _ => "visibility:hidden".to_string(),
     }

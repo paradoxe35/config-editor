@@ -27,6 +27,8 @@ pub(super) struct ViewState {
     pub(super) textarea_ref: NodeRef<leptos::html::Textarea>,
     pub(super) completion_ref: NodeRef<leptos::html::Div>,
     pub(super) root_ref: NodeRef<leptos::html::Div>,
+    /// The probe the popups' frame is measured from (see `PopupFrame`).
+    pub(super) frame_probe_ref: NodeRef<leptos::html::Div>,
     pub(super) scroll_x: RwSignal<f64>,
     pub(super) scroll_y: RwSignal<f64>,
     /// Bumped on window resize and scroll so popups re-measure.
@@ -92,6 +94,7 @@ impl ViewState {
             textarea_ref,
             completion_ref: NodeRef::new(),
             root_ref: NodeRef::new(),
+            frame_probe_ref: NodeRef::new(),
             scroll_x: RwSignal::new(0.0),
             scroll_y,
             layout_revision,

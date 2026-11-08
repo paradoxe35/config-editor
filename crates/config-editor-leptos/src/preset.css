@@ -821,7 +821,7 @@
 
 /* The problem tip: the messages of the problems at the hovered underline
    (or where F8 went), each with who reported it, its code and docs link.
-   Placed in window pixels inside the editor; no taller than the room there,
+   Placed inside the editor and the window; no taller than the room there,
    it scrolls. */
 .config-editor__problem-tip {
   position: fixed;

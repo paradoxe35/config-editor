@@ -85,16 +85,16 @@ pub(crate) const COMPLETION_LIST_PADDING: f64 = 2.0;
 /// Completion popup height cap, in pixels (about seven rows).
 pub(crate) const COMPLETION_POPUP_MAX_HEIGHT: f64 = 320.0;
 
-/// Popup style for a caret at viewport coordinates: below the caret when it
-/// fits, otherwise above, clamped to the viewport.
+/// Popup style for a caret at `frame` coordinates: below the caret when it
+/// fits, otherwise above, clamped to the window.
 pub(crate) fn completion_popup_geometry(
-    viewport_width: f64,
-    viewport_height: f64,
+    frame: &PopupFrame,
     caret_x: f64,
     caret_y: f64,
     line_height: f64,
     option_count: usize,
 ) -> String {
+    let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
     let width =
         COMPLETION_POPUP_WIDTH.min((viewport_width - COMPLETION_POPUP_VIEWPORT_GUTTER).max(0.0));
     let left = caret_x.clamp(
@@ -105,29 +105,35 @@ pub(crate) fn completion_popup_geometry(
         .min(COMPLETION_POPUP_MAX_HEIGHT);
     let space_below = (viewport_height - caret_y - line_height - POPUP_MARGIN).max(0.0);
     let space_above = (caret_y - POPUP_MARGIN).max(0.0);
-    let (top, available_height) = if space_below >= ideal_height || space_below >= space_above {
-        (caret_y + line_height, space_below)
-    } else {
-        ((caret_y - ideal_height).max(POPUP_MARGIN), space_above)
-    };
+    let below = space_below >= ideal_height || space_below >= space_above;
+    let available_height = if below { space_below } else { space_above };
     let max_height = ideal_height.min(available_height).max(0.0);
-    format!(
-        "position:fixed;left:{left:.1}px;top:{top:.1}px;width:{width:.1}px;max-height:{max_height:.1}px"
-    )
+    let left = frame.left(left);
+    if below {
+        format!(
+            "position:fixed;left:{left:.1}px;top:{:.1}px;width:{width:.1}px;max-height:{max_height:.1}px",
+            frame.top(caret_y + line_height)
+        )
+    } else {
+        // Its bottom on the caret's line, however tall its rows turn out.
+        format!(
+            "position:fixed;left:{left:.1}px;top:{:.1}px;width:{width:.1}px;max-height:{max_height:.1}px;transform:translateY(-100%)",
+            frame.top(caret_y)
+        )
+    }
 }
 
 pub(crate) fn completion_popup_style(
+    state: EditorState,
     editor: &web_sys::HtmlTextAreaElement,
     projection: &super::super::projection::Projection,
     source: &str,
     cursor: usize,
     option_count: usize,
 ) -> String {
-    let Some(window) = web_sys::window() else {
-        return "position:fixed;visibility:hidden".to_string();
-    };
     let element: &web_sys::Element = editor.unchecked_ref();
-    let rect = element.get_bounding_client_rect();
+    let frame = PopupFrame::measure(state);
+    let rect = frame.bounds(&element.get_bounding_client_rect());
     let metrics = read_editor_metrics(element);
     let prefix = &source[..utf16_to_byte_index(source, cursor)];
     let (line, column) = prefix
@@ -135,30 +141,13 @@ pub(crate) fn completion_popup_style(
         .map_or((0, visual_column(prefix)), |(before, after)| {
             (before.matches('\n').count() + 1, visual_column(after))
         });
-    let caret_x = rect.left() + metrics.padding_left + column * metrics.char_width
+    let caret_x = rect.left + metrics.padding_left + column * metrics.char_width
         - editor.scroll_left() as f64;
     // The caret's row, folded lines skipped.
     let line = projection.row_of_line(line);
-    let caret_y = rect.top() + metrics.padding_top + line as f64 * metrics.line_height
+    let caret_y = rect.top + metrics.padding_top + line as f64 * metrics.line_height
         - editor.scroll_top() as f64;
-    let viewport_width = window
-        .inner_width()
-        .ok()
-        .and_then(|width| width.as_f64())
-        .unwrap_or(FALLBACK_VIEWPORT_WIDTH);
-    let viewport_height = window
-        .inner_height()
-        .ok()
-        .and_then(|height| height.as_f64())
-        .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
-    completion_popup_geometry(
-        viewport_width,
-        viewport_height,
-        caret_x,
-        caret_y,
-        metrics.line_height,
-        option_count,
-    )
+    completion_popup_geometry(&frame, caret_x, caret_y, metrics.line_height, option_count)
 }
 
 #[cfg(test)]

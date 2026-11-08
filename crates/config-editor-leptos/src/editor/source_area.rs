@@ -23,6 +23,11 @@ impl SourceArea {
         Self { element, state }
     }
 
+    /// The editor this text area belongs to.
+    pub(crate) fn state(&self) -> EditorState {
+        self.state
+    }
+
     /// The element itself, for its geometry and events. Never read or set
     /// its text or selection directly: those are in the textarea's terms.
     pub(crate) fn element(&self) -> &web_sys::HtmlTextAreaElement {

@@ -56,6 +56,19 @@ pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, us
 
 /// Splits a line into code and trailing comment. A `#` starts a comment only
 /// at the line start or after whitespace; `#` inside strings stays code.
+/// Where `delimiter` closes a string in `text` (not escaped, for `"""`).
+pub(super) fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(at) = text[from..].find(delimiter).map(|at| from + at) {
+        let backslashes = text[..at].chars().rev().take_while(|character| *character == '\\').count();
+        if delimiter.starts_with('\'') || backslashes % 2 == 0 {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
+}
+
 pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
     let mut quote: Option<char> = None;
     let mut escaped = false;
@@ -84,7 +97,7 @@ pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
                 .count();
             if run >= 3 {
                 let delimiter = &line[index..index + 3];
-                let Some(close) = line[index + 3..].find(delimiter) else {
+                let Some(close) = closing_delimiter(&line[index + 3..], delimiter) else {
                     return (line, None);
                 };
                 // Up to two more quotes end the string's own text.

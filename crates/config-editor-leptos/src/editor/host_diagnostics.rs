@@ -1,6 +1,8 @@
 //! Problems the host reports (a server's validation): [`HostDiagnostic`],
 //! placed in the text by path or range and shown with the editor's own.
 
+use std::collections::HashMap;
+
 use super::diagnostics::{Diagnostic, Severity};
 use super::paths::{FieldPath, TextRange};
 
@@ -110,23 +112,30 @@ impl HostDiagnostic {
 /// the host acts on. A less serious one (a hint on a field the schema finds
 /// wrong) never hides the editor's.
 pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> {
+    // Each marker as `(column, end, severity)` by line: one look per own
+    // problem, not a pass over thousands of the host's.
+    let span = |problem: &Diagnostic| {
+        let (line, column) = (problem.line?, problem.column?);
+        let end = problem.end_column.unwrap_or(column + 1).max(column + 1);
+        Some((line, column, end))
+    };
+    let mut by_line: HashMap<usize, Vec<(usize, usize, u8)>> = HashMap::new();
+    for theirs in host {
+        if let Some((line, column, end)) = span(theirs) {
+            by_line
+                .entry(line)
+                .or_default()
+                .push((column, end, theirs.severity as u8));
+        }
+    }
     let overlaps = |mine: &Diagnostic| {
-        let (Some(line), Some(column)) = (mine.line, mine.column) else {
+        let Some((line, column, end)) = span(mine) else {
             return false;
         };
-        let end = mine.end_column.unwrap_or(column + 1).max(column + 1);
-        host.iter().any(|theirs| {
-            let (Some(their_line), Some(their_column)) = (theirs.line, theirs.column) else {
-                return false;
-            };
-            let their_end = theirs
-                .end_column
-                .unwrap_or(their_column + 1)
-                .max(their_column + 1);
-            their_line == line
-                && column < their_end
-                && their_column < end
-                && theirs.severity as u8 <= mine.severity as u8
+        by_line.get(&line).is_some_and(|markers| {
+            markers.iter().any(|&(their_column, their_end, severity)| {
+                column < their_end && their_column < end && severity <= mine.severity as u8
+            })
         })
     };
     own.iter()
@@ -145,6 +154,15 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
     feature = "xml"
 ))]
 mod range_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod scale_tests;
 #[cfg(all(
     test,
     feature = "yaml",

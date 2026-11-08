@@ -95,7 +95,7 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
 /// or from `column` on `line` to `end_column` on `end_line` when it covers
 /// several lines (a host's range). Problems that concern the whole document
 /// (such as an invalid schema) have no position.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Diagnostic {
     /// One-based line.

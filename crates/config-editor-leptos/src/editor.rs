@@ -105,6 +105,7 @@ use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
     HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar,
 };
+use positioning::FRAME_PROBE_STYLE;
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
 use state::{EditorState, Init};
@@ -355,6 +356,7 @@ pub fn ConfigEditor(
                 <div class="config-editor__surface">
                     <Gutter state=state rows=rows />
                     <div class="config-editor__input-wrap">
+                        <div aria-hidden="true" style=FRAME_PROBE_STYLE node_ref=state.view().frame_probe_ref></div>
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
                         <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />

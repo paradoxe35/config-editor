@@ -2,6 +2,8 @@
 //! field is written, a range where it is (or, while editing as another
 //! language, at the field it starts in).
 
+use std::collections::HashSet;
+
 use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
@@ -66,7 +68,11 @@ pub(in crate::editor) fn place(
             .or_else(|| problem_span(behavior, source, pointer, false, written_as_block))
             .map(|span| (span.line, span.start_column, None, span.end_column))
     };
+    // The lines on screen, split once for every range (not per range: three
+    // thousand ranges in a long document took a quarter of a second).
+    let mut lines: Option<Vec<&str>> = None;
     let mut placed: Vec<Diagnostic> = Vec::new();
+    let mut seen = HashSet::new();
     for problem in problems {
         let mut message = problem.message.clone();
         let position = match &problem.target {
@@ -84,7 +90,10 @@ pub(in crate::editor) fn place(
                 position
             }
             DiagnosticTarget::Range(range) => match ranges {
-                RangeText::OnScreen => covered(source, *range),
+                RangeText::OnScreen => covered(
+                    lines.get_or_insert_with(|| source.split('\n').collect()),
+                    *range,
+                ),
                 RangeText::Host(host, text) => {
                     through_field(behavior, source, (host, text), *range, &at_field)
                 }
@@ -105,19 +114,18 @@ pub(in crate::editor) fn place(
             docs_url: problem.docs_url.clone().filter(|url| is_web_url(url)),
             ..Diagnostic::default()
         };
-        if !placed.contains(&diagnostic) {
+        if seen.insert(diagnostic.clone()) {
             placed.push(diagnostic);
         }
     }
     placed
 }
 
-/// Where `range` is in `source`, kept inside the text: from its start to
-/// its end, over every line between. A range ending at the start of a line
-/// ends at the end of the line before; one ending past the text, at the
-/// end of its last line. `None` when it starts past the last line.
-fn covered(source: &str, range: TextRange) -> Option<Position> {
-    let lines: Vec<&str> = source.split('\n').collect();
+/// Where `range` is in the text of `lines`, kept inside it: from its start
+/// to its end, over every line between. A range ending at the start of a
+/// line ends at the end of the line before; one ending past the text, at
+/// the end of its last line. `None` when it starts past the last line.
+fn covered(lines: &[&str], range: TextRange) -> Option<Position> {
     // One past the last character of line `line` (one-based).
     let width = |line: usize| lines[line - 1].chars().count() + 1;
     let line = range.start.line.max(1);

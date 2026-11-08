@@ -14,7 +14,7 @@ use super::super::super::a11y::severity_name;
 use super::super::super::completion::visual_column;
 use super::super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::super::metrics::read_editor_metrics;
-use super::super::super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH};
+use super::super::super::positioning::PopupFrame;
 use super::super::super::problems::TipAnchor;
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
@@ -275,7 +275,8 @@ fn reported_by(problem: &Diagnostic) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// Where the tip goes, in window pixels.
+/// Where the tip goes: its `left` and `top`, and its size in the editor's
+/// pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Placement {
     left: f64,
@@ -295,7 +296,7 @@ impl Placement {
 }
 
 /// The visible box the tip stays in (the editor's text area, inside the
-/// window), in window pixels.
+/// window), in the editor's pixels (see `PopupFrame`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Area {
     top: f64,
@@ -315,36 +316,34 @@ fn placement(state: EditorState, anchor: TipAnchor, natural: f64) -> Option<Plac
         .projection
         .with(|projection| projection.row_of_line(anchor.line - 1));
     let element = state.view().textarea_ref.get()?;
-    let rect = element.get_bounding_client_rect();
+    // In the editor's own pixels (its container may scale or move it).
+    let frame = PopupFrame::measure(state);
+    let rect = frame.bounds(&element.get_bounding_client_rect());
     let metrics = read_editor_metrics(&element);
-    let window = web_sys::window()?;
-    let size = |value: Result<wasm_bindgen::JsValue, _>, fallback: f64| {
-        value
-            .ok()
-            .and_then(|value| value.as_f64())
-            .unwrap_or(fallback)
-    };
-    let viewport_width = size(window.inner_width(), FALLBACK_VIEWPORT_WIDTH);
-    let viewport_height = size(window.inner_height(), FALLBACK_VIEWPORT_HEIGHT);
     let area = Area {
-        top: rect.top().max(0.0),
-        bottom: rect.bottom().min(viewport_height),
-        left: rect.left().max(0.0),
-        right: rect.right().min(viewport_width),
+        top: rect.top.max(0.0),
+        bottom: rect.bottom.min(frame.viewport_height),
+        left: rect.left.max(0.0),
+        right: rect.right.min(frame.viewport_width),
     };
-    let line_top = rect.top() + metrics.padding_top + row as f64 * metrics.line_height - scroll_y;
+    let line_top = rect.top + metrics.padding_top + row as f64 * metrics.line_height - scroll_y;
     if line_top + metrics.line_height <= area.top || line_top >= area.bottom {
         return None;
     }
-    let x = rect.left() + metrics.padding_left + anchor.column * metrics.char_width - scroll_x;
-    Some(place(
+    let x = rect.left + metrics.padding_left + anchor.column * metrics.char_width - scroll_x;
+    let placed = place(
         area,
-        (0.0, viewport_height),
+        (0.0, frame.viewport_height),
         line_top,
         metrics.line_height,
         x,
         natural,
-    ))
+    );
+    Some(Placement {
+        left: frame.left(placed.left),
+        top: frame.top(placed.top),
+        ..placed
+    })
 }
 
 /// The tip for a line at `line_top` (`line_height` tall), starting at `x`,

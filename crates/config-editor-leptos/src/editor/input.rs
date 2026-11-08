@@ -7,12 +7,12 @@ use wasm_bindgen::JsCast;
 use super::commands::line_range;
 use super::completion::{key_hover, should_auto_trigger};
 use super::components::HoverCard;
-use super::edit::Edit;
+use super::edit::{After, Edit};
 use super::history::EditHistory;
 use super::keyboard::replace_selection;
 use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
 use super::source_area::SourceArea;
-use super::state::{EditorState, textarea_selection};
+use super::state::{EditorState, normalize_newlines, textarea_selection};
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -28,6 +28,12 @@ fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceA
 /// context menu) that would reach into a fold opens it and is cancelled:
 /// the browser would apply it to the textarea's text, where the fold's
 /// lines are missing.
+///
+/// Text of several lines arriving whole in one command (an IME commit, a
+/// dictation, `Input.insertText`) is applied here, as a paste is, and the
+/// browser's own insert cancelled: Chrome's textarea inserts it line by
+/// line, in time growing with the lines inserted times the lines there
+/// (six seconds for 400 lines into 4500, in a bare textarea too).
 pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
     if state.config().read_only.get_untracked() {
         event.prevent_default();
@@ -51,8 +57,53 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
             state.unfold_touched(reach.0, reach.1);
             return;
         }
+        if let Some(text) = whole_lines(event) {
+            event.prevent_default();
+            insert_whole(state, (start, end), text, event.time_stamp());
+            return;
+        }
         state.typing().pre_edit_selection.set_value((start, end));
     }
+}
+
+/// The text of several lines `event` inserts in one command, as the
+/// textarea would hold it (line breaks as LF); `None` for any other input
+/// (typing, a composition still going on: its events cannot be cancelled).
+fn whole_lines(event: &web_sys::InputEvent) -> Option<String> {
+    if event.input_type() != "insertText" || event.is_composing() {
+        return None;
+    }
+    event
+        .data()
+        .filter(|text| text.contains(['\n', '\r']))
+        .map(normalize_newlines)
+}
+
+/// Puts `text` over the document's UTF-16 `selection` as a paste does: one
+/// change, one undo step.
+fn insert_whole(state: EditorState, selection: (usize, usize), text: String, time: f64) {
+    // Input still pending in this task first, so this lands after it.
+    flush_input(state);
+    let before = state.doc().text.get_untracked();
+    let (value, caret) = replace_selection(&before, selection.0, selection.1, &text);
+    let kind = "insertFromPaste";
+    let edit = Edit {
+        // The textarea still has the text before: written, caret in view.
+        after: After::Select {
+            anchor: caret,
+            caret,
+            reveal: true,
+        },
+        ..Edit::input(
+            before.clone(),
+            selection,
+            value,
+            (caret, caret),
+            kind.to_string(),
+            time,
+        )
+    };
+    apply_input(state, edit, &before, kind, false);
 }
 
 /// The input events of one burst: the browser can send many in one task
@@ -256,15 +307,22 @@ pub(super) fn flush_input(state: EditorState) {
         input_type.clone(),
         burst.time,
     );
+    apply_input(state, edit, &before, &input_type, refilter);
+}
+
+/// Commits `edit`, input the browser made (or the editor made for it) on
+/// `before`, and updates the suggestions and popups after it; `refilter`
+/// keeps the suggestion list open to filter it again (Backspace).
+fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, refilter: bool) {
     if !state.commit(edit) {
         return;
     }
     // The text as made (widened over a placeholder it cut).
     let value = state.doc().text.get_untracked();
     let auto_trigger = state.config().settings.auto_trigger.get_untracked()
-        && should_auto_trigger(&input_type, &before, &value);
+        && should_auto_trigger(input_type, before, &value);
     if matches!(
-        input_type.as_str(),
+        input_type,
         "insertFromPaste" | "insertFromDrop" | "deleteByCut" | "deleteByDrag"
     ) {
         state.typing().closers.update_value(Vec::clear);

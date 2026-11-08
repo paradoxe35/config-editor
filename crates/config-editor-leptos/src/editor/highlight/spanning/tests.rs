@@ -299,7 +299,7 @@ fn construct_cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
         #[cfg(feature = "toml")]
         (
             Language::TOML,
-            "clients = [\n  \"a\", # one\n  \"\"\"b\nc\"\"\", 2,\n]\ns = \"\"\"\nline one\nline two\"\"\"\nt = '''\nx\n''' # after\na = [1, \"x\"] # c\nlisten = 7835",
+            "clients = [\n  \"a\", # one\n  \"\"\"b\nc\"\"\", 2,\n]\ns = \"\"\"\nline one\nline two\"\"\"\nt = '''\nx\n''' # after\na = [1, \"x\"] # c\nu = \"\"\"x\\\"\"\" # still\"\"\" # c\nv = \"\"\"a\\\"\"\" # still\nb\"\"\"\nlisten = 7835",
             vec![
                 "k(clients) _(=) p([)",
                 "s(\"a\") p(,) c(# one)",
@@ -313,6 +313,9 @@ fn construct_cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
                 "s(x)",
                 "s(''') c(# after)",
                 "k(a) _(=) p([) l(1) p(,) s(\"x\") p(]) c(# c)",
+                "k(u) _(=) s(\"\"\"x\\\"\"\" # still\"\"\") c(# c)",
+                "k(v) _(=) s(\"\"\"a\\\"\"\" # still)",
+                "s(b\"\"\")",
                 "k(listen) _(=) l(7835)",
             ],
         ),
@@ -338,7 +341,7 @@ fn construct_cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
         #[cfg(feature = "xml")]
         (
             Language::XML,
-            "<a x=\"one\n  two\" y=\"3\">text\n  more</a>\n<b\n  k=\"v\"\n  m='w'/>\n<c><![CDATA[c1\nc2\n]]></c>\n<d><![CDATA[x]]></d>\n<listen>7835</listen>",
+            "<a x=\"one\n  two\" y=\"3\">text\n  more</a>\n<b\n  k=\"v\"\n  m='w'/>\n<c><![CDATA[c1\nc2\n]]></c>\n<d><![CDATA[x]]></d>\n<e x=\"1 --> 2\" y='<!--'>t</e>\n<f x=\"a -->\n  b\">u</f>\n<listen>7835</listen>",
             vec![
                 "p(<) k(a) k(x) p(=) s(\"one)",
                 "s(two\") k(y) p(=) s(\"3\") p(>) v(text)",
@@ -350,6 +353,9 @@ fn construct_cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
                 "s(c2)",
                 "p(]]>) p(</) k(c) p(>)",
                 "p(<) k(d) p(>) p(<![CDATA[) s(x) p(]]>) p(</) k(d) p(>)",
+                "p(<) k(e) k(x) p(=) s(\"1 --> 2\") k(y) p(=) s('<!--') p(>) v(t) p(</) k(e) p(>)",
+                "p(<) k(f) k(x) p(=) s(\"a -->)",
+                "s(b\") p(>) v(u) p(</) k(f) p(>)",
                 "p(<) k(listen) p(>) v(7835) p(</) k(listen) p(>)",
             ],
         ),

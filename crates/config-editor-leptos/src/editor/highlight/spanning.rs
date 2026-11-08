@@ -22,6 +22,8 @@ use super::{ConstructKind, MultilineConstruct, Token, TokenKind, Tokens};
 pub(crate) struct SpanLines {
     /// The lines (0-based) past the construct's first, its last included.
     pub(crate) lines: Range<usize>,
+    /// The byte of its first line where the construct starts.
+    pub(crate) start: usize,
     /// The byte of its last line where the construct ends.
     pub(crate) end: usize,
     /// How it is colored: one kind of token (a comment, a string), or as
@@ -51,12 +53,16 @@ pub(crate) struct LineStart {
     /// How many bytes from its start (`usize::MAX`: all) are inside
     /// structure.
     pub(crate) structure: Option<usize>,
+    /// The byte from which a comment or string going on past the line's
+    /// end covers it, and its kind: the line alone may read it as closed
+    /// sooner (an XML attribute value holding `>`, an escaped TOML quote).
+    pub(crate) opens: Option<(usize, TokenKind)>,
 }
 
 impl LineStart {
     /// Whether nothing opened on an earlier line reaches the line.
     pub(crate) fn is_free(self) -> bool {
-        self.colored.is_none() && self.structure.is_none()
+        self.colored.is_none() && self.structure.is_none() && self.opens.is_none()
     }
 }
 
@@ -92,6 +98,7 @@ impl Spanning {
         LineStart {
             colored: covered(&self.colored, index),
             structure: covered(&self.structures, index).map(|(end, _)| end),
+            opens: opened(&self.colored, index),
         }
     }
 }
@@ -127,11 +134,12 @@ fn span_lines(source: &str, mut ranges: Vec<(Range<usize>, TokenKind)>) -> Vec<S
     };
     let mut out = Vec::new();
     for (range, kind) in ranges {
-        let (first, _) = advance(range.start);
+        let (first, first_start) = advance(range.start);
         let (last, last_start) = advance(range.end);
         if last > first {
             out.push(SpanLines {
                 lines: first + 1..last + 1,
+                start: range.start - first_start,
                 end: range.end - last_start,
                 kind,
             });
@@ -153,11 +161,20 @@ pub(crate) fn covered(spans: &[SpanLines], index: usize) -> Option<(usize, Token
     Some((end, span.kind))
 }
 
+/// Where on line `index` a construct going on past its end starts, and
+/// its kind.
+fn opened(spans: &[SpanLines], index: usize) -> Option<(usize, TokenKind)> {
+    let at = spans.partition_point(|span| span.lines.start <= index);
+    let span = spans.get(at).filter(|span| span.lines.start == index + 1)?;
+    Some((span.start, span.kind))
+}
+
 /// The tokens of `line` when constructs opened on earlier lines reach it
 /// (`start`): the bytes a comment or string covers are of its kind, those
 /// inside structure are colored by the language's
 /// [`highlight_continued`](super::super::language::ConfigLanguage::highlight_continued),
-/// and the rest by its `highlight`.
+/// and the rest by its `highlight`, up to where a comment or string going
+/// on past the line's end starts (of its kind from there).
 pub(crate) fn tokens_after(language: Language, line: &str, start: LineStart) -> Vec<Token> {
     let boundary = |end: usize| {
         let mut end = end.min(line.len());
@@ -196,6 +213,17 @@ pub(crate) fn tokens_after(language: Language, line: &str, start: LineStart) -> 
     };
     if rest_start < line.len() {
         shifted(rest_start, behavior.highlight(&line[rest_start..]));
+    }
+    if let Some((from, kind)) = start.opens {
+        let from = boundary(from).max(colored_end);
+        tokens.retain(|token| token.start < from);
+        for token in &mut tokens {
+            token.end = token.end.min(from);
+        }
+        tokens.retain(|token| token.end > token.start);
+        if from < line.len() {
+            tokens.push(Token::new(from, line.len(), kind));
+        }
     }
     tokens
 }

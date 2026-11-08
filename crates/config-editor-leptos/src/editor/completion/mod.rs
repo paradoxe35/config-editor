@@ -38,7 +38,8 @@ use super::language::{
     CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
 };
 use super::metrics::read_editor_metrics;
-use super::positioning::{FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_MARGIN};
+use super::positioning::{POPUP_MARGIN, PopupFrame};
+use super::state::EditorState;
 use super::typing::Closer;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -80,7 +81,7 @@ mod tests {
         COMPLETION_LIST_PADDING, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_WIDTH,
         COMPLETION_ROW_HEIGHT, MATCH_SUBSTRING_INDEX_PENALTY, MATCH_SUBSTRING_LENGTH_DIVISOR,
         MATCH_TIER_CASE_INSENSITIVE_PREFIX, MATCH_TIER_EXACT_PREFIX, MATCH_TIER_INITIALS,
-        MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, completion_popup_geometry,
+        MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, PopupFrame, completion_popup_geometry,
     };
 
     /// Changing these must be deliberate: the sizes mirror `preset.css`.
@@ -101,7 +102,13 @@ mod tests {
 
     #[test]
     fn completion_popup_opens_below_caret_when_space_allows() {
-        let style = completion_popup_geometry(1024.0, 768.0, 100.0, 200.0, 21.6, 3);
+        let style = completion_popup_geometry(
+            &PopupFrame::new(None, (1024.0, 768.0)),
+            100.0,
+            200.0,
+            21.6,
+            3,
+        );
         // 3 options: ideal height = 3*44+2 = 134. Below: 768-200-21.6-8 = 538.4.
         assert!(
             style.contains("top:221.6px"),
@@ -119,11 +126,17 @@ mod tests {
 
     #[test]
     fn completion_popup_flips_above_caret_near_viewport_bottom() {
-        let style = completion_popup_geometry(1024.0, 768.0, 100.0, 700.0, 21.6, 3);
+        let style = completion_popup_geometry(
+            &PopupFrame::new(None, (1024.0, 768.0)),
+            100.0,
+            700.0,
+            21.6,
+            3,
+        );
         // Below: 768-700-21.6-8 = 38.4 < 134; above: 700-8 = 692. So flip.
         assert!(
-            style.contains("top:566.0px"),
-            "popup should flip above the caret (700-134), got: {style}"
+            style.contains("top:700.0px") && style.contains("translateY(-100%)"),
+            "popup should flip above the caret, its bottom on the caret line, got: {style}"
         );
         assert!(
             style.contains("max-height:134.0px"),
@@ -133,7 +146,13 @@ mod tests {
 
     #[test]
     fn completion_popup_clamps_to_viewport_right_edge() {
-        let style = completion_popup_geometry(1024.0, 768.0, 1000.0, 200.0, 21.6, 3);
+        let style = completion_popup_geometry(
+            &PopupFrame::new(None, (1024.0, 768.0)),
+            1000.0,
+            200.0,
+            21.6,
+            3,
+        );
         // width = min(420, 1024-16) = 420; left clamped to 1024-420-8 = 596.
         assert!(
             style.contains("left:596.0px"),

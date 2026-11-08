@@ -8,9 +8,7 @@ use wasm_bindgen::JsCast;
 
 use super::super::diff::{DiffEdit, DiffKind, myers_edits};
 use super::super::metrics::{EditorMetrics, read_editor_metrics};
-use super::super::positioning::{
-    FALLBACK_VIEWPORT_HEIGHT, FALLBACK_VIEWPORT_WIDTH, POPUP_GAP, POPUP_MARGIN,
-};
+use super::super::positioning::{POPUP_GAP, POPUP_MARGIN, PopupFrame};
 
 /// Which gutter marker a change preview belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -229,41 +227,31 @@ pub(in crate::editor) fn peek_geometry(
     }
 }
 
+/// The preview's style; `frame` turns window pixels into the editor's own
+/// (its container may scale it), which its `top` and `left` count in.
 pub(in crate::editor) fn peek_popup_style(
+    frame: &PopupFrame,
     editor: &web_sys::HtmlTextAreaElement,
     root: &web_sys::HtmlDivElement,
     line: usize,
     old_line_count: usize,
     new_line_count: usize,
 ) -> String {
-    let Some(window) = web_sys::window() else {
-        return "visibility:hidden".to_string();
-    };
-    let viewport_width = window
-        .inner_width()
-        .ok()
-        .and_then(|width| width.as_f64())
-        .unwrap_or(FALLBACK_VIEWPORT_WIDTH);
-    let viewport_height = window
-        .inner_height()
-        .ok()
-        .and_then(|height| height.as_f64())
-        .unwrap_or(FALLBACK_VIEWPORT_HEIGHT);
-    let editor_rect = editor.get_bounding_client_rect();
-    let root_rect = root.get_bounding_client_rect();
+    let editor_rect = frame.bounds(&editor.get_bounding_client_rect());
+    let root_rect = frame.bounds(&root.get_bounding_client_rect());
     let element: &web_sys::Element = editor.unchecked_ref();
     let metrics = read_editor_metrics(element);
     peek_geometry(
         &PeekViewport {
-            viewport_width,
-            viewport_height,
-            editor_top: editor_rect.top(),
-            editor_bottom: editor_rect.bottom(),
-            editor_left: editor_rect.left(),
+            viewport_width: frame.viewport_width,
+            viewport_height: frame.viewport_height,
+            editor_top: editor_rect.top,
+            editor_bottom: editor_rect.bottom,
+            editor_left: editor_rect.left,
             editor_scroll_top: editor.scroll_top() as f64,
-            root_top: root_rect.top(),
-            root_bottom: root_rect.bottom(),
-            root_left: root_rect.left(),
+            root_top: root_rect.top,
+            root_bottom: root_rect.bottom,
+            root_left: root_rect.left,
         },
         &metrics,
         line,

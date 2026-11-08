@@ -202,19 +202,6 @@ fn opens_unclosed_string(code: &str) -> Option<&'static str> {
     None
 }
 
-/// Where `delimiter` closes a string in `text` (not escaped, for `"""`).
-fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
-    let mut from = 0;
-    while let Some(at) = text[from..].find(delimiter).map(|at| from + at) {
-        let backslashes = text[..at].chars().rev().take_while(|character| *character == '\\').count();
-        if delimiter.starts_with('\'') || backslashes % 2 == 0 {
-            return Some(at);
-        }
-        from = at + 1;
-    }
-    None
-}
-
 /// The UTF-16 selection `start..end` widened over the keys of the table
 /// whose header is its last line, up to the next header (blank lines before
 /// it left out).
