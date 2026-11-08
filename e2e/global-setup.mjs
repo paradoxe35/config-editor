@@ -13,8 +13,8 @@ export default function globalSetup() {
     throw new Error('dist/ is missing. Run `trunk build` (or `npm run build` in e2e/) first.');
   }
   const files = readdirSync(dist);
-  const js = files.find((name) => /^leptos-yaml-editor-.*\.js$/.test(name));
-  const wasm = files.find((name) => /^leptos-yaml-editor-.*_bg\.wasm$/.test(name));
+  const js = files.find((name) => /^config-editor-demo-.*\.js$/.test(name));
+  const wasm = files.find((name) => /^config-editor-demo-.*_bg\.wasm$/.test(name));
   const css = files.filter((name) => name.endsWith('.css'));
   if (!js || !wasm) {
     throw new Error('dist/ does not contain the editor bundle. Run `trunk build` first.');
