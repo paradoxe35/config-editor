@@ -26,6 +26,7 @@ mod diff;
 mod document;
 mod edit;
 mod edit_as;
+mod flat_keys;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
 mod folding;

@@ -45,6 +45,9 @@ which build on this package.
 - [Several documents](#several-documents)
 - [Reviewing changes](#reviewing-changes)
 - [Custom languages](#custom-languages)
+  - [Schema completion and hover](#schema-completion-and-hover)
+  - [Strings and comments over lines](#strings-and-comments-over-lines)
+  - [Edit-as with a custom language](#edit-as-with-a-custom-language)
 - [Themes](#themes)
 - [Styling](#styling)
 - [License](#license)
@@ -1006,6 +1009,10 @@ two texts with the free `changeSummary(baseline, current)` of
 
 ## Custom languages
 
+`registerLanguage` adds a language written in JavaScript. A `.env` file
+(`KEY=value` lines) needs only `parse`; its `separators` also give it schema
+completion and hover:
+
 ```js
 import { registerLanguage, ConfigEditor } from "@pngwasi/config-editor";
 import { convert } from "@pngwasi/config-editor/tools";
@@ -1019,7 +1026,7 @@ const env = registerLanguage({
     return Object.fromEntries(
       text
         .split("\n")
-        .filter(Boolean)
+        .filter((line) => line.trim() && !line.startsWith("#"))
         .map((line) => line.split("=")),
     );
   },
@@ -1036,7 +1043,7 @@ const env = registerLanguage({
     // JSON pointer, so schema problems are underlined.
   },
   valueSpan(text, pointer) {
-    /* optional, like keySpan for the value */
+    /* optional, like keySpan for the value; Edit-as saves edit values in place with it */
   },
   highlight(line) {
     // Optional: [{ start, end, kind }] ranges of one line, as JavaScript
@@ -1049,7 +1056,7 @@ const env = registerLanguage({
     ["{", "}"],
     ["[", "]"],
   ], // Enter between them opens a line
-  separators: ["="], // key renames, Tab through empty values
+  separators: ["="], // key renames, Tab through empty values, schema completion and hover
 });
 
 new ConfigEditor(element, { language: env, schema });
@@ -1059,11 +1066,118 @@ convert("env", "listen=7835\n", "yaml").text; // 'listen: "7835"\n'
 A registered language gets schema validation (placed with `keySpan` and
 `valueSpan`), conversion to and from every other language, and Edit-as;
 `comments`, `brackets` and `separators` add comment toggling,
-bracket-aware Enter, and key/value editing. Schema completion is available
-for the built-in languages only. Built-in names cannot be replaced, and a
-registered language cannot take another's name or extension (`registerLanguage`
-throws); registering the same label again replaces it for new editors. Its name is
-the label lowercased (`"Énv"` → `"énv"`).
+bracket-aware Enter, and key/value editing. Built-in names cannot be
+replaced, and a registered language cannot take another's name or extension
+(`registerLanguage` throws); registering the same label again replaces it
+for new editors. Its name is the label lowercased (`"Énv"` → `"énv"`).
+
+### Schema completion and hover
+
+Suggestions and hover docs run through the same engine as the built-in
+languages', in one of two ways.
+
+**Flat languages (`separators` only).** A language with one `KEY=value`
+entry per line and no nesting, like the `.env` one above, gets them from its
+`separators` with no more code:
+
+- before a line's first separator, the schema's top-level keys are
+  suggested, those already written on other lines left out;
+- after it, the key's values (an `enum`, `true` / `false`, a `const`), a
+  string written bare when it reads back as written (`LOG_LEVEL=debug`);
+- accepting a key writes it and the first separator, the caret after it:
+  `KEY=` for `=` (or any other separator), `key: ` for `:`;
+- hovering a key shows its schema docs;
+- nothing is suggested on a line comment.
+
+**Nested languages (callbacks).** A language with objects inside objects
+says where the caret is with three optional callbacks. Each one replaces its
+part of the flat default; the rest (the schema at a path, filtering and
+ranking, the popup, value docs, required fields, `oneOf` choices) is the
+editor's, as for the built-in languages.
+
+| Callback                  | When it is called                                                                                           | Returns                                                                                                                                                                                                                                                                         | `null` / missing                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `contextAt(text, offset)` | As suggestions open or update, and to place a hovered key; `offset` is the caret's string index             | `{ path, at, prefix }`. `at: "key"`: a key is typed in the object at `path`. `at: "value"`: the caret is in the value of the key that ends `path` (a path ending in an index: an array item). `prefix`: what is typed before the caret, which suggestions filter by and replace | `null`: nothing to suggest there. Missing: the flat default              |
+| `insertKey(key, kind)`    | For each key suggested; `kind` is what the schema expects as its value: `"scalar"`, `"object"` or `"array"` | `{ text, caret }`: the text written, and the caret's string index in it. Lines after the first are indented as the caret's line                                                                                                                                                 | `null`: the key is not suggested. Missing: the key and first separator   |
+| `keyAt(text, offset)`     | As the mouse rests on the text; `offset` is the string index under it                                       | `{ key, path, start }`: the key's name, its full path (ending with it), and the string index where it starts                                                                                                                                                                    | `null`: no key there. Missing: the key before the line's first separator |
+
+Paths are keys and array indices, as `["server", "tls"]`. Keys already
+written in the object at the caret are left out: the editor reads the
+document through `parse` without the caret's line (while that does not
+parse, none are left out). Values are written as JSON. A result of the wrong
+shape is warned about in the console (once) and read as `null`; a callback
+that throws is logged and read as `null` too.
+
+This is what lets formats the editor does not ship (HJSON, KDL, UCL, …) get
+suggestions: `parse` comes from the host's own parser, and the callbacks
+from what it knows of positions. A sketch for an HJSON-like language
+(`key: value` lines, `key: {` … `}` blocks), where `scan(text)` stands for
+the host's line scanner (for each line: the keys of the objects open there,
+its key and the key's column):
+
+```js
+registerLanguage({
+  label: "HJSON",
+  parse: (text) => Hjson.parse(text),
+  separators: [":"],
+  contextAt(text, offset) {
+    const line = scan(text).at(text.slice(0, offset).split("\n").length - 1);
+    const before = text.slice(text.lastIndexOf("\n", offset - 1) + 1, offset);
+    const colon = before.indexOf(":");
+    if (colon < 0) return { path: line.path, at: "key", prefix: before.trim() };
+    const key = before.slice(0, colon).trim();
+    return {
+      path: [...line.path, key],
+      at: "value",
+      prefix: before.slice(colon + 1).trimStart(),
+    };
+  },
+  insertKey(key, kind) {
+    if (kind === "object")
+      return { text: `${key}: {\n  \n}`, caret: key.length + 6 };
+    return { text: `${key}: `, caret: key.length + 2 };
+  },
+  keyAt(text, offset) {
+    const line = scan(text).at(text.slice(0, offset).split("\n").length - 1);
+    const start = text.lastIndexOf("\n", offset - 1) + 1 + line.keyColumn;
+    if (!line.key || offset < start || offset >= start + line.key.length)
+      return null;
+    return { key: line.key, path: [...line.path, line.key], start };
+  },
+});
+```
+
+### Strings and comments over lines
+
+`highlight` colors one line at a time. For what spans lines (HJSON's `'''`
+strings, `/* */` comments), `multilineRanges(text)` returns
+`[{ start, end, kind }]`: string indices, and `kind` `"string"` or
+`"comment"`. The lines after a range's first are colored as its kind up to
+`end`, and the rest of its last line by `highlight`; nothing is suggested
+inside, a string's lines stay text for Enter, and a line comment marker
+inside a range starts no comment.
+
+```js
+multilineRanges(text) {
+  return [...text.matchAll(/'''[\s\S]*?(?:'''|$)|\/\*[\s\S]*?(?:\*\/|$)/g)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    kind: match[0].startsWith("/*") ? "comment" : "string",
+  }));
+},
+```
+
+### Edit-as with a custom language
+
+A document stored in a custom language and edited as another (`editAs`)
+is saved back by editing its own text, not by writing it anew: a changed
+value is rewritten where `valueSpan` places it, and a key added, removed or
+renamed changes just its lines (compared line by line with what `serialize`
+writes, so this works without spans too). Comments, blank lines and the
+entries left alone stay as written. The whole document comes from
+`serialize` only when the stored text did not parse before the edit, or no
+such patch reads back (through `parse`) as the edited data. Highlighting
+stays per line (`highlight`), with `multilineRanges` for what spans lines.
 
 ## Themes
 

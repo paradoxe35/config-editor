@@ -288,8 +288,25 @@ export interface CustomLanguage {
   comments?: { lineComment?: string | string[]; blockComment?: [string, string] };
   /** Bracket pairs Enter opens across lines, e.g. `[["{", "}"], ["[", "]"]]`. */
   brackets?: [string, string][];
-  /** What separates a key from its value, e.g. `["="]` or `[":"]`: key renames, `Tab` through empty values. */
+  /** What separates a key from its value, e.g. `["="]` or `[":"]`: key renames, `Tab` through empty values. Without the callbacks below they also give a flat language (one `KEY=value` entry per line) schema completion and hover. */
   separators?: string[];
+  /** Where the caret at string index `offset` is, for schema completion: typing a key in the object at `path` (`at: "key"`), or in the value of the key that ends `path` (`at: "value"`; a path ending in an index: an array item), with `prefix` typed before it. `null`: nothing to suggest. Replaces the flat default of `separators`. */
+  contextAt?(text: string, offset: number): CustomLanguageContext | null | undefined | void;
+  /** How a suggested key is written, with the caret's string index in `text`; `kind` is what the schema expects as its value. Lines after the first are indented as the caret's line. `null` leaves the key out. */
+  insertKey?(key: string, kind: "scalar" | "object" | "array"): { text: string; caret: number } | null | undefined | void;
+  /** The key at string index `offset` (under the mouse), for hover docs: its name, its full path (ending with it), and the string index it starts at. `null`: no key there. */
+  keyAt?(text: string, offset: number): { key: string; path: (string | number)[]; start: number } | null | undefined | void;
+  /** Strings and comments written over several lines (string indices, as `indexOf` gives): their lines are colored as such up to `end`, the rest of the last line by `highlight`; nothing is suggested inside. */
+  multilineRanges?(text: string): { start: number; end: number; kind: "string" | "comment" }[] | null | undefined | void;
+}
+
+/** Where the caret is in a custom language's document; see `CustomLanguage.contextAt`. */
+export interface CustomLanguageContext {
+  /** The object holding the caret (`at: "key"`), or the key whose value it is in (`at: "value"`). */
+  path: (string | number)[];
+  at: "key" | "value";
+  /** The key or value typed before the caret, which suggestions filter by and replace. */
+  prefix: string;
 }
 "#;
 

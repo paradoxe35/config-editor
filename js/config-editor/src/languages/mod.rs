@@ -4,17 +4,20 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::Language;
-use config_editor_leptos::language::{
-    ConfigLanguage, LanguageConfig, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind,
-    Tokens,
-};
+use config_editor_leptos::language::{LanguageConfig, LanguageInfo};
 use js_sys::{Array, Function};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 
 use crate::options::warn_unknown_keys;
 use crate::typings::CustomLanguage;
-use crate::values::{field, json_from_js, string_field, to_js};
+use crate::values::{field, string_field};
+
+mod assist;
+mod js_language;
+mod ranges;
+
+use js_language::JsLanguage;
 
 thread_local! {
     /// Languages registered from JavaScript, by lowercase label.
@@ -63,187 +66,14 @@ const DEFINITION_KEYS: &[&str] = &[
     "comments",
     "brackets",
     "separators",
+    "contextAt",
+    "insertKey",
+    "keyAt",
+    "multilineRanges",
 ];
 
-/// A language implemented in JavaScript. The editor gives it what the shared
-/// core provides from `parse` and the spans it locates: schema validation
-/// with positions, conversion to and from every other language, Edit-as,
-/// and the editing behavior its configuration describes. Schema completion
-/// needs a language's own completion context, which only the built-in
-/// languages have.
-struct JsLanguage {
-    definition: JsValue,
-    info: LanguageInfo,
-    config: LanguageConfig,
-}
-
-// SAFETY: wasm32 without the `atomics` target feature runs on one thread, so
-// the JS object is never touched from another thread. The trait requires
-// Send + Sync for hosts with threads.
-#[cfg(not(target_feature = "atomics"))]
-unsafe impl Send for JsLanguage {}
-#[cfg(not(target_feature = "atomics"))]
-unsafe impl Sync for JsLanguage {}
-
-impl JsLanguage {
-    fn method(&self, name: &str) -> Option<Function> {
-        field(&self.definition, name).dyn_into::<Function>().ok()
-    }
-
-    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Span> {
-        let span = self
-            .method(name)?
-            .call2(
-                &self.definition,
-                &JsValue::from_str(source),
-                &JsValue::from_str(pointer),
-            )
-            .ok()?;
-        let number = |key: &str| {
-            field(&span, key)
-                .as_f64()
-                .filter(|value| value.is_finite() && *value >= 1.0)
-                .map(|value| value as usize)
-        };
-        // A position outside the text is no position (the problem is shown
-        // unplaced); columns are clamped onto their line.
-        let line = number("line")?;
-        let text = source.split('\n').nth(line - 1)?;
-        let width = text.chars().count() + 1;
-        let start = number("startColumn")?.min(width);
-        let end = number("endColumn")?.min(width).max(start);
-        Some(Span {
-            line,
-            start_column: start,
-            end_column: end,
-        })
-    }
-}
-
-fn leak(text: String) -> &'static str {
+pub(super) fn leak(text: String) -> &'static str {
     Box::leak(text.into_boxed_str())
-}
-
-#[cfg(not(target_feature = "atomics"))]
-impl ConfigLanguage for JsLanguage {
-    fn info(&self) -> LanguageInfo {
-        self.info
-    }
-
-    fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        let parse = self.method("parse").ok_or_else(|| ParseError {
-            message: "the language has no parse()".to_string(),
-            line: None,
-            column: None,
-        })?;
-        match parse.call1(&self.definition, &JsValue::from_str(source)) {
-            Ok(value) if value.is_undefined() => Err(ParseError {
-                message: "parse() returned nothing".to_string(),
-                line: None,
-                column: None,
-            }),
-            Ok(value) => json_from_js(&value, 0).map_err(|error| ParseError {
-                message: format!("parse() returned a value that is not JSON: {error}"),
-                line: None,
-                column: None,
-            }),
-            Err(thrown) => {
-                // A position outside the text is clamped onto it.
-                let lines: Vec<&str> = source.split('\n').collect();
-                let number = |key: &str| {
-                    field(&thrown, key)
-                        .as_f64()
-                        .filter(|value| value.is_finite() && *value >= 1.0)
-                        .map(|value| value as usize)
-                };
-                let line = number("line").map(|line| line.min(lines.len()));
-                let column = number("column").map(|column| match line {
-                    Some(line) => column.min(lines[line - 1].chars().count() + 1),
-                    None => column,
-                });
-                Err(ParseError {
-                    message: string_field(&thrown, "message")
-                        .or_else(|| thrown.as_string())
-                        .unwrap_or_else(|| "parse error".to_string()),
-                    line,
-                    column,
-                })
-            }
-        }
-    }
-
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
-        let serialize = self
-            .method("serialize")
-            .ok_or_else(|| format!("{} cannot write documents", self.info.label))?;
-        serialize
-            .call1(&self.definition, &to_js(value))
-            .map_err(|error| {
-                string_field(&error, "message")
-                    .or_else(|| error.as_string())
-                    .unwrap_or_else(|| "serialize() failed".to_string())
-            })?
-            .as_string()
-            .ok_or_else(|| "serialize() must return a string".to_string())
-    }
-
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("keySpan", source, pointer)
-    }
-
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("valueSpan", source, pointer)
-    }
-
-    fn highlight(&self, line: &str) -> Vec<Token> {
-        let Some(highlight) = self.method("highlight") else {
-            return Vec::new();
-        };
-        let Ok(tokens) = highlight.call1(&self.definition, &JsValue::from_str(line)) else {
-            return Vec::new();
-        };
-        if !Array::is_array(&tokens) {
-            return Vec::new();
-        }
-        let mut out = Tokens::new();
-        for token in Array::from(&tokens).iter() {
-            let number = |key: &str| field(&token, key).as_f64().map(|value| value as usize);
-            let kind = match string_field(&token, "kind").as_deref() {
-                Some("key") => TokenKind::Key,
-                Some("string") => TokenKind::String,
-                Some("literal") => TokenKind::Literal,
-                Some("comment") => TokenKind::Comment,
-                Some("punctuation") => TokenKind::Punctuation,
-                _ => TokenKind::Value,
-            };
-            // JavaScript string indices (UTF-16 units, as `indexOf` gives).
-            let byte = |unit: usize| {
-                let mut units = 0;
-                for (index, character) in line.char_indices() {
-                    if units >= unit {
-                        return (units == unit).then_some(index);
-                    }
-                    units += character.len_utf16();
-                }
-                (units == unit).then_some(line.len())
-            };
-            if let (Some(start), Some(end)) = (number("start"), number("end"))
-                && start < end
-                && let (Some(start), Some(end)) = (byte(start), byte(end))
-            {
-                out.push(start, end, kind);
-            }
-        }
-        out.finish()
-    }
-
-    fn lexical_state(&self, _source: &str, _cursor: usize) -> Lexical {
-        Lexical::default()
-    }
-
-    fn config(&self) -> LanguageConfig {
-        self.config
-    }
 }
 
 /// A list of strings, or one string, as `name` (absent is empty).
@@ -361,7 +191,16 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
     if field(&definition, "parse").dyn_into::<Function>().is_err() {
         return Err(JsError::new("a language needs parse(text)"));
     }
-    for name in ["serialize", "keySpan", "valueSpan", "highlight"] {
+    for name in [
+        "serialize",
+        "keySpan",
+        "valueSpan",
+        "highlight",
+        "contextAt",
+        "insertKey",
+        "keyAt",
+        "multilineRanges",
+    ] {
         let value = field(&definition, name);
         if !value.is_undefined() && !value.is_null() && !value.is_function() {
             return Err(JsError::new(&format!("{name} must be a function")));
@@ -436,6 +275,7 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
     let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
         config,
         definition,
+        multiline: Default::default(),
         info: LanguageInfo {
             label: leak(label),
             icon: leak(icon),

@@ -179,8 +179,13 @@ pub(super) enum RowHighlight {
     /// Tokens of the language.
     Language(Language),
     /// A line whose first `end` bytes (`usize::MAX`: all) are in a comment
-    /// opened on an earlier line; the language colors the rest.
-    AfterComment { language: Language, end: usize },
+    /// (or string: `kind`) opened on an earlier line; the language colors
+    /// the rest.
+    AfterComment {
+        language: Language,
+        end: usize,
+        kind: TokenKind,
+    },
 }
 
 impl RowHighlight {
@@ -195,10 +200,12 @@ impl RowHighlight {
             RowHighlight::Plain => Vec::new(),
             RowHighlight::StringBody => all(TokenKind::String),
             RowHighlight::Language(language) => language.behavior().highlight(text),
-            RowHighlight::AfterComment { end, .. } if end >= text.len() => all(TokenKind::Comment),
-            RowHighlight::AfterComment { language, end } => {
-                tokens_after_comment(language, text, end)
-            }
+            RowHighlight::AfterComment { end, kind, .. } if end >= text.len() => all(kind),
+            RowHighlight::AfterComment {
+                language,
+                end,
+                kind,
+            } => tokens_after_comment(language, text, end, kind),
         }
     }
 }
@@ -219,8 +226,12 @@ impl Highlighting<'_> {
         let Some(language) = self.language else {
             return RowHighlight::Plain;
         };
-        if let Some(end) = covered(self.comments, index) {
-            return RowHighlight::AfterComment { language, end };
+        if let Some((end, kind)) = covered(self.comments, index) {
+            return RowHighlight::AfterComment {
+                language,
+                end,
+                kind,
+            };
         }
         if self
             .string_bodies

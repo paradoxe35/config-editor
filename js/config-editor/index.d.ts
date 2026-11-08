@@ -9,6 +9,7 @@ export {
   type ChangeSummary,
   type CloseRequest,
   type CustomLanguage,
+  type CustomLanguageContext,
   type DocumentSpec,
   type DocumentsOptions,
   type DocumentsUpdate,
