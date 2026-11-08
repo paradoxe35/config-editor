@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 mod merge;
 mod text_scalars;
-use merge::merge_changes;
+use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
 type Patch = fn(
@@ -116,7 +116,16 @@ impl Bridge {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
             // it waits: saving the view's approximation would change data.
-            Some(seen) => merge_changes(&old, seen, &edited, &unshown).map_err(|pointer| {
+            Some(seen) => merge_changes(
+                &old,
+                seen,
+                &edited,
+                &View {
+                    unshown: &unshown,
+                    repetition: self.edit.behavior().repetition(),
+                },
+            )
+            .map_err(|pointer| {
                 ConvertError::Unsupported(format!(
                     "{} cannot show the value at {pointer} exactly, so this edit of it cannot be saved: edit it as {} (at {pointer})",
                     self.edit.label(),

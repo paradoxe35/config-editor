@@ -7,12 +7,17 @@ use super::{comment_start, comparable};
 use serde_json::Value;
 
 /// `text` (the host's `[` … `]`, over several lines) holding `items`, or
-/// `None` when it is not written one item per line.
+/// `None` when it is not written one item per line. A list with no item
+/// to follow takes its items one `unit` in from its closing bracket, with a
+/// trailing comma when `empty_trailing` (TOML writes one, JSON cannot: the
+/// caller tries both).
 pub(super) fn rewrite_list_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     before: &[Value],
     items: &[Value],
+    unit: &str,
+    empty_trailing: bool,
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
@@ -71,17 +76,20 @@ pub(super) fn rewrite_list_lines(
     if !one_per_line {
         return None;
     }
-    let indent: String = old
-        .first()
-        .map(|line| {
-            line.line
-                .chars()
-                .take_while(|character| matches!(character, ' ' | '\t'))
-                .collect()
-        })
-        .unwrap_or_default();
+    let leading = |line: &str| -> String {
+        line.chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect()
+    };
+    let indent: String = old.first().map_or_else(
+        || format!("{}{unit}", leading(last)),
+        |line| leading(line.line),
+    );
     // A comma after the last item too, when the host writes one there.
-    let trailing_comma = old.last().is_some_and(|line| line.comma);
+    let trailing_comma = match old.last() {
+        Some(line) => line.comma,
+        None => empty_trailing,
+    };
     let mut out = vec![first.to_string()];
     for (index, item) in items.iter().enumerate() {
         let wants_comma = index + 1 < items.len() || trailing_comma;

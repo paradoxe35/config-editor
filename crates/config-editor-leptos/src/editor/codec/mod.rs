@@ -331,13 +331,24 @@ pub(super) fn patch_inline(
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Array(items)) = new.pointer(&pointer)
             && let Some(Value::Array(before)) = old.pointer(&pointer)
-            && let Some(text) =
-                lists::rewrite_list_lines(language, &previous[range.clone()], before, items)
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
-                return Some(patched);
+            let unit = super::commands::indent_unit(previous);
+            for empty_trailing in [true, false] {
+                let Some(text) = lists::rewrite_list_lines(
+                    language,
+                    &previous[range.clone()],
+                    before,
+                    items,
+                    &unit,
+                    empty_trailing,
+                ) else {
+                    continue;
+                };
+                let mut patched = previous.to_string();
+                patched.replace_range(range.clone(), &text);
+                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                    return Some(patched);
+                }
             }
         }
         // A flow map or object written one entry per line (`tcp: {` … `}`), its

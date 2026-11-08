@@ -211,6 +211,70 @@ fn a_list_over_lines_gains_and_loses_items_in_place() {
                 &format!("{item}8443,\n{item}8080,\n"),
             ),
         );
+        // Two items made one (a selection over both retyped as one of
+        // them), and none, then one again: each kept line as it was, a new
+        // one at the items' indent with their trailing comma (round 19:
+        // `443` at the start of the line, its comma gone).
+        let two = text.replace(&format!("{item}8443,\n"), "");
+        from_every_view(
+            &mut failures,
+            "two items, keep 443",
+            host,
+            &two,
+            &|value| {
+                *slot(value, "/server/ports") = serde_json::json!([443]);
+            },
+            &two.replace(&format!("{item}80,  # p80\n"), ""),
+        );
+        from_every_view(
+            &mut failures,
+            "two items, retyped 8080",
+            host,
+            &two,
+            &|value| {
+                *slot(value, "/server/ports") = serde_json::json!([8080]);
+            },
+            &two.replace(
+                &format!("{item}80,  # p80\n{item}443,\n"),
+                &format!("{item}8080,\n"),
+            ),
+        );
+        // XML has no empty list to show.
+        let emptied = two.replace(&format!("{item}80,  # p80\n{item}443,\n"), "");
+        let one = two.replace(&format!("{item}80,  # p80\n"), "");
+        for edit in ALL
+            .into_iter()
+            .filter(|edit| ![host, Language::XML].contains(edit))
+        {
+            for (label, from, items, expected) in [
+                ("two items, emptied", &two, json!([]), &emptied),
+                ("emptied, then one", &emptied, json!([443]), &one),
+            ] {
+                let saved = save_value(host, edit, from, &|value| {
+                    *slot(value, "/server/ports") = items.clone();
+                });
+                if saved.as_ref() != Ok(expected) {
+                    failures.push(format!(
+                        "{label}: {host} host via {edit}:\n--- expected\n{expected}--- saved\n{}",
+                        saved.unwrap_or_else(|error| error)
+                    ));
+                }
+            }
+        }
+    }
+    // JSON takes no comma after the last item.
+    let json = "{\n    \"ports\": [\n    ],\n    \"n\": 1\n}\n";
+    for edit in ALL
+        .into_iter()
+        .filter(|edit| ![Language::JSON, Language::XML].contains(edit))
+    {
+        let saved = save_value(Language::JSON, edit, json, &|value| {
+            value["ports"] = json!([443]);
+        });
+        let expected = json.replace("[\n", "[\n        443\n");
+        if saved.as_ref() != Ok(&expected) {
+            failures.push(format!("JSON emptied, then one, via {edit}: {saved:?}"));
+        }
     }
     report(failures);
 }
