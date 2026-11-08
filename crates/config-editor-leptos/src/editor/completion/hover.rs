@@ -210,9 +210,11 @@ fn property_hover(
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .collect();
+    // A value option (a `const` branch) documents that value, not the key.
     let text_of = |name: &str| {
         branches
             .iter()
+            .filter(|branch| branch.get("const").is_none())
             .find_map(|branch| branch.get(name).and_then(Value::as_str).map(str::to_string))
     };
     let description = text_of("description");

@@ -124,10 +124,10 @@ pub(super) fn value_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
                 tokens.push(offset + start, offset + index, kind);
                 continue;
             }
-            '[' | ']' | '{' | '}' | ',' => {
+            '[' | ']' | '{' | '}' | ',' | '=' => {
                 tokens.push(offset + start, offset + start + 1, TokenKind::Punctuation);
             }
-            _ if character.is_whitespace() || character == '=' => {}
+            _ if character.is_whitespace() => {}
             _ => {
                 let end = rest
                     .find(|next: char| {
@@ -135,12 +135,12 @@ pub(super) fn value_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
                     })
                     .map_or(text.len(), |at| index + at);
                 let word = &text[start..end];
-                let kind = if text[end..].trim_start().starts_with('=') {
-                    TokenKind::Key
+                if text[end..].trim_start().starts_with('=') {
+                    // An inline table's (dotted) key.
+                    super::colors::header_tokens(word, offset + start, tokens);
                 } else {
-                    scalar_kind(word)
-                };
-                tokens.push(offset + start, offset + end, kind);
+                    tokens.push(offset + start, offset + end, scalar_kind(word));
+                }
                 index = end;
                 continue;
             }

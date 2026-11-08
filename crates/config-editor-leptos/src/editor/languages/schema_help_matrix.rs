@@ -334,19 +334,32 @@ fn hover_shows_a_keys_title() {
     let bundle = build_schema(
         r#"{"properties": {
             "listen": {"type": "integer", "title": "Listen port", "description": "Where it listens."},
-            "name": {"type": "string", "description": "No title."}
+            "name": {"type": "string", "description": "No title."},
+            "level": {"oneOf": [
+                {"const": "info", "title": "Info", "description": "Normal messages."},
+                {"const": "trace", "title": "Trace"}
+            ]}
         }}"#,
     )
     .unwrap();
     let documents = [
-        (Language::YAML, "listen: 1\nname: a\n"),
+        (Language::YAML, "listen: 1\nname: a\nlevel: trace\n"),
         (
             Language::JSON,
-            "{\n  \"listen\": 1,\n  \"name\": \"a\"\n}\n",
+            "{\n  \"listen\": 1,\n  \"name\": \"a\",\n  \"level\": \"trace\"\n}\n",
         ),
-        (Language::TOML, "listen = 1\nname = \"a\"\n"),
-        (Language::HCL, "listen = 1\nname = \"a\"\n"),
-        (Language::XML, "<listen>1</listen>\n<name>a</name>\n"),
+        (
+            Language::TOML,
+            "listen = 1\nname = \"a\"\nlevel = \"trace\"\n",
+        ),
+        (
+            Language::HCL,
+            "listen = 1\nname = \"a\"\nlevel = \"trace\"\n",
+        ),
+        (
+            Language::XML,
+            "<listen>1</listen>\n<name>a</name>\n<level>trace</level>\n",
+        ),
     ];
     let mut failures = Vec::new();
     for (language, source) in documents {
@@ -363,6 +376,14 @@ fn hover_shows_a_keys_title() {
             .map(|hover| hover.title);
         if title != Some(None) {
             failures.push(format!("{language:?} name: {title:?}"));
+        }
+        // QA 22: a `oneOf` of values took its first value's title and
+        // description as the key's own; they are the values'.
+        let (line, column) = position_of(source, "level");
+        let shown = key_hover(source, line, column, Some(&bundle), language.behavior())
+            .map(|hover| (hover.title, hover.description));
+        if shown != Some((None, None)) {
+            failures.push(format!("{language:?} level: {shown:?}"));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

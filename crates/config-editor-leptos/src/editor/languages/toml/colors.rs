@@ -26,7 +26,9 @@ pub(super) fn highlight(line: &str) -> Vec<Token> {
         let after_equals = &code[equals + 1..];
         let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
         let scalar_start = equals + 1 + gap_len;
-        tokens.push(code_start + start, code_start + end, TokenKind::Key);
+        // A dotted key's parts, its dots punctuation as in a header's.
+        header_tokens(&code[start..end], code_start + start, &mut tokens);
+        tokens.push(code_start + equals, code_start + equals + 1, TokenKind::Punctuation);
         // An array or inline table: its elements, as on its lines after.
         if code[scalar_start..].starts_with(['[', '{']) {
             let value_start = code_start + scalar_start;
@@ -64,7 +66,7 @@ pub(super) fn scalar_kind(scalar: &str) -> TokenKind {
 
 /// A table header's tokens (`[a."b c".d]`, `[[items]]`): its names as keys,
 /// its brackets and dots as punctuation.
-fn header_tokens(code: &str, offset: usize, tokens: &mut Tokens) {
+pub(super) fn header_tokens(code: &str, offset: usize, tokens: &mut Tokens) {
     let mut index = 0;
     while index < code.len() {
         let character = code[index..].chars().next().unwrap_or('\0');

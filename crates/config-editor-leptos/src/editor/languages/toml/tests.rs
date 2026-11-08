@@ -380,21 +380,25 @@ fn table_headers_name_keys_with_a_trailing_comment() {
 }
 
 #[test]
-fn keys_and_equals_color_the_key_and_leave_the_separator_plain() {
+fn keys_and_equals_color_the_key_and_the_separator() {
     assert_eq!(
         colored("  name = plain"),
         vec![
             run(None, "  "),
             run(Some(TokenKind::Key), "name"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(TokenKind::Value), "plain"),
         ]
     );
     assert_eq!(
         colored("\"a=b\".c=x"),
         vec![
-            run(Some(TokenKind::Key), "\"a=b\".c"),
-            run(None, "="),
+            run(Some(TokenKind::Key), "\"a=b\""),
+            run(Some(TokenKind::Punctuation), "."),
+            run(Some(TokenKind::Key), "c"),
+            run(Some(TokenKind::Punctuation), "="),
             run(Some(TokenKind::Value), "x"),
         ]
     );
@@ -408,7 +412,9 @@ fn quoted_values_are_strings() {
             colored(&line),
             vec![
                 run(Some(TokenKind::Key), "k"),
-                run(None, " = "),
+                run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
                 run(Some(TokenKind::String), value),
             ],
             "{line}"
@@ -425,11 +431,15 @@ fn arrays_and_inline_tables_are_colored_element_by_element() {
         colored("k = { a = 1 }"),
         vec![
             run(Some(Key), "k"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(Punctuation), "{"),
             run(None, " "),
             run(Some(Key), "a"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(Literal), "1"),
             run(None, " "),
             run(Some(Punctuation), "}"),
@@ -439,7 +449,9 @@ fn arrays_and_inline_tables_are_colored_element_by_element() {
         colored("k = [1, \"x\"] # c"),
         vec![
             run(Some(Key), "k"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(Punctuation), "["),
             run(Some(Literal), "1"),
             run(Some(Punctuation), ","),
@@ -460,7 +472,9 @@ fn numbers_and_booleans_are_literals_including_whitespace_before_a_comment() {
             colored(&line),
             vec![
                 run(Some(TokenKind::Key), "k"),
-                run(None, " = "),
+                run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
                 run(Some(TokenKind::Literal), value),
             ],
             "{line}"
@@ -470,7 +484,9 @@ fn numbers_and_booleans_are_literals_including_whitespace_before_a_comment() {
         colored("port = 80  # http"),
         vec![
             run(Some(TokenKind::Key), "port"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(TokenKind::Literal), "80  "),
             run(Some(TokenKind::Comment), "# http"),
         ]
@@ -483,13 +499,19 @@ fn a_hash_right_after_equals_is_a_comment_and_an_empty_value_is_uncolored() {
         colored("k =#x"),
         vec![
             run(Some(TokenKind::Key), "k"),
-            run(None, " ="),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
             run(Some(TokenKind::Comment), "#x"),
         ]
     );
     assert_eq!(
         colored("k = "),
-        vec![run(Some(TokenKind::Key), "k"), run(None, " = ")]
+        vec![
+            run(Some(TokenKind::Key), "k"),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
+        ]
     );
 }
 
@@ -511,7 +533,9 @@ fn a_hash_inside_a_string_is_part_of_the_string() {
         colored("k = \"a # b\" # c"),
         vec![
             run(Some(TokenKind::Key), "k"),
-            run(None, " = "),
+            run(None, " "),
+            run(Some(TokenKind::Punctuation), "="),
+            run(None, " "),
             run(Some(TokenKind::String), "\"a # b\" "),
             run(Some(TokenKind::Comment), "# c"),
         ]

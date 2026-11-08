@@ -173,7 +173,10 @@ pub(super) fn plain_scalar_bodies(source: &str, taken: &[std::ops::Range<usize>]
             let text = lines[next];
             if !text.trim().is_empty() {
                 let indent = text.len() - text.trim_start().len();
-                if indent <= owner || text.trim_start().starts_with('#') {
+                // A comment, or a value indicator (`: y` under `? x`),
+                // ends it: neither goes on a plain scalar.
+                let content = text.trim_start();
+                if indent <= owner || content.starts_with('#') || content == ":" || content.starts_with(": ") {
                     break;
                 }
                 last = Some(next);
@@ -204,6 +207,10 @@ fn plain_owner(line: &str) -> Option<usize> {
         let content = after.trim_start();
         column += rest.len() - content.len();
         rest = content;
+    }
+    // A complex key's indicator (`? x`) holds a key, not a value.
+    if rest == "?" || rest.starts_with("? ") {
+        return None;
     }
     // A quoted scalar's lines are its own (see `quoted_scalar_bodies`).
     let plain = |value: &str| continues_as_text(value) && !value.trim_start().starts_with(['"', '\'']);

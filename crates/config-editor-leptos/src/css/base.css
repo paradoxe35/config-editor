@@ -171,10 +171,12 @@
 .config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
 .config-editor__schema-state { color: var(--config-editor-raised-muted); }
 .config-editor__schema-check { color: var(--config-editor-added); }
-.config-editor__language {
+.config-editor__language { font: 10px var(--config-editor-mono); }
+/* A separator between the schema state and the language, not before a
+   language alone. */
+.config-editor__schema-state + .config-editor__language {
   padding-left: 12px;
   border-left: 1px solid var(--config-editor-border);
-  font: 10px var(--config-editor-mono);
 }
 
 .config-editor__action-button {
@@ -877,6 +879,20 @@
 .config-editor__problem-tip-severity { font-weight: 600; }
 .config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
 .config-editor__problem-tip-link { color: var(--config-editor-accent); }
+/* The problems on a documented key's line, listed in its hover card above
+   the docs (the tip yields to the card there); scrolled when many. */
+.config-editor__hover-problems {
+  display: grid;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  color: var(--config-editor-tooltip-text);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
 
 .config-editor__diagnostic-marker-eof::before {
   position: absolute;
@@ -1344,6 +1360,21 @@
 /* The message shrinks with an ellipsis; the line count always stays. */
 .config-editor__status-meta { min-width: 0; flex: 0 1 auto; }
 .config-editor__line-count { flex: none; }
+/* One row: the summary and the line count first, on the right; the hint
+   on the left only when it fits whole beside them (else it wraps to a
+   second row, cut off), never squeezed onto two lines. */
+@media (min-width: 541px) {
+  .config-editor__status {
+    height: 28px;
+    overflow: hidden;
+    flex-direction: row-reverse;
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+  .config-editor__status-meta { order: -1; }
+  .config-editor__hint,
+  .config-editor__status-meta { min-height: 27px; white-space: nowrap; }
+}
 @media (max-width: 540px) {
   .config-editor__hint { display: none; }
   .config-editor__status { justify-content: flex-end; }
@@ -1618,7 +1649,9 @@
     --config-editor-marker-column: 23px;
     --config-editor-gutter-padding: 10px;
   }
+  /* The schema state as its check mark alone (its words still named). */
   .config-editor__schema-state { font-size: 0; }
+  .config-editor__schema-check { font-size: 12px; }
   .config-editor__status-meta { gap: 5px; }
 }
 
@@ -1748,6 +1781,14 @@
   }
   /* The caret's line, outlined. */
   .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
+  /* One color for every severity: each keeps its own line style (an
+     error wavy, a warning dashed, an info double, a hint dotted), in the
+     underlines and the tip's entries alike. */
+  .config-editor__diagnostic-marker-warning { text-decoration-style: dashed; }
+  .config-editor__diagnostic-marker-info { text-decoration-style: double; }
+  .config-editor__problem-tip-entry--warning { border-left-style: dashed; }
+  .config-editor__problem-tip-entry--info { border-left-style: double; }
+  .config-editor__problem-tip-entry--hint { border-left-style: dotted; }
 }
 
 /* No sliding or fading for those who ask for less motion. */

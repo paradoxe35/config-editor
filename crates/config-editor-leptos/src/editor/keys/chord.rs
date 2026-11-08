@@ -1,5 +1,6 @@
 //! `Ctrl+K` chords, as in VS Code (`Cmd+K` on macOS): `Ctrl+K Ctrl+I`
-//! shows the hover card (schema docs) for the key at the caret, and with
+//! shows the hover card (schema docs) for the key at the caret with the
+//! problems there (or their tip, without docs), and with
 //! folding on `Ctrl+K Ctrl+0` folds everything and `Ctrl+K Ctrl+J` unfolds
 //! everything (see `folding`).
 
@@ -19,7 +20,7 @@ pub(super) fn chord(state: EditorState, event: &KeyboardEvent) -> bool {
         chord.set_value(false);
         if command && !event.shift_key() && key.eq_ignore_ascii_case("i") {
             event.prevent_default();
-            state.show_hover_at_caret();
+            super::super::a11y::show_at_caret(state);
             return true;
         }
         if super::super::folding::chord_key(state, event) {

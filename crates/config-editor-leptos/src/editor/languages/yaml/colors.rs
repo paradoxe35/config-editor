@@ -112,20 +112,68 @@ fn document_mark(content: &str) -> Option<usize> {
         .map(str::len)
 }
 
-/// Tokens for `value`, which starts at byte `offset` of the line.
+/// Tokens for `value`, which starts at byte `offset` of the line: its
+/// anchor and tag first (an anchor named like a key, a tag like a
+/// literal), then the node: an alias (named like a key), a block scalar's
+/// indicator, a flow collection or a scalar, and any comment.
 pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
-    let scalar_start = offset + value.len() - value.trim_start().len();
-    // A flow collection: its entries, as on its lines after.
-    if value.trim_start().starts_with(['[', '{']) {
-        super::constructs::flow_tokens(value.trim_start(), scalar_start, tokens);
+    let mut start = offset + value.len() - value.trim_start().len();
+    let mut rest = value.trim_start();
+    while let Some(length) = property_len(rest) {
+        let kind = if rest.starts_with('&') {
+            TokenKind::Key
+        } else {
+            TokenKind::Literal
+        };
+        tokens.push(start, start + length, kind);
+        let after = &rest[length..];
+        start += length + after.len() - after.trim_start().len();
+        rest = after.trim_start();
+    }
+    if rest.is_empty() {
         return;
     }
-    let (scalar, comment) = split_yaml_comment(value.trim_start());
-    let scalar_end = scalar_start + scalar.len();
-    tokens.push(scalar_start, scalar_end, scalar_kind(scalar));
+    // A flow collection: its entries, as on its lines after.
+    if rest.starts_with(['[', '{']) {
+        super::constructs::flow_tokens(rest, start, tokens);
+        return;
+    }
+    let (scalar, comment) = split_yaml_comment(rest);
+    let scalar_end = start + scalar.len();
+    let kind = if scalar.starts_with('*') || is_block_indicator(scalar.trim_end()) {
+        if scalar.starts_with('*') {
+            TokenKind::Key
+        } else {
+            TokenKind::Punctuation
+        }
+    } else {
+        scalar_kind(scalar)
+    };
+    if !scalar.trim().is_empty() {
+        tokens.push(start, scalar_end, kind);
+    }
     if let Some(comment) = comment {
         tokens.push(scalar_end, scalar_end + comment.len(), TokenKind::Comment);
     }
+}
+
+/// The length of the anchor (`&name`) or tag (`!tag`, `!!str`,
+/// `!<uri>`) starting `text`, followed by a space or the end.
+fn property_len(text: &str) -> Option<usize> {
+    if !text.starts_with(['&', '!']) {
+        return None;
+    }
+    Some(text.find([' ', '\t']).unwrap_or(text.len()))
+}
+
+/// Whether `text` is a block scalar's header: `|` or `>`, then an
+/// indentation digit and a chomping `+` or `-` in either order.
+fn is_block_indicator(text: &str) -> bool {
+    text.strip_prefix(['|', '>']).is_some_and(|rest| {
+        rest.len() <= 2
+            && rest.chars().all(|mark| matches!(mark, '1'..='9' | '+' | '-'))
+            && rest.matches(['+', '-']).count() <= 1
+    })
 }
 
 pub(super) fn scalar_kind(scalar: &str) -> TokenKind {

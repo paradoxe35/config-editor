@@ -117,14 +117,16 @@ test.describe('touch on a phone', () => {
     await expect(e.input).toBeFocused();
     expect((await e.caret()).line).toBe(1);
 
-    // A tap on the underlined value: the message shows (no hover on a phone).
+    // A tap on the underlined value: the message shows (no hover on a phone),
+    // in the docs card of its documented key, the problem tip yielding.
     await tap(page, 3, 0);
     await tap(page, 0, 9);
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveClass(/config-editor__diagnostic-marker-shown/);
-    const tip = page.locator('.config-editor__problem-tip');
-    await expect(tip).toBeVisible();
-    await expect(tip).toContainText('Error');
+    const card = page.locator('.config-editor__hover');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.config-editor__problem-tip-entry')).toContainText('Error');
+    await expect(page.locator('.config-editor__problem-tip')).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });

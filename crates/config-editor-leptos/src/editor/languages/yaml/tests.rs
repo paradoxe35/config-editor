@@ -1595,3 +1595,18 @@ fn several_documents_say_so_in_plain_words_at_the_second() {
         assert_eq!(error.line, Some(text[..second].matches('\n').count() + 1), "{text:?}");
     }
 }
+
+/// QA 22: a complex key's value line (`: y` under `- ? x`) was coloured as
+/// the plain key going on, colon and all; its colon is punctuation.
+#[test]
+fn a_complex_keys_value_line_is_not_a_plain_scalar_going_on() {
+    for source in ["list:\n  - ? x\n    : y\n", "? x\n: y\n", "a: b\n  : c\n"] {
+        let constructs = YamlBehavior.multiline_constructs(source);
+        let colon = source.rfind(':').unwrap();
+        let covering: Vec<_> = constructs
+            .iter()
+            .filter(|construct| construct.range.contains(&colon))
+            .collect();
+        assert!(covering.is_empty(), "{source:?}: {covering:?}");
+    }
+}

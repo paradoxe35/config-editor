@@ -38,6 +38,7 @@ mod history;
 mod host_diagnostics;
 mod host_editing;
 mod hover;
+mod hover_problems;
 mod inline;
 mod input;
 pub use input::flush_pending_input;

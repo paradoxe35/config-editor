@@ -135,6 +135,8 @@ pub(in crate::editor) struct PeekViewport {
     /// here (`bottom`), so it grows upward to fit its content.
     pub(in crate::editor) root_bottom: f64,
     pub(in crate::editor) root_left: f64,
+    /// Right edge of the editor's root: the peek stays inside the editor.
+    pub(in crate::editor) root_right: f64,
 }
 
 /// Change-preview header height, in pixels: the sticky header and one row
@@ -190,12 +192,14 @@ pub(in crate::editor) fn peek_geometry(
     if anchor_y + metrics.line_height < area_top - margin || anchor_y > area_bottom + margin {
         return Declarations::new().set("visibility", "hidden");
     }
-    let left_in_viewport = (viewport.editor_left + PEEK_GUTTER_NUDGE).clamp(
-        margin,
-        (viewport.viewport_width - PEEK_MIN_WIDTH - margin).max(margin),
-    );
-    let width =
-        PEEK_PREFERRED_WIDTH.min((viewport.viewport_width - left_in_viewport - margin).max(0.0));
+    // Inside the editor (and the window): from the text's left when it
+    // fits there, else moved left (over the gutter) to keep its width.
+    let right = viewport.root_right.min(viewport.viewport_width - margin);
+    let leftmost = viewport.root_left.max(margin);
+    let left_in_viewport = (viewport.editor_left + PEEK_GUTTER_NUDGE)
+        .min(right - PEEK_PREFERRED_WIDTH)
+        .max(leftmost);
+    let width = PEEK_PREFERRED_WIDTH.min((right - left_in_viewport).max(PEEK_MIN_WIDTH));
     let stacked = width < PEEK_SIDE_BY_SIDE_WIDTH;
     let cap = PEEK_MAX_HEIGHT.min(viewport.viewport_height * PEEK_MAX_HEIGHT_VIEWPORT_FRACTION);
     let desired_height = (PEEK_HEADER_HEIGHT
@@ -253,6 +257,7 @@ pub(in crate::editor) fn peek_popup_style(
             root_top: root_rect.top,
             root_bottom: root_rect.bottom,
             root_left: root_rect.left,
+            root_right: root_rect.right,
         },
         &metrics,
         line,
@@ -472,6 +477,7 @@ mod tests {
             root_top: 80.0,
             root_bottom: 640.0,
             root_left: 40.0,
+            root_right: 1060.0,
         }
     }
 
@@ -543,10 +549,39 @@ mod tests {
             root_top: 0.0,
             root_bottom: 700.0,
             root_left: 0.0,
+            root_right: 390.0,
         };
         let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 2, 1, 1).to_string();
         let content = PEEK_HEADER_HEIGHT + PEEK_SIDE_HEADING_HEIGHT + 2.0 * PEEK_LINE_HEIGHT;
         assert!(style_number(&style, "max-height:") >= content, "{style}");
+    }
+
+    /// QA 22: on a 390 px phone the preview ran past the editor's right
+    /// edge (sized to the window from the text's left). It stays inside
+    /// the editor, moved left over the gutter to keep its width.
+    #[test]
+    fn peek_geometry_stays_inside_the_editor_sideways() {
+        let viewport = PeekViewport {
+            viewport_width: 390.0,
+            viewport_height: 700.0,
+            editor_top: 60.0,
+            editor_bottom: 300.0,
+            editor_left: 105.0,
+            editor_scroll_top: 0.0,
+            root_top: 20.0,
+            root_bottom: 330.0,
+            root_left: 20.0,
+            root_right: 370.0,
+        };
+        let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 2, 1, 1).to_string();
+        let left = viewport.root_left + style_number(&style, "left:");
+        let width = style_number(&style, "width:");
+        assert!(left >= 20.0 && left + width <= 370.0, "{style}");
+        assert_eq!(width, 350.0, "{style}");
+        // A wide editor keeps it at the text's left.
+        let style =
+            peek_geometry(&test_viewport(), &EditorMetrics::fallback(), 2, 1, 1).to_string();
+        assert!(style.contains("left:15.0px;"), "{style}");
     }
 
     #[test]

@@ -18,7 +18,10 @@ mod focus;
 mod suggestions;
 mod texts;
 
-pub(super) use caret_note::{caret_position, connect_caret_note, open_docs_key, show_at_caret};
+pub(super) use caret_note::{
+    caret_position, caret_problems_said, connect_caret_note, open_docs_key, problems_at_caret,
+    show_at_caret,
+};
 pub(super) use focus::{focus_keys, toggle_tab_focus};
 pub(super) use suggestions::connect_suggestions;
 pub(super) use texts::{hover_text, problem_announcement, problem_marker, severity_name};

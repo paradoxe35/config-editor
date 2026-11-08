@@ -23,6 +23,9 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the JSON and XML scanners note it")
     )]
     SpanScan,
+    /// One element's document path built (XML), where only the caret's
+    /// was wanted.
+    ElementPath,
 }
 
 impl Work {
@@ -33,13 +36,14 @@ impl Work {
             Self::PathLookup => 1,
             Self::LineSplit => 2,
             Self::SpanScan => 3,
+            Self::ElementPath => 4,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 4]> = const { std::cell::Cell::new([0; 4]) };
+    static COUNTS: std::cell::Cell<[usize; 5]> = const { std::cell::Cell::new([0; 5]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

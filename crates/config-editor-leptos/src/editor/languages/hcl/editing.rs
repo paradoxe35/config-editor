@@ -169,12 +169,19 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
         _ => None,
     };
     let entries = entry_keys(content, &tokens);
+    let mut after_punctuation = false;
     for (index, token) in tokens.iter().enumerate() {
         let kind = if entries.contains(&index) {
             TokenKind::Key
         } else {
-            token_kind(content, token, key_end)
+            let expression = after_punctuation
+                || matches!(
+                    tokens.get(index + 1).map(|next| next.kind),
+                    Some(Kind::Punct('.' | '(' | '['))
+                );
+            token_kind(content, token, key_end, expression)
         };
+        after_punctuation |= matches!(token.kind, Kind::Punct(_));
         out.push(indent + token.start, indent + token.end, kind);
     }
     out.finish()
@@ -221,7 +228,15 @@ pub(super) fn comments(source: &str) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
-pub(super) fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> TokenKind {
+/// The colour of `token` of `line`; `expression` says it is in an
+/// expression (after punctuation, or before a `.`, `(` or `[`), where a
+/// name is a reference or a function's, not a block's label.
+pub(super) fn token_kind(
+    line: &str,
+    token: &Token,
+    key_end: Option<usize>,
+    expression: bool,
+) -> TokenKind {
     match token.kind {
         Kind::Comment => TokenKind::Comment,
         Kind::Punct(_) => TokenKind::Punctuation,
@@ -238,8 +253,18 @@ pub(super) fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> T
                         .is_some_and(|character| character.is_ascii_digit())
                 {
                     TokenKind::Literal
-                } else {
+                } else if matches!(text, "for" | "in" | "if" | "else" | "endif" | "endfor") {
+                    // The keywords of `for` expressions and template
+                    // directives.
+                    TokenKind::Literal
+                } else if !expression {
+                    // A block's bare label, or a word being typed.
                     TokenKind::Value
+                } else {
+                    // HCL has no bare strings: a name in an expression is a
+                    // reference (`var.ami`) or a function's (`length(…)`),
+                    // named like keys.
+                    TokenKind::Key
                 }
             }
         }

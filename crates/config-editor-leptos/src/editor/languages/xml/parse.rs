@@ -457,9 +457,10 @@ fn remembered_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     spans
 }
 
-/// Lines wholly inside element text spanning lines: after its first line,
-/// through its last unless that line goes on with markup.
-pub(super) fn text_body_lines(source: &str) -> Vec<std::ops::Range<usize>> {
+/// The lines of `text_bodies::text_body_lines` read off the full span scan,
+/// which it must match.
+#[cfg(test)]
+pub(super) fn text_body_lines_from_spans(source: &str) -> Vec<std::ops::Range<usize>> {
     let line_of = |byte: usize| source[..byte].matches('\n').count();
     document_spans(source)
         .1

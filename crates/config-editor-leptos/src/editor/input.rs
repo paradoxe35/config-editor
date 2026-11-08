@@ -410,10 +410,12 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     schedule_hover(state, move |state| {
         if state.hover().token.get_value() == token {
             state.hover().pending.set_value(None);
-            state
-                .hover()
-                .card
-                .set(Some(HoverCard { info, line, style }));
+            state.hover().card.set(Some(HoverCard {
+                info,
+                line,
+                caret: None,
+                style,
+            }));
         }
     });
 }

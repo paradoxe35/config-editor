@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 
-use super::a11y::{caret_position, hover_text};
+use super::a11y::{caret_position, caret_problems_said, hover_text, problems_at_caret};
 use super::completion::key_hover;
 use super::components::HoverCard;
 use super::positioning::hover_card_style;
@@ -47,11 +47,7 @@ impl EditorState {
         if self.hover().at_caret.get_value() {
             return;
         }
-        let reachable = self.hover().card.with_untracked(|card| {
-            card.as_ref()
-                .is_some_and(|card| card.info.docs_url.is_some())
-        });
-        if !reachable {
+        if !self.card_reachable() {
             self.hide_hover();
             return;
         }
@@ -99,9 +95,22 @@ impl EditorState {
             return false;
         };
         self.hide_hover();
-        let said = self.strings_untracked(|strings| hover_text(strings, &info));
+        let caret = problems_at_caret(*self);
+        // The problems it lists, then its docs.
+        let problems = caret_problems_said(*self);
+        let docs = self.strings_untracked(|strings| hover_text(strings, &info));
+        let said = if problems.is_empty() {
+            docs
+        } else {
+            format!("{problems}. {docs}")
+        };
         let style = hover_card_style(&element, line, info.start_column);
-        self.hover().card.set(Some(HoverCard { info, line, style }));
+        self.hover().card.set(Some(HoverCard {
+            info,
+            line,
+            caret,
+            style,
+        }));
         self.hover().at_caret.set_value(true);
         self.a11y().announce(said);
         true

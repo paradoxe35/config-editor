@@ -16,6 +16,7 @@
 
 mod tokens;
 mod scan;
+mod plan;
 mod parse;
 mod suggestions;
 mod hover;
@@ -23,17 +24,20 @@ mod editing;
 mod typed;
 mod convert;
 mod text;
+mod text_bodies;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
 
 use tokens::*;
 use scan::*;
+use plan::*;
 use parse::*;
 use suggestions::*;
 use hover::*;
 use editing::*;
 use convert::*;
+use text_bodies::*;
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default, schema_example};

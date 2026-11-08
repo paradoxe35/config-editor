@@ -147,32 +147,58 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
     true
 }
 
-/// Shows what is at the caret as the pointer would: the messages of the
-/// problems on the character after it (or, at a word's end, before it),
-/// what the protected text there is, or the key's docs (the hover card).
-/// A tap on a phone has no hover to show them with.
-pub(in crate::editor) fn show_at_caret(state: EditorState) {
+/// The problems at the caret, as its note words them.
+pub(in crate::editor) fn caret_problems_said(state: EditorState) -> String {
     let caret = state.doc().caret.get_untracked();
-    let (line, column, place) = state.doc().text.with_untracked(|text| {
+    let (line, column) = state
+        .doc()
+        .text
+        .with_untracked(|text| caret_position(text, caret));
+    state.strings_untracked(|strings| {
+        state
+            .problems()
+            .diagnostics
+            .with_untracked(|problems| note(strings, problems, line, column, None))
+    })
+}
+
+/// Where the problems at the caret are, one-based: where the innermost
+/// problem on the character after it (or, at a word's end, before it)
+/// starts on its line (F8's place when it starts there, its underline
+/// marked shown).
+pub(in crate::editor) fn problems_at_caret(state: EditorState) -> Option<(usize, usize)> {
+    let caret = state.doc().caret.get_untracked();
+    state.doc().text.with_untracked(|text| {
         let (line, column) = caret_position(text, caret);
         let line_text = text.split('\n').nth(line - 1).unwrap_or("");
-        // Where the innermost problem there starts on the line: F8's place
-        // when it starts there (its underline marked shown).
-        let place = state.problems().diagnostics.with_untracked(|problems| {
+        let at = state.problems().diagnostics.with_untracked(|problems| {
             [Some(column), column.checked_sub(1).filter(|at| *at > 0)]
                 .into_iter()
                 .flatten()
                 .find_map(|at| innermost_start(problems, line, at, line_text))
         });
-        (line, column, place.map(|at| (line, at)))
-    });
-    match place {
-        Some(place) => state.problems().current.set(Some(place)),
-        // Else the key's docs, as the pointer's hover shows them.
-        None => {
-            if !state.hover_protected(line - 1, column - 1) {
-                state.show_hover_at_caret();
-            }
-        }
+        at.map(|at| (line, at))
+    })
+}
+
+/// Shows what is at the caret as the pointer would: the messages of the
+/// problems there and the key's docs (the hover card, listing those
+/// problems when it shows), else what the protected text there is. A tap
+/// on a phone has no hover to show them with; `Ctrl+K Ctrl+I` is the
+/// keyboard's way.
+pub(in crate::editor) fn show_at_caret(state: EditorState) {
+    let place = problems_at_caret(state);
+    if place.is_some() {
+        state.problems().current.set(place);
+        state.show_hover_at_caret();
+        return;
+    }
+    let caret = state.doc().caret.get_untracked();
+    let (line, column) = state
+        .doc()
+        .text
+        .with_untracked(|text| caret_position(text, caret));
+    if !state.hover_protected(line - 1, column - 1) {
+        state.show_hover_at_caret();
     }
 }

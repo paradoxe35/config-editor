@@ -35,7 +35,7 @@ const rowTokens = (page) =>
 const CASES = {
   toml: {
     text: 'clients = [\n  "a", # one\n  """b\nc""", 2,\n]\ns = """\nline two"""\nlisten = 7835\n',
-    rows: ['k(clients) _(=) p([)', 's("a") p(,) c(# one)', 's("""b)', 's(c""") p(,) l(2) p(,)', 'p(])', 'k(s) _(=) s(""")', 's(line two""")', 'k(listen) _(=) l(7835)'],
+    rows: ['k(clients) p(=) p([)', 's("a") p(,) c(# one)', 's("""b)', 's(c""") p(,) l(2) p(,)', 'p(])', 'k(s) p(=) s(""")', 's(line two""")', 'k(listen) p(=) l(7835)'],
   },
   yaml: {
     text: 'q: "line one\n  line two" # c\np: plain one\n  plain two\nf: {max: 5,\n  other: "x"} # c\nlisten: 7835\n',

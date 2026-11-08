@@ -275,3 +275,83 @@ fn keys_and_literals_are_coloured_in_every_form() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// (language, line, a part of it, its kind): YAML's anchors and aliases
+/// (named like keys), tags (like literals), block scalar indicators and the
+/// value indicator of a complex key (punctuation), a flow collection after
+/// an anchor or a tag; TOML's `=` and the dots of a dotted key in an
+/// inline table; HCL's references and function names (named like keys)
+/// and `for`/`in` (like literals), never coloured as strings.
+fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
+    use TokenKind::{Key, Literal, Punctuation};
+    vec![
+        (Language::YAML, "    : y", ":", Punctuation),
+        (Language::YAML, "  - ? x", "?", Punctuation),
+        (Language::YAML, "a: &anchor 1", "&anchor", Key),
+        (Language::YAML, "a: &anchor 1", "1", Literal),
+        (Language::YAML, "b: *anchor", "*anchor", Key),
+        (Language::YAML, "  <<: *base", "*base", Key),
+        (Language::YAML, "- *item", "*item", Key),
+        (Language::YAML, "t: !!str 123", "!!str", Literal),
+        (Language::YAML, "t: !local value", "!local", Literal),
+        (Language::YAML, "t: !!map &m {x: 1}", "&m", Key),
+        (Language::YAML, "s: |", "|", Punctuation),
+        (Language::YAML, "f: >-", ">-", Punctuation),
+        (Language::YAML, "k: |2+ # c", "|2+", Punctuation),
+        (
+            Language::YAML,
+            "a: &a { x: 1, y: [1, 2] }",
+            "{",
+            Punctuation,
+        ),
+        (Language::YAML, "a: &a { x: 1, y: [1, 2] }", "x", Key),
+        (Language::YAML, "a: &a { x: 1, y: [1, 2] }", "2", Literal),
+        (Language::YAML, "t: !!map {x: 1}", "x", Key),
+        (Language::TOML, "a = 1", "=", Punctuation),
+        (Language::TOML, "inline = { b.c = \"x\" }", ".", Punctuation),
+        (Language::TOML, "inline = { b.c = \"x\" }", "c", Key),
+        (Language::TOML, "a.b.c = 1", ".", Punctuation),
+        (Language::HCL, "  ami = var.ami", "var", Key),
+        (Language::HCL, "  ami = var.ami", "ami", Key),
+        (Language::HCL, "  n = length(var.list)", "length", Key),
+        (Language::HCL, "  n = length(var.list)", "list", Key),
+        (
+            Language::HCL,
+            "  t = { for k, v in var.m : k => upper(v) }",
+            "for",
+            Literal,
+        ),
+        (
+            Language::HCL,
+            "  t = { for k, v in var.m : k => upper(v) }",
+            " in",
+            Literal,
+        ),
+        (
+            Language::HCL,
+            "  t = { for k, v in var.m : k => upper(v) }",
+            "upper",
+            Key,
+        ),
+    ]
+}
+
+/// QA 22: YAML's anchors, aliases, tags and block indicators were plain
+/// values (a flow mapping after an anchor one plain run), TOML's `=` and
+/// an inline table's key dots were not punctuation, and HCL's references
+/// and function calls took the string colour.
+#[test]
+fn syntax_marks_have_their_own_colours() {
+    let mut failures = Vec::new();
+    for (language, line, part, kind) in marks() {
+        check(&mut failures, language, line, part, kind, &[' ']);
+    }
+    // The last of a part found twice: the value's `ami`, after the key's.
+    let line = "  ami = var.ami";
+    let tokens = Language::HCL.behavior().highlight(line);
+    let last = line.rfind("ami").unwrap();
+    if kind_at(&tokens, last) != Some(TokenKind::Key) {
+        failures.push(format!("hcl {line:?}: the reference's ami"));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -15,9 +15,11 @@ use crate::cssom::cssom;
 use crate::reactive::Relay;
 use segments::{Segment, plan};
 
+mod entries;
 mod segments;
 mod tip;
 
+pub(crate) use entries::{Entry, entries_view, problems_at};
 /// Most underlines drawn in all (see `segments`).
 pub(super) use segments::MAX_DRAWN as MAX_UNDERLINES;
 pub(crate) use tip::ProblemTip;

@@ -497,9 +497,9 @@ fn attributes_color_key_equals_and_value() {
             run(None, " "),
             run(Some(Punctuation), "="),
             run(None, " "),
-            run(Some(Value), "var"),
+            run(Some(Key), "var"),
             run(Some(Punctuation), "."),
-            run(Some(Value), "name"),
+            run(Some(Key), "name"),
         ]
     );
 }
