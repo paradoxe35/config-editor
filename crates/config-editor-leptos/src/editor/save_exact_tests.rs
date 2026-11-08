@@ -497,3 +497,136 @@ fn untouched_numbers_stay_as_written_through_any_view() {
     }
     report(failures);
 }
+
+/// The XML view writes every scalar as text and guesses its type on
+/// reading, so a value edited there keeps the host's type: a string stays a
+/// string whatever is typed (`"1"` made `12` is `"12"`), an emptied element
+/// is the empty string where the host has a string, and the save waits
+/// where the host has a number or a boolean (round 19: `{}` was saved).
+/// The host's other lines, and the spacing before its comment, stay.
+#[test]
+fn a_scalar_edited_in_the_xml_view_keeps_the_hosts_type() {
+    let hosts = [
+        (
+            Language::YAML,
+            "# top\nname: edge  # nc\nver: \"1\"\nflag: \"yes\"\nport: 80  # pc\nok: true\nn: 1\n",
+        ),
+        (
+            Language::TOML,
+            "# top\nname = \"edge\"  # nc\nver = \"1\"\nflag = \"true\"\nport = 80  # pc\nok = true\nn = 1\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nname = \"edge\"  # nc\nver = \"1\"\nflag = \"true\"\nport = 80  # pc\nok = true\nn = 1\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"name\": \"edge\",\n  \"ver\": \"1\",\n  \"flag\": \"true\",\n  \"port\": 80,\n  \"ok\": true,\n  \"n\": 1\n}\n",
+        ),
+    ];
+    // What is typed into the element, and what the host then holds (`None`:
+    // the save waits).
+    let cases: &[(&str, Value, Option<Value>)] = &[
+        ("name", json!(""), Some(json!(""))),
+        ("name", json!(9), Some(json!("9"))),
+        ("name", json!(true), Some(json!("true"))),
+        ("name", json!("x y"), Some(json!("x y"))),
+        ("ver", json!(12), Some(json!("12"))),
+        ("ver", json!(""), Some(json!(""))),
+        ("flag", json!(false), Some(json!("false"))),
+        ("port", json!(""), None),
+        ("port", json!(81), Some(json!(81))),
+        ("port", json!(1.5), Some(json!(1.5))),
+        ("port", json!("abc"), Some(json!("abc"))),
+        ("ok", json!(""), None),
+        ("ok", json!(false), Some(json!(false))),
+    ];
+    let mut failures = Vec::new();
+    for (host, text) in hosts {
+        for (key, typed, held) in cases {
+            let case = format!("{host} host, {key} = {typed} via XML");
+            let saved = save_value(host, Language::XML, text, &|value| {
+                *slot(value, &format!("/{key}")) = typed.clone();
+            });
+            match (saved, held) {
+                (Err(error), None) if error.contains(&format!("/{key}")) => {}
+                (Err(error), _) => failures.push(format!("{case}: {error}")),
+                (Ok(saved), None) => failures.push(format!("{case}: saved\n{saved}")),
+                (Ok(saved), Some(held)) => {
+                    let mut expected = host.parse(text).expect("parses");
+                    *slot(&mut expected, &format!("/{key}")) = held.clone();
+                    if host.parse(&saved).ok() != Some(expected) {
+                        failures.push(format!("{case}: reads back otherwise\n{saved}"));
+                    }
+                    // Only the edited line changed, its comment as it was.
+                    let other_lines = |text: &str| -> Vec<String> {
+                        text.lines()
+                            .filter(|line| !line.contains(&format!("{key}\"")))
+                            .filter(|line| !line.starts_with(&format!("{key}:")))
+                            .filter(|line| !line.starts_with(&format!("{key} =")))
+                            .map(str::to_string)
+                            .collect()
+                    };
+                    let edited_line = |text: &str| {
+                        text.lines()
+                            .find(|line| {
+                                line.starts_with(&format!("{key}:"))
+                                    || line.starts_with(&format!("{key} ="))
+                            })
+                            .map(|line| line.contains("  # ") == line.contains('#'))
+                    };
+                    if other_lines(&saved) != other_lines(text)
+                        || edited_line(&saved) != edited_line(text)
+                    {
+                        failures.push(format!("{case}: other lines changed\n{saved}"));
+                    }
+                }
+            }
+        }
+        // A value changing type from a typed view keeps the spacing before
+        // its comment too.
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            for (key, typed) in [("name", json!(9)), ("port", json!("x"))] {
+                let saved = save_value(host, edit, text, &|value| {
+                    *slot(value, &format!("/{key}")) = typed.clone();
+                });
+                let gap_kept = saved.as_ref().is_ok_and(|saved| {
+                    saved.lines().filter(|line| line.contains("  # ")).count()
+                        == text.lines().filter(|line| line.contains("  # ")).count()
+                });
+                if !gap_kept {
+                    failures.push(format!(
+                        "{host} host, {key} = {typed} via {edit}: {saved:?}"
+                    ));
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A TOML datetime emptied or typed half-way in any view (the XML view
+/// reads `2` as a number) waits, and the finished one is written bare.
+#[test]
+fn a_toml_datetime_retyped_in_any_view_stays_a_datetime() {
+    let host = "# c\ndt = 1979-05-27T07:32:00Z  # dtc\nn = 1\n";
+    let mut failures = Vec::new();
+    for edit in ALL.into_iter().filter(|edit| *edit != Language::TOML) {
+        for typed in [json!(""), json!(2), json!(2024), json!(true)] {
+            let saved = save_value(Language::TOML, edit, host, &|value| {
+                *slot(value, "/dt") = typed.clone();
+            });
+            if !saved.as_ref().is_err_and(|error| error.contains("/dt")) {
+                failures.push(format!("{typed} via {edit}: {saved:?}"));
+            }
+        }
+        let saved = save_value(Language::TOML, edit, host, &|value| {
+            *slot(value, "/dt") = "2024-01-02T03:04:05Z".into();
+        });
+        let expected = host.replace("1979-05-27T07:32:00Z", "2024-01-02T03:04:05Z");
+        if saved.as_ref() != Ok(&expected) {
+            failures.push(format!("finished via {edit}: {saved:?}"));
+        }
+    }
+    report(failures);
+}

@@ -13,6 +13,7 @@ use super::language::ConfigLanguage;
 use std::sync::Arc;
 
 mod merge;
+mod text_scalars;
 use merge::merge_changes;
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
@@ -123,6 +124,20 @@ impl Bridge {
                 ))
             })?,
             None => edited,
+        };
+        // A view that writes every scalar as text (XML) only guesses types:
+        // the edited values keep the host's.
+        let value = match &seen {
+            Some(seen) if self.edit.behavior().scalars_are_text() => {
+                text_scalars::in_host_types(&old, seen, value).map_err(|pointer| {
+                    ConvertError::Unsupported(format!(
+                        "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
+                        self.edit.label(),
+                        self.host.label()
+                    ))
+                })?
+            }
+            _ => value,
         };
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
