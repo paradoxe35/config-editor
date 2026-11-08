@@ -719,7 +719,11 @@ binding.detach();
 
 `DocumentsBinding` does the same for a `ConfigDocuments` view (`label`,
 `viewClassName` and whether `onClose` is set re-mount; a new `activeId`
-shows that document). `SETTING_TYPES` is every setting's key and the
+shows that document). A component unmounted from inside a callback (state
+set in `onChange` that hides it) is destroyed when the framework commits
+that, after the callback returns: React and Svelte do so asynchronously,
+so the callbacks the same edit fires next (`onChangeSummary`,
+`onDirtyChange`) still arrive first; after `detach()` none does. `SETTING_TYPES` is every setting's key and the
 JavaScript type of its values, generated from the Rust struct: plain data,
 readable before the WebAssembly loads (Vue declares its props from it, and
 `Object.keys(SETTING_TYPES)` picks the settings out of a component's props).
@@ -902,7 +906,7 @@ const view = new ConfigDocuments(document.getElementById("files"), {
   onSelect: (id) => console.log("showing", id),
 });
 view.saveAll(); // saves the dirty documents; returns their ids
-view.select("limits"); // shows it and focuses its editor
+view.select("limits"); // shows it and focuses its editor; false for an id not listed
 view.activeId; // "limits"
 view.isDirty("main");
 ```
@@ -949,7 +953,9 @@ view.isDirty("main");
   is), the settings and the callbacks. `className` and `label` (the tab
   list's name) are fixed and throw, and so does an `onClose` for a view
   created without one (its tabs have no close buttons); `activeId` given to
-  the constructor is the document shown first. Also `destroy()`.
+  the constructor is the document shown first. An `activeId` not listed
+  throws there, as a wrong option does; `select(id)` is a request and
+  answers `false` for an id not listed. Also `destroy()`.
 
 ```js
 files = files.map((file) =>
@@ -1083,7 +1089,9 @@ With `styled: false` the editor injects nothing, and its markup
 (`config-editor__*` classes) is yours to style; `presetCss()` returns the
 preset stylesheet to serve or adapt.
 
-The `colors` setting sets the variables per editor. The diff markers use `added`,
+The `colors` setting sets the variables per editor, by token: its type is
+`ThemeColorMap`, keyed by `ThemeColorToken` (both exported), which lists
+every token. The diff markers use `added`,
 `modified` and `removed` (which follows `error` unless set), and the
 footer's change count `status-changes`.
 

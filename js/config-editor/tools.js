@@ -1,8 +1,8 @@
 // `@pngwasi/config-editor/tools`: text without an editor (servers, build
 // steps, review screens). The same answers the editor gives: checks,
-// conversion, parsing, diffs, paths, folds, the stylesheet and color
-// tokens. They need the WebAssembly module: `await loadConfigEditor()`
-// (also exported here) first.
+// conversion, parsing, change summaries and diffs, paths, the schema's
+// warnings and the preset stylesheet. They need the WebAssembly module:
+// `await loadConfigEditor()` (also exported here) first.
 export {
   changeSummary,
   convert,

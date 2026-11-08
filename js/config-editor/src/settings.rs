@@ -88,8 +88,32 @@ fn describe(key: &str, error: &str) -> String {
         .strip_prefix("invalid type: ")
         .and_then(|rest| rest.split_once(", expected "));
     match wrong_type {
-        Some((got, expected)) => format!("{key} must be {expected} (got {got})"),
+        Some((got, expected)) => format!("{key} must be {expected} (got {})", javascript_kind(got)),
         None => format!("{key}: {error}"),
+    }
+}
+
+/// What serde calls a value it did not expect, as JavaScript calls it:
+/// `unit value` is `null`, ``floating point `5.0` `` is `number 5`, `map`
+/// an object, `sequence` an array.
+fn javascript_kind(serde: &str) -> String {
+    let quoted = |prefix: &str| {
+        serde
+            .strip_prefix(prefix)
+            .map(|rest| rest.trim_matches('`').to_string())
+    };
+    if let Some(number) = quoted("floating point ").or_else(|| quoted("integer ")) {
+        let number = number.strip_suffix(".0").unwrap_or(&number).to_string();
+        return format!("number {number}");
+    }
+    if let Some(value) = quoted("boolean ") {
+        return format!("boolean {value}");
+    }
+    match serde {
+        "unit value" | "unit" | "option" => "null".to_string(),
+        "map" => "an object".to_string(),
+        "sequence" => "an array".to_string(),
+        other => other.to_string(),
     }
 }
 
