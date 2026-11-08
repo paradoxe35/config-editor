@@ -508,18 +508,8 @@ pub(super) fn is_ident(text: &str) -> bool {
 /// line end for bare scalars, to the closing quote for strings.
 pub(super) fn value_token_len(text: &str) -> usize {
     if text.trim_start().starts_with('"') {
-        let trimmed = text.trim_start();
-        let mut escaped = false;
-        for (index, character) in trimmed.char_indices().skip(1) {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == '"' {
-                return text.len() - trimmed.len() + index + 1;
-            }
-        }
-        return trimmed.len();
+        // Through the template sequences in it (`"${ "}" }"`).
+        return string_end(text, text.len() - text.trim_start().len()).0;
     }
     match code_before_comment(text) {
         Some(code) => code.trim_end().len(),

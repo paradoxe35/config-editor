@@ -65,7 +65,7 @@ pub use super::fold_ranges::{
     FoldRange, IndentLine, bracket_fold_ranges, comment_fold_ranges, default_fold_ranges,
     indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
 };
-pub use super::highlight::{Token, TokenKind, Tokens};
+pub use super::highlight::{ConstructKind, MultilineConstruct, Token, TokenKind, Tokens};
 pub use super::inline::{
     InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, in_front_of_inline_entry,
     inline_caret, inline_key_at, inline_key_paths, inline_keys, inline_sibling_keys,
@@ -1265,6 +1265,33 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn multiline_strings(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         let _ = source;
         Vec::new()
+    }
+
+    /// The constructs `source` writes over several lines, other than
+    /// [comments](Self::comments), in order: each line of one past its first
+    /// is colored as what it is, up to the construct's end, the rest of its
+    /// last line by [`highlight`](Self::highlight). A
+    /// [`ConstructKind::Colored`] one is one kind of token (a TOML `"""`
+    /// string, a YAML plain scalar's continuation lines); a
+    /// [`ConstructKind::Structure`] one (a TOML array, a YAML flow
+    /// collection, an XML start tag with attributes over lines) is colored
+    /// by [`highlight_continued`](Self::highlight_continued), with the
+    /// comments and strings inside it as those. Default: the
+    /// [`multiline_strings`](Self::multiline_strings), colored as strings.
+    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
+        self.multiline_strings(source)
+            .into_iter()
+            .map(|range| MultilineConstruct::colored(range, TokenKind::String))
+            .collect()
+    }
+
+    /// The tokens of `text`, a part of a line inside a
+    /// [structure construct](ConstructKind::Structure) opened on an earlier
+    /// line (the inside of a TOML array, of an XML start tag), up to the
+    /// construct's end. A string left open colors to the end of `text`.
+    /// Default: [`highlight`](Self::highlight).
+    fn highlight_continued(&self, text: &str) -> Vec<Token> {
+        self.highlight(text)
     }
 
     /// The line ranges that fold (see [`FoldRange`]), sorted by start with

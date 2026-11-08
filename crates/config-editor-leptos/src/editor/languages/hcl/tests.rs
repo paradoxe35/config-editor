@@ -361,6 +361,74 @@ fn an_open_string_is_reported_to_the_pairing_guard() {
     assert!(HclBehavior.lexical_state("/* region", 9).in_comment);
 }
 
+/// Quotes and comment markers inside a template sequence of a string
+/// (`"${ "#" }"`, nested ones, `%{ … }`) neither close the string nor open
+/// a comment, for every reader of the text: the comments, the comment
+/// start Edit-as matches lines by, and the pairing guard.
+#[test]
+fn markers_inside_template_sequences_are_string_text() {
+    let lines = [
+        "a = \"${\"/*\"}\"",
+        "a = \"a${ \"*/\" }b\"",
+        "a = \"a${ x /* c */ }b\"",
+        "a = \"a${\"#\"}b\"",
+        "a = \"a${ \" #\" }b\"",
+        "a = \"a${ \" // x\" }b\"",
+        "a = \"%{ if true }/*%{ endif }\"",
+        "a = \"${\"${\" #\"}\"}\"",
+    ];
+    let mut failures = Vec::new();
+    for line in lines {
+        let source = format!("{line} # c\nb = 1\n");
+        let comments: Vec<&str> = HclBehavior
+            .comments(&source)
+            .into_iter()
+            .map(|range| &source[range])
+            .collect();
+        if comments != ["# c"] {
+            failures.push(format!("{line}: comments {comments:?}"));
+        }
+        let with_comment = format!("{line} # c");
+        if HclBehavior.comment_start(&with_comment) != Some(line.len() + 1) {
+            failures.push(format!(
+                "{line}: comment start {:?}",
+                HclBehavior.comment_start(&with_comment)
+            ));
+        }
+        if HclBehavior.comment_start(line).is_some() {
+            failures.push(format!("{line}: a comment start without a comment"));
+        }
+        let end = line.encode_utf16().count();
+        let state = HclBehavior.lexical_state(line, end);
+        if state.quote.is_some() || state.in_comment {
+            failures.push(format!("{line}: after it {state:?}"));
+        }
+        let next = format!("{line}\nb = 1");
+        let state = HclBehavior.lexical_state(&next, next.encode_utf16().count());
+        if state.quote.is_some() || state.in_comment {
+            failures.push(format!("{line}: on the next line {state:?}"));
+        }
+        // Inside the template's string, the caret is in a string.
+        if let Some(at) = line.find("${\"").map(|at| at + 3) {
+            let state = HclBehavior.lexical_state(line, at);
+            if state.quote != Some('"') || state.in_comment {
+                failures.push(format!("{line}: inside {state:?}"));
+            }
+        }
+    }
+    // A value replaced by a suggestion runs through its template sequences.
+    let value = "\"${ \"}\" }\" # c";
+    if super::value_token_len(value) != value.len() - 4 {
+        failures.push(format!("{value}: value length {}", super::value_token_len(value)));
+    }
+    // `$${` is a literal `${`: the string closes at the next quote.
+    let literal = "a = \"$${\" # c";
+    if HclBehavior.comment_start(literal) != Some(literal.len() - 3) {
+        failures.push(format!("{literal}: {:?}", HclBehavior.comment_start(literal)));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 
 #[test]
 fn an_object_property_expands_to_a_block_with_the_caret_on_the_first_value() {

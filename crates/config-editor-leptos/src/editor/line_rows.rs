@@ -2,7 +2,7 @@ use super::changes::{LineDiff, RowPeeks, line_kind, row_peeks};
 use super::diagnostics::{Diagnostic, Severity};
 use super::diff::DiffKind;
 use super::fold_ranges::FoldRange;
-use super::highlight::comment_lines::{CommentLines, covered, tokens_after_comment};
+use super::highlight::spanning::{LineStart, Spanning, tokens_after};
 use super::highlight::{Token, TokenKind, Tokens};
 use super::languages::Language;
 use super::protect::ProtectState;
@@ -178,34 +178,26 @@ pub(super) enum RowHighlight {
     StringBody,
     /// Tokens of the language.
     Language(Language),
-    /// A line whose first `end` bytes (`usize::MAX`: all) are in a comment
-    /// (or string: `kind`) opened on an earlier line; the language colors
-    /// the rest.
-    AfterComment {
+    /// A line that constructs opened on earlier lines reach (a comment, a
+    /// string, structure): those color its start, the language the rest.
+    Continued {
         language: Language,
-        end: usize,
-        kind: TokenKind,
+        start: LineStart,
     },
 }
 
 impl RowHighlight {
     /// The tokens of the row's `text`.
     pub(super) fn tokens(self, text: &str) -> Vec<Token> {
-        let all = |kind| {
-            let mut tokens = Tokens::new();
-            tokens.push(0, text.len(), kind);
-            tokens.finish()
-        };
         match self {
             RowHighlight::Plain => Vec::new(),
-            RowHighlight::StringBody => all(TokenKind::String),
+            RowHighlight::StringBody => {
+                let mut tokens = Tokens::new();
+                tokens.push(0, text.len(), TokenKind::String);
+                tokens.finish()
+            }
             RowHighlight::Language(language) => language.behavior().highlight(text),
-            RowHighlight::AfterComment { end, kind, .. } if end >= text.len() => all(kind),
-            RowHighlight::AfterComment {
-                language,
-                end,
-                kind,
-            } => tokens_after_comment(language, text, end, kind),
+            RowHighlight::Continued { language, start } => tokens_after(language, text, start),
         }
     }
 }
@@ -217,8 +209,8 @@ pub(super) struct Highlighting<'a> {
     pub(super) language: Option<Language>,
     /// The lines inside multi-line string bodies.
     pub(super) string_bodies: &'a [Range<usize>],
-    /// The lines past the first of comments written over several lines.
-    pub(super) comments: &'a [CommentLines],
+    /// The constructs written over several lines.
+    pub(super) spanning: &'a Spanning,
 }
 
 impl Highlighting<'_> {
@@ -226,12 +218,9 @@ impl Highlighting<'_> {
         let Some(language) = self.language else {
             return RowHighlight::Plain;
         };
-        if let Some((end, kind)) = covered(self.comments, index) {
-            return RowHighlight::AfterComment {
-                language,
-                end,
-                kind,
-            };
+        let start = self.spanning.at(index);
+        if !start.is_free() {
+            return RowHighlight::Continued { language, start };
         }
         if self
             .string_bodies

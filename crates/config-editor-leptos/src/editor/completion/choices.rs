@@ -307,6 +307,57 @@ impl<'a> ChoicesAt<'a> {
             .map(|(index, choice)| (choice, self.matched == Some(index)))
     }
 
+    /// The choices offering `key`, each with the key's schema there: the
+    /// matched one alone when it offers it.
+    pub(crate) fn holding(&self, key: &str) -> Vec<(&ObjectChoice<'a>, &'a Value)> {
+        let property = |choice: &ObjectChoice<'a>| {
+            choice
+                .branches
+                .iter()
+                .find_map(|branch| branch.get("properties")?.get(key))
+        };
+        if let Some(choice) = self.matched.map(|index| &self.choices[index])
+            && let Some(schema) = property(choice)
+        {
+            return vec![(choice, schema)];
+        }
+        self.choices
+            .iter()
+            .filter_map(|choice| property(choice).map(|schema| (choice, schema)))
+            .collect()
+    }
+
+    /// The titles of the choices offering `key` (see [`Self::holding`]),
+    /// in one: `Manual, Static file`.
+    pub(crate) fn titles_holding(&self, key: &str) -> Option<String> {
+        let titles: Vec<&str> = self
+            .holding(key)
+            .into_iter()
+            .filter_map(|(choice, _)| choice.doc.title.as_deref())
+            .collect();
+        (!titles.is_empty()).then(|| titles.join(", "))
+    }
+
+    /// What hover on `key`, a key of the object, says about the choices:
+    /// the one offering it (the matched one when it does), else the titles
+    /// of all that do.
+    pub(crate) fn key_hover(&self, key: &str) -> Option<ChoiceHover> {
+        match self.holding(key)[..] {
+            [] => None,
+            [(choice, _)] => {
+                let doc = choice.doc.clone();
+                (doc != ValueDoc::default()).then_some(ChoiceHover::Matched(doc))
+            }
+            ref several => {
+                let titles: Vec<String> = several
+                    .iter()
+                    .filter_map(|(choice, _)| choice.doc.title.clone())
+                    .collect();
+                (!titles.is_empty()).then_some(ChoiceHover::OneOf(titles))
+            }
+        }
+    }
+
     /// What hover says about them: the matched choice's title and
     /// description, else every titled choice.
     pub(crate) fn hover(&self) -> Option<ChoiceHover> {

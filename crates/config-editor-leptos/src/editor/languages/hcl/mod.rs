@@ -30,7 +30,7 @@ use editing::*;
 use convert::*;
 
 use super::super::commands::indent_unit;
-use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
+use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start, statements, entry_follows, in_front_of_inline_entry, matching_close};
 use super::super::completion::{
     array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
@@ -318,6 +318,23 @@ impl ConfigLanguage for HclBehavior {
 
     fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         comments(source)
+    }
+
+    /// Outside strings and the template sequences in them (`"${ "#" }"`).
+    fn comment_start(&self, line: &str) -> Option<usize> {
+        line_comment_start(line)
+    }
+
+    /// Heredocs: their last line is the string's too.
+    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
+        tokenize(source)
+            .iter()
+            .filter(|token| token.kind == Kind::Heredoc)
+            .map(|token| {
+                let end = token.end - usize::from(source[..token.end].ends_with('\n'));
+                MultilineConstruct::colored(token.start..end, TokenKind::String)
+            })
+            .collect()
     }
 }
 
