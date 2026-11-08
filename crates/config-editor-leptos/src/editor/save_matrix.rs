@@ -21,6 +21,16 @@ pub(super) fn save_value(
     host_text: &str,
     change: &dyn Fn(&mut Value),
 ) -> Result<String, String> {
+    save_conversion(host, edit, host_text, change).map(|saved| saved.text)
+}
+
+/// [`save_value`] with the values the host reads back differently.
+pub(super) fn save_conversion(
+    host: Language,
+    edit: Language,
+    host_text: &str,
+    change: &dyn Fn(&mut Value),
+) -> Result<super::codec::Conversion, String> {
     let bridge = Bridge::new(host, edit, None).ok_or("same language")?;
     let shown = bridge
         .to_edit(host_text)
@@ -30,10 +40,15 @@ pub(super) fn save_value(
     change(&mut value);
     let edited = super::codec::serialize(edit.behavior(), &value, Some(&shown))
         .map_err(|error| error.to_string())?;
-    bridge
+    let mut saved = bridge
         .to_host(&edited, host_text)
-        .map(|saved| saved.text)
-        .map_err(|error| format!("{error:?}"))
+        .map_err(|error| format!("{error:?}"))?;
+    // A value the view itself reads back otherwise (XML text `1.5` is a
+    // number) is a loss too.
+    if edit.parse(&edited).ok().as_ref() != Some(&value) {
+        saved.losses.push("(the view)".to_string());
+    }
+    Ok(saved)
 }
 
 /// Saves `change` from every other view and compares with `expected`.
@@ -68,13 +83,17 @@ pub(super) fn report(failures: Vec<String>) {
 /// The value at `pointer`, or where an XML view writes it: a one-item list
 /// is a lone element there (`/l/0` is `/l`).
 pub(super) fn slot<'a>(document: &'a mut Value, pointer: &str) -> &'a mut Value {
+    let shown = document.to_string();
+    find_slot(document, pointer).unwrap_or_else(|| panic!("no {pointer} in {shown}"))
+}
+
+/// [`slot`], or `None` where the view does not show the value (XML has no
+/// nested lists).
+pub(super) fn find_slot<'a>(document: &'a mut Value, pointer: &str) -> Option<&'a mut Value> {
     if document.pointer(pointer).is_some() {
-        return document.pointer_mut(pointer).expect("the value");
+        return document.pointer_mut(pointer);
     }
     let lone = pointer.replace("/0/", "/");
     let lone = lone.strip_suffix("/0").unwrap_or(&lone).to_string();
-    let shown = document.to_string();
-    document
-        .pointer_mut(&lone)
-        .unwrap_or_else(|| panic!("no {pointer} in {shown}"))
+    document.pointer_mut(&lone)
 }

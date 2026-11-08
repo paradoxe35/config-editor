@@ -75,6 +75,7 @@ pub(super) fn is_plain_identifier(text: &str) -> bool {
             text.to_ascii_lowercase().as_str(),
             "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n"
         )
+        && super::plain::can_be_plain(text)
 }
 
 #[allow(clippy::too_many_arguments)]

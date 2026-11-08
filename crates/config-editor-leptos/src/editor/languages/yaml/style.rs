@@ -41,7 +41,7 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
             super::super::escapes::Astral::Long,
         ),
         Some('|' | '>') => super::block_scalar::block_scalar(language, prefix, written, text).unwrap_or_else(|| yaml_value(value)),
-        Some(_) if !text.is_empty() && reads_back(text) => text.to_string(),
+        Some(_) if super::plain::can_be_plain(text) && reads_back(text) => text.to_string(),
         _ => yaml_value(value),
     }
 }

@@ -433,7 +433,13 @@ pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, u
 }
 
 pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let (start, end) = span_at(&document_spans(source).1, &pointer_segments(path))?;
+    // The text of an element with attributes (`#text`) is recorded as the
+    // element's.
+    let mut segments = pointer_segments(path);
+    if segments.last().is_some_and(|last| last == "#text") {
+        segments.pop();
+    }
+    let (start, end) = span_at(&document_spans(source).1, &segments)?;
     Some(span_between(source, start, end))
 }
 

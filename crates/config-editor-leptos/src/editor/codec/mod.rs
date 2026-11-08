@@ -247,7 +247,8 @@ pub(super) fn patch_scalars(
         // long string).
         let mut text = language.format_value_at(value, previous, range.clone());
         // A value the host wrote in quotes keeps them when the new one is
-        // formatted bare (an XML attribute's `"…"`).
+        // formatted bare (an XML attribute's `"…"`; not a long string's
+        // `"""…"""`, whose new value may be a number).
         let written = &previous[range.clone()];
         if let Some(quote) = written
             .chars()
@@ -255,6 +256,7 @@ pub(super) fn patch_scalars(
             .filter(|quote| matches!(quote, '"' | '\''))
             && written.len() >= 2
             && written.ends_with(quote)
+            && !written.starts_with(&quote.to_string().repeat(3))
             && !text.starts_with(['"', '\''])
         {
             text = format!("{quote}{text}{quote}");

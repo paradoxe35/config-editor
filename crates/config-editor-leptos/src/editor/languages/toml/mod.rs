@@ -11,6 +11,7 @@
 //! - `Ctrl+/` toggles `#` line comments.
 
 mod style;
+mod multiline;
 mod parse;
 mod suggestions;
 mod editing;
@@ -120,15 +121,23 @@ impl ConfigLanguage for TomlBehavior {
         {
             return text.clone();
         }
-        // A multi-line string (triple-quoted) holding line breaks stays one.
+        // A multi-line basic string keeps how it is written (its escapes and
+        // line-ending backslashes): only the change is spliced in.
+        if let Value::String(body) = value
+            && let Some(spliced) = multiline::spliced_basic_multiline(body, written.trim_end())
+        {
+            return spliced;
+        }
+        // A multi-line string (triple-quoted) holding line breaks stays one;
+        // a literal one only while it needs no escape (a carriage return).
         if let Value::String(body) = value
             && body.contains('\n')
             && (written.starts_with("\"\"\"") || written.starts_with("'''"))
         {
-            return if written.starts_with("'''") && !body.contains("'''") {
+            return if written.starts_with("'''") && !body.contains("'''") && multiline::literal_can_hold(body) {
                 format!("'''\n{body}'''")
             } else {
-                format!("\"\"\"\n{}\"\"\"", body.replace('\\', "\\\\").replace("\"\"\"", "\"\"\\\""))
+                multiline::basic_multiline(body)
             };
         }
         // A literal string (`'…'`, `'''…'''`) stays literal where the text

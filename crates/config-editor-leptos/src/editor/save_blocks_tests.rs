@@ -13,7 +13,7 @@ const BLOCKS: &str = "a: | # lit comment\n  alpha\n  beta\nb: |-\n  bravo\n  two
 
 /// Nested block scalars: under a key, in a list, in a list item's map, with
 /// an indicator, and a folded line long enough to have been wrapped.
-const NESTED: &str = "# c\nfolded: >\n  folded text that is long enough\n  second\nind: |2\n    two extra\n  base\nlist:\n  - |\n    in list\n    two\n  - |2-\n     spaced item\n  - k: |\n      nested map\n      lines\nmap:\n  inner: |1\n    indented\n   less\nn: 1\n";
+const NESTED: &str = "# c\nfolded: >\n  folded text that is long enough\n  second\nind: |2\n    two extra\n  base\nlist:\n  - |\n    in list\n    two\n  - |2-\n     spaced item\n  - k: |\n      nested map\n      lines\n    # kc\n    j: 2 # jc\n  - - |\n      compact block\n    - z\nmap:\n  inner: |1\n    indented\n   less\nn: 1\n";
 
 /// `word` in the string at `key` (a `/`-separated path) made `word` + `tail`.
 fn append(key: &'static str, word: &'static str, tail: &'static str) -> impl Fn(&mut Value) {
@@ -61,6 +61,8 @@ fn block_scalars_keep_their_indicators_and_folding_through_any_view() {
         ("list/0", "in list"),
         ("list/1", "spaced"),
         ("list/2/k", "nested map"),
+        ("list/2/k", "lines"),
+        ("list/3/0", "compact block"),
         ("map/inner", "indented"),
         ("map/inner", "less"),
     ] {
@@ -162,6 +164,23 @@ fn block_scalar_text_with_tabs_is_spliced_in_place_in_lists_and_maps() {
             "  - s: ",
             "      ",
         ),
+        // A comment line and a key after the block, in the item's map
+        // (round 17 wrote the whole document).
+        (
+            "list of maps with a comment",
+            "# c\nl:\n  - s: |\n      x\n    # kc\n    j: 2\nn: 1 # n\n",
+            "/l/0/s",
+            "  - s: ",
+            "      ",
+        ),
+        // A compact nested sequence (`- - |`).
+        (
+            "compact",
+            "# c\nl:\n  - - |\n      x\n    - y\nn: 1 # n\n",
+            "/l/0/0",
+            "  - - ",
+            "      ",
+        ),
     ];
     let mut failures = Vec::new();
     for (label, host, pointer, prefix, indent) in hosts {
@@ -184,6 +203,12 @@ fn block_scalar_text_with_tabs_is_spliced_in_place_in_lists_and_maps() {
                 Language::YAML,
                 host,
                 &move |document: &mut Value| {
+                    // The XML view shows the nested list flat: its first item.
+                    let pointer = if document.pointer(pointer).is_none() && pointer == "/l/0/0" {
+                        "/l/0"
+                    } else {
+                        pointer
+                    };
                     *slot(document, pointer) = value.into();
                 },
                 &host.replacen(&old, &new, 1),

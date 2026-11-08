@@ -12,6 +12,13 @@ use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::language::ConfigLanguage;
 use std::sync::Arc;
 
+// How many saves wrote the host whole (its comments and formatting gone):
+// the save property tests require none for a value edit.
+#[cfg(test)]
+thread_local! {
+    pub(super) static WHOLE_RENDERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Clone)]
 pub(super) struct Bridge {
     pub(super) host: Language,
@@ -92,6 +99,8 @@ impl Bridge {
         // value edit rewrites just those values, a structural one just those
         // lines.
         let Ok(target) = codec::read(host, &rendered.text, self.shape()) else {
+            #[cfg(test)]
+            WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
             return Ok(rendered);
         };
         // A null the host would read back as something else (XML writes it
@@ -148,7 +157,11 @@ impl Bridge {
                 text,
                 losses: rendered.losses,
             },
-            None => rendered,
+            None => {
+                #[cfg(test)]
+                WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
+                rendered
+            }
         })
     }
 
@@ -302,7 +315,52 @@ fn merge_changes(
                     .collect(),
             )
         }
+        // A view that writes nested lists flat (XML repeats elements): the
+        // view's items are the host's leaves in order, so an item edited
+        // there is merged into its leaf and the nesting stays.
+        (Value::Array(host), Value::Array(seen), Value::Array(edited))
+            if seen.len() == edited.len() =>
+        {
+            let mut leaves = Vec::new();
+            array_leaves(host, &mut String::new(), &mut leaves);
+            if leaves.len() != seen.len() {
+                return Value::Array(edited.clone());
+            }
+            let mut merged = Value::Array(host.clone());
+            for ((pointer, leaf), (seen, edited)) in leaves.iter().zip(seen.iter().zip(edited)) {
+                if seen != edited
+                    && let Some(slot) = merged.pointer_mut(pointer)
+                {
+                    *slot = merge_changes(leaf, seen, edited);
+                }
+            }
+            merged
+        }
+        // A one-item list the view shows as its lone item (XML).
+        (Value::Array(host), seen, edited)
+            if host.len() == 1 && !seen.is_array() && !edited.is_array() =>
+        {
+            Value::Array(vec![merge_changes(&host[0], seen, edited)])
+        }
         _ => edited.clone(),
+    }
+}
+
+/// The non-list items of `items`, nested lists read through, with their
+/// pointers relative to `items`.
+fn array_leaves<'a>(
+    items: &'a [serde_json::Value],
+    prefix: &mut String,
+    out: &mut Vec<(String, &'a serde_json::Value)>,
+) {
+    for (index, item) in items.iter().enumerate() {
+        let length = prefix.len();
+        prefix.push_str(&format!("/{index}"));
+        match item {
+            serde_json::Value::Array(nested) => array_leaves(nested, prefix, out),
+            leaf => out.push((prefix.clone(), leaf)),
+        }
+        prefix.truncate(length);
     }
 }
 
@@ -488,6 +546,28 @@ mod tests {
         ),
     ];
 
+    /// The XML view repeats elements for nested lists and shows a one-item
+    /// list as its item: a value edited there lands in its place in the
+    /// host, the nesting and the list kept (round 17 flattened them).
+    #[cfg(all(feature = "yaml", feature = "xml"))]
+    #[test]
+    fn a_value_edited_in_a_view_without_nested_lists_keeps_the_nesting() {
+        let host = "# c\nm:\n  - - a # ac\n    - b\n  - - - e\n    - f\n  - x\ndeep:\n  - k: v # kc\nn: 1 # n\n";
+        let bridge = Bridge::new(Language::YAML, Language::XML, None).unwrap();
+        for (from, to, expected) in [
+            (">b<", ">B<", host.replace("- b", "- B")),
+            (">e<", ">E<", host.replace("- e", "- E")),
+            (">f<", ">F<", host.replace("- f", "- F")),
+            (">x<", ">X<", host.replace("- x", "- X")),
+            (">v<", ">w<", host.replace("k: v", "k: w")),
+        ] {
+            let shown = bridge.to_edit(host).unwrap().text;
+            assert!(shown.contains(from), "{from} in {shown}");
+            let saved = bridge.to_host(&shown.replace(from, to), host).unwrap();
+            assert_eq!(saved.text, expected, "{from} -> {to}");
+        }
+    }
+
     #[test]
     fn a_value_edit_changes_only_that_value_in_the_host_text() {
         for (host, original, expected) in HOSTS {
@@ -533,9 +613,9 @@ mod tests {
         .unwrap();
         let shown = bridge.to_edit(host).unwrap();
         assert_eq!(shown.losses, Vec::<String>::new(), "{}", shown.text);
-        let edited = shown.text.replace(">x<", ">y<");
+        let edited = shown.text.replace(">x<", ">z<");
         let saved = bridge.to_host(&edited, host).unwrap();
-        assert_eq!(saved.text, host.replace("token: x", "token: y"));
+        assert_eq!(saved.text, host.replace("token: x", "token: z"));
     }
 
     #[test]

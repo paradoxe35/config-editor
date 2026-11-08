@@ -13,6 +13,7 @@ mod hover;
 mod editing;
 mod style;
 mod block_scalar;
+mod plain;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 // The fold ranges (the `folding` feature).
@@ -224,7 +225,9 @@ impl ConfigLanguage for YamlBehavior {
 
     fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::non_finite::Floats;
-        noyalib::to_string(&Floats(value)).map_err(|error| error.to_string())
+        noyalib::to_string(&Floats(value))
+            .map(|text| plain::quote_typed_plain(&text, value))
+            .map_err(|error| error.to_string())
     }
 
     /// `.inf`, `-.inf` and `.nan`.

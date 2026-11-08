@@ -212,7 +212,10 @@ impl Language {
     }
 
     /// Parses a document into the shared data model (a JSON value), the same
-    /// model schema validation sees.
+    /// model schema validation sees. CRLF line endings read as LF, also
+    /// inside multi-line strings, heredocs and block scalars, as the editor
+    /// reads them; a carriage return that is part of a value is written as
+    /// an escape (`\r`, `&#13;`).
     ///
     /// # Errors
     ///
@@ -227,6 +230,13 @@ impl Language {
     /// # }
     /// ```
     pub fn parse(self, source: &str) -> Result<Value, ParseError> {
+        // CRLF line endings read as LF, inside multi-line strings and block
+        // scalars too: what the editor reads (it holds LF text), and what
+        // TOML and YAML readers do with a file's own line breaks. A lone
+        // carriage return is left for the language to judge.
+        if source.contains("\r\n") {
+            return self.0.parse(&source.replace("\r\n", "\n"));
+        }
         self.0.parse(source)
     }
 
