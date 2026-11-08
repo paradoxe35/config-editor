@@ -312,6 +312,19 @@ const scenes = {
     await hoverText(page, 'fast');
     await demoShot(page, 'schema-docs');
   },
+  async 'schema-choices'(page) {
+    await open(page, '?schema=help');
+    await page.locator('.config-editor__input').first().click();
+    // As a paste: no suggestions, no auto-indent.
+    await page.locator('.config-editor__input').first().evaluate((element) => {
+      const value = 'dns:\n  cloudflare:\n    zone: example.com\n    api_token: ${CF_TOKEN}\n';
+      element.setRangeText(value, element.value.length, element.value.length, 'end');
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value }));
+    });
+    await pause(page, 900);
+    await hoverText(page, 'dns');
+    await demoShot(page, 'schema-choices');
+  },
   async 'tab-focus'(page) {
     await open(page);
     await page.locator('.config-editor__input').first().click();

@@ -132,6 +132,7 @@ pub(super) fn property_completions(
     repetition: Repetition,
     insert_context: &InsertContext<'_>,
     behavior: &dyn ConfigLanguage,
+    choices: &ChoicesAt<'_>,
 ) -> Vec<Completion> {
     let mut candidates = Vec::new();
     for branch in schemas
@@ -140,6 +141,15 @@ pub(super) fn property_completions(
     {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
+        };
+        // A key of a `oneOf`/`anyOf` option names it; the matched option's
+        // keys come first.
+        let choice = choices.of(branch);
+        let title = choice.and_then(|(choice, _)| choice.doc.title.clone());
+        let bonus = if choice.is_some_and(|(_, matched)| matched) {
+            MATCHED_CHOICE_BONUS
+        } else {
+            0
         };
         let required: HashSet<&str> = branch
             .get("required")
@@ -166,6 +176,7 @@ pub(super) fn property_completions(
                 continue;
             };
             let score = score
+                + bonus
                 + if required.contains(key.as_str()) {
                     REQUIRED_BONUS
                 } else {
@@ -182,11 +193,15 @@ pub(super) fn property_completions(
                 score,
                 Completion {
                     label: key.clone(),
-                    detail: property
-                        .get("description")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
+                    detail: ValueDoc {
+                        title: title.clone(),
+                        description: property
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    }
+                    .detail()
+                    .unwrap_or_default(),
                     type_label: schema_type_label(property, root, "property"),
                     insert,
                     start,
@@ -865,6 +880,12 @@ pub(super) fn completions_for_context(
         return Vec::new();
     }
     let existing_keys = behavior.existing_keys(source, cursor_byte, &context.path);
+    let choices = ChoicesAt::new(
+        &schemas,
+        &bundle.schema,
+        existing_keys.as_ref().unwrap_or(&HashSet::new()),
+        || object_around(source, cursor_byte, &context.path, behavior),
+    );
     let unit = indent_unit(source);
     let base_indent = context
         .block
@@ -886,6 +907,7 @@ pub(super) fn completions_for_context(
             array_item: context.is_array_item,
         },
         behavior,
+        &choices,
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.

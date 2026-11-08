@@ -284,6 +284,9 @@ pub struct EditorStrings {
     pub default_value: String,
     /// The hover card's examples row.
     pub examples: String,
+    /// The hover card's row listing the titles of the options (`oneOf`,
+    /// `anyOf`) a field's object may take, while none matches it yet.
+    pub one_of: String,
     /// The hover card's link to the schema's documentation.
     pub documentation: String,
     /// The link under a host problem's message.
@@ -528,6 +531,7 @@ impl Default for EditorStrings {
             deprecated: text("deprecated"),
             default_value: text("Default"),
             examples: text("Examples"),
+            one_of: text("One of"),
             documentation: text("Documentation"),
             open_docs: text("Open docs ↗ (Alt+Enter)"),
             error: text("Error"),

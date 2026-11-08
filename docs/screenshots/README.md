@@ -29,13 +29,15 @@ A key's description, type, default and examples, from the schema.
 
 ### Schema help
 
-Deprecated keys are struck through and listed last, and a key written in the document gets a warning with what to use instead. Documented values (`x-enum-descriptions`, `oneOf` constants) show their own description, and `x-docs-url` adds a documentation link.
+Deprecated keys are struck through and listed last, and a key written in the document gets a warning with what to use instead. Documented values (`x-enum-descriptions`, `oneOf` constants) show their own description, an object with `oneOf`/`anyOf` options names the one it is in, and `x-docs-url` adds a documentation link.
 
 ![A deprecated key in the suggestions](schema-help.png)
 
 ![The warning on a deprecated key](deprecated.png)
 
 ![A documented value with a docs link](schema-docs.png)
+
+![The oneOf option an object is in](schema-choices.png)
 
 ## Languages
 

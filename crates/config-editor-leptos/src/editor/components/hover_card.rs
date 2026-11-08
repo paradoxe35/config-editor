@@ -2,7 +2,7 @@
 
 use leptos::prelude::*;
 
-use super::super::completion::{HoverValue, KeyHover};
+use super::super::completion::{ChoiceHover, HoverValue, KeyHover};
 use super::super::state::EditorState;
 
 /// A hover card being shown: what it documents and where.
@@ -55,6 +55,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         {info.description.map(|description| view! {
                             <p class="config-editor__hover-description">{description}</p>
                         })}
+                        {info.choice.map(|choice| choice_section(state, choice))}
                         {info.default.map(|default| view! {
                             <div class="config-editor__hover-meta">
                                 <span>{state.text(|strings| &strings.default_value)}</span>
@@ -87,6 +88,31 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
 fn leave_card(state: EditorState) {
     state.hover().card_entered.set_value(false);
     state.hide_hover();
+}
+
+/// The `oneOf`/`anyOf` option the field's object is in, or the titles of
+/// all of them while none matches.
+fn choice_section(state: EditorState, choice: ChoiceHover) -> impl IntoView {
+    match choice {
+        ChoiceHover::Matched(doc) => view! {
+            <div class="config-editor__hover-choice">
+                {doc.title.map(|title| view! {
+                    <strong class="config-editor__hover-choice-title">{title}</strong>
+                })}
+                {doc.description.map(|description| view! {
+                    <p class="config-editor__hover-description">{description}</p>
+                })}
+            </div>
+        }
+        .into_any(),
+        ChoiceHover::OneOf(titles) => view! {
+            <div class="config-editor__hover-meta config-editor__hover-choices">
+                <span>{state.text(|strings| &strings.one_of)}</span>
+                <code>{titles.join(", ")}</code>
+            </div>
+        }
+        .into_any(),
+    }
 }
 
 /// The hovered value, first: its title and description, above its key's.

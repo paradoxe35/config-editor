@@ -706,6 +706,12 @@ export interface EditorStrings {
    */
   examples?: string;
   /**
+   * The hover card's row listing the titles of the options (`oneOf`, `anyOf`) a field's object may take, while none matches it yet.
+   *
+   * @default "One of"
+   */
+  oneOf?: string;
+  /**
    * The hover card's link to the schema's documentation.
    *
    * @default "Documentation"
