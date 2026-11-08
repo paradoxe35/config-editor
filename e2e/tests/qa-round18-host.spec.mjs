@@ -210,7 +210,8 @@ test.describe('settings errors in JavaScript terms', () => {
       }),
     );
     expect(messages).toEqual([
-      'colors.key must be a CSS color string (got null)',
+      // `null` resets one token to the theme's (colors merge token by token).
+      'accepted',
       'colors.key must be a CSS color string (got number 5)',
       'strings.noProblems must be a string (got number 2.5)',
       expect.stringMatching(/unknown color token "keys" \(did you mean "key"\?\); the tokens are listed by ThemeColorToken/),
