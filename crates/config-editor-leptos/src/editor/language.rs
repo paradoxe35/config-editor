@@ -1433,6 +1433,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The bytes of the list item at `pointer` when the document writes it
+    /// as lines of its own that are no `{…}` or `[…]` value: a TOML
+    /// `[[array]]` table from its header, an HCL repeated block from its
+    /// type to its `}`. An Edit-as save that moves the item moves these
+    /// lines with the comment lines above them. `None` (the default) for
+    /// any other item.
+    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+        let _ = (source, pointer);
+        None
+    }
+
     /// The container at `pointer` when the document writes it on one line in
     /// a form other than a `{…}` or `[…]` value: an XML element with its
     /// children on one line, an HCL one-line block. A structural Edit-as

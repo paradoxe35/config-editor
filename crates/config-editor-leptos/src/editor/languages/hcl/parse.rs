@@ -3,9 +3,13 @@
 use super::*;
 
 /// References, interpolations, and function calls arrive as their
-/// `${ ... }`-style source text.
+/// `${ ... }`-style source text; a heredoc without them reads as its text,
+/// as a quoted string does (`$${x}` is `${x}`).
 pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
-    let value = hcl::from_str::<Value>(source).map_err(|error| {
+    let read = || -> Result<Value, hcl::Error> {
+        hcl::from_body(super::heredoc::parse_body(source)?)
+    };
+    let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {

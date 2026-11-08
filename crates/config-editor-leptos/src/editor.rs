@@ -494,6 +494,15 @@ mod save_forms_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_hcl_templates_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_matrix;
 #[cfg(all(
     test,
@@ -504,6 +513,15 @@ mod save_matrix;
     feature = "xml"
 ))]
 mod save_moves_properties;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_moves_tests;
 #[cfg(all(
     test,
     feature = "yaml",

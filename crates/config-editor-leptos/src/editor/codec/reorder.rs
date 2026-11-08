@@ -72,7 +72,8 @@ pub(in super::super) fn patch_reorder(
 /// The items of the list at `pointer`, each on lines of its own: a scalar
 /// or a one-line container (a list dash before it, a comma or an XML end
 /// tag after it, a comment after that), or a repeated element over lines
-/// (`<s>` to its `</s>`). Each as its first line (the comment lines right
+/// (`<s>` to its `</s>`) or the language's own item lines (a TOML `[[s]]`
+/// table, an HCL repeated block). Each as its first line (the comment lines right
 /// above it), its line, and its last line; `None` when an item shares a
 /// line or spreads over lines another way.
 fn line_items(
@@ -87,7 +88,10 @@ fn line_items(
     for (index, item) in before.iter().enumerate() {
         let item_pointer = format!("{pointer}/{index}");
         let container = item.is_object() || item.is_array();
-        let (range, own) = match element_lines(language, previous, &item_pointer) {
+        let own_lines = language
+            .item_lines(previous, &item_pointer)
+            .or_else(|| element_lines(language, previous, &item_pointer));
+        let (range, own) = match own_lines {
             Some(range) if container => (range, true),
             _ => {
                 // A container's own span may be its opening bracket only.

@@ -155,6 +155,9 @@ mod caret_scan_tests;
 // Changed strings keep the host's escapes.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod escapes;
+// `key   = value` aligned as formatters write it, compared as `key = value`.
+#[cfg(any(feature = "toml", feature = "hcl"))]
+mod aligned;
 
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {

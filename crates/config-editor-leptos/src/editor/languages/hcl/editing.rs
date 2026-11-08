@@ -65,6 +65,13 @@ pub(super) fn hcl_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
             return (Some('"'), false);
         }
     }
+    // So is a body line of a heredoc the text before the caret leaves
+    // open (its terminator is further down).
+    let line_end = source[byte..].find('\n').map_or(source.len(), |at| byte + at);
+    let line = source[..byte].matches('\n').count();
+    if heredoc_bodies(&source[..line_end]).iter().any(|body| body.contains(&line)) {
+        return (Some('"'), false);
+    }
     // A `/*` opened before the caret without a closer keeps the caret in a
     // comment. Strings cannot span lines, so per-line quote tracking plus a
     // heredoc skip is enough.
@@ -216,6 +223,21 @@ fn entry_keys(content: &str, tokens: &[Token]) -> Vec<usize> {
         })
         .map(|(_, index)| *index)
         .collect()
+}
+
+/// The line comment markers, the one `source` writes most first (`#` when
+/// it writes `//` no more often).
+pub(super) fn comment_markers(source: &str) -> &'static [&'static str] {
+    let (mut slashes, mut hashes) = (0usize, 0usize);
+    for comment in comments(source) {
+        let text = &source[comment];
+        if text.starts_with("//") {
+            slashes += 1;
+        } else if text.starts_with('#') {
+            hashes += 1;
+        }
+    }
+    if slashes > hashes { &["//", "#"] } else { &["#", "//"] }
 }
 
 /// The `#`, `//` and `/* … */` comments (a heredoc's body is not read for

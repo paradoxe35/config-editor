@@ -314,3 +314,61 @@ fn a_host_value_is_neither_recorded_nor_sent_back() {
     assert!(!can_undo(state));
     assert_eq!(seen(), []);
 }
+
+/// `1` typed over with `1x` (a user's step) in `start`, then the host's
+/// text `host` arrives.
+fn typed_then_host(edit_as: Option<Language>, start: &str, host: &str) -> (Owner, EditorState) {
+    let (owner, state) = TestEditor {
+        edit_as,
+        ..TestEditor::new(Language::YAML, start)
+    }
+    .mount();
+    let before = text(state);
+    let at = before.find('1').expect("a 1 to type after") + 1;
+    let mut typed = before.clone();
+    typed.insert(at, 'x');
+    assert!(state.commit(Edit::input(
+        before,
+        (at, at),
+        typed,
+        (at + 1, at + 1),
+        "insertText".into(),
+        0.0
+    )));
+    take_host_value(state, host.to_string());
+    (owner, state)
+}
+
+/// M22-E3: a host change is no step; undo takes back the user's edit and
+/// keeps the host's, also editing as another language.
+#[test]
+fn undo_after_a_host_change_keeps_the_hosts_change() {
+    let (_owner, state) = typed_then_host(None, "a: 1\nb: 2\n", "a: 1x\nb: 3\n");
+    assert_eq!(text(state), "a: 1x\nb: 3\n");
+    assert!(state.commit(state.history_edit(false).expect("the user's step")));
+    assert_eq!(text(state), "a: 1\nb: 3\n");
+    assert!(!can_undo(state));
+    assert!(state.commit(state.history_edit(true).expect("the step again")));
+    assert_eq!(text(state), "a: 1x\nb: 3\n");
+    // A change above the edit shifts it.
+    let (_owner, state) = typed_then_host(None, "z: 0\na: 1\n", "z: 00\na: 1x\n");
+    assert!(state.commit(state.history_edit(false).expect("the user's step")));
+    assert_eq!(text(state), "z: 00\na: 1\n");
+    // Editing as JSON, the host's YAML changed elsewhere.
+    #[cfg(feature = "json")]
+    {
+        let (_owner, state) =
+            typed_then_host(Some(Language::JSON), "b: 2\na: s1\n", "b: 3\na: s1x\n");
+        assert_eq!(text(state), "{\n  \"b\": 3,\n  \"a\": \"s1x\"\n}\n");
+        assert!(state.commit(state.history_edit(false).expect("the user's step")));
+        assert_eq!(text(state), "{\n  \"b\": 3,\n  \"a\": \"s1\"\n}\n");
+    }
+}
+
+/// A host change over the user's own edit leaves nothing to undo.
+#[test]
+fn a_host_change_over_the_users_edit_ends_the_history() {
+    let (_owner, state) = typed_then_host(None, "a: 1\nb: 2\n", "a: 7\nb: 2\n");
+    assert_eq!(text(state), "a: 7\nb: 2\n");
+    assert!(!can_undo(state));
+}

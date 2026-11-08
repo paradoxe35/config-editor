@@ -120,6 +120,7 @@ fn patch_lines(
     let mut replacing: Option<usize> = None;
     let mut edits = myers_edits(&rendered_old, &rendered_new)?;
     slide_deletions_up(&mut edits, &rendered_old);
+    slide_insertions_up(&mut edits, &rendered_new);
     // Each inserted line indented as the host indents (four spaces, a list
     // at its key's column, `-   item`), from the matched lines above it.
     let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
@@ -484,6 +485,46 @@ fn no_doubled_blank_after(host: &[&str], removed: &[bool], inserted: &mut [Vec<&
         });
         if ends_blank && blank_after && inserted.get(slot + 1).is_none_or(Vec::is_empty) {
             inserted[slot].pop();
+        }
+    }
+}
+
+/// Shifts each run of inserted lines up while the line before it equals
+/// its last line, so a repeated block added (`[[s]]` and its keys) goes in
+/// whole before the next item's header, not after it (under that item's
+/// comments). Closers and blank lines stay where the diff put them.
+fn slide_insertions_up(edits: &mut [super::super::diff::DiffEdit], new: &[&str]) {
+    use super::super::diff::DiffEdit;
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut new_index = 0;
+        let mut index = 0;
+        while index < edits.len() {
+            if edits[index] == DiffEdit::Equal {
+                let run = edits[index + 1..]
+                    .iter()
+                    .take_while(|edit| **edit == DiffEdit::Insert)
+                    .count();
+                let line = new[new_index].trim();
+                let stays = line.is_empty()
+                    || line
+                        .chars()
+                        .all(|character| matches!(character, '}' | ']' | ')' | ','));
+                // An item added as a copy of the one before it stays after
+                // it: that one keeps its own lines.
+                let copy = new_index + 1 >= run
+                    && new[new_index + 1..=new_index + run] == new[new_index + 1 - run..=new_index];
+                if run > 0 && !stays && !copy && new[new_index] == new[new_index + run] {
+                    edits[index] = DiffEdit::Insert;
+                    edits[index + run] = DiffEdit::Equal;
+                    changed = true;
+                }
+            }
+            if edits[index] != DiffEdit::Delete {
+                new_index += 1;
+            }
+            index += 1;
         }
     }
 }

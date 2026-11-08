@@ -353,6 +353,37 @@ fn hash_comments_toggle_over_the_selection() {
     assert_eq!(restored, "region = 1\n");
 }
 
+/// Ctrl+/ writes the comment style the file uses.
+#[test]
+fn comments_toggle_in_the_files_own_style() {
+    let toggled = |source: &str, line: usize| {
+        let start: usize = source.split_inclusive('\n').take(line).map(str::len).sum();
+        HclBehavior.toggle_comments(source, start, start).unwrap().0
+    };
+    assert_eq!(toggled("// a\nx = 1\n", 1), "// a\n// x = 1\n");
+    assert_eq!(toggled("// a\n// b\n# c\nx = 1\n", 3), "// a\n// b\n# c\n// x = 1\n");
+    assert_eq!(toggled("# a\nx = 1\n", 1), "# a\n# x = 1\n");
+    assert_eq!(toggled("x = 1\n", 0), "# x = 1\n");
+    assert_eq!(toggled("// a\n// x = 1\n", 1), "// a\nx = 1\n");
+}
+
+/// `${` and `%{` typed in a heredoc's text close as in a quoted string;
+/// `$${` stays literal.
+#[test]
+fn template_sequences_close_in_a_heredoc() {
+    for (source, closes) in [
+        ("a = <<EOT\n$\nEOT\n", true),
+        ("a = <<EOT\n$\n", true),
+        ("a = <<-EOT\n  x %\n  EOT\n", true),
+        ("a = <<EOT\n$$\nEOT\n", false),
+        ("a = 1 $\n", false),
+    ] {
+        let at = source.find(['$', '%']).unwrap() + source[source.find(['$', '%']).unwrap()..].find(['\n']).unwrap();
+        let caret = source[..at].encode_utf16().count();
+        assert_eq!(HclBehavior.auto_close(source, caret, '{').is_some(), closes, "{source:?}");
+    }
+}
+
 #[test]
 fn an_open_string_is_reported_to_the_pairing_guard() {
     assert_eq!(HclBehavior.lexical_state("region = \"x", 11).quote, Some('"'));

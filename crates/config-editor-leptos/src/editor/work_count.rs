@@ -25,6 +25,10 @@ pub(crate) enum Work {
     SpanScan,
     /// One element's document path built (XML), where only the caret's
     /// was wanted.
+    #[cfg_attr(
+        not(feature = "xml"),
+        allow(dead_code, reason = "only the XML path plan notes it")
+    )]
     ElementPath,
 }
 

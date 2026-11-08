@@ -154,6 +154,13 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
     let Some((segments, is_array)) = parse_header(split_toml_comment(&source[line_start..line_end]).0) else {
         return (start, end);
     };
+    let last_end = table_end(source, line_end, &segments, is_array);
+    (start, end.max(source[..last_end].encode_utf16().count()))
+}
+
+/// The end of the last line with code of the table whose header `segments`
+/// (`is_array` for `[[…]]`) ends its line at `line_end`.
+fn table_end(source: &str, line_end: usize, segments: &[String], is_array: bool) -> usize {
     let mut last_end = line_end;
     let mut offset = line_end;
     for line in source[line_end..].split('\n').skip(1) {
@@ -164,7 +171,7 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
             // An array-of-tables entry owns the sub-tables after it
             // (`[[s]]` then `[s.sub]`): left behind, they would join the
             // entry above.
-            if is_array && next.len() > segments.len() && next.starts_with(&segments) {
+            if is_array && next.len() > segments.len() && next.starts_with(segments) {
                 last_end = offset;
                 continue;
             }
@@ -174,5 +181,25 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
             last_end = offset;
         }
     }
-    (start, end.max(source[..last_end].encode_utf16().count()))
+    last_end
+}
+
+/// The bytes of the array-of-tables entry at `pointer` (`/s/1`): from its
+/// `[[s]]` header through the last line with code of its table and the
+/// sub-tables it owns.
+pub(super) fn array_table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+    let wanted = pointer_segments(pointer);
+    let lines: Vec<&str> = source.split('\n').collect();
+    let paths = table_paths(&lines);
+    let mut start = 0;
+    for (index, line) in lines.iter().enumerate() {
+        let line_end = start + line.len();
+        if let Some((segments, true)) = parse_header(split_toml_comment(line).0)
+            && path_strings(&paths[index + 1]) == wanted
+        {
+            return Some(start..table_end(source, line_end, &segments, true));
+        }
+        start = line_end + 1;
+    }
+    None
 }

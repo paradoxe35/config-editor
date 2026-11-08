@@ -8,6 +8,8 @@
 
 use super::languages::Language;
 
+mod rebase;
+
 /// A selection as `(start, end)` UTF-16 offsets; equal for a caret.
 pub(super) type Selection = (usize, usize);
 
@@ -136,6 +138,43 @@ impl EditHistory {
             self.undo.remove(0);
         }
         self.redo.clear();
+    }
+
+    /// The host replaced the text `current` with `new` (a new controlled
+    /// `value`): the change is no step of its own, and the steps before it
+    /// take it too, so undo takes back only the user's edits and keeps the
+    /// host's (see [`rebase`]). The newest step whose edit overlaps the
+    /// host's change goes with every older one; redo starts over.
+    pub(super) fn rebase(&mut self, current: &str, new: &str) {
+        let change = rebase::HostChange::new(current, new);
+        self.redo.clear();
+        self.open = None;
+        // From the newest step back: each step's text, and the text after
+        // it, with the change made.
+        let (mut after_old, mut after_new) = (current.to_string(), new.to_string());
+        let mut kept = self.undo.len();
+        for index in (0..self.undo.len()).rev() {
+            let step = &mut self.undo[index];
+            let rebased = match step.before.language.or(step.after_language) {
+                Some(_) => None,
+                None => change.applied(&step.before.value),
+            };
+            let Some(rebased) = rebased else {
+                kept = self.undo.len() - index - 1;
+                break;
+            };
+            let map = |offset: usize| rebase::mapped(&after_old, &after_new, offset);
+            step.after = (map(step.after.0), map(step.after.1));
+            let before = std::mem::replace(&mut step.before.value, rebased.clone());
+            let (start, end) = step.before.selection;
+            step.before.selection = (
+                rebase::mapped(&before, &rebased, start),
+                rebase::mapped(&before, &rebased, end),
+            );
+            (after_old, after_new) = (before, rebased);
+        }
+        let dropped = self.undo.len() - kept;
+        self.undo.drain(..dropped);
     }
 
     /// The state before the newest step, given the current text.

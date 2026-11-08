@@ -185,6 +185,7 @@ const CONFIG_LANGUAGE = {
   empty_value_slots: { custom: 'separators' },
   closing_markup_len: { exempt: RUST_ONLY_REFINEMENT },
   one_line_container: { exempt: SAVE_FORMS },
+  item_lines: { exempt: SAVE_FORMS },
   rename_key: { custom: 'keySpan' },
   written_key: { exempt: RUST_ONLY_REFINEMENT },
   scalar_edit: { exempt: SAVE_FORMS },

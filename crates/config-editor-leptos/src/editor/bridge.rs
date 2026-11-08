@@ -250,6 +250,12 @@ impl Bridge {
                     old: &serde_json::Value,
                     target: &serde_json::Value|
          -> Result<Option<String>, SaveError> {
+            // A shared value this step parts from the rest written out (a
+            // stage may part what the whole edit does not).
+            let detached = host
+                .detach_shared(previous, old, target)
+                .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(old));
+            let previous = detached.as_deref().unwrap_or(previous);
             if let Some(pointer) = codec::unmoved_comments(host, previous, old, target) {
                 return Err(ConvertError::Unsupported(format!(
                     "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
@@ -277,22 +283,25 @@ impl Bridge {
         // Items moved while others are added or removed: moved first (with
         // their comments), then the removed ones dropped, then the rest.
         let stages = codec::move_stages(&old, &target);
+        // A stage that cannot be saved alone is saved with the rest, from
+        // the stages saved before it.
         let staged = if stages.is_empty() {
             None
         } else {
             let (mut text, mut current) = (previous_host.to_string(), old.clone());
             let mut done = true;
-            for stage in stages.iter().chain([&target]) {
-                match save(&text, &current, stage)? {
-                    Some(next) => text = next,
-                    None => {
-                        done = false;
-                        break;
-                    }
-                }
+            for stage in &stages {
+                let Some(next) = save(&text, &current, stage)? else {
+                    break;
+                };
+                text = next;
                 current = stage.clone();
             }
-            done.then_some(text)
+            match save(&text, &current, &target)? {
+                Some(next) => text = next,
+                None => done = false,
+            }
+            (done && current != old).then_some(text)
         };
         let patched = match staged {
             Some(text) => Some(text),

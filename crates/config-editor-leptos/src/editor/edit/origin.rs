@@ -7,7 +7,7 @@
 //! | `Input` | yes | yes | yes | grouped by kind | yes | indent, after a paste or drop |
 //! | `Undo`, `Redo` | – | yes | yes | the step moves | yes | placeholders |
 //! | `Reload` | – | – | yes | its own step | yes | the host's placeholders |
-//! | `HostValue` | – | – | – | – | – | indent, ranges, the host's placeholders |
+//! | `HostValue` | – | – | – | carried into the steps before | – | indent, ranges, the host's placeholders |
 //! | `Switch` | – | – | – | its own step | – | indent, ranges, placeholders |
 //!
 //! Widened: an edit cutting a secret placeholder takes it whole. Checked:

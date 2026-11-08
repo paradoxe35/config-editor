@@ -8,7 +8,8 @@
 //!   keys (`resource "aws_x" "y" { count = 2 }` is `/resource/aws_x/y/count`),
 //!   and repeated same-header blocks index as arrays (`/variable/name/1`).
 //! - Objects insert as blocks, scalars as `key = value`; strings always quote.
-//! - `Ctrl+/` toggles `#` line comments; `//` and `/* */` are also read.
+//! - `Ctrl+/` toggles the line comment the file writes most (`#` by
+//!   default, `//`); `/* */` is also read.
 
 mod tokens;
 mod scan;
@@ -119,8 +120,18 @@ impl ConfigLanguage for HclBehavior {
         Some(text)
     }
 
+    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+        repeated_block_lines(source, pointer)
+    }
+
     fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
         one_line_block(source, pointer)
+    }
+
+    /// An assignment aligned as `terraform fmt` writes it (`p    = 1`) is
+    /// the serializer's `p = 1`.
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        super::aligned::single_spaced(code)
     }
 
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
@@ -197,6 +208,11 @@ impl ConfigLanguage for HclBehavior {
                 })
                 .flatten()
                 .unwrap_or("");
+            // Its `${` and `%{` escaped as text, unless the host's heredoc
+            // is a template (`${var.x}` in it), whose text stays its own.
+            let raw = body.join("\n");
+            let text =
+                if heredoc::has_sequence(&raw) { text.to_string() } else { heredoc::escaped(text) };
             let text: String = text
                 .split_inclusive('\n')
                 .map(|line| if line.trim().is_empty() { line.to_string() } else { format!("{indent}{line}") })
@@ -291,8 +307,8 @@ impl ConfigLanguage for HclBehavior {
     }
 
     /// `{` after `$` or `%` in a quoted string opens an interpolation or a
-    /// directive (`"${`, `"%{`): its `}` is written too, as VS Code's HCL
-    /// support does; `$${` is literal text.
+    /// directive (`"${`, `"%{`), and in a heredoc's text: its `}` is written
+    /// too, as VS Code's HCL support does; `$${` is literal text.
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         if typed != '{' || hcl_lexical_state(source, cursor).0 != Some('"') {
             return None;
@@ -351,6 +367,19 @@ impl ConfigLanguage for HclBehavior {
 
     fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         comments(source)
+    }
+
+    /// As the default, commenting with the line comment the file writes
+    /// most (`//` in a file of `//` comments, else `#`).
+    fn toggle_comments(&self, source: &str, selection_start: usize, selection_end: usize) -> Option<(String, usize, usize)> {
+        use super::super::language::{toggle_line_comments, unwrap_block_comments};
+        let block = ("/*", "*/");
+        if let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block) {
+            return Some(unwrapped);
+        }
+        let (start, end) = self.whole_constructs(source, selection_start, selection_end);
+        unwrap_block_comments(source, start, end, block)
+            .or_else(|| toggle_line_comments(source, start, end, comment_markers(source)))
     }
 
     /// Outside strings and the template sequences in them (`"${ "#" }"`).

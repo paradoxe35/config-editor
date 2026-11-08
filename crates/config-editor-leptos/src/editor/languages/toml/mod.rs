@@ -74,6 +74,16 @@ impl ConfigLanguage for TomlBehavior {
         toml_value_span(source, pointer).map(Span::from)
     }
 
+    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+        array_table_lines(source, pointer)
+    }
+
+    /// An assignment aligned as formatters write it (`p    = 1`) is the
+    /// serializer's `p = 1`.
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        super::aligned::single_spaced(code)
+    }
+
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
         rename_toml_key(source, pointer, new_key)
     }

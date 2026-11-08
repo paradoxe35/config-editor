@@ -43,7 +43,69 @@ fn moving_hosts() -> Vec<(Language, &'static str)> {
             Language::JSON,
             "{\n  \"s\": [\n    \"a\",\n    \"b\",\n    \"c\"\n  ]\n}\n",
         ),
+        // Round 22: TOML arrays of tables, HCL repeated blocks, XML
+        // repeated elements on one line each, YAML scalars, with comments
+        // above and after their lines.
+        (
+            Language::TOML,
+            "# head\nn = 1\n\n# about a\n[[s]]\nname = \"a\"\np = 1 # pa\n\n# about b\n[[s]]\nname = \"b\"\np = 2\n\n[[s]]\nname = \"c\"\np = 3 # pc\n",
+        ),
+        (
+            Language::HCL,
+            "# head\nn = 1\n\n# about a\ns {\n  name = \"a\"\n  p    = 1 # pa\n}\n\n# about b\ns {\n  name = \"b\"\n  p    = 2\n}\n\ns {\n  name = \"c\"\n  p    = 3 # pc\n}\n",
+        ),
+        (
+            Language::XML,
+            "<r>\n  <!-- about a -->\n  <s n=\"a\"><p>1</p></s>\n  <!-- about b -->\n  <s n=\"b\"><p>2</p></s> <!-- tb -->\n  <s n=\"c\"><p>3</p></s>\n</r>\n",
+        ),
+        (
+            Language::YAML,
+            "l:\n  # about a\n  - alpha\n  # about b\n  - beta # tb\n  - gamma\n",
+        ),
     ]
+}
+
+/// `item` with one string in it edited (`b` to `bz9`), and that string
+/// before and after; `None` when it holds no string.
+fn edited(item: &Value) -> Option<(Value, String, String)> {
+    match item {
+        Value::String(text) => Some((
+            Value::String(format!("{text}z9")),
+            text.clone(),
+            format!("{text}z9"),
+        )),
+        Value::Object(map) => {
+            let (key, text) = map
+                .iter()
+                .find_map(|(key, value)| Some((key, value.as_str()?)))?;
+            let mut changed = map.clone();
+            changed.insert(key.clone(), Value::String(format!("{text}z9")));
+            Some((
+                Value::Object(changed),
+                text.to_string(),
+                format!("{text}z9"),
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// `code` with the word `old` in it written `new`.
+fn with_word(code: &str, old: &str, new: &str) -> String {
+    let word = |character: Option<char>| {
+        character.is_some_and(|character| character.is_alphanumeric() || character == '_')
+    };
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(at) = rest.find(old) {
+        let bounded =
+            !word(rest[..at].chars().next_back()) && !word(rest[at + old.len()..].chars().next());
+        out.push_str(&rest[..at]);
+        out.push_str(if bounded { new } else { old });
+        rest = &rest[at + old.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A new item like the list's `items`, sharing no value with them: text,
@@ -81,13 +143,18 @@ fn reorders(items: &[Value], moved: &[Value]) -> bool {
     order.windows(2).any(|pair| pair[0] > pair[1])
 }
 
+/// A list as edited, with the strings edited in it (before, after).
+type Variant = (Vec<Value>, Vec<(String, String)>);
+
 /// The list `items` moved and resized: reversed with an item added at the
 /// end or the start, or its first removed, then random permutations with
-/// an item added and one removed. Each moves some items past others.
-fn variants(items: &[Value], random: &mut Random) -> Vec<Vec<Value>> {
+/// an item added and one removed. Each moves some items past others; each
+/// also with one of the items it moves edited, with that edit (the string
+/// before and after).
+fn variants(items: &[Value], random: &mut Random) -> Vec<Variant> {
     let mut out = Vec::new();
     let Some(added) = new_item(items, 1) else {
-        return out;
+        return Vec::new();
     };
     let mut reversed = items.to_vec();
     reversed.reverse();
@@ -112,23 +179,60 @@ fn variants(items: &[Value], random: &mut Random) -> Vec<Vec<Value>> {
         out.push(moved);
     }
     out.retain(|moved| moved.len() >= 2 && reorders(items, moved));
-    out
+    // Each also with an item that moved edited as well.
+    let mut with_edits: Vec<Variant> = out
+        .iter()
+        .map(|moved| (moved.clone(), Vec::new()))
+        .collect();
+    for moved in out {
+        let item_moved = |slot: usize| {
+            items
+                .iter()
+                .position(|item| *item == moved[slot])
+                .is_some_and(|at| at != slot)
+        };
+        if let Some(slot) = (0..moved.len()).find(|slot| item_moved(*slot))
+            && let Some((item, before, after)) = edited(&moved[slot])
+        {
+            let mut changed = moved.clone();
+            changed[slot] = item;
+            with_edits.push((changed, vec![(before, after)]));
+        }
+    }
+    with_edits
 }
 
 /// What `saved` did to the comments of `host_text`: each stays with its
-/// code (after it on its line, or right above it), or goes with it.
-fn misplaced_comments(host: Language, host_text: &str, saved: &str) -> Vec<String> {
+/// code (after it on its line, or right above it), or goes with it. The
+/// code of an item the edit changed is its code with the `edits` made.
+fn misplaced_comments(
+    host: Language,
+    host_text: &str,
+    saved: &str,
+    edits: &[(String, String)],
+) -> Vec<String> {
     let kept = comment_pairs(host, saved);
     let has_comment = |comment: &str| saved.lines().any(|line| line.contains(comment));
+    // A code line the host writes once (a repeated header such as `[[s]]`
+    // tells no item apart).
     let has_code = |code: &str| {
-        saved
-            .lines()
-            .any(|line| line.trim().trim_end_matches(',').starts_with(code))
+        let starts = |text: &str| {
+            text.lines()
+                .filter(|line| line.trim().trim_end_matches(',').starts_with(code))
+                .count()
+        };
+        starts(host_text) == 1 && starts(saved) > 0
     };
     comment_pairs(host, host_text)
         .into_iter()
-        .filter(|pair| !kept.contains(pair))
-        .filter(|(_, code, comment)| has_comment(comment) || has_code(code))
+        .filter(|(kind, code, comment)| {
+            let changed = edits.iter().fold(code.clone(), |code, (before, after)| {
+                with_word(&code, before, after)
+            });
+            !kept.contains(&(kind, code.clone(), comment.clone()))
+                && !kept.contains(&(kind, changed.clone(), comment.clone()))
+                && (has_comment(comment) || has_code(code) || has_code(&changed))
+        })
         .map(|(kind, code, comment)| format!("{comment} no longer {kind} {code}"))
         .collect()
 }
@@ -161,7 +265,7 @@ fn items_moved_added_and_removed_from_every_view_keep_their_comments() {
                 if items.len() < 2 || items.iter().all(|other| *other == items[0]) {
                     continue;
                 }
-                for moved in variants(items, &mut random) {
+                for (moved, edits) in variants(items, &mut random) {
                     let mut edited = value.clone();
                     *edited.pointer_mut(&pointer).unwrap() = Value::Array(moved.clone());
                     let Ok(edited_text) =
@@ -187,7 +291,7 @@ fn items_moved_added_and_removed_from_every_view_keep_their_comments() {
                         }
                     };
                     saved_count += 1;
-                    let mut problems = misplaced_comments(host, host_text, &saved.text);
+                    let mut problems = misplaced_comments(host, host_text, &saved.text, &edits);
                     let seen = bridge
                         .to_edit(&saved.text)
                         .ok()

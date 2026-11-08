@@ -285,8 +285,7 @@ fn labelled_entries(
 /// Whether `written` (a value as the host writes it) is a quoted string
 /// holding a template sequence (an interpolation or directive not escaped).
 pub(super) fn is_template(written: &str) -> bool {
-    let plain = written.replace("$${", "").replace("%%{", "");
-    written.starts_with('"') && (plain.contains("${") || plain.contains("%{"))
+    written.starts_with('"') && super::heredoc::has_sequence(written)
 }
 
 /// Whether `written` (a value as the host writes it) is a bare expression:
@@ -334,7 +333,16 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
         Value::Null => Expression::Null,
         Value::Bool(flag) => Expression::Bool(*flag),
         Value::Number(number) => hcl::to_expression(number).unwrap_or(Expression::Null),
-        Value::String(text) => Expression::String(super::super::super::codec::non_finite::written(text).to_string()),
+        // Text holding a template marker is escaped here (see
+        // `heredoc::quoted`).
+        Value::String(text) => {
+            let text = super::super::super::codec::non_finite::written(text);
+            if text.contains("${") || text.contains("%{") {
+                super::heredoc::string_expression(text)
+            } else {
+                Expression::String(text.to_string())
+            }
+        }
         Value::Array(items) => Expression::Array(items.iter().map(hcl_expression).collect()),
         Value::Object(map) => Expression::Object(
             map.iter()
@@ -370,6 +378,33 @@ pub(super) fn one_line_block(source: &str, pointer: &str) -> Option<OneLine> {
         written: format!("{} = ", header.block_type),
         value: open..close + 1,
     })
+}
+
+/// The bytes of the repeated unlabelled block at `pointer` (`/s/1`, the
+/// second `s { … }`), from its type to its `}`.
+pub(super) fn repeated_block_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
+    let wanted = pointer_segments(pointer);
+    wanted.last()?.parse::<usize>().ok()?;
+    let scan = analyze(source, 0);
+    let header = scan
+        .headers
+        .iter()
+        .find(|header| header.labels.is_empty() && body_path(&scan, header.child) == wanted)?;
+    let start = header.type_span.0;
+    let mut depth = 0usize;
+    for token in tokenize(&source[start..]) {
+        match token.kind {
+            Kind::Punct('{') => depth += 1,
+            Kind::Punct('}') => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(start..start + token.end);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// `source` with the block type or label at `pointer` renamed `new_key` in

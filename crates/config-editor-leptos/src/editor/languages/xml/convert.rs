@@ -79,6 +79,7 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
     let tokens = tokenize(source);
     let plan = plan_paths(source, &tokens);
     let mut found = AttributePaths::new();
+    let mut written_open = AttributePaths::new();
     for token in &tokens {
         if !matches!(token.kind, Kind::OpenTag { .. }) || plan.root == Some(token.start) {
             continue;
@@ -102,12 +103,17 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
                 any = true;
             }
         }
-        if any && source[..token.end].ends_with("/>") {
-            let mut element = keys;
-            element.push(ATTRIBUTES_ONLY.to_string());
+        let mut element = keys;
+        element.push(ATTRIBUTES_ONLY.to_string());
+        if matches!(token.kind, Kind::OpenTag { closing: false, .. }) && !source[..token.end].ends_with("/>") {
+            written_open.insert(element);
+        } else if any {
             found.insert(element);
         }
     }
+    // A repeated element some of whose items hold children or text
+    // (`<s n="a"><p>1</p></s>` beside `<s n="c"/>`) is not attributes-only.
+    found.retain(|path| !written_open.contains(path));
     found
 }
 
@@ -184,7 +190,7 @@ pub(super) fn rename_element(source: &str, pointer: &str, new_key: &str) -> Opti
 }
 
 /// The start tag at token `index` and its end tag, if it has one.
-fn element_from(source: &str, tokens: &[Token], index: usize) -> Option<(usize, Option<usize>)> {
+pub(super) fn element_from(source: &str, tokens: &[Token], index: usize) -> Option<(usize, Option<usize>)> {
     if source[..tokens[index].end].ends_with("/>") {
         return Some((index, None));
     }

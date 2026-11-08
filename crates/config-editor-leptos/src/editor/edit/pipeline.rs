@@ -240,7 +240,8 @@ impl EditorState {
                 }),
                 _ => history.update(|history| history.record_action(before(), after)),
             },
-            Origin::HostValue => {}
+            // Not a step: the steps before it take the host's change.
+            Origin::HostValue => history.update(|history| history.rebase(&edit.before, &edit.text)),
         }
     }
 }

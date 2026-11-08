@@ -24,6 +24,7 @@ mod editing;
 mod typed;
 mod convert;
 mod text;
+mod one_line;
 mod text_bodies;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
@@ -316,7 +317,7 @@ impl ConfigLanguage for XmlBehavior {
         // Empty elements the host closes with an end tag (`<x a="1"></x>`)
         // are written that way again, not as `<x a="1"/>`.
         Ok(match previous {
-            Some(previous) => with_end_tags_of(&out, previous),
+            Some(previous) => one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
             None => out,
         })
     }
