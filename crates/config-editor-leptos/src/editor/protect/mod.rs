@@ -146,3 +146,12 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod typing_tests;

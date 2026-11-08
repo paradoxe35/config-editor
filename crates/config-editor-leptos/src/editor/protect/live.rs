@@ -11,6 +11,7 @@ use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::input::edit_range;
+use super::super::keyboard::utf16_to_byte_index;
 use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
@@ -53,6 +54,13 @@ pub(crate) struct Marks {
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
     pub(crate) pressed: Option<Range<usize>>,
+    /// Where typing was refused at a read-only field, and why: the rest of
+    /// what is typed there is refused too (see [`EditorState::check_edit`]),
+    /// until the caret moves or another edit is made.
+    refused: Option<(usize, String)>,
+    /// The stretch typing just wrote, one character after another (UTF-16
+    /// offsets): a refusal takes back the word it was writing.
+    typed: Option<(usize, usize)>,
 }
 
 /// The protection signals of one editor.
@@ -271,6 +279,19 @@ impl EditorState {
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
+        // Typing on where a key was refused: the rest of the word, or the
+        // spaces after it, would only be left there half-written.
+        if let Some(at) = inserted_at(edit)
+            && let Some(message) = self.protect().marks.with_value(|marks| {
+                marks
+                    .refused
+                    .as_ref()
+                    .filter(|(refused_at, _)| *refused_at == at)
+                    .map(|(_, message)| message.clone())
+            })
+        {
+            return Err(message);
+        }
         self.protect()
             .protected
             .with_untracked(|protected| {
@@ -285,6 +306,70 @@ impl EditorState {
                 })
             })
             .map_err(|blocked: Blocked| self.strings_untracked(|strings| blocked.message(strings)))
+    }
+
+    /// After typing was refused at a read-only field with `message`: what
+    /// is typed there next is refused too, and what typing wrote on that
+    /// line up to there is taken back (`<i` of a refused `<id`, `id ` of a
+    /// refused `id =`), the edit returned to make it. Nothing half-written
+    /// stays.
+    pub(crate) fn note_refused(&self, edit: &Edit, message: String) -> Option<Edit> {
+        let at = inserted_at(edit)?;
+        let typed = self.protect().marks.with_value(|marks| marks.typed);
+        let word_start = typed
+            .filter(|(start, end)| *end == at && start < end)
+            .map(|(start, _)| {
+                let units: Vec<u16> = edit.before.encode_utf16().collect();
+                let typed = String::from_utf16_lossy(&units[start..at]);
+                // The entry typed on this line, past its indentation.
+                let line = typed.rsplit('\n').next().unwrap_or_default();
+                at - line.trim_start().encode_utf16().count()
+            })
+            .filter(|start| *start < at);
+        let refused_at = word_start.unwrap_or(at);
+        self.protect().marks.update_value(|marks| {
+            marks.refused = Some((refused_at, message));
+            marks.typed = None;
+        });
+        let start = word_start?;
+        let before = edit.before.clone();
+        let (from, to) = (
+            utf16_to_byte_index(&before, start),
+            utf16_to_byte_index(&before, at),
+        );
+        let text = format!("{}{}", &before[..from], &before[to..]);
+        Some(Edit::new(before, (start, at), text, start))
+    }
+
+    /// After an edit was made: typing goes on from where it ended, and a
+    /// refusal stays only where typing was refused (see
+    /// [`Self::note_refused`]).
+    pub(crate) fn note_applied(&self, edit: &Edit) {
+        let inserted = inserted_at(edit).map(|at| {
+            let length = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
+            (at, at + length)
+        });
+        self.protect().marks.update_value(|marks| {
+            let at_refusal = marks.refused.as_ref().is_some_and(|(refused_at, _)| {
+                edit.replaced(edit.caret()).1 == *refused_at || edit.caret() == *refused_at
+            });
+            if !at_refusal {
+                marks.refused = None;
+            }
+            marks.typed = match (marks.typed, inserted) {
+                (Some((start, end)), Some((at, to))) if end == at => Some((start, to)),
+                (_, inserted) => inserted,
+            };
+        });
+    }
+
+    /// The caret moved, or another kind of key was pressed: typing starts
+    /// afresh.
+    pub(crate) fn forget_refusal(&self) {
+        self.protect().marks.update_value(|marks| {
+            marks.refused = None;
+            marks.typed = None;
+        });
     }
 
     /// Finds again what is kept by position in a text replaced whole (see
@@ -483,4 +568,20 @@ fn follow_range(range: &Range<usize>, region: &Range<usize>, inserted: usize) ->
         }
     };
     map(range.start)..map(range.end).max(map(range.start))
+}
+
+/// Where `edit` inserts what typing writes (characters, a line break, a
+/// command's text such as an accepted suggestion), replacing nothing; `None`
+/// for any other edit (a paste, a deletion, a replacement).
+fn inserted_at(edit: &Edit) -> Option<usize> {
+    let typed = match &edit.origin {
+        Origin::Command => true,
+        Origin::Input { kind, .. } => matches!(
+            kind.as_str(),
+            "insertText" | "insertCompositionText" | "insertLineBreak" | "insertParagraph"
+        ),
+        _ => false,
+    };
+    let (start, end) = edit.replaced(edit.caret());
+    (typed && start == end && edit.text.len() > edit.before.len()).then_some(start)
 }

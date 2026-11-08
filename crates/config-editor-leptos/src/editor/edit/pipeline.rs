@@ -97,6 +97,11 @@ impl EditorState {
 
         trace(Stage::Record);
         self.record(&edit, changed, after, language_before);
+        if origin.is_checked() {
+            self.note_applied(&edit);
+        } else {
+            self.forget_refusal();
+        }
 
         trace(Stage::Notify);
         if edit.origin.notifies() {
@@ -132,7 +137,11 @@ impl EditorState {
         }
         self.note_caret(start);
         if let Some(reason) = reason {
-            self.protect().flash(reason, edit.caret());
+            self.protect().flash(reason.clone(), edit.caret());
+            // Typing refused part-way: nothing half-written stays.
+            if let Some(take_back) = self.note_refused(edit, reason) {
+                self.commit(take_back);
+            }
         }
     }
 

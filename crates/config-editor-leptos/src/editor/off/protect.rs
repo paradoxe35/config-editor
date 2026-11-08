@@ -150,6 +150,14 @@ impl EditorState {
 
     pub(super) fn follow_edit(&self, _before: &str, _after: &str, _caret: usize) {}
 
+    pub(super) fn note_refused(&self, _edit: &Edit, _message: String) -> Option<Edit> {
+        None
+    }
+
+    pub(super) fn note_applied(&self, _edit: &Edit) {}
+
+    pub(super) fn forget_refusal(&self) {}
+
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
     pub(super) fn check_host_save(&self, _old: &str, _new: &str) -> Result<(), ReadOnlyChange> {
