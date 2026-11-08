@@ -265,3 +265,13 @@ pub(crate) fn path_at(
     feature = "xml"
 ))]
 mod path_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod ranges_matrix;

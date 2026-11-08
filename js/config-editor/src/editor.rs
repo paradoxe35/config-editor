@@ -224,7 +224,8 @@ impl ConfigEditor {
     /// or `undefined` stays as it is; `null` removes a callback, clears
     /// `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`, turns
     /// `editAs` and `readOnly` off and returns a setting to its default.
-    /// Settings merge key by key, `strings` text by text. A new `value`
+    /// Settings merge key by key, `strings` text by text, `colors` token by
+    /// token. A new `value`
     /// replaces the document as a host update (the caret kept when the
     /// text is unchanged). `language`, `schema`, `fileName`, `className`
     /// and `secrets` are what the editor is built from: they throw (create

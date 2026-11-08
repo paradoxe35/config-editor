@@ -99,13 +99,14 @@ export type Severity = "error" | "warning" | "info" | "hint";
 
 /**
  * Settings to change: each key left out (or `undefined`) stays, `null`
- * returns it to its default; `strings` merges text by text (a text set to
- * `null` returns to its default).
+ * returns it to its default; `strings` merges text by text and `colors`
+ * token by token (a text or token set to `null` returns to its default).
  */
 export type SettingsUpdate = {
-  [K in Exclude<keyof EditorSettings, "strings">]?: EditorSettings[K] | null;
+  [K in Exclude<keyof EditorSettings, "strings" | "colors">]?: EditorSettings[K] | null;
 } & {
   strings?: { [K in keyof EditorStrings]?: EditorStrings[K] | null } | null;
+  colors?: { [K in keyof ThemeColorMap]?: ThemeColorMap[K] | null } | null;
 };
 
 /**

@@ -49,27 +49,27 @@ impl JsLanguage {
     }
 
     /// Calls the definition's `name` with `arguments`: `None` when it has no
-    /// such method or it threw (logged, as a throwing host callback is).
+    /// such method or it threw (logged, as a throwing host callback is, the
+    /// first time for each language and callback: one that throws runs on
+    /// every render).
     pub(super) fn call(&self, name: &str, arguments: &[JsValue]) -> Option<JsValue> {
+        thread_local! {
+            static LOGGED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+        }
         let method = self.method(name)?;
         let result = match arguments {
             [first, second] => method.call2(&self.definition, first, second),
             [first] => method.call1(&self.definition, first),
             _ => method.call0(&self.definition),
         };
-        match result {
-            Ok(value) => Some(value),
-            Err(error) => {
-                web_sys::console::error_2(
-                    &JsValue::from_str(&format!(
-                        "config-editor: {}'s {name}() threw",
-                        self.info.label
-                    )),
-                    &error,
-                );
-                None
-            }
-        }
+        result
+            .map_err(|error| {
+                let message = format!("config-editor: {}'s {name}() threw", self.info.label);
+                if LOGGED.with(|logged| logged.borrow_mut().insert(message.clone())) {
+                    web_sys::console::error_2(&JsValue::from_str(&message), &error);
+                }
+            })
+            .ok()
     }
 
     /// A console warning that `callback` returned something it may not
@@ -116,14 +116,10 @@ impl JsLanguage {
     }
 
     fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Span> {
-        let span = self
-            .method(name)?
-            .call2(
-                &self.definition,
-                &JsValue::from_str(source),
-                &JsValue::from_str(pointer),
-            )
-            .ok()?;
+        let span = self.call(
+            name,
+            &[JsValue::from_str(source), JsValue::from_str(pointer)],
+        )?;
         let number = |key: &str| {
             field(&span, key)
                 .as_f64()
@@ -229,10 +225,7 @@ impl ConfigLanguage for JsLanguage {
     }
 
     fn highlight(&self, line: &str) -> Vec<Token> {
-        let Some(highlight) = self.method("highlight") else {
-            return Vec::new();
-        };
-        let Ok(tokens) = highlight.call1(&self.definition, &JsValue::from_str(line)) else {
+        let Some(tokens) = self.call("highlight", &[JsValue::from_str(line)]) else {
             return Vec::new();
         };
         if !Array::is_array(&tokens) {

@@ -1,34 +1,74 @@
 //! A host's text split into lines once, for the ranges given in it: each
 //! range is checked against its lines and turned into lines and columns by
 //! lookups (QA 21: each of 3000 ranges split the whole text again, and an
-//! update froze for most of a second).
+//! update froze for most of a second). LF, CRLF and a lone CR each end a
+//! line, as everywhere else in the API.
 
 use config_editor_leptos::TextPosition;
 
-/// Where each line of a text starts (split on `\n`), in bytes and in
-/// UTF-16 units, and the text's length in UTF-16 units.
+/// Where each line of a text starts and where its content ends (before its
+/// break), and the text's length in UTF-16 units.
 pub(crate) struct TextLines<'a> {
     text: &'a str,
     /// `(byte, UTF-16)` start of each line.
     starts: Vec<(usize, usize)>,
+    /// The byte where each line's content ends.
+    ends: Vec<usize>,
+    /// The UTF-16 start of each line in the text's LF form (the text on
+    /// screen in the host's view), where each break is one unit.
+    lf_starts: Vec<usize>,
     units: usize,
 }
 
 impl<'a> TextLines<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
         let mut starts = vec![(0, 0)];
+        let mut ends = Vec::new();
+        let mut lf_starts = vec![0];
         let mut units = 0;
-        for (byte, character) in text.char_indices() {
+        let mut crlf = 0;
+        let mut characters = text.char_indices().peekable();
+        while let Some((byte, character)) = characters.next() {
             units += character.len_utf16();
-            if character == '\n' {
-                starts.push((byte + 1, units));
-            }
+            let ending = match character {
+                '\r' if characters.next_if(|(_, next)| *next == '\n').is_some() => {
+                    units += 1;
+                    crlf += 1;
+                    2
+                }
+                '\r' | '\n' => 1,
+                _ => continue,
+            };
+            ends.push(byte);
+            starts.push((byte + ending, units));
+            lf_starts.push(units - crlf);
         }
+        ends.push(text.len());
         Self {
             text,
             starts,
+            ends,
+            lf_starts,
             units,
         }
+    }
+
+    /// The position of UTF-16 `offset` in the text's LF form (each break
+    /// one unit, as the editor's own `rangeOf` counts in the host's view);
+    /// `None` past its end or inside a character.
+    pub(crate) fn position_in_lf(&self, offset: usize) -> Option<TextPosition> {
+        let index = self.lf_starts.partition_point(|start| *start <= offset) - 1;
+        let mut units = self.lf_starts[index];
+        let mut column = 1;
+        let line = self.line(index + 1);
+        for character in line.chars() {
+            if units >= offset {
+                break;
+            }
+            units += character.len_utf16();
+            column += 1;
+        }
+        (units == offset).then(|| TextPosition::new(index + 1, column))
     }
 
     /// How many lines the text has (an empty one has one).
@@ -41,16 +81,13 @@ impl<'a> TextLines<'a> {
         self.units
     }
 
-    /// Line `line` (one-based) without its `\n`; `""` past the last.
+    /// Line `line` (one-based) without its break; `""` past the last.
     fn line(&self, line: usize) -> &'a str {
-        let Some(&(start, _)) = self.starts.get(line.wrapping_sub(1)) else {
-            return "";
-        };
-        let end = self
-            .starts
-            .get(line)
-            .map_or(self.text.len(), |(next, _)| next - 1);
-        &self.text[start..end]
+        let index = line.wrapping_sub(1);
+        match (self.starts.get(index), self.ends.get(index)) {
+            (Some(&(start, _)), Some(&end)) => &self.text[start..end],
+            _ => "",
+        }
     }
 
     /// The characters of line `line` (one-based); 0 past the last.
@@ -80,7 +117,13 @@ impl<'a> TextLines<'a> {
         let index = self.starts.partition_point(|(_, units)| *units <= offset) - 1;
         let mut units = self.starts[index].1;
         let mut column = 1;
-        for character in self.line(index + 1).chars() {
+        // With its break: an offset between a CRLF's CR and LF is past the
+        // CR, as `from_offset` counts it.
+        let end = self
+            .starts
+            .get(index + 1)
+            .map_or(self.text.len(), |(next, _)| *next);
+        for character in self.text[self.starts[index].0..end].chars() {
             if units >= offset {
                 break;
             }
@@ -88,5 +131,89 @@ impl<'a> TextLines<'a> {
             column += 1;
         }
         TextPosition::new(index + 1, column)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use config_editor_leptos::TextPosition;
+
+    use super::TextLines;
+
+    /// Every answer is the one `TextPosition` gives reading the text from
+    /// the top, whichever breaks end its lines.
+    #[test]
+    fn lines_end_at_lf_crlf_and_lone_cr_as_text_positions_count_them() {
+        let texts = [
+            "",
+            "a",
+            "a\n",
+            "a\rb",
+            "a\r\nb\rc\nd",
+            "\r\r\n\n",
+            "é😀\rx\r\n",
+            "a\r",
+        ];
+        let mut failures = Vec::new();
+        for text in texts {
+            let lines = TextLines::new(text);
+            let units = text.encode_utf16().count();
+            if lines.units() != units {
+                failures.push(format!("{text:?}: {} units", lines.units()));
+            }
+            let end = TextPosition::from_offset(text, units);
+            if lines.count() != end.line {
+                failures.push(format!(
+                    "{text:?}: {} lines, not {}",
+                    lines.count(),
+                    end.line
+                ));
+            }
+            for offset in 0..=units {
+                let expected = TextPosition::from_offset(text, offset);
+                let position = lines.position(offset);
+                if position != expected {
+                    failures.push(format!(
+                        "{text:?} @{offset}: {position:?}, not {expected:?}"
+                    ));
+                }
+            }
+            // The LF form's offsets: what the editor's `rangeOf` gives.
+            let lf = text.replace("\r\n", "\n").replace('\r', "\n");
+            let lf_units: Vec<u16> = lf.encode_utf16().collect();
+            for offset in 0..=lf_units.len() + 1 {
+                let inside = lf_units
+                    .get(offset)
+                    .is_some_and(|unit| (0xDC00..0xE000).contains(unit));
+                let expected = (offset <= lf_units.len() && !inside)
+                    .then(|| TextPosition::from_offset(&lf, offset));
+                if lines.position_in_lf(offset) != expected {
+                    failures.push(format!(
+                        "{text:?} LF @{offset}: {:?}, not {expected:?}",
+                        lines.position_in_lf(offset)
+                    ));
+                }
+            }
+            for line in 1..=lines.count() + 1 {
+                let width = text
+                    .split("\r\n")
+                    .flat_map(|part| part.split(['\r', '\n']))
+                    .nth(line - 1)
+                    .map_or(0, |content| content.chars().count());
+                if lines.width(line) != width {
+                    failures.push(format!("{text:?} line {line}: width {}", lines.width(line)));
+                }
+                for column in 1..=6 {
+                    let position = TextPosition::new(line, column);
+                    let (offset, expected) = (lines.offset(position), position.to_offset(text));
+                    if offset != expected {
+                        failures.push(format!(
+                            "{text:?} {line}:{column}: offset {offset}, not {expected}"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

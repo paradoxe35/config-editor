@@ -118,8 +118,8 @@ fn javascript_kind(serde: &str) -> String {
 }
 
 /// `overrides` (a document's `settings`) over `base` (the view's): the keys
-/// it sets replace the base's, and the texts of its `strings` the base's
-/// texts.
+/// it sets replace the base's, the texts of its `strings` the base's
+/// texts and the tokens of its `colors` the base's tokens.
 pub(crate) fn settings_over(
     base: &EditorSettings,
     overrides: &JsValue,
@@ -130,9 +130,10 @@ pub(crate) fn settings_over(
         if value.is_undefined() || value.is_null() {
             continue;
         }
-        let base_strings = field(&merged, "strings");
-        let value = if key == "strings" && value.is_object() && base_strings.is_object() {
-            let texts = Object::assign(&Object::new(), base_strings.unchecked_ref());
+        let base_texts = field(&merged, &key);
+        let merges = key == "strings" || key == "colors";
+        let value = if merges && value.is_object() && base_texts.is_object() {
+            let texts = Object::assign(&Object::new(), base_texts.unchecked_ref());
             Object::assign(&texts, value.unchecked_ref()).into()
         } else {
             value

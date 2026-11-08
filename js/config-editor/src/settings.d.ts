@@ -952,15 +952,15 @@ export interface EditorStrings {
    */
   endTag?: string;
   /**
-   * A key the schema does not allow.
+   * A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.
    *
-   * @default "{pointer}: '{key}' is not allowed here"
+   * @default "'{key}' is not allowed here"
    */
   keyNotAllowed?: string;
   /**
-   * Text in an element the schema wants elements in (XML).
+   * Text in an element the schema wants elements in (XML); the element's pointer goes before it.
    *
-   * @default "{pointer}: text is not allowed here, only elements"
+   * @default "text is not allowed here, only elements"
    */
   textNotAllowed?: string;
   /**

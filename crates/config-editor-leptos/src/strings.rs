@@ -390,9 +390,12 @@ pub struct EditorStrings {
     pub end_tag: String,
 
     // Problems the editor words.
-    /// A key the schema does not allow.
+    /// A key the schema does not allow (`{key}`); its object's pointer
+    /// goes before it (`/web: `), as before every schema problem but at the
+    /// root.
     pub key_not_allowed: String,
-    /// Text in an element the schema wants elements in (XML).
+    /// Text in an element the schema wants elements in (XML); the element's
+    /// pointer goes before it.
     pub text_not_allowed: String,
     /// A deprecated key.
     pub key_deprecated: String,
@@ -621,8 +624,8 @@ impl Default for EditorStrings {
             reference_type: text("reference"),
             closes_tag: text("Closes <{name}>"),
             end_tag: text("end tag"),
-            key_not_allowed: text("{pointer}: '{key}' is not allowed here"),
-            text_not_allowed: text("{pointer}: text is not allowed here, only elements"),
+            key_not_allowed: text("'{key}' is not allowed here"),
+            text_not_allowed: text("text is not allowed here, only elements"),
             key_deprecated: text("{pointer}: '{key}' is deprecated"),
             key_deprecated_instead: text("{pointer}: '{key}' is deprecated. {message}"),
             not_one_of: text("{value} is not one of {allowed}"),

@@ -28,6 +28,8 @@ pub fn parse(
 
 /// Writes plain data as a document in `language`. Throws when the value is
 /// not JSON data or the language cannot express it (TOML has no `null`).
+/// As `JSON.stringify` does, an object member set to `undefined` is left
+/// out, and an `undefined` or a hole in an array throws.
 #[wasm_bindgen]
 pub fn serialize(
     #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,

@@ -322,8 +322,8 @@ test.describe('under a strict CSP: the JS package (vanilla)', () => {
     await exerciseEditor(page);
     await page.evaluate(() => window.editor.update({ editAs: 'json' }));
     await expect.poll(() => page.locator('.config-editor__input').inputValue()).toMatch(/^\{/);
-    // A color no longer given goes.
-    await page.evaluate(() => window.editor.update({ colors: { key: '#ffcc66' } }));
+    // A color set to null goes (colors merge token by token).
+    await page.evaluate(() => window.editor.update({ colors: { bg: null, key: '#ffcc66' } }));
     const root = page.locator('.config-editor:has(.config-editor__input)');
     await expect.poll(() => root.evaluate((element) => element.style.getPropertyValue('--config-editor-bg'))).toBe('');
     expect(await root.evaluate((element) => element.style.getPropertyValue('--config-editor-key'))).toBe('#ffcc66');
@@ -332,7 +332,7 @@ test.describe('under a strict CSP: the JS package (vanilla)', () => {
 
   test('every theme from the one preset file, with and without custom colors', async ({ page }) => {
     await open(page, '/e2e/csp/vanilla.html');
-    await page.evaluate(() => window.editor.update({ colors: {} }));
+    await page.evaluate(() => window.editor.update({ colors: null }));
     await exerciseThemes(
       page,
       await page.evaluate(() => window.themeNames),

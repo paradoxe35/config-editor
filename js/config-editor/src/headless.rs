@@ -27,7 +27,9 @@ pub fn unified_diff(
 }
 
 /// How `current` differs from `baseline`, by lines, as the diff gutter and
-/// `onChangeSummary` count it (line endings ignored).
+/// `onChangeSummary` count it (line endings ignored). A final line break
+/// added or removed is the empty last line added or removed, where
+/// `unifiedDiff` writes it as `diff -u` does (the last line changed).
 #[wasm_bindgen(js_name = changeSummary)]
 pub fn change_summary(
     #[wasm_bindgen(unchecked_param_type = "string")] baseline: JsValue,

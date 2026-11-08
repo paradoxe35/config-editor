@@ -67,7 +67,8 @@ pub(crate) fn flag_change(options: &JsValue, name: &str) -> Result<Option<bool>,
 
 /// The settings `options` changes, laid over `current`: `None` when it
 /// sets none. A setting set to `null` returns to its default; `strings`
-/// merges text by text (a text set to `null` returns to its default).
+/// merges text by text and `colors` token by token (one set to `null`
+/// returns to its default).
 pub(crate) fn settings_change(
     current: &EditorSettings,
     options: &JsValue,
@@ -79,8 +80,8 @@ pub(crate) fn settings_change(
             continue;
         };
         changed = true;
-        let value = if key == "strings" && is_record(&value) {
-            merged_texts(&field(&merged, "strings"), &value)
+        let value = if (key == "strings" || key == "colors") && is_record(&value) {
+            merged_texts(&field(&merged, &key), &value)
         } else {
             value
         };
@@ -96,8 +97,8 @@ fn is_record(value: &JsValue) -> bool {
     value.is_object() && !value.is_function() && !Array::is_array(value)
 }
 
-/// `texts` over `current` (both `strings` objects); a text set to `null`
-/// is dropped, so it takes its default.
+/// `texts` over `current` (both `strings` or both `colors` objects); a
+/// text set to `null` is dropped, so it takes its default.
 fn merged_texts(current: &JsValue, texts: &JsValue) -> JsValue {
     let merged = if is_record(current) {
         Object::assign(&Object::new(), current.unchecked_ref())

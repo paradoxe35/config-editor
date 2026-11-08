@@ -74,7 +74,12 @@ pub(super) struct SchemaBundle {
 pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     let schema: Value = serde_json::from_str(schema_text).map_err(|error| error.to_string())?;
     #[cfg(feature = "schema-validation")]
-    let validator = jsonschema::validator_for(&schema).map_err(|error| error.to_string())?;
+    let validator = jsonschema::validator_for(
+        super::false_schema::for_validation(&schema)
+            .as_ref()
+            .unwrap_or(&schema),
+    )
+    .map_err(|error| error.to_string())?;
     let warnings = super::completion::unsupported_patterns(&schema);
     let has_deprecated = super::completion::mentions_deprecated(&schema);
     let has_marks = super::protect::mentions_marks(&schema);
@@ -753,6 +758,9 @@ pub(super) fn validate_with(
                                         })
                                         .unwrap_or(message)
                                 }
+                                ValidationErrorKind::FalseSchema => {
+                                    super::false_schema::message(&error.instance().to_string())
+                                }
                                 _ => error.to_string(),
                             };
                             // A large value is abbreviated rather than quoted whole.
@@ -794,19 +802,17 @@ pub(super) fn validate_with(
                                                 behavior, source, &pointer, true,
                                             )
                                             .or_else(|| behavior.key_span(source, &pointer));
-                                            let place =
-                                                if parent.is_empty() { "/" } else { parent };
                                             let message = if key == "#text" {
                                                 // XML mixed content: text beside child elements.
-                                                fill(
-                                                    &strings.text_not_allowed,
-                                                    &[("pointer", &place)],
-                                                )
+                                                strings.text_not_allowed.clone()
                                             } else {
-                                                fill(
-                                                    &strings.key_not_allowed,
-                                                    &[("pointer", &place), ("key", key)],
-                                                )
+                                                fill(&strings.key_not_allowed, &[("key", key)])
+                                            };
+                                            // At the root, no pointer, as for the others.
+                                            let message = if parent.is_empty() {
+                                                message
+                                            } else {
+                                                format!("{parent}: {message}")
                                             };
                                             (span, message)
                                         })

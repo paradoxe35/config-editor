@@ -62,7 +62,7 @@ const XML: &str = "\
 <tags>y</tags>
 ";
 
-fn documents() -> [(Language, &'static str); 5] {
+pub(super) fn documents() -> [(Language, &'static str); 5] {
     [
         (Language::YAML, YAML),
         (Language::JSON, JSON),

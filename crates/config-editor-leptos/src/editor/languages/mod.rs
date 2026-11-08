@@ -379,6 +379,7 @@ impl Language {
             .into_iter()
             .map(|path| path.into().to_pointer())
             .collect();
+        let source = &*line_breaks::as_lf(source);
         // A list written as repeated elements is found by its first item.
         let wanted: Vec<String> = pointers
             .iter()

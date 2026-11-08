@@ -26,6 +26,8 @@ mod diff;
 mod document;
 mod edit;
 mod edit_as;
+#[cfg(feature = "schema-validation")]
+mod false_schema;
 mod flat_keys;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
@@ -564,6 +566,15 @@ mod save_typed_tests;
     feature = "xml"
 ))]
 mod save_xml_tests;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl"
+))]
+mod schema_message_tests;
 #[cfg(all(
     test,
     feature = "yaml",

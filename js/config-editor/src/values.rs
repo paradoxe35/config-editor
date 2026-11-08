@@ -243,13 +243,22 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &TextLines) -> Result<Te
             &pick(range, &["startLine", "startColumn", "endLine", "endColumn"]),
             host_text,
         )?;
-        if indices != lines {
+        // The editor's own `rangeOf` counts its indices in the text on
+        // screen, the host's with LF breaks: the same stretch there.
+        let on_screen = |name: &str| {
+            field(range, name)
+                .as_f64()
+                .and_then(|offset| host_text.position_in_lf(offset as usize))
+        };
+        let same_on_screen =
+            on_screen("start") == Some(lines.start) && on_screen("end") == Some(lines.end);
+        if indices != lines && !same_on_screen {
             return Err(
                 "range gives { start, end } and { startLine, startColumn, … } for different stretches: give one"
                     .to_string(),
             );
         }
-        return Ok(indices);
+        return Ok(lines);
     }
     if by_index {
         let (Some(start), Some(end)) = (number("start", 0.0)?, number("end", 0.0)?) else {

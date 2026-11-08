@@ -47,9 +47,13 @@ const root = (page, name) => scope(page, name).locator('.config-editor').first()
 async function setSettings(page, name, partial) {
   await page.evaluate(
     ([name, partial]) => {
-      if (name === 'vanilla.html') window.editor.update(partial);
+      // `update` merges `colors` token by token: `null` clears them, as an
+      // empty map of props does.
+      const update = { ...partial };
+      if (partial.colors && Object.keys(partial.colors).length === 0) update.colors = null;
+      if (name === 'vanilla.html') window.editor.update(update);
       else if (!name.startsWith('documents')) window.setExtraProps((props) => ({ ...props, ...partial }));
-      else if (name === 'documents.html') window.documentsView.update(partial);
+      else if (name === 'documents.html') window.documentsView.update(update);
       else window.setViewSettings((settings) => ({ ...settings, ...partial }));
     },
     [name, partial],

@@ -639,7 +639,8 @@ impl ConfigDocuments {
     /// Changes the view, live: `documents`, `activeId`, the settings and
     /// the callbacks, any of them. A key left out or `undefined` stays as
     /// it is; `null` removes a callback or returns a setting to its default.
-    /// Settings merge key by key (`strings` text by text), under each
+    /// Settings merge key by key (`strings` text by text, `colors` token by
+    /// token), under each
     /// document's own `settings`. A new `documents` list replaces the list:
     /// a document keeps its editor (caret, undo history, scroll, folds)
     /// while its `id` stays listed, its text, baseline, file name and
