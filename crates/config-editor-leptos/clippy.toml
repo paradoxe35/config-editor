@@ -21,4 +21,6 @@ disallowed-methods = [
   { path = "leptos_dom::helpers::window_event_listener", reason = "its closure waits for the JS garbage collector after removal: use reactive::window_listener" },
   { path = "leptos_dom::helpers::window_event_listener_untyped", reason = "its closure waits for the JS garbage collector after removal: use reactive::window_listener" },
   { path = "wasm_bindgen::closure::ScopedClosure::into_js_value", reason = "the closure waits for the JS garbage collector: keep it and drop it on cleanup (see reactive::window_listener)" },
+  { path = "web_sys::HtmlElement::focus", reason = "it scrolls the host page to the element: use crate::focus::in_place (preventScroll)" },
+  { path = "web_sys::HtmlElement::focus_with_options", reason = "use crate::focus::in_place, the one place that sets preventScroll" },
 ]

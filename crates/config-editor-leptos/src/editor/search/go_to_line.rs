@@ -66,7 +66,7 @@ pub(super) fn open(state: EditorState) {
     state.hide_hover();
     if let Some(input) = go_to.input_ref.get_untracked() {
         input.set_value("");
-        let _ = input.focus();
+        let _ = crate::focus::in_place(&input);
     }
 }
 

@@ -57,7 +57,7 @@ pub(in crate::editor) fn open(state: EditorState, replacing: bool) {
         search.query_ref.get_untracked()
     };
     if let Some(input) = target {
-        let _ = input.focus();
+        let _ = crate::focus::in_place(&input);
         input.select();
     }
     select_nearest(state, false);

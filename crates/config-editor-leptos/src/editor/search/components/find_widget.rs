@@ -205,7 +205,7 @@ fn toggle_replace(state: EditorState) {
         row.set_hidden(!replacing);
     }
     if let Some(input) = target {
-        let _ = input.focus();
+        let _ = crate::focus::in_place(&input);
     }
 }
 

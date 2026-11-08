@@ -155,7 +155,7 @@ impl EditorState {
                 let _ = element.focus();
             }
         } else if let Some(button) = self.editing().keep_mine_ref.get_untracked() {
-            let _ = button.focus();
+            let _ = crate::focus::in_place(&button);
         }
         true
     }

@@ -500,7 +500,7 @@ impl Documents {
         let id = id.to_string();
         later::next_frame(documents, move |documents| {
             if let Some(tab) = documents.tab_element(&id) {
-                let _ = tab.focus();
+                let _ = crate::focus::in_place(&tab);
             }
         });
     }

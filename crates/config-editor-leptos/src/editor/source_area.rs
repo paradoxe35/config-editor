@@ -117,7 +117,7 @@ impl SourceArea {
     }
 
     pub(crate) fn focus(&self) -> Result<(), JsValue> {
-        self.element.focus()
+        crate::focus::in_place(&self.element)
     }
 
     pub(crate) fn scroll_top(&self) -> i32 {
