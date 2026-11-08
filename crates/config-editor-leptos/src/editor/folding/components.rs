@@ -203,6 +203,7 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
 #[component]
 fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     let line = item.line;
+    let hidden = item.hidden_problem;
     let closed_end = Some(item.closed_end.unwrap_or(line));
     let strings = state.strings_signal();
     let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
@@ -212,13 +213,11 @@ fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     view! {
         <button
             type="button"
-            class=match item.hidden_problem {
-                Some(severity) => format!(
-                    "config-editor__fold-chip config-editor__fold-chip--{}",
-                    severity.as_str()
-                ),
-                None => "config-editor__fold-chip".to_string(),
-            }
+            class="config-editor__fold-chip"
+            class:config-editor__fold-chip--error=hidden == Some(Severity::Error)
+            class:config-editor__fold-chip--warning=hidden == Some(Severity::Warning)
+            class:config-editor__fold-chip--info=hidden == Some(Severity::Info)
+            class:config-editor__fold-chip--hint=hidden == Some(Severity::Hint)
             data-line=line + 1
             style=format!(
                 "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height));",
