@@ -263,6 +263,8 @@ fn main() {
                 _ => file_name.clone(),
             }
         };
+        // A long name ends in an ellipsis; the title tells it whole.
+        let toolbar_file_title = toolbar_file.clone();
 
         view! {
             <div
@@ -273,7 +275,7 @@ fn main() {
                 <ConfigEditorToolbar class="demo__toolbar" theme=theme>
                     <div class="config-editor__file">
                         <span class="config-editor__file-icon">{move || shown().file_icon()}</span>
-                        <span>{toolbar_file}</span>
+                        <span class="config-editor__file-name" title=toolbar_file_title>{toolbar_file}</span>
                     </div>
                     <label class="demo__picker">
                         <span class="demo__picker-label">"File"</span>

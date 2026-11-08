@@ -163,6 +163,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
         }
     };
     let heading = titled(|strings| &strings.preview_heading);
+    let heading_title = heading.clone();
     let dialog_label = titled(|strings| &strings.preview_label);
     // Opened from the keyboard: the revert button takes the focus.
     Effect::new(move |_| {
@@ -189,7 +190,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
             on:keydown=keydown
         >
             <header class="config-editor__diff-peek-header">
-                <strong>{heading}</strong>
+                <strong class="config-editor__diff-peek-title" title=heading_title>{heading}</strong>
                 <span class="config-editor__diff-peek-actions">
                     {move || (!read_only.get()).then(|| view! {
                         <button

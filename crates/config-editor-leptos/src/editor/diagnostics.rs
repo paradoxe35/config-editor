@@ -8,25 +8,31 @@ use serde_json::Value;
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
-#[cfg(feature = "schema-validation")]
-const MAX_DIAGNOSTICS: usize = 20;
+/// The most problems of one kind (the schema's, the secret placeholders')
+/// shown and underlined; past it, a note says more follow.
+pub(super) const MAX_DIAGNOSTICS: usize = 20;
 
 /// The [`Diagnostic::code`] of the note that the problem list was cut.
 pub(super) const MORE_PROBLEMS_CODE: &str = "config-editor/more-problems";
 
 /// The first [`MAX_DIAGNOSTICS`] of `diagnostics`, and when there are more,
 /// one without a position saying so (the footer shows it), so a cut list is
-/// never taken for the whole one.
-#[cfg(feature = "schema-validation")]
-fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
+/// never taken for the whole one. The note has the severity of the most
+/// serious problem it cut: the footer's count of that kind says "20+".
+pub(super) fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
     if diagnostics.len() > MAX_DIAGNOSTICS {
+        let severity = diagnostics[MAX_DIAGNOSTICS..]
+            .iter()
+            .map(|problem| problem.severity)
+            .min_by_key(|severity| *severity as u8)
+            .unwrap_or(Severity::Warning);
         diagnostics.truncate(MAX_DIAGNOSTICS);
         diagnostics.push(Diagnostic {
             line: None,
             column: None,
             end_column: None,
             message: fill(&strings.problems_more, &[("count", &MAX_DIAGNOSTICS)]),
-            severity: Severity::Warning,
+            severity,
             code: Some(MORE_PROBLEMS_CODE.to_string()),
             ..Diagnostic::default()
         });
@@ -526,144 +532,173 @@ pub(super) fn validate_with(
         // Infinities and NaN are numbers to the schema (see `non_finite`).
         let validated = super::codec::non_finite::for_validation(&document);
         let restore = matches!(validated, std::borrow::Cow::Owned(_));
-        let mut diagnostics = schema
-            .validator
-            .iter_errors(&validated)
-            .flat_map(|top| {
-                specific_errors(&top)
-                    .into_iter()
-                    .flat_map(|error| {
-                        let path = error.instance_path().as_str().to_string();
-                        if inside(&path, &placeholders) {
-                            return Vec::new();
-                        }
-                        let message = match error.kind() {
-                            ValidationErrorKind::AnyOf { context }
-                            | ValidationErrorKind::OneOfNotValid { context } => {
-                                expected_types(error, context, strings)
-                                    .unwrap_or_else(|| error.to_string())
+        // The errors shown (enough for the cap), then where each is
+        // written: the spans of their values read at once (see
+        // `paths::with_value_spans`), not a read of the document each.
+        let mut tops = Vec::new();
+        let mut shown = 0;
+        for top in schema.validator.iter_errors(&validated) {
+            shown += specific_errors(&top)
+                .iter()
+                .filter(|error| !inside(error.instance_path().as_str(), &placeholders))
+                .count();
+            tops.push(top);
+            if shown > MAX_DIAGNOSTICS {
+                break;
+            }
+        }
+        let pointers: Vec<String> = tops
+            .iter()
+            .flat_map(|top| specific_errors(top))
+            .map(|error| error.instance_path().as_str().to_string())
+            .collect();
+        let mut diagnostics = super::paths::with_value_spans(behavior, source, &pointers, || {
+            tops.iter()
+                .flat_map(|top| {
+                    specific_errors(top)
+                        .into_iter()
+                        .flat_map(|error| {
+                            let path = error.instance_path().as_str().to_string();
+                            if inside(&path, &placeholders) {
+                                return Vec::new();
                             }
-                            // Every allowed value, not "or 2 other candidates".
-                            ValidationErrorKind::Enum { options } => match options.as_array() {
-                                Some(options) => fill(
-                                    &strings.not_one_of,
-                                    &[
-                                        ("value", &error.instance()),
-                                        (
-                                            "allowed",
-                                            &options
-                                                .iter()
-                                                .map(Value::to_string)
-                                                .collect::<Vec<_>>()
-                                                .join(", "),
-                                        ),
-                                    ],
-                                ),
-                                None => error.to_string(),
-                            },
-                            ValidationErrorKind::Type { .. } => {
-                                let message = error.to_string();
-                                listed_types(&message)
-                                    .map(|types| {
-                                        fill(
-                                            &strings.wrong_type,
-                                            &[
-                                                ("value", &error.instance()),
-                                                ("types", &types.join(", ")),
-                                            ],
-                                        )
-                                    })
-                                    .unwrap_or(message)
-                            }
-                            _ => error.to_string(),
-                        };
-                        // A large value is abbreviated rather than quoted whole.
-                        let instance = error.instance().to_string();
-                        let message = if inside(&path, &secrets) {
-                            message.replace(&instance, &strings.secret_value)
-                        } else if instance.chars().count() > MAX_QUOTED_VALUE {
-                            let short: String = instance.chars().take(MAX_QUOTED_VALUE).collect();
-                            message.replacen(&instance, &format!("{short}…"), 1)
-                        } else {
-                            message
-                        };
-                        let message = if restore {
-                            super::codec::non_finite::restore_in_message(&message)
-                        } else {
-                            message
-                        };
-                        let message = if path.is_empty() {
-                            message
-                        } else {
-                            format!("{path}: {message}")
-                        };
-                        // Each unknown key gets its own marker and message, so every
-                        // one is underlined and reachable with F8.
-                        let locations: Vec<(Option<Span>, String)> =
-                            if let ValidationErrorKind::AdditionalProperties { unexpected } =
-                                error.kind()
-                            {
-                                let parent = error.instance_path().as_str();
-                                // Only as many as can be shown are located: each is a scan.
-                                unexpected
-                                    .iter()
-                                    .take(MAX_DIAGNOSTICS + 1)
-                                    .map(|key| {
-                                        let pointer = format!("{parent}/{}", escape_pointer(key));
-                                        let span = super::codec::inline_location(
-                                            behavior, source, &pointer, true,
-                                        )
-                                        .or_else(|| behavior.key_span(source, &pointer));
-                                        let place = if parent.is_empty() { "/" } else { parent };
-                                        let message = if key == "#text" {
-                                            // XML mixed content: text beside child elements.
-                                            fill(&strings.text_not_allowed, &[("pointer", &place)])
-                                        } else {
-                                            fill(
-                                                &strings.key_not_allowed,
-                                                &[("pointer", &place), ("key", key)],
-                                            )
-                                        };
-                                        (span, message)
-                                    })
-                                    .collect()
-                            } else {
-                                // A non-empty object or list may be written as an
-                                // indented block below its key.
-                                let written_as_block = match error.instance().as_ref() {
-                                    serde_json::Value::Object(map) => !map.is_empty(),
-                                    serde_json::Value::Array(items) => !items.is_empty(),
-                                    _ => false,
-                                };
-                                // A missing property is reported on the object's key.
-                                let location = super::paths::problem_span(
-                                    behavior,
-                                    source,
-                                    &path,
-                                    matches!(error.kind(), ValidationErrorKind::Required { .. }),
-                                    written_as_block,
-                                );
-                                vec![(location, message)]
-                            };
-                        locations
-                            .into_iter()
-                            .map(|(location, message)| {
-                                let location = location.or_else(|| behavior.first_span(source));
-                                Diagnostic {
-                                    line: location.map(|location| location.line),
-                                    column: location.map(|location| location.start_column),
-                                    end_column: location.map(|location| location.end_column),
-                                    message,
-                                    severity: Severity::Error,
-                                    ..Diagnostic::default()
+                            let message = match error.kind() {
+                                ValidationErrorKind::AnyOf { context }
+                                | ValidationErrorKind::OneOfNotValid { context } => {
+                                    expected_types(error, context, strings)
+                                        .unwrap_or_else(|| error.to_string())
                                 }
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .take(MAX_DIAGNOSTICS + 1)
-            .collect::<Vec<_>>();
+                                // Every allowed value, not "or 2 other candidates".
+                                ValidationErrorKind::Enum { options } => match options.as_array() {
+                                    Some(options) => fill(
+                                        &strings.not_one_of,
+                                        &[
+                                            ("value", &error.instance()),
+                                            (
+                                                "allowed",
+                                                &options
+                                                    .iter()
+                                                    .map(Value::to_string)
+                                                    .collect::<Vec<_>>()
+                                                    .join(", "),
+                                            ),
+                                        ],
+                                    ),
+                                    None => error.to_string(),
+                                },
+                                ValidationErrorKind::Type { .. } => {
+                                    let message = error.to_string();
+                                    listed_types(&message)
+                                        .map(|types| {
+                                            fill(
+                                                &strings.wrong_type,
+                                                &[
+                                                    ("value", &error.instance()),
+                                                    ("types", &types.join(", ")),
+                                                ],
+                                            )
+                                        })
+                                        .unwrap_or(message)
+                                }
+                                _ => error.to_string(),
+                            };
+                            // A large value is abbreviated rather than quoted whole.
+                            let instance = error.instance().to_string();
+                            let message = if inside(&path, &secrets) {
+                                message.replace(&instance, &strings.secret_value)
+                            } else if instance.chars().count() > MAX_QUOTED_VALUE {
+                                let short: String =
+                                    instance.chars().take(MAX_QUOTED_VALUE).collect();
+                                message.replacen(&instance, &format!("{short}…"), 1)
+                            } else {
+                                message
+                            };
+                            let message = if restore {
+                                super::codec::non_finite::restore_in_message(&message)
+                            } else {
+                                message
+                            };
+                            let message = if path.is_empty() {
+                                message
+                            } else {
+                                format!("{path}: {message}")
+                            };
+                            // Each unknown key gets its own marker and message, so every
+                            // one is underlined and reachable with F8.
+                            let locations: Vec<(Option<Span>, String)> =
+                                if let ValidationErrorKind::AdditionalProperties { unexpected } =
+                                    error.kind()
+                                {
+                                    let parent = error.instance_path().as_str();
+                                    // Only as many as can be shown are located: each is a scan.
+                                    unexpected
+                                        .iter()
+                                        .take(MAX_DIAGNOSTICS + 1)
+                                        .map(|key| {
+                                            let pointer =
+                                                format!("{parent}/{}", escape_pointer(key));
+                                            let span = super::codec::inline_location(
+                                                behavior, source, &pointer, true,
+                                            )
+                                            .or_else(|| behavior.key_span(source, &pointer));
+                                            let place =
+                                                if parent.is_empty() { "/" } else { parent };
+                                            let message = if key == "#text" {
+                                                // XML mixed content: text beside child elements.
+                                                fill(
+                                                    &strings.text_not_allowed,
+                                                    &[("pointer", &place)],
+                                                )
+                                            } else {
+                                                fill(
+                                                    &strings.key_not_allowed,
+                                                    &[("pointer", &place), ("key", key)],
+                                                )
+                                            };
+                                            (span, message)
+                                        })
+                                        .collect()
+                                } else {
+                                    // A non-empty object or list may be written as an
+                                    // indented block below its key.
+                                    let written_as_block = match error.instance().as_ref() {
+                                        serde_json::Value::Object(map) => !map.is_empty(),
+                                        serde_json::Value::Array(items) => !items.is_empty(),
+                                        _ => false,
+                                    };
+                                    // A missing property is reported on the object's key.
+                                    let location = super::paths::problem_span(
+                                        behavior,
+                                        source,
+                                        &path,
+                                        matches!(
+                                            error.kind(),
+                                            ValidationErrorKind::Required { .. }
+                                        ),
+                                        written_as_block,
+                                    );
+                                    vec![(location, message)]
+                                };
+                            locations
+                                .into_iter()
+                                .map(|(location, message)| {
+                                    let location = location.or_else(|| behavior.first_span(source));
+                                    Diagnostic {
+                                        line: location.map(|location| location.line),
+                                        column: location.map(|location| location.start_column),
+                                        end_column: location.map(|location| location.end_column),
+                                        message,
+                                        severity: Severity::Error,
+                                        ..Diagnostic::default()
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .take(MAX_DIAGNOSTICS + 1)
+                .collect::<Vec<_>>()
+        });
         diagnostics.extend(deprecated);
         return capped(diagnostics, strings);
     }
@@ -988,5 +1023,52 @@ mod scale_tests {
                 .all(|problem| problem.message.chars().count() < 300),
             "{problems:?}"
         );
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod placing_tests {
+    use super::super::Language;
+    use super::Schema;
+
+    /// QA 17: the pause after a key in a 10,000-line TOML or HCL document
+    /// with thousands of schema problems took a second: each of the 20
+    /// problems shown, and each of its ancestors, was looked up with a read
+    /// of the whole document. Their spans are read in one pass now, in
+    /// every language, and land where the one-by-one lookups put them.
+    #[test]
+    fn problems_on_a_large_document_are_placed_in_one_pass_in_every_language() {
+        let schema =
+            Schema::compile(include_str!("../../tests/fixtures/protected.schema.json")).unwrap();
+        let mut clients = serde_json::Map::new();
+        for index in 0..2500 {
+            clients.insert(
+                format!("c{index}"),
+                serde_json::json!({"secret": format!("s{index}"), "pin": "not a number"}),
+            );
+        }
+        let document = serde_json::json!({ "clients": clients });
+        let mut failures = Vec::new();
+        for language in Language::ALL {
+            let text = language.serialize(&document).unwrap();
+            let (took, problems) =
+                crate::editor::test_timing::best_of(3, || schema.validate(*language, &text));
+            let placed = problems
+                .iter()
+                .filter(|problem| problem.line.is_some())
+                .count();
+            if took.as_millis() > 400 || placed < 20 {
+                failures.push(format!("{language}: {placed} placed in {took:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

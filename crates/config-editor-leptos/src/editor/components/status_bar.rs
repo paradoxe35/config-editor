@@ -141,8 +141,13 @@ fn is_more_note(problem: &Diagnostic) -> bool {
 /// "2 errors, 1 warning · …": the counts, then an unplaced problem's
 /// message or a hint.
 fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
-    // The note that more problems follow is not one of them: the counts say
-    // "20+" instead.
+    // The notes that more problems follow are not among them: the count of
+    // the kind each note cut says "20+" instead.
+    let cut = |severity: Severity| {
+        problems
+            .iter()
+            .any(|problem| is_more_note(problem) && problem.severity == severity)
+    };
     let more = problems.iter().any(is_more_note);
     let counted_problems: Vec<&Diagnostic> = problems
         .iter()
@@ -154,7 +159,8 @@ fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
             .filter(|problem| problem.severity == severity)
             .count()
     };
-    let counts: Vec<(usize, &String, &String)> = [
+    // "20+ errors, 3 warnings": the "+" on each kind a cap cut.
+    let listed: Vec<String> = [
         (Severity::Error, &strings.errors_one, &strings.errors_other),
         (
             Severity::Warning,
@@ -165,21 +171,20 @@ fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
         (Severity::Hint, &strings.hints_one, &strings.hints_other),
     ]
     .into_iter()
-    .map(|(severity, one, other)| (count_of(severity), one, other))
-    .filter(|(count, _, _)| *count > 0)
-    .collect();
-    let count = match counts.as_slice() {
-        [] => return strings.no_problems.clone(),
-        // "20+ errors"; with several kinds the "+" ends the list.
-        [(count, one, other)] if more => counted_as(one, other, *count, &format!("{count}+")),
-        _ => {
-            let listed: Vec<String> = counts
-                .iter()
-                .map(|(count, one, other)| counted(one, other, *count))
-                .collect();
-            format!("{}{}", listed.join(", "), if more { "+" } else { "" })
+    .map(|(severity, one, other)| (count_of(severity), cut(severity), one, other))
+    .filter(|(count, _, _, _)| *count > 0)
+    .map(|(count, cut, one, other)| {
+        if cut {
+            counted_as(one, other, count, &format!("{count}+"))
+        } else {
+            counted(one, other, count)
         }
-    };
+    })
+    .collect();
+    if listed.is_empty() {
+        return strings.no_problems.clone();
+    }
+    let count = listed.join(", ");
     let detail = if more {
         fill(&strings.problems_cut, &[("count", &counted_problems.len())])
     } else {
@@ -268,26 +273,71 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    fn more_note() -> Diagnostic {
+    /// The note a cap adds, cutting problems of `severity`.
+    fn cut_note(severity: Severity) -> Diagnostic {
         Diagnostic {
             message: "Only the first 20 problems are shown; more follow.".to_string(),
-            severity: Severity::Warning,
+            severity,
             code: Some(MORE_PROBLEMS_CODE.to_string()),
             ..Diagnostic::default()
         }
     }
 
+    fn more_note() -> Diagnostic {
+        cut_note(Severity::Error)
+    }
+
+    /// QA 17: the "+" goes on each kind a cap cut (schema errors, secret
+    /// placeholder warnings), never at the end of the list, and "only the
+    /// first N" counts the problems shown, in every combination.
     #[test]
-    fn a_cut_list_says_more_follow() {
+    fn a_cut_list_says_which_kinds_have_more() {
         let strings = EditorStrings::default();
-        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
-        problems.push(more_note());
-        assert_eq!(
-            summary(&strings, &problems),
-            "20+ errors · only the first 20 are shown"
-        );
-        problems.insert(0, placed(Severity::Hint));
-        assert!(summary(&strings, &problems).starts_with("20 errors, 1 hint+"));
+        let cases: [(&[(Severity, usize)], &[Severity], &str); 6] = [
+            (
+                &[(Severity::Error, 20)],
+                &[Severity::Error],
+                "20+ errors · only the first 20 are shown",
+            ),
+            (
+                &[(Severity::Warning, 20)],
+                &[Severity::Warning],
+                "20+ warnings · only the first 20 are shown",
+            ),
+            (
+                &[(Severity::Error, 20), (Severity::Warning, 20)],
+                &[Severity::Error, Severity::Warning],
+                "20+ errors, 20+ warnings · only the first 40 are shown",
+            ),
+            (
+                &[(Severity::Error, 20), (Severity::Warning, 20)],
+                &[Severity::Warning],
+                "20 errors, 20+ warnings · only the first 40 are shown",
+            ),
+            (
+                &[(Severity::Error, 20), (Severity::Warning, 20)],
+                &[Severity::Error],
+                "20+ errors, 20 warnings · only the first 40 are shown",
+            ),
+            (
+                &[(Severity::Hint, 1), (Severity::Error, 20)],
+                &[Severity::Error],
+                "20+ errors, 1 hint · only the first 21 are shown",
+            ),
+        ];
+        let mut failures = Vec::new();
+        for (shown, cut, expected) in cases {
+            let mut problems: Vec<Diagnostic> = shown
+                .iter()
+                .flat_map(|(severity, count)| (0..*count).map(|_| placed(*severity)))
+                .collect();
+            problems.extend(cut.iter().copied().map(cut_note));
+            let found = summary(&strings, &problems);
+            if found != expected {
+                failures.push(format!("expected {expected:?}, found {found:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     /// Translated texts: the counts pick their singular or plural text, and

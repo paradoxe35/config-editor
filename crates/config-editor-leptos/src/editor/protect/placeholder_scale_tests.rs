@@ -247,3 +247,28 @@ fn thousands_of_placeholders_are_found_again_in_one_parse_in_every_language() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// The typing pause after Ctrl+/ over a whole document: the parse holds
+/// none of the commented tokens in a field, so none is real, without a
+/// path lookup each (one was a read of the whole text: seconds at 8000
+/// lines).
+#[test]
+fn thousands_of_commented_placeholders_are_found_unreal_in_one_parse_in_every_language() {
+    let matcher = SecretMatcher::new(&SecretOptions::default());
+    let mut failures = Vec::new();
+    for language in languages() {
+        let behavior = language.behavior();
+        let host = written(language, 2_000);
+        let known = matcher.known(behavior, &host);
+        let end = host.encode_utf16().count();
+        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+            continue;
+        };
+        let (took, found) =
+            crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &commented, &known));
+        if !found.is_empty() || took.as_millis() > 200 {
+            failures.push(format!("{language}: {} found in {took:?}", found.len()));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

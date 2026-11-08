@@ -274,3 +274,36 @@ test.describe('the large sample pasted four times', () => {
     expect(longest).toBeLessThan(LONG_TASK_BUDGET_MS * 3);
   });
 });
+
+// QA round 17: Ctrl+/ over the whole sample pasted four times (~8000 lines),
+// back, and its undo took 1-2.5 s each: after the toggle, every commented
+// placeholder was looked up by path (a read of the whole text each).
+for (const language of ['yaml', 'xml']) {
+  test.describe(`Ctrl+/ over the large ${language} sample pasted four times`, () => {
+    setupEditor(test, `?language=${language}&sample=large`);
+
+    test('commenting everything, back, and its undo leave no long task', async ({ page, context }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      const e = editor(page);
+      const large = await e.value();
+      await page.evaluate((text) => navigator.clipboard.writeText(text), large.endsWith('\n') ? large : `${large}\n`);
+      await e.input.click();
+      for (let copy = 1; copy < 4; copy += 1) {
+        await page.keyboard.press('Control+End');
+        await page.keyboard.press('Control+v');
+      }
+      const pasted = await e.value();
+      expect(pasted.split('\n').length).toBeGreaterThan(7000);
+      await page.waitForTimeout(2000);
+      const worst = [];
+      for (const [step, keys] of [['comment', ['Control+a', 'Control+/']], ['back', ['Control+/']], ['comment', ['Control+/']], ['undo', ['Control+z']]]) {
+        await startLongTaskProbe(page);
+        for (const key of keys) await page.keyboard.press(key);
+        worst.push(`${step} ${await longestTask(page, 2000)}`);
+      }
+      expect(await e.value()).toBe(pasted);
+      console.log(`${language} x4: longest task of Ctrl+/ steps: ${worst.join(', ')} ms`);
+      for (const entry of worst) expect(Number(entry.split(' ')[1]), entry).toBeLessThan(LONG_TASK_BUDGET_MS * 2);
+    });
+  });
+}

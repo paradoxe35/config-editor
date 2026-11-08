@@ -6,8 +6,8 @@
 //! A button opens the list, not a `<details>`: a closed `<details>`
 //! anywhere on the page makes Chrome select text in a large textarea in
 //! quadratic time (see the crate README, "Large documents"). The open list
-//! stays inside the window at every width, and Escape or a click outside
-//! closes it.
+//! stays inside the window at every width (re-placed when it resizes), and
+//! Escape in it, a click outside or focus moving on closes it.
 
 use config_editor_leptos::EditorSettings;
 use leptos::prelude::*;
@@ -79,11 +79,26 @@ fn fitting_shift(list: &web_sys::Element, current: f64) -> f64 {
     }
 }
 
-/// Closes the list on Escape (focus back on its button) and on a press
-/// outside it, while it is open.
-fn close_from_outside(open: RwSignal<bool>, root: NodeRef<leptos::html::Div>) {
+/// Whether `target` is in the settings `root` (its button or list).
+fn inside(root: NodeRef<leptos::html::Div>, target: Option<web_sys::EventTarget>) -> bool {
+    let target = target.and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+    target.is_some()
+        && root
+            .get_untracked()
+            .is_some_and(|root| root.contains(target.as_ref()))
+}
+
+/// Closes the list on Escape pressed in it or on its button (focus back on
+/// the button; Escape in the editor is the editor's), on a press outside
+/// it, and when the window resizes re-places it, while it is open.
+fn close_from_outside(
+    open: RwSignal<bool>,
+    root: NodeRef<leptos::html::Div>,
+    list: NodeRef<leptos::html::Div>,
+    shift: RwSignal<f64>,
+) {
     let escape = window_event_listener(leptos::ev::keydown, move |event| {
-        if open.get_untracked() && event.key() == "Escape" {
+        if open.get_untracked() && event.key() == "Escape" && inside(root, event.target()) {
             open.set(false);
             if let Some(button) = root
                 .get_untracked()
@@ -98,20 +113,38 @@ fn close_from_outside(open: RwSignal<bool>, root: NodeRef<leptos::html::Div>) {
         if !open.get_untracked() {
             return;
         }
-        let target = event
-            .target()
-            .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
-        let inside = root
-            .get_untracked()
-            .is_some_and(|root| root.contains(target.as_ref()));
-        if !inside {
+        if !inside(root, event.target()) {
             open.set(false);
+        }
+    });
+    // A rotated phone or a narrower window: the shift that fitted before
+    // could push the list off screen and widen the page.
+    let resize = window_event_listener(leptos::ev::resize, move |_| {
+        if open.get_untracked()
+            && let Some(list) = list.get_untracked()
+        {
+            shift.set(fitting_shift(&list, shift.get_untracked()));
         }
     });
     on_cleanup(move || {
         escape.remove();
         outside.remove();
+        resize.remove();
     });
+}
+
+/// Closes the list when focus moves on to something outside it and its
+/// button (Tab past its last checkbox); focus leaving the page keeps it.
+fn close_on_focus_out(
+    open: RwSignal<bool>,
+    root: NodeRef<leptos::html::Div>,
+) -> impl Fn(web_sys::FocusEvent) {
+    move |event| {
+        let next = event.related_target();
+        if open.get_untracked() && next.is_some() && !inside(root, next) {
+            open.set(false);
+        }
+    }
 }
 
 #[component]
@@ -134,11 +167,12 @@ pub fn SettingsPanel(settings: RwSignal<EditorSettings>) -> impl IntoView {
             });
         }
     });
-    close_from_outside(open, root);
+    close_from_outside(open, root, list, shift);
     let on_toggle = move |_| toggle(open);
+    let on_focus_out = close_on_focus_out(open, root);
     let placement = move || format!("translateX({}px)", shift.get());
     view! {
-        <div class="demo__settings" node_ref=root>
+        <div class="demo__settings" node_ref=root on:focusout=on_focus_out>
             <button
                 class="demo__settings-toggle"
                 type="button"

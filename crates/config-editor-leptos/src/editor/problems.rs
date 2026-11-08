@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use super::diagnostics::{Diagnostic, SchemaBundle, shift_diagnostics, validate_with};
+use super::diagnostics::{Diagnostic, SchemaBundle, capped, shift_diagnostics, validate_with};
 use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{HostDiagnostic, merge as merge_host, place as place_host};
 use super::languages::Language;
@@ -92,8 +92,13 @@ impl ProblemsState {
                             // The placeholders' places follow the text on
                             // screen; they say which are real only there.
                             let on_screen = text.with_untracked(|shown| shown == checked);
-                            protect.placeholder_problems(
-                                behavior, checked, marking, strings, on_screen,
+                            // As many as the schema's problems: thousands
+                            // of underlines would slow every key.
+                            capped(
+                                protect.placeholder_problems(
+                                    behavior, checked, marking, strings, on_screen,
+                                ),
+                                strings,
                             )
                         }));
                     }

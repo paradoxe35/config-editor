@@ -550,3 +550,83 @@ fn ctrl_slash_takes_strings_entries_and_plain_values_exactly() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// QA 17: Ctrl+/ over a selection holding a commented line and starting or
+/// ending mid-line comments whole lines: the text still parses (an XML
+/// comment never ends inside an element), and Ctrl+/ again gives it back.
+#[test]
+fn toggling_a_mixed_selection_from_mid_line_keeps_the_document_and_restores_it() {
+    let mut failures = Vec::new();
+    let cases: [(Language, &str); 5] = [
+        (
+            Language::XML,
+            "<r>\n<a>1</a>\n<!-- <b>2</b> -->\n<c>3</c>\n<n>1</n>\n</r>\n",
+        ),
+        (Language::YAML, "a: 1\n# b: 2\nc: 3\nn: 1\n"),
+        (Language::TOML, "a = 1\n# b = 2\nc = 3\nn = 1\n"),
+        (Language::HCL, "a = 1\n# b = 2\nc = 3\nn = 1\n"),
+        (Language::HCL, "a = 1\n/* b = 2 */\nc = 3\nn = 1\n"),
+    ];
+    for (language, text) in cases {
+        let behavior = language.behavior();
+        let at = |needle: &str, after: bool| {
+            let byte = text.find(needle).unwrap() + if after { needle.len() } else { 0 };
+            text[..byte].encode_utf16().count()
+        };
+        let (a, c) = if language.label() == "XML" {
+            ("<a>", "3")
+        } else {
+            ("a", "c")
+        };
+        for (from, to) in [
+            (at(a, false), at(c, true)),
+            (at("1", false), at(c, true)),
+            (at("2", false), at(c, true)),
+            (at(a, false), at("3", false)),
+        ] {
+            let Some((once, start, end)) = behavior.toggle_comments(text, from, to) else {
+                failures.push(format!("{language} {from}..{to}: nothing toggled"));
+                continue;
+            };
+            if let Err(error) = language.parse(&once) {
+                failures.push(format!(
+                    "{language} {from}..{to}: {once:?} does not parse: {}",
+                    error.message
+                ));
+            }
+            match behavior.toggle_comments(&once, start, end) {
+                Some((twice, _, _)) if twice == text => {}
+                other => failures.push(format!(
+                    "{language} {from}..{to}: {once:?} then {:?}",
+                    other.map(|toggled| toggled.0)
+                )),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Ctrl+/ over a whole 8000-line document, and back, is linear: well under
+/// a frame budget per toggle in every language.
+#[test]
+fn toggling_comments_over_a_large_document_is_fast() {
+    let mut failures = Vec::new();
+    for language in ALL {
+        let text = large(language).repeat(4);
+        let behavior = language.behavior();
+        let end = text.encode_utf16().count();
+        let (took, commented) =
+            crate::editor::test_timing::best_of(3, || behavior.toggle_comments(&text, 0, end));
+        let Some((commented, _, commented_end)) = commented else {
+            continue;
+        };
+        let (back, _) = crate::editor::test_timing::best_of(3, || {
+            behavior.toggle_comments(&commented, 0, commented_end)
+        });
+        eprintln!("{language}: comment {took:?}, back {back:?}");
+        if took.max(back) > std::time::Duration::from_millis(100) {
+            failures.push(format!("{language}: comment {took:?}, back {back:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

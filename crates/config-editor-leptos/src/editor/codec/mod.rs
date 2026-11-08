@@ -496,7 +496,7 @@ pub(super) fn inline_location(
             .iter()
             .map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1")))
             .collect();
-        let Some(span) = behavior.value_span(source, &ancestor) else {
+        let Some(span) = super::paths::memo_value_span(behavior, source, &ancestor) else {
             continue;
         };
         let line_start: usize = source
