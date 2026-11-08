@@ -57,6 +57,9 @@
   --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent) 50%, var(--config-editor-completion-key));
   --config-editor-scrollbar-thumb: #686868;
   --config-editor-status-error: #f48771;
+  --config-editor-status-warning: #cca700;
+  --config-editor-status-info: #3794ff;
+  --config-editor-status-hint: #a0a0a0;
   --config-editor-status-changes: var(--config-editor-modified);
   --config-editor-popup-shadow: rgb(0 0 0 / 35%);
   --config-editor-peek-shadow: rgb(0 0 0 / 45%);
@@ -789,6 +792,13 @@
   text-decoration-thickness: 2px;
 }
 
+/* A deprecated key is struck through (in the muted text colour) under its
+   wavy underline, as VS Code does. */
+.config-editor__diagnostic-marker-deprecated > span {
+  text-decoration: line-through var(--config-editor-muted);
+  text-decoration-thickness: 1px;
+}
+
 .config-editor__diagnostic-marker:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
   outline-offset: 1px;
@@ -808,7 +818,8 @@
   background: var(--config-editor-raised);
   color: var(--config-editor-tooltip-text);
   content: attr(data-message);
-  white-space: normal;
+  /* Several problems at one place: one message per line. */
+  white-space: pre-line;
   overflow-wrap: anywhere;
   box-shadow: 0 3px 10px var(--config-editor-popup-shadow);
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
@@ -1325,7 +1336,20 @@
   outline-offset: 1px;
 }
 
-.config-editor__diagnostic-status-error { color: var(--config-editor-status-error); }
+/* Each count in its severity's color; the detail after them stays muted. */
+.config-editor__diagnostic-count-error { color: var(--config-editor-status-error); }
+.config-editor__diagnostic-count-warning { color: var(--config-editor-status-warning); }
+.config-editor__diagnostic-count-info { color: var(--config-editor-status-info); }
+.config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
+
+/* On a phone the detail (a hint, or an unplaced problem's message) goes on
+   a line of its own under the counts, wrapped rather than cut. */
+@media (max-width: 540px) {
+  .config-editor__status-meta { flex-wrap: wrap; justify-content: flex-end; }
+  .config-editor__diagnostic-status { max-width: 100%; white-space: normal; }
+  .config-editor__diagnostic-detail { display: block; }
+  .config-editor__diagnostic-separator { display: none; }
+}
 
 /* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */
 .config-editor__tab-focus-status {
@@ -1380,6 +1404,9 @@
 :where(.config-editor[data-theme="vscode-light"], .config-editor-documents[data-theme="vscode-light"]) {
   --config-editor-bg: #ffffff;
   --config-editor-status-error: #c72e0f;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
   --config-editor-panel: #f3f3f3;
   --config-editor-border: #dedede;
   --config-editor-text: #333333;
@@ -1449,6 +1476,9 @@
 :where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
   --config-editor-bg: #f8faf8;
   --config-editor-status-error: #b42318;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
   --config-editor-panel: #f0f3f1;
   --config-editor-border: #d7dfda;
   --config-editor-text: #35413a;

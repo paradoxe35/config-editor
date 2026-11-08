@@ -376,6 +376,12 @@ pub struct EditorStrings {
     pub wrong_type: String,
     /// A schema that does not compile.
     pub invalid_schema: String,
+    /// A secret placeholder pattern the editor cannot use (it does not
+    /// compile, or matches empty text): no token is taken for a placeholder.
+    pub invalid_placeholder: String,
+    /// A host's problem with a field the editor cannot find in the text,
+    /// listed with the field's path.
+    pub problem_at_path: String,
     /// A value the host's language reads back differently (Edit-as).
     pub host_cannot_keep: String,
     /// A value the edited language cannot show exactly (Edit-as).
@@ -572,6 +578,8 @@ impl Default for EditorStrings {
             not_one_of: text("{value} is not one of {allowed}"),
             wrong_type: text("{value} is not of type {types}"),
             invalid_schema: text("Invalid JSON Schema: {error}"),
+            invalid_placeholder: text("secrets.placeholder: {error}"),
+            problem_at_path: text("{path}: {message}"),
             host_cannot_keep: text(
                 "{pointer}: {host} cannot keep this value exactly; it reads back differently",
             ),

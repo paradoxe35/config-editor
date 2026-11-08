@@ -79,17 +79,23 @@ pub(super) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
 /// A problem in a document: the editor's own (syntax, schema, Edit-as) or
 /// one the host reported ([`HostDiagnostic`](crate::HostDiagnostic)).
 ///
-/// Positions are one-based; the marker spans `column..end_column` on `line`.
-/// Problems that concern the whole document (such as an invalid schema) have
-/// no position.
+/// Positions are one-based; the marker spans `column..end_column` on `line`,
+/// or from `column` on `line` to `end_column` on `end_line` when it covers
+/// several lines (a host's range). Problems that concern the whole document
+/// (such as an invalid schema) have no position.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Diagnostic {
     /// One-based line.
     pub line: Option<usize>,
     /// One-based character column where the marker starts.
     pub column: Option<usize>,
-    /// One-based character column just past the marker.
+    /// One-based character column just past the marker (on `end_line` when
+    /// it is set).
     pub end_column: Option<usize>,
+    /// One-based line the marker ends on, when it covers several lines;
+    /// `None` when it ends on `line`. Only a host's range covers several.
+    pub end_line: Option<usize>,
     /// What is wrong; schema problems start with the value's JSON pointer.
     pub message: String,
     /// How serious the problem is.
@@ -102,6 +108,16 @@ pub struct Diagnostic {
     pub source: Option<String>,
     /// A page explaining the problem, from the host.
     pub docs_url: Option<String>,
+    /// A key the schema marks `deprecated`: the marker is on the key, which
+    /// is struck through.
+    pub deprecated: bool,
+}
+
+impl Diagnostic {
+    /// The line the marker ends on: `end_line`, else `line`.
+    pub(crate) fn last_line(&self) -> Option<usize> {
+        self.end_line.or(self.line)
+    }
 }
 
 /// Who found a [`Diagnostic`].
@@ -358,6 +374,7 @@ pub(super) fn shift_diagnostics(
         .take_while(|(a, b)| a == b)
         .count();
     let delta = new.len() as isize - old.len() as isize;
+    let moved = |line: usize| (line as isize + delta) as usize;
     diagnostics
         .iter()
         .filter_map(|diagnostic| {
@@ -365,10 +382,25 @@ pub(super) fn shift_diagnostics(
                 return Some(diagnostic.clone());
             };
             if line <= prefix {
-                Some(diagnostic.clone())
+                // A marker over several lines ends where its end moved; one
+                // ending in the edited lines, at their last line.
+                let end_line = diagnostic.end_line.map(|end| {
+                    if end > old.len() - suffix {
+                        moved(end)
+                    } else if end > prefix {
+                        (new.len() - suffix).max(line)
+                    } else {
+                        end
+                    }
+                });
+                Some(Diagnostic {
+                    end_line: end_line.filter(|end| *end > line),
+                    ..diagnostic.clone()
+                })
             } else if line > old.len() - suffix {
                 Some(Diagnostic {
-                    line: Some((line as isize + delta) as usize),
+                    line: Some(moved(line)),
+                    end_line: diagnostic.end_line.map(moved),
                     ..diagnostic.clone()
                 })
             } else {
@@ -407,13 +439,22 @@ fn shift_columns(validated: &str, current: &str, diagnostics: &[Diagnostic]) -> 
     };
     diagnostics
         .iter()
-        .map(|diagnostic| match diagnostic.line {
-            Some(at) if at == *line => Diagnostic {
-                column: diagnostic.column.map(moved),
-                end_column: diagnostic.end_column.map(moved),
+        .map(|diagnostic| {
+            let starts_here = diagnostic.line == Some(*line);
+            let ends_here = diagnostic.last_line() == Some(*line);
+            Diagnostic {
+                column: diagnostic.column.map(
+                    |column| {
+                        if starts_here { moved(column) } else { column }
+                    },
+                ),
+                end_column: diagnostic.end_column.map(
+                    |end| {
+                        if ends_here { moved(end) } else { end }
+                    },
+                ),
                 ..diagnostic.clone()
-            },
-            _ => diagnostic.clone(),
+            }
         })
         .collect()
 }
@@ -756,8 +797,10 @@ fn deprecation_warnings(
     super::completion::deprecated_keys(document, &bundle.schema, MAX_DEPRECATION_WARNINGS)
         .into_iter()
         .filter_map(|found| {
-            let span = super::codec::inline_location(behavior, source, &found.pointer, true)
-                .or_else(|| behavior.key_span(source, &found.pointer))?;
+            // The key alone, struck through as VS Code does.
+            let span = behavior.key_span(source, &found.pointer).or_else(|| {
+                super::codec::inline_location(behavior, source, &found.pointer, true)
+            })?;
             let message = match &found.message {
                 Some(instead) => fill(
                     &strings.key_deprecated_instead,
@@ -778,6 +821,7 @@ fn deprecation_warnings(
                 end_column: Some(span.end_column),
                 message,
                 severity: Severity::Warning,
+                deprecated: true,
                 ..Diagnostic::default()
             })
         })
@@ -973,6 +1017,34 @@ mod shift_tests {
     fn markers_below_a_removed_line_move_up_and_the_removed_ones_go() {
         let shifted = shift_diagnostics("a\nb\nc\nd", "a\nd", &[on(2), on(4)]);
         assert_eq!(lines(shifted), [Some(2)]);
+    }
+
+    #[test]
+    fn a_marker_over_several_lines_moves_its_end_with_them() {
+        let over = |line, end_line| Diagnostic {
+            end_line: Some(end_line),
+            end_column: Some(3),
+            ..on(line)
+        };
+        let spans = |found: Vec<Diagnostic>| -> Vec<_> {
+            found
+                .into_iter()
+                .map(|diagnostic| (diagnostic.line, diagnostic.end_line, diagnostic.end_column))
+                .collect()
+        };
+        // A line inserted inside it: its end moves down.
+        let shifted = shift_diagnostics("a\nb\nc\nd", "a\nb\nx\nc\nd", &[over(1, 3)]);
+        assert_eq!(spans(shifted), [(Some(1), Some(4), Some(3))]);
+        // Above it: all of it moves.
+        let shifted = shift_diagnostics("a\nb\nc\nd", "z\na\nb\nc\nd", &[over(2, 4)]);
+        assert_eq!(spans(shifted), [(Some(3), Some(5), Some(3))]);
+        // Typing on its last line before its end moves the end column only.
+        let shifted = shift_diagnostics("abc\ndef", "abc\nXdef", &[over(1, 2)]);
+        assert_eq!(spans(shifted), [(Some(1), Some(2), Some(4))]);
+        assert_eq!(
+            shift_diagnostics("abc\ndef", "abc\nXdef", &[over(1, 2)])[0].column,
+            Some(1)
+        );
     }
 
     #[test]

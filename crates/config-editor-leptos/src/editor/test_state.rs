@@ -21,6 +21,10 @@ pub(super) struct TestEditor {
     pub(super) on_change: Option<Callback<String>>,
     pub(super) on_save: Option<Callback<super::host_editing::SaveRequest>>,
     pub(super) read_only: bool,
+    /// The `secrets` prop.
+    pub(super) secrets: Option<super::secret_options::SecretOptions>,
+    /// The `host_diagnostics` prop.
+    pub(super) host_diagnostics: Signal<Vec<super::host_diagnostics::HostDiagnostic>>,
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
 }
@@ -36,6 +40,8 @@ impl TestEditor {
             on_change: None,
             on_save: None,
             read_only: false,
+            secrets: None,
+            host_diagnostics: Signal::default(),
             settings: Signal::default(),
         }
     }
@@ -55,11 +61,11 @@ impl TestEditor {
             read_only: Signal::from(self.read_only),
             settings: self.settings,
             host_on_change: self.on_change,
-            host_diagnostics: Signal::default(),
+            host_diagnostics: self.host_diagnostics,
             protect: ProtectInit {
                 paths: Some(Signal::stored(self.read_only_paths)),
                 ranges: Some(Signal::stored(self.read_only_ranges)),
-                secrets: None,
+                secrets: self.secrets,
             },
             on_save: self.on_save,
             on_baseline_conflict: None,

@@ -68,6 +68,9 @@
 
 :where(.config-editor[data-color-theme="github-light"], .config-editor-documents[data-color-theme="github-light"]) {
   --config-editor-status-error: #cf222e;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
   --config-editor-bg: #ffffff;
   --config-editor-panel: #f6f8fa;
   --config-editor-border: #d0d7de;
@@ -103,6 +106,9 @@
 
 :where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"]) {
   --config-editor-status-error: #b8281f;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
   --config-editor-bg: #fdf6e3;
   --config-editor-panel: #eee8d5;
   --config-editor-border: #d6ceb9;

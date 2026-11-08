@@ -96,6 +96,13 @@ impl ProtectState {
         false
     }
 
+    pub(super) fn placeholder_pattern_problem(
+        &self,
+        _strings: &EditorStrings,
+    ) -> Option<Diagnostic> {
+        None
+    }
+
     pub(super) fn placeholder_problems(
         &self,
         _behavior: &dyn ConfigLanguage,

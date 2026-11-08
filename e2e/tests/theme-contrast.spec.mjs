@@ -36,6 +36,9 @@ const PAIRS = [
   ['control text', CODE, 'control-text', ['control-bg']],
   ['disabled control text', 2.5, 'control-disabled-text', ['control-bg']],
   ['footer error count', UI, 'status-error', ['panel']],
+  ['footer warning count', UI, 'status-warning', ['panel']],
+  ['footer info count', UI, 'status-info', ['panel']],
+  ['footer hint count', UI, 'status-hint', ['panel']],
   // Outlines and markers (WCAG's 3:1 for interface parts).
   ['focus ring', UI, 'focus-ring', ['bg']],
   ['change bar focus ring', UI, 'diff-focus-ring', ['bg']],

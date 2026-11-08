@@ -9,7 +9,7 @@
 
 use leptos::prelude::*;
 
-use crate::reactive::{Kept, window_listener};
+use crate::reactive::{Kept, size_observer, window_listener};
 
 mod a11y;
 mod bridge;
@@ -63,6 +63,7 @@ mod paths;
 mod positioning;
 #[cfg(all(test, feature = "yaml", feature = "protect"))]
 mod problem_cap_tests;
+mod problem_walk;
 mod problems;
 mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
@@ -373,7 +374,10 @@ fn report_schema_warnings(warnings: &[String], on_schema_warning: Option<Callbac
     }
 }
 
-/// Window resizes and page scrolls move the editor, so popups re-measure.
+/// Window resizes and page scrolls move the editor, so popups re-measure;
+/// so does the text area resized without the window (its host's layout
+/// changed, a panel opened beside it), which problem messages are as wide
+/// as.
 fn remeasure_on_window_changes(state: EditorState) {
     let bump = move || {
         state
@@ -382,6 +386,13 @@ fn remeasure_on_window_changes(state: EditorState) {
             .update(|revision| *revision += 1)
     };
     window_listener(&["resize", "scroll"], bump);
+    let textarea = state.view().textarea_ref;
+    // A new text area (or none) disconnects the watch on the old one.
+    Effect::new(move |_| {
+        if let Some(element) = textarea.get() {
+            untrack(|| size_observer(&element, bump));
+        }
+    });
 }
 
 #[cfg(all(test, feature = "yaml"))]

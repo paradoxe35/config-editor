@@ -10,6 +10,7 @@ mod diagnostics;
 mod edit_as_notice;
 mod gutter;
 mod hover_card;
+mod problem_summary;
 mod source;
 mod status_bar;
 mod toolbar;

@@ -476,9 +476,11 @@ editor.update({
 - `path` (a JSON pointer or keys and indices) is marked where the field is
   written and follows it through edits and `editAs`. `range` is in the
   document (`value`, in `language`): string indices `{ start, end }` or
-  one-based `{ startLine, startColumn, endLine?, endColumn? }`; it shows
-  unplaced while editing as another language. With neither, or when the field
-  is missing, the problem shows in the footer.
+  one-based `{ startLine, startColumn, endLine?, endColumn? }`, underlined on
+  every line it covers (up to 200). While editing as another language it
+  marks the field it starts in (its key when it starts on the key). With
+  neither, or when the field is missing, the problem shows in the footer,
+  after the field's path (`/web/listen: port 80 is taken`).
 - `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`;
   colors `error`, `warning`, `info` and `hint` in `colors`.
 - `F8` stops at them, the footer counts them, and the hover message adds
@@ -488,6 +490,10 @@ editor.update({
   link with the problem.
 - `path` and `range` are exclusive; a range past the text's end, ending
   before it starts, or a pointer without its leading `/` throws.
+- The editor lists and underlines at most 20 problems of each source (the
+  schema's, the secret placeholders'), and the footer says how many were
+  cut ("20+ errors · only the first 20 are shown"); a problem with no place
+  (the whole document's) stays in the footer and `F8` reaches it.
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one (`null` or
   `[]` clears it); only the markers update. An invalid entry throws, naming
@@ -634,9 +640,11 @@ build step or a review screen. They need the WebAssembly module loaded:
 interface Diagnostic {
   line?: number; // one-based; absent when the problem has no position
   column?: number;
-  endColumn?: number;
+  endColumn?: number; // just past the marker, on endLine when it is set
+  endLine?: number; // only when the marker covers several lines
   message: string;
   severity: "error" | "warning" | "info" | "hint";
+  deprecated?: boolean; // true on a deprecated key's warning (the marker is the key)
 }
 ```
 
@@ -981,6 +989,10 @@ reviewButton.onclick = () => showPatch(editor.unifiedDiff());
 // After saving: editor.update({ baseline: editor.value }) clears the changes.
 ```
 
+The change summary is read live from `onChangeSummary`, or computed for any
+two texts with the free `changeSummary(baseline, current)` of
+`@pngwasi/config-editor/tools`; the editor has no method for it, by design.
+
 ## Custom languages
 
 ```js
@@ -1085,7 +1097,8 @@ preset stylesheet to serve or adapt.
 
 The `colors` setting sets the variables per editor. The diff markers use `added`,
 `modified` and `removed` (which follows `error` unless set), and the
-footer's change count `status-changes`.
+footer's change count `status-changes`; its problem counts `status-error`,
+`status-warning`, `status-info` and `status-hint`, each in its own color.
 
 The tabs of `ConfigDocuments` use `tab-bar` (the strip), `tab-bg` /
 `tab-active-bg`, `tab-text` / `tab-active-text`, `tab-border`,

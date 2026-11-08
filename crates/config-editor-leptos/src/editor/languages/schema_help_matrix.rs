@@ -8,7 +8,7 @@
 use super::super::completion::{
     Completion, apply_completion, completions, key_hover, next_stop, stop_ranges,
 };
-use super::super::diagnostics::{SchemaBundle, Severity, build_schema, validate};
+use super::super::diagnostics::{Diagnostic, SchemaBundle, Severity, build_schema, validate};
 use super::Language;
 
 fn help() -> SchemaBundle {
@@ -138,6 +138,14 @@ const DOCUMENTS: [(Language, &str); 5] = [
     (Language::XML, "<mode>fast</mode>\n<timeout>3</timeout>\n"),
 ];
 
+/// The text a diagnostic underlines (on its one line).
+fn marked(source: &str, diagnostic: &Diagnostic) -> Option<String> {
+    let line = source.split('\n').nth(diagnostic.line? - 1)?;
+    let column = diagnostic.column?;
+    let end = diagnostic.end_column?;
+    Some(line.chars().skip(column - 1).take(end - column).collect())
+}
+
 fn position_of(source: &str, needle: &str) -> (usize, usize) {
     let at = source.find(needle).expect("needle in the document");
     let line = source[..at].matches('\n').count();
@@ -201,14 +209,26 @@ fn deprecated_keys_in_the_document_get_a_warning_on_the_key() {
         let diagnostics = validate(source, Some(&bundle), None, true, language.behavior());
         let (line, column) = position_of(source, "timeout");
         let expected_column = column + usize::from(language == Language::JSON);
+        // The key only, as VS Code strikes it: never its value.
+        let expected_key = if language == Language::JSON {
+            "\"timeout\""
+        } else {
+            "timeout"
+        };
         match diagnostics.as_slice() {
             [warning]
                 if warning.severity == Severity::Warning
+                    && warning.deprecated
+                    && warning.end_line.is_none()
                     && warning.line == Some(line + 1)
                     && warning.column.is_some_and(|start| start <= expected_column)
+                    && marked(source, warning).as_deref() == Some(expected_key)
                     && warning.message
                         == "/timeout: 'timeout' is deprecated. Use deadline instead." => {}
-            other => failures.push(format!("{language:?}: {other:?}")),
+            other => failures.push(format!(
+                "{language:?}: {other:?} marks {:?}",
+                other.first().and_then(|warning| marked(source, warning))
+            )),
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

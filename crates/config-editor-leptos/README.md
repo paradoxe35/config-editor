@@ -454,6 +454,10 @@ view! {
 }
 ```
 
+The change summary is read live from `on_change_summary`, or computed for
+any two texts with the free `ChangeSummary::between(baseline, current)`;
+`EditorHandle` has no method for it, by design.
+
 ### Saving and unsaved edits
 
 Nothing is saved by itself. `Ctrl+S` / `Cmd+S` in the editor (the browser's
@@ -546,8 +550,10 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   default). Without it the props compile, do nothing, and log a console
   warning; the schema's `readOnly`, `writeOnly` and `x-secret` marks are
   ignored.
-- **Host problems** spanning several lines are marked on their first line;
-  the footer and `F8` show the whole message.
+- **Problems:** at most 20 of each source (the schema's, the secret
+  placeholders') are listed and underlined, and the footer says how many
+  were cut ("20+ errors · only the first 20 are shown"); a problem with no
+  place (the whole document's) stays in the footer and `F8` reaches it.
 
 ```rust
 let editor = EditorHandle::new();
@@ -740,8 +746,14 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   message opens `docs_url` when it is an `http:` or `https:` URL (another
   is not linked), as `Alt+Enter` does with the caret
   on the problem; screen readers hear the code and the link with the
-  problem, in the caret's description and on `F8`). What cannot be placed (a missing field, a range
-  while editing as another language, the whole document) shows in the footer.
+  problem, in the caret's description and on `F8`). What cannot be placed (a missing field, the
+  whole document) shows in the footer, a field's problem after its path
+  (`/web/listen: port 80 is taken`).
+- A range is underlined on every line it covers (up to 200; the
+  `Diagnostic` has an `end_line`), and the footer, `F8` and screen readers
+  name it once, at its start. While editing as another language it marks
+  the field the range starts in (its key when it starts on the key), as a
+  path would; a range starting in no field shows in the footer.
 - Severities `Error`, `Warning`, `Info` (a blue wavy underline) and `Hint`
   (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
   and `-hint` (`ThemeColor::Info`, `ThemeColor::Hint`).
@@ -882,7 +894,7 @@ Completions and hover read these keywords, with or without the
 | Keyword                                      | Shown                                                                                                                   |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                       |
-| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning.         |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`). |
 | `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                      |
 | `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                   |
 | `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document. |
@@ -1110,7 +1122,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                       |
 | `unified_diff(baseline, current, context)` | The `diff -u` of two texts (`--- baseline` / `+++ current` headers, `@@` hunks with `context` lines around changes, `\ No newline at end of file`); empty when they have the same lines. Line endings are compared as LF.                                   |
 | `ChangeSummary`                            | `added`, `removed`, `modified` lines and `hunks` (separate changes), as the diff gutter counts them; `ChangeSummary::between(baseline, current)`, `is_empty()`.                                                                                             |
-| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, and for host problems `code`, `source`, `docs_url`.                                                       |
+| `Diagnostic`                               | `line`, `column`, `end_column` (one-based, `None` when unplaced; `end_line` when the marker covers several lines), `message`, `severity` (`Severity::Error`, `Warning`, `Info`, `Hint`), `origin`, `deprecated` (a deprecated key's warning), and for host problems `code`, `source`, `docs_url`.                                                       |
 | `HostDiagnostic`, `DiagnosticTarget`       | A problem the host found, by path, range or for the whole document; see [Host diagnostics](#host-diagnostics).                                                                                                                                              |
 | `Conversion`                               | `text`, and `losses`: JSON pointers of values the target reads back differently.                                                                                                                                                                            |
 | `ConvertError`                             | `Parse(ParseError)` or `Unsupported(message)` when the target cannot express the document.                                                                                                                                                                  |
@@ -1245,7 +1257,9 @@ can set them too. The diff colors are `Added`, `Modified` and `Removed`
 `--config-editor-removed`, which follows `Error` unless set), the line
 backgrounds `AddedLine` and `ModifiedLine`, the preview's `DiffRemoved*` and
 `DiffCurrent*`, and the footer's change count `StatusChanges`
-(`--config-editor-status-changes`, which follows `Modified` unless set).
+(`--config-editor-status-changes`, which follows `Modified` unless set),
+and its problem counts `StatusError`, `StatusWarning`, `StatusInfo` and
+`StatusHint`, each in its own color.
 The find widget uses `SearchMatch`, `SearchMatchCurrent` and
 `SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
 and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
