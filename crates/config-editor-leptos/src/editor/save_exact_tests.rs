@@ -760,3 +760,74 @@ fn a_key_added_to_a_one_key_json_object_gets_its_own_line() {
     }
     report(failures);
 }
+
+/// Items of a YAML block list moved through any view take all their lines
+/// along, their comments included: maps, block scalars, indentless and
+/// nested lists (round 19: a map item's comments stayed where it was).
+#[test]
+fn yaml_list_items_moved_through_any_view_take_their_comments() {
+    let mut failures = Vec::new();
+    for (text, pointer, order, expected) in [
+        (
+            "# top\nl:\n  - name: a  # ac\n    # inner a\n    v: 1\n  - name: b  # bc\n    # inner b\n    v: 2\nn: 1  # nn\n",
+            "/l",
+            &[1, 0][..],
+            "# top\nl:\n  - name: b  # bc\n    # inner b\n    v: 2\n  - name: a  # ac\n    # inner a\n    v: 1\nn: 1  # nn\n",
+        ),
+        (
+            "l:  # lc\n  # first\n  - k: 1\n    j: x  # jx\n  # second\n  - k: 2\n\n  - k: 3  # three\n    j: z\nn: 1\n",
+            "/l",
+            &[2, 0, 1][..],
+            "l:  # lc\n  # first\n  - k: 3  # three\n    j: z\n  - k: 1\n    j: x  # jx\n\n  # second\n  - k: 2\nn: 1\n",
+        ),
+        (
+            "l:\n- name: a # ac\n  v: 1\n- name: b\n  v: 2 # bv\nn: 1\n",
+            "/l",
+            &[1, 0][..],
+            "l:\n- name: b\n  v: 2 # bv\n- name: a # ac\n  v: 1\nn: 1\n",
+        ),
+        (
+            "l:\n  - |\n    x\n    y\n  - z # zc\nn: 1\n",
+            "/l",
+            &[1, 0][..],
+            "l:\n  - z # zc\n  - |\n    x\n    y\nn: 1\n",
+        ),
+        (
+            "m:\n  l:\n    - k: 1 # one\n      t: [a, b]\n    - k: 2 # two\n  n: 1 # nc\n",
+            "/m/l",
+            &[1, 0][..],
+            "m:\n  l:\n    - k: 2 # two\n    - k: 1 # one\n      t: [a, b]\n  n: 1 # nc\n",
+        ),
+    ] {
+        from_every_view(
+            &mut failures,
+            "moved",
+            Language::YAML,
+            text,
+            &|value| {
+                let items = slot(value, pointer).as_array().expect("a list").clone();
+                *slot(value, pointer) =
+                    Value::Array(order.iter().map(|at| items[*at].clone()).collect());
+            },
+            expected,
+        );
+    }
+    // An anchor moved after its alias cannot be moved as written: the save
+    // waits rather than leave each comment on the item now in its place.
+    let anchored = "l:\n  - &a\n    k: 1 # one\n  - *a\n  - k: 2 # two\nn: 1\n";
+    for edit in ALL.into_iter().filter(|edit| *edit != Language::YAML) {
+        let saved = save_value(Language::YAML, edit, anchored, &|value| {
+            slot(value, "/l").as_array_mut().expect("a list").reverse();
+        });
+        let comments_follow = saved
+            .as_ref()
+            .is_ok_and(|saved| saved.contains("k: 2 # two") && saved.contains("k: 1 # one"));
+        let waits = saved
+            .as_ref()
+            .is_err_and(|error| error.contains("cannot be moved") && error.contains("/l"));
+        if !comments_follow && !waits {
+            failures.push(format!("anchored via {edit}: {saved:?}"));
+        }
+    }
+    report(failures);
+}

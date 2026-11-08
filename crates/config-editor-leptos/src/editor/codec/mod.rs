@@ -17,7 +17,7 @@ use compare::{canonical_number, comment_start, comparable};
 pub(super) use lines::patch_structure;
 pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
-pub(super) use reorder::patch_reorder;
+pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
 use super::completion::conform_arrays;

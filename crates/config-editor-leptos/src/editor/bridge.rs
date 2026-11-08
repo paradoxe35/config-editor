@@ -210,6 +210,15 @@ impl Bridge {
         let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
             first(&[codec::patch_structure], previous, old, target)
         };
+        // Items moved that cannot take their comments along wait, rather
+        // than leave the comments on the items now in their places.
+        if let Some(pointer) = codec::unmoved_comments(host, previous_host, &old, &target) {
+            return Err(ConvertError::Unsupported(format!(
+                "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
+                self.host.label()
+            ))
+            .into());
+        }
         let patched = precise(previous_host, &old, &target)
             // Several edits in one save: one step at a time.
             .or_else(|| {
