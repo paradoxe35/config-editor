@@ -4,9 +4,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// Locally the suite runs in parallel (E2E_WORKERS, 4 by default); CI keeps
-// one worker so timings stay comparable from run to run.
-const workers = Number(process.env.E2E_WORKERS) || (process.env.CI ? 1 : 4);
+// The suite runs in parallel: 4 workers locally, 2 on CI's 4-CPU runners
+// (E2E_WORKERS to change it). The timed specs always run alone, after the
+// others, so their numbers stay comparable from run to run.
+const workers = Number(process.env.E2E_WORKERS) || (process.env.CI ? 2 : 4);
 
 // Specs that measure time (latency budgets on large documents): they run
 // after the others, one at a time, so parallel load does not skew them.

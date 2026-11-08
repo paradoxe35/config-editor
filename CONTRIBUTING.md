@@ -21,8 +21,8 @@ cd js && npm run build && npm run typecheck                   # the npm packages
 trunk build && cd e2e && npx playwright test                  # the end-to-end tests
 ```
 
-The end-to-end tests run on 4 workers locally (`E2E_WORKERS` to change it)
-and on one in CI; the specs that measure time run after the others, alone.
+The end-to-end tests run on 4 workers locally and on 2 in CI (`E2E_WORKERS`
+to change it); the specs that measure time run after the others, alone.
 A test that fails only under that load assumes a timing it should not.
 
 Performance tests count work where they can: a test guarding against work
