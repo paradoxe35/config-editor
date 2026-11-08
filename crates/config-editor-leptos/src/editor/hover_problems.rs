@@ -61,6 +61,26 @@ impl EditorState {
         card_place(line, caret, self.shown_problem_place())
     }
 
+    /// The card goes while the pointer has left the problems it lists: they
+    /// go with it, not on to the problem tip for the same place.
+    pub(super) fn drop_card_problems(&self) {
+        let Some(line) = self
+            .hover()
+            .card
+            .with_untracked(|card| card.as_ref().map(|card| card.line))
+        else {
+            return;
+        };
+        let problems = self.problems();
+        let listed = problems
+            .hovered
+            .get_untracked()
+            .is_some_and(|(hovered, _)| hovered == line + 1);
+        if listed && problems.tip_leaving.get_value() && !problems.tip_entered.get_value() {
+            self.hide_problem_tip();
+        }
+    }
+
     /// Whether the card has a link to reach (its docs', or a problem's it
     /// lists), so the pointer leaving its key gives it a moment.
     pub(super) fn card_reachable(&self) -> bool {

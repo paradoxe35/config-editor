@@ -34,6 +34,8 @@ const PAIRS = [
   ['toolbar text', CODE, 'toolbar-text', ['panel']],
   ['popup text', CODE, 'raised-text', ['raised']],
   ['popup muted', UI, 'raised-muted', ['raised']],
+  // The hover card's "deprecated" badge (QA 23: 2.1:1 in light themes).
+  ['deprecated badge on the hover card', CODE, 'status-warning', ['raised']],
   ['completion kind icon', UI, 'completion-icon-text', ['raised']],
   ['completion type', UI, 'completion-type', ['raised']],
   ['completion detail', UI, 'completion-detail', ['raised']],

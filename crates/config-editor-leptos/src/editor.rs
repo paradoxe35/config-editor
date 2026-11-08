@@ -38,6 +38,7 @@ mod history;
 mod host_diagnostics;
 mod host_editing;
 mod hover;
+mod hover_path;
 mod hover_problems;
 mod inline;
 mod input;
@@ -52,6 +53,7 @@ mod line_breaks;
 mod line_endings;
 mod line_rows;
 mod live_settings;
+mod outside_press;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(
     test,
@@ -337,6 +339,7 @@ pub fn ConfigEditor(
         Effect::new(move |_| on_path_change.run(state.doc().caret_path.get()));
     }
     remeasure_on_window_changes(state);
+    outside_press::close_popups_on_outside_press(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
     folding::mount_fold_layers(state);

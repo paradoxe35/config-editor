@@ -65,9 +65,14 @@ fn highlight_rest(tokens: &mut Tokens, offset: usize, text: &str, value: bool) {
 }
 
 /// A complex key's text after `?` (at byte `offset`): the key, then any
-/// comment.
+/// comment; a flow collection's entries.
 fn key_tokens(tokens: &mut Tokens, offset: usize, text: &str) {
     let start = offset + text.len() - text.trim_start().len();
+    // A flow collection as the key (`? [a, b]`): its entries.
+    if text.trim_start().starts_with(['[', '{']) {
+        super::constructs::flow_tokens(text.trim_start(), start, tokens);
+        return;
+    }
     let (key, comment) = split_yaml_comment(text.trim_start());
     let key_end = start + key.trim_end().len();
     tokens.push(start, key_end, TokenKind::Key);
@@ -119,10 +124,13 @@ fn document_mark(content: &str) -> Option<usize> {
 pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
     let mut start = offset + value.len() - value.trim_start().len();
     let mut rest = value.trim_start();
+    // Tagged `!!str`, a plain scalar is a string (`!!str 123`).
+    let mut string_tag = false;
     while let Some(length) = property_len(rest) {
         let kind = if rest.starts_with('&') {
             TokenKind::Key
         } else {
+            string_tag = &rest[..length] == "!!str";
             TokenKind::Literal
         };
         tokens.push(start, start + length, kind);
@@ -146,6 +154,8 @@ pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
         } else {
             TokenKind::Punctuation
         }
+    } else if string_tag {
+        TokenKind::String
     } else {
         scalar_kind(scalar)
     };

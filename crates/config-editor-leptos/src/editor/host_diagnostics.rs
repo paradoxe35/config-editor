@@ -1,13 +1,13 @@
 //! Problems the host reports (a server's validation): [`HostDiagnostic`],
 //! placed in the text by path or range and shown with the editor's own.
 
-use std::collections::HashMap;
-
-use super::diagnostics::{Diagnostic, Severity};
+use super::diagnostics::Severity;
 use super::paths::{FieldPath, TextRange};
 
 mod fields;
+mod merge;
 mod place;
+pub(super) use merge::merge;
 pub(super) use place::{RangeText, place};
 
 /// Where a [`HostDiagnostic`] points.
@@ -107,45 +107,6 @@ impl HostDiagnostic {
     }
 }
 
-/// The editor's `own` problems and the host's, each problem once: where the
-/// host marks the same text (an overlapping marker on the same line) with a
-/// problem as serious or more, only the host's shows, as its text is what
-/// the host acts on. A less serious one (a hint on a field the schema finds
-/// wrong) never hides the editor's.
-pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> {
-    // Each marker as `(column, end, severity)` by line: one look per own
-    // problem, not a pass over thousands of the host's.
-    let span = |problem: &Diagnostic| {
-        let (line, column) = (problem.line?, problem.column?);
-        let end = problem.end_column.unwrap_or(column + 1).max(column + 1);
-        Some((line, column, end))
-    };
-    let mut by_line: HashMap<usize, Vec<(usize, usize, u8)>> = HashMap::new();
-    for theirs in host {
-        if let Some((line, column, end)) = span(theirs) {
-            by_line
-                .entry(line)
-                .or_default()
-                .push((column, end, theirs.severity as u8));
-        }
-    }
-    let overlaps = |mine: &Diagnostic| {
-        let Some((line, column, end)) = span(mine) else {
-            return false;
-        };
-        by_line.get(&line).is_some_and(|markers| {
-            markers.iter().any(|&(their_column, their_end, severity)| {
-                column < their_end && their_column < end && severity <= mine.severity as u8
-            })
-        })
-    };
-    own.iter()
-        .filter(|mine| !overlaps(mine))
-        .chain(host)
-        .cloned()
-        .collect()
-}
-
 #[cfg(all(
     test,
     feature = "yaml",
@@ -155,6 +116,15 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
     feature = "xml"
 ))]
 mod fields_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod merge_tests;
 #[cfg(all(
     test,
     feature = "yaml",

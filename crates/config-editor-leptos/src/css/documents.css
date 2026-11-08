@@ -180,6 +180,9 @@
 
 @media (max-width: 600px) {
   .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
+  /* A tab's folder (`conf.d/`) is left out, so the names that tell the
+     tabs apart show; the title keeps the whole name. */
+  .config-editor-documents__name-folder { display: none; }
 }
 
 /* Forced colors (Windows high contrast) drop backgrounds: the selected

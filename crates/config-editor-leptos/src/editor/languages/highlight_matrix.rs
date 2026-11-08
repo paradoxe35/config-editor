@@ -336,6 +336,36 @@ fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
     ]
 }
 
+/// QA 23 (L23-U4): inside a YAML flow collection an anchor and its node
+/// were one plain value and an alias a value; a complex key written as a
+/// flow collection (`? [a, b]`) was one key; `!!str 123` took the number
+/// colour. Anchors and aliases look as outside a collection, a key's
+/// collection has its brackets, and a scalar tagged `!!str` is a string,
+/// in and out of a collection.
+fn qa23_marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
+    use TokenKind::{Key, Literal, Punctuation, String, Value};
+    vec![
+        (Language::YAML, "- {a: &x 1, b: *x}", "&x", Key),
+        (Language::YAML, "- {a: &x 1, b: *x}", "1", Literal),
+        (Language::YAML, "- {a: &x 1, b: *x}", "*x", Key),
+        (Language::YAML, "l: [&a x, *a]", "&a", Key),
+        (Language::YAML, "l: [&a x, *a]", "x", Value),
+        (Language::YAML, "l: [&a x, *a]", "*a", Key),
+        (Language::YAML, "  &m {k: v}", "&m", Key),
+        (Language::YAML, "t: !!str 123", "123", String),
+        (Language::YAML, "t: !!str true", "true", String),
+        (Language::YAML, "t: !!int 123", "123", Literal),
+        (Language::YAML, "t: [!!str 123, 4]", "123", String),
+        (Language::YAML, "t: [!!str 123, 4]", "4", Literal),
+        (Language::YAML, "t: [!!str 123, 4]", "!!str", Literal),
+        (Language::YAML, "? [a, b]", "[", Punctuation),
+        (Language::YAML, "? [a, b]", ",", Punctuation),
+        (Language::YAML, "? [a, b]", "]", Punctuation),
+        (Language::YAML, "? {a: 1}", "{", Punctuation),
+        (Language::YAML, "? {a: 1}", "a", Key),
+    ]
+}
+
 /// QA 22: YAML's anchors, aliases, tags and block indicators were plain
 /// values (a flow mapping after an anchor one plain run), TOML's `=` and
 /// an inline table's key dots were not punctuation, and HCL's references
@@ -344,6 +374,9 @@ fn marks() -> Vec<(Language, &'static str, &'static str, TokenKind)> {
 fn syntax_marks_have_their_own_colours() {
     let mut failures = Vec::new();
     for (language, line, part, kind) in marks() {
+        check(&mut failures, language, line, part, kind, &[' ']);
+    }
+    for (language, line, part, kind) in qa23_marks() {
         check(&mut failures, language, line, part, kind, &[' ']);
     }
     // The last of a part found twice: the value's `ami`, after the key's.

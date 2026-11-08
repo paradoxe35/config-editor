@@ -6,6 +6,7 @@ use web_sys::{KeyboardEvent, MouseEvent};
 
 use super::super::entries::{Documents, Entry, Focus};
 use super::super::keys;
+use super::super::tab_names::split_name;
 use crate::strings::fill;
 
 #[component]
@@ -27,6 +28,16 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     } = entry;
     let icon = entry.setup.language.file_icon();
     let strings = documents.follows.strings.read();
+    let shared = documents.follows.shared_names.read();
+    // The name as its folder and the rest: a narrow strip leaves the
+    // folder out (the title and accessible name keep it).
+    let name = move || {
+        let name = file_name.get();
+        shared.with(|shared| {
+            let (folder, rest) = split_name(&name, shared);
+            (folder.map(str::to_string), rest.to_string())
+        })
+    };
     let accessible_name = move || {
         let mut name = file_name.get();
         strings.with(|strings| {
@@ -129,8 +140,16 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
             <span class="config-editor__file-icon config-editor-documents__icon" aria-hidden="true">
                 {icon}
             </span>
-            <span class="config-editor-documents__name">{move || file_name.get()}</span>
+            <span class="config-editor-documents__name">{move || name_view(name())}</span>
             {marker}
         </div>
+    }
+}
+
+/// A tab's name: its folder (in its own span), then the rest.
+fn name_view((folder, rest): (Option<String>, String)) -> impl IntoView {
+    view! {
+        {folder.map(|folder| view! { <span class="config-editor-documents__name-folder">{folder}</span> })}
+        {rest}
     }
 }

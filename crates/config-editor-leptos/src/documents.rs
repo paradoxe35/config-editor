@@ -18,6 +18,7 @@ mod handle;
 mod keys;
 mod model;
 mod plan;
+mod tab_names;
 
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};

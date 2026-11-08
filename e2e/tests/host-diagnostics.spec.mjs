@@ -137,7 +137,9 @@ test.describe('vanilla.html', () => {
     await expect(footer(browserPage)).not.toContainText('consider TLS');
   });
 
-  test('the host problem replaces the editor’s own on the same value', async ({ page: browserPage }) => {
+  test('the host problem replaces the editor’s own saying the same on the same value, and shows beside one saying else', async ({
+    page: browserPage,
+  }) => {
     await open(browserPage, 'vanilla.html');
     await input(browserPage).evaluate((element) => {
       const at = element.value.indexOf('7835');
@@ -147,10 +149,16 @@ test.describe('vanilla.html', () => {
     await browserPage.keyboard.type('true');
     await expect(markers(browserPage)).toHaveCount(1);
     await expect(markers(browserPage)).not.toHaveAttribute('data-detail');
-    await setHost(browserPage, [{ path: '/listen', message: 'listen must be a port number' }]);
+    const own = await markers(browserPage).getAttribute('data-message');
+    // The same message, without the schema's JSON pointer.
+    const same = own.replace(/^\/listen: /, '');
+    await setHost(browserPage, [{ path: '/listen', message: same }]);
     await expect(markers(browserPage)).toHaveCount(1);
-    await expect(markers(browserPage)).toHaveAttribute('data-message', 'listen must be a port number');
+    await expect(markers(browserPage)).toHaveAttribute('data-message', same);
     await expect(footer(browserPage)).toHaveText(/^1 error ·/);
+    // Another message is another problem: both show and count.
+    await setHost(browserPage, [{ path: '/listen', message: 'listen must be a port number' }]);
+    await expect(footer(browserPage)).toHaveText(/^2 errors ·/);
   });
 
   test('a click on the message of a problem with docs opens them', async ({ page: browserPage }) => {

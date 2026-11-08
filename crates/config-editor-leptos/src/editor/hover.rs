@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 use super::a11y::{
     caret_position, caret_problem_docs, caret_problems_said, hover_text, problems_at_caret,
 };
-use super::completion::key_hover;
+use super::completion::{KeyHover, key_hover};
 use super::components::HoverCard;
 use super::positioning::hover_card_style;
 use super::state::EditorState;
@@ -29,6 +29,11 @@ pub(super) struct HoverState {
     /// The card was shown at the caret (`Ctrl+K Ctrl+I`, a tap), not by
     /// the pointer: the pointer leaving does not close it.
     pub(super) at_caret: StoredValue<bool>,
+    /// Where the pointer was last over the text, in the window's pixels
+    /// (see `hover_path`).
+    pub(super) pointer: StoredValue<Option<(f64, f64)>>,
+    /// The pointer's last move headed for the popup it can enter.
+    pub(super) heading: StoredValue<bool>,
     /// The card's element while it shows: the keyboard reaches its links
     /// (see [`EditorState::keep_card_for`]).
     pub(super) card_ref: NodeRef<leptos::html::Div>,
@@ -42,6 +47,8 @@ impl HoverState {
             card_entered: StoredValue::new(false),
             token: StoredValue::new(0),
             at_caret: StoredValue::new(false),
+            pointer: StoredValue::new(None),
+            heading: StoredValue::new(false),
             card_ref: NodeRef::new(),
         }
     }
@@ -125,7 +132,33 @@ impl EditorState {
         true
     }
 
+    /// The docs for the key (or documented value) under character
+    /// `column` of zero-based `line`; on a value, its field's, as
+    /// `Ctrl+K Ctrl+I` and a tap there show them: the nearest key before it
+    /// on its line. None over blank space.
+    pub(super) fn docs_under_pointer(&self, line: usize, column: usize) -> Option<KeyHover> {
+        self.doc().text.with_untracked(|text| {
+            let line_text = text.split('\n').nth(line)?;
+            let chars: Vec<char> = line_text.chars().collect();
+            if chars
+                .get(column)
+                .is_none_or(|character| character.is_whitespace())
+            {
+                return None;
+            }
+            self.config().schema.with_value(|schema| {
+                let docs = |at| key_hover(text, line, at, schema.as_deref(), self.behavior());
+                docs(column).or_else(|| {
+                    word_starts(&chars, column)
+                        .take(LOOK_BACK)
+                        .find_map(|at| docs(at).or_else(|| docs(at + 1)))
+                })
+            })
+        })
+    }
+
     pub(super) fn hide_hover(&self) {
+        self.drop_card_problems();
         self.hover().token.update_value(|token| *token += 1);
         self.hover().pending.set_value(None);
         self.hover().card_entered.set_value(false);
@@ -173,6 +206,19 @@ impl EditorState {
             .is_some_and(|text| text.is_same_node(Some(to)));
         into_card || into_text
     }
+}
+
+/// The columns before `column` in `chars` where a word or a run of
+/// non-blank characters starts, nearest first: where a key may start.
+fn word_starts(chars: &[char], column: usize) -> impl Iterator<Item = usize> + '_ {
+    let word = |character: char| character.is_alphanumeric() || character == '_';
+    (0..column.min(chars.len())).rev().filter(move |&at| {
+        let before = at.checked_sub(1).map(|before| chars[before]);
+        let here = chars[at];
+        let run = !here.is_whitespace() && before.is_none_or(char::is_whitespace);
+        let starts_word = word(here) && !before.is_some_and(word);
+        run || starts_word
+    })
 }
 
 /// The column of the tag name after a `<` at character `column` of

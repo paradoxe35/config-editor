@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::commands::{copied_lines, line_range};
-use super::completion::{key_hover, should_auto_trigger};
+use super::completion::should_auto_trigger;
 use super::components::HoverCard;
 use super::edit::{After, Edit};
 use super::history::EditHistory;
@@ -344,6 +344,7 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
 /// The pointer left the text: the docs card and the problem tip close
 /// (each after its moment to reach it).
 pub(super) fn mouse_leave(state: EditorState) {
+    state.forget_pointer();
     state.leave_hover();
     if state.problems().hovered.with_untracked(Option::is_some) {
         state.leave_problem();
@@ -357,13 +358,15 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    let (line, column) = pointer_text_position(
-        &element,
-        f64::from(event.client_x()),
-        f64::from(event.client_y()),
-    );
+    let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
+    let (line, column) = pointer_text_position(&element, x, y);
     // Not while a button is held (a drag selecting text).
-    if event.buttons() == 0 {
+    let free = event.buttons() == 0;
+    // Heading for the popup across other text: that text waits.
+    if free && state.on_the_way_to_popup(x, y, line, column) {
+        return;
+    }
+    if free {
         state.point_at_problems(line, column);
     }
     if !state.completion().suggestions.with_untracked(Vec::is_empty) {
@@ -374,13 +377,7 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     if !state.config().settings.hover_docs.get_untracked() {
         return;
     }
-    let info = state.doc().text.with_untracked(|text| {
-        state
-            .config()
-            .schema
-            .with_value(|schema| key_hover(text, line, column, schema.as_deref(), state.behavior()))
-    });
-    let Some(info) = info else {
+    let Some(info) = state.docs_under_pointer(line, column) else {
         state.leave_hover();
         return;
     };

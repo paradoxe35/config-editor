@@ -142,9 +142,13 @@ fn quoted_end(text: &str, start: usize) -> usize {
 
 /// Colors `text`, a flow collection or the inside of one, starting at
 /// byte `offset` of its line: keys, quoted scalars (one left open runs to
-/// the end), plain scalars, brackets, commas and colons, comments.
+/// the end), plain scalars, anchors, aliases and tags (as outside one; a
+/// plain scalar tagged `!!str` is a string), brackets, commas and colons,
+/// comments.
 pub(super) fn flow_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
     let mut index = 0;
+    // The last node property was `!!str`: the scalar after it is a string.
+    let mut string_tag = false;
     while index < text.len() {
         let rest = &text[index..];
         let character = rest.chars().next().unwrap_or('\0');
@@ -173,6 +177,18 @@ pub(super) fn flow_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
                 tokens.push(offset + start, offset + start + 1, TokenKind::Punctuation);
             }
             _ if character.is_whitespace() => {}
+            '&' | '!' | '*' if after_blank || text[..index].ends_with(['[', '{', ',']) => {
+                let length = property_len(rest);
+                let kind = if character == '!' {
+                    TokenKind::Literal
+                } else {
+                    TokenKind::Key
+                };
+                tokens.push(offset + start, offset + start + length, kind);
+                string_tag = &rest[..length] == "!!str";
+                index += length;
+                continue;
+            }
             _ => {
                 let mut end = index;
                 while end < text.len() {
@@ -189,16 +205,27 @@ pub(super) fn flow_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
                 let word_end = start + word.len();
                 let kind = if text[end..].starts_with(':') {
                     TokenKind::Key
+                } else if string_tag {
+                    TokenKind::String
                 } else {
                     scalar_kind(word)
                 };
                 tokens.push(offset + start, offset + word_end, kind);
+                string_tag = false;
                 index = end;
                 continue;
             }
         }
         index += character.len_utf8();
     }
+}
+
+/// The bytes of the anchor (`&a`), alias (`*a`) or tag (`!!str`)
+/// starting `text` inside a flow collection: up to a blank or a flow
+/// indicator.
+fn property_len(text: &str) -> usize {
+    text.find(|next: char| next.is_whitespace() || matches!(next, ',' | '[' | ']' | '{' | '}'))
+        .unwrap_or(text.len())
 }
 
 /// Whether a `:` followed by `after` separates a key from its value in a

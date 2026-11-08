@@ -168,6 +168,9 @@ pub(super) struct Follows {
     pub(super) settings: Relay<EditorSettings>,
     /// The view's built-in texts (the tabs').
     pub(super) strings: Relay<Arc<EditorStrings>>,
+    /// The files' own names (past their folders) more than one tab has:
+    /// those tabs keep their folders on a narrow strip (see `tab_names`).
+    pub(super) shared_names: Relay<Vec<String>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -247,6 +250,13 @@ impl Documents {
                 settings: Relay::new(move || settings.get()),
                 strings: Relay::new(move || {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
+                }),
+                shared_names: Relay::new(move || {
+                    entries.with(|entries| {
+                        let names: Vec<String> =
+                            entries.iter().map(|entry| entry.file_name.get()).collect();
+                        super::tab_names::shared_base_names(&names)
+                    })
                 }),
             },
             root: NodeRef::new(),

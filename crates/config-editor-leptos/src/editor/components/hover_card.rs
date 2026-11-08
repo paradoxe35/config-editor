@@ -1,12 +1,14 @@
 //! Schema docs for the key or value under the pointer, under the problems
 //! on its line (see `hover_problems`).
 
+use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::completion::{ChoiceHover, HoverValue, KeyHover};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
 use crate::cssom::cssom;
+use crate::reactive::later;
 
 /// A hover card being shown: what it documents and where.
 #[derive(Clone, PartialEq)]
@@ -27,6 +29,14 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .map(|place| problems_at(state, place))
             .unwrap_or_default()
     });
+    let card_ref = state.hover().card_ref;
+    // Taller than its room (it scrolls): measured once drawn.
+    let scrolls = RwSignal::new(false);
+    Effect::new(move |_| {
+        state.hover().card.track();
+        problems.track();
+        later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+    });
     move || {
         state
             .hover()
@@ -37,14 +47,17 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 let info = card.info;
                 let examples = info.examples.join(", ");
                 let problems = problems.get();
-                // A card with a link takes the pointer, so the link can be
-                // reached and clicked; others let it through to the text.
-                let interactive = info.docs_url.is_some()
+                // A card with a link, or one taller than its room, takes the
+                // pointer, so the link can be reached and clicked and the
+                // card scrolled; others let it through to the text.
+                let links = info.docs_url.is_some()
                     || problems.iter().any(|entry| entry.docs_url.is_some());
+                let interactive = move || links || scrolls.get();
                 view! {
                     <div
                         class="config-editor__hover"
                         class:config-editor__hover--interactive=interactive
+                        class:config-editor__hover--scrolls=move || scrolls.get()
                         role="tooltip"
                         node_ref=state.hover().card_ref
                         style=cssom(card.style)
@@ -104,6 +117,17 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     }
 }
 
+/// Whether the card is taller than its room (its `max-height`), into
+/// `scrolls`.
+fn measure(card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
+    let overflows = card_ref
+        .get_untracked()
+        .is_some_and(|card| card.scroll_height() > card.client_height());
+    if scrolls.get_untracked() != overflows {
+        scrolls.set(overflows);
+    }
+}
+
 /// The pointer is over the card: it stays, with the problems it lists.
 fn enter_card(state: EditorState) {
     state.hover().card_entered.set_value(true);
@@ -111,7 +135,8 @@ fn enter_card(state: EditorState) {
 }
 
 /// The pointer left the card: it closes, as when it leaves a key, and so
-/// do the problems it listed.
+/// do the problems it listed (not on to the problem tip: the pointer back
+/// on them shows them again).
 fn leave_card(state: EditorState) {
     state.hover().card_entered.set_value(false);
     state.problems().tip_entered.set_value(false);
@@ -119,7 +144,7 @@ fn leave_card(state: EditorState) {
         return;
     }
     state.hide_hover();
-    state.leave_problem();
+    state.hide_problem_tip();
 }
 
 /// The focus left a link in the card: it closes, unless the focus went to

@@ -27,6 +27,10 @@ pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 /// editor `min-height` in `css/base.css`.
 pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
 
+/// Least height the hover card gets, in pixels, however little room the
+/// window has beside its line.
+const HOVER_CARD_MIN_HEIGHT: f64 = 60.0;
+
 /// Side of the square probe [`PopupFrame`] is measured from, in pixels.
 const FRAME_PROBE_SIZE: f64 = 100.0;
 
@@ -200,7 +204,8 @@ pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize)
 
 /// The hover card's style for text at editor `x` on a line at `line_top`
 /// (`line_height` tall) in the text area at `rect`: below the line, or
-/// above when the room below is short, inside the window.
+/// above when the room below is short, inside the window, no taller than
+/// the window's room on that side (it scrolls).
 pub(super) fn hover_card_geometry(
     frame: &PopupFrame,
     rect: Bounds,
@@ -225,10 +230,17 @@ pub(super) fn hover_card_geometry(
     } else {
         frame.top(line_top + line_height + POPUP_GAP)
     };
+    let room = if above {
+        line_top - POPUP_GAP - POPUP_MARGIN
+    } else {
+        viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP)
+    };
+    let max_height = room.max(HOVER_CARD_MIN_HEIGHT);
     let style = Declarations::new()
         .set("left", format!("{left:.1}px"))
         .set("top", format!("{top:.1}px"))
-        .set("max-width", format!("{width:.1}px"));
+        .set("max-width", format!("{width:.1}px"))
+        .set("max-height", format!("{max_height:.1}px"));
     if above {
         style.set(
             "transform",
@@ -416,6 +428,49 @@ mod tests {
             let drawn_right = drawn_left + width * probe.2 / 100.0;
             if drawn_left < 0.0 || drawn_right > 1100.0 {
                 failures.push(format!("{name}: {style} drawn {drawn_left}..{drawn_right}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// QA 23 (L23-U3): a card with many problems ran off the window. It is
+    /// no taller than the window's room on its side of the line (it
+    /// scrolls), above or below, in every container.
+    #[test]
+    fn the_hover_card_is_no_taller_than_the_windows_room() {
+        let mut failures = Vec::new();
+        for (name, probe) in containers() {
+            let frame = PopupFrame::new(Some(probe), (800.0, 400.0));
+            let rect = Bounds {
+                left: 0.0,
+                top: 0.0,
+                right: frame.viewport_width,
+                bottom: frame.viewport_height,
+            };
+            for line_top in [0.03, 0.4, 0.7, 0.92].map(|at| at * frame.viewport_height) {
+                let style = hover_card_geometry(&frame, rect, 50.0, line_top, 20.0);
+                let number = |key: &str| -> f64 {
+                    style
+                        .get(key)
+                        .unwrap()
+                        .trim_end_matches("px")
+                        .parse()
+                        .unwrap()
+                };
+                let max_height = number("max-height");
+                let above = style.get("transform").is_some();
+                let (top, bottom) = if above {
+                    (line_top - POPUP_GAP - max_height, line_top - POPUP_GAP)
+                } else {
+                    let top = line_top + 20.0 + POPUP_GAP;
+                    (top, top + max_height)
+                };
+                if top < 0.0 || bottom > frame.viewport_height {
+                    failures.push(format!(
+                        "{name} at {line_top}: {top}..{bottom} of {}",
+                        frame.viewport_height
+                    ));
+                }
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));

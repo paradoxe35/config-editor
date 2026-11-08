@@ -193,12 +193,13 @@ fn the_host_problem_replaces_the_editors_own_on_the_same_text() {
     };
     let host = Diagnostic {
         origin: DiagnosticOrigin::Host,
-        ..own(1, 9, 13, "from the host")
+        ..own(1, 9, 13, "the same")
     };
     let mine = [
-        own(1, 10, 12, "overlapping"),
-        own(1, 1, 7, "before it on the line"),
-        own(2, 9, 13, "another line"),
+        own(1, 10, 12, "the same"),
+        own(1, 10, 12, "another message"),
+        own(1, 1, 7, "the same"),
+        own(2, 9, 13, "the same"),
         Diagnostic {
             line: None,
             column: None,
@@ -213,10 +214,11 @@ fn the_host_problem_replaces_the_editors_own_on_the_same_text() {
     assert_eq!(
         merged,
         [
-            "before it on the line",
-            "another line",
+            "another message",
+            "the same",
+            "the same",
             "unplaced",
-            "from the host"
+            "the same"
         ]
     );
 }
@@ -244,17 +246,17 @@ fn a_less_serious_host_problem_never_hides_the_editors_own() {
     let mut failures = Vec::new();
     for own in severities {
         for theirs in severities {
-            let mine = at(own, DiagnosticOrigin::Editor, "mine");
-            let host = at(theirs, DiagnosticOrigin::Host, "theirs");
-            let merged: Vec<String> =
+            let mine = at(own, DiagnosticOrigin::Editor, "the same");
+            let host = at(theirs, DiagnosticOrigin::Host, "the same");
+            let merged: Vec<DiagnosticOrigin> =
                 merge(std::slice::from_ref(&mine), std::slice::from_ref(&host))
                     .into_iter()
-                    .map(|problem| problem.message)
+                    .map(|problem| problem.origin)
                     .collect();
-            let expected: &[&str] = if (theirs as u8) <= (own as u8) {
-                &["theirs"]
+            let expected: &[DiagnosticOrigin] = if (theirs as u8) <= (own as u8) {
+                &[DiagnosticOrigin::Host]
             } else {
-                &["mine", "theirs"]
+                &[DiagnosticOrigin::Editor, DiagnosticOrigin::Host]
             };
             if merged != expected {
                 failures.push(format!("own {own:?}, host {theirs:?}: {merged:?}"));
@@ -280,7 +282,7 @@ fn a_problem_both_the_schema_and_the_host_find_shows_once_in_every_language() {
             &[HostDiagnostic::at_path(
                 "/web/http",
                 Severity::Error,
-                "http must be a name",
+                "80 is not of type \"string\"",
             )],
             true,
         );
@@ -291,7 +293,7 @@ fn a_problem_both_the_schema_and_the_host_find_shows_once_in_every_language() {
             .collect();
         // XML text reads as the string the schema asks for: no problem of its own.
         let expected_own = usize::from(language != Language::XML);
-        if own.len() != expected_own || messages != ["http must be a name"] {
+        if own.len() != expected_own || messages != ["80 is not of type \"string\""] {
             failures.push(format!("{language}: own {own:?}, merged {messages:?}"));
         }
     }

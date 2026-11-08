@@ -886,9 +886,6 @@
 .config-editor__hover-problems {
   display: grid;
   gap: 6px;
-  max-height: 40vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--config-editor-raised-border);
   color: var(--config-editor-tooltip-text);
@@ -1147,6 +1144,21 @@
   box-shadow: 0 8px 24px var(--config-editor-hover-shadow);
   pointer-events: none;
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+  /* No taller than the window's room beside its line (set inline): the
+     rest scrolls, with a scroll bar and a shade where more is hidden. */
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.config-editor__hover--scrolls {
+  scrollbar-width: thin;
+  background:
+    linear-gradient(var(--config-editor-raised) 30%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--config-editor-raised) 70%) bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, var(--config-editor-hover-shadow), transparent) top / 100% 10px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, var(--config-editor-hover-shadow), transparent) bottom / 100% 10px no-repeat scroll,
+    var(--config-editor-raised);
 }
 
 .config-editor__protect-tip {
@@ -1195,10 +1207,12 @@
 
 .config-editor__hover--interactive { pointer-events: auto; }
 
+/* Text, held to 4.5:1 on the card like the footer's warning count (the
+   underline's warning color is lighter in the light themes). */
 .config-editor__hover-deprecated {
   padding: 0 5px;
   border-radius: 3px;
-  color: var(--config-editor-warning);
+  color: var(--config-editor-status-warning);
   border: 1px solid currentColor;
   font: 10px var(--config-editor-mono);
 }
@@ -1415,13 +1429,12 @@
 .config-editor__diagnostic-count-info { color: var(--config-editor-status-info); }
 .config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
 
-/* On a phone the detail (a hint, or an unplaced problem's message) goes on
-   a line of its own under the counts, wrapped rather than cut. */
+/* On a phone (no hint) the summary takes the row's free width, left of
+   the line count: one row while it fits, else wrapped rather than cut
+   (an unplaced problem's message), never with an empty half. */
 @media (max-width: 540px) {
-  .config-editor__status-meta { flex-wrap: wrap; justify-content: flex-end; }
-  .config-editor__diagnostic-status { max-width: 100%; white-space: normal; }
-  .config-editor__diagnostic-detail { display: block; }
-  .config-editor__diagnostic-separator { display: none; }
+  .config-editor__status-meta { flex: 1 1 auto; justify-content: flex-end; }
+  .config-editor__diagnostic-status { flex: 1 1 auto; max-width: none; white-space: normal; }
 }
 
 /* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */

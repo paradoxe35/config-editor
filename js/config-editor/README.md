@@ -543,8 +543,9 @@ editor.update({
   schema's, the secret placeholders'), and the footer says how many were
   cut ("20+ errors · only the editor's first 20 are shown"); a problem with no place
   (the whole document's) stays in the footer and `F8` reaches it.
-- Where the host marks the same text as one of the editor's own problems,
-  only the host's shows. A new list replaces the previous one (`null` or
+- Where the host marks the same text as one of the editor's own problems
+  with the same message (with or without its JSON pointer), only the
+  host's shows; a different message shows beside it. A new list replaces the previous one (`null` or
   `[]` clears it); only the markers update. An invalid entry throws, naming
   its index.
 

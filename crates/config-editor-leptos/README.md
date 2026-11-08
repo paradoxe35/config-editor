@@ -861,7 +861,8 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   (a dotted one), colored by `--config-editor-error`, `-warning`, `-info`
   and `-hint` (`ThemeColor::Info`, `ThemeColor::Hint`).
 - Each problem shows once: where the host marks the same text as one of the
-  editor's own, only the host's shows. A new list replaces the previous one,
+  editor's own with the same message (with or without its JSON pointer),
+  only the host's shows; a different message shows beside it. A new list replaces the previous one,
   and only the markers update.
 - Every `Diagnostic` says where it came from (`origin`:
   `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
