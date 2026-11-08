@@ -1491,6 +1491,7 @@
   --config-editor-status-warning: #8a6100;
   --config-editor-status-info: #0969da;
   --config-editor-status-hint: #59636e;
+  --config-editor-status-changes: #1d6fa5;
   --config-editor-panel: #f0f3f1;
   --config-editor-border: #d7dfda;
   --config-editor-text: #35413a;
@@ -1504,7 +1505,7 @@
   --config-editor-raised: #ffffff;
   --config-editor-raised-border: #d5ddd8;
   --config-editor-raised-text: #35413a;
-  --config-editor-raised-muted: #6f7b73;
+  --config-editor-raised-muted: #5f6b63;
   --config-editor-raised-hover: #e7ece9;
   --config-editor-control-bg: #f5f8f6;
   --config-editor-control-text: #35413a;

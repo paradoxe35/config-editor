@@ -35,10 +35,14 @@ const PAIRS = [
   ['matched letters', UI, 'accent', ['raised']],
   ['control text', CODE, 'control-text', ['control-bg']],
   ['disabled control text', 2.5, 'control-disabled-text', ['control-bg']],
-  ['footer error count', UI, 'status-error', ['panel']],
-  ['footer warning count', UI, 'status-warning', ['panel']],
-  ['footer info count', UI, 'status-info', ['panel']],
-  ['footer hint count', UI, 'status-hint', ['panel']],
+  // The footer's small text (its counts, the detail after them and the
+  // separators) is text, held to 4.5:1 like the code.
+  ['footer text (detail, separators)', CODE, 'raised-muted', ['panel']],
+  ['footer error count', CODE, 'status-error', ['panel']],
+  ['footer warning count', CODE, 'status-warning', ['panel']],
+  ['footer info count', CODE, 'status-info', ['panel']],
+  ['footer hint count', CODE, 'status-hint', ['panel']],
+  ['footer changes count', CODE, 'status-changes', ['panel']],
   // Outlines and markers (WCAG's 3:1 for interface parts).
   ['focus ring', UI, 'focus-ring', ['bg']],
   ['change bar focus ring', UI, 'diff-focus-ring', ['bg']],
