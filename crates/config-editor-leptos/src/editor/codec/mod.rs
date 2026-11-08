@@ -346,13 +346,22 @@ pub(super) fn patch_inline(
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Object(entries)) = new.pointer(&pointer)
             && let Some(Value::Object(before)) = old.pointer(&pointer)
-            && let Some(text) =
-                lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
-                return Some(patched);
+            for lone_commas in [false, true] {
+                let Some(text) = lists::rewrite_map_lines(
+                    language,
+                    &previous[range.clone()],
+                    before,
+                    entries,
+                    lone_commas,
+                ) else {
+                    continue;
+                };
+                let mut patched = previous.to_string();
+                patched.replace_range(range.clone(), &text);
+                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                    return Some(patched);
+                }
             }
         }
         // A flow collection over lines without comments in it (`{a: 1,\n

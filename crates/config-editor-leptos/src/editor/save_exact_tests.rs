@@ -630,3 +630,69 @@ fn a_toml_datetime_retyped_in_any_view_stays_a_datetime() {
     }
     report(failures);
 }
+
+/// A key added to a JSON object holding one key goes on its own line at the
+/// object's indentation, as in an object holding more (round 19: `"max":
+/// 10, "min": 1` on one line), whatever the host indents with.
+#[test]
+fn a_key_added_to_a_one_key_json_object_gets_its_own_line() {
+    let mut failures = Vec::new();
+    for unit in ["  ", "    ", "\t"] {
+        let host = format!(
+            "{{\n{unit}\"name\": \"edge\",\n{unit}\"limits\": {{\n{unit}{unit}\"max\": 10\n{unit}}},\n{unit}\"n\": 1\n}}\n"
+        );
+        let expected = host.replace(
+            "\"max\": 10\n",
+            &format!("\"max\": 10,\n{unit}{unit}\"min\": 1\n"),
+        );
+        from_every_view(
+            &mut failures,
+            &format!("indent {unit:?}"),
+            Language::JSON,
+            &host,
+            &|value| {
+                value["limits"]["min"] = 1.into();
+            },
+            &expected,
+        );
+        // At the top level too.
+        let host = format!("{{\n{unit}\"max\": 10\n}}\n");
+        let expected = format!("{{\n{unit}\"max\": 10,\n{unit}\"min\": 1\n}}\n");
+        from_every_view(
+            &mut failures,
+            &format!("top level, indent {unit:?}"),
+            Language::JSON,
+            &host,
+            &|value| {
+                value["min"] = 1.into();
+            },
+            &expected,
+        );
+    }
+    // An HCL object over lines goes without commas; a YAML flow map needs
+    // them.
+    for (host, text, expected) in [
+        (
+            Language::HCL,
+            "# c\nm = {\n  max = 10\n}\n",
+            "# c\nm = {\n  max = 10\n  min = 1\n}\n",
+        ),
+        (
+            Language::YAML,
+            "# c\nm: {\n  max: 10\n}\n",
+            "# c\nm: {\n  max: 10,\n  min: 1\n}\n",
+        ),
+    ] {
+        from_every_view(
+            &mut failures,
+            "one entry over lines",
+            host,
+            text,
+            &|value| {
+                value["m"]["min"] = 1.into();
+            },
+            expected,
+        );
+    }
+    report(failures);
+}

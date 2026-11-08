@@ -164,11 +164,14 @@ fn balanced(code: &str) -> bool {
 /// an HCL object over lines) holding `entries`, or `None` when it is not
 /// written that way. Kept entries keep their lines (and comments), changed
 /// ones their key and comment, new ones get a line like their siblings'.
+/// `lone_commas` says whether entries take commas when the host's one entry
+/// cannot tell (JSON needs them, HCL goes without): the caller tries both.
 pub(super) fn rewrite_map_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     before: &serde_json::Map<String, Value>,
     entries: &serde_json::Map<String, Value>,
+    lone_commas: bool,
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
@@ -228,10 +231,13 @@ pub(super) fn rewrite_map_lines(
     if old.len() != before.len() || !old.iter().all(|entry| before.contains_key(&entry.key)) {
         return None;
     }
-    let commas = old
-        .iter()
-        .take(old.len().saturating_sub(1))
-        .any(|entry| entry.comma);
+    let commas = if old.len() < 2 {
+        lone_commas || old.first().is_some_and(|entry| entry.comma)
+    } else {
+        old.iter()
+            .take(old.len().saturating_sub(1))
+            .any(|entry| entry.comma)
+    };
     let trailing = old.last().is_some_and(|entry| entry.comma);
     let indent: String = old
         .first()?
