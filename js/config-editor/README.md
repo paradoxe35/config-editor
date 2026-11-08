@@ -1,6 +1,6 @@
 # Config Editor for JavaScript
 
-A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML,
+A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML, or a language of your own,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes. It is written in Rust
 ([`config-editor-leptos`](https://crates.io/crates/config-editor-leptos))
