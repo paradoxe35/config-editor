@@ -7,12 +7,17 @@ use super::{comment_start, comparable};
 use serde_json::Value;
 
 /// `text` (the host's `[` … `]`, over several lines) holding `items`, or
-/// `None` when it is not written one item per line.
+/// `None` when it is not written one item per line. A list with no item
+/// to follow takes its items one `unit` in from its closing bracket, with a
+/// trailing comma when `empty_trailing` (TOML writes one, JSON cannot: the
+/// caller tries both).
 pub(super) fn rewrite_list_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     before: &[Value],
     items: &[Value],
+    unit: &str,
+    empty_trailing: bool,
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
@@ -71,17 +76,20 @@ pub(super) fn rewrite_list_lines(
     if !one_per_line {
         return None;
     }
-    let indent: String = old
-        .first()
-        .map(|line| {
-            line.line
-                .chars()
-                .take_while(|character| matches!(character, ' ' | '\t'))
-                .collect()
-        })
-        .unwrap_or_default();
+    let leading = |line: &str| -> String {
+        line.chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect()
+    };
+    let indent: String = old.first().map_or_else(
+        || format!("{}{unit}", leading(last)),
+        |line| leading(line.line),
+    );
     // A comma after the last item too, when the host writes one there.
-    let trailing_comma = old.last().is_some_and(|line| line.comma);
+    let trailing_comma = match old.last() {
+        Some(line) => line.comma,
+        None => empty_trailing,
+    };
     let mut out = vec![first.to_string()];
     for (index, item) in items.iter().enumerate() {
         let wants_comma = index + 1 < items.len() || trailing_comma;
@@ -164,11 +172,14 @@ fn balanced(code: &str) -> bool {
 /// an HCL object over lines) holding `entries`, or `None` when it is not
 /// written that way. Kept entries keep their lines (and comments), changed
 /// ones their key and comment, new ones get a line like their siblings'.
+/// `lone_commas` says whether entries take commas when the host's one entry
+/// cannot tell (JSON needs them, HCL goes without): the caller tries both.
 pub(super) fn rewrite_map_lines(
     language: &dyn ConfigLanguage,
     text: &str,
     before: &serde_json::Map<String, Value>,
     entries: &serde_json::Map<String, Value>,
+    lone_commas: bool,
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
@@ -228,10 +239,13 @@ pub(super) fn rewrite_map_lines(
     if old.len() != before.len() || !old.iter().all(|entry| before.contains_key(&entry.key)) {
         return None;
     }
-    let commas = old
-        .iter()
-        .take(old.len().saturating_sub(1))
-        .any(|entry| entry.comma);
+    let commas = if old.len() < 2 {
+        lone_commas || old.first().is_some_and(|entry| entry.comma)
+    } else {
+        old.iter()
+            .take(old.len().saturating_sub(1))
+            .any(|entry| entry.comma)
+    };
     let trailing = old.last().is_some_and(|entry| entry.comma);
     let indent: String = old
         .first()?

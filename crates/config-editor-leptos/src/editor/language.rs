@@ -909,6 +909,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// Whether every scalar is written as text, its type only guessed on
+    /// reading (XML: `<v>1</v>` reads as a number, `<v></v>` as an empty
+    /// element). A value edited while editing as such a language keeps the
+    /// host's type: a string stays a string, and an emptied value is the
+    /// empty string, or waits where the host holds a number or a boolean.
+    /// Default: no, the language writes each type its own way.
+    fn scalars_are_text(&self) -> bool {
+        false
+    }
+
     /// The span of the key at the JSON pointer `pointer`, for diagnostics.
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         let _ = (source, pointer);

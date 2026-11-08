@@ -13,7 +13,8 @@ use super::language::ConfigLanguage;
 use std::sync::Arc;
 
 mod merge;
-use merge::merge_changes;
+mod text_scalars;
+use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
 type Patch = fn(
@@ -115,7 +116,16 @@ impl Bridge {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
             // it waits: saving the view's approximation would change data.
-            Some(seen) => merge_changes(&old, seen, &edited, &unshown).map_err(|pointer| {
+            Some(seen) => merge_changes(
+                &old,
+                seen,
+                &edited,
+                &View {
+                    unshown: &unshown,
+                    repetition: self.edit.behavior().repetition(),
+                },
+            )
+            .map_err(|pointer| {
                 ConvertError::Unsupported(format!(
                     "{} cannot show the value at {pointer} exactly, so this edit of it cannot be saved: edit it as {} (at {pointer})",
                     self.edit.label(),
@@ -123,6 +133,20 @@ impl Bridge {
                 ))
             })?,
             None => edited,
+        };
+        // A view that writes every scalar as text (XML) only guesses types:
+        // the edited values keep the host's.
+        let value = match &seen {
+            Some(seen) if self.edit.behavior().scalars_are_text() => {
+                text_scalars::in_host_types(&old, seen, value).map_err(|pointer| {
+                    ConvertError::Unsupported(format!(
+                        "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
+                        self.edit.label(),
+                        self.host.label()
+                    ))
+                })?
+            }
+            _ => value,
         };
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
@@ -155,6 +179,12 @@ impl Bridge {
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
+        // A value the edit left as it was that the host would write
+        // otherwise (a number the view showed in its own form) keeps the
+        // host's text: the patches leave it, and it is no loss.
+        let (target, kept) = with_untouched_kept(target, &value, &old);
+        let mut losses = rendered.losses.clone();
+        losses.retain(|pointer| !kept.contains(pointer));
         let shape = self.shape();
         // What the host writes once and reads in several places (a YAML
         // alias) is written out where the edit parts it from the rest.
@@ -180,6 +210,15 @@ impl Bridge {
         let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
             first(&[codec::patch_structure], previous, old, target)
         };
+        // Items moved that cannot take their comments along wait, rather
+        // than leave the comments on the items now in their places.
+        if let Some(pointer) = codec::unmoved_comments(host, previous_host, &old, &target) {
+            return Err(ConvertError::Unsupported(format!(
+                "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
+                self.host.label()
+            ))
+            .into());
+        }
         let patched = precise(previous_host, &old, &target)
             // Several edits in one save: one step at a time.
             .or_else(|| {
@@ -197,10 +236,7 @@ impl Bridge {
             })
             .or_else(|| structure(previous_host, &old, &target));
         Ok(match patched {
-            Some(text) => Conversion {
-                text,
-                losses: rendered.losses,
-            },
+            Some(text) => Conversion { text, losses },
             None => {
                 #[cfg(test)]
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
@@ -303,6 +339,33 @@ fn host_scalars(
         }
     }
     Ok(value)
+}
+
+/// `target` (what the host reads back from writing `value`) with the host's
+/// own `old` value wherever `value` keeps it but the host would write it
+/// otherwise, and those pointers.
+fn with_untouched_kept(
+    mut target: serde_json::Value,
+    value: &serde_json::Value,
+    old: &serde_json::Value,
+) -> (serde_json::Value, Vec<String>) {
+    let mut differing = Vec::new();
+    codec::differences(value, &target, String::new(), &mut differing);
+    let mut kept = Vec::new();
+    for pointer in differing {
+        let at = if pointer == "/" { "" } else { pointer.as_str() };
+        let Some(own) = old
+            .pointer(at)
+            .filter(|own| value.pointer(at) == Some(*own))
+        else {
+            continue;
+        };
+        if let Some(slot) = target.pointer_mut(at) {
+            *slot = own.clone();
+            kept.push(pointer);
+        }
+    }
+    (target, kept)
 }
 
 /// The pointers of the scalars `new` changes where `old` holds one too.

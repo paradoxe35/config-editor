@@ -180,6 +180,10 @@ impl ConfigLanguage for XmlBehavior {
         parse::mixed_content(source)
     }
 
+    fn scalars_are_text(&self) -> bool {
+        true
+    }
+
     fn unconvertible(&self, source: &str) -> Option<String> {
         namespace_clash(source)
     }

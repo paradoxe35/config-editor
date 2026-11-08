@@ -1,6 +1,7 @@
 //! The host value with the user's edits applied, from what the edit
 //! language showed of it.
 
+use super::super::language::Repetition;
 use serde_json::Value;
 
 /// The host value with the user's edits applied: where the edit equals what
@@ -16,9 +17,18 @@ pub(super) fn merge_changes(
     host: &Value,
     seen: &Value,
     edited: &Value,
-    unshown: &[String],
+    view: &View<'_>,
 ) -> Result<Value, String> {
-    merge_at(host, seen, edited, "", unshown)
+    merge_at(host, seen, edited, "", view)
+}
+
+/// What the edit language could show of the host value.
+pub(super) struct View<'a> {
+    /// The pointers of host values it could not show exactly.
+    pub(super) unshown: &'a [String],
+    /// How it repeats items for a list (XML elements, HCL blocks), so a
+    /// list cut down to one item shows as that item.
+    pub(super) repetition: Repetition,
 }
 
 fn merge_at(
@@ -26,8 +36,9 @@ fn merge_at(
     seen: &Value,
     edited: &Value,
     at: &str,
-    unshown: &[String],
+    view: &View<'_>,
 ) -> Result<Value, String> {
+    let unshown = view.unshown;
     if seen == edited {
         return Ok(host.clone());
     }
@@ -74,7 +85,7 @@ fn merge_at(
             for (key, host_value) in host {
                 match (seen.get(key), edited.get(key)) {
                     (Some(seen_value), Some(value)) => {
-                        let merged = merge_at(host_value, seen_value, value, &child(key), unshown)?;
+                        let merged = merge_at(host_value, seen_value, value, &child(key), view)?;
                         entries.push((key.clone(), merged));
                     }
                     // Renamed by the user.
@@ -116,7 +127,7 @@ fn merge_at(
                     seen,
                     edited,
                     &child(&index.to_string()),
-                    unshown,
+                    view,
                 )?);
             }
             Ok(Value::Array(items))
@@ -137,7 +148,7 @@ fn merge_at(
                 if seen != edited
                     && let Some(slot) = merged.pointer_mut(pointer)
                 {
-                    *slot = merge_at(leaf, seen, edited, &format!("{at}{pointer}"), unshown)?;
+                    *slot = merge_at(leaf, seen, edited, &format!("{at}{pointer}"), view)?;
                 }
             }
             Ok(merged)
@@ -151,8 +162,23 @@ fn merge_at(
                 seen,
                 edited,
                 &child("0"),
-                unshown,
+                view,
             )?]))
+        }
+        // A list the view showed as repeated items cut down to one, which
+        // it shows as that item (an XML element, an HCL block): still a
+        // list of it.
+        (Value::Array(host_items), Value::Array(_), edited)
+            if !host_items.iter().any(Value::is_array)
+                && match view.repetition {
+                    Repetition::Elements => !edited.is_array() && !edited.is_null(),
+                    Repetition::Blocks => {
+                        edited.is_object() && host_items.iter().all(Value::is_object)
+                    }
+                    Repetition::None => false,
+                } =>
+        {
+            merge_at(host, seen, &Value::Array(vec![edited.clone()]), at, view)
         }
         _ => replaced(),
     }
