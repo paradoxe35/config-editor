@@ -75,9 +75,20 @@ async function framesOnDemand(page) {
           ),
         handles,
       );
-      // The callback is registered before the frame is asked for.
+      // The callback is registered before the frame is asked for. A busy
+      // browser can turn a frame request down: ask again until a frame is
+      // drawn (the first one drawn runs the callback, so the boxes are still
+      // those of the first frame the user would see).
+      let measured = false;
+      boxes.then(
+        () => (measured = true),
+        () => (measured = true),
+      );
       await page.evaluate(() => 0);
-      await begin();
+      while (!measured) {
+        await begin();
+        if (!measured) await new Promise((resolve) => setTimeout(resolve, 16));
+      }
       return boxes;
     },
   };
