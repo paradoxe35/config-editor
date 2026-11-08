@@ -71,7 +71,7 @@ test.describe('TOML edited as JSON', () => {
     await expect.poll(() => e.value()).toContain('07:32:00Z');
     await caretAfter(e, '07:32:00', 8);
     await page.keyboard.press('Backspace');
-    await expect(page.locator('.config-editor').first()).toContainText('not a TOML date or time');
+    await expect(page.locator('.demo')).toContainText('not a TOML date or time');
     expect(await saved(page)).toBe(host);
     await page.keyboard.type('1');
     await expect.poll(() => saved(page)).toBe(host.replace('07:32:00Z', '07:32:01Z'));

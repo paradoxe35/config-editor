@@ -1312,6 +1312,13 @@ following `Accent`) and `TabDirty` (the unsaved-changes dot, following
 `--config-editor-tab-active-border`, `--config-editor-tab-dirty`. The view's
 root carries the theme too (`data-color-theme`), so they follow the theme.
 
+A page's own element can take a theme's variables for its controls without
+being styled as an editor: give it the class `config-editor-theme` with
+`data-theme` (the family, `EditorTheme::css_family`) and
+`data-color-theme` (`EditorTheme::as_str`), and read `var(--config-editor-bg)`
+and the rest inside it (the demo's page does). The `config-editor` class is
+the editor's own: on a wrapper it would also style the wrapper as one.
+
 ## Cargo features
 
 All are on by default; turn off what you don't use to shrink the build.
