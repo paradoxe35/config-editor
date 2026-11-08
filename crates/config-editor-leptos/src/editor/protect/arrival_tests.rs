@@ -1,8 +1,9 @@
 //! Locks whatever order the text and the locks arrive in: a text from the
 //! host that never parsed (at mount, or a new value), locks the host names
 //! while the text does not parse, the schema's marks and the host's paths,
-//! blocks and single values. The locked values are never changed in any
-//! text the editor sends.
+//! blocks and single values, and a path no text has. Both ways: the locked
+//! values are never changed in any text the editor sends (I1), and a repair
+//! that keeps every locked value is never refused (I2).
 
 use super::super::Language;
 use super::super::codec;
@@ -14,16 +15,19 @@ use super::tests::{PIECES, Random, WORDS, documents, edits, schema, words};
 
 /// Where the locks come from.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum From {
+pub(super) enum From {
     /// The schema's `readOnly` (`/id` a value, `/meta` a block).
     Schema,
     /// The host's paths, the same two fields.
     Paths,
 }
 
-const LOCKED: [&str; 2] = ["/id", "/meta"];
+pub(super) const LOCKED: [&str; 2] = ["/id", "/meta"];
 
-fn locks(
+/// A path the host names that no text here has.
+pub(super) const GHOST: &str = "/ghost";
+
+pub(super) fn locks(
     language: Language,
     text: &str,
     from: From,
@@ -34,6 +38,7 @@ fn locks(
     let paths: Vec<FieldPath> = if from == From::Paths && paths_given {
         LOCKED
             .iter()
+            .chain(&[GHOST])
             .map(|pointer| FieldPath::from(*pointer))
             .collect()
     } else {
@@ -52,16 +57,24 @@ fn locks(
     )
 }
 
-/// Every way the documents are broken here: [`breaks`], and breaks right
-/// next to the locked fields (a list opened on the line above one, a
-/// trailing comma, an element left open).
+/// Every way the documents are broken here: [`breaks`], breaks right next
+/// to the locked fields (a list opened on the line above one, a trailing
+/// comma, an element left open), a stray line, and in JSON the object
+/// holding them left unclosed (its repair closes it; see `repair_tests` for
+/// blocks left open in every language).
 fn all_breaks(language: Language) -> Vec<(&'static str, &'static str)> {
     let mut list = breaks(language);
+    list.push(match language.label() {
+        "XML" => ("<port>", "<<<\n<port>"),
+        "YAML" => ("port:", "%%%\nport:"),
+        _ => ("port", "%%%\nport"),
+    });
     list.extend(match language.label() {
         "YAML" => vec![("meta:\n", "q: [\nmeta:\n"), ("port: 80", "port: \"80")],
         "JSON" => vec![
             ("\"port\": 80", "\"port\": 80,"),
             ("  \"id\"", "  \"q\": [\n  \"id\""),
+            ("  \"port\": 80\n}\n", "  \"port\": 80\n"),
         ],
         "TOML" => vec![
             ("[meta]", "q = [\n[meta]"),
@@ -76,7 +89,12 @@ fn all_breaks(language: Language) -> Vec<(&'static str, &'static str)> {
     list
 }
 
-fn allowed(language: Language, before: &str, after: &str, protected: &Protected) -> bool {
+pub(super) fn allowed(
+    language: Language,
+    before: &str,
+    after: &str,
+    protected: &Protected,
+) -> bool {
     let schema = schema();
     check(language.behavior(), Some(&schema), protected, before, after).is_ok()
 }
@@ -217,6 +235,32 @@ fn paths_given_while_the_text_does_not_parse_lock() {
     );
 }
 
+/// I2 on one text of a session: each repair of a break it holds (once)
+/// that leaves every locked value (and the path no text has) as the host's
+/// document had them goes through.
+fn repairs_go_through(
+    language: Language,
+    shown: &str,
+    protected: &Protected,
+    original: &serde_json::Value,
+) -> Vec<String> {
+    let schema = schema();
+    all_breaks(language)
+        .into_iter()
+        .filter(|(_, bad)| shown.matches(bad).count() == 1)
+        .map(|(good, bad)| shown.replacen(bad, good, 1))
+        .filter(|repaired| {
+            codec::read(language.behavior(), repaired, Some(&schema)).is_ok_and(|read| {
+                LOCKED
+                    .iter()
+                    .chain(&[GHOST])
+                    .all(|pointer| read.pointer(pointer) == original.pointer(pointer))
+            })
+        })
+        .filter(|repaired| !allowed(language, shown, repaired, protected))
+        .collect()
+}
+
 /// One step of a session.
 #[derive(Clone, Copy, Debug)]
 enum Step {
@@ -236,12 +280,15 @@ enum Step {
 
 /// Random sessions in every language, the text and the locks arriving in
 /// any order: every text the editor sends that parses (and each repair of
-/// its break it would send next) holds the locked values as the host had them.
+/// its break it would send next) holds the locked values as the host had them
+/// (I1), and every repair keeping them goes through (I2).
 #[test]
 fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
     let schema = schema();
     let mut failures = Vec::new();
     let mut sent_parsing = 0;
+    let mut refused = Vec::new();
+    let mut refused_repairs = 0;
     let mut random = Random(0x0bad_cafe_1234_4321);
     for from in [From::Schema, From::Paths] {
         for (language, text) in documents() {
@@ -257,6 +304,15 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
                 let mut trail = vec![format!("host {shown:?}")];
                 for _ in 0..40 {
                     let locked = from == From::Schema || paths_given;
+                    for repaired in repairs_go_through(language, &shown, &protected, &original) {
+                        refused_repairs += 1;
+                        if refused.len() < 5 {
+                            refused.push(format!(
+                                "{language} ({from:?}) session {session}: refused {repaired:?}\n{}",
+                                trail.join("\n")
+                            ));
+                        }
+                    }
                     let step = match random.below(10) {
                         0 => Step::Host(random.below(hosts.len())),
                         1 | 2 => Step::Paths,
@@ -364,6 +420,11 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
         failures[..failures.len().min(5)].join("\n\n")
     );
     assert!(sent_parsing > 1000, "only {sent_parsing} texts parsed");
+    assert!(
+        refused.is_empty(),
+        "{refused_repairs} repairs keeping the locked values refused, the first:\n{}",
+        refused.join("\n\n")
+    );
 }
 
 /// A large text from the host that does not parse is read for its locks in

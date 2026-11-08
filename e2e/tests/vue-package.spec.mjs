@@ -91,6 +91,55 @@ test.describe('vue.html: Vue idioms', () => {
     expect(errors).toEqual([]);
   });
 
+  test("a listener given twice (a wrapper's own and its parent's through $attrs) calls both", async ({ page: browserPage }) => {
+    const errors = await open(browserPage);
+    for (const component of ['ConfigEditor', 'ConfigDocuments']) {
+      await browserPage.evaluate((component) => {
+        const { createApp, h } = window.Vue;
+        const api = window.packageApi;
+        window.mounted?.app.unmount();
+        document.getElementById('own')?.remove();
+        const element = document.body.appendChild(document.createElement('div'));
+        element.id = 'own';
+        window.events = [];
+        const record = (who) => (...args) => window.events.push([who, ...args.filter((arg) => typeof arg === 'string')]);
+        const props =
+          component === 'ConfigEditor'
+            ? { modelValue: 'listen: 1\n' }
+            : { documents: [{ id: 'a', fileName: 'a.yaml', language: 'yaml', value: 'listen: 1\n' }] };
+        // The wrapper's root is the editor with listeners of its own; the
+        // parent's fall through ($attrs) and Vue merges each pair into an array.
+        const listeners = (who) => ({
+          onSave: record(`${who} save`),
+          onDirtyChange: record(`${who} dirty`),
+          ...(component === 'ConfigDocuments' ? { onChange: record(`${who} change`) } : {}),
+        });
+        const Wrapper = { render: () => h(api[component], { ...props, ...listeners('own') }) };
+        const parent = listeners('parent');
+        const app = createApp({ render: () => h(Wrapper, parent) });
+        app.mount(element);
+        window.mounted = { app };
+      }, component);
+      const own = browserPage.locator('#own .config-editor__input');
+      await own.waitFor();
+      await own.click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('a: 2');
+      await browserPage.keyboard.press('Control+s');
+      await expect
+        .poll(() => browserPage.evaluate(() => window.events.map(([who]) => who)))
+        .toEqual(expect.arrayContaining(['own save', 'parent save', 'own dirty', 'parent dirty']));
+      const saved = await browserPage.evaluate(() => window.events.filter(([who]) => who.endsWith('save')).map((event) => event.at(-2)));
+      expect(saved.every((text) => text.includes('a: 2')), `${component}: ${JSON.stringify(saved)}`).toBe(true);
+      if (component === 'ConfigDocuments') {
+        expect(await browserPage.evaluate(() => window.events.map(([who]) => who))).toEqual(
+          expect.arrayContaining(['own change', 'parent change']),
+        );
+      }
+    }
+    expect(errors).toEqual([]);
+  });
+
   test('@error takes the errors a bad prop raises, and nothing is logged', async ({ page: browserPage }) => {
     const errors = await open(browserPage);
     await mountOwn(browserPage, { modelValue: 'listen: 1\n' }, ['onError']);

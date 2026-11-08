@@ -6,10 +6,12 @@
 //! - it changes a locked stretch's text, or a key holding a locked field;
 //! - it glues text onto a locked stretch's ends (`port: 80` → `port: 808`,
 //!   `xport: 80`); whitespace and punctuation next to it are free;
-//! - the document still parses afterwards and a locked field's value there
+//! - the document parses before and after, and a locked field's value
 //!   differs from the value pinned when the lock was last read (it moved
 //!   under another parent, a comment took it, a line added below joined a
 //!   locked block, a TOML table or dotted key added elsewhere extended it);
+//! - the document did not parse and now does, and a locked field does not
+//!   read as its reference (`repair`, the rule in `locks`);
 //! - the document does not parse afterwards and the edit adds a line that
 //!   would join a locked field once it does: a line whose path is inside
 //!   it, or a second key holding it (duplicates are errors here, but a
@@ -26,6 +28,7 @@
 mod edit;
 mod joining;
 mod pins;
+mod repair;
 mod stretch;
 
 use std::ops::Range;
@@ -33,31 +36,47 @@ use std::ops::Range;
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
-use super::carry::Moves;
 use super::locate::LineIndex;
 use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
 use edit::Edited;
 use joining::{is_near, joining_lines};
-use pins::{is_pinned, pins_hold, reads_from_lock};
+use pins::{is_pinned, pins_hold};
 use stretch::indent_kept;
 
 /// An edit that would change a locked field, and why it is locked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Blocked {
     pub(crate) reason: Reason,
-    /// It renames or moves a key holding the locked field.
-    pub(crate) holds: bool,
+    pub(crate) why: Why,
+    /// The locked field, when the refusal names it.
+    pub(crate) pointer: Option<String>,
+}
+
+/// What the refused edit would do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Why {
+    /// Change a locked field's text.
+    Locked,
+    /// Rename or move a key holding the locked field.
+    Holds,
+    /// Make the text parse with the locked field reading otherwise than in
+    /// the host's text.
+    Changed,
+    /// Make the text parse after more changes to the host's text than can
+    /// be checked.
+    Unread,
 }
 
 impl Blocked {
     /// Why the edit is refused, as the tooltip says it.
     pub(crate) fn message(&self, strings: &EditorStrings) -> String {
-        if self.holds {
-            self.reason.holding(strings)
-        } else {
-            self.reason.text(strings)
+        match (self.why, &self.pointer) {
+            (Why::Holds, _) => self.reason.holding(strings),
+            (Why::Changed, Some(pointer)) => self.reason.changed(strings, pointer),
+            (Why::Unread, _) => strings.read_only_unchecked.clone(),
+            _ => self.reason.text(strings),
         }
     }
 }
@@ -71,27 +90,25 @@ pub(crate) fn check(
     before: &str,
     after: &str,
 ) -> Result<(), Blocked> {
-    if protected.is_empty() || before == after {
+    if (protected.is_empty() && !protected.watches()) || before == after {
         return Ok(());
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after);
     stretches_kept(&edit)?;
-    unplaced_held(&edit)?;
     let mut pointed: Vec<&Lock> = protected
         .locks
         .iter()
         .filter(|lock| lock.pointer.is_some())
         .collect();
-    if pointed.is_empty() {
-        return Ok(());
-    }
     if let Some(edited) = edit.parsed() {
+        if protected.document.is_none() {
+            return repair::repair_keeps_locks(&edit, edited);
+        }
         pins_still_hold(edited, protected, &pointed)?;
         pointed.retain(|lock| !is_pinned(protected, lock));
-        if pointed.is_empty() {
-            return Ok(());
-        }
-        unpinned_read_from_locks(&edit, edited, &pointed)?;
+    }
+    if pointed.is_empty() {
+        return Ok(());
     }
     nothing_joins(&edit, &pointed)?;
     indents_kept(&edit, &pointed)
@@ -109,26 +126,17 @@ fn stretches_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
         if !lock.guards.iter().all(|range| edit.kept(range)) && !free() {
             return Err(Blocked {
                 reason: lock.reason.clone(),
-                holds: true,
+                why: Why::Holds,
+                pointer: lock.pointer.clone(),
             });
         }
     }
     Ok(())
 }
 
-/// A locked field not found in a text that does not parse: its value
-/// cannot be compared, so the text stays unparsed until the host gives
-/// one where it is found.
-fn unplaced_held(edit: &Edited<'_>) -> Result<(), Blocked> {
-    match edit.protected.unplaced.first() {
-        Some((_, reason)) if edit.parsed().is_some() => Err(refused(reason)),
-        _ => Ok(()),
-    }
-}
-
-/// The edited text parses: every locked value must read as it was
-/// pinned, wherever the edit was (a TOML `[web.sub]` table added at the
-/// end changes `web`).
+/// The edited text parses, as the text before did: every locked value must
+/// read as it was pinned, wherever the edit was (a TOML `[web.sub]` table
+/// added at the end changes `web`).
 fn pins_still_hold(
     edited: &Value,
     protected: &Protected,
@@ -143,32 +151,6 @@ fn pins_still_hold(
     Err(refused(
         &lock.map_or(Reason::Field, |lock| lock.reason.clone()),
     ))
-}
-
-/// A lock found in a text that never parsed has no value to compare with:
-/// in the edited text, which parses, the field must read from the lock's
-/// own text, moved through the edit and kept, and nothing else; and it is
-/// held as every lock is while the text does not parse (the steps after).
-fn unpinned_read_from_locks(
-    edit: &Edited<'_>,
-    edited: &Value,
-    unpinned: &[&Lock],
-) -> Result<(), Blocked> {
-    let moves = Moves::new(edit.before, edit.after);
-    let after_lines = LineIndex::new(edit.after);
-    for lock in unpinned {
-        if !reads_from_lock(
-            edit.behavior,
-            edit.after,
-            &after_lines,
-            edited,
-            &moves,
-            lock,
-        ) {
-            return Err(refused(&lock.reason));
-        }
-    }
-    Ok(())
 }
 
 /// The values cannot be compared (the edited text does not parse, or the
@@ -216,6 +198,7 @@ fn indents_kept(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
 fn refused(reason: &Reason) -> Blocked {
     Blocked {
         reason: reason.clone(),
-        holds: false,
+        why: Why::Locked,
+        pointer: None,
     }
 }
