@@ -5,8 +5,10 @@
 //! language's [`value_spans`](ConfigLanguage::value_spans), and
 //! [`value_span`] answers from them while it runs. Nothing is kept after.
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::super::language::{ConfigLanguage, Span};
 
@@ -18,8 +20,50 @@ struct Memo {
     spans: HashMap<String, Option<Span>>,
 }
 
+/// What a language read of the text once for the whole call (see
+/// [`batch_cached`]).
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "json")),
+    allow(dead_code, reason = "only YAML and JSON share a read")
+)]
+struct Scratch {
+    text: (usize, usize),
+    value: Option<Rc<dyn Any>>,
+}
+
 thread_local! {
     static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+    static SCRATCH: RefCell<Option<Scratch>> = const { RefCell::new(None) };
+}
+
+/// `make()`, a reading of all of `source` (the lines of its keys, say):
+/// made once while [`with_value_spans`] runs for that text, so the spans
+/// asked one by one inside it (keys as well as values) share it; made each
+/// time outside one. Nothing is kept after.
+#[cfg(any(feature = "yaml", feature = "json"))]
+pub(crate) fn batch_cached<T: 'static>(source: &str, make: impl FnOnce() -> T) -> Rc<T> {
+    let key = (source.as_ptr() as usize, source.len());
+    let cached = SCRATCH.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .filter(|scratch| scratch.text == key)
+            .and_then(|scratch| scratch.value.clone())
+            .and_then(|value| value.downcast::<T>().ok())
+    });
+    if let Some(value) = cached {
+        return value;
+    }
+    let made = Rc::new(make());
+    SCRATCH.with(|slot| {
+        if let Some(scratch) = slot
+            .borrow_mut()
+            .as_mut()
+            .filter(|scratch| scratch.text == key)
+        {
+            scratch.value = Some(made.clone());
+        }
+    });
+    made
 }
 
 /// Runs `work` with the spans of `pointers` (and each one's ancestors) in
@@ -45,22 +89,27 @@ pub(crate) fn with_value_spans<T>(
     }
     wanted.sort_unstable();
     wanted.dedup();
+    let text = (source.as_ptr() as usize, source.len());
+    let previous_scratch =
+        SCRATCH.with(|slot| slot.borrow_mut().replace(Scratch { text, value: None }));
     let spans = behavior.value_spans(source, &wanted);
     let memo = Memo {
         label: behavior.info().label,
-        text: (source.as_ptr() as usize, source.len()),
+        text,
         spans: wanted.into_iter().zip(spans).collect(),
     };
     let previous = MEMO.with(|slot| slot.borrow_mut().replace(memo));
     // Put back on the way out, a panic included.
-    struct Restore(Option<Option<Memo>>);
+    struct Restore(Option<(Option<Memo>, Option<Scratch>)>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            let previous = self.0.take().flatten();
-            let _ = MEMO.try_with(|slot| *slot.borrow_mut() = previous);
+            if let Some((memo, scratch)) = self.0.take() {
+                let _ = MEMO.try_with(|slot| *slot.borrow_mut() = memo);
+                let _ = SCRATCH.try_with(|slot| *slot.borrow_mut() = scratch);
+            }
         }
     }
-    let _restore = Restore(Some(previous));
+    let _restore = Restore(Some((previous, previous_scratch)));
     work()
 }
 

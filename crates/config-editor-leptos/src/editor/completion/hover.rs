@@ -7,6 +7,8 @@ pub(crate) struct KeyHover {
     pub(crate) key: String,
     pub(crate) start_column: usize,
     pub(crate) type_label: String,
+    /// The property's `title`, shown above its description.
+    pub(crate) title: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) default: Option<String>,
     pub(crate) examples: Vec<String>,
@@ -208,12 +210,13 @@ fn property_hover(
         .iter()
         .flat_map(|schema| resolve_branches(schema, root, 0))
         .collect();
-    let description = branches.iter().find_map(|branch| {
-        branch
-            .get("description")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    });
+    let text_of = |name: &str| {
+        branches
+            .iter()
+            .find_map(|branch| branch.get(name).and_then(Value::as_str).map(str::to_string))
+    };
+    let description = text_of("description");
+    let title = text_of("title").filter(|title| !title.trim().is_empty());
     let default = schemas
         .iter()
         .find_map(|schema| schema_default(schema, root))
@@ -271,6 +274,7 @@ fn property_hover(
         key,
         start_column,
         type_label,
+        title,
         description,
         default,
         examples,

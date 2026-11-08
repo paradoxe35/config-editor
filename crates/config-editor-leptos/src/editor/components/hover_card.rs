@@ -52,6 +52,9 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         {info.deprecation.map(|message| view! {
                             <p class="config-editor__hover-deprecation">{message}</p>
                         })}
+                        {info.title.map(|title| view! {
+                            <p class="config-editor__hover-title">{title}</p>
+                        })}
                         {info.description.map(|description| view! {
                             <p class="config-editor__hover-description">{description}</p>
                         })}

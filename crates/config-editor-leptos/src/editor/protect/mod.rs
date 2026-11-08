@@ -91,6 +91,15 @@ mod extend_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod indent_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod large_broken_tests;
 #[cfg(all(
     test,
@@ -137,3 +146,12 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod typing_tests;

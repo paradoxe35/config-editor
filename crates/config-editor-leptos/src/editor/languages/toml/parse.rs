@@ -244,31 +244,45 @@ pub(super) fn table_path_at(lines: &[&str], line_index: usize) -> Vec<SchemaPath
 /// Entry `i` is the path for line `i + 1`; a leading empty path is for line 0.
 pub(super) fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
     let mut paths = Vec::with_capacity(lines.len() + 1);
-    let mut path: Vec<SchemaPathSegment> = Vec::new();
-    let mut arrays: HashMap<String, usize> = HashMap::new();
-    paths.push(path.clone());
+    let mut tables = Tables::default();
+    paths.push(tables.path.clone());
     for line in lines {
         let (code, _) = split_toml_comment(line);
         if let Some((segments, is_array)) = parse_header(code) {
-            path = Vec::with_capacity(segments.len() + 2);
-            for (depth, segment) in segments.iter().enumerate() {
-                path.push(SchemaPathSegment::Key(segment.clone()));
-                let own = depth + 1 == segments.len() && is_array;
-                if !own && let Some(count) = arrays.get(&segments[..=depth].join(".")) {
-                    path.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
-                }
-            }
-            if is_array {
-                let count = arrays.entry(segments.join(".")).or_insert(0);
-                path.push(SchemaPathSegment::ArrayItem(*count));
-                *count += 1;
-            }
+            tables.enter(&segments, is_array);
         }
-        paths.push(path.clone());
+        paths.push(tables.path.clone());
     }
     paths
 }
 
+/// The table the lines read so far are in, header by header.
+#[derive(Default)]
+struct Tables {
+    path: Vec<SchemaPathSegment>,
+    /// How many items each array of tables has had (`a.b` → 2).
+    arrays: HashMap<String, usize>,
+}
+
+impl Tables {
+    /// After the header `[segments]` (`[[segments]]` with `is_array`).
+    fn enter(&mut self, segments: &[String], is_array: bool) {
+        let mut path = Vec::with_capacity(segments.len() + 2);
+        for (depth, segment) in segments.iter().enumerate() {
+            path.push(SchemaPathSegment::Key(segment.clone()));
+            let own = depth + 1 == segments.len() && is_array;
+            if !own && let Some(count) = self.arrays.get(&segments[..=depth].join(".")) {
+                path.push(SchemaPathSegment::ArrayItem(count.saturating_sub(1)));
+            }
+        }
+        if is_array {
+            let count = self.arrays.entry(segments.join(".")).or_insert(0);
+            path.push(SchemaPathSegment::ArrayItem(*count));
+            *count += 1;
+        }
+        self.path = path;
+    }
+}
 /// Array indices render as numbers, matching the validator's JSON-pointer segments.
 pub(super) fn path_strings(path: &[SchemaPathSegment]) -> Vec<String> {
     path.iter()
@@ -520,27 +534,48 @@ pub(super) fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize,
     toml_value_spans(source, &[path.to_string()]).pop().flatten()
 }
 
-/// [`toml_value_span`] for each of `paths`, reading the document once.
+/// [`toml_value_span`] for each of `paths`, reading the document once: a
+/// line is looked at only while it is in a table some path still wanted
+/// lies under, and the reading stops once each is found.
 pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
     let wanted: Vec<Vec<String>> = paths.iter().map(|path| pointer_segments(path)).collect();
     let mut found = vec![None; wanted.len()];
-    let lines: Vec<&str> = source.lines().collect();
-    let tables = table_paths(&lines);
+    let mut missing = wanted.len();
+    let mut tables = Tables::default();
+    let mut table: Vec<String> = Vec::new();
     let mut offset = 0;
-    for (index, line) in lines.iter().enumerate() {
+    for line in source.lines() {
+        if missing == 0 {
+            break;
+        }
         let line_offset = offset;
         offset += line.len() + 1;
+        if line.trim_start().starts_with('[') {
+            let (code, _) = split_toml_comment(line);
+            if let Some((segments, is_array)) = parse_header(code) {
+                tables.enter(&segments, is_array);
+                table = path_strings(&tables.path);
+                continue;
+            }
+        }
+        let under = |wanted: &Vec<String>| wanted.starts_with(&table);
+        if !wanted.iter().zip(&found).any(|(wanted, slot)| slot.is_none() && under(wanted)) {
+            continue;
+        }
         let (code, _) = split_toml_comment(line);
         let Some((key, _, _)) = key_assignment(code) else {
             continue;
         };
-        let mut full = path_strings(&tables[index]);
+        let mut full = table.clone();
         full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
         for (slot, wanted) in found.iter_mut().zip(&wanted) {
             if slot.is_some() || !wanted.starts_with(&full) {
                 continue;
             }
             *slot = line_value_span(source, code, line_offset, &full, wanted);
+            if slot.is_some() {
+                missing -= 1;
+            }
         }
     }
     found

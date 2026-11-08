@@ -522,8 +522,26 @@ fn replace_inline(
         _ => return None,
     };
     let end = start + matching_close(text, close)? + 1;
-    let mut patched = previous.to_string();
     let written = &line[start..end];
+    // An empty container where the language writes new ones in block
+    // style (YAML's `[]`, the only way it writes an empty list) says
+    // nothing about the style its items take: they are written as new
+    // ones are (a block list), not kept on one line.
+    let empty = written[1..written.len() - 1].trim().is_empty();
+    let filled = match value {
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(map) => !map.is_empty(),
+        _ => false,
+    };
+    if empty
+        && filled
+        && language
+            .serialize(value, None)
+            .is_ok_and(|fresh| !fresh.trim_start().starts_with(opener_of(close)))
+    {
+        return None;
+    }
+    let mut patched = previous.to_string();
     // A container replaced by a value (`tcp: {a: 1}` → `tcp: 7`) is that
     // value in its place.
     let text = if value.is_object() || value.is_array() {
@@ -534,6 +552,11 @@ fn replace_inline(
     };
     patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)
+}
+
+/// The opener of a container closed by `close`.
+fn opener_of(close: char) -> char {
+    if close == '}' { '{' } else { '[' }
 }
 
 /// The span of what `pointer` names when it lies inside an inline container

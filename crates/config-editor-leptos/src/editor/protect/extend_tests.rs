@@ -194,6 +194,9 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                     if state.commit(Edit::new(before, (at, at), edited, caret)) {
                         at = caret;
                     } else {
+                        // A refusal takes back what was typed of the entry
+                        // on its line: typing goes on at the caret.
+                        at = state.doc().caret.get_untracked();
                         all = false;
                     }
                 }

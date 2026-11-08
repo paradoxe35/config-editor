@@ -1490,3 +1490,74 @@ fn enter_in_a_one_line_hcl_block_opens_it_over_lines() {
     );
     assert_eq!(updated, "tcp {\n  nodelay = true\n  \n}\n");
 }
+
+/// Enter inside a YAML scalar that may run over lines (quoted, or plain
+/// with text after the caret) indents the new line so it continues the
+/// scalar and the document stays valid; elsewhere Enter is unchanged.
+#[test]
+fn enter_inside_a_yaml_scalar_continues_it() {
+    let cases = [
+        (
+            "key: \"abc|def\"\n",
+            "key: \"abc\n  |def\"\n",
+            "/key",
+            "abc def",
+        ),
+        (
+            "outer:\n  key: 'ab|c'\n",
+            "outer:\n  key: 'ab\n    |c'\n",
+            "/outer/key",
+            "ab c",
+        ),
+        (
+            "key: \"abc\n  de|f\"\n",
+            "key: \"abc\n  de\n  |f\"\n",
+            "/key",
+            "abc de f",
+        ),
+        (
+            "key: hello wo|rld\n",
+            "key: hello wo\n  |rld\n",
+            "/key",
+            "hello wo rld",
+        ),
+        (
+            "list:\n  - \"a|b\"\n",
+            "list:\n  - \"a\n    |b\"\n",
+            "/list/0",
+            "a b",
+        ),
+        (
+            "- key: hel|lo\n",
+            "- key: hel\n    |lo\n",
+            "/0/key",
+            "hel lo",
+        ),
+        ("- - a|b\n", "- - a\n    |b\n", "/0/0", "a b"),
+    ];
+    let mut failures = Vec::new();
+    for (marked, expected, pointer, value) in cases {
+        let actual = enter(Language::YAML, marked);
+        let parsed = Language::YAML.parse(&actual.replace('|', ""));
+        let got = parsed
+            .as_ref()
+            .ok()
+            .and_then(|parsed| parsed.pointer(pointer).cloned());
+        if actual != expected || got != Some(serde_json::json!(value)) {
+            failures.push(format!("{marked:?}: {actual:?} -> {parsed:?}"));
+        }
+    }
+    // Outside a scalar, Enter is unchanged.
+    for (marked, expected) in [
+        ("key: value|\n", "key: value\n|\n"),
+        ("key: v|  # c\n", "key: v\n|  # c\n"),
+        ("key: \"done\"|\n", "key: \"done\"\n|\n"),
+        ("key: [a, |b]\n", "key: [a, \n|b]\n"),
+    ] {
+        let actual = enter(Language::YAML, marked);
+        if actual != expected {
+            failures.push(format!("{marked:?}: {actual:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

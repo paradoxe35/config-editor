@@ -23,6 +23,25 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     }
     state.hide_hover();
     state.protect().hide_tip(false);
+    // Typing refused at a read-only field ends with any key that is not
+    // more of it (see `note_refused`).
+    if matches!(
+        event.key().as_str(),
+        "ArrowLeft"
+            | "ArrowRight"
+            | "ArrowUp"
+            | "ArrowDown"
+            | "Home"
+            | "End"
+            | "PageUp"
+            | "PageDown"
+            | "Backspace"
+            | "Delete"
+            | "Escape"
+            | "Tab"
+    ) {
+        state.forget_refusal();
+    }
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"

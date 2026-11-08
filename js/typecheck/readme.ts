@@ -125,7 +125,7 @@ const view = new ConfigDocuments(element, {
 });
 const tls: EditorView | null = view.editor("tls");
 const revealed: boolean | undefined = tls?.reveal("/cert"); tls?.fold("/ciphers"); const tlsPath = tls?.currentPath; void [revealed, tlsPath];
-const tlsText: string | undefined = tls?.value; const tlsDiff: string | undefined = tls?.unifiedDiff(0); const tlsTheme = tls?.settings.theme; void [tlsText, tlsDiff, tlsTheme];
+const tlsText: string | null | undefined = tls?.value; const tlsDiff: string | undefined = tls?.unifiedDiff(0); const tlsTheme = tls?.settings.theme; void [tlsText, tlsDiff, tlsTheme];
 const savedIds: string[] = view.saveAll(); const shown: boolean = view.select("limits"); const active: string | undefined = view.activeId; const dirtyMain: boolean = view.isDirty("main");
 view.update({ documents: files, showFooter: true }); view.update({ activeId: "limits" });
 view.update({ onSave: null }); view.update({ colors: { "tab-dirty": "#ffcc66" } });

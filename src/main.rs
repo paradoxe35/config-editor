@@ -258,17 +258,34 @@ fn main() {
         let shown = move || editing.get();
         let toolbar_file = {
             let file_name = file_name.clone();
-            move || match editing.get() {
-                edit if edit != language => format!("{file_name} (editing as {edit})"),
+            move || match (editing.get(), edit_as.get()) {
+                // A switch that waits (the document cannot convert yet):
+                // the language on screen stays, and the name says so.
+                (edit, Some(asked)) if asked != edit => {
+                    format!("{file_name} (waiting to edit as {asked})")
+                }
+                (edit, _) if edit != language => format!("{file_name} (editing as {edit})"),
                 _ => file_name.clone(),
             }
         };
+        // The picker shows the language on screen, also while a switch
+        // waits (read again whenever one is asked for).
+        let edit_select_value = move || {
+            edit_as.track();
+            match editing.get() {
+                edit if edit == language => "",
+                edit => key(edit),
+            }
+        };
+        // The page's own sample (`sample=page`) is named as what it is.
+        let page_sample_label = (sample_flag.as_deref() == Some("page"))
+            .then(|| format!("Page sample ({} lines)", sample.lines().count()));
         // A long name ends in an ellipsis; the title tells it whole.
         let toolbar_file_title = toolbar_file.clone();
 
         view! {
             <div
-                class="config-editor demo"
+                class="config-editor-theme demo"
                 data-theme=move || theme.get().css_family()
                 data-color-theme=move || theme.get().as_str()
             >
@@ -300,7 +317,7 @@ fn main() {
                         <select
                             class="demo__select demo__edit-select"
                             aria-label="Editing language"
-                            prop:value=move || edit_as.get().map_or("", key)
+                            prop:value=edit_select_value
                             on:change=move |event| {
                                 let value = event_target_value(&event);
                                 edit_as.set(value.parse::<Language>().ok());
@@ -328,7 +345,10 @@ fn main() {
                             on:change=move |event| navigate_with("sample", &event_target_value(&event))
                         >
                             <option value="small" selected=!large_sample>"Short"</option>
-                            <option value="large" selected=large_sample>"Large (~2000 lines)"</option>
+                            <option value="large" selected=large_sample && page_sample_label.is_none()>"Large (~2000 lines)"</option>
+                            {page_sample_label.map(|label| view! {
+                                <option value="page" selected=true>{label}</option>
+                            })}
                         </select>
                     </label>
                     <ThemePicker settings=settings />

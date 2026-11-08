@@ -221,24 +221,80 @@ fn name_of(text: &str) -> Option<&str> {
 }
 
 #[cfg(feature = "schema-validation")]
-/// The finite numbers schema validation sees for `inf`, `-inf` and `nan`:
-/// an infinity is the largest finite number of its sign (beyond every bound
-/// a schema can write), NaN the one just below the largest.
-fn stand_in(name: &str) -> f64 {
-    match name {
-        "inf" => f64::MAX,
-        "-inf" => f64::MIN,
-        _ => f64::from_bits(f64::MAX.to_bits() - 1),
+/// Which finite numbers schema validation sees for `inf`, `-inf` and `nan`:
+/// no one number fails every check a non-finite one fails, so a document
+/// holding them is validated once per stand-in, and each pass adds the
+/// checks it stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StandIn {
+    /// Beyond every bound: an infinity is the largest finite number of its
+    /// sign, NaN the one just below the largest (it fails every `maximum`).
+    /// This pass is the validation; the others only add to it.
+    Bounds,
+    /// Fractions no schema writes a `multipleOf` of: an infinity or NaN is
+    /// neither an integer nor a multiple of anything.
+    Fractions,
+    /// NaN as the one just above the smallest: it fails every `minimum` too.
+    LowNan,
+}
+
+#[cfg(feature = "schema-validation")]
+impl StandIn {
+    /// Every pass, the validation itself first.
+    pub(crate) const ALL: [StandIn; 3] = [StandIn::Bounds, StandIn::Fractions, StandIn::LowNan];
+
+    /// The number standing for `name` (`inf`, `-inf`, `nan`) in this pass.
+    fn number(self, name: &str) -> f64 {
+        match (self, name) {
+            (StandIn::Bounds | StandIn::LowNan, "inf") => f64::MAX,
+            (StandIn::Bounds | StandIn::LowNan, "-inf") => f64::MIN,
+            (StandIn::Bounds, _) => f64::from_bits(f64::MAX.to_bits() - 1),
+            (StandIn::LowNan, _) => f64::from_bits(f64::MIN.to_bits() - 1),
+            (StandIn::Fractions, "inf") => 0.123_456_789_012_345_67,
+            (StandIn::Fractions, "-inf") => -0.123_456_789_012_345_67,
+            (StandIn::Fractions, _) => 0.234_567_890_123_456_78,
+        }
+    }
+
+    /// Whether an error of `kind` this pass finds at `instance` is one it
+    /// stands for: at a stand-in, for the checks the pass is for (the bounds
+    /// pass is the validation and stands for all).
+    pub(crate) fn reports(
+        self,
+        instance: &Value,
+        kind: &jsonschema::error::ValidationErrorKind,
+    ) -> bool {
+        use jsonschema::error::ValidationErrorKind as Kind;
+        if self == StandIn::Bounds {
+            return true;
+        }
+        let Some(number) = instance.as_f64() else {
+            return false;
+        };
+        let Some(name) = ["inf", "-inf", "nan"]
+            .into_iter()
+            .find(|name| self.number(name).to_bits() == number.to_bits())
+        else {
+            return false;
+        };
+        match self {
+            StandIn::Bounds => true,
+            StandIn::Fractions => matches!(kind, Kind::Type { .. } | Kind::MultipleOf { .. }),
+            StandIn::LowNan => {
+                name == "nan"
+                    && matches!(kind, Kind::Minimum { .. } | Kind::ExclusiveMinimum { .. })
+            }
+        }
     }
 }
 
 #[cfg(feature = "schema-validation")]
-/// `value` as schema validation sees it: each non-finite number as its
-/// stand-in, a number, as it is in the config.
+/// `value` as schema validation sees it in pass `stand_in`: each non-finite
+/// number as its stand-in, a number, as it is in the config.
 /// A string holding the form is validated as the text it is.
-pub(crate) fn for_validation(value: &Value) -> Cow<'_, Value> {
+pub(crate) fn for_validation(value: &Value, stand_in: StandIn) -> Cow<'_, Value> {
     replaced(value, &|text| match name_of(text) {
-        Some(name) => Number::from_f64(stand_in(name)).map_or(Value::Null, Value::Number),
+        Some(name) => Number::from_f64(stand_in.number(name)).map_or(Value::Null, Value::Number),
         None => Value::String(written(text).to_string()),
     })
 }
@@ -247,10 +303,18 @@ pub(crate) fn for_validation(value: &Value) -> Cow<'_, Value> {
 /// A validation message with the stand-ins it quotes written as the
 /// numbers they stand for.
 pub(crate) fn restore_in_message(message: &str) -> String {
+    let mut shown: Vec<(String, &str)> = StandIn::ALL
+        .iter()
+        .flat_map(|pass| {
+            ["-inf", "inf", "nan"].map(|name| (Value::from(pass.number(name)).to_string(), name))
+        })
+        .collect();
+    // The longest first: `-1.79…e308` before the `1.79…e308` it holds.
+    shown.sort_by_key(|(text, _)| std::cmp::Reverse(text.len()));
+    shown.dedup();
     let mut message = message.to_string();
-    for name in ["-inf", "inf", "nan"] {
-        let shown = Value::from(stand_in(name)).to_string();
-        message = message.replace(&shown, name);
+    for (text, name) in shown {
+        message = message.replace(&text, name);
     }
     message
 }
