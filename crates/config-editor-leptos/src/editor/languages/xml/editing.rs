@@ -486,6 +486,15 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     out.finish()
 }
 
+/// The `<!-- … -->` comments.
+pub(super) fn comments(source: &str) -> Vec<std::ops::Range<usize>> {
+    tokenize(source)
+        .iter()
+        .filter(|token| matches!(token.kind, Kind::Comment))
+        .map(|token| token.start..token.end)
+        .collect()
+}
+
 /// `<name attr="value" ...>` or `<name ...` while typing. The tag-inside scan
 /// does not stop at `>`, so the closing `>` usually lands in the last word
 /// and is colored as a value.

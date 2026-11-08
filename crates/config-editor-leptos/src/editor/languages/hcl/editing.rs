@@ -160,6 +160,16 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     out.finish()
 }
 
+/// The `#`, `//` and `/* … */` comments (a heredoc's body is not read for
+/// them).
+pub(super) fn comments(source: &str) -> Vec<std::ops::Range<usize>> {
+    tokenize(source)
+        .iter()
+        .filter(|token| token.kind == Kind::Comment)
+        .map(|token| token.start..token.end)
+        .collect()
+}
+
 pub(super) fn token_kind(line: &str, token: &Token, key_end: Option<usize>) -> TokenKind {
     match token.kind {
         Kind::Comment => TokenKind::Comment,

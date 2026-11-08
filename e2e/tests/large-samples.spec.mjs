@@ -307,3 +307,45 @@ for (const language of ['yaml', 'xml']) {
     });
   });
 }
+
+// QA round 18: Ctrl+/ on a closing tag or a block's `}` comments the whole
+// element or block, leaving a commented copy of the document beside a live
+// one. Then Ctrl+A Ctrl+/, back and the undos took 2-3 s each on 4300 lines
+// of XML and 7800 of HCL: every placeholder, written in the commented copy
+// too, was looked up by path (a read of the whole text each).
+for (const language of ['xml', 'hcl']) {
+  test.describe(`Ctrl+/ over a large ${language} document holding a commented copy`, () => {
+    setupEditor(test, `?language=${language}&sample=large`);
+
+    test('commenting everything, back, and the undos leave no long task', async ({ page, context }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      const e = editor(page);
+      const one = (await e.value()).replace(/\n?$/, '\n');
+      const big = language === 'hcl' ? [0, 1, 2, 3].map((copy) => `copy${copy} {\n${one}}\n`).join('') : one.repeat(2);
+      await page.evaluate((text) => navigator.clipboard.writeText(text), big);
+      await e.input.click();
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Control+v');
+      await expect.poll(() => e.value()).toBe(big);
+      // The middle line: the first copy's closing tag, or a block's line.
+      await e.input.evaluate((element) => {
+        const lines = element.value.split('\n');
+        const at = lines.slice(0, Math.floor(lines.length / 2) - 1).join('\n').length + 1;
+        element.setSelectionRange(at, at);
+      });
+      await page.keyboard.press('Control+/');
+      await expect.poll(() => e.value()).not.toBe(big);
+      const commented = await e.value();
+      await page.waitForTimeout(2000);
+      const worst = [];
+      for (const [step, keys] of [['all', ['Control+a', 'Control+/']], ['back', ['Control+/']], ['undo', ['Control+z']], ['undo', ['Control+z']]]) {
+        await startLongTaskProbe(page);
+        for (const key of keys) await page.keyboard.press(key);
+        worst.push(`${step} ${await longestTask(page, 2000)}`);
+      }
+      expect(await e.value()).toBe(commented);
+      console.log(`${language} with a commented copy: longest task of Ctrl+/ steps: ${worst.join(', ')} ms`);
+      for (const entry of worst) expect(Number(entry.split(' ')[1]), entry).toBeLessThan(LONG_TASK_BUDGET_MS * 2);
+    });
+  });
+}

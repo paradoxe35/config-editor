@@ -4,8 +4,8 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let mut scan = analyze(source, cursor);
-    let Some(snapshot) = scan.snapshot.take() else {
+    let scan = analyze(source, cursor);
+    let Some(snapshot) = scan.snapshot.clone() else {
         unreachable!("analyze always captures a snapshot");
     };
     let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
@@ -391,8 +391,8 @@ pub(super) fn cursor_bytes(source: &str, cursor: usize) -> usize {
 /// Names to filter from suggestions. Only attribute positions filter;
 /// repeated sibling elements are arrays, so element names never do.
 pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>> {
-    let mut scan = analyze(source, cursor_byte);
-    let snapshot = scan.snapshot.take()?;
+    let scan = analyze(source, cursor_byte);
+    let snapshot = scan.snapshot.clone()?;
     let naming_element = snapshot
         .open_tag
         .is_some_and(|tag| is_element_name_position(&tag, cursor_byte));

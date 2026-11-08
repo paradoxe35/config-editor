@@ -48,6 +48,9 @@ pub(super) struct Snapshot {
 
 pub(super) struct Scan {
     pub(super) headers: Vec<HeaderInfo>,
+    /// The header opening each body (by body number), so a body's path is
+    /// read without a search through every header.
+    pub(super) openers: Vec<Option<usize>>,
     /// Header occurrence totals keyed by `(parent body, type, labels)`.
     pub(super) totals: HashMap<(usize, String, String), usize>,
     pub(super) attributes: Vec<AttributeInfo>,
@@ -93,7 +96,13 @@ impl Scan {
 pub(super) fn body_path(scan: &Scan, body: usize) -> Vec<String> {
     let mut chain = Vec::new();
     let mut current = body;
-    while let Some(header) = scan.headers.iter().find(|header| header.child == current) {
+    while let Some(header) = scan
+        .openers
+        .get(current)
+        .copied()
+        .flatten()
+        .map(|index| &scan.headers[index])
+    {
         chain.push(header);
         current = header.parent;
     }
@@ -173,10 +182,41 @@ pub(super) fn take_snapshot(
     }
 }
 
+/// A text's hash and length, a cursor, and the scan there.
+type RememberedScan = (u64, usize, usize, std::rc::Rc<Scan>);
+
+thread_local! {
+    /// The last scan: a check's problem spans, and one keystroke's
+    /// suggestions and their read-only check, each read the same text at
+    /// the same place.
+    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
+}
+
+/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
+/// cursor.
+pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = (hasher.finish(), source.len(), cursor);
+    let remembered = LAST_SCAN.with(|last| {
+        last.borrow()
+            .as_ref()
+            .filter(|(hash, len, at, _)| (*hash, *len, *at) == key)
+            .map(|(.., scan)| scan.clone())
+    });
+    if let Some(scan) = remembered {
+        return scan;
+    }
+    let scan = std::rc::Rc::new(scan_text(source, cursor));
+    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, scan.clone())));
+    scan
+}
+
 /// Walks the whole document, tolerating invalid syntax, and captures the
 /// parser state at `cursor` (a byte offset). Block headers and attributes are
 /// recognized by token shape, so a half-typed document still yields structure.
-pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
+pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
     let tokens = tokenize(source);
     let partial_index = tokens.iter().position(|token| {
         token.start < cursor
@@ -389,8 +429,15 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
     }
     let snapshot = snapshot
         .unwrap_or_else(|| take_snapshot(&attributes, &stack, open.as_ref(), cursor, partial));
+    let mut openers = vec![None; body_count];
+    for (index, header) in headers.iter().enumerate() {
+        if let Some(opener) = openers.get_mut(header.child) {
+            opener.get_or_insert(index);
+        }
+    }
     Scan {
         headers,
+        openers,
         totals,
         attributes,
         snapshot,

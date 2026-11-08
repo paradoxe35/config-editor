@@ -2,6 +2,8 @@ use super::changes::{LineDiff, RowPeeks, line_kind, row_peeks};
 use super::diagnostics::{Diagnostic, Severity};
 use super::diff::DiffKind;
 use super::fold_ranges::FoldRange;
+use super::highlight::comment_lines::{CommentLines, covered, tokens_after_comment};
+use super::highlight::{Token, TokenKind, Tokens};
 use super::languages::Language;
 use super::protect::ProtectState;
 use crate::reactive::{Fanout, notify};
@@ -176,6 +178,29 @@ pub(super) enum RowHighlight {
     StringBody,
     /// Tokens of the language.
     Language(Language),
+    /// A line whose first `end` bytes (`usize::MAX`: all) are in a comment
+    /// opened on an earlier line; the language colors the rest.
+    AfterComment { language: Language, end: usize },
+}
+
+impl RowHighlight {
+    /// The tokens of the row's `text`.
+    pub(super) fn tokens(self, text: &str) -> Vec<Token> {
+        let all = |kind| {
+            let mut tokens = Tokens::new();
+            tokens.push(0, text.len(), kind);
+            tokens.finish()
+        };
+        match self {
+            RowHighlight::Plain => Vec::new(),
+            RowHighlight::StringBody => all(TokenKind::String),
+            RowHighlight::Language(language) => language.behavior().highlight(text),
+            RowHighlight::AfterComment { end, .. } if end >= text.len() => all(TokenKind::Comment),
+            RowHighlight::AfterComment { language, end } => {
+                tokens_after_comment(language, text, end)
+            }
+        }
+    }
 }
 
 /// What highlighting needs to know of the document.
@@ -185,22 +210,26 @@ pub(super) struct Highlighting<'a> {
     pub(super) language: Option<Language>,
     /// The lines inside multi-line string bodies.
     pub(super) string_bodies: &'a [Range<usize>],
+    /// The lines past the first of comments written over several lines.
+    pub(super) comments: &'a [CommentLines],
 }
 
 impl Highlighting<'_> {
-    fn of(&self, index: usize) -> RowHighlight {
-        match self.language {
-            None => RowHighlight::Plain,
-            Some(_)
-                if self
-                    .string_bodies
-                    .iter()
-                    .any(|lines| lines.contains(&index)) =>
-            {
-                RowHighlight::StringBody
-            }
-            Some(language) => RowHighlight::Language(language),
+    pub(super) fn of(&self, index: usize) -> RowHighlight {
+        let Some(language) = self.language else {
+            return RowHighlight::Plain;
+        };
+        if let Some(end) = covered(self.comments, index) {
+            return RowHighlight::AfterComment { language, end };
         }
+        if self
+            .string_bodies
+            .iter()
+            .any(|lines| lines.contains(&index))
+        {
+            return RowHighlight::StringBody;
+        }
+        RowHighlight::Language(language)
     }
 }
 

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
+use super::highlight::comment_lines::CommentLines;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
 use super::metrics::read_editor_metrics;
@@ -38,6 +39,8 @@ pub(super) struct ViewState {
     pub(super) visible_rows: Memo<Range<usize>>,
     /// Lines inside multi-line strings' bodies, shown as string text.
     pub(super) string_bodies: Memo<Vec<Range<usize>>>,
+    /// The lines past the first of comments written over several lines.
+    pub(super) comment_lines: Memo<Vec<CommentLines>>,
     /// The textarea's text: the document with the closed folds cut out
     /// (see `projection`; the document itself without folding).
     pub(super) projection: RwSignal<Arc<Projection>>,
@@ -48,11 +51,12 @@ pub(super) struct ViewState {
 impl ViewState {
     /// The view of the document, whose textarea shows `projection`, its lines
     /// rendered as `lines`, with the multi-line string bodies of
-    /// [`string_bodies`].
+    /// [`string_bodies`] and the comments of [`comment_lines`].
     pub(super) fn new(
         projection: RwSignal<Arc<Projection>>,
         lines: Memo<Vec<RenderedLine>>,
         string_bodies: Memo<Vec<Range<usize>>>,
+        comment_lines: Memo<Vec<CommentLines>>,
     ) -> Self {
         let textarea_ref: NodeRef<leptos::html::Textarea> = NodeRef::new();
         let scroll_y = RwSignal::new(0.0);
@@ -93,6 +97,7 @@ impl ViewState {
             lines,
             visible_rows,
             string_bodies,
+            comment_lines,
             projection,
             visible_lines,
         }
@@ -106,6 +111,20 @@ pub(super) fn string_bodies(
     edit_language: RwSignal<Language>,
 ) -> Memo<Vec<Range<usize>>> {
     Memo::new(move |_| text.with(|text| edit_language.get().behavior().string_body_lines(text)))
+}
+
+/// The lines past the first of the comments `text` (in `edit_language`)
+/// writes over several lines, found once per edit for the code layer.
+pub(super) fn comment_lines(
+    text: RwSignal<String>,
+    edit_language: RwSignal<Language>,
+) -> Memo<Vec<CommentLines>> {
+    Memo::new(move |_| {
+        text.with(|text| {
+            let comments = edit_language.get().behavior().comments(text);
+            super::highlight::comment_lines::comment_lines(text, &comments)
+        })
+    })
 }
 
 impl super::state::EditorState {

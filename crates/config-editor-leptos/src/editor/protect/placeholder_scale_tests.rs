@@ -272,3 +272,49 @@ fn thousands_of_commented_placeholders_are_found_unreal_in_one_parse_in_every_la
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A document holding a commented-out copy of itself (a block commented
+/// with Ctrl+/, a copy pasted commented), the copy above or below: the
+/// tokens outside comments are real in their fields and the commented ones
+/// are not, read off the parse and the comments, without a path lookup
+/// for each token (one was a read of the whole text: seconds at 8000 lines).
+#[test]
+fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_language() {
+    let matcher = SecretMatcher::new(&SecretOptions::default());
+    let mut failures = Vec::new();
+    for language in languages() {
+        let behavior = language.behavior();
+        let host = written(language, 300);
+        let known = matcher.known(behavior, &host);
+        let end = host.encode_utf16().count();
+        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+            continue;
+        };
+        let real = locate_written(&matcher, &host, &known);
+        let shift = commented.encode_utf16().count() + 1;
+        let shifted = real
+            .iter()
+            .map(|range| range.start + shift..range.end + shift)
+            .collect();
+        for (case, text, expected) in [
+            ("copy below", format!("{host}\n{commented}"), real.clone()),
+            ("copy above", format!("{commented}\n{host}"), shifted),
+        ] {
+            if behavior.parse(&text).is_err() {
+                failures.push(format!("{language} {case}: does not parse"));
+                continue;
+            }
+            let (took, found) =
+                crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &text, &known));
+            if found != expected || took.as_millis() > 150 {
+                failures.push(format!(
+                    "{language} {case}: {} found ({} expected, same {}) in {took:?}",
+                    found.len(),
+                    expected.len(),
+                    found == expected
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

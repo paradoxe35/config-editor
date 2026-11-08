@@ -17,6 +17,7 @@ pub(super) struct Frame {
     pub(super) path: Vec<Seg>,
 }
 
+#[derive(Clone)]
 pub(super) struct Snapshot {
     pub(super) path: Vec<Seg>,
     pub(super) partial: Option<Token>,
@@ -207,9 +208,40 @@ pub(super) fn strings(path: &[Seg]) -> Vec<String> {
         .collect()
 }
 
+/// A text's hash and length, a cursor, and the scan there.
+type RememberedScan = (u64, usize, usize, std::rc::Rc<Scan>);
+
+thread_local! {
+    /// The last scan: one keystroke's suggestions, the check of their
+    /// read-only fields and the keys already written each read the same
+    /// text at the same place.
+    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
+}
+
+/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
+/// cursor.
+pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = (hasher.finish(), source.len(), cursor);
+    let remembered = LAST_SCAN.with(|last| {
+        last.borrow()
+            .as_ref()
+            .filter(|(hash, len, at, _)| (*hash, *len, *at) == key)
+            .map(|(.., scan)| scan.clone())
+    });
+    if let Some(scan) = remembered {
+        return scan;
+    }
+    let scan = std::rc::Rc::new(scan_text(source, cursor));
+    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, scan.clone())));
+    scan
+}
+
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
 /// state at `cursor` (a byte offset).
-pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
+pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
     let tokens = tokenize(source);
     let plan = plan_paths(source, &tokens);
     let partial_index = tokens.iter().position(|token| {

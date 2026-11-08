@@ -45,7 +45,7 @@ use super::host_editing::{
 };
 use super::hover::HoverState;
 use super::languages::Language;
-use super::layout::{ViewState, string_bodies};
+use super::layout::{ViewState, comment_lines, string_bodies};
 use super::line_rows::rendered_lines;
 use super::live_settings::LiveSettings;
 use super::problems::{self, ProblemsState};
@@ -301,6 +301,7 @@ impl EditorState {
             projection,
             rendered_lines(doc.text, problems.diagnostics, protect, settings.strings),
             string_bodies,
+            comment_lines(doc.text, sync.edit_language),
         );
         #[cfg(feature = "folding")]
         let fold = FoldState::new(doc.text, sync.edit_language, settings.folding);
