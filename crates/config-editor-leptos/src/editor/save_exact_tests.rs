@@ -211,6 +211,70 @@ fn a_list_over_lines_gains_and_loses_items_in_place() {
                 &format!("{item}8443,\n{item}8080,\n"),
             ),
         );
+        // Two items made one (a selection over both retyped as one of
+        // them), and none, then one again: each kept line as it was, a new
+        // one at the items' indent with their trailing comma (round 19:
+        // `443` at the start of the line, its comma gone).
+        let two = text.replace(&format!("{item}8443,\n"), "");
+        from_every_view(
+            &mut failures,
+            "two items, keep 443",
+            host,
+            &two,
+            &|value| {
+                *slot(value, "/server/ports") = serde_json::json!([443]);
+            },
+            &two.replace(&format!("{item}80,  # p80\n"), ""),
+        );
+        from_every_view(
+            &mut failures,
+            "two items, retyped 8080",
+            host,
+            &two,
+            &|value| {
+                *slot(value, "/server/ports") = serde_json::json!([8080]);
+            },
+            &two.replace(
+                &format!("{item}80,  # p80\n{item}443,\n"),
+                &format!("{item}8080,\n"),
+            ),
+        );
+        // XML has no empty list to show.
+        let emptied = two.replace(&format!("{item}80,  # p80\n{item}443,\n"), "");
+        let one = two.replace(&format!("{item}80,  # p80\n"), "");
+        for edit in ALL
+            .into_iter()
+            .filter(|edit| ![host, Language::XML].contains(edit))
+        {
+            for (label, from, items, expected) in [
+                ("two items, emptied", &two, json!([]), &emptied),
+                ("emptied, then one", &emptied, json!([443]), &one),
+            ] {
+                let saved = save_value(host, edit, from, &|value| {
+                    *slot(value, "/server/ports") = items.clone();
+                });
+                if saved.as_ref() != Ok(expected) {
+                    failures.push(format!(
+                        "{label}: {host} host via {edit}:\n--- expected\n{expected}--- saved\n{}",
+                        saved.unwrap_or_else(|error| error)
+                    ));
+                }
+            }
+        }
+    }
+    // JSON takes no comma after the last item.
+    let json = "{\n    \"ports\": [\n    ],\n    \"n\": 1\n}\n";
+    for edit in ALL
+        .into_iter()
+        .filter(|edit| ![Language::JSON, Language::XML].contains(edit))
+    {
+        let saved = save_value(Language::JSON, edit, json, &|value| {
+            value["ports"] = json!([443]);
+        });
+        let expected = json.replace("[\n", "[\n        443\n");
+        if saved.as_ref() != Ok(&expected) {
+            failures.push(format!("JSON emptied, then one, via {edit}: {saved:?}"));
+        }
     }
     report(failures);
 }
@@ -324,4 +388,446 @@ fn xml_processing_instructions_count_as_comments_the_view_does_not_show() {
     assert!(xml.has_comments("<r><?pi data?><a>1</a></r>\n"));
     assert!(xml.has_comments("<r><!-- c --><a>1</a></r>\n"));
     assert!(!xml.has_comments("<?xml version=\"1.0\"?>\n<r><a>1</a></r>\n"));
+}
+
+/// Number forms each host writes its own way (`1.0`, `-0.0`, `1e3`, `0x1F`,
+/// `1_000`), which a view shows as plain numbers it may write otherwise.
+fn number_hosts() -> Vec<(Language, String)> {
+    let xml_values = [
+        "1.0",
+        "2.0",
+        "10.0",
+        "0.0",
+        "-0.0",
+        "-0",
+        "1.10",
+        "  1 ",
+        "1e3",
+        "1.5E3",
+        "0.1",
+        "3.0e0",
+        "+1",
+        "9007199254740993",
+        "12345678901234567890",
+    ];
+    let elements: String = xml_values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("  <k{index}>{value}</k{index}>\n"))
+        .collect();
+    let attributes: String = xml_values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!(" a{index}=\"{value}\""))
+        .collect();
+    let lines = |values: &[&str], separator: &str| -> String {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| format!("k{index}{separator}{value}\n"))
+            .collect()
+    };
+    let toml = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "1_000",
+        "0x1F",
+        "0o17",
+        "0b11",
+        "+1",
+        "inf",
+        "-inf",
+        "nan",
+        "9007199254740993",
+        "1.0e+3",
+        "-0",
+    ];
+    let yaml = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "0x1F",
+        "0o17",
+        "+1",
+        ".inf",
+        "-.inf",
+        "9007199254740993",
+        "1.0e+3",
+        "12345678901234567890",
+        "-0",
+    ];
+    let hcl = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "9007199254740993",
+        "1.0e+3",
+    ];
+    let json = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "9007199254740993",
+        "1.0e+3",
+        "12345678901234567890",
+        "-0",
+    ];
+    let json_entries: Vec<String> = json
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("  \"k{index}\": {value}"))
+        .collect();
+    vec![
+        (
+            Language::XML,
+            format!("<!-- top -->\n<r>\n  <name>edge</name>\n{elements}</r>\n"),
+        ),
+        (
+            Language::XML,
+            format!("<!-- top -->\n<r{attributes}>\n  <name>edge</name>\n</r>\n"),
+        ),
+        (
+            Language::TOML,
+            format!("# top\nname = \"edge\"\n{}", lines(&toml, " = ")),
+        ),
+        (
+            Language::YAML,
+            format!("# top\nname: edge\n{}", lines(&yaml, ": ")),
+        ),
+        (
+            Language::HCL,
+            format!("# top\nname = \"edge\"\n{}", lines(&hcl, " = ")),
+        ),
+        (
+            Language::JSON,
+            format!(
+                "{{\n  \"name\": \"edge\",\n{}\n}}\n",
+                json_entries.join(",\n")
+            ),
+        ),
+    ]
+}
+
+/// An edit elsewhere leaves every value it did not touch as the host wrote
+/// it: a number the view shows (and would write) otherwise is only shown
+/// that way (round 19: XML `1.0` saved as `1`).
+#[test]
+fn untouched_numbers_stay_as_written_through_any_view() {
+    let mut failures = Vec::new();
+    for (host, text) in number_hosts() {
+        let expected = text.replace("edge", "edgeQ");
+        let name = if host == Language::XML {
+            "/r/name"
+        } else {
+            "/name"
+        };
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            // A view that cannot hold a value (TOML integers end at 2^63)
+            // does not open.
+            let bridge = super::bridge::Bridge::new(host, edit, None).expect("two languages");
+            if bridge.to_edit(&text).is_err() {
+                continue;
+            }
+            let saved = save_value(host, edit, &text, &|value| {
+                *slot(value, name) = "edgeQ".into();
+            });
+            match saved {
+                Ok(saved) if saved == expected => {}
+                Ok(saved) => failures.push(format!(
+                    "{host} via {edit}:\n--- expected\n{expected}--- saved\n{saved}"
+                )),
+                Err(error) => failures.push(format!("{host} via {edit}: {error}")),
+            }
+        }
+    }
+    // XML writes a float as JSON does, so it reads back as that float.
+    let floats = r#"{"a": 1.0, "b": -0.0, "c": 10.0, "d": {"e": 2.0, "f": [0.0, 1.5]}}"#;
+    match Language::JSON.convert(floats, Language::XML) {
+        Ok(converted) if converted.losses.is_empty() => {}
+        other => failures.push(format!("floats to XML: {other:?}")),
+    }
+    report(failures);
+}
+
+/// The XML view writes every scalar as text and guesses its type on
+/// reading, so a value edited there keeps the host's type: a string stays a
+/// string whatever is typed (`"1"` made `12` is `"12"`), an emptied element
+/// is the empty string where the host has a string, and the save waits
+/// where the host has a number or a boolean (round 19: `{}` was saved).
+/// The host's other lines, and the spacing before its comment, stay.
+#[test]
+fn a_scalar_edited_in_the_xml_view_keeps_the_hosts_type() {
+    let hosts = [
+        (
+            Language::YAML,
+            "# top\nname: edge  # nc\nver: \"1\"\nflag: \"yes\"\nport: 80  # pc\nok: true\nn: 1\n",
+        ),
+        (
+            Language::TOML,
+            "# top\nname = \"edge\"  # nc\nver = \"1\"\nflag = \"true\"\nport = 80  # pc\nok = true\nn = 1\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nname = \"edge\"  # nc\nver = \"1\"\nflag = \"true\"\nport = 80  # pc\nok = true\nn = 1\n",
+        ),
+        (
+            Language::JSON,
+            "{\n  \"name\": \"edge\",\n  \"ver\": \"1\",\n  \"flag\": \"true\",\n  \"port\": 80,\n  \"ok\": true,\n  \"n\": 1\n}\n",
+        ),
+    ];
+    // What is typed into the element, and what the host then holds (`None`:
+    // the save waits).
+    let cases: &[(&str, Value, Option<Value>)] = &[
+        ("name", json!(""), Some(json!(""))),
+        ("name", json!(9), Some(json!("9"))),
+        ("name", json!(true), Some(json!("true"))),
+        ("name", json!("x y"), Some(json!("x y"))),
+        ("ver", json!(12), Some(json!("12"))),
+        ("ver", json!(""), Some(json!(""))),
+        ("flag", json!(false), Some(json!("false"))),
+        ("port", json!(""), None),
+        ("port", json!(81), Some(json!(81))),
+        ("port", json!(1.5), Some(json!(1.5))),
+        ("port", json!("abc"), Some(json!("abc"))),
+        ("ok", json!(""), None),
+        ("ok", json!(false), Some(json!(false))),
+    ];
+    let mut failures = Vec::new();
+    for (host, text) in hosts {
+        for (key, typed, held) in cases {
+            let case = format!("{host} host, {key} = {typed} via XML");
+            let saved = save_value(host, Language::XML, text, &|value| {
+                *slot(value, &format!("/{key}")) = typed.clone();
+            });
+            match (saved, held) {
+                (Err(error), None) if error.contains(&format!("/{key}")) => {}
+                (Err(error), _) => failures.push(format!("{case}: {error}")),
+                (Ok(saved), None) => failures.push(format!("{case}: saved\n{saved}")),
+                (Ok(saved), Some(held)) => {
+                    let mut expected = host.parse(text).expect("parses");
+                    *slot(&mut expected, &format!("/{key}")) = held.clone();
+                    if host.parse(&saved).ok() != Some(expected) {
+                        failures.push(format!("{case}: reads back otherwise\n{saved}"));
+                    }
+                    // Only the edited line changed, its comment as it was.
+                    let other_lines = |text: &str| -> Vec<String> {
+                        text.lines()
+                            .filter(|line| !line.contains(&format!("{key}\"")))
+                            .filter(|line| !line.starts_with(&format!("{key}:")))
+                            .filter(|line| !line.starts_with(&format!("{key} =")))
+                            .map(str::to_string)
+                            .collect()
+                    };
+                    let edited_line = |text: &str| {
+                        text.lines()
+                            .find(|line| {
+                                line.starts_with(&format!("{key}:"))
+                                    || line.starts_with(&format!("{key} ="))
+                            })
+                            .map(|line| line.contains("  # ") == line.contains('#'))
+                    };
+                    if other_lines(&saved) != other_lines(text)
+                        || edited_line(&saved) != edited_line(text)
+                    {
+                        failures.push(format!("{case}: other lines changed\n{saved}"));
+                    }
+                }
+            }
+        }
+        // A value changing type from a typed view keeps the spacing before
+        // its comment too.
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            for (key, typed) in [("name", json!(9)), ("port", json!("x"))] {
+                let saved = save_value(host, edit, text, &|value| {
+                    *slot(value, &format!("/{key}")) = typed.clone();
+                });
+                let gap_kept = saved.as_ref().is_ok_and(|saved| {
+                    saved.lines().filter(|line| line.contains("  # ")).count()
+                        == text.lines().filter(|line| line.contains("  # ")).count()
+                });
+                if !gap_kept {
+                    failures.push(format!(
+                        "{host} host, {key} = {typed} via {edit}: {saved:?}"
+                    ));
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A TOML datetime emptied or typed half-way in any view (the XML view
+/// reads `2` as a number) waits, and the finished one is written bare.
+#[test]
+fn a_toml_datetime_retyped_in_any_view_stays_a_datetime() {
+    let host = "# c\ndt = 1979-05-27T07:32:00Z  # dtc\nn = 1\n";
+    let mut failures = Vec::new();
+    for edit in ALL.into_iter().filter(|edit| *edit != Language::TOML) {
+        for typed in [json!(""), json!(2), json!(2024), json!(true)] {
+            let saved = save_value(Language::TOML, edit, host, &|value| {
+                *slot(value, "/dt") = typed.clone();
+            });
+            if !saved.as_ref().is_err_and(|error| error.contains("/dt")) {
+                failures.push(format!("{typed} via {edit}: {saved:?}"));
+            }
+        }
+        let saved = save_value(Language::TOML, edit, host, &|value| {
+            *slot(value, "/dt") = "2024-01-02T03:04:05Z".into();
+        });
+        let expected = host.replace("1979-05-27T07:32:00Z", "2024-01-02T03:04:05Z");
+        if saved.as_ref() != Ok(&expected) {
+            failures.push(format!("finished via {edit}: {saved:?}"));
+        }
+    }
+    report(failures);
+}
+
+/// A key added to a JSON object holding one key goes on its own line at the
+/// object's indentation, as in an object holding more (round 19: `"max":
+/// 10, "min": 1` on one line), whatever the host indents with.
+#[test]
+fn a_key_added_to_a_one_key_json_object_gets_its_own_line() {
+    let mut failures = Vec::new();
+    for unit in ["  ", "    ", "\t"] {
+        let host = format!(
+            "{{\n{unit}\"name\": \"edge\",\n{unit}\"limits\": {{\n{unit}{unit}\"max\": 10\n{unit}}},\n{unit}\"n\": 1\n}}\n"
+        );
+        let expected = host.replace(
+            "\"max\": 10\n",
+            &format!("\"max\": 10,\n{unit}{unit}\"min\": 1\n"),
+        );
+        from_every_view(
+            &mut failures,
+            &format!("indent {unit:?}"),
+            Language::JSON,
+            &host,
+            &|value| {
+                value["limits"]["min"] = 1.into();
+            },
+            &expected,
+        );
+        // At the top level too.
+        let host = format!("{{\n{unit}\"max\": 10\n}}\n");
+        let expected = format!("{{\n{unit}\"max\": 10,\n{unit}\"min\": 1\n}}\n");
+        from_every_view(
+            &mut failures,
+            &format!("top level, indent {unit:?}"),
+            Language::JSON,
+            &host,
+            &|value| {
+                value["min"] = 1.into();
+            },
+            &expected,
+        );
+    }
+    // An HCL object over lines goes without commas; a YAML flow map needs
+    // them.
+    for (host, text, expected) in [
+        (
+            Language::HCL,
+            "# c\nm = {\n  max = 10\n}\n",
+            "# c\nm = {\n  max = 10\n  min = 1\n}\n",
+        ),
+        (
+            Language::YAML,
+            "# c\nm: {\n  max: 10\n}\n",
+            "# c\nm: {\n  max: 10,\n  min: 1\n}\n",
+        ),
+    ] {
+        from_every_view(
+            &mut failures,
+            "one entry over lines",
+            host,
+            text,
+            &|value| {
+                value["m"]["min"] = 1.into();
+            },
+            expected,
+        );
+    }
+    report(failures);
+}
+
+/// Items of a YAML block list moved through any view take all their lines
+/// along, their comments included: maps, block scalars, indentless and
+/// nested lists (round 19: a map item's comments stayed where it was).
+#[test]
+fn yaml_list_items_moved_through_any_view_take_their_comments() {
+    let mut failures = Vec::new();
+    for (text, pointer, order, expected) in [
+        (
+            "# top\nl:\n  - name: a  # ac\n    # inner a\n    v: 1\n  - name: b  # bc\n    # inner b\n    v: 2\nn: 1  # nn\n",
+            "/l",
+            &[1, 0][..],
+            "# top\nl:\n  - name: b  # bc\n    # inner b\n    v: 2\n  - name: a  # ac\n    # inner a\n    v: 1\nn: 1  # nn\n",
+        ),
+        (
+            "l:  # lc\n  # first\n  - k: 1\n    j: x  # jx\n  # second\n  - k: 2\n\n  - k: 3  # three\n    j: z\nn: 1\n",
+            "/l",
+            &[2, 0, 1][..],
+            "l:  # lc\n  # first\n  - k: 3  # three\n    j: z\n  - k: 1\n    j: x  # jx\n\n  # second\n  - k: 2\nn: 1\n",
+        ),
+        (
+            "l:\n- name: a # ac\n  v: 1\n- name: b\n  v: 2 # bv\nn: 1\n",
+            "/l",
+            &[1, 0][..],
+            "l:\n- name: b\n  v: 2 # bv\n- name: a # ac\n  v: 1\nn: 1\n",
+        ),
+        (
+            "l:\n  - |\n    x\n    y\n  - z # zc\nn: 1\n",
+            "/l",
+            &[1, 0][..],
+            "l:\n  - z # zc\n  - |\n    x\n    y\nn: 1\n",
+        ),
+        (
+            "m:\n  l:\n    - k: 1 # one\n      t: [a, b]\n    - k: 2 # two\n  n: 1 # nc\n",
+            "/m/l",
+            &[1, 0][..],
+            "m:\n  l:\n    - k: 2 # two\n    - k: 1 # one\n      t: [a, b]\n  n: 1 # nc\n",
+        ),
+    ] {
+        from_every_view(
+            &mut failures,
+            "moved",
+            Language::YAML,
+            text,
+            &|value| {
+                let items = slot(value, pointer).as_array().expect("a list").clone();
+                *slot(value, pointer) =
+                    Value::Array(order.iter().map(|at| items[*at].clone()).collect());
+            },
+            expected,
+        );
+    }
+    // An anchor moved after its alias cannot be moved as written: the save
+    // waits rather than leave each comment on the item now in its place.
+    let anchored = "l:\n  - &a\n    k: 1 # one\n  - *a\n  - k: 2 # two\nn: 1\n";
+    for edit in ALL.into_iter().filter(|edit| *edit != Language::YAML) {
+        let saved = save_value(Language::YAML, edit, anchored, &|value| {
+            slot(value, "/l").as_array_mut().expect("a list").reverse();
+        });
+        let comments_follow = saved
+            .as_ref()
+            .is_ok_and(|saved| saved.contains("k: 2 # two") && saved.contains("k: 1 # one"));
+        let waits = saved
+            .as_ref()
+            .is_err_and(|error| error.contains("cannot be moved") && error.contains("/l"));
+        if !comments_follow && !waits {
+            failures.push(format!("anchored via {edit}: {saved:?}"));
+        }
+    }
+    report(failures);
 }

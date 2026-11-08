@@ -79,9 +79,6 @@ impl ConfigLanguage for TomlBehavior {
     /// reads it back, and a text that is no date or time (typed half-way)
     /// waits rather than turn it into a string.
     fn scalar_edit(&self, previous: &str, pointer: &str, value: &Value) -> Result<Option<Value>, String> {
-        let Value::String(text) = value else {
-            return Ok(None);
-        };
         let Some(span) = self.value_span(previous, pointer) else {
             return Ok(None);
         };
@@ -94,6 +91,11 @@ impl ConfigLanguage for TomlBehavior {
         if written.starts_with(['"', '\'']) || written.parse::<toml::value::Datetime>().is_err() {
             return Ok(None);
         }
+        // Any other scalar (a number typed half-way: `2` of `2024-…`) waits too.
+        let text = match value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
         match text.parse::<toml::value::Datetime>() {
             Ok(datetime) => Ok(Some(Value::String(datetime.to_string()))),
             Err(_) => Err(format!("\"{text}\" is not a TOML date or time, and TOML writes one here: the edit is saved once it is one again (to make it text, edit it as TOML)")),

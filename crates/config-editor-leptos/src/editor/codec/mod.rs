@@ -17,7 +17,7 @@ use compare::{canonical_number, comment_start, comparable};
 pub(super) use lines::patch_structure;
 pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
-pub(super) use reorder::patch_reorder;
+pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
 use super::completion::conform_arrays;
@@ -251,13 +251,14 @@ pub(super) fn patch_scalars(
         // long string).
         let mut text = language.format_value_at(value, previous, range.clone());
         // A value the host wrote in quotes keeps them when the new one is
-        // formatted bare (an XML attribute's `"…"`; not a long string's
-        // `"""…"""`, whose new value may be a number).
+        // formatted bare, where quotes delimit and do not type it (an XML
+        // attribute's `"…"`; a TOML string made a number loses them).
         let written = &previous[range.clone()];
-        if let Some(quote) = written
-            .chars()
-            .next()
-            .filter(|quote| matches!(quote, '"' | '\''))
+        if language.scalars_are_text()
+            && let Some(quote) = written
+                .chars()
+                .next()
+                .filter(|quote| matches!(quote, '"' | '\''))
             && written.len() >= 2
             && written.ends_with(quote)
             && !written.starts_with(&quote.to_string().repeat(3))
@@ -330,13 +331,24 @@ pub(super) fn patch_inline(
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Array(items)) = new.pointer(&pointer)
             && let Some(Value::Array(before)) = old.pointer(&pointer)
-            && let Some(text) =
-                lists::rewrite_list_lines(language, &previous[range.clone()], before, items)
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
-                return Some(patched);
+            let unit = super::commands::indent_unit(previous);
+            for empty_trailing in [true, false] {
+                let Some(text) = lists::rewrite_list_lines(
+                    language,
+                    &previous[range.clone()],
+                    before,
+                    items,
+                    &unit,
+                    empty_trailing,
+                ) else {
+                    continue;
+                };
+                let mut patched = previous.to_string();
+                patched.replace_range(range.clone(), &text);
+                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                    return Some(patched);
+                }
             }
         }
         // A flow map or object written one entry per line (`tcp: {` … `}`), its
@@ -345,13 +357,22 @@ pub(super) fn patch_inline(
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Object(entries)) = new.pointer(&pointer)
             && let Some(Value::Object(before)) = old.pointer(&pointer)
-            && let Some(text) =
-                lists::rewrite_map_lines(language, &previous[range.clone()], before, entries)
         {
-            let mut patched = previous.to_string();
-            patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
-                return Some(patched);
+            for lone_commas in [false, true] {
+                let Some(text) = lists::rewrite_map_lines(
+                    language,
+                    &previous[range.clone()],
+                    before,
+                    entries,
+                    lone_commas,
+                ) else {
+                    continue;
+                };
+                let mut patched = previous.to_string();
+                patched.replace_range(range.clone(), &text);
+                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                    return Some(patched);
+                }
             }
         }
         // A flow collection over lines without comments in it (`{a: 1,\n
@@ -661,7 +682,12 @@ fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level
 /// where both still have the same shape.
-fn differences(expected: &Value, actual: &Value, pointer: String, out: &mut Vec<String>) {
+pub(super) fn differences(
+    expected: &Value,
+    actual: &Value,
+    pointer: String,
+    out: &mut Vec<String>,
+) {
     match (expected, actual) {
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in left {

@@ -156,6 +156,7 @@ const CONFIG_LANGUAGE = {
   reference_len: { exempt: SAVE_FORMS },
   flow_map_opener: { exempt: SAVE_FORMS },
   scalar_reads_as: { exempt: SAVE_FORMS },
+  scalars_are_text: { exempt: SAVE_FORMS },
   written_value_range: { exempt: SAVE_FORMS },
   kept_value_end: { exempt: SAVE_FORMS },
   comment_scope: { exempt: RUST_ONLY_REFINEMENT },

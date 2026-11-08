@@ -468,6 +468,13 @@ const KEYS: &[&str] = &[
     "[k]",
     "a,b",
     "\u{fffe}k",
+    // Plain where every reader takes them as text (round 19 quoted them).
+    "foo bar",
+    "Über",
+    "a/b",
+    "1.2.3",
+    "-x",
+    "x.y-z_1",
 ];
 
 /// The JSON pointers of every key in `value` (the pointer of its value).
@@ -602,6 +609,17 @@ fn any_key_renamed_from_any_view_is_renamed_in_place() {
                             "{case}: key written plain as {written:?}, which YAML 1.1 reads otherwise\n--- saved\n{saved}"
                         ));
                     }
+                    // A block mapping's key is quoted only where the document
+                    // writer quotes it too.
+                    if host == Language::YAML
+                        && !in_flow_mapping(text, pointer)
+                        && writer_writes_key_plain(to)
+                        && yaml_key_written(&saved, pointer, to).is_none()
+                    {
+                        failures.push(format!(
+                            "{case}: key quoted, which the writer writes plain\n--- saved\n{saved}"
+                        ));
+                    }
                 }
             }
         }
@@ -616,6 +634,29 @@ fn any_key_renamed_from_any_view_is_renamed_in_place() {
         failures.len(),
         failures.join("\n\n")
     );
+}
+
+/// Whether the YAML writer writes `key` plain in a block mapping.
+fn writer_writes_key_plain(key: &str) -> bool {
+    Language::YAML
+        .serialize(&serde_json::json!({ key: 0 }))
+        .ok()
+        .is_some_and(|whole| {
+            whole.lines().count() == 1 && yaml_key_written(&whole, "/k", key).is_some()
+        })
+}
+
+/// Whether the key at `pointer` of the YAML `text` is in a flow mapping.
+fn in_flow_mapping(text: &str, pointer: &str) -> bool {
+    let Some(span) = Language::YAML.behavior().key_span(text, pointer) else {
+        return true;
+    };
+    let line = text.lines().nth(span.line - 1).unwrap_or("");
+    let start = line
+        .char_indices()
+        .nth(span.start_column - 1)
+        .map_or(line.len(), |(at, _)| at);
+    line[..start].contains(['[', '{'])
 }
 
 /// The renamed key at `pointer` (renamed `to`) of the YAML `saved` as
