@@ -154,4 +154,13 @@ mod secret_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod swallow_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod tests;

@@ -16,6 +16,8 @@
 //!   would join a locked field once it does: a line whose path is inside
 //!   it, or a second key holding it (duplicates are errors here, but a
 //!   host's parser may let the last one win).
+//! - the document does not parse afterwards and the edit, made inside a
+//!   locked block, opens a comment or string running over its lines below.
 //!
 //! Formatting around a locked field stays free: blank lines, trailing
 //! spaces, comments after the value, and whitespace inside it (a space
@@ -29,6 +31,7 @@
 
 mod closers;
 mod edit;
+mod hiding;
 mod joining;
 mod pins;
 mod repair;
@@ -45,6 +48,7 @@ use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
 use edit::Edited;
+use hiding::hidden;
 use joining::{is_near, joining_lines, near_lines, span};
 use pins::{is_pinned, pins_hold};
 use stretch::indent_kept;
@@ -117,6 +121,7 @@ pub(crate) fn check(
     if pointed.is_empty() || edit.spacing_only() {
         return Ok(());
     }
+    nothing_hidden(&edit, &pointed)?;
     nothing_joins(&edit, &pointed)?;
     indents_kept(&edit, &pointed)
 }
@@ -197,6 +202,40 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
             return Err(refused(&lock.reason));
         };
         if now > was {
+            return Err(refused(&lock.reason));
+        }
+    }
+    Ok(())
+}
+
+/// The edited text does not parse: an edit inside a locked block may not
+/// open a comment or a string running over the block's lines below it
+/// (`<!--` on a line of its own), where they would be text no lock is found
+/// in. Opening one above a locked field, outside it, is typing as usual
+/// (`<!--` before `-->`, a quote before its closer): the field is then
+/// decided when the text parses again.
+fn nothing_hidden(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
+    if edit.parsed().is_some() {
+        return Ok(());
+    }
+    // The locked text right after an edit made inside a locked stretch,
+    // before and after the edit.
+    let moved: Vec<(&Lock, usize, usize)> = pointed
+        .iter()
+        .flat_map(|lock| {
+            lock.ranges
+                .iter()
+                .filter(|range| range.start < edit.region.start && edit.region.end < range.end)
+                .map(|_| (*lock, edit.region.end, edit.new_region.end))
+        })
+        .collect();
+    let starts = |pick: fn(&(&Lock, usize, usize)) -> usize| -> Vec<usize> {
+        moved.iter().map(pick).collect()
+    };
+    let was = hidden(edit.behavior, edit.before, &starts(|(_, low, _)| *low));
+    let now = hidden(edit.behavior, edit.after, &starts(|(_, _, after)| *after));
+    for ((lock, _, _), (was, now)) in moved.iter().zip(was.into_iter().zip(now)) {
+        if now && !was {
             return Err(refused(&lock.reason));
         }
     }
