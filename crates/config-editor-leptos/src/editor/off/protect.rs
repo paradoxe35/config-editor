@@ -102,6 +102,7 @@ impl ProtectState {
         _text: &str,
         _schema: Option<&Value>,
         _strings: &EditorStrings,
+        _on_screen: bool,
     ) -> Vec<Diagnostic> {
         Vec::new()
     }

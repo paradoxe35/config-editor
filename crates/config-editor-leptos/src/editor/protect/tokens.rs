@@ -13,6 +13,7 @@ use leptos::prelude::Callable;
 use leptos::prelude::Callback;
 
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache;
 use super::super::paths::{path_at, same_field};
 use super::marks::escape;
 
@@ -87,29 +88,7 @@ impl SecretMatcher {
         };
         match behavior.parse(text) {
             Ok(document) => {
-                let mut stack = vec![(String::new(), &document)];
-                while let Some((pointer, value)) = stack.pop() {
-                    match value {
-                        serde_json::Value::String(written) => {
-                            for range in self.find(written) {
-                                add(&written[range], pointer.clone());
-                            }
-                        }
-                        serde_json::Value::Array(items) => stack.extend(
-                            items
-                                .iter()
-                                .enumerate()
-                                .rev()
-                                .map(|(index, item)| (format!("{pointer}/{index}"), item)),
-                        ),
-                        serde_json::Value::Object(map) => stack.extend(
-                            map.iter()
-                                .rev()
-                                .map(|(key, item)| (format!("{pointer}/{}", escape(key)), item)),
-                        ),
-                        _ => {}
-                    }
-                }
+                self.each_held(&document, |token, pointer| add(token, pointer.to_string()))
             }
             Err(_) => {
                 for range in self.find(text) {
@@ -119,6 +98,51 @@ impl SecretMatcher {
             }
         }
         known
+    }
+
+    /// The pointers of the fields whose strings hold each token of
+    /// `document`, once per time held.
+    pub(crate) fn holders(
+        &self,
+        document: &serde_json::Value,
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        let mut holders: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        self.each_held(document, |token, pointer| {
+            holders
+                .entry(token.to_string())
+                .or_default()
+                .push(pointer.to_string());
+        });
+        holders
+    }
+
+    /// Calls `found` with each token the strings of `document` hold and the
+    /// pointer of the field holding it, in document order.
+    fn each_held(&self, document: &serde_json::Value, mut found: impl FnMut(&str, &str)) {
+        let mut stack = vec![(String::new(), document)];
+        while let Some((pointer, value)) = stack.pop() {
+            match value {
+                serde_json::Value::String(written) => {
+                    for range in self.find(written) {
+                        found(&written[range], &pointer);
+                    }
+                }
+                serde_json::Value::Array(items) => stack.extend(
+                    items
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .map(|(index, item)| (format!("{pointer}/{index}"), item)),
+                ),
+                serde_json::Value::Object(map) => stack.extend(
+                    map.iter()
+                        .rev()
+                        .map(|(key, item)| (format!("{pointer}/{}", escape(key)), item)),
+                ),
+                _ => {}
+            }
+        }
     }
 }
 
@@ -182,40 +206,79 @@ pub(crate) fn held_in_fields<'a>(
     held
 }
 
-/// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
-/// each `known` token in its own field, at most as often as the host wrote
-/// it there, first ones first.
-pub(crate) fn locate(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    known: &[Known],
-) -> Vec<Range<usize>> {
-    let mut found: Vec<Range<usize>> = Vec::new();
-    let mut tokens: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
-    tokens.sort_unstable();
-    tokens.dedup();
-    for token in tokens {
-        let mut left: Vec<(&str, usize)> = known
-            .iter()
-            .filter(|known| known.token == token)
-            .map(|known| (known.pointer.as_str(), known.count))
-            .collect();
-        for (byte, written) in text.match_indices(token) {
-            let pointer = field_at(behavior, text, byte);
-            let Some((_, count)) = left
-                .iter_mut()
-                .find(|(field, count)| *count > 0 && same_field(field, &pointer))
-            else {
-                continue;
-            };
-            *count -= 1;
-            let start = text[..byte].encode_utf16().count();
-            found.push(start..start + written.encode_utf16().count());
+impl SecretMatcher {
+    /// UTF-16 ranges of the real tokens in `text` (written in `behavior`):
+    /// each `known` token in its own field, at most as often as the host
+    /// wrote it there, first ones first.
+    ///
+    /// One parse says which field holds each occurrence (the document's
+    /// strings hold a token in the order it is written); only a token the
+    /// parse cannot place (a text that does not parse, a token also in a
+    /// comment or a key) is looked up by path, occurrence by occurrence.
+    pub(crate) fn locate(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        known: &[Known],
+    ) -> Vec<Range<usize>> {
+        let holders = parse_cache::parsed(behavior, text)
+            .as_ref()
+            .as_ref()
+            .map(|document| self.holders(document))
+            .unwrap_or_default();
+        let mut fields: std::collections::HashMap<&str, Vec<(&str, usize)>> =
+            std::collections::HashMap::new();
+        for known in known {
+            fields
+                .entry(known.token.as_str())
+                .or_default()
+                .push((known.pointer.as_str(), known.count));
         }
+        // Where each known token is written (one pass of the pattern).
+        let mut written: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        for range in self.find(text) {
+            if let Some((token, _)) = fields.get_key_value(&text[range.clone()]) {
+                written.entry(*token).or_default().push(range.start);
+            }
+        }
+        // Byte ranges first, turned into UTF-16 in one pass at the end.
+        let mut found: Vec<Range<usize>> = Vec::new();
+        for (token, left) in &mut fields {
+            let written = written.remove(*token).unwrap_or_default();
+            let placed = holders
+                .get(*token)
+                .filter(|pointers| pointers.len() == written.len());
+            for (nth, byte) in written.into_iter().enumerate() {
+                let pointer = match placed {
+                    Some(pointers) => pointers[nth].clone(),
+                    None => field_at(behavior, text, byte),
+                };
+                let Some((_, count)) = left
+                    .iter_mut()
+                    .find(|(field, count)| *count > 0 && same_field(field, &pointer))
+                else {
+                    continue;
+                };
+                *count -= 1;
+                found.push(byte..byte + token.len());
+            }
+        }
+        found.sort_by_key(|range| range.start);
+        found.dedup_by(|later, earlier| later.start < earlier.end);
+        let mut units = 0;
+        let mut byte = 0;
+        found
+            .into_iter()
+            .map(|range| {
+                units += text[byte..range.start].encode_utf16().count();
+                let start = units;
+                units += text[range.clone()].encode_utf16().count();
+                byte = range.end;
+                start..units
+            })
+            .collect()
     }
-    found.sort_by_key(|range| range.start);
-    found.dedup_by(|later, earlier| later.start < earlier.end);
-    found
 }
 
 /// The edit turning `before` into `after` (whose replaced region is
@@ -350,7 +413,10 @@ mod tests {
             .map(|at| shown[..at].encode_utf16().count())
             .unwrap();
         let json = Language::JSON.behavior();
-        assert_eq!(locate(json, &shown, &known), vec![start..start + 13]);
+        assert_eq!(
+            matcher.locate(json, &shown, &known),
+            vec![start..start + 13]
+        );
         let custom = SecretMatcher::new(
             &SecretOptions::default().with_matcher(|token| token.ends_with("2a»")),
         );

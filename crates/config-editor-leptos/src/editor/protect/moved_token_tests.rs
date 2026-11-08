@@ -50,6 +50,7 @@ fn flagged(state: EditorState, language: Language) -> Vec<String> {
             &text,
             &matcher,
             known,
+            &[],
             Some(&schema),
             crate::strings::default_strings(),
         )

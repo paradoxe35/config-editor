@@ -58,6 +58,7 @@ mod live_settings;
 ))]
 mod live_settings_tests;
 mod metrics;
+mod parse_cache;
 mod paths;
 mod positioning;
 mod problems;

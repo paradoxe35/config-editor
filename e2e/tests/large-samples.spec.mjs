@@ -190,3 +190,87 @@ test.describe('completion in a large document', () => {
     expect(worst).toBeLessThan(KEYSTROKE_BUDGET_MS * 2);
   });
 });
+
+// The work after a pause in typing (validation, the placeholders' fields,
+// the Edit-as conversion) and after a whole-document edit, as long tasks:
+// QA round 16 measured 630 ms after one key in the large JSON sample (each
+// placeholder looked up by path in a text that does not parse), seconds for
+// Ctrl+A Tab on the sample pasted four times, and 1.7 s for an Edit-as
+// switch there. Generous bounds for CI machines that still catch work done
+// once per placeholder or per problem.
+const LONG_TASK_BUDGET_MS = 300;
+
+async function startLongTaskProbe(page) {
+  await page.evaluate(() => {
+    window.__longTasks = [];
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) window.__longTasks.push(Math.round(entry.duration));
+    }).observe({ type: 'longtask' });
+  });
+}
+
+async function longestTask(page, settle = 1500) {
+  await page.waitForTimeout(settle);
+  return page.evaluate(() => Math.max(0, ...window.__longTasks));
+}
+
+for (const language of LANGUAGES) {
+  test.describe(`the typing pause in the large ${language} sample`, () => {
+    setupEditor(test, `?language=${language}&sample=large`);
+
+    test('a key that breaks the document leaves no long task at the pause', async ({ page }) => {
+      const e = editor(page);
+      await e.input.evaluate((element) => {
+        element.focus();
+        const at = element.value.indexOf('\n', element.value.length >> 1);
+        element.setSelectionRange(at, at);
+      });
+      await page.waitForTimeout(500);
+      await startLongTaskProbe(page);
+      await page.keyboard.type('x{');
+      const longest = await longestTask(page);
+      console.log(`${language}: longest task after a key ${longest}ms`);
+      expect(longest).toBeLessThan(LONG_TASK_BUDGET_MS);
+    });
+  });
+}
+
+test.describe('the large sample pasted four times', () => {
+  setupEditor(test, '?language=yaml&sample=large');
+
+  test.beforeEach(async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const e = editor(page);
+    const large = await e.value();
+    await page.evaluate((text) => navigator.clipboard.writeText(text), large.endsWith('\n') ? large : `${large}\n`);
+    await e.input.click();
+    for (let copy = 1; copy < 4; copy += 1) {
+      await page.keyboard.press('Control+End');
+      await page.keyboard.press('Control+v');
+    }
+    expect((await e.value()).split('\n').length).toBeGreaterThan(7000);
+    await page.waitForTimeout(2000);
+  });
+
+  test('Ctrl+A Tab and its undo leave no multi-second task', async ({ page }) => {
+    await startLongTaskProbe(page);
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(1000);
+    await page.keyboard.press('Control+z');
+    const longest = await longestTask(page, 2000);
+    console.log(`yaml x4: longest task of Ctrl+A Tab and its undo ${longest}ms`);
+    expect(longest).toBeLessThan(LONG_TASK_BUDGET_MS * 3);
+  });
+
+  test('an Edit-as switch leaves no multi-second task', async ({ page }) => {
+    await startLongTaskProbe(page);
+    await page.locator('.demo__edit-select').selectOption('json');
+    await page.waitForTimeout(500);
+    await editor(page).input.click();
+    await page.keyboard.press('Control+z');
+    const longest = await longestTask(page, 2000);
+    console.log(`yaml x4: longest task of an Edit-as switch and its undo ${longest}ms`);
+    expect(longest).toBeLessThan(LONG_TASK_BUDGET_MS * 3);
+  });
+});

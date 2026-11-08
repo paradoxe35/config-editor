@@ -22,6 +22,7 @@ struct Follows {
     shown: Relay<Option<(usize, usize)>>,
     scroll_x: Relay<f64>,
     scroll_y: Relay<f64>,
+    frame: Relay<Option<Frame>>,
 }
 
 /// [`Follows`], as signals of one drawing of the underlines.
@@ -30,6 +31,41 @@ struct Followed {
     shown: Signal<Option<(usize, usize)>>,
     scroll_x: Signal<f64>,
     scroll_y: Signal<f64>,
+    frame: Signal<Option<Frame>>,
+}
+
+/// The text area's measures the underlines' messages are placed by: read
+/// once when the layout changes, not by each underline (hundreds of reads
+/// of the layout, each after the last underline's style was written, made
+/// drawing many problems slow).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Frame {
+    char_width: f64,
+    line_height: f64,
+    padding_left: f64,
+    /// The text area's width inside its borders.
+    visible: f64,
+}
+
+impl Frame {
+    /// Measured now; tracks what moves the text area (a window resize or
+    /// scroll, the theme, the gutter's settings).
+    fn measure(state: EditorState) -> Option<Self> {
+        state.view().layout_revision.track();
+        let settings = &state.config().settings;
+        settings.theme.track();
+        settings.styled.track();
+        settings.folding.track();
+        settings.diff.track();
+        let editor = state.view().textarea_ref.get()?;
+        let metrics = read_editor_metrics(&editor);
+        Some(Frame {
+            char_width: metrics.char_width,
+            line_height: metrics.line_height,
+            padding_left: metrics.padding_left,
+            visible: f64::from(editor.client_width()),
+        })
+    }
 }
 
 impl Follows {
@@ -38,6 +74,7 @@ impl Follows {
             shown: self.shown.read(),
             scroll_x: self.scroll_x.read(),
             scroll_y: self.scroll_y.read(),
+            frame: self.frame.read(),
         }
     }
 }
@@ -48,6 +85,7 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
         shown: Relay::new(move || state.problems().current.get()),
         scroll_x: Relay::new(move || state.view().scroll_x.get()),
         scroll_y: Relay::new(move || state.view().scroll_y.get()),
+        frame: Relay::new(move || Frame::measure(state)),
     };
     view! {
         <div
@@ -61,6 +99,8 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                 let followed = follows.read();
                 // New texts redraw the underlines' names and details.
                 state.config().settings.strings.track();
+                // Each underline finds its line here, not by counting lines.
+                let lines: Vec<&str> = text.split('\n').collect();
                 state
                     .problems().diagnostics
                     .get()
@@ -72,7 +112,8 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                         if projection.is_hidden(line) {
                             return None;
                         }
-                        marker(state, followed, &text, diagnostic, projection.row_of_line(line))
+                        let line_text = lines.get(line).copied().unwrap_or("");
+                        marker(state, followed, line_text, diagnostic, projection.row_of_line(line))
                     })
                     .collect_view()
             }}
@@ -84,13 +125,12 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
 fn marker(
     state: EditorState,
     followed: Followed,
-    text: &str,
+    line_text: &str,
     diagnostic: Diagnostic,
     row: usize,
 ) -> Option<impl IntoView + use<>> {
     let line = diagnostic.line?;
     let column = diagnostic.column?;
-    let line_text = text.lines().nth(line.saturating_sub(1)).unwrap_or("");
     let width = diagnostic
         .end_column
         .unwrap_or(column + 1)
@@ -127,9 +167,7 @@ fn marker(
             // Near the top of the viewport (not of the document), the message
             // opens below its line.
             class:config-editor__diagnostic-marker-near-top=move || {
-                let line_height = state
-                    .textarea()
-                    .map_or(22.0, |editor| read_editor_metrics(editor.element()).line_height);
+                let line_height = followed.frame.get().map_or(22.0, |frame| frame.line_height);
                 row as f64 * line_height - followed.scroll_y.get() < 3.0 * line_height
             }
             tabindex="-1"
@@ -143,8 +181,8 @@ fn marker(
             )
             // Shifted left, and no wider than the visible text area, so the
             // message is never clipped.
-            style:--config-editor-diagnostic-tooltip-shift=move || tooltip_placement(state, followed.scroll_x.get(), left).0
-            style:--config-editor-diagnostic-tooltip-width=move || tooltip_placement(state, followed.scroll_x.get(), left).1
+            style:--config-editor-diagnostic-tooltip-shift=move || tooltip_placement(followed.frame.get(), followed.scroll_x.get(), left).0
+            style:--config-editor-diagnostic-tooltip-width=move || tooltip_placement(followed.frame.get(), followed.scroll_x.get(), left).1
             on:mousedown=|event| event.prevent_default()
             on:click=move |event| on_marker_click(state, &event, line, column, docs_url.as_deref())
         >
@@ -205,14 +243,13 @@ fn on_marker_click(
 /// `(shift, width)` CSS lengths for a message starting at visual column
 /// `column`, the text scrolled `scroll` pixels sideways: as wide as the visible text area allows (up to
 /// [`TOOLTIP_MAX_WIDTH`]) and shifted left to stay inside it.
-fn tooltip_placement(state: EditorState, scroll: f64, column: f64) -> (String, String) {
-    let Some(editor) = state.textarea() else {
+fn tooltip_placement(frame: Option<Frame>, scroll: f64, column: f64) -> (String, String) {
+    let Some(frame) = frame else {
         return ("0px".to_string(), format!("{TOOLTIP_MAX_WIDTH}px"));
     };
-    let metrics = read_editor_metrics(editor.element());
-    let visible = f64::from(editor.client_width());
+    let visible = frame.visible;
     let width = TOOLTIP_MAX_WIDTH.min(visible - 16.0).max(120.0);
-    let left = metrics.padding_left + column * metrics.char_width - scroll;
+    let left = frame.padding_left + column * frame.char_width - scroll;
     let shift = (visible - 8.0 - left - width).min(0.0).max(8.0 - left);
     (format!("{shift}px"), format!("{width}px"))
 }

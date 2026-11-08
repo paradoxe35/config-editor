@@ -78,18 +78,26 @@ impl ProtectState {
 
     /// A warning on each placeholder of `text` that is not real: one of the
     /// host's out of its own field, or one the host did not give in a field
-    /// `schema` marks secret. Tracked.
+    /// `schema` marks secret. `on_screen`: `text` is the text on screen,
+    /// whose real placeholders are followed through every edit (and stand
+    /// while it does not parse). Tracked.
     pub(crate) fn placeholder_problems(
         &self,
         behavior: &dyn ConfigLanguage,
         text: &str,
         schema: Option<&Value>,
         strings: &EditorStrings,
+        on_screen: bool,
     ) -> Vec<Diagnostic> {
         self.secrets.matcher.with_value(|matcher| {
-            self.secrets
-                .known
-                .with(|known| unknown_placeholders(behavior, text, matcher, known, schema, strings))
+            self.secrets.known.with(|known| {
+                let followed = if on_screen {
+                    self.secrets.tokens.get_untracked()
+                } else {
+                    Vec::new()
+                };
+                unknown_placeholders(behavior, text, matcher, known, &followed, schema, strings)
+            })
         })
     }
 

@@ -77,7 +77,7 @@ pub(super) fn read(
     source: &str,
     schema: Option<&Value>,
 ) -> Result<Value, ParseError> {
-    let mut value = language.parse(source)?;
+    let mut value = super::parse_cache::parse(language, source)?;
     if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
         conform_arrays(&mut value, schema, language.repetition());
     }

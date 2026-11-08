@@ -12,11 +12,11 @@ use web_sys::KeyboardEvent;
 use super::super::edit::Edit;
 use super::super::input::edit_range;
 use super::super::language::ConfigLanguage;
+use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::tokens::{
-    Known, SecretMatcher, follow, held_in_fields, locate, locate_written, snap, snap_selection,
-    widen,
+    Known, SecretMatcher, follow, held_in_fields, locate_written, snap, snap_selection, widen,
 };
 
 /// Known tokens one edit may write and still have found by path (a
@@ -47,7 +47,7 @@ impl SecretState {
         let tokens = if in_their_fields(shown.0, shown.1, &known, &written) {
             written
         } else {
-            locate(shown.0, shown.1, &known)
+            matcher.locate(shown.0, shown.1, &known)
         };
         SecretState {
             options: StoredValue::new(options),
@@ -84,7 +84,8 @@ fn in_their_fields(
     known: &[Known],
     followed: &[Range<usize>],
 ) -> bool {
-    let Ok(document) = behavior.parse(text) else {
+    let parsed = parse_cache::parsed(behavior, text);
+    let Ok(document) = parsed.as_ref() else {
         return true;
     };
     let units: Vec<u16> = text.encode_utf16().collect();
@@ -95,7 +96,7 @@ fn in_their_fields(
         );
         *shown.entry(written).or_default() += 1;
     }
-    let held = held_in_fields(&document, known);
+    let held = held_in_fields(document, known);
     held.iter()
         .all(|(token, count)| shown.get(*token).copied().unwrap_or(0) == *count)
         && shown
@@ -191,7 +192,7 @@ impl EditorState {
                         );
                         !written.contains(&token.as_str())
                     })
-                    .chain(locate(behavior, after, &mine))
+                    .chain(matcher.locate(behavior, after, &mine))
                     .collect();
                 tokens.sort_by_key(|range| range.start);
                 (tokens, false)
@@ -220,7 +221,11 @@ impl EditorState {
                 let kept = secrets
                     .tokens
                     .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens));
-                (!kept).then(|| locate(behavior, text, known))
+                (!kept).then(|| {
+                    secrets
+                        .matcher
+                        .with_value(|matcher| matcher.locate(behavior, text, known))
+                })
             })
         });
         if let Some(tokens) = found

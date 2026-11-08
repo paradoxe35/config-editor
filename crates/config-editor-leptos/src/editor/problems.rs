@@ -88,8 +88,13 @@ impl ProblemsState {
                         .filter(|bundle| bundle.has_marks)
                         .map(|bundle| &bundle.schema);
                     if marking.is_some() || protect.has_placeholders() {
-                        found.extend(diagnosed_text.with(|text| {
-                            protect.placeholder_problems(behavior, text, marking, strings)
+                        found.extend(diagnosed_text.with(|checked| {
+                            // The placeholders' places follow the text on
+                            // screen; they say which are real only there.
+                            let on_screen = text.with_untracked(|shown| shown == checked);
+                            protect.placeholder_problems(
+                                behavior, checked, marking, strings, on_screen,
+                            )
                         }));
                     }
                 }

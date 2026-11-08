@@ -13,7 +13,7 @@ use super::super::secret_options::SecretOptions;
 use super::locks::{Sources, protect};
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
-use super::tokens::{SecretMatcher, locate, widen};
+use super::tokens::{SecretMatcher, widen};
 
 const SCHEMA: &str = r#"{
   "type": "object",
@@ -96,7 +96,7 @@ fn placeholders_survive_every_conversion_and_save() {
                     continue;
                 }
             };
-            if locate(edit.behavior(), &shown, &known).len() != 3 {
+            if matcher().locate(edit.behavior(), &shown, &known).len() != 3 {
                 failures.push(format!("{host} as {edit}: tokens lost in {shown:?}"));
                 continue;
             }
@@ -200,7 +200,7 @@ fn random_edits_never_cut_a_placeholder() {
                 None => host_text.clone(),
             };
             let mut saved_host = host_text.clone();
-            let mut tokens = locate(edit.behavior(), &shown, &known);
+            let mut tokens = matcher().locate(edit.behavior(), &shown, &known);
             for step in 0..120 {
                 let units: Vec<u16> = shown.encode_utf16().collect();
                 let start = random.below(units.len() + 1);
@@ -224,7 +224,7 @@ fn random_edits_never_cut_a_placeholder() {
                     continue;
                 }
                 shown = edited;
-                tokens = locate(edit.behavior(), &shown, &known);
+                tokens = matcher().locate(edit.behavior(), &shown, &known);
                 let converted = match &bridge {
                     Some(bridge) => bridge
                         .to_host(&shown, &saved_host)
@@ -327,6 +327,7 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
             &text,
             &matcher(),
             &known,
+            &[],
             Some(&schema),
             crate::strings::default_strings(),
         );
@@ -341,6 +342,7 @@ fn unknown_placeholders_in_secret_fields_are_flagged() {
             &typed,
             &matcher(),
             &known,
+            &[],
             Some(&schema),
             crate::strings::default_strings(),
         );

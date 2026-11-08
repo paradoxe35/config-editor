@@ -427,32 +427,40 @@ fn remember_synced_as(state: EditorState, language: Language, edit: String, host
 }
 
 /// An edit still waiting out the typing pause is saved when the editor goes
-/// away, so unmounting right after typing loses nothing.
+/// away, so unmounting right after typing loses nothing; then the last parse
+/// goes too (see `parse_cache`).
 fn save_on_unmount(state: EditorState) {
+    super::parse_cache::hold();
     on_cleanup(move || {
-        let (Some(text), Some(synced), Some(host), Some(edit), Some(schema)) = (
-            state.doc().text.try_get_untracked(),
-            state.sync().synced_edit.try_get_value(),
-            state.sync().host_text.try_get_value(),
-            state.sync().edit_language.try_get_untracked(),
-            state.config().schema.try_get_value(),
-        ) else {
-            return;
-        };
-        if text == synced {
-            return;
-        }
-        let Some(bridge) = bridge::Bridge::new(state.config().host_language, edit, schema) else {
-            return;
-        };
-        if let Ok(conversion) = bridge.to_host(&text, &host)
-            && conversion.text != host
-            && state.check_host_save(&host, &conversion.text).is_ok()
-            && let Some(on_change) = state.sync().host_on_change
-        {
-            on_change.run(conversion.text);
-        }
+        save_pending(state);
+        super::parse_cache::release();
     });
+}
+
+/// [`save_on_unmount`]'s save.
+fn save_pending(state: EditorState) {
+    let (Some(text), Some(synced), Some(host), Some(edit), Some(schema)) = (
+        state.doc().text.try_get_untracked(),
+        state.sync().synced_edit.try_get_value(),
+        state.sync().host_text.try_get_value(),
+        state.sync().edit_language.try_get_untracked(),
+        state.config().schema.try_get_value(),
+    ) else {
+        return;
+    };
+    if text == synced {
+        return;
+    }
+    let Some(bridge) = bridge::Bridge::new(state.config().host_language, edit, schema) else {
+        return;
+    };
+    if let Ok(conversion) = bridge.to_host(&text, &host)
+        && conversion.text != host
+        && state.check_host_save(&host, &conversion.text).is_ok()
+        && let Some(on_change) = state.sync().host_on_change
+    {
+        on_change.run(conversion.text);
+    }
 }
 
 /// Switching `edit_as` converts the open document in place. Without unsaved
