@@ -119,6 +119,10 @@ impl ConfigLanguage for XmlBehavior {
         text_body_lines(source)
     }
 
+    fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        comments(source)
+    }
+
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         xml_value_span(source, pointer).map(Span::from)
     }

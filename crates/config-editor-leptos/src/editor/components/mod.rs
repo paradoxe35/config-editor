@@ -58,17 +58,20 @@ pub(super) fn with_row_inputs<R>(state: EditorState, f: impl FnOnce(&RowInputs<'
         .then(|| state.sync().edit_language.get());
     state.with_closed_folds(|closed| {
         state.view().string_bodies.with(|string_bodies| {
-            state.view().lines.with(|rows| {
-                with_line_diff(state, |line_diff| {
-                    f(&RowInputs {
-                        rows,
-                        line_diff,
-                        active_line,
-                        folds: RowFolds { closed },
-                        highlighting: Highlighting {
-                            language,
-                            string_bodies,
-                        },
+            state.view().comment_lines.with(|comments| {
+                state.view().lines.with(|rows| {
+                    with_line_diff(state, |line_diff| {
+                        f(&RowInputs {
+                            rows,
+                            line_diff,
+                            active_line,
+                            folds: RowFolds { closed },
+                            highlighting: Highlighting {
+                                language,
+                                string_bodies,
+                                comments,
+                            },
+                        })
                     })
                 })
             })

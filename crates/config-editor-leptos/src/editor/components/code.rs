@@ -3,8 +3,8 @@
 use leptos::prelude::*;
 
 use super::super::diff::DiffKind;
-use super::super::highlight::{self, TokenKind, Tokens};
-use super::super::line_rows::{LineRows, RowHighlight};
+use super::super::highlight;
+use super::super::line_rows::LineRows;
 use super::super::state::EditorState;
 use super::{RowSpacer, row_state_for};
 use crate::reactive::KeyedList;
@@ -51,15 +51,7 @@ fn CodeLine(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
                         row.highlight,
                     )
                 });
-                let tokens = match highlight {
-                    RowHighlight::Plain => Vec::new(),
-                    RowHighlight::StringBody => {
-                        let mut tokens = Tokens::new();
-                        tokens.push(0, text.len(), TokenKind::String);
-                        tokens.finish()
-                    }
-                    RowHighlight::Language(language) => language.behavior().highlight(&text),
-                };
+                let tokens = highlight.tokens(&text);
                 highlight::render(&text, &tokens, &marks)
             }}
         </span>

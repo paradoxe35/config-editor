@@ -3,6 +3,8 @@
 
 use leptos::prelude::*;
 
+pub(super) mod comment_lines;
+
 /// What a highlighted run of text is. Each kind maps to one CSS class
 /// (`config-editor__key`, `config-editor__string`, …), so every theme colors
 /// every language the same way.

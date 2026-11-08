@@ -1205,6 +1205,21 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Byte ranges of the comments in `source`, in order; an unclosed one
+    /// runs to the end. The default finds line comments
+    /// ([`comment_start`](ConfigLanguage::comment_start)) on lines outside
+    /// multi-line string bodies; a language with comments over several
+    /// lines (XML `<!-- … -->`, HCL `/* … */`) reads them whole.
+    ///
+    /// [`ConfigLanguage::highlight`] reads one line at a time, so the lines
+    /// after a comment's first are colored from these (a comment up to its
+    /// end, the rest of its last line by `highlight`), and a secret
+    /// placeholder written in a comment is told from the real one without
+    /// looking up its path.
+    fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        line_comments(self, source)
+    }
+
     /// The line ranges that fold (see [`FoldRange`]), sorted by start with
     /// one range per start line (see [`merge_fold_ranges`]): the gutter
     /// shows a chevron on each start line, and `Ctrl+Shift+[` folds the
@@ -1335,6 +1350,32 @@ pub struct OneLine {
     /// The bytes that also read as the container's value (`{ … }` of
     /// `tcp { … }`), for where the serializer writes it as a value.
     pub value: std::ops::Range<usize>,
+}
+
+/// The line comments of `source` (see [`ConfigLanguage::comments`]).
+pub(crate) fn line_comments(
+    behavior: &(impl ConfigLanguage + ?Sized),
+    source: &str,
+) -> Vec<std::ops::Range<usize>> {
+    let lines = source.split('\n').count();
+    let mut body = vec![false; lines];
+    for range in behavior.string_body_lines(source) {
+        let end = range.end.min(lines);
+        if range.start < end {
+            body[range.start..end].fill(true);
+        }
+    }
+    let mut comments = Vec::new();
+    let mut line_start = 0;
+    for (index, line) in source.split('\n').enumerate() {
+        if !body[index]
+            && let Some(start) = behavior.comment_start(line)
+        {
+            comments.push(line_start + start..line_start + line.len());
+        }
+        line_start += line.len() + 1;
+    }
+    comments
 }
 
 /// The byte offset of the first of `markers` on `line` that starts a comment:

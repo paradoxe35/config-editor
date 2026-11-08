@@ -281,6 +281,10 @@ impl ConfigLanguage for HclBehavior {
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         heredoc_bodies(source)
     }
+
+    fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        comments(source)
+    }
 }
 
 fn utf16(text: &str) -> usize {
