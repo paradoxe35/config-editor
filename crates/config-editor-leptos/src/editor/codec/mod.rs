@@ -3,11 +3,13 @@
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
 mod compare;
+mod elements;
 mod empty_containers;
 mod flow;
 mod kept_inline;
 mod lines;
 mod lists;
+mod moves;
 pub(super) mod non_finite;
 mod renames;
 mod reorder;
@@ -15,6 +17,7 @@ mod steps;
 
 use compare::{canonical_number, comment_start, comparable};
 pub(super) use lines::patch_structure;
+pub(super) use moves::stages as move_stages;
 pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
 pub(super) use reorder::{patch_reorder, unmoved_comments};
@@ -689,7 +692,7 @@ fn through_long_quote(
 }
 
 /// The byte range of a one-based line/character-column span.
-fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
+pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
     let line_start = if span.line <= 1 {
         0
     } else {

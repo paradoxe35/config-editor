@@ -220,7 +220,18 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   character references (`&#233;`) around the change, YAML anchors stay on their items
   (an alias or merge is written out only where the edit parts it from its
   anchor, numbers as the host wrote them), and a JSON string keeps its
-  `\uXXXX` escapes.
+  `\uXXXX` escapes. A quoted string emptied and typed again keeps the quotes
+  it had when the session began, and a heredoc whose text gains a line equal
+  to its delimiter takes another one (`EOT_1`).
+- A number typed in a spelling of its own (`2.50`, `2e3`, `+6`, `0x51`, a
+  TOML time's `.999990`) is saved so where the host reads it as the same
+  value. In a view that cannot tell types apart (XML text, HCL numbers), the
+  host's type decides: text that reads as a number or boolean where the host
+  holds one is that (`False`, `007`), and a whole number typed over a float
+  stays a float.
+- Items moved in a list, with others added or removed in the same save, take
+  their comment lines along (scalars, one-line tables, YAML block items,
+  repeated XML elements over lines); where they cannot, the save waits.
 - XML element text is the value exactly as an XML reader reports it, the
   whitespace and line breaks around it included (a number, boolean or `null`
   reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
@@ -250,13 +261,14 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 - With a schema, a single XML element or HCL block where the schema expects a
   list reads as a one-item list.
 - A notice under the toolbar (`role="status"`, dismissible) says what the
-  edited language does not show or keep: the host file's comments and
-  formatting are not shown there and a save keeps them; comments typed there
-  are never saved (the data a conversion carries has none), whatever the
-  pair of languages. It shows only when the host's text has comments or the
-  edited text does; its texts are `editAsHostComments`,
-  `editAsTypedComments` and `editAsTypedCommentsNone` of the `strings`
-  setting.
+  edited language does not show or keep: the host file's comments (an XML
+  file's processing instructions too) and formatting are not shown there and
+  a save keeps them; comments typed there are never saved (the data a
+  conversion carries has none), whatever the pair of languages. It shows only
+  when the host's text has comments or the edited text does; its texts are
+  `editAsHostComments` (`editAsHostInstructions` when it names processing
+  instructions), `editAsTypedComments` and `editAsTypedCommentsNone` of the
+  `strings` setting.
 
 </details>
 
@@ -293,7 +305,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (161 texts)</summary>
+<summary>Every text and its default (162 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -327,6 +339,7 @@ they come.
 | `tab_focus_off`                 | `"Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."`                                                      | Announced when `Ctrl+M` makes Tab indent again.                                                                                                                                                                                                |
 | `schema_connected`              | `"Schema connected"`                                                                                                                 | The toolbar's schema state.                                                                                                                                                                                                                    |
 | `edit_as_host_comments`         | `"The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."`                              | The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps.                                                                                                                                |
+| `edit_as_host_instructions`     | `"The {host} file's comments, processing instructions and formatting are not shown while editing as {edit}; saving keeps them."`     | The same when the host's file has processing instructions too (XML `<?…?>`), which the edited language does not show either.                                                                                                                   |
 | `edit_as_typed_comments`        | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."`                                             | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments.                                                                                                                   |
 | `edit_as_typed_comments_none`   | `"Comments typed in {edit} are not saved: {host} has no comments."`                                                                  | The same when the host's language has no comments (JSON).                                                                                                                                                                                      |
 | `edit_as_dismiss`               | `"Dismiss"`                                                                                                                          | The Edit-as notice's close button.                                                                                                                                                                                                             |

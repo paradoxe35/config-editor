@@ -20,6 +20,9 @@ use crate::strings::fill;
 pub(in crate::editor) struct NoticeReasons {
     /// The host's text has comments the edited language does not show.
     pub(in crate::editor) host_comments: bool,
+    /// Among them, processing instructions (XML `<?…?>`): the notice names
+    /// them too.
+    pub(in crate::editor) host_instructions: bool,
     /// The edited text has comments, which a save drops.
     pub(in crate::editor) typed_comments: bool,
 }
@@ -39,6 +42,7 @@ impl NoticeReasons {
         }
         Self {
             host_comments: host.behavior().has_comments(host_text),
+            host_instructions: host.behavior().has_processing_instructions(host_text),
             typed_comments: edit.behavior().has_comments(edit_text),
         }
     }
@@ -47,6 +51,7 @@ impl NoticeReasons {
     pub(in crate::editor) fn without(self, dismissed: Self) -> Self {
         Self {
             host_comments: self.host_comments && !dismissed.host_comments,
+            host_instructions: self.host_instructions && !dismissed.host_comments,
             typed_comments: self.typed_comments && !dismissed.typed_comments,
         }
     }
@@ -66,7 +71,12 @@ impl NoticeReasons {
             [("host", &host.label()), ("edit", &edit.label())];
         let mut messages = Vec::new();
         if self.host_comments {
-            messages.push(fill(&strings.edit_as_host_comments, &names));
+            let template = if self.host_instructions {
+                &strings.edit_as_host_instructions
+            } else {
+                &strings.edit_as_host_comments
+            };
+            messages.push(fill(template, &names));
         }
         if self.typed_comments {
             let template = if holds_comments(host.behavior()) {

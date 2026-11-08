@@ -9,8 +9,9 @@ use super::Language;
 use super::save_matrix::{ALL, from_every_view, report, save_value, slot};
 use serde_json::{Value, json};
 
-/// A changed TOML date or time is written bare, as TOML reads it back
-/// (`.50` is `.5`), from every view.
+/// A changed TOML date or time is written bare, from every view, as typed
+/// (`.999990`); typed over its own value in another spelling (`.50` over
+/// `.5`) it is unchanged, so the host keeps its text.
 #[test]
 fn toml_datetimes_stay_datetimes_through_any_view() {
     let host = "# c\ndt = 1979-05-27T07:32:00Z  # dtc\nf = 1979-05-27T00:32:00.5Z\nodt = 1979-05-27T00:32:00.999999-07:00\nld = 1979-05-27\nlt = 07:32:00\nn = 1\n";
@@ -23,6 +24,12 @@ fn toml_datetimes_stay_datetimes_through_any_view() {
             "odt",
             "1979-05-27T00:32:00.999998-07:00",
             "1979-05-27T00:32:00.999998-07:00",
+        ),
+        // As typed, where TOML reads the spelling as the same time.
+        (
+            "odt",
+            "1979-05-27T00:32:00.999990-07:00",
+            "1979-05-27T00:32:00.999990-07:00",
         ),
         ("ld", "1979-05-28", "1979-05-28"),
         ("lt", "07:33:00", "07:33:00"),

@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 /// Commented hosts with the shapes saves must keep: one-line containers,
 /// dotted keys, labelled and one-line blocks, attributes-only elements.
-fn hosts() -> Vec<(Language, &'static str)> {
+pub(super) fn hosts() -> Vec<(Language, &'static str)> {
     vec![
         (
             Language::YAML,
@@ -255,7 +255,7 @@ fn hosts() -> Vec<(Language, &'static str)> {
     ]
 }
 
-const ALL: [Language; 5] = [
+pub(super) const ALL: [Language; 5] = [
     Language::YAML,
     Language::JSON,
     Language::TOML,
@@ -265,10 +265,10 @@ const ALL: [Language; 5] = [
 
 /// A small deterministic generator (an LCG): no dependency, same cases on
 /// every run.
-struct Random(u64);
+pub(super) struct Random(pub(super) u64);
 
 impl Random {
-    fn below(&mut self, bound: usize) -> usize {
+    pub(super) fn below(&mut self, bound: usize) -> usize {
         self.0 = self
             .0
             .wrapping_mul(6364136223846793005)
@@ -306,7 +306,7 @@ const OPS: [Op; 10] = [
 ];
 
 /// Every pointer in `value` with its value, parents first.
-fn pointers(value: &Value, pointer: String, out: &mut Vec<(String, Value)>) {
+pub(super) fn pointers(value: &Value, pointer: String, out: &mut Vec<(String, Value)>) {
     out.push((pointer.clone(), value.clone()));
     match value {
         Value::Object(map) => {
@@ -451,7 +451,7 @@ fn comments(language: Language, text: &str) -> Vec<String> {
 }
 
 /// The demo's schema: XML reads a lone repeated element as a list by it.
-fn schema() -> Arc<SchemaBundle> {
+pub(super) fn schema() -> Arc<SchemaBundle> {
     Arc::new(build_schema(include_str!("../../tests/fixtures/burrow.schema.json")).unwrap())
 }
 
@@ -463,6 +463,20 @@ fn without_one_item_lists(value: &Value) -> Value {
         Value::Object(map) => Value::Object(
             map.iter()
                 .map(|(key, child)| (key.clone(), without_one_item_lists(child)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// `value` with every number a float.
+fn numbers_as_floats(value: &Value) -> Value {
+    match value {
+        Value::Number(number) => number.as_f64().map_or(value.clone(), Value::from),
+        Value::Array(items) => Value::Array(items.iter().map(numbers_as_floats).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, child)| (key.clone(), numbers_as_floats(child)))
                 .collect(),
         ),
         other => other.clone(),
@@ -533,9 +547,15 @@ fn check(
             // XML cannot tell a one-item list from its item where the schema
             // allows both (`secret`: a string or a list); a warning says so.
             let lone_items = (host.label() == "XML").then(|| without_one_item_lists(&normalised));
+            // A view that cannot tell a float from a whole number (XML,
+            // HCL) saves the integer typed over a float as a float.
+            let untyped = matches!(edit.label(), "XML" | "HCL");
+            let same_numbers = untyped
+                && seen.as_ref().map(numbers_as_floats) == Some(numbers_as_floats(&normalised));
             if seen.as_ref() != Some(&edited)
                 && seen.as_ref() != Some(&normalised)
                 && seen != lone_items
+                && !same_numbers
             {
                 problems.push("does not show the edit when shown again".to_string());
             }
@@ -638,28 +658,25 @@ fn check(
     })
 }
 
-/// Each comment of a text with the code it belongs to.
-type Pairs<'a> = dyn Fn(&str) -> Vec<(String, String)> + 'a;
-
-/// The comments `saved` left on other items than in `host_text`: a comment
+/// Each comment of `text` with the code it belongs to, and how (`after`
+/// that code on its line, or on the lines right `above` it): a comment
 /// after a line's code stays after that code, and comment lines right above
 /// a line at its indent (`# about b` then `- b`) stay above that line.
-fn comments_left_behind(host: Language, host_text: &str, saved: &str) -> Vec<String> {
+pub(super) fn comment_pairs(host: Language, text: &str) -> Vec<(&'static str, String, String)> {
     let marker = if host.label() == "XML" { "<!--" } else { "#" };
-    let trailing = |text: &str| -> Vec<(String, String)> {
-        text.lines()
-            .filter_map(|line| {
-                let at = line.find(marker)?;
-                let code = line[..at].trim();
-                (!code.is_empty() && !code.contains(['[', '{', '"', '\'']))
-                    .then(|| (code.to_string(), line[at..].trim().to_string()))
-            })
-            .collect()
-    };
-    let above = |text: &str| -> Vec<(String, String)> {
-        let lines: Vec<&str> = text.lines().collect();
-        let indent = |line: &str| line.len() - line.trim_start().len();
-        let comment = |line: &str| line.trim().starts_with(marker);
+    let mut pairs: Vec<(&'static str, String, String)> = text
+        .lines()
+        .filter_map(|line| {
+            let at = line.find(marker)?;
+            let code = line[..at].trim();
+            (!code.is_empty() && !code.contains(['[', '{', '"', '\'']))
+                .then(|| ("after", code.to_string(), line[at..].trim().to_string()))
+        })
+        .collect();
+    let lines: Vec<&str> = text.lines().collect();
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let comment = |line: &str| line.trim().starts_with(marker);
+    pairs.extend(
         (0..lines.len())
             .filter(|index| comment(lines[*index]))
             .filter_map(|index| {
@@ -669,19 +686,25 @@ fn comments_left_behind(host: Language, host_text: &str, saved: &str) -> Vec<Str
                 }
                 let code = next.find(marker).map_or(*next, |at| &next[..at]);
                 Some((
-                    lines[index].trim().to_string(),
+                    "above",
                     code.trim().trim_end_matches(',').to_string(),
+                    lines[index].trim().to_string(),
                 ))
-            })
-            .collect()
-    };
+            }),
+    );
+    pairs
+}
+
+/// The comments `saved` left on other items than in `host_text` (see
+/// [`comment_pairs`]).
+fn comments_left_behind(host: Language, host_text: &str, saved: &str) -> Vec<String> {
+    let kept = comment_pairs(host, saved);
     let mut problems = Vec::new();
-    let kinds: [(&str, &Pairs<'_>); 2] = [("after", &trailing), ("above", &above)];
-    for (kind, pairs) in kinds {
-        let kept = pairs(saved);
-        let left: Vec<(String, String)> = pairs(host_text)
+    for kind in ["after", "above"] {
+        let left: Vec<(String, String)> = comment_pairs(host, host_text)
             .into_iter()
-            .filter(|pair| !kept.contains(pair))
+            .filter(|pair| pair.0 == kind && !kept.contains(pair))
+            .map(|(_, code, comment)| (comment, code))
             .collect();
         if !left.is_empty() {
             problems.push(format!("leaves comments {kind} other items: {left:?}"));

@@ -17,6 +17,8 @@ mod suggestions;
 mod hover;
 mod editing;
 mod convert;
+mod floats;
+mod heredoc;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -166,16 +168,18 @@ impl ConfigLanguage for HclBehavior {
     }
 
     /// A heredoc (`<<EOT` … `EOT`) stays one while its text ends with a line
-    /// break, holds no line equal to its terminator, and no carriage return
-    /// or other control character (a heredoc has no escapes, and readers
-    /// drop a raw one before a line break): else a quoted string.
+    /// break and holds no carriage return or other control character (a
+    /// heredoc has no escapes, and readers drop a raw one before a line
+    /// break): else a quoted string. Text holding a line equal to its
+    /// terminator takes another one (`EOT_1`).
     fn format_value_like(&self, value: &Value, written: &str) -> String {
         if let (Some(text), Some(header)) = (value.as_str(), written.lines().next().filter(|line| line.starts_with("<<")))
             && let Some(terminator) = written.lines().last().filter(|_| written.lines().count() > 1)
             && text.ends_with('\n')
-            && !text.lines().any(|line| line.trim() == terminator.trim())
             && !text.chars().any(|character| character.is_control() && !matches!(character, '\t' | '\n'))
+            && let Some((header, terminator)) = heredoc::free_delimiter(header, terminator, text)
         {
+            let (header, terminator) = (header.as_str(), terminator.as_str());
             // An indented heredoc (`<<-EOT`) keeps its text's indentation:
             // the readers take off the shortest one.
             let body: Vec<&str> = written.lines().skip(1).take(written.lines().count().saturating_sub(2)).collect();
@@ -309,7 +313,16 @@ impl ConfigLanguage for HclBehavior {
         // attributes, blocks on one line.
         let forms = previous.map(host_forms).unwrap_or_default();
         let rendered = hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string())?;
-        Ok(fold_one_line_blocks(&rendered, &forms.one_line))
+        let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
+        // List items have no span of their own: the shared scanner finds them.
+        let spans = |text: &str, pointers: &[String]| -> Vec<Option<Span>> {
+            hcl_value_spans(text, pointers)
+                .into_iter()
+                .zip(pointers)
+                .map(|(span, pointer)| span.map(Span::from).or_else(|| super::super::codec::inline_location(self, text, pointer, false)))
+                .collect()
+        };
+        Ok(floats::with_whole_floats(&rendered, value, spans))
     }
 
     /// An attribute's `=` (or `:` in an object), or a block's body after its

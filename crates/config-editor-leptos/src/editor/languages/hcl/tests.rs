@@ -714,3 +714,13 @@ fn key_spans_in_a_large_document_take_no_search_per_header() {
     assert_eq!(spans[0].map(|span| span.line), Some(2_976 * 4 + 3));
     assert!(took.as_millis() < 200, "24 key spans in {took:?}");
 }
+
+#[test]
+fn whole_floats_are_written_with_a_fraction() {
+    let value = serde_json::json!({"f": 1.0, "i": 1, "l": [2.0, 3], "b": {"x": -4.0, "y": 0.5}});
+    let text = HclBehavior.serialize(&value, None).unwrap();
+    assert!(text.contains("f = 1.0\n") && text.contains("i = 1\n"), "{text}");
+    assert!(text.contains("  2.0,\n") && text.contains("x = -4.0") && text.contains("y = 0.5"), "{text}");
+    // Read back, they are the numbers they were.
+    assert_eq!(HclBehavior.parse(&text).unwrap()["l"][0].as_f64(), Some(2.0));
+}

@@ -214,7 +214,19 @@ impl ConfigLanguage for YamlBehavior {
     fn format_value_at(&self, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
         let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
         let in_flow = style::in_flow_collection(source, range.clone());
-        style::yaml_value_like(self, value, &source[range.clone()], &source[line_start..range.start], in_flow)
+        let prefix = &source[line_start..range.start];
+        // After a `!!str` tag a plain value is text whatever it looks like
+        // (`!!str 2`): it stays plain.
+        if let Some(text) = value.as_str()
+            && prefix.trim_end().ends_with("!!str")
+            && !source[range.clone()].trim_start().starts_with(['"', '\''])
+            && !text.contains(['\n', '#'])
+            && self.parse(&format!("k: !!str {text}\n")).ok() == Some(serde_json::json!({ "k": text }))
+            && (!in_flow || self.parse(&format!("k: [!!str {text}]\n")).ok() == Some(serde_json::json!({ "k": [text] })))
+        {
+            return text.to_string();
+        }
+        style::yaml_value_like(self, value, &source[range.clone()], prefix, in_flow)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {

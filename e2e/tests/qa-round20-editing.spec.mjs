@@ -77,9 +77,9 @@ test.describe('YAML edited in other views', () => {
     await e.paste('# top\nf: 1.0\nn: x\n');
     await expect.poll(() => saved(page)).toContain('f: 1.0');
     await pick(page, 'hcl');
-    await expect.poll(() => e.value()).toContain('f = 1');
-    await select(e, 'f = 1', true);
-    await page.keyboard.press('Backspace');
+    // Shown as written (round 21), and an integer typed over it is a float.
+    await expect.poll(() => e.value()).toContain('f = 1.0');
+    await select(e, '1.0');
     await page.keyboard.type('2');
     await expect.poll(() => saved(page)).toBe('# top\nf: 2.0\nn: x\n');
   });
@@ -92,7 +92,8 @@ test.describe('YAML edited in other views', () => {
     await expect.poll(() => e.value()).toContain('<port>80</port>');
     await select(e, '>80<');
     await page.keyboard.type('>0x51<');
-    await expect.poll(() => saved(page)).toBe('# top\nport: 81  # pc\nn: x\n');
+    // A number, kept as typed (round 21): YAML reads `0x51` as 81 too.
+    await expect.poll(() => saved(page)).toBe('# top\nport: 0x51  # pc\nn: x\n');
   });
 
   test('Enter at the end of a plain scalar line continues it, before a comment keeps it one', async ({ page }) => {

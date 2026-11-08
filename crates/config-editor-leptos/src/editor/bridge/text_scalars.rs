@@ -73,10 +73,64 @@ fn in_host_types_at(
         {
             Ok(Value::from(integer))
         }
+        // A number or boolean typed in another spelling than the view's own
+        // (`2.50`, `2e3`, `007`, `+6`, `False`), which the view reads as
+        // text, is that number or boolean where the host holds one.
+        (Value::Number(number), Value::String(text)) => {
+            Ok(decimal(&text, !number.is_f64()).unwrap_or(Value::String(text)))
+        }
+        (Value::Bool(_), Value::String(text)) if text.eq_ignore_ascii_case("true") => {
+            Ok(Value::Bool(true))
+        }
+        (Value::Bool(_), Value::String(text)) if text.eq_ignore_ascii_case("false") => {
+            Ok(Value::Bool(false))
+        }
+        // A whole number typed where the host holds a float is that float.
+        (Value::Number(before), Value::Number(typed)) if before.is_f64() && !typed.is_f64() => {
+            Ok(typed
+                .as_f64()
+                .and_then(serde_json::Number::from_f64)
+                .map_or(Value::Number(typed), Value::Number))
+        }
         (Value::String(_), Value::Number(number)) => Ok(Value::String(number.to_string())),
         (Value::String(_), Value::Bool(flag)) => Ok(Value::String(flag.to_string())),
         (_, value) => Ok(value),
     }
+}
+
+/// The number `text` writes in decimal (`2.50`, `.5`, `2e3`, `007`, `+6`):
+/// an integer when `integer` (the host holds one) and it has no fraction or
+/// exponent, else a finite float.
+fn decimal(text: &str, integer: bool) -> Option<Value> {
+    let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let (mantissa, exponent) = match digits.find(['e', 'E']) {
+        Some(at) => (&digits[..at], Some(&digits[at + 1..])),
+        None => (digits, None),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all_digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
+    let exponent_ok = exponent.is_none_or(|exponent| {
+        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !exponent.is_empty() && all_digits(exponent)
+    });
+    if whole.len() + fraction.len() == 0
+        || !all_digits(whole)
+        || !all_digits(fraction)
+        || !exponent_ok
+    {
+        return None;
+    }
+    if integer && exponent.is_none() && !mantissa.contains('.') {
+        let text = text.strip_prefix('+').unwrap_or(text);
+        if let Ok(value) = text.parse::<i64>() {
+            return Some(Value::from(value));
+        }
+        if let Ok(value) = text.parse::<u64>() {
+            return Some(Value::from(value));
+        }
+    }
+    let float: f64 = text.parse().ok()?;
+    serde_json::Number::from_f64(float).map(Value::Number)
 }
 
 /// The integer `text` writes in base 16, 8 or 2 (`0x50`, `-0o17`, `0b11`).

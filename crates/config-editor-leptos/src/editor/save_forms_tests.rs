@@ -109,6 +109,24 @@ fn long_strings_and_heredocs_edited_in_any_view_keep_their_form() {
         &|v| v["script"] = "line one\n  line 2\n".into(),
         &hcl.replace("  line two\n", "  line 2\n"),
     );
+    // Text gaining a line equal to the delimiter takes another one.
+    from_every_view(
+        &mut failures,
+        "HCL heredoc holding its delimiter",
+        Language::HCL,
+        hcl,
+        &|v| v["script"] = "line one\nEOT\n".into(),
+        "# c\nscript = <<EOT_1\nline one\nEOT\nEOT_1\nz = 1 # z\n",
+    );
+    let indented = "# c\nscript = <<-EOT\n    a\n    EOT\nz = 1 # z\n";
+    from_every_view(
+        &mut failures,
+        "indented HCL heredoc holding its delimiter",
+        Language::HCL,
+        indented,
+        &|v| v["script"] = "a\nEOT\n".into(),
+        "# c\nscript = <<-EOT_1\n    a\n    EOT\n    EOT_1\nz = 1 # z\n",
+    );
     report(failures);
 }
 

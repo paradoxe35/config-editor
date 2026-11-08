@@ -47,10 +47,11 @@ pub(in super::super) fn patch_reorder(
                 .iter()
                 .map(|line| line.to_string())
                 .collect();
+            block.extend(lines[line..last].iter().map(|line| line.to_string()));
             if whole_items {
-                block.extend(lines[line..=last].iter().map(|line| line.to_string()));
+                block.push(lines[last].to_string());
             } else {
-                block.push(with_comma_of(language, lines[line], lines[slots[slot].1]));
+                block.push(with_comma_of(language, lines[last], lines[slots[slot].2]));
             }
             moves.push((slots[slot].0..slots[slot].2 + 1, block));
         }
@@ -68,11 +69,12 @@ pub(in super::super) fn patch_reorder(
     (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
 }
 
-/// The items of the list at `pointer`, each a scalar on a line of its own
-/// (a list dash before it, a comma or an XML end tag after it, a comment
-/// after that), as its first line (the comment lines right above it), its
-/// line, and its line again; `None` when an item shares a line or is a
-/// container.
+/// The items of the list at `pointer`, each on lines of its own: a scalar
+/// or a one-line container (a list dash before it, a comma or an XML end
+/// tag after it, a comment after that), or a repeated element over lines
+/// (`<s>` to its `</s>`). Each as its first line (the comment lines right
+/// above it), its line, and its last line; `None` when an item shares a
+/// line or spreads over lines another way.
 fn line_items(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -83,25 +85,33 @@ fn line_items(
     let line_of = |byte: usize| previous[..byte].matches('\n').count();
     let mut slots: Vec<(usize, usize, usize)> = Vec::new();
     for (index, item) in before.iter().enumerate() {
-        if item.is_object() || item.is_array() {
-            return None;
-        }
         let item_pointer = format!("{pointer}/{index}");
-        let span = language
-            .value_span(previous, &item_pointer)
-            .or_else(|| inline_location(language, previous, &item_pointer, false))?;
-        let range = byte_range(previous, span)?;
-        let line = line_of(range.start);
-        if line != line_of(range.end) || slots.iter().any(|(_, at, _)| *at == line) {
+        let container = item.is_object() || item.is_array();
+        let (range, own) = match element_lines(language, previous, &item_pointer) {
+            Some(range) if container => (range, true),
+            _ => {
+                // A container's own span may be its opening bracket only.
+                let span = if container {
+                    inline_location(language, previous, &item_pointer, false)?
+                } else {
+                    language
+                        .value_span(previous, &item_pointer)
+                        .or_else(|| inline_location(language, previous, &item_pointer, false))?
+                };
+                (byte_range(previous, span)?, false)
+            }
+        };
+        let (line, last) = (line_of(range.start), line_of(range.end));
+        if (!own && line != last) || slots.iter().any(|(_, _, end)| *end >= line) {
             return None;
         }
         let line_start = previous[..range.start].rfind('\n').map_or(0, |at| at + 1);
-        let text = lines[line];
+        let last_start = previous[..range.end].rfind('\n').map_or(0, |at| at + 1);
         let before_value = previous[line_start..range.start].trim();
-        let after_value = &text[range.end - line_start..];
+        let after_value = &lines[last][range.end - last_start..];
         let after_code = after_value[..comment_start(language, after_value)].trim();
         let alone = matches!(before_value, "" | "-") && matches!(after_code, "" | ",");
-        if !alone && !in_own_element(language, before_value, after_code) {
+        if !alone && (own || !in_own_element(language, before_value, after_code)) {
             return None;
         }
         // Own-line comments right above it go with it, but a file's header
@@ -110,9 +120,27 @@ fn line_items(
         while top > 0 && comment_only(language, lines[top - 1]) {
             top -= 1;
         }
-        slots.push((if top == 0 { line } else { top }, line, line));
+        slots.push((if top == 0 { line } else { top }, line, last));
     }
     Some(slots)
+}
+
+/// The bytes of the repeated element at `pointer`, from its `<` to the end
+/// of its end tag (or `/>`), in a language that repeats elements.
+fn element_lines(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    pointer: &str,
+) -> Option<Range<usize>> {
+    if language.repetition() != Repetition::Elements {
+        return None;
+    }
+    let name = byte_range(previous, language.key_span(previous, pointer)?)?;
+    let open = name.start.checked_sub(1)?;
+    if !previous[open..].starts_with('<') {
+        return None;
+    }
+    Some(open..super::elements::element_end(previous, open)?)
 }
 
 /// Whether a repeated element's value is alone in its element on its line
@@ -311,6 +339,11 @@ pub(in super::super) fn unmoved_comments(
                 line_of(first.start)..line_of(last.end.max(first.start)) + 1
             }
         };
+        // A list on one line: a comment after it is the list's, not an
+        // item's (`allow: [a, b] # cidrs`).
+        if span.len() == 1 {
+            return None;
+        }
         lines[span]
             .iter()
             .any(|line| comment_start(language, line) < line.len())

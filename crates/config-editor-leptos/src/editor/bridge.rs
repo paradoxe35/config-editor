@@ -12,8 +12,10 @@ use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::language::ConfigLanguage;
 use std::sync::Arc;
 
+mod emptied_quotes;
 mod merge;
 mod text_scalars;
+mod typed_spellings;
 mod whole_floats;
 use merge::{View, merge_changes};
 
@@ -80,11 +82,26 @@ impl Bridge {
         )
     }
 
-    /// `previous_host` is the host's last text, whose framing is kept.
+    /// `previous_host` is the host's last text, whose framing is kept: a
+    /// save in a session that began on it.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of language pairs")]
     pub(super) fn to_host(
         &self,
         edit_text: &str,
         previous_host: &str,
+    ) -> Result<Conversion, SaveError> {
+        self.to_host_since(edit_text, previous_host, previous_host)
+    }
+
+    /// [`Self::to_host`] in an edit session that began on the host text
+    /// `origin`, whose styles outlast the session's saves (the quotes of a
+    /// string emptied and typed again).
+    pub(super) fn to_host_since(
+        &self,
+        edit_text: &str,
+        previous_host: &str,
+        origin: &str,
     ) -> Result<Conversion, SaveError> {
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
@@ -150,9 +167,15 @@ impl Bridge {
             _ => value,
         };
         // A view that reads a whole float as an integer (HCL) only shows it
-        // so: a number typed over it stays a float.
+        // so: a number typed over it stays a float, and over any float when
+        // the view reads every whole number as an integer.
         let value = match &seen {
-            Some(seen) => whole_floats::kept(&old, seen, value),
+            Some(seen) => whole_floats::kept(
+                &old,
+                seen,
+                value,
+                whole_floats::tells_floats(self.edit.behavior()),
+            ),
             None => value,
         };
         // Each changed value in the host's own form (a TOML datetime read
@@ -199,6 +222,9 @@ impl Bridge {
             .detach_shared(previous_host, &old, &target)
             .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(&old));
         let previous_host = detached.as_deref().unwrap_or(previous_host);
+        let restored =
+            emptied_quotes::restored(host, previous_host, origin, (&old, &target), shape);
+        let previous_host = restored.as_deref().unwrap_or(previous_host);
         // The first patch that applies, of those that change only what one
         // edit touched. A patch that writes a map in another form (an HCL
         // block as an attribute) is not taken.
@@ -217,33 +243,72 @@ impl Bridge {
         let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
             first(&[codec::patch_structure], previous, old, target)
         };
-        // Items moved that cannot take their comments along wait, rather
-        // than leave the comments on the items now in their places.
-        if let Some(pointer) = codec::unmoved_comments(host, previous_host, &old, &target) {
-            return Err(ConvertError::Unsupported(format!(
-                "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
-                self.host.label()
-            ))
-            .into());
-        }
-        let patched = precise(previous_host, &old, &target)
-            // Several edits in one save: one step at a time.
-            .or_else(|| {
-                let steps = codec::steps(&old, &target);
-                if steps.is_empty() {
-                    return None;
+        // `previous` patched to read as `target`, or `Err` when items moved
+        // cannot take their comments along: the save waits, rather than
+        // leave the comments on the items now in their places.
+        let save = |previous: &str,
+                    old: &serde_json::Value,
+                    target: &serde_json::Value|
+         -> Result<Option<String>, SaveError> {
+            if let Some(pointer) = codec::unmoved_comments(host, previous, old, target) {
+                return Err(ConvertError::Unsupported(format!(
+                    "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
+                    self.host.label()
+                ))
+                .into());
+            }
+            Ok(precise(previous, old, target)
+                // Several edits in one save: one step at a time.
+                .or_else(|| {
+                    let steps = codec::steps(old, target);
+                    if steps.is_empty() {
+                        return None;
+                    }
+                    let (mut text, mut current) = (previous.to_string(), old.clone());
+                    for step in steps {
+                        text = precise(&text, &current, &step)
+                            .or_else(|| structure(&text, &current, &step))?;
+                        current = step;
+                    }
+                    Some(text)
+                })
+                .or_else(|| structure(previous, old, target)))
+        };
+        // Items moved while others are added or removed: moved first (with
+        // their comments), then the removed ones dropped, then the rest.
+        let stages = codec::move_stages(&old, &target);
+        let staged = if stages.is_empty() {
+            None
+        } else {
+            let (mut text, mut current) = (previous_host.to_string(), old.clone());
+            let mut done = true;
+            for stage in stages.iter().chain([&target]) {
+                match save(&text, &current, stage)? {
+                    Some(next) => text = next,
+                    None => {
+                        done = false;
+                        break;
+                    }
                 }
-                let (mut text, mut current) = (previous_host.to_string(), old.clone());
-                for step in steps {
-                    text = precise(&text, &current, &step)
-                        .or_else(|| structure(&text, &current, &step))?;
-                    current = step;
-                }
-                Some(text)
-            })
-            .or_else(|| structure(previous_host, &old, &target));
+                current = stage.clone();
+            }
+            done.then_some(text)
+        };
+        let patched = match staged {
+            Some(text) => Some(text),
+            None => save(previous_host, &old, &target)?,
+        };
         Ok(match patched {
-            Some(text) => Conversion { text, losses },
+            Some(text) => Conversion {
+                text: typed_spellings::kept(
+                    (host, self.edit.behavior()),
+                    edit_text,
+                    (&old, &target),
+                    text,
+                    shape,
+                ),
+                losses,
+            },
             None => {
                 #[cfg(test)]
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));

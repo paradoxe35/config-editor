@@ -133,6 +133,9 @@ pub struct EditorStrings {
     /// The Edit-as notice when the host's file has comments, which the
     /// edited language does not show but saving keeps.
     pub edit_as_host_comments: String,
+    /// The same when the host's file has processing instructions too (XML
+    /// `<?…?>`), which the edited language does not show either.
+    pub edit_as_host_instructions: String,
     /// The Edit-as notice when comments are typed in the edited language,
     /// which saving drops, and the host's language has comments.
     pub edit_as_typed_comments: String,
@@ -479,6 +482,9 @@ impl Default for EditorStrings {
             schema_connected: text("Schema connected"),
             edit_as_host_comments: text(
                 "The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them.",
+            ),
+            edit_as_host_instructions: text(
+                "The {host} file's comments, processing instructions and formatting are not shown while editing as {edit}; saving keeps them.",
             ),
             edit_as_typed_comments: text(
                 "Comments typed in {edit} are not saved: the {host} file keeps only its own comments.",

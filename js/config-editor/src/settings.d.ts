@@ -298,6 +298,12 @@ export interface EditorStrings {
    */
   editAsHostComments?: string;
   /**
+   * The same when the host's file has processing instructions too (XML `<?…?>`), which the edited language does not show either.
+   *
+   * @default "The {host} file's comments, processing instructions and formatting are not shown while editing as {edit}; saving keeps them."
+   */
+  editAsHostInstructions?: string;
+  /**
    * The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments.
    *
    * @default "Comments typed in {edit} are not saved: the {host} file keeps only its own comments."

@@ -226,15 +226,16 @@ other. Counts come in pairs: `…One` for 1, `…Other` for any other count.
 While editing as another language (`editAs`), a notice under the toolbar says
 what that language does not show or keep: the host file's comments and
 formatting are not shown there and saving keeps them, and comments typed there
-are never saved. Its texts are `editAsHostComments`, `editAsTypedComments`
-and `editAsTypedCommentsNone`.
+are never saved. Its texts are `editAsHostComments` (`editAsHostInstructions`
+for an XML file with processing instructions), `editAsTypedComments` and
+`editAsTypedCommentsNone`.
 
 <!-- strings:start -->
 
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (161 texts)</summary>
+<summary>Every text and its default (162 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -268,6 +269,7 @@ and `editAsTypedCommentsNone`.
 | `tabFocusOff`               | `"Tab indents: Tab and Shift+Tab indent again. Ctrl+M to move focus with Tab."`                                                      | Announced when `Ctrl+M` makes Tab indent again.                                                                                                                                                                                                |
 | `schemaConnected`           | `"Schema connected"`                                                                                                                 | The toolbar's schema state.                                                                                                                                                                                                                    |
 | `editAsHostComments`        | `"The {host} file's comments and formatting are not shown while editing as {edit}; saving keeps them."`                              | The Edit-as notice when the host's file has comments, which the edited language does not show but saving keeps.                                                                                                                                |
+| `editAsHostInstructions`    | `"The {host} file's comments, processing instructions and formatting are not shown while editing as {edit}; saving keeps them."`     | The same when the host's file has processing instructions too (XML `<?…?>`), which the edited language does not show either.                                                                                                                   |
 | `editAsTypedComments`       | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."`                                             | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments.                                                                                                                   |
 | `editAsTypedCommentsNone`   | `"Comments typed in {edit} are not saved: {host} has no comments."`                                                                  | The same when the host's language has no comments (JSON).                                                                                                                                                                                      |
 | `editAsDismiss`             | `"Dismiss"`                                                                                                                          | The Edit-as notice's close button.                                                                                                                                                                                                             |

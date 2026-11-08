@@ -1342,6 +1342,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         comment_start_outside_quotes(line, self.config().line_comments)
     }
 
+    /// Whether `source` holds a processing instruction other than an XML
+    /// declaration (`<?xml-stylesheet …?>`), which [`has_comments`]
+    /// counts and the Edit-as notice names. Default: none.
+    ///
+    /// [`has_comments`]: ConfigLanguage::has_comments
+    fn has_processing_instructions(&self, source: &str) -> bool {
+        let _ = source;
+        false
+    }
+
     /// Whether `source` holds a comment: a line comment
     /// ([`comment_start`](ConfigLanguage::comment_start)) or the start of a
     /// block comment, outside strings and multi-line string bodies. The

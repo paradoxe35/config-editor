@@ -178,11 +178,13 @@ impl ConfigLanguage for XmlBehavior {
     /// declaration), which no other language shows either: a save keeps
     /// both.
     fn has_comments(&self, source: &str) -> bool {
-        let comment = source.contains("<!--");
-        let instruction = source
+        source.contains("<!--") || self.has_processing_instructions(source)
+    }
+
+    fn has_processing_instructions(&self, source: &str) -> bool {
+        source
             .match_indices("<?")
-            .any(|(at, _)| !source[at..].starts_with("<?xml ") && !source[at..].starts_with("<?xml?"));
-        comment || instruction
+            .any(|(at, _)| !source[at..].starts_with("<?xml ") && !source[at..].starts_with("<?xml?"))
     }
 
     fn mixed_content(&self, source: &str) -> Option<String> {

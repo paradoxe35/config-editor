@@ -112,6 +112,7 @@ fn the_notice_shows_exactly_when_comments_are_out_of_view_or_not_saved() {
                 } else {
                     NoticeReasons {
                         host_comments,
+                        host_instructions: false,
                         typed_comments,
                     }
                 };
@@ -191,6 +192,7 @@ fn the_notice_names_both_languages_and_whether_the_host_has_comments() {
     let both = NoticeReasons {
         host_comments: true,
         typed_comments: true,
+        host_instructions: false,
     };
     let yaml_as_json = both.messages(&strings, Language::YAML, Language::TOML);
     assert_eq!(
@@ -203,6 +205,7 @@ fn the_notice_names_both_languages_and_whether_the_host_has_comments() {
     let typed = NoticeReasons {
         host_comments: false,
         typed_comments: true,
+        host_instructions: false,
     };
     assert_eq!(
         typed.messages(&strings, Language::JSON, Language::YAML),
@@ -221,6 +224,28 @@ fn the_notice_names_both_languages_and_whether_the_host_has_comments() {
             .messages(&strings, Language::YAML, Language::JSON)
             .is_empty()
     );
+    // An XML file's processing instructions are named, with or without
+    // comments; its declaration is none.
+    for host_text in [
+        "<?xml-stylesheet href=\"a.xsl\"?>\n<c><n>1</n></c>\n",
+        "<?xml version=\"1.0\"?>\n<?app x?>\n<!-- c -->\n<c><n>1</n></c>\n",
+    ] {
+        let reasons = NoticeReasons::of(Language::XML, Language::JSON, host_text, "{}");
+        assert_eq!(
+            reasons.messages(&strings, Language::XML, Language::JSON),
+            [
+                "The XML file's comments, processing instructions and formatting are not shown while editing as JSON; saving keeps them."
+            ],
+            "{host_text}"
+        );
+    }
+    let declared = NoticeReasons::of(
+        Language::XML,
+        Language::JSON,
+        "<?xml version=\"1.0\"?>\n<!-- c -->\n<c/>\n",
+        "{}",
+    );
+    assert!(declared.host_comments && !declared.host_instructions);
 }
 
 #[test]
@@ -228,10 +253,12 @@ fn a_dismissed_reason_stays_hidden_and_a_new_one_shows() {
     let host_only = NoticeReasons {
         host_comments: true,
         typed_comments: false,
+        host_instructions: false,
     };
     let both = NoticeReasons {
         host_comments: true,
         typed_comments: true,
+        host_instructions: false,
     };
     assert!(!host_only.without(host_only).any());
     let shown = both.without(host_only);

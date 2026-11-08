@@ -39,6 +39,10 @@ pub(super) struct SyncState {
     pub(super) host_on_change: Option<Callback<String>>,
     /// Last host text received or sent.
     pub(super) host_text: StoredValue<String>,
+    /// The host text the edit session began on: the last one received (or
+    /// written in the host's language), not one an Edit-as save wrote. Its
+    /// styles outlast the session's saves (see `Bridge::to_host_since`).
+    pub(super) session_host: StoredValue<String>,
     /// The edited text matching `host_text`.
     pub(super) synced_edit: StoredValue<String>,
     /// Edited texts already saved, each with its language and the host text
@@ -114,6 +118,7 @@ impl SyncState {
                 host_text.clone(),
                 shown.clone(),
             ))),
+            session_host: StoredValue::new(host_text.clone()),
             host_text: StoredValue::new(host_text),
             synced_edit: StoredValue::new(shown.clone()),
             synced_hosts: StoredValue::new(Vec::new()),
@@ -198,6 +203,7 @@ impl EditorState {
                 None => {
                     self.sync().synced_edit.set_value(edit.text.clone());
                     self.sync().host_text.set_value(edit.text.clone());
+                    self.sync().session_host.set_value(edit.text.clone());
                     self.sync().load_problems.set(Vec::new());
                 }
                 Some(bridge) => self.sync().load_problems.set(
@@ -254,6 +260,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
         return;
     }
     state.sync().host_text.set_value(external.clone());
+    state.sync().session_host.set_value(external.clone());
     let edit = state.shown(&external);
     state.sync().synced_edit.set_value(edit.clone());
     state.sync().synced_hosts.update_value(Vec::clear);
@@ -361,20 +368,23 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         );
         let previous = state.sync().host_text.get_value();
         let mut hosts_own = false;
-        let result = bridge.to_host(&text, &previous).map(|mut conversion| {
-            // Back to a text saved before (an undo), or the host's own (a
-            // reloaded baseline): its host text exactly.
-            if let Some(host) = state.sync().synced_hosts.with_value(|saved| {
-                saved
-                    .iter()
-                    .find(|(known, edit, _)| *known == language && *edit == text)
-                    .map(|(_, _, host)| host.clone())
-            }) {
-                conversion.text = host;
-                hosts_own = true;
-            }
-            conversion
-        });
+        let origin = state.sync().session_host.get_value();
+        let result = bridge
+            .to_host_since(&text, &previous, &origin)
+            .map(|mut conversion| {
+                // Back to a text saved before (an undo), or the host's own (a
+                // reloaded baseline): its host text exactly.
+                if let Some(host) = state.sync().synced_hosts.with_value(|saved| {
+                    saved
+                        .iter()
+                        .find(|(known, edit, _)| *known == language && *edit == text)
+                        .map(|(_, _, host)| host.clone())
+                }) {
+                    conversion.text = host;
+                    hosts_own = true;
+                }
+                conversion
+            });
         // However the edit got there, a save never changes a read-only
         // value: it is refused like any other unsafe save. A text the host
         // itself had is its own to restore.
@@ -454,7 +464,12 @@ fn save_pending(state: EditorState) {
     let Some(bridge) = bridge::Bridge::new(state.config().host_language, edit, schema) else {
         return;
     };
-    if let Ok(conversion) = bridge.to_host(&text, &host)
+    let origin = state
+        .sync()
+        .session_host
+        .try_get_value()
+        .unwrap_or_default();
+    if let Ok(conversion) = bridge.to_host_since(&text, &host, &origin)
         && conversion.text != host
         && state.check_host_save(&host, &conversion.text).is_ok()
         && let Some(on_change) = state.sync().host_on_change
@@ -569,12 +584,14 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             .bridge_to(current)
             .filter(|_| next == state.config().host_language)
         {
-            Some(bridge) => bridge.to_host(&text, &host_text).and_then(|conversion| {
-                state
-                    .check_host_save(&host_text, &conversion.text)
-                    .map(|()| conversion.text)
-                    .map_err(SaveError::ReadOnly)
-            }),
+            Some(bridge) => bridge
+                .to_host_since(&text, &host_text, &state.sync().session_host.get_value())
+                .and_then(|conversion| {
+                    state
+                        .check_host_save(&host_text, &conversion.text)
+                        .map(|()| conversion.text)
+                        .map_err(SaveError::ReadOnly)
+                }),
             None => state.config().schema.with_value(|schema| {
                 codec::convert(
                     &text,
