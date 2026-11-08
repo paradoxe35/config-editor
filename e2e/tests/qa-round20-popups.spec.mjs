@@ -33,6 +33,29 @@ const box = (locator) => locator.evaluate((element) => {
   return { left, top, right, bottom };
 });
 
+/**
+ * The boxes of `locators` together at the next frame, as the user sees them:
+ * between frames the text may have scrolled before its scroll event (and so
+ * its highlighted copy) has come.
+ */
+async function atFrame(page, ...locators) {
+  const handles = await Promise.all(locators.map((locator) => locator.elementHandle()));
+  return page.evaluate(
+    (elements) =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() =>
+          resolve(
+            elements.map((element) => {
+              const { left, top, right, bottom } = element.getBoundingClientRect();
+              return { left, top, right, bottom };
+            }),
+          ),
+        ),
+      ),
+    handles,
+  );
+}
+
 /** Fails unless `popup` is inside the window and right below or above `anchor`, from its left. */
 function nextTo(name, popup, anchor, viewport) {
   const below = popup.top >= anchor.bottom - 2 && popup.top <= anchor.bottom + 24;
@@ -65,7 +88,7 @@ test.describe('popups in a transformed container', () => {
       await page.mouse.move(underline.left + 8, (underline.top + underline.bottom) / 2);
       const tip = page.locator('.config-editor__problem-tip:not([hidden])');
       await expect(tip).toBeVisible();
-      nextTo('tip', await box(tip), underline, viewport);
+      nextTo('tip', ...(await atFrame(page, tip, marker)), viewport);
 
       // The hover card of the key under the pointer.
       await page.mouse.move(5, 5);
@@ -75,7 +98,7 @@ test.describe('popups in a transformed container', () => {
       const card = page.locator('.config-editor__hover');
       await expect(card).toBeVisible();
       await expect(card).toContainText('The port.');
-      nextTo('card', await box(card), keyBox, viewport);
+      nextTo('card', ...(await atFrame(page, card, key)), viewport);
 
       // The suggestion list at the caret on the last line.
       await page.mouse.move(5, 5);
@@ -84,8 +107,8 @@ test.describe('popups in a transformed container', () => {
       await page.keyboard.press('Control+Space');
       const list = page.locator('.config-editor__completions:not(.hidden)');
       await expect(list).toBeVisible();
-      const lastLine = await box(page.locator('.config-editor__highlight .config-editor__code-line').last());
-      nextTo('list', await box(list), lastLine, viewport);
+      const lastLine = page.locator('.config-editor__highlight .config-editor__code-line').last();
+      nextTo('list', ...(await atFrame(page, list, lastLine)), viewport);
       expect(errors).toEqual([]);
     });
   }

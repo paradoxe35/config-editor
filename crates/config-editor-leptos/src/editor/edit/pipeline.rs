@@ -137,7 +137,7 @@ impl EditorState {
         }
         self.note_caret(start);
         if let Some(reason) = reason {
-            self.protect().flash(reason.clone(), edit.caret());
+            self.protect().flash(reason.clone(), start);
             // Typing refused part-way: nothing half-written stays.
             if let Some(take_back) = self.note_refused(edit, reason) {
                 self.commit(take_back);

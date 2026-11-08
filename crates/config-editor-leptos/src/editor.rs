@@ -388,10 +388,11 @@ fn report_schema_warnings(warnings: &[String], on_schema_warning: Option<Callbac
     }
 }
 
-/// Window resizes and page scrolls move the editor, so popups re-measure;
-/// so does the text area resized without the window (its host's layout
-/// changed, a panel opened beside it), which problem messages are as wide
-/// as.
+/// Window resizes and scrolls of the page or of any container around the
+/// editor (a dialog's, a panel's) move the editor, so popups re-measure and
+/// the hover card goes, as it does when the text scrolls; so does the text
+/// area resized without the window (its host's layout changed, a panel
+/// opened beside it), which problem messages are as wide as.
 fn remeasure_on_window_changes(state: EditorState) {
     let bump = move || {
         state
@@ -399,7 +400,12 @@ fn remeasure_on_window_changes(state: EditorState) {
             .layout_revision
             .update(|revision| *revision += 1)
     };
-    window_listener(&["resize", "scroll"], bump);
+    window_listener(&["resize", "scroll"], move |event| {
+        if moves_editor(state, &event) {
+            state.hide_hover();
+            bump();
+        }
+    });
     let textarea = state.view().textarea_ref;
     // A new text area (or none) disconnects the watch on the old one.
     Effect::new(move |_| {
@@ -407,6 +413,28 @@ fn remeasure_on_window_changes(state: EditorState) {
             untrack(|| size_observer(&element, bump));
         }
     });
+}
+
+/// Whether `event` (a resize, or a scroll heard from the window) moved the
+/// editor: the window resized, or the page or a container around the
+/// editor scrolled; not the text itself, a popup or anything beside it.
+fn moves_editor(state: EditorState, event: &web_sys::Event) -> bool {
+    use wasm_bindgen::JsCast;
+
+    if event.type_() != "scroll" {
+        return true;
+    }
+    let Some(textarea) = state.view().textarea_ref.get_untracked() else {
+        return false;
+    };
+    let Some(scrolled) = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Node>().ok())
+    else {
+        return false;
+    };
+    let textarea: &web_sys::Node = textarea.unchecked_ref();
+    &scrolled != textarea && scrolled.contains(Some(textarea))
 }
 
 #[cfg(all(test, feature = "yaml"))]
