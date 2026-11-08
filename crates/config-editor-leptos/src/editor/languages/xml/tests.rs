@@ -698,3 +698,27 @@ fn a_very_deep_document_is_planned_without_quadratic_memory() {
     let source = format!("{}{}", "<a>".repeat(20000), "</a>".repeat(20000));
     assert!(XmlBehavior.string_body_lines(&source).is_empty());
 }
+
+/// QA 21 (U21-6): the caret's place, read without the spans of every name
+/// and value (each keystroke reads it), is the one the full scan finds, at
+/// every place of a document written in XML's forms.
+#[test]
+fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
+    use super::scan::scan_text;
+    let texts = [
+        "<?xml version=\"1.0\"?>\n<config config-root=\"true\" v=\"2\">\n  <listen>7835</listen>\n  <!-- c -->\n  <web secure=\"true\">\n    <http>80</http>\n    <hosts>a</hosts>\n    <hosts>b</hosts>\n    <t><![CDATA[x<y]]></t>\n    <e/>\n  </web>\n  <half a=\n</config>\n",
+        "<a><b>1</b><b>2<c x='1'/></b></a>",
+        "<a>\n  text\n  <!-- c -->\n  more\n</a\n",
+    ];
+    let mut failures = Vec::new();
+    for text in texts {
+        for cursor in (0..=text.len()).filter(|at| text.is_char_boundary(*at)) {
+            let full = format!("{:?}", scan_text(text, cursor, true).snapshot);
+            let caret = format!("{:?}", scan_text(text, cursor, false).snapshot);
+            if full != caret {
+                failures.push(format!("{text:?} at {cursor}: {full} vs {caret}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

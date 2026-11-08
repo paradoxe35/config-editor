@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::options::{function_option, warn_unknown_keys};
+use crate::text_lines::TextLines;
 use crate::values::{field, optional_text, path_from_js, range_from_js};
 
 /// Keys `secrets` can hold.
@@ -46,11 +47,12 @@ pub(crate) fn ranges_from(
     if !Array::is_array(list) {
         return Err(JsError::new(&format!("{name} must be an array of ranges")));
     }
+    let host_text = TextLines::new(host_text);
     Array::from(list)
         .iter()
         .enumerate()
         .map(|(index, range)| {
-            range_from_js(&range, host_text)
+            range_from_js(&range, &host_text)
                 .map_err(|error| JsError::new(&format!("{name}[{index}]: {error}")))
         })
         .collect()

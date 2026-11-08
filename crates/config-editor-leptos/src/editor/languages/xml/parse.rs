@@ -434,6 +434,16 @@ thread_local! {
 }
 
 fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
+    // In a batch of problems, read once without hashing the text each time.
+    if crate::editor::paths::in_batch(source) {
+        struct Read(std::rc::Rc<DocumentSpans>);
+        return crate::editor::paths::batch_cached(source, || Read(remembered_spans(source))).0.clone();
+    }
+    remembered_spans(source)
+}
+
+/// The spans of `source`, remembered for the last text.
+fn remembered_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut hasher);
@@ -441,7 +451,7 @@ fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     if let Some(spans) = LAST_SPANS.with(|last| last.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, spans)| spans.clone())) {
         return spans;
     }
-    let scan = scan_text(source, 0);
+    let scan = scan_text(source, 0, true);
     let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
     LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
     spans
@@ -464,8 +474,66 @@ pub(super) fn text_body_lines(source: &str) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// [`DocumentSpans`] by path (the first recorded at each), for a batch of
+/// problems: each lookup is then no read of the list.
+struct SpansByPath {
+    names: std::collections::HashMap<Vec<String>, usize>,
+    values: std::collections::HashMap<Vec<String>, usize>,
+}
+
+/// The spans recorded at `wanted` (names, or values): from the batch's
+/// index of them while one runs, else read from the list.
+fn recorded(source: &str, names: bool, wanted: &[String]) -> Option<(usize, usize)> {
+    let spans = document_spans(source);
+    let list = if names { &spans.0 } else { &spans.1 };
+    if !crate::editor::paths::in_batch(source) {
+        return span_at(list, wanted);
+    }
+    let index = crate::editor::paths::batch_cached(source, || {
+        let by_path = |list: &[(Vec<String>, usize, usize)]| {
+            let mut found = std::collections::HashMap::with_capacity(list.len());
+            for (at, (path, _, _)) in list.iter().enumerate() {
+                found.entry(path.clone()).or_insert(at);
+            }
+            found
+        };
+        SpansByPath { names: by_path(&spans.0), values: by_path(&spans.1) }
+    });
+    let index = if names { &index.names } else { &index.values };
+    let found = index.get(wanted).copied().or_else(|| lone_item(index, list, wanted))?;
+    let (_, start, end) = &list[found];
+    Some((*start, *end))
+}
+
+/// The first span [`span_at`] takes for `wanted` recorded without some of
+/// its `0` steps (a lone element read as a one-item array): each spelling
+/// with `0` steps left out looked up (with many `0` steps, the list read).
+fn lone_item(
+    index: &std::collections::HashMap<Vec<String>, usize>,
+    list: &[(Vec<String>, usize, usize)],
+    wanted: &[String],
+) -> Option<usize> {
+    let zeros: Vec<usize> = (0..wanted.len()).filter(|at| wanted[*at] == "0").collect();
+    if zeros.is_empty() {
+        return None;
+    }
+    if zeros.len() > 8 {
+        let (start, end) = span_at(list, wanted)?;
+        return list.iter().position(|(_, from, to)| (*from, *to) == (start, end));
+    }
+    (1..1usize << zeros.len())
+        .filter_map(|left_out| {
+            let spelling: Vec<String> = (0..wanted.len())
+                .filter(|at| zeros.iter().position(|zero| zero == at).is_none_or(|bit| left_out & (1 << bit) == 0))
+                .map(|at| wanted[at].clone())
+                .collect();
+            index.get(&spelling).copied()
+        })
+        .min()
+}
+
 pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let (start, end) = span_at(&document_spans(source).0, &pointer_segments(path))?;
+    let (start, end) = recorded(source, true, &pointer_segments(path))?;
     Some(span_between(source, start, end))
 }
 
@@ -476,7 +544,7 @@ pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, 
     if segments.last().is_some_and(|last| last == "#text") {
         segments.pop();
     }
-    let (start, end) = span_at(&document_spans(source).1, &segments)?;
+    let (start, end) = recorded(source, false, &segments)?;
     Some(span_between(source, start, end))
 }
 

@@ -1,9 +1,13 @@
-//! Value spans looked up together: placing a schema problem asks where its
-//! value and each ancestor is written, and each such lookup reads the whole
-//! document in some languages (TOML, HCL). [`with_value_spans`] reads the
-//! spans of every pointer the problems will ask for in one pass of the
-//! language's [`value_spans`](ConfigLanguage::value_spans), and
-//! [`value_span`] answers from them while it runs. Nothing is kept after.
+//! Spans looked up together: placing problems asks where each one's key and
+//! value (and each ancestor's) is written, and each lookup alone reads the
+//! whole document. [`with_spans`] reads the spans of every pointer the
+//! problems will ask for in one pass of the language's
+//! [`key_spans`](ConfigLanguage::key_spans) and
+//! [`value_spans`](ConfigLanguage::value_spans), and [`key_span`] and
+//! [`value_span`] answer from them while it runs. Readings a language makes
+//! of the whole text (its scan, its lines) are shared the same way
+//! ([`batch_cached`]). Several texts can be read at once (the host's and the
+//! one on screen); nothing is kept after.
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -13,137 +17,187 @@ use std::rc::Rc;
 use super::super::language::{ConfigLanguage, Span};
 use super::super::work_count::{Work, note};
 
-/// The spans read for one text (by address and length: the text borrowed
-/// for the whole call).
-struct Memo {
-    label: &'static str,
-    text: (usize, usize),
-    spans: HashMap<String, Option<Span>>,
+/// A text by address and length: it is borrowed for the whole batch.
+type TextKey = (usize, usize);
+
+fn text_key(source: &str) -> TextKey {
+    (source.as_ptr() as usize, source.len())
 }
 
-/// What a language read of the text once for the whole call (see
-/// [`batch_cached`]).
-#[cfg_attr(
-    not(any(feature = "yaml", feature = "json")),
-    allow(dead_code, reason = "only YAML and JSON share a read")
-)]
-struct Scratch {
-    text: (usize, usize),
-    value: Option<Rc<dyn Any>>,
+/// The spans and readings of one text, while [`with_spans`] runs for it.
+struct Batch {
+    label: &'static str,
+    text: TextKey,
+    keys: HashMap<String, Option<Span>>,
+    values: HashMap<String, Option<Span>>,
+    /// What the language read of the whole text, one value per type.
+    scratch: Vec<Rc<dyn Any>>,
 }
 
 thread_local! {
-    static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
-    static SCRATCH: RefCell<Option<Scratch>> = const { RefCell::new(None) };
+    static BATCHES: RefCell<Vec<Batch>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Whether a [`with_spans`] for `source` is running.
+pub(crate) fn in_batch(source: &str) -> bool {
+    let key = text_key(source);
+    BATCHES.with(|batches| batches.borrow().iter().any(|batch| batch.text == key))
 }
 
 /// `make()`, a reading of all of `source` (the lines of its keys, say):
-/// made once while [`with_value_spans`] runs for that text, so the spans
-/// asked one by one inside it (keys as well as values) share it; made each
-/// time outside one. Nothing is kept after.
-#[cfg(any(feature = "yaml", feature = "json"))]
+/// made once while [`with_spans`] runs for that text, so the spans asked one
+/// by one inside it share it; made each time outside one. Each type is one
+/// reading: a language wraps what it keeps in a type of its own. Nothing is
+/// kept after.
 pub(crate) fn batch_cached<T: 'static>(source: &str, make: impl FnOnce() -> T) -> Rc<T> {
-    let key = (source.as_ptr() as usize, source.len());
-    let cached = SCRATCH.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .filter(|scratch| scratch.text == key)
-            .and_then(|scratch| scratch.value.clone())
-            .and_then(|value| value.downcast::<T>().ok())
+    batch_cached_as(Work::DocumentRead, source, make)
+}
+
+/// [`batch_cached`], counted as `work`.
+pub(crate) fn batch_cached_as<T: 'static>(
+    work: Work,
+    source: &str,
+    make: impl FnOnce() -> T,
+) -> Rc<T> {
+    let key = text_key(source);
+    let cached = BATCHES.with(|batches| {
+        batches
+            .borrow()
+            .iter()
+            .filter(|batch| batch.text == key)
+            .flat_map(|batch| batch.scratch.iter())
+            .find_map(|value| value.clone().downcast::<T>().ok())
     });
     if let Some(value) = cached {
         return value;
     }
-    note(Work::DocumentRead);
+    note(work);
+    // Made with nothing borrowed: a reading may ask for another one.
     let made = Rc::new(make());
-    SCRATCH.with(|slot| {
-        if let Some(scratch) = slot
+    BATCHES.with(|batches| {
+        if let Some(batch) = batches
             .borrow_mut()
-            .as_mut()
-            .filter(|scratch| scratch.text == key)
+            .iter_mut()
+            .find(|batch| batch.text == key)
         {
-            scratch.value = Some(made.clone());
+            batch.scratch.push(made.clone());
         }
     });
     made
 }
 
-/// Runs `work` with the spans of `pointers` (and each one's ancestors) in
-/// `source` read at once; [`value_span`] calls for that text inside it read
-/// them instead of the document.
-#[cfg_attr(
-    not(feature = "schema-validation"),
-    allow(dead_code, reason = "schema problems are what read spans at once")
-)]
-pub(crate) fn with_value_spans<T>(
+/// Each of `pointers` with its ancestors and the spellings a language
+/// writing lone items without `/0` finds it by, sorted, once each.
+fn wanted(pointers: &[String]) -> Vec<String> {
+    let mut wanted: Vec<String> = Vec::new();
+    for pointer in pointers {
+        let lone = pointer.replace("/0/", "/");
+        let lone = lone.strip_suffix("/0").unwrap_or(&lone).to_string();
+        for spelling in [pointer.as_str(), lone.as_str()] {
+            let mut end = spelling.len();
+            while end > 0 {
+                wanted.push(spelling[..end].to_string());
+                end = spelling[..end].rfind('/').unwrap_or(0);
+            }
+        }
+    }
+    wanted.sort_unstable();
+    wanted.dedup();
+    wanted
+}
+
+/// Runs `work` with the key and value spans of `pointers` (each one's
+/// ancestors and spellings too) in `source` read at once; [`key_span`] and
+/// [`value_span`] calls for that text inside it answer from them instead
+/// of reading the document again.
+pub(crate) fn with_spans<T>(
     behavior: &dyn ConfigLanguage,
     source: &str,
     pointers: &[String],
     work: impl FnOnce() -> T,
 ) -> T {
-    let mut wanted: Vec<String> = Vec::new();
-    for pointer in pointers {
-        let mut end = pointer.len();
-        while end > 0 {
-            wanted.push(pointer[..end].to_string());
-            end = pointer[..end].rfind('/').unwrap_or(0);
-        }
-    }
-    wanted.sort_unstable();
-    wanted.dedup();
-    let text = (source.as_ptr() as usize, source.len());
-    let previous_scratch =
-        SCRATCH.with(|slot| slot.borrow_mut().replace(Scratch { text, value: None }));
-    note(Work::DocumentRead);
-    let spans = behavior.value_spans(source, &wanted);
-    let memo = Memo {
-        label: behavior.info().label,
-        text,
-        spans: wanted.into_iter().zip(spans).collect(),
-    };
-    let previous = MEMO.with(|slot| slot.borrow_mut().replace(memo));
-    // Put back on the way out, a panic included.
-    struct Restore(Option<(Option<Memo>, Option<Scratch>)>);
-    impl Drop for Restore {
+    let wanted = wanted(pointers);
+    let text = text_key(source);
+    let label = behavior.info().label;
+    BATCHES.with(|batches| {
+        batches.borrow_mut().push(Batch {
+            label,
+            text,
+            keys: HashMap::new(),
+            values: HashMap::new(),
+            scratch: Vec::new(),
+        });
+    });
+    // Taken off on the way out, a panic included.
+    struct Pop;
+    impl Drop for Pop {
         fn drop(&mut self) {
-            if let Some((memo, scratch)) = self.0.take() {
-                let _ = MEMO.try_with(|slot| *slot.borrow_mut() = memo);
-                let _ = SCRATCH.try_with(|slot| *slot.borrow_mut() = scratch);
-            }
+            let _ = BATCHES.try_with(|batches| batches.borrow_mut().pop());
         }
     }
-    let _restore = Restore(Some((previous, previous_scratch)));
+    let _pop = Pop;
+    if !wanted.is_empty() {
+        note(Work::DocumentRead);
+        let values = behavior.value_spans(source, &wanted);
+        let keys = behavior.key_spans(source, &wanted);
+        BATCHES.with(|batches| {
+            if let Some(batch) = batches.borrow_mut().last_mut() {
+                batch.values = wanted.iter().cloned().zip(values).collect();
+                batch.keys = wanted.into_iter().zip(keys).collect();
+            }
+        });
+    }
     work()
 }
 
-/// `behavior.value_span(source, pointer)`, from the spans
-/// [`with_value_spans`] read when it holds them.
+/// The span read for `pointer` in `source` by the running batch, if it read
+/// it (`Some(None)`: it is written nowhere).
+fn known(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+    keys: bool,
+) -> Option<Option<Span>> {
+    let (label, text) = (behavior.info().label, text_key(source));
+    BATCHES.with(|batches| {
+        batches
+            .borrow()
+            .iter()
+            .rev()
+            .find(|batch| batch.label == label && batch.text == text)
+            .and_then(|batch| {
+                let spans = if keys { &batch.keys } else { &batch.values };
+                spans.get(pointer).copied()
+            })
+    })
+}
+
+/// `behavior.value_span(source, pointer)`, from the spans [`with_spans`]
+/// read when it holds them.
 pub(crate) fn value_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
     pointer: &str,
 ) -> Option<Span> {
-    let known = MEMO.with(|slot| {
-        slot.borrow().as_ref().and_then(|memo| {
-            (memo.label == behavior.info().label
-                && memo.text == (source.as_ptr() as usize, source.len()))
-                .then(|| memo.spans.get(pointer).copied())
-                .flatten()
-        })
-    });
-    match known {
-        Some(span) => span,
-        None => {
-            note(Work::DocumentRead);
-            behavior.value_span(source, pointer)
-        }
-    }
+    known(behavior, source, pointer, false).unwrap_or_else(|| {
+        note(Work::DocumentRead);
+        behavior.value_span(source, pointer)
+    })
+}
+
+/// `behavior.key_span(source, pointer)`, from the spans [`with_spans`] read
+/// when it holds them.
+pub(crate) fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
+    known(behavior, source, pointer, true).unwrap_or_else(|| {
+        note(Work::DocumentRead);
+        behavior.key_span(source, pointer)
+    })
 }
 
 #[cfg(all(test, feature = "toml"))]
 mod tests {
     use super::super::super::languages::Language;
-    use super::{value_span, with_value_spans};
+    use super::{key_span, value_span, with_spans};
 
     /// The spans read at once are the ones read one by one.
     #[test]
@@ -156,14 +210,19 @@ mod tests {
             .collect();
         let alone: Vec<_> = pointers
             .iter()
-            .map(|pointer| toml.value_span(text, pointer))
+            .map(|pointer| (toml.key_span(text, pointer), toml.value_span(text, pointer)))
             .collect();
-        let memoized = with_value_spans(toml, text, &pointers, || {
+        let batched = with_spans(toml, text, &pointers, || {
             pointers
                 .iter()
-                .map(|pointer| value_span(toml, text, pointer))
+                .map(|pointer| {
+                    (
+                        key_span(toml, text, pointer),
+                        value_span(toml, text, pointer),
+                    )
+                })
                 .collect::<Vec<_>>()
         });
-        assert_eq!(memoized, alone);
+        assert_eq!(batched, alone);
     }
 }

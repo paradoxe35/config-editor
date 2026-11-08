@@ -207,6 +207,9 @@ test.describe('headless functions, every language', () => {
             range: range && text.slice(range.start, range.end),
             rangeLine: range?.startLine,
             missing: api.rangeOf(language, text, '/web/nope'),
+            // Many at once: the same answers, in order.
+            ranges: api.rangesOf(language, text, [['web', 'http'], '/web/nope', '/limits/a']),
+            oneByOne: [['web', 'http'], '/web/nope', '/limits/a'].map((path) => api.rangeOf(language, text, path)),
             path: api.pathAt(language, text, text.indexOf('80') + 1),
             pastEnd: api.pathAt(language, text, text.length + 1),
             info: languages().find((info) => info.name === language),
@@ -219,6 +222,8 @@ test.describe('headless functions, every language', () => {
       expect(result.range).toContain('http');
       expect(result.rangeLine).toBe(text.split('\n').findIndex((line) => line.includes('http')) + 1);
       expect(result.missing).toBeNull();
+      expect(result.ranges).toEqual(result.oneByOne);
+      expect(result.ranges[0]).not.toBeNull();
       expect(result.path).toEqual({ pointer: '/web/http', segments: ['web', 'http'] });
       expect(result.pastEnd).toBeNull();
       expect(result.info.name).toBe(language);

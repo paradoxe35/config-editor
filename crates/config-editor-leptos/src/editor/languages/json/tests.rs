@@ -452,3 +452,27 @@ fn highlighting_covers_every_character_of_tricky_lines() {
         assert_eq!(text, line);
     }
 }
+
+/// QA 21 (U21-6): the caret's place, read without the spans of every key
+/// and value (each keystroke reads it), is the one the full scan finds, at
+/// every place of a document written in JSON's forms.
+#[test]
+fn the_caret_scan_without_spans_finds_the_place_the_full_scan_does() {
+    use super::scan::{analyze, analyze_caret};
+    let texts = [
+        "{\n  \"listen\": 7835,\n  \"web\": {\n    \"http\": 80,\n    \"hosts\": [\"a\", {\"b\": [1, {}]}],\n    \"e\": {}\n  },\n  \"pub\n  \"pool\": {}\n}\n",
+        "[1, \"two\", {\"k\": [true, null]}, [[]]]",
+        "{\"a\": , \"b\" \"c\": 1,, }",
+    ];
+    let mut failures = Vec::new();
+    for text in texts {
+        for cursor in (0..=text.len()).filter(|at| text.is_char_boundary(*at)) {
+            let (full, caret) = (analyze(text, cursor), analyze_caret(text, cursor));
+            let found = |scan: &super::scan::Scan| format!("{:?} {:?}", scan.snapshot, scan.keys);
+            if found(&full) != found(&caret) {
+                failures.push(format!("{text:?} at {cursor}: {} vs {}", found(&full), found(&caret)));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

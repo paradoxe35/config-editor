@@ -5,10 +5,10 @@
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
-use crate::typings::{Data, PathResult, RangeResult};
+use crate::typings::{Data, PathResult, RangeResult, RangeResults};
 use crate::values::{
     index_arg, json_from_js, json_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
-    text_arg,
+    ranges_to_js, text_arg,
 };
 
 /// Parses `text` into plain data (objects, arrays, strings, numbers,
@@ -57,6 +57,28 @@ pub fn range_of(
         .range_of(&text, path)
         .map_or(JsValue::NULL, |range| range_to_js(&text, range))
         .unchecked_into())
+}
+
+/// [`rangeOf`](range_of) for each of `paths`, in order: the text read once
+/// for all of them (each `rangeOf` reads it again, so thousands of paths
+/// of a long document take seconds one by one).
+#[wasm_bindgen(js_name = rangesOf)]
+pub fn ranges_of(
+    #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "FieldPath[]")] paths: JsValue,
+) -> Result<RangeResults, JsError> {
+    let language = language_named(&text_arg(&language, "language")?)?;
+    let text = text_arg(&text, "text")?;
+    if !js_sys::Array::is_array(&paths) {
+        return Err(JsError::new("paths must be an array of paths"));
+    }
+    let paths = js_sys::Array::from(&paths)
+        .iter()
+        .map(|path| path_from_js(&path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ranges = language.ranges_of(&text, paths);
+    Ok(ranges_to_js(&text, &ranges).unchecked_into())
 }
 
 /// The path of what `text` holds at string index `index`: the key under or

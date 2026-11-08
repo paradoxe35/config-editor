@@ -34,7 +34,7 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         }
     })?;
     let mut seen = HashSet::new();
-    for (owner, key, start) in analyze(source, 0).keys {
+    for (owner, key, start) in analyze_caret(source, 0).keys {
         if !seen.insert((owner, key.clone())) {
             let (line, column) = line_column(source, start);
             return Err(ParseError {
@@ -52,29 +52,36 @@ pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, us
     (line, column, column + source[start..end].chars().count())
 }
 
-/// The document's scan, read once for all the spans a batch of problems
+/// The spans of every key and value of a document, by path (the first
+/// written, for a duplicate).
+struct Spans {
+    keys: std::collections::HashMap<Vec<String>, (usize, usize)>,
+    values: std::collections::HashMap<Vec<String>, (usize, usize)>,
+}
+
+/// The document's spans, read once for all the spans a batch of problems
 /// asks for (see `paths::batch_cached`).
-fn scanned(source: &str) -> std::rc::Rc<Scan> {
-    crate::editor::paths::batch_cached(source, || analyze(source, 0))
+fn scanned(source: &str) -> std::rc::Rc<Spans> {
+    crate::editor::paths::batch_cached(source, || {
+        let scan = analyze(source, 0);
+        let by_path = |spans: Vec<(Vec<String>, usize, usize)>| {
+            let mut found = std::collections::HashMap::with_capacity(spans.len());
+            for (path, start, end) in spans {
+                found.entry(path).or_insert((start, end));
+            }
+            found
+        };
+        Spans { keys: by_path(scan.key_spans), values: by_path(scan.value_spans) }
+    })
 }
 
 pub(super) fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
-    scanned(source)
-        .key_spans
-        .iter()
-        .find(|(segments, _, _)| *segments == wanted)
-        .cloned()
-        .map(|(_, start, end)| span_between(source, start, end))
+    let (start, end) = *scanned(source).keys.get(&pointer_segments(path))?;
+    Some(span_between(source, start, end))
 }
 
 pub(super) fn json_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
-    let (_, start, end) = scanned(source)
-        .value_spans
-        .iter()
-        .find(|(segments, _, _)| *segments == wanted)
-        .cloned()?;
+    let (start, end) = *scanned(source).values.get(&pointer_segments(path))?;
     if source[start..].starts_with(['{', '[']) {
         // A container is marked at its opening bracket, not its whole body.
         let (line, column) = line_column(source, start);

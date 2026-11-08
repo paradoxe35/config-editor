@@ -216,6 +216,27 @@ test.describe('vanilla.html', () => {
     await setHost(browserPage, [{ message: 'x', docsUrl: 'https://example.com/docs' }]);
   });
 
+  test('a range by string indexes names the place its lines and columns do, at every index over wide characters and lines', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const text = 'web:\n  name: "é😀x"\n\n  port: 80 # 端口\n';
+    await browserPage.evaluate((value) => window.editor.update({ value }), text);
+    // Each index with both styles (they must agree, or the list throws):
+    // the line and code-point column of the first character at or past it.
+    const ranges = [];
+    for (let index = 0; index <= text.length; index += 1) {
+      let [line, column, units] = [1, 1, 0];
+      for (const character of text) {
+        if (units >= index) break;
+        units += character.length;
+        if (character === '\n') [line, column] = [line + 1, 1];
+        else column += 1;
+      }
+      ranges.push({ start: index, end: index, startLine: line, startColumn: column, endLine: line, endColumn: column });
+    }
+    await setHost(browserPage, ranges.map((range, index) => ({ message: `at ${index}`, range })));
+    await expect(markers(browserPage).first()).toBeVisible();
+  });
+
   test('bad secrets options throw; a throwing isPlaceholder is logged', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {

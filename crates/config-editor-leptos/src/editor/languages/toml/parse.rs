@@ -460,87 +460,136 @@ pub(super) fn inline_item_end(text: &str, from: usize) -> usize {
     from + end.trim_end_matches([' ', '\t']).len()
 }
 
-/// Span of a key nested in an inline-table value on `code`: `base` is the
-/// outer assignment's path. Returns the entry's key and value spans.
-pub(super) fn inline_entry_at(
-    code: &str,
-    base: &[String],
-    wanted: &[String],
-) -> Option<(usize, usize, usize, usize)> {
-    if wanted.len() <= base.len() || !wanted.starts_with(base) {
-        return None;
-    }
-    let (value_start, _) = value_span_in_line(code)?;
+/// Every entry of the inline table that is the value on `code` (nested
+/// ones too), `base` being the outer assignment's path; none when the
+/// value is no inline table.
+fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry> {
+    let mut entries = Vec::new();
+    let Some((value_start, _)) = value_span_in_line(code) else {
+        return entries;
+    };
     if !code[value_start..].starts_with('{') {
-        return None;
+        return entries;
     }
     let inner_start = value_start + 1;
     let inner_end = matching_brace(code, value_start)
         .unwrap_or(code.len())
         .max(inner_start);
-    let mut entries = Vec::new();
-    inline_entries(
-        &code[inner_start..inner_end],
-        inner_start,
-        base,
-        &mut entries,
-    );
+    inline_entries(&code[inner_start..inner_end], inner_start, base, &mut entries);
     entries
-        .into_iter()
-        .find(|entry| entry.path == wanted)
-        .map(|entry| (entry.key.0, entry.key.1, entry.value.0, entry.value.1))
+}
+
+/// The paths a batch of lookups wants, indexed: where each is, which are
+/// below a path, which tables hold one.
+struct Wanted {
+    count: usize,
+    /// Each path's positions in the list asked for.
+    exact: HashMap<Vec<String>, Vec<usize>>,
+    /// Every path some wanted one is strictly below.
+    above: std::collections::HashSet<Vec<String>>,
+}
+
+impl Wanted {
+    fn new(paths: &[String]) -> Self {
+        let mut exact: HashMap<Vec<String>, Vec<usize>> = HashMap::new();
+        let mut above = std::collections::HashSet::new();
+        for (at, path) in paths.iter().enumerate() {
+            let segments = pointer_segments(path);
+            for end in 0..segments.len() {
+                above.insert(segments[..end].to_vec());
+            }
+            exact.entry(segments).or_default().push(at);
+        }
+        Self { count: paths.len(), exact, above }
+    }
+
+    /// Whether a path at or below `path` is wanted.
+    fn at_or_below(&self, path: &[String]) -> bool {
+        self.above.contains(path) || self.exact.contains_key(path)
+    }
+}
+
+/// Spans found for a batch, each kept from the first line it is found on.
+struct Found {
+    spans: Vec<Option<(usize, usize, usize)>>,
+    missing: usize,
+}
+
+impl Found {
+    fn new(count: usize) -> Self {
+        Self { spans: vec![None; count], missing: count }
+    }
+
+    fn set(&mut self, at: &[usize], span: impl Fn() -> Option<(usize, usize, usize)>) {
+        for at in at {
+            if self.spans[*at].is_none() {
+                self.spans[*at] = span();
+                if self.spans[*at].is_some() {
+                    self.missing -= 1;
+                }
+            }
+        }
+    }
 }
 
 pub(super) fn toml_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
-    let wanted = pointer_segments(path);
+    toml_key_spans(source, &[path.to_string()]).pop().flatten()
+}
+
+/// [`toml_key_span`] for each of `paths`, reading the document once: each
+/// line's key looked up among the paths wanted, and the reading stops once
+/// each is found.
+pub(super) fn toml_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
+    let wanted = Wanted::new(paths);
+    let mut found = Found::new(wanted.count);
     let lines: Vec<&str> = source.lines().collect();
     let tables = table_paths(&lines);
+    let mut offset = 0;
     for (index, line) in lines.iter().enumerate() {
-        let table = path_strings(&tables[index]);
+        if found.missing == 0 {
+            break;
+        }
+        let line_offset = offset;
+        offset += line.len() + 1;
         let (code, _) = split_toml_comment(line);
         if let Some((key, start, end)) = key_assignment(code) {
+            let table = path_strings(&tables[index]);
             let mut full = table.clone();
-            for segment in split_key_path(&key).unwrap_or_else(|| vec![key.clone()]) {
-                full.push(segment);
-            }
-            if full == wanted {
-                let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
+            full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
+            if let Some(at) = wanted.exact.get(&full) {
                 // A dotted key (`websocket.bogus`) names its last segment.
                 let start = start + last_segment_start(&code[start..end]);
-                return Some(span_between(source, offset + start, offset + end));
+                found.set(at, || Some(span_between(source, line_offset + start, line_offset + end)));
             }
             // A dotted key below the path (`bogus.deep` for `/limits/bogus`)
             // names it with one of its segments.
-            if full.len() > wanted.len()
-                && full.starts_with(&wanted)
-                && wanted.len() > table.len()
-                && let Some((segment_start, segment_end)) =
-                    segment_range(&code[start..end], wanted.len() - table.len() - 1)
-            {
-                let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
-                return Some(span_between(source, offset + start + segment_start, offset + start + segment_end));
+            for length in table.len() + 1..full.len() {
+                if let Some(at) = wanted.exact.get(&full[..length]) {
+                    found.set(at, || {
+                        let (from, to) = segment_range(&code[start..end], length - table.len() - 1)?;
+                        Some(span_between(source, line_offset + start + from, line_offset + start + to))
+                    });
+                }
             }
             // `key = { nested = … }` keeps every nested key on this line.
-            if let Some((key_start, key_end, _, _)) = inline_entry_at(code, &full, &wanted) {
-                let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
-                return Some(span_between(source, offset + key_start, offset + key_end));
+            if wanted.above.contains(&full) {
+                for entry in inline_entries_on(code, &full) {
+                    if let Some(at) = wanted.exact.get(&entry.path) {
+                        found.set(at, || Some(span_between(source, line_offset + entry.key.0, line_offset + entry.key.1)));
+                    }
+                }
             }
         }
         // A `[table]` header's last segment names the table itself.
         if let Some((segments, _)) = parse_header(code)
-            && path_strings(&tables[index + 1]) == wanted
             && !segments.is_empty()
+            && let Some(at) = wanted.exact.get(&path_strings(&tables[index + 1]))
         {
-            let offset: usize = lines[..index].iter().map(|line| line.len() + 1).sum();
             let header_start = line.find('[').unwrap_or(0);
-            return Some(span_between(
-                source,
-                offset + header_start,
-                offset + line.len(),
-            ));
+            found.set(at, || Some(span_between(source, line_offset + header_start, line_offset + line.len())));
         }
     }
-    None
+    found.spans
 }
 
 pub(super) fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
@@ -548,17 +597,16 @@ pub(super) fn toml_value_span(source: &str, path: &str) -> Option<(usize, usize,
 }
 
 /// [`toml_value_span`] for each of `paths`, reading the document once: a
-/// line is looked at only while it is in a table some path still wanted
-/// lies under, and the reading stops once each is found.
+/// line is looked at only while it is in a table some path wanted lies
+/// under, and the reading stops once each is found.
 pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usize, usize, usize)>> {
-    let wanted: Vec<Vec<String>> = paths.iter().map(|path| pointer_segments(path)).collect();
-    let mut found = vec![None; wanted.len()];
-    let mut missing = wanted.len();
+    let wanted = Wanted::new(paths);
+    let mut found = Found::new(wanted.count);
     let mut tables = Tables::default();
     let mut table: Vec<String> = Vec::new();
     let mut offset = 0;
     for line in source.lines() {
-        if missing == 0 {
+        if found.missing == 0 {
             break;
         }
         let line_offset = offset;
@@ -571,8 +619,7 @@ pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(us
                 continue;
             }
         }
-        let under = |wanted: &Vec<String>| wanted.starts_with(&table);
-        if !wanted.iter().zip(&found).any(|(wanted, slot)| slot.is_none() && under(wanted)) {
+        if !wanted.at_or_below(&table) {
             continue;
         }
         let (code, _) = split_toml_comment(line);
@@ -581,43 +628,39 @@ pub(super) fn toml_value_spans(source: &str, paths: &[String]) -> Vec<Option<(us
         };
         let mut full = table.clone();
         full.extend(split_key_path(&key).unwrap_or_else(|| vec![key.clone()]));
-        for (slot, wanted) in found.iter_mut().zip(&wanted) {
-            if slot.is_some() || !wanted.starts_with(&full) {
-                continue;
-            }
-            *slot = line_value_span(source, code, line_offset, &full, wanted);
-            if slot.is_some() {
-                missing -= 1;
+        if let Some(at) = wanted.exact.get(&full) {
+            found.set(at, || {
+                let (start, end) = value_span_in_line(code)?;
+                Some(value_span_at(source, code, line_offset, start, end))
+            });
+        }
+        // A value nested in an inline table there.
+        if wanted.above.contains(&full) {
+            for entry in inline_entries_on(code, &full) {
+                let Some(at) = wanted.exact.get(&entry.path) else {
+                    continue;
+                };
+                let (start, end) = entry.value;
+                found.set(at, || {
+                    if start >= end && !code[start..].trim_start().starts_with(['{', '[']) {
+                        return None;
+                    }
+                    Some(value_span_at(source, code, line_offset, start, end))
+                });
             }
         }
     }
-    found
+    found.spans
 }
 
-/// The span of `wanted` on a line whose key path is `full`: its value, or a
-/// value nested in an inline table there. A container is marked at its
-/// opening bracket.
-fn line_value_span(
-    source: &str,
-    code: &str,
-    offset: usize,
-    full: &[String],
-    wanted: &[String],
-) -> Option<(usize, usize, usize)> {
-    let (start, end) = if full == wanted {
-        value_span_in_line(code)?
-    } else {
-        let (_, _, value_start, value_end) = inline_entry_at(code, full, wanted)?;
-        if value_start >= value_end && !code[value_start..].trim_start().starts_with(['{', '[']) {
-            return None;
-        }
-        (value_start, value_end)
-    };
+/// The span of the value from `start` to `end` of a line's `code` (at
+/// `offset`): a container is marked at its opening bracket.
+fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
     if code[start..].trim_start().starts_with(['{', '[']) {
         let (line_number, column) = line_column(source, offset + start);
-        return Some((line_number, column, column + 1));
+        return (line_number, column, column + 1);
     }
-    Some(span_between(source, offset + start, offset + end))
+    span_between(source, offset + start, offset + end)
 }
 
 pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {

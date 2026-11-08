@@ -133,6 +133,63 @@ test.describe('problem timing', () => {
     expect(failures).toEqual([]);
   });
 
+  test('H21-1/H21-2: 3000 host problems by path or range cost little to mount, update, edit or Edit as, in every language', async ({ page }) => {
+    test.setTimeout(900_000);
+    await open(page, { schema: '{}' });
+    const failures = [];
+    const languages = ['yaml', 'json', 'toml', 'hcl', 'xml'];
+    for (const language of languages) {
+      const text = longDocument(language);
+      const other = language === 'yaml' ? 'json' : 'yaml';
+      // Each step's longest task: none, then 3000 problems by path, then by
+      // range; each the shorter of two rounds (load only ever makes one longer).
+      const steps = {};
+      for (const kind of ['none', 'path', 'range', 'none', 'path', 'range']) {
+        const problems = kind === 'none' ? [] : hostProblems(text, kind);
+        const mount = await longestTask(page, () => mountEditor(page, language, text, problems));
+        if (kind !== 'none') {
+          await expect(page.locator('#scaled .config-editor__diagnostic-status')).toContainText('3000 warnings', { timeout: 60000 });
+        }
+        await page.waitForTimeout(1500);
+        const update = await longestTask(page, async () => {
+          await page.evaluate((list) => window.scaled.update({ hostDiagnostics: list }), problems.slice(1));
+          await page.waitForTimeout(800);
+        });
+        const edit = await longestTask(page, async () => {
+          await page.locator('#scaled .config-editor__input').focus();
+          await page.keyboard.press('Control+End');
+          await page.keyboard.press('x');
+          // The problems are placed again after the typing pause.
+          await page.waitForTimeout(1200);
+        });
+        const editAs = await longestTask(page, async () => {
+          await page.evaluate((as) => window.scaled.update({ editAs: as }), other);
+          await page.waitForTimeout(1500);
+        });
+        const back = await longestTask(page, async () => {
+          await page.evaluate(() => window.scaled.update({ editAs: null }));
+          await page.waitForTimeout(1500);
+        });
+        const round = { mount, update, edit, editAs, back };
+        steps[kind] = steps[kind]
+          ? Object.fromEntries(Object.entries(round).map(([step, took]) => [step, Math.min(took, steps[kind][step])]))
+          : round;
+      }
+      console.log(`${language}: longest task per step ${JSON.stringify(steps)}`);
+      // They took 0.8-30 s (each problem read the document again, a range
+      // its host text from the top); placing them now is a small part.
+      for (const kind of ['path', 'range']) {
+        for (const [step, took] of Object.entries(steps[kind])) {
+          if (took - steps.none[step] >= 250) {
+            failures.push(`${language} ${kind} ${step}: ${Math.round(took)} ms, ${Math.round(steps.none[step])} ms without problems`);
+          }
+        }
+      }
+    }
+    await page.evaluate(() => window.scaled?.destroy());
+    expect(failures).toEqual([]);
+  });
+
   test('U20-3: 400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
     test.setTimeout(120_000);
     const text = longDocument('yaml');
@@ -209,4 +266,42 @@ async function addHostRanges(page, text) {
   await page.evaluate((list) => window.editor.update({ hostDiagnostics: list }), problems);
   await expect(footer(page)).toContainText('750 hints', { timeout: 20000 });
   await page.waitForTimeout(1500);
+}
+
+/** 3000 host problems on `text` (from `longDocument`): at each item's two fields, by path or by a range from the key to its line's end. */
+function hostProblems(text, kind) {
+  if (kind === 'path') {
+    return Array.from({ length: 1500 }, (_, index) =>
+      ['n', 's'].map((field) => ({ path: `/items/i${index}/${field}`, severity: 'warning', message: `${field} ${index}` })),
+    ).flat();
+  }
+  const problems = [];
+  text.split('\n').forEach((line, index) => {
+    const key = line.search(/\b[ns]\b/);
+    if (key < 0 || problems.length >= 3000) return;
+    problems.push({
+      range: { startLine: index + 1, startColumn: key + 1, endLine: index + 1, endColumn: line.length + 1 },
+      severity: 'warning',
+      message: `line ${index + 1}`,
+    });
+  });
+  return problems;
+}
+
+/** Mounts a second editor (`window.scaled`) of `text` in `language` with `problems`, in place of the last one. */
+async function mountEditor(page, language, text, problems) {
+  await page.evaluate(
+    async ({ language, text, problems }) => {
+      const { ConfigEditor } = await import(new URL('../config-editor/index.js', location.href).href);
+      window.scaled?.destroy();
+      document.getElementById('scaled')?.remove();
+      const host = document.createElement('div');
+      host.id = 'scaled';
+      host.style.height = '400px';
+      document.body.append(host);
+      window.scaled = new ConfigEditor(host, { language, value: text, schema: '{}', hostDiagnostics: problems, showFooter: true });
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    },
+    { language, text, problems },
+  );
 }

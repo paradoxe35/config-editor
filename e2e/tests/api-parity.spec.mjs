@@ -114,6 +114,7 @@ const LANGUAGE = {
   serialize: { tool: 'serialize' },
   convert: { tool: 'convert' },
   range_of: { tool: 'rangeOf' },
+  ranges_of: { tool: 'rangesOf' },
   fold_ranges: { exempt: 'the editor folds by itself (`fold`, `foldAll`, `foldedLines`); a custom language describes its folds in Rust' },
   path_at: { tool: 'pathAt' },
 };
@@ -135,6 +136,7 @@ const CONFIG_LANGUAGE = {
   key_span: { custom: 'keySpan' },
   value_span: { custom: 'valueSpan' },
   value_spans: { custom: 'valueSpan' },
+  key_spans: { custom: 'keySpan' },
   first_span: { exempt: 'the first non-blank character: nothing the language says' },
   completion_context: { custom: ['separators', 'contextAt'] },
   existing_keys: { custom: ['separators', 'contextAt'] },

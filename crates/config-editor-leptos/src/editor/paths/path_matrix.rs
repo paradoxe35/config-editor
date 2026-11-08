@@ -144,6 +144,77 @@ fn range_of_selects_the_field_in_every_language() {
     report(failures);
 }
 
+/// QA 21: on a quoted key's closing quote (TOML), or just after a `}` in a
+/// string (HCL `"${x}"`), `path_at` gave the table or block around the
+/// field (so did a host range starting there).
+#[test]
+fn path_at_on_quoted_keys_and_interpolated_strings_gives_the_field() {
+    // (language, text, the field's path, its key and value as written)
+    let cases = [
+        (
+            Language::YAML,
+            "\"quoted key\": \"${x}\"\n",
+            "/quoted key",
+            ["\"quoted key\"", "\"${x}\""],
+        ),
+        (
+            Language::JSON,
+            "{\"quoted key\": \"${x}\"}\n",
+            "/quoted key",
+            ["\"quoted key\"", "\"${x}\""],
+        ),
+        (
+            Language::TOML,
+            "[t]\n\"quoted key\" = \"${x}\"\n",
+            "/t/quoted key",
+            ["\"quoted key\"", "\"${x}\""],
+        ),
+        (
+            Language::TOML,
+            "[t]\n'lit key' = 1\n",
+            "/t/lit key",
+            ["'lit key'", "1"],
+        ),
+        (
+            Language::HCL,
+            "b {\n  k = \"${x}\"\n}\n",
+            "/b/k",
+            ["k", "\"${x}\""],
+        ),
+        (
+            Language::HCL,
+            "b {\n  k = \"$${x}\"\n}\n",
+            "/b/k",
+            ["k", "\"$${x}\""],
+        ),
+        (
+            Language::XML,
+            "<b>\n  <k>${x}</k>\n</b>\n",
+            "/b/k",
+            ["k", "${x}"],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (language, text, pointer, written) in cases {
+        for part in written {
+            // On each of its characters.
+            let at = text.find(part).expect("written in the text");
+            let start = TextPosition::from_offset(text, at);
+            for column in start.column..start.column + part.chars().count() {
+                let found = language.path_at(text, TextPosition::new(start.line, column));
+                if found.as_ref().map(FieldPath::to_pointer).as_deref() != Some(pointer) {
+                    failures.push(format!(
+                        "{language} {part:?} at {}:{column}: {:?}",
+                        start.line,
+                        found.map(|path| path.to_pointer())
+                    ));
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
 #[test]
 fn path_at_anywhere_in_a_field_gives_its_path_back() {
     let mut failures = Vec::new();

@@ -87,6 +87,10 @@ impl ConfigLanguage for HclBehavior {
         hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
+    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
     /// A one-line block holds a single attribute; more open it over lines.
     fn keeps_forms(&self, previous: &str, patched: &str) -> bool {
         keeps_forms(previous, patched)
@@ -373,10 +377,7 @@ fn utf16(text: &str) -> usize {
 
 /// One-based line and character column of a byte offset.
 fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    let before = &source[..byte.min(source.len())];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
+    crate::editor::paths::line_column(source, byte)
 }
 
 

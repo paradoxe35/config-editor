@@ -232,7 +232,7 @@ fn continues_as_text(value: &str) -> bool {
 /// past `owner_indent`; the column counts on past this line, as a block
 /// scalar's does. `None` when it ends on its line.
 fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value: &str, owner_indent: usize) -> Option<usize> {
-    let line_start: usize = source.split_inclusive('\n').take(line_number - 1).map(str::len).sum();
+    let line_start = crate::editor::paths::line_start(source, line_number - 1);
     let full_line = source[line_start..].split('\n').next()?;
     let start = line_start + full_line.char_indices().nth(column - 1)?.0;
     let line_end = line_start + full_line.len();
@@ -324,11 +324,8 @@ pub(super) fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, u
     if parent.is_empty() || key.is_empty() {
         return None;
     }
-    let (_, parent_line, _, _) = path_lines(source)
-        .iter()
-        .find(|(candidate, _, _, _)| candidate == parent)
-        .cloned()?;
-    let text = source.lines().nth(parent_line.checked_sub(1)?)?;
+    let (parent_line, _, _) = path_line(source, parent)?;
+    let text = crate::editor::paths::text_line(source, parent_line.checked_sub(1)?)?;
     let value_begin = text.find(':')? + 1;
     let is_word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
     let mut search = value_begin;
@@ -353,24 +350,33 @@ pub(super) fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, u
     None
 }
 
-/// A key's path, line, and first and last columns (see [`yaml_path_lines`]).
-type PathLine = (Vec<String>, usize, usize, usize);
+/// [`yaml_path_lines`] by path: the line, first and last columns of the
+/// first key or item written at each.
+struct PathLines(std::collections::HashMap<Vec<String>, (usize, usize, usize)>);
 
 /// [`yaml_path_lines`] of `source`, read once for all the spans a batch
 /// of problems asks for (see `paths::batch_cached`).
-fn path_lines(source: &str) -> std::rc::Rc<Vec<PathLine>> {
-    crate::editor::paths::batch_cached(source, || yaml_path_lines(source))
+fn path_lines(source: &str) -> std::rc::Rc<PathLines> {
+    crate::editor::paths::batch_cached(source, || {
+        let mut found = std::collections::HashMap::new();
+        for (path, line, column, end_column) in yaml_path_lines(source) {
+            found.entry(path).or_insert((line, column, end_column));
+        }
+        PathLines(found)
+    })
+}
+
+/// Where the key or item at `wanted` is written: its line, first and last
+/// columns.
+fn path_line(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
+    path_lines(source).0.get(wanted).copied()
 }
 
 pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = crate::editor::language::pointer_segments(path);
     let key = wanted.last()?.clone();
 
-    if let Some((_, line, column, end_column)) = path_lines(source)
-        .iter()
-        .find(|(candidate, _, _, _)| *candidate == wanted)
-        .cloned()
-    {
+    if let Some((line, column, end_column)) = path_line(source, &wanted) {
         return Some((line, column, end_column));
     }
 
@@ -379,17 +385,33 @@ pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usi
     }
 
     // Last resort for paths the scanner cannot represent: first line with this key.
-    source.lines().enumerate().find_map(|(index, line)| {
-        let indent = line.len() - line.trim_start().len();
-        let (candidate, _) = line.trim_start().split_once(':')?;
-        if candidate.trim_matches(['\'', '"']) != key {
-            return None;
+    first_key_lines(source).0.get(&key).copied()
+}
+
+/// The first line written with each key (`key:` at its start), by key: its
+/// line, first and last columns.
+struct FirstKeyLines(std::collections::HashMap<String, (usize, usize, usize)>);
+
+/// [`FirstKeyLines`] of `source`, read once for a batch of problems.
+fn first_key_lines(source: &str) -> std::rc::Rc<FirstKeyLines> {
+    crate::editor::paths::batch_cached(source, || {
+        let mut found = std::collections::HashMap::new();
+        for (index, line) in source.lines().enumerate() {
+            let indent = line.len() - line.trim_start().len();
+            let Some((candidate, _)) = line.trim_start().split_once(':') else {
+                continue;
+            };
+            let Some(candidate_offset) = line[indent..].find(candidate) else {
+                continue;
+            };
+            let column = line[..indent].chars().count()
+                + line[indent..indent + candidate_offset].chars().count()
+                + 1;
+            found
+                .entry(candidate.trim_matches(['\'', '"']).to_string())
+                .or_insert((index + 1, column, column + candidate.chars().count()));
         }
-        let candidate_offset = line[indent..].find(candidate)?;
-        let column = line[..indent].chars().count()
-            + line[indent..indent + candidate_offset].chars().count()
-            + 1;
-        Some((index + 1, column, column + candidate.chars().count()))
+        FirstKeyLines(found)
     })
 }
 
@@ -400,12 +422,8 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     }
     // Only block-structured entries have a value slot on their line. Inline
     // mapping keys resolve through `yaml_span_for_path`, which points at the key.
-    let (line_number, key_column) = path_lines(source)
-        .iter()
-        .find(|(candidate, _, _, _)| *candidate == wanted)
-        .cloned()
-        .map(|(_, line, column, _)| (line, column))?;
-    let line = source.lines().nth(line_number.saturating_sub(1))?;
+    let (line_number, key_column, _) = path_line(source, &wanted)?;
+    let line = crate::editor::paths::text_line(source, line_number.saturating_sub(1))?;
     // The key starts after the line's indentation and dashes (ASCII), so its
     // column is its byte offset; the value ends before a trailing comment.
     let key_start = line.char_indices().nth(key_column - 1)?.0;
@@ -438,10 +456,11 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
     if !is_block_scalar(&value[node_properties_len(value)..]) {
         return None;
     }
-    let full_line = source.lines().nth(line_number - 1)?;
+    let full_line = crate::editor::paths::text_line(source, line_number - 1)?;
     let mut end_chars = full_line.chars().count() + 1;
     let mut text_end = full_line.chars().count();
-    for next in source.lines().skip(line_number) {
+    let below = crate::editor::paths::line_start(source, line_number);
+    for next in source[below..].lines() {
         let indent = next.len() - next.trim_start().len();
         if !next.trim().is_empty() && indent <= owner_indent {
             break;
@@ -460,12 +479,8 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
 pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
     let (last, _) = wanted.split_last()?;
     last.parse::<usize>().ok()?;
-    let (line_number, column) = path_lines(source)
-        .iter()
-        .find(|(candidate, _, _, _)| candidate.as_slice() == wanted)
-        .cloned()
-        .map(|(_, line, column, _)| (line, column))?;
-    let line = source.lines().nth(line_number - 1)?;
+    let (line_number, column, _) = path_line(source, wanted)?;
+    let line = crate::editor::paths::text_line(source, line_number - 1)?;
     // After the line's indentation and dashes (ASCII): the column is a byte
     // offset. An item holding a map (`- k: v`) has a key there.
     let start = line.char_indices().nth(column - 1).map_or(line.len(), |(at, _)| at);

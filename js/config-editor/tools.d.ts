@@ -5,6 +5,7 @@ export {
   pathAt,
   presetCss,
   rangeOf,
+  rangesOf,
   schemaWarnings,
   serialize,
   unifiedDiff,

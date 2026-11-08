@@ -36,6 +36,7 @@ mod mount;
 mod options;
 mod protect;
 mod settings;
+mod text_lines;
 mod typings;
 mod update;
 mod values;

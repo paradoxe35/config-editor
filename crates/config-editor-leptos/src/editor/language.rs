@@ -931,6 +931,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// [`key_span`](Self::key_span) for each of `pointers`. A language
+    /// whose lookup reads the whole document overrides it to read it once
+    /// (problems by the thousand are placed with it).
+    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        pointers
+            .iter()
+            .map(|pointer| self.key_span(source, pointer))
+            .collect()
+    }
+
     /// [`value_span`](Self::value_span) for each of `pointers`. A language
     /// whose lookup reads the whole document overrides it to read it once.
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {

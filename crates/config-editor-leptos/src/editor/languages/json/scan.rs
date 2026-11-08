@@ -53,6 +53,7 @@ impl Frame {
 }
 
 /// The parser state at the caret.
+#[derive(Debug)]
 pub(super) struct Snapshot {
     /// Path of the container holding the caret.
     pub(super) path: Vec<Seg>,
@@ -72,6 +73,10 @@ pub(super) struct Scan {
     pub(super) key_spans: Vec<(Vec<String>, usize, usize)>,
     /// Byte spans of every value, keyed by its document path.
     pub(super) value_spans: Vec<(Vec<String>, usize, usize)>,
+    /// Whether the spans are recorded (only the caret's place is wanted
+    /// otherwise: building every key's path took most of a keystroke in a
+    /// long document).
+    spans: bool,
 }
 
 pub(super) fn with_segment(mut path: Vec<Seg>, segment: Seg) -> Vec<Seg> {
@@ -98,6 +103,10 @@ pub(super) fn container_path(frames: &[Frame]) -> Vec<Seg> {
 /// Records a value starting at `start..end` in the innermost frame and moves that
 /// frame past it. Scalars and containers both come through here.
 pub(super) fn take_value(frames: &mut [Frame], scan: &mut Scan, start: usize, end: usize) {
+    if !scan.spans {
+        move_past_value(frames);
+        return;
+    }
     let parent = container_path(frames);
     match frames.last_mut() {
         None => scan.value_spans.push((Vec::new(), start, end)),
@@ -133,9 +142,44 @@ pub(super) fn take_value(frames: &mut [Frame], scan: &mut Scan, start: usize, en
     }
 }
 
+/// [`take_value`] without recording the value's span.
+fn move_past_value(frames: &mut [Frame]) {
+    match frames.last_mut() {
+        Some(Frame::Object { mode, slot, .. }) => {
+            if let Mode::Value(key) = mode.clone() {
+                *slot = Some(Seg::Key(key));
+                *mode = Mode::After;
+            }
+        }
+        Some(Frame::Array {
+            index,
+            awaiting,
+            slot,
+            ..
+        }) if *awaiting => {
+            *slot = Some(Seg::Index(*index));
+            *awaiting = false;
+        }
+        _ => {}
+    }
+}
+
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
-/// state at `cursor` (a byte offset).
+/// state at `cursor` (a byte offset), with the span of every key and value.
 pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
+    scan(source, cursor, true)
+}
+
+/// [`analyze`] for the caret alone: its place and the keys written, no
+/// spans (completion and the caret's path, on every keystroke).
+pub(super) fn analyze_caret(source: &str, cursor: usize) -> Scan {
+    scan(source, cursor, false)
+}
+
+fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
+    if spans {
+        crate::editor::work_count::note(crate::editor::work_count::Work::SpanScan);
+    }
     let tokens = tokenize(source);
     let partial_index = tokens.iter().position(|token| {
         token.start < cursor
@@ -144,7 +188,10 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
     });
     let mut frames: Vec<Frame> = Vec::new();
     let mut next_id = 0usize;
-    let mut scan = Scan::default();
+    let mut scan = Scan {
+        spans,
+        ..Scan::default()
+    };
 
     for (index, token) in tokens.iter().enumerate() {
         let is_partial = partial_index == Some(index);
@@ -168,9 +215,11 @@ pub(super) fn analyze(source: &str, cursor: usize) -> Scan {
                     })
                 );
                 if in_key_slot {
-                    let path = with_segment(container_path(&frames), Seg::Key(name.clone()));
-                    scan.key_spans
-                        .push((strings(&path), token.start, token.end));
+                    if scan.spans {
+                        let path = with_segment(container_path(&frames), Seg::Key(name.clone()));
+                        scan.key_spans
+                            .push((strings(&path), token.start, token.end));
+                    }
                     if !is_partial && let Some(frame) = frames.last() {
                         scan.keys.push((frame.id(), name.clone(), token.start));
                     }
@@ -247,10 +296,7 @@ pub(super) fn utf16(text: &str) -> usize {
 
 /// One-based line and character column of a byte offset.
 pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    let before = &source[..byte];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
+    crate::editor::paths::line_column(source, byte)
 }
 
 /// One-line JSON, spaced as people write it: `{"a": 1, "b": [1, 2]}`.

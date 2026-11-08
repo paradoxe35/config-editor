@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let scan = analyze(source, cursor);
+    let scan = analyze_caret(source, cursor);
     let Some(snapshot) = scan.snapshot.clone() else {
         unreachable!("analyze always captures a snapshot");
     };

@@ -689,9 +689,10 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         let key = unquote_key(&line[entry.start..entry.end]);
         return Some((key, line[..entry.start].chars().count()));
     }
-    let (key, start, _) = key_assignment(code)?;
+    let (key, start, end) = key_assignment(code)?;
     let start_column = line[..start].chars().count();
-    let end_column = start_column + line[start..start + key.len()].chars().count();
+    // Up to the key as written (a quoted key's quotes too).
+    let end_column = line[..end].chars().count();
     let dotted = split_key_path(&key).unwrap_or_else(|| vec![key.clone()]);
     if dotted.len() > 1 {
         let mut offset = start_column;

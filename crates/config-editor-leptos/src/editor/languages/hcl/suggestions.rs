@@ -124,10 +124,16 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let before_caret = &line[..caret_in_line];
 
     // Right after a block's `}` on its line (`}|`, `}h|`): no entry can start
-    // there.
-    if before_caret
-        .trim_end_matches(|character: char| character.is_alphanumeric() || matches!(character, '_' | '-'))
-        .ends_with('}')
+    // there (a `}` closing an interpolation inside a string is no block's).
+    let in_string = super::tokens::tokenize(line).iter().any(|token| {
+        matches!(token.kind, super::tokens::Kind::Str { .. })
+            && token.start < caret_in_line
+            && caret_in_line < token.end
+    });
+    if !in_string
+        && before_caret
+            .trim_end_matches(|character: char| character.is_alphanumeric() || matches!(character, '_' | '-'))
+            .ends_with('}')
     {
         return CompletionContext {
             path,

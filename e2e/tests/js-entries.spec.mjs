@@ -26,6 +26,7 @@ const ENTRIES = {
     'pathAt',
     'presetCss',
     'rangeOf',
+    'rangesOf',
     'schemaWarnings',
     'serialize',
     'unifiedDiff',

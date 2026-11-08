@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
-    let scan = analyze(source, cursor);
+    let scan = analyze_caret(source, cursor);
     let Some(snapshot) = scan.snapshot else {
         unreachable!("analyze always captures a snapshot");
     };
@@ -174,7 +174,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
 /// Keys already present in the object holding the caret. The partly typed key
 /// is not counted, so it can still be completed.
 pub(super) fn existing_keys(source: &str, cursor_byte: usize) -> Option<HashSet<String>> {
-    let scan = analyze(source, cursor_byte);
+    let scan = analyze_caret(source, cursor_byte);
     let Some(Frame::Object { id, .. }) = scan.snapshot?.frame else {
         return None;
     };

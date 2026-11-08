@@ -82,7 +82,7 @@ editor.foldAll(); editor.unfoldAll();
 const folded: boolean = editor.fold(["clients"]) && editor.unfold("/web/listen");
 // Parity with the Rust API: feature switches, the instance's text and folds, the catalogs and tools.
 import { languageForFile, languages, themes, type EditorSettings, type LanguageInfo, type ThemeColorMap, type ThemeInfo } from "@pngwasi/config-editor";
-import { changeSummary, parse, pathAt, presetCss, rangeOf, schemaWarnings, serialize, type EditorPath, type EditorRange, type LineRange } from "@pngwasi/config-editor/tools";
+import { changeSummary, parse, pathAt, presetCss, rangeOf, rangesOf, schemaWarnings, serialize, type EditorPath, type EditorRange, type LineRange } from "@pngwasi/config-editor/tools";
 declare const text: string;
 const viewer = new ConfigEditor(element, {
   value: text, readOnly: true, styled: false, saveShortcut: false,
@@ -95,6 +95,7 @@ const counted: number = changeSummary("a\n", "b\n").hunks;
 const data: unknown = parse("toml", "[web]\nhttp = 80\n");
 const hcl: string = serialize("hcl", { web: { http: 80 } });
 const where: EditorRange | null = rangeOf("yaml", "web:\n  http: 80\n", "/web/http");
+const wheres: (EditorRange | null)[] = rangesOf("yaml", "web:\n  http: 80\n", ["/web/http", ["web"]]);
 const at: EditorPath | null = pathAt("yaml", "web:\n  http: 80\n", 12);
 const yaml: LanguageInfo | undefined = languages().find((language) => language.extensions.includes("yml")); const fileLanguage: string | null = languageForFile("deploy/main.tf");
 const nord: ThemeInfo | undefined = themes().find((theme) => theme.name === "nord"); const css: string = presetCss();
@@ -102,7 +103,7 @@ const dark: boolean = themes()[0].dark; const tokens: ThemeColorMap = { bg: "#10
 // @ts-expect-error: a colour token that does not exist
 const typo: ThemeColorMap = { backgrund: "#000" };
 const warnings: string[] = schemaWarnings(schemaText);
-void [onScreen, folds, counted, data, hcl, where, at, typo, yaml, fileLanguage, nord, css, dark, tokens, warnings];
+void [onScreen, folds, counted, data, hcl, where, wheres, at, typo, yaml, fileLanguage, nord, css, dark, tokens, warnings];
 // Several documents.
 import { ConfigDocuments, type DocumentSpec } from "@pngwasi/config-editor";
 declare function putFile(id: string, text: string): Promise<void>; declare const mainText: string;

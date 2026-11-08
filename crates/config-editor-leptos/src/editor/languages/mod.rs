@@ -148,6 +148,8 @@ mod typing_matrix;
 #[derive(Clone, Copy)]
 pub struct Language(&'static dyn ConfigLanguage);
 
+#[cfg(all(test, feature = "json", feature = "xml"))]
+mod caret_scan_tests;
 /// Declares the built-in languages: per line, the feature that enables it,
 /// its constant, and its implementation.
 // Changed strings keep the host's escapes.
@@ -354,6 +356,40 @@ impl Language {
     pub fn range_of(self, source: &str, path: impl Into<FieldPath>) -> Option<TextRange> {
         let source = line_breaks::as_lf(source);
         paths::field_range(self.0, &source, &path.into().to_pointer())
+    }
+
+    /// [`range_of`](Self::range_of) for each of `paths`, reading `source`
+    /// once for all of them (each `range_of` reads it again).
+    ///
+    /// ```
+    /// # #[cfg(feature = "yaml")] {
+    /// use config_editor_leptos::Language;
+    /// let text = "web:\n  http: 80\n  https: 443\n";
+    /// let ranges = Language::YAML.ranges_of(text, ["/web/http", "/web/https", "/none"]);
+    /// assert_eq!(ranges[1].unwrap().slice(text), "https: 443");
+    /// assert_eq!(ranges[2], None);
+    /// # }
+    /// ```
+    pub fn ranges_of<P: Into<FieldPath>>(
+        self,
+        source: &str,
+        paths: impl IntoIterator<Item = P>,
+    ) -> Vec<Option<TextRange>> {
+        let pointers: Vec<String> = paths
+            .into_iter()
+            .map(|path| path.into().to_pointer())
+            .collect();
+        // A list written as repeated elements is found by its first item.
+        let wanted: Vec<String> = pointers
+            .iter()
+            .flat_map(|pointer| [pointer.clone(), format!("{pointer}/0")])
+            .collect();
+        paths::with_spans(self.0, source, &wanted, || {
+            pointers
+                .iter()
+                .map(|pointer| paths::field_range(self.0, source, pointer))
+                .collect()
+        })
     }
 
     /// The line ranges of `source` that fold (see

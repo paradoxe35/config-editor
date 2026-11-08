@@ -584,11 +584,7 @@ pub(super) fn inline_location(
         let Some(span) = super::paths::memo_value_span(behavior, source, &ancestor) else {
             continue;
         };
-        let line_start: usize = source
-            .split_inclusive('\n')
-            .take(span.line.saturating_sub(1))
-            .map(str::len)
-            .sum();
+        let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
         let start = line_start
             + source[line_start..]
                 .char_indices()
@@ -614,9 +610,7 @@ pub(super) fn inline_location(
             Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
             _ => to,
         };
-        let line = source[..from].matches('\n').count() + 1;
-        let from_line = source[..from].rfind('\n').map_or(0, |index| index + 1);
-        let column = source[from_line..from].chars().count() + 1;
+        let (line, column) = super::paths::line_column(source, from);
         let to_column = if source[from..to].contains('\n') {
             column + 1
         } else {

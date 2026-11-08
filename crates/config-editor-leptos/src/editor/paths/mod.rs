@@ -4,14 +4,13 @@
 //! (`key_span`, `value_span`, `hover_path`, `completion_context`), so a
 //! language gets them by implementing those.
 
+mod lines;
 mod span_memo;
 mod types;
 
-#[cfg(any(feature = "yaml", feature = "json"))]
-pub(crate) use span_memo::batch_cached;
-pub(crate) use span_memo::value_span as memo_value_span;
-#[cfg(feature = "schema-validation")]
-pub(crate) use span_memo::with_value_spans;
+pub(crate) use lines::{Lines, line_column, line_start, lines, split_line, text_line};
+pub(crate) use span_memo::{batch_cached, in_batch, with_spans};
+pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};
 
 use super::codec::inline_location;
@@ -34,7 +33,8 @@ fn spellings(behavior: &dyn ConfigLanguage, pointer: &str) -> Vec<String> {
 
 /// The key written for `pointer`, inside an inline container or not.
 fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
-    inline_location(behavior, source, pointer, true).or_else(|| behavior.key_span(source, pointer))
+    inline_location(behavior, source, pointer, true)
+        .or_else(|| memo_key_span(behavior, source, pointer))
 }
 
 /// The value written for `pointer`, inside an inline container or not.
@@ -45,10 +45,7 @@ fn value_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
 
 /// Characters of line `line` (one-based) up to its last non-blank one.
 fn trimmed_width(source: &str, line: usize) -> usize {
-    source
-        .split('\n')
-        .nth(line.saturating_sub(1))
-        .map_or(0, |text| text.trim_end().chars().count())
+    split_line(source, line.saturating_sub(1)).map_or(0, |text| text.trim_end().chars().count())
 }
 
 fn range(span: Span) -> TextRange {
@@ -116,9 +113,7 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
     }) else {
         return Some(key);
     };
-    let line: Vec<char> = source
-        .split('\n')
-        .nth(key.line - 1)
+    let line: Vec<char> = split_line(source, key.line - 1)
         .unwrap_or("")
         .chars()
         .collect();
@@ -168,7 +163,7 @@ pub(crate) fn problem_span(
     let locate = |path: &str| {
         if required {
             inline_location(behavior, source, path, true)
-                .or_else(|| behavior.key_span(source, path))
+                .or_else(|| memo_key_span(behavior, source, path))
                 .or_else(|| memo_value_span(behavior, source, path))
         } else {
             inline_location(behavior, source, path, false)
@@ -177,7 +172,7 @@ pub(crate) fn problem_span(
                         !written_as_block || span.start_column <= trimmed_width(source, span.line)
                     })
                 })
-                .or_else(|| behavior.key_span(source, path))
+                .or_else(|| memo_key_span(behavior, source, path))
                 .or_else(|| memo_value_span(behavior, source, path))
         }
     };

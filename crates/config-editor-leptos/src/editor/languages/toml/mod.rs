@@ -115,6 +115,10 @@ impl ConfigLanguage for TomlBehavior {
         toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
+    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
+        toml_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
     fn first_span(&self, source: &str) -> Option<Span> {
         first_line_span(source).map(Span::from)
     }
@@ -313,10 +317,7 @@ fn utf16(text: &str) -> usize {
 
 /// One-based line and character column of a byte offset.
 fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    let before = &source[..byte.min(source.len())];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
+    crate::editor::paths::line_column(source, byte)
 }
 
 

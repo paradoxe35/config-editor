@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use super::diagnostics::{Diagnostic, Severity};
 use super::paths::{FieldPath, TextRange};
 
+mod fields;
 mod place;
 pub(super) use place::{RangeText, place};
 
@@ -153,6 +154,15 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
     feature = "hcl",
     feature = "xml"
 ))]
+mod fields_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod range_tests;
 #[cfg(all(
     test,
@@ -191,3 +201,12 @@ pub fn is_web_url(url: &str) -> bool {
     let host = host.split(':').next().unwrap_or_default();
     !host.is_empty() && !host.contains(char::is_whitespace)
 }
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod batch_tests;

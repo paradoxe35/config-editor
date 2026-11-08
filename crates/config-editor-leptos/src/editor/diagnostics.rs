@@ -656,7 +656,7 @@ pub(super) fn validate_with(
         };
         // The errors shown (enough for the cap), then where each is
         // written: the spans of their values read at once (see
-        // `paths::with_value_spans`), not a read of the document each.
+        // `paths::with_spans`), not a read of the document each.
         let mut tops = Vec::new();
         let mut shown = 0;
         for top in schema.validator.iter_errors(&validated) {
@@ -698,7 +698,7 @@ pub(super) fn validate_with(
             .flat_map(|top| specific_errors(top))
             .map(|error| error.instance_path().as_str().to_string())
             .collect();
-        let mut diagnostics = super::paths::with_value_spans(behavior, source, &pointers, || {
+        let mut diagnostics = super::paths::with_spans(behavior, source, &pointers, || {
             tops.iter()
                 .flat_map(|top| {
                     specific_errors(top)

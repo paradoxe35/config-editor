@@ -427,6 +427,8 @@ extern "C" {
     pub type Names;
     #[wasm_bindgen(typescript_type = "EditorRange | null")]
     pub type RangeResult;
+    #[wasm_bindgen(typescript_type = "(EditorRange | null)[]")]
+    pub type RangeResults;
     #[wasm_bindgen(typescript_type = "EditorPath | null")]
     pub type PathResult;
     #[wasm_bindgen(typescript_type = "ChangeSummary")]

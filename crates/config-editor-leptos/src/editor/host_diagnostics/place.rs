@@ -1,6 +1,11 @@
 //! Placing the host's problems in the text on screen: a path where the
 //! field is written, a range where it is (or, while editing as another
 //! language, at the field it starts in).
+//!
+//! However many problems there are, each text is read once: the spans of
+//! every field asked for are read together (`paths::with_spans`), and so
+//! are the lines (thousands of problems, each reading a long document
+//! again, took seconds after every edit).
 
 use std::collections::HashSet;
 
@@ -8,8 +13,10 @@ use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
 use super::super::language::ConfigLanguage;
-use super::super::paths::{TextRange, path_at, problem_span};
-use super::super::work_count::{Work, note};
+use super::super::paths::{
+    Lines, TextRange, lines, memo_key_span, path_at, problem_span, split_line, with_spans,
+};
+use super::fields::{HostFields, fields};
 use super::{DiagnosticTarget, HostDiagnostic, is_web_url};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -27,6 +34,17 @@ pub(in crate::editor) enum RangeText<'a> {
 /// `end_line` only when it ends on a later line.
 type Position = (usize, usize, Option<usize>, usize);
 
+/// What a problem is placed by on screen.
+enum Target {
+    /// The field at a pointer: on its key when `on_key`, else where a
+    /// problem with it is marked.
+    Field { pointer: String, on_key: bool },
+    /// A range of the text on screen.
+    Covered(TextRange),
+    /// Nothing on screen: the footer.
+    Nowhere,
+}
+
 /// `problems` as diagnostics on `source` (the text on screen, in `behavior`):
 /// a path where the field is written, as schema problems are marked (the
 /// value, or the key of a block); a range over the lines it covers when
@@ -43,102 +61,155 @@ pub(in crate::editor) fn place(
     if problems.is_empty() {
         return Vec::new();
     }
-    let by_field = |problem: &HostDiagnostic| match problem.target {
-        DiagnosticTarget::Path(_) => true,
-        DiagnosticTarget::Range(_) => matches!(ranges, RangeText::Host(..)),
-        DiagnosticTarget::Document => false,
-    };
-    let document = problems
+    let targets = targets(problems, ranges);
+    let pointers: Vec<String> = targets
         .iter()
-        .any(by_field)
+        .filter_map(|target| match target {
+            Target::Field { pointer, .. } => Some(pointer.clone()),
+            _ => None,
+        })
+        .collect();
+    let document = (!pointers.is_empty())
         .then(|| behavior.parse(source).ok())
         .flatten();
-    let at_field = |pointer: &str| -> Option<Position> {
-        let written_as_block = match document
-            .as_ref()
-            .and_then(|document| document.pointer(pointer))
-        {
-            Some(Value::Object(map)) => !map.is_empty(),
-            Some(Value::Array(items)) => !items.is_empty(),
-            _ => false,
-        };
-        // A block is marked on its key (not on the brace opening it).
-        written_as_block
-            .then(|| behavior.key_span(source, pointer))
-            .flatten()
-            .or_else(|| problem_span(behavior, source, pointer, false, written_as_block))
-            .map(|span| (span.line, span.start_column, None, span.end_column))
-    };
-    // The lines on screen, split once for every range (not per range: three
-    // thousand ranges in a long document took a quarter of a second).
-    let mut lines: Option<Vec<&str>> = None;
-    let mut placed: Vec<Diagnostic> = Vec::new();
-    let mut seen = HashSet::new();
-    for problem in problems {
-        let mut message = problem.message.clone();
-        let position = match &problem.target {
-            DiagnosticTarget::Path(path) if path.is_root() => None,
-            DiagnosticTarget::Path(path) => {
-                let pointer = path.to_pointer();
-                let position = at_field(&pointer);
-                if position.is_none() {
-                    // Told apart from the same message at another field.
-                    message = fill(
-                        &strings.problem_at_path,
-                        &[("path", &pointer), ("message", &message)],
-                    );
+    with_spans(behavior, source, &pointers, || {
+        let lines = lines(source);
+        let mut placed: Vec<Diagnostic> = Vec::new();
+        let mut seen = HashSet::new();
+        for (problem, target) in problems.iter().zip(targets) {
+            let mut message = problem.message.clone();
+            let position = match target {
+                Target::Field { pointer, on_key } => {
+                    let key = on_key
+                        .then(|| memo_key_span(behavior, source, &pointer))
+                        .flatten()
+                        .map(|span| (span.line, span.start_column, None, span.end_column));
+                    let position =
+                        key.or_else(|| at_field(behavior, source, document.as_ref(), &pointer));
+                    if position.is_none() && matches!(problem.target, DiagnosticTarget::Path(_)) {
+                        // Told apart from the same message at another field.
+                        message = fill(
+                            &strings.problem_at_path,
+                            &[("path", &pointer), ("message", &message)],
+                        );
+                    }
+                    position
                 }
-                position
+                Target::Covered(range) => covered(source, &lines, range),
+                Target::Nowhere => None,
+            };
+            let diagnostic = Diagnostic {
+                line: position.map(|(line, ..)| line),
+                column: position.map(|(_, column, ..)| column),
+                end_line: position.and_then(|(_, _, end_line, _)| end_line),
+                end_column: position.map(|(.., end)| end),
+                message,
+                severity: problem.severity,
+                origin: DiagnosticOrigin::Host,
+                code: problem.code.clone(),
+                source: Some(problem.source.clone().unwrap_or_else(|| "host".to_string())),
+                // A link opens only a web page (never `javascript:`).
+                docs_url: problem.docs_url.clone().filter(|url| is_web_url(url)),
+                ..Diagnostic::default()
+            };
+            if seen.insert(diagnostic.clone()) {
+                placed.push(diagnostic);
             }
-            DiagnosticTarget::Range(range) => match ranges {
-                RangeText::OnScreen => covered(
-                    lines.get_or_insert_with(|| {
-                        note(Work::LineSplit);
-                        source.split('\n').collect()
-                    }),
-                    *range,
-                ),
-                RangeText::Host(host, text) => {
-                    through_field(behavior, source, (host, text), *range, &at_field)
-                }
-            },
-            DiagnosticTarget::Document => None,
-        };
-        let diagnostic = Diagnostic {
-            line: position.map(|(line, ..)| line),
-            column: position.map(|(_, column, ..)| column),
-            end_line: position.and_then(|(_, _, end_line, _)| end_line),
-            end_column: position.map(|(.., end)| end),
-            message,
-            severity: problem.severity,
-            origin: DiagnosticOrigin::Host,
-            code: problem.code.clone(),
-            source: Some(problem.source.clone().unwrap_or_else(|| "host".to_string())),
-            // A link opens only a web page (never `javascript:`).
-            docs_url: problem.docs_url.clone().filter(|url| is_web_url(url)),
-            ..Diagnostic::default()
-        };
-        if seen.insert(diagnostic.clone()) {
-            placed.push(diagnostic);
         }
-    }
-    placed
+        placed
+    })
 }
 
-/// Where `range` is in the text of `lines`, kept inside it: from its start
-/// to its end, over every line between. A range ending at the start of a
-/// line ends at the end of the line before; one ending past the text, at
-/// the end of its last line. `None` when it starts past the last line.
-fn covered(lines: &[&str], range: TextRange) -> Option<Position> {
+/// What each of `problems` is placed by: a path's field; a range, where
+/// the text on screen is the host's, else the field it starts in (every
+/// range's found in one read of the host's text).
+fn targets(problems: &[HostDiagnostic], ranges: RangeText<'_>) -> Vec<Target> {
+    let of_path = |problem: &HostDiagnostic| match &problem.target {
+        DiagnosticTarget::Path(path) if !path.is_root() => Target::Field {
+            pointer: path.to_pointer(),
+            on_key: false,
+        },
+        _ => Target::Nowhere,
+    };
+    let RangeText::Host(host, text) = ranges else {
+        return problems
+            .iter()
+            .map(|problem| match &problem.target {
+                DiagnosticTarget::Range(range) => Target::Covered(*range),
+                _ => of_path(problem),
+            })
+            .collect();
+    };
+    let has_ranges = problems
+        .iter()
+        .any(|problem| matches!(problem.target, DiagnosticTarget::Range(_)));
+    if !has_ranges {
+        return problems.iter().map(of_path).collect();
+    }
+    let host_fields = host
+        .parse(text)
+        .map(|document| fields(&document))
+        .unwrap_or_default();
+    let pointers: Vec<String> = host_fields
+        .iter()
+        .map(|(pointer, _)| pointer.clone())
+        .collect();
+    with_spans(host, text, &pointers, || {
+        let written = HostFields::new(host, text, host_fields);
+        problems
+            .iter()
+            .map(|problem| match &problem.target {
+                DiagnosticTarget::Range(range) => field_of(host, text, &written, *range).map_or(
+                    Target::Nowhere,
+                    |(pointer, on_key)| Target::Field { pointer, on_key },
+                ),
+                _ => of_path(problem),
+            })
+            .collect()
+    })
+}
+
+/// Where a problem with the field at `pointer` goes, as schema problems
+/// are marked: the value, or the key of a block.
+fn at_field(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    document: Option<&Value>,
+    pointer: &str,
+) -> Option<Position> {
+    let written_as_block = match document.and_then(|document| document.pointer(pointer)) {
+        Some(Value::Object(map)) => !map.is_empty(),
+        Some(Value::Array(items)) => !items.is_empty(),
+        _ => false,
+    };
+    // A block is marked on its key (not on the brace opening it).
+    written_as_block
+        .then(|| memo_key_span(behavior, source, pointer))
+        .flatten()
+        .or_else(|| problem_span(behavior, source, pointer, false, written_as_block))
+        .map(|span| (span.line, span.start_column, None, span.end_column))
+}
+
+/// Where `range` is in `source` (`split` into its lines), kept inside it: from its start to its
+/// end, over every line between. A range ending at the start of a line
+/// ends at the end of the line before; one ending past the text, at the
+/// end of its last line. `None` when it starts past the last line.
+fn covered(source: &str, split: &Lines, range: TextRange) -> Option<Position> {
+    let lines = split.count();
     // One past the last character of line `line` (one-based).
-    let width = |line: usize| lines[line - 1].chars().count() + 1;
+    let width = |line: usize| {
+        split
+            .line(source, line - 1)
+            .map_or(0, |text| text.chars().count())
+            + 1
+    };
     let line = range.start.line.max(1);
-    if line > lines.len() {
+    if line > lines {
         return None;
     }
     let start = range.start.column.clamp(1, width(line));
-    let (mut end_line, mut end) = if range.end.line > lines.len() {
-        (lines.len(), usize::MAX)
+    let (mut end_line, mut end) = if range.end.line > lines {
+        (lines, usize::MAX)
     } else {
         (range.end.line.max(line), range.end.column)
     };
@@ -156,40 +227,39 @@ fn covered(lines: &[&str], range: TextRange) -> Option<Position> {
     Some((line, start, Some(end_line), end))
 }
 
-/// Where `range` of the host's text goes in `source` (another language):
-/// at the field it starts in, on its key when it starts on the key, else
-/// where a problem with that field is marked. `None` when it starts in no
-/// field (past the text, or at the top level).
-fn through_field(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    (host, text): (&'static dyn ConfigLanguage, &str),
+/// The field of the host's `text` that `range` starts in, and whether it
+/// starts on its key: looked up where the fields are `written` when it
+/// starts on a key or a value, else read from the text. `None` when it
+/// starts in no field (past the text, or at the top level).
+fn field_of(
+    host: &'static dyn ConfigLanguage,
+    text: &str,
+    written: &HostFields,
     range: TextRange,
-    at_field: &dyn Fn(&str) -> Option<Position>,
-) -> Option<Position> {
-    let line_text = text.split('\n').nth(range.start.line.saturating_sub(1))?;
+) -> Option<(String, bool)> {
+    let line_text = split_line(text, range.start.line.saturating_sub(1))?;
     // Starting in the line's indentation (a whole line selected from its
     // start), it starts at the field written on that line.
-    let mut range = range;
+    let mut start = range.start;
     let indent = line_text
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
-    if range.start.column <= indent && indent < line_text.chars().count() {
-        range.start.column = indent + 1;
+    if start.column <= indent && indent < line_text.chars().count() {
+        start.column = indent + 1;
     }
-    let path = path_at(host, text, range.start.to_offset(text))?;
-    if path.is_root() {
-        return None;
-    }
-    let pointer = path.to_pointer();
-    let on_key = host.key_span(text, &pointer).is_some_and(|key| {
-        key.line == range.start.line
-            && (key.start_column..key.end_column).contains(&range.start.column)
+    let pointer = match written.at(start) {
+        Some(pointer) => pointer.to_string(),
+        None => {
+            let path = path_at(host, text, start.to_offset(text))?;
+            if path.is_root() {
+                return None;
+            }
+            path.to_pointer()
+        }
+    };
+    let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
+        key.line == start.line && (key.start_column..key.end_column).contains(&start.column)
     });
-    let key = on_key
-        .then(|| behavior.key_span(source, &pointer))
-        .flatten()
-        .map(|span| (span.line, span.start_column, None, span.end_column));
-    key.or_else(|| at_field(&pointer))
+    Some((pointer, on_key))
 }

@@ -16,6 +16,9 @@ pub(crate) enum Work {
     PathLookup,
     /// A whole text split into its lines.
     LineSplit,
+    /// A scan of a whole document recording where every key and value is
+    /// written (with its path), where only the caret's place was wanted.
+    SpanScan,
 }
 
 impl Work {
@@ -25,13 +28,14 @@ impl Work {
             Self::DocumentRead => 0,
             Self::PathLookup => 1,
             Self::LineSplit => 2,
+            Self::SpanScan => 3,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 3]> = const { std::cell::Cell::new([0; 3]) };
+    static COUNTS: std::cell::Cell<[usize; 4]> = const { std::cell::Cell::new([0; 4]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

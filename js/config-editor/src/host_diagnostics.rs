@@ -5,6 +5,7 @@ use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
 use crate::options::warn_unknown_keys;
+use crate::text_lines::TextLines;
 use crate::values::{field, path_from_js, range_from_js, string_field};
 
 /// Host diagnostics from JavaScript; `host_text` (the document in
@@ -18,11 +19,12 @@ pub(crate) fn host_diagnostics_from(
             "hostDiagnostics must be an array of { path | range, severity, message, code?, source?, docsUrl? }",
         ));
     }
+    let host_text = TextLines::new(host_text);
     Array::from(list)
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            host_diagnostic_from(&item, host_text)
+            host_diagnostic_from(&item, &host_text)
                 .map_err(|error| JsError::new(&format!("hostDiagnostics[{index}]: {error}")))
         })
         .collect()
@@ -35,7 +37,7 @@ pub(crate) const HOST_DIAGNOSTIC_KEYS: &[&str] = &[
 
 pub(crate) fn host_diagnostic_from(
     item: &JsValue,
-    host_text: &str,
+    host_text: &TextLines,
 ) -> Result<HostDiagnostic, String> {
     if !item.is_object() || Array::is_array(item) {
         return Err("must be an object".to_string());

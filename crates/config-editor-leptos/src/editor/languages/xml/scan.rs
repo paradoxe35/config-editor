@@ -17,7 +17,7 @@ pub(super) struct Frame {
     pub(super) path: Vec<Seg>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct Snapshot {
     pub(super) path: Vec<Seg>,
     pub(super) partial: Option<Token>,
@@ -208,8 +208,9 @@ pub(super) fn strings(path: &[Seg]) -> Vec<String> {
         .collect()
 }
 
-/// A text's hash and length, a cursor, and the scan there.
-type RememberedScan = (u64, usize, usize, std::rc::Rc<Scan>);
+/// A text's hash and length, a cursor, whether the spans were recorded,
+/// and the scan there.
+type RememberedScan = (u64, usize, usize, bool, std::rc::Rc<Scan>);
 
 thread_local! {
     /// The last scan: one keystroke's suggestions, the check of their
@@ -221,6 +222,17 @@ thread_local! {
 /// [`scan_text`] of `source` at `cursor`, remembered for the last text and
 /// cursor.
 pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
+    remembered(source, cursor, true)
+}
+
+/// [`analyze`] for the caret's place alone: no spans of names and values
+/// (the caret's path and its suggestions' context, on every keystroke:
+/// recording every element's spans took most of one in a long document).
+pub(super) fn analyze_caret(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
+    remembered(source, cursor, false)
+}
+
+fn remembered(source: &str, cursor: usize, spans: bool) -> std::rc::Rc<Scan> {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut hasher);
@@ -228,20 +240,24 @@ pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
     let remembered = LAST_SCAN.with(|last| {
         last.borrow()
             .as_ref()
-            .filter(|(hash, len, at, _)| (*hash, *len, *at) == key)
+            // A scan with its spans serves one without.
+            .filter(|(hash, len, at, with_spans, _)| (*hash, *len, *at) == key && (*with_spans || !spans))
             .map(|(.., scan)| scan.clone())
     });
     if let Some(scan) = remembered {
         return scan;
     }
-    let scan = std::rc::Rc::new(scan_text(source, cursor));
-    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, scan.clone())));
+    let scan = std::rc::Rc::new(scan_text(source, cursor, spans));
+    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, spans, scan.clone())));
     scan
 }
 
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
 /// state at `cursor` (a byte offset).
-pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
+pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
+    if spans {
+        crate::editor::work_count::note(crate::editor::work_count::Work::SpanScan);
+    }
     let tokens = tokenize(source);
     let plan = plan_paths(source, &tokens);
     let partial_index = tokens.iter().position(|token| {
@@ -265,7 +281,7 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
                 },
                 <[Seg]>::to_vec,
             );
-            if !path.is_empty() {
+            if spans && !path.is_empty() {
                 scan.key_spans.push((
                     strings(&path),
                     local_name_start(source, tag),
@@ -300,7 +316,7 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
                     let metadata = plan.root == Some(token.start);
                     for inner in tokenize_tag_inside(source, &token)
                         .into_iter()
-                        .filter(|_| !metadata)
+                        .filter(|_| spans && !metadata)
                     {
                         if let Kind::Text { quoted: false } = inner.kind
                             && is_attr_name(source, &token, inner)
@@ -330,7 +346,8 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
             }
             // A CDATA section is element text, its markers included.
             Kind::Text { quoted: false } | Kind::Special
-                if !is_partial
+                if spans
+                    && !is_partial
                     && (token.kind != Kind::Special || source[token.start..].starts_with("<![CDATA[")) =>
             {
                 let raw = &source[token.start..token.end];
@@ -359,7 +376,9 @@ pub(super) fn scan_text(source: &str, cursor: usize) -> Scan {
         index += 1;
     }
 
-    record_attribute_values(source, &tokens, &plan, &mut scan);
+    if spans {
+        record_attribute_values(source, &tokens, &plan, &mut scan);
+    }
 
     if scan.snapshot.is_none() {
         scan.snapshot = Some(capture_snapshot(source, &tokens, &frames, &plan, cursor));
@@ -540,10 +559,7 @@ pub(super) fn utf16(text: &str) -> usize {
 
 /// One-based line and character column of a byte offset.
 pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    let before = &source[..byte];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
+    crate::editor::paths::line_column(source, byte)
 }
 
 pub(super) fn xml_text(value: &Value) -> String {

@@ -4,6 +4,8 @@
 use config_editor_leptos::language::SchemaPathSegment;
 use config_editor_leptos::{ChangeSummary, Diagnostic, FieldPath, TextPosition, TextRange};
 use js_sys::{Array, Object, Reflect};
+
+use crate::text_lines::TextLines;
 use serde::Serialize;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -209,10 +211,11 @@ fn pick(object: &JsValue, keys: &[&str]) -> JsValue {
 const RANGE_SHAPE: &str = "range must be { start, end } (string indices) or { startLine, startColumn, endLine?, endColumn? } (one-based)";
 
 /// A range from JavaScript: string indices `{ start, end }` into
-/// `host_text`, or one-based `{ startLine, startColumn, endLine?, endColumn? }`.
-/// A range past the text's end, ending before it starts, or with a number
-/// that is not a whole one is an error.
-pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRange, String> {
+/// `host_text` (split into its lines once for all its ranges), or one-based
+/// `{ startLine, startColumn, endLine?, endColumn? }`. A range past the
+/// text's end, ending before it starts, or with a number that is not a
+/// whole one is an error.
+pub(crate) fn range_from_js(range: &JsValue, host_text: &TextLines) -> Result<TextRange, String> {
     if !range.is_object() || Array::is_array(range) {
         return Err(RANGE_SHAPE.to_string());
     }
@@ -252,7 +255,7 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
         let (Some(start), Some(end)) = (number("start", 0.0)?, number("end", 0.0)?) else {
             return Err(RANGE_SHAPE.to_string());
         };
-        let length = host_text.encode_utf16().count();
+        let length = host_text.units();
         if end < start {
             return Err(format!("end ({end}) is before start ({start})"));
         }
@@ -260,8 +263,8 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
             return Err(format!("end ({end}) is past the text's end ({length})"));
         }
         return Ok(TextRange::new(
-            TextPosition::from_offset(host_text, start),
-            TextPosition::from_offset(host_text, end),
+            host_text.position(start),
+            host_text.position(end),
         ));
     }
     let (Some(line), Some(column)) = (number("startLine", 1.0)?, number("startColumn", 1.0)?)
@@ -269,9 +272,8 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
         return Err(RANGE_SHAPE.to_string());
     };
     let end_line = number("endLine", 1.0)?.unwrap_or(line);
-    let lines: Vec<&str> = host_text.split('\n').collect();
-    let width = |line: usize| lines.get(line - 1).map_or(0, |text| text.chars().count());
-    let column = clamped_column("start", line, column, &lines)?;
+    let width = |line: usize| host_text.width(line);
+    let column = clamped_column("start", line, column, host_text)?;
     // Left out, the end is one character on, at most the line's end (an
     // empty line's range is its start).
     let end_column = match number("endColumn", 1.0)? {
@@ -284,7 +286,7 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
             "the end ({end_line}:{end_column}) is before the start ({line}:{column})"
         ));
     }
-    let end_column = clamped_column("end", end_line, end_column, &lines)?;
+    let end_column = clamped_column("end", end_line, end_column, host_text)?;
     Ok(TextRange::new(
         TextPosition::new(line, column),
         TextPosition::new(end_line, end_column),
@@ -295,14 +297,19 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
 /// error; a column past the line's end (counted in another unit, or for a
 /// line since shortened) is the line's end, with a warning: one range is
 /// not worth refusing the whole update for.
-fn clamped_column(name: &str, line: usize, column: usize, lines: &[&str]) -> Result<usize, String> {
-    let Some(text) = lines.get(line - 1) else {
+fn clamped_column(
+    name: &str,
+    line: usize,
+    column: usize,
+    lines: &TextLines,
+) -> Result<usize, String> {
+    if line > lines.count() {
         return Err(format!(
             "{name} line {line} is past the text's last line ({})",
-            lines.len()
+            lines.count()
         ));
-    };
-    let width = text.chars().count();
+    }
+    let width = lines.width(line);
     if column > width + 1 {
         warn(&format!(
             "config-editor: a range's {name} column {column} is past the end of line {line} ({width} characters); it is read as the line's end (columns count characters, code points)"
@@ -405,6 +412,28 @@ pub(crate) fn range_to_js(text: &str, range: TextRange) -> JsValue {
         end_line: range.end.line,
         end_column: range.end.column,
     })
+}
+
+/// Each of `ranges` (`null` for none) as [`range_to_js`] writes it, the
+/// string indexes found from the text's lines split once (not by reading
+/// the text up to each).
+pub(crate) fn ranges_to_js(text: &str, ranges: &[Option<TextRange>]) -> JsValue {
+    let lines = TextLines::new(text);
+    let offset = |position: TextPosition| lines.offset(position);
+    let out = Array::new();
+    for range in ranges {
+        out.push(&range.map_or(JsValue::NULL, |range| {
+            to_js(&RangeOut {
+                start: offset(range.start),
+                end: offset(range.end),
+                start_line: range.start.line,
+                start_column: range.start.column,
+                end_line: range.end.line,
+                end_column: range.end.column,
+            })
+        }));
+    }
+    out.into()
 }
 
 pub(crate) fn to_js<T: Serialize>(value: &T) -> JsValue {

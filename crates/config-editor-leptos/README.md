@@ -791,7 +791,9 @@ the text on screen, which is the `edit_as` language while editing as another
 one; paths are the same in every language. Before the editor mounts the
 handle answers `None`. The same lookups work headless:
 `Language::YAML.range_of(text, "/web/http")` and
-`Language::YAML.path_at(text, TextPosition::new(2, 5))`. A language of your
+`Language::YAML.path_at(text, TextPosition::new(2, 5))`, and for many paths
+at once `Language::YAML.ranges_of(text, paths)` (the text read once for
+all of them). A language of your
 own gets them from its `key_span`, `value_span`, `hover_key` and
 `completion_context`.
 
