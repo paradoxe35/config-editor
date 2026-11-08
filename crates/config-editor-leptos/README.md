@@ -220,7 +220,6 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   character references (`&#233;`) around the change, YAML anchors stay on their items
   (an alias or merge is written out only where the edit parts it from its
   anchor, numbers as the host wrote them), and a JSON string keeps its
-
   `\uXXXX` escapes. A quoted string emptied and typed again keeps the quotes
   it had when the session began, and a heredoc whose text gains a line equal
   to its delimiter takes another one (`EOT_1`).
@@ -314,7 +313,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (162 texts)</summary>
+<summary>Every text and its default (163 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
