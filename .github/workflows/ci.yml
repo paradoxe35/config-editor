@@ -18,7 +18,7 @@ jobs:
     name: Rust (fmt, clippy, tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -42,7 +42,7 @@ jobs:
     name: npm packages and end-to-end tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -53,7 +53,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: trunk,wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Build the npm packages
