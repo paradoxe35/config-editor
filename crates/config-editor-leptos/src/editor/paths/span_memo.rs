@@ -22,6 +22,10 @@ struct Memo {
 
 /// What a language read of the text once for the whole call (see
 /// [`batch_cached`]).
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "json")),
+    allow(dead_code, reason = "only YAML and JSON share a read")
+)]
 struct Scratch {
     text: (usize, usize),
     value: Option<Rc<dyn Any>>,
@@ -36,6 +40,7 @@ thread_local! {
 /// made once while [`with_value_spans`] runs for that text, so the spans
 /// asked one by one inside it (keys as well as values) share it; made each
 /// time outside one. Nothing is kept after.
+#[cfg(any(feature = "yaml", feature = "json"))]
 pub(crate) fn batch_cached<T: 'static>(source: &str, make: impl FnOnce() -> T) -> Rc<T> {
     let key = (source.as_ptr() as usize, source.len());
     let cached = SCRATCH.with(|slot| {

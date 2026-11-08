@@ -7,6 +7,7 @@
 mod span_memo;
 mod types;
 
+#[cfg(any(feature = "yaml", feature = "json"))]
 pub(crate) use span_memo::batch_cached;
 pub(crate) use span_memo::value_span as memo_value_span;
 #[cfg(feature = "schema-validation")]
