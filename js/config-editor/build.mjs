@@ -84,7 +84,11 @@ try {
 }
 if (hasWasmOpt) {
   const wasm = join(here, 'pkg', 'config_editor_bg.wasm');
+  // The features Rust's wasm32 target turns on by default (multivalue
+  // included), and no others: without SIMD the wasm loads in every browser.
+  // CI and the release use the same pinned wasm-opt (scripts/install-binaryen.sh).
   execFileSync('wasm-opt', ['-Os', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
-    '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', wasm, '-o', wasm], { stdio: 'inherit' });
+    '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', '--enable-multivalue',
+    wasm, '-o', wasm], { stdio: 'inherit' });
 }
 console.log('built js/config-editor/pkg');

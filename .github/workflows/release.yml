@@ -118,8 +118,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }},wasm-tools
-      - name: Install wasm-opt (smaller .wasm)
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: Install wasm-opt (pinned; tested by CI's e2e on the same build)
+        run: scripts/install-binaryen.sh
       - uses: actions/setup-node@v5
         with:
           node-version: 22

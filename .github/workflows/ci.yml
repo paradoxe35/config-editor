@@ -56,6 +56,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      # The release's wasm-opt, so the e2e tests run the wasm that is published.
+      - name: Install wasm-opt (pinned, as the release does)
+        run: scripts/install-binaryen.sh
       - name: Build the npm packages
         working-directory: js
         run: npm ci && npm run build
