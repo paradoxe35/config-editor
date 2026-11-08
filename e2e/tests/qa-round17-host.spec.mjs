@@ -298,7 +298,7 @@ test.describe('ConfigDocuments', () => {
     expect(result.unknown).toMatch(/activeId: no document has the id "nope"/);
     expect(result.active).toBe('main');
     expect(result.before).toBe('a: 1\n');
-    expect(result.removed).toEqual({ value: '', text: '', save: false, dirty: false, path: null });
-    expect(result.readded).toEqual({ value: '', text: '', save: false, dirty: false, fresh: 'again: 2\n' });
+    expect(result.removed).toEqual({ value: null, text: null, save: false, dirty: false, path: null });
+    expect(result.readded).toEqual({ value: null, text: null, save: false, dirty: false, fresh: 'again: 2\n' });
   });
 });

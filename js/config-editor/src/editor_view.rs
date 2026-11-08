@@ -31,6 +31,12 @@ pub struct DocumentEditorView {
 }
 
 impl DocumentEditorView {
+    /// The document's value with pending edits applied, while it is listed.
+    fn current_value(&self) -> Option<String> {
+        config_editor_leptos::flush_pending_edits();
+        self.texts().map(|texts| texts.value)
+    }
+
     pub(crate) fn new(state: State, id: String, listing: u64) -> Self {
         Self { state, id, listing }
     }
@@ -51,11 +57,11 @@ impl DocumentEditorView {
 
 #[wasm_bindgen]
 impl DocumentEditorView {
-    /// The document, in its language: the host's `value`, then each edit.
+    /// The document, in its language: the host's `value`, then each edit;
+    /// `null` once the document is no longer listed.
     #[wasm_bindgen(getter)]
-    pub fn value(&self) -> String {
-        config_editor_leptos::flush_pending_edits();
-        self.texts().map(|texts| texts.value).unwrap_or_default()
+    pub fn value(&self) -> JsValue {
+        self.current_value().map_or(JsValue::NULL, JsValue::from)
     }
 
     /// The settings of the document's editor: its own over the view's.
@@ -73,7 +79,7 @@ impl DocumentEditorView {
         #[wasm_bindgen(unchecked_optional_param_type = "number")] context: JsValue,
     ) -> Result<String, JsError> {
         let context = context_arg(&context)?;
-        let current = self.value();
+        let current = self.current_value().unwrap_or_default();
         let baseline = self
             .texts()
             .map_or_else(|| current.clone(), |texts| texts.baseline);
@@ -107,12 +113,13 @@ impl DocumentEditorView {
     }
 
     /// The text on screen (in the `editAs` language while editing as
-    /// another one); before the editor mounts, the document's `value`.
+    /// another one); before the editor mounts, the document's `value`;
+    /// `null` once the document is no longer listed.
     #[wasm_bindgen(getter)]
-    pub fn text(&self) -> String {
+    pub fn text(&self) -> JsValue {
         handle_calls::text(self.handle())
             .or_else(|| self.texts().map(|texts| texts.value))
-            .unwrap_or_default()
+            .map_or(JsValue::NULL, JsValue::from)
     }
 
     /// The folded blocks, as one-based `{ startLine, endLine }`.

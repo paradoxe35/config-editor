@@ -68,7 +68,7 @@ export interface SecretOptions {
 }
 
 /** A stretch of the host's document: string indices, or one-based lines and columns. */
-export type TextRangeInput = { start: number; end?: number } | { startLine: number; startColumn: number; endLine?: number; endColumn?: number };
+export type TextRangeInput = { start: number; end: number } | { startLine: number; startColumn: number; endLine?: number; endColumn?: number };
 
 /**
  * A baseline conflict's progress: `"opened"` (the notice asks the user),
@@ -157,10 +157,10 @@ export interface EditorUpdate extends SettingsUpdate {
  * document's editor in a `ConfigDocuments` (`view.editor(id)`).
  */
 export interface EditorView {
-  /** The document, in its language (a document's editor: the host's `value`, then each edit). */
-  readonly value: string;
-  /** The text on screen: in the `editAs` language while editing as another one (what `rangeOf` and `pathAt` index into). */
-  readonly text: string;
+  /** The document, in its language (a document's editor: the host's `value`, then each edit). `null` only from a document's editor whose document was removed (a `ConfigEditor` always answers a string). */
+  readonly value: string | null;
+  /** The text on screen: in the `editAs` language while editing as another one (what `rangeOf` and `pathAt` index into). `null` only from a document's editor whose document was removed. */
+  readonly text: string | null;
   /** Whether the document differs from its baseline. */
   readonly isDirty: boolean;
   /** The path of what the caret is on, or `null` (a document's editor: until it has been shown once). */
