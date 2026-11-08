@@ -201,8 +201,10 @@ impl EditorState {
         if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
         }
+        // Checked in the text the edit writes: the document still holds
+        // the one it replaces.
         if by_text {
-            self.recheck_tokens();
+            self.recheck_tokens_in(after);
         }
     }
 
@@ -211,21 +213,26 @@ impl EditorState {
     /// renamed above one, an undo through a cut), each is found again by its
     /// path: under a renamed key it is plain text.
     pub(crate) fn recheck_tokens(&self) {
+        self.doc()
+            .text
+            .with_untracked(|text| self.recheck_tokens_in(text));
+    }
+
+    /// [`Self::recheck_tokens`] with the placeholders on `text`.
+    fn recheck_tokens_in(&self, text: &str) {
         let secrets = self.protect().secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
         let behavior = self.behavior();
-        let found = self.doc().text.with_untracked(|text| {
-            secrets.known.with_untracked(|known| {
-                let kept = secrets
-                    .tokens
-                    .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens));
-                (!kept).then(|| {
-                    secrets
-                        .matcher
-                        .with_value(|matcher| matcher.locate(behavior, text, known))
-                })
+        let found = secrets.known.with_untracked(|known| {
+            let kept = secrets
+                .tokens
+                .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens));
+            (!kept).then(|| {
+                secrets
+                    .matcher
+                    .with_value(|matcher| matcher.locate(behavior, text, known))
             })
         });
         if let Some(tokens) = found

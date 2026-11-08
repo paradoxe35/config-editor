@@ -36,10 +36,17 @@ fn field_at(behavior: &dyn ConfigLanguage, text: &str, start: usize) -> String {
 
 use super::super::secret_options::SecretOptions;
 
+/// A text's hash and length, and the tokens found in it.
+type Found = (u64, usize, Vec<Range<usize>>);
+
 /// [`SecretOptions`] made ready to match.
 pub(crate) struct SecretMatcher {
     pattern: Option<regex_lite::Regex>,
     is_placeholder: Option<Callback<String, bool>>,
+    /// The tokens of the last text searched whole: one edit's placement,
+    /// check and problems each look for them in the same text, and the
+    /// pattern is a read of all of it.
+    last: std::sync::Mutex<Option<Found>>,
 }
 
 impl SecretMatcher {
@@ -48,12 +55,39 @@ impl SecretMatcher {
         SecretMatcher {
             pattern: regex_lite::Regex::new(&options.placeholder).ok(),
             is_placeholder: options.is_placeholder,
+            last: std::sync::Mutex::new(None),
         }
     }
 
     /// Byte ranges of the tokens the pattern (and the host check) accept in
-    /// `text`.
+    /// the document `text`, from the last search when it was of the same
+    /// text.
     pub(crate) fn find(&self, text: &str) -> Vec<Range<usize>> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        let key = (hasher.finish(), text.len());
+        let last = || {
+            self.last
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        };
+        let remembered = last()
+            .as_ref()
+            .filter(|(hash, len, _)| (*hash, *len) == key)
+            .map(|(.., found)| found.clone());
+        if let Some(found) = remembered {
+            return found;
+        }
+        // The host's check runs with nothing held.
+        let found = self.find_in(text);
+        *last() = Some((key.0, key.1, found.clone()));
+        found
+    }
+
+    /// [`Self::find`] in a piece of text (a string of the parsed document),
+    /// not remembered.
+    fn find_in(&self, text: &str) -> Vec<Range<usize>> {
         let Some(pattern) = &self.pattern else {
             return Vec::new();
         };
@@ -124,7 +158,7 @@ impl SecretMatcher {
         while let Some((pointer, value)) = stack.pop() {
             match value {
                 serde_json::Value::String(written) => {
-                    for range in self.find(written) {
+                    for range in self.find_in(written) {
                         found(&written[range], &pointer);
                     }
                 }
@@ -244,6 +278,8 @@ impl SecretMatcher {
         }
         // Byte ranges first, turned into UTF-16 in one pass at the end.
         let mut found: Vec<Range<usize>> = Vec::new();
+        // The text's comments, read once if a token needs them.
+        let mut comments: Option<Vec<Range<usize>>> = None;
         for (token, left) in &mut fields {
             let written = written.remove(*token).unwrap_or_default();
             // A document whose strings hold the token nowhere (each written
@@ -252,9 +288,27 @@ impl SecretMatcher {
             if held == Some(None) {
                 continue;
             }
-            let placed = held
+            let mut placed = held
                 .flatten()
                 .filter(|pointers| pointers.len() == written.len());
+            let mut written = written;
+            // Written more often than held: those in comments (the document
+            // pasted again commented out) are in no field; the others are
+            // placed in order when that leaves as many as held.
+            if let Some(pointers) = held.flatten()
+                && placed.is_none()
+            {
+                let comments = comments.get_or_insert_with(|| behavior.comments(text));
+                let outside: Vec<usize> = written
+                    .iter()
+                    .copied()
+                    .filter(|byte| !in_comment(comments, *byte))
+                    .collect();
+                if outside.len() == pointers.len() {
+                    written = outside;
+                    placed = Some(pointers);
+                }
+            }
             for (nth, byte) in written.into_iter().enumerate() {
                 let pointer = match placed {
                     Some(pointers) => pointers[nth].clone(),
@@ -285,6 +339,14 @@ impl SecretMatcher {
             })
             .collect()
     }
+}
+
+/// Whether byte `at` is inside one of `comments` (in order, apart).
+fn in_comment(comments: &[Range<usize>], at: usize) -> bool {
+    let next = comments.partition_point(|comment| comment.end <= at);
+    comments
+        .get(next)
+        .is_some_and(|comment| comment.start <= at)
 }
 
 /// The edit turning `before` into `after` (whose replaced region is

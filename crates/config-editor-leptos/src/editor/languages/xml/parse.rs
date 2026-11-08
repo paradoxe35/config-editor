@@ -404,7 +404,7 @@ fn document_spans(source: &str) -> std::rc::Rc<DocumentSpans> {
     if let Some(spans) = LAST_SPANS.with(|last| last.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, spans)| spans.clone())) {
         return spans;
     }
-    let scan = analyze(source, 0);
+    let scan = scan_text(source, 0);
     let spans = std::rc::Rc::new((scan.key_spans, scan.value_spans));
     LAST_SPANS.with(|last| *last.borrow_mut() = Some((key, spans.clone())));
     spans

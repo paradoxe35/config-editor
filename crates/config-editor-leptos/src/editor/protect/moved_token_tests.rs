@@ -122,3 +122,34 @@ fn a_placeholder_is_real_only_in_its_own_field_in_every_language() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A text written whole (a document pasted over everything, Ctrl+A Ctrl+/)
+/// writes many tokens at once: they are found by text and checked in their
+/// fields in the new text, not the one it replaced (whose places no longer
+/// match).
+#[test]
+fn placeholders_of_a_text_written_whole_are_found_in_the_new_text_in_every_language() {
+    let mut failures = Vec::new();
+    for language in Language::ALL.iter().copied() {
+        let document: serde_json::Map<String, serde_json::Value> = (0..12)
+            .map(|index| (format!("k{index}"), format!("«secret {index:x}e»").into()))
+            .collect();
+        let text = language
+            .behavior()
+            .serialize(&document.into(), None)
+            .expect("the document writes in every language");
+        let (_owner, state) = TestEditor::new(language, &text).mount();
+        // Pasted over everything between blank lines: every token moves.
+        let pasted = format!("\n{text}\n");
+        replace(state, 0..text.len(), &pasted);
+        let expected = SecretMatcher::new(&SecretOptions::default()).find(&pasted);
+        let real = expected
+            .iter()
+            .filter(|range| real_at(state, range.start))
+            .count();
+        if real != 12 {
+            failures.push(format!("{language}: {real} of 12 real after the paste"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
