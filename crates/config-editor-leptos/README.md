@@ -487,10 +487,14 @@ shown.
 Line endings are kept: the editor works on LF text, and when the host's text
 ends its lines with CRLF (`value`, `initial_value`, or a new `value` later),
 `on_change` and `on_save` receive the text with CRLF line endings, in every
-language and while editing as another one. The endings are the text's
-majority, on every line: a text mixing CRLF and LF is sent with CRLF when
-most of its lines end so, else with LF, and old Mac CR endings become LF.
-Dirty state and the diff compare line endings as LF.
+language and while editing as another one. Each line keeps its own: a text
+mixing CRLF, LF and old Mac CR endings is sent with each untouched line
+ending as it did, an edited line keeps its ending, and a new line takes the
+ending of the line above (the text's most common one when there is none).
+A lone CR that the language does not read as a line break (TOML, HCL) is
+shown as the syntax error its reader gives, until that line is edited (an
+edited line then takes a break the language reads). Dirty state and the
+diff compare line endings as LF.
 
 The text is dirty while it differs from `baseline` as shown (the document at
 mount when no `baseline` is given). `on_dirty_change` reports it once on

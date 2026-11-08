@@ -848,10 +848,13 @@ text on screen.
 
 Line endings are kept: when the host's text ends its lines with CRLF,
 `onChange` and `onSave` receive CRLF too (the editor works on LF text inside,
-and dirty state and the diff compare line endings as LF). The endings are the
-text's majority, on every line: a text mixing CRLF and LF is sent with CRLF
-when most of its lines end so, else with LF, and old Mac CR endings become
-LF.
+and dirty state and the diff compare line endings as LF). Each line keeps its
+own: in a text mixing CRLF, LF and old Mac CR endings, an untouched line ends
+as it did, an edited line keeps its ending, and a new line takes the ending
+of the line above (the text's most common one when there is none). A lone CR
+that the language does not read as a line break (TOML, HCL) is shown as the
+syntax error its reader gives (as `parse` reports it), until that line is
+edited.
 
 ```js
 const editor = new ConfigEditor(element, {
@@ -958,7 +961,10 @@ view.isDirty("main");
   own over the view's) and `unifiedDiff` against its baseline, paths,
   folds, `focus`, `save` and `isDirty`. An editor mounts the first time
   its document is shown: until then its queries answer `null` or `false`
-  (`text` answers the document's `value`).
+  (`text` answers the document's `value`). Once its document is removed,
+  it stays with it and answers `null` (`value`, `text`, `currentPath`) or
+  `false` (`save()`, `isDirty`, `reveal`, …), also when a new document
+  with the same id is listed: ask `editor(id)` again for that one.
 - `update(options)` changes the view live, with `ConfigEditor`'s rules
   (left out or `undefined` stays, `null` removes a callback or returns a
   setting to its default, every key checked before any applies): the
