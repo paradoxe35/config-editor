@@ -313,7 +313,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (163 texts)</summary>
+<summary>Every text and its default (164 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -478,6 +478,7 @@ they come.
 | `no_documents`                  | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
 | `close_tab`                     | `"Close {name}"`                                                                                                                     | A tab's close button.                                                                                                                                                                                                                          |
 | `close_tab_title`               | `"Close (Delete)"`                                                                                                                   | Its tooltip.                                                                                                                                                                                                                                   |
+| `add_document`                  | `"New file"`                                                                                                                         | The "+" button after the tabs (with `on_add`): its accessible name and tooltip.                                                                                                                                                                |
 | `unsaved`                       | `"unsaved changes"`                                                                                                                  | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                                                                                                                                         |
 | `read_only_tab`                 | `"read-only"`                                                                                                                        | What a read-only document's tab adds to its accessible name.                                                                                                                                                                                   |
 
@@ -658,7 +659,8 @@ use config_editor_leptos::{CloseRequest, ConfigDocuments, Document, DocumentsHan
 
 const SCHEMA: &str = include_str!("schema.json");
 let documents = RwSignal::new(vec![
-    Document::new("main", "burrow.yaml", load("burrow.yaml")).schema(SCHEMA),
+    // The main config stays open: no close button.
+    Document::new("main", "burrow.yaml", load("burrow.yaml")).schema(SCHEMA).closable(false),
     Document::new("limits", "conf.d/limits.toml", load("conf.d/limits.toml")).schema(SCHEMA),
     Document::new("clients", "conf.d/clients.json", load("conf.d/clients.json"))
         .schema(SCHEMA)
@@ -683,6 +685,8 @@ view! {
                 documents.update(|list| list.retain(|d| d.id != request.id));
             }
         }
+        // The "+" after the tabs: the host decides what a new file is.
+        on_add=move |()| documents.update(|list| list.push(new_drop_in(list)))
     />
 }
 ```
@@ -697,8 +701,18 @@ view! {
   closing: the next tab takes its place, else the previous one).
   `on_close(CloseRequest { id, dirty })` when the user asks to close one
   (its close button, a middle click, `Delete` on its tab): nothing closes by
-  itself, and `dirty` tells the host to ask first. Without `on_close`, tabs
-  have no close button.
+  itself, and `dirty` tells the host to ask first. Only closable documents
+  ask: `Document::closable(false)` (switches live) keeps one open, with no
+  close button, and a middle click or `Delete` on its tab does nothing.
+  Without `on_close`, no tab has a close button.
+- **Adding is the host's too.** With `on_add`, a "+" button follows the last
+  tab (outside the tab list, after it in the `Tab` order; named and titled
+  by the `add_document` text, "New file"). It only calls `on_add`: the host
+  decides what a new document is and lists it, and the next document it adds
+  is selected, its editor focused without scrolling the page. When the tabs
+  overflow, the "+" stays at the end of the strip, visible while they
+  scroll. No key adds a document (`Ctrl+T` and `Ctrl+N` belong to the
+  browser). Leave `on_add` unset for a view that only shows files.
 - **Per-document callbacks carry the id:** `on_change((id, text))`,
   `on_save((id, SaveRequest))` (`Ctrl+S` / `Cmd+S` saves the document being
   edited), `on_dirty_change((id, dirty))` (when a document is added, then on
@@ -746,7 +760,8 @@ let drop_in = Document::new("tls", "conf.d/tls.toml", tls_text)
 Keyboard: the tab strip is a WAI-ARIA `tablist` (each tab a `tab` with its
 `tabpanel`; one tab in the `Tab` order). `←` / `→` select the previous /
 next tab (wrapping), `Home` / `End` the first / last, `Enter` moves into the
-editor, `Delete` asks to close. From anywhere in the view, the editor
+editor, `Delete` asks to close (a closable document's tab only); `Tab`
+moves on to the "+" when there is one. From anywhere in the view, the editor
 included, `Alt+PageDown` / `Alt+PageUp` switch to the next / previous
 document, the focus going along. Browsers keep `Ctrl+Tab` and
 `Ctrl+PageDown` for their own tabs; `Alt+PageDown` is free in browsers and

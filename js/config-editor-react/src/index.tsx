@@ -162,9 +162,18 @@ export interface ConfigDocumentsProps extends EditorSettings {
    * Called when the user asks to close a document (close button, middle
    * click, `Delete` on its tab). Nothing closes by itself: remove it from
    * `documents`, asking first when `request.dirty`. Without it, tabs have no
-   * close button. Changing whether it is set re-mounts.
+   * close button. Only `closable` documents ask. Changing whether it is
+   * set re-mounts.
    */
   onClose?: (request: CloseRequest) => void;
+  /**
+   * Called when the user asks for a new document: the "+" button after the
+   * last tab, shown only with it (it stays at the strip's end when the tabs
+   * overflow). It only asks: add the new document to `documents`; the next
+   * one added is selected and its editor focused. Changing whether it is
+   * set re-mounts.
+   */
+  onAdd?: () => void;
   /** Called with a document's id and text after every edit. */
   onChange?: (id: string, value: string) => void;
   /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `ref.save(id)` / `ref.saveAll()`. */

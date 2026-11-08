@@ -182,7 +182,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (163 texts)</summary>
+<summary>Every text and its default (164 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -347,6 +347,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `noDocuments`               | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
 | `closeTab`                  | `"Close {name}"`                                                                                                                     | A tab's close button.                                                                                                                                                                                                                          |
 | `closeTabTitle`             | `"Close (Delete)"`                                                                                                                   | Its tooltip.                                                                                                                                                                                                                                   |
+| `addDocument`               | `"New file"`                                                                                                                         | The "+" button after the tabs (with `on_add`): its accessible name and tooltip.                                                                                                                                                                |
 | `unsaved`                   | `"unsaved changes"`                                                                                                                  | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                                                                                                                                         |
 | `readOnlyTab`               | `"read-only"`                                                                                                                        | What a read-only document's tab adds to its accessible name.                                                                                                                                                                                   |
 
@@ -485,7 +486,10 @@ changed in place or replaced (a late parent never rolls a document back);
 nothing closes by itself. A new `active-id` shows that document, leaving
 the focus where it is. Props: `documents`, `active-id`, `label`,
 `view-class` and every [setting](#settings); events: `@change`, `@save`,
-`@select`, `@close` (without a listener, tabs have no close button),
+`@select`, `@close` (without a listener, tabs have no close button; a
+document with `closable: false` never has one), `@add` (the "+" after the
+tabs, shown only with a listener: add the new document, which opens
+selected),
 `@dirty-change`, `@error`. The template ref is a `ConfigDocumentsHandle`:
 `select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `focus()`, `activeId`,
 `instance`, and `editor(id)`, the editor of a document, an `EditorView`

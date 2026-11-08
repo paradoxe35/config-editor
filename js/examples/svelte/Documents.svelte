@@ -16,7 +16,7 @@
   // The schema is fixed for the page: read once.
   const documentSchema = untrack(() => schema);
   let files: DocumentSpec[] = $state([
-    { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema: documentSchema },
+    { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema: documentSchema, closable: false },
     { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema: documentSchema },
     { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema: documentSchema, readOnly: true },
   ]);
@@ -58,6 +58,13 @@
     note(`save ${id} ${language}`);
     update(id, { baseline: value });
   }
+  // "+": the host makes the new file; the view selects it.
+  let added = 0;
+  function onAdd() {
+    added += 1;
+    note(`add new${added}`);
+    files.push({ id: `new${added}`, fileName: `conf.d/new-${added}.yaml`, value: "", schema: documentSchema });
+  }
   function onClose({ id, dirty }: CloseRequest) {
     if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
     files = files.filter((file) => file.id !== id);
@@ -75,6 +82,7 @@
   {onChange}
   {onSave}
   onSelect={(id) => note(`select ${id}`)}
+  {onAdd}
   {onClose}
 />
 <pre id="log">{log.join("\n")}</pre>

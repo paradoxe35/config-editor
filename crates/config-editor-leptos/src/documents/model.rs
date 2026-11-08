@@ -41,6 +41,11 @@ pub struct Document {
     pub baseline: Option<String>,
     /// View mode for this document; switches live.
     pub read_only: bool,
+    /// Whether the user may close it: its close button, a middle click and
+    /// `Delete` on its tab ask `on_close`. Default `true`; a document that
+    /// must stay open (the main config) sets `false`, and its tab has no
+    /// close button. Without `on_close` no tab has one. Switches live.
+    pub closable: bool,
     /// The document's JSON Schema. Documents given the same JSON text share
     /// one compiled schema; a [`Schema`](crate::Schema) passed as
     /// `Compiled` is shared as it is.
@@ -67,8 +72,8 @@ pub struct Document {
 
 impl Document {
     /// A document with an id, a file name and its text; the rest default
-    /// (language from the file name, baseline the text, editable, no
-    /// schema).
+    /// (language from the file name, baseline the text, editable, closable,
+    /// no schema).
     pub fn new(
         id: impl Into<String>,
         file_name: impl Into<String>,
@@ -81,6 +86,7 @@ impl Document {
             value: value.into(),
             baseline: None,
             read_only: false,
+            closable: true,
             schema: None,
             edit_as: None,
             settings: None,
@@ -109,6 +115,13 @@ impl Document {
     #[must_use]
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
+        self
+    }
+
+    /// Sets whether the user may close the document (default `true`).
+    #[must_use]
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
         self
     }
 

@@ -38,7 +38,9 @@ use entries::{Callbacks, Documents, Entry};
 /// renames and reorders documents by changing `documents`, and keeps each
 /// `value` up to date from `on_change`. The view reports what the user asks
 /// for: `on_select` when they switch, `on_close` when they close one (which
-/// only the host does, asking first when it has unsaved edits).
+/// only the host does, asking first when it has unsaved edits; a document
+/// that is not [`closable`](Document::closable) cannot be closed), `on_add`
+/// when they want a new one (which the host creates and lists).
 ///
 /// An editor mounts the first time its document is shown and then stays,
 /// hidden while another document is active, so each document keeps its
@@ -48,7 +50,9 @@ use entries::{Callbacks, Documents, Entry};
 /// Keys: `Alt+PageDown` / `Alt+PageUp` switch to the next / previous
 /// document from anywhere in the view; in the tab list, arrows, `Home` and
 /// `End` move between tabs, `Enter` moves into the editor, `Delete` asks to
-/// close. `Ctrl+S` / `Cmd+S` saves the document being edited.
+/// close a closable one. The "+" button (with `on_add`) comes after the tab
+/// list in the `Tab` order. `Ctrl+S` / `Cmd+S` saves the document being
+/// edited.
 ///
 /// ```ignore
 /// use config_editor_leptos::{ConfigDocuments, Document};
@@ -92,9 +96,19 @@ pub fn ConfigDocuments(
     /// Called when the user asks to close a document (its close button, a
     /// middle click, `Delete` on its tab). Nothing closes by itself: remove
     /// the document from `documents`, asking the user first when
-    /// [`CloseRequest::dirty`]. Without it, tabs have no close button.
+    /// [`CloseRequest::dirty`]. Only [`closable`](Document::closable)
+    /// documents ask; without it, no tab has a close button.
     #[prop(optional, into)]
     on_close: Option<Callback<CloseRequest>>,
+    /// Called when the user asks for a new document: the "+" button after
+    /// the last tab, shown only when this is set. It only asks: the host
+    /// decides what a new document is and adds it to `documents`; the next
+    /// one it adds is selected and its editor focused. The button stays at
+    /// the strip's end when the tabs overflow. No key adds one (`Ctrl+T`
+    /// and `Ctrl+N` are the browser's). Leave it unset for a view that only
+    /// shows documents.
+    #[prop(optional, into)]
+    on_add: Option<Callback<()>>,
     /// Called with a document's id and its text, in its language, after
     /// every edit. Store the text as the document's `value`.
     #[prop(optional, into)]
@@ -132,6 +146,7 @@ pub fn ConfigDocuments(
         Callbacks {
             on_select,
             on_close,
+            on_add,
             on_change,
             on_save,
             on_dirty_change,

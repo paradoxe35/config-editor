@@ -27,8 +27,10 @@ const documentsProps = {
   activeId: optional(String),
   /** `@select`: a document's id when it becomes the active one. */
   onSelect: listener<(id: string) => void>(),
-  /** `@close`: the user asks to close a document. Nothing closes by itself: remove it from `documents` (asking first when `request.dirty`). Without a listener, tabs have no close button. Whether one is set re-mounts. */
+  /** `@close`: the user asks to close a document. Nothing closes by itself: remove it from `documents` (asking first when `request.dirty`). Only `closable` documents ask; without a listener, tabs have no close button. Whether one is set re-mounts. */
   onClose: listener<(request: CloseRequest) => void>(),
+  /** `@add`: the user asks for a new document (the "+" after the last tab, shown only with a listener; it stays at the strip's end when the tabs overflow). It only asks: add the new document to `documents`; the next one added is selected and its editor focused. Whether one is set re-mounts. */
+  onAdd: listener<() => void>(),
   /** `@change`: a document's id and text after every edit. */
   onChange: listener<(id: string, value: string) => void>(),
   /** `@save`: the user saved a document (`Ctrl+S` / `Cmd+S`), or you called `save(id)` / `saveAll()`. */

@@ -12,7 +12,8 @@ import { pointAt, pointerOn } from './helpers.mjs';
 // script (a `securitypolicyviolation` event, or Chrome's console error)
 // fails the test while it types, shows problems, hovers, suggests, finds,
 // goes to a line, folds, previews and reverts a change, shows the read-only
-// and secret tips, edits as another language, switches tabs and sets colors.
+// and secret tips, edits as another language, switches tabs (with the "+"
+// and close buttons) and sets colors.
 
 export const CSP = "default-src 'self'; style-src 'self'; script-src 'self' 'wasm-unsafe-eval'";
 
@@ -249,6 +250,15 @@ async function exerciseDocuments(page) {
   await page.keyboard.type('x');
   await tabs.nth(0).click();
   await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+  // The "+" and a close button, hovered and focused.
+  const add = page.locator('.config-editor-documents__add');
+  await expect(add).toBeVisible();
+  await add.hover();
+  await add.focus();
+  const close = page.locator('.config-editor-documents__close').first();
+  await close.hover();
+  await expect(close).toBeVisible();
+  await add.click();
 }
 
 test.describe('under a strict CSP: the Leptos demo', () => {

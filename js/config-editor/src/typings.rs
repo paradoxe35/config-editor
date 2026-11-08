@@ -326,6 +326,8 @@ export interface DocumentSpec {
   baseline?: string;
   /** View mode for this document; switches live. */
   readOnly?: boolean;
+  /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
+  closable?: boolean;
   /** JSON Schema as JSON text; documents with the same text share one compiled schema. An invalid schema is reported inline. */
   schema?: string;
   /** Edit in another language than `language`; switches live. */
@@ -361,8 +363,10 @@ export interface DocumentsOptions extends EditorSettings {
   label?: string;
   /** Called with a document's id when it becomes the active one (a tab, `Alt+PageDown` / `Alt+PageUp`, `select()`, or the active one closing). */
   onSelect?: (id: string) => void;
-  /** Called when the user asks to close a document (close button, middle click, `Delete` on its tab). Without it, tabs have no close button. */
+  /** Called when the user asks to close a document (close button, middle click, `Delete` on its tab); only `closable` documents ask. Without it, tabs have no close button. */
   onClose?: (request: CloseRequest) => void;
+  /** Called when the user asks for a new document: the "+" button after the last tab, shown only with it (it stays at the strip's end when the tabs overflow). It only asks: add the new document to the list; the next one added is selected and its editor focused. No key adds one (`Ctrl+T` / `Ctrl+N` are the browser's). */
+  onAdd?: () => void;
   /** Called with a document's id and text after every edit: store it as the document's `value`. */
   onChange?: (id: string, value: string) => void;
   /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `save(id)` / `saveAll()`. */
@@ -385,6 +389,8 @@ export interface DocumentsUpdate extends SettingsUpdate {
   onSelect?: ((id: string) => void) | null;
   /** Replaces or removes it; it cannot be added to a view mounted without one (its tabs have no close buttons). */
   onClose?: ((request: CloseRequest) => void) | null;
+  /** Replaces or removes it; it cannot be added to a view mounted without one (its strip has no "+"). */
+  onAdd?: (() => void) | null;
   onChange?: ((id: string, value: string) => void) | null;
   /** `null` gives `Ctrl+S` back to the browser. */
   onSave?: ((id: string, value: string, language: LanguageName) => void) | null;

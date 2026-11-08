@@ -4,7 +4,8 @@
 //! memory measurements.
 //!
 //! The host keeps the list, saves (the baseline becomes the saved text),
-//! and asks before closing a document with unsaved edits. What it saw is
+//! asks before closing a document with unsaved edits, and makes a new
+//! drop-in for the tab strip's "+" (or the "Add drop-in" button). What it saw is
 //! in the status line's `data-*` attributes, for the e2e tests.
 
 use config_editor_leptos::{
@@ -137,7 +138,7 @@ pub fn view(many: bool) -> impl IntoView {
         asking.set(None);
     };
     let keep = move |_| asking.set(None);
-    let add = move |_| {
+    let add_document = move || {
         added.update(|count| *count += 1);
         let count = added.get_untracked();
         let document = Document::new(
@@ -148,6 +149,8 @@ pub fn view(many: bool) -> impl IntoView {
         .schema(SCHEMA);
         documents.update(|list| list.push(document));
     };
+    let add = move |_| add_document();
+    let add_requested = move |()| add_document();
     let server_change = move |_| {
         with_document(documents, "main", |document| {
             let base = document
@@ -168,6 +171,11 @@ pub fn view(many: bool) -> impl IntoView {
     let toggle_read_only = move |_| {
         with_document(documents, "limits", |document| {
             document.read_only = !document.read_only
+        });
+    };
+    let toggle_closable = move |_| {
+        with_document(documents, "main", |document| {
+            document.closable = !document.closable
         });
     };
     let rename = move |_| {
@@ -197,6 +205,7 @@ pub fn view(many: bool) -> impl IntoView {
                 <button class="demo__button demo__toggle-read-only" type="button" on:click=toggle_read_only>"Toggle read-only (limits)"</button>
                 <button class="demo__button demo__edit-as" type="button" on:click=toggle_edit_as>"Edit main as JSON"</button>
                 <button class="demo__button demo__rename" type="button" on:click=rename>"Rename limits"</button>
+                <button class="demo__button demo__toggle-closable" type="button" on:click=toggle_closable>"Toggle closable (main)"</button>
             </div>
             <Show when=move || asking.get().is_some()>
                 <div class="demo__ask" role="alertdialog" aria-label="Unsaved changes">
@@ -212,6 +221,7 @@ pub fn view(many: bool) -> impl IntoView {
                 on_save=saved
                 on_dirty_change=dirty_changed
                 on_close=close_requested
+                on_add=add_requested
                 on_select=selected
                 settings=settings
             />

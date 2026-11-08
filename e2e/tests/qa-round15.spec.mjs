@@ -171,8 +171,9 @@ test.describe('touch targets in the documents view', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   setupEditor(test, '?documents');
 
-  test('a tab’s close button is 24px to a finger', async ({ page }) => {
+  test('a tab’s close button and the "+" are 24px to a finger', async ({ page }) => {
     await expectFingerSized(page, '.config-editor-documents__close');
+    await expectFingerSized(page, '.config-editor-documents__add');
   });
 });
 

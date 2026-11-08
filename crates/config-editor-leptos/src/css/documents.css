@@ -9,19 +9,50 @@
   color: var(--config-editor-text);
 }
 
-.config-editor-documents__tabs {
-  position: relative;
+/* The strip: the tab list, then the "+" (with `on_add`), which stays at
+   the end while the tabs scroll. */
+.config-editor-documents__strip {
   display: flex;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   border: 1px solid var(--config-editor-tab-border);
   border-bottom: 0;
   border-radius: 6px 6px 0 0;
   background: var(--config-editor-tab-bar);
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor-documents__tabs {
+  position: relative;
+  flex: 0 1 auto;
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--config-editor-scrollbar-thumb) transparent;
+}
+
+.config-editor-documents__add {
+  flex: none;
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: var(--config-editor-tab-bar);
+  color: var(--config-editor-tab-text);
+  font: 18px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+.config-editor-documents__add:hover {
+  background: var(--config-editor-tab-bg);
+  color: var(--config-editor-tab-active-text);
+}
+.config-editor-documents__add:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: -1px;
 }
 
 .config-editor-documents__tab {

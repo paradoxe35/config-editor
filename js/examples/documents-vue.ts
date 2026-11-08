@@ -18,7 +18,7 @@ const App = defineComponent({
   components: { ConfigDocuments },
   setup() {
     const files = ref<DocumentSpec[]>([
-      { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema },
+      { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
       { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
       { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
     ]);
@@ -28,6 +28,8 @@ const App = defineComponent({
     // fields (`updateFile`) and the template ref (`documentsHandle`).
     const settings = ref<EditorSettings>({});
     const note = (line: string) => log.value.push(line);
+    // "+": the host makes the new file; the view selects it.
+    let added = 0;
     const update = (id: string, change: Partial<DocumentSpec>) => {
       const file = files.value.find((candidate) => candidate.id === id);
       if (file) Object.assign(file, change);
@@ -55,6 +57,11 @@ const App = defineComponent({
         update(id, { baseline: value });
       },
       onSelect: (id: string) => note(`select ${id}`),
+      onAdd: () => {
+        added += 1;
+        note(`add new${added}`);
+        files.value.push({ id: `new${added}`, fileName: `conf.d/new-${added}.yaml`, value: "", schema });
+      },
       onClose: ({ id, dirty }: CloseRequest) => {
         if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
         files.value = files.value.filter((file) => file.id !== id);
@@ -73,6 +80,7 @@ const App = defineComponent({
       @change="onChange"
       @save="onSave"
       @select="onSelect"
+      @add="onAdd"
       @close="onClose"
     />
     <pre id="log">{{ log.join("\\n") }}</pre>

@@ -102,6 +102,7 @@ const ELSEWHERE = {
   noDocuments: 'as tabList',
   closeTab: 'as tabList',
   closeTabTitle: 'as tabList',
+  addDocument: 'as tabList',
   unsaved: 'as tabList',
   readOnlyTab: 'as tabList',
   protectedNote: 'the caret note: a11y tests',
@@ -355,6 +356,7 @@ test('the documents view takes its tab texts from the strings setting', async ({
         tabList: 'Offene Dateien',
         closeTab: '{name} schließen',
         closeTabTitle: 'Schließen (Entf)',
+        addDocument: 'Neue Datei',
         unsaved: 'ungespeichert',
         readOnlyTab: 'schreibgeschützt',
         noDocuments: 'Keine Dateien',
@@ -368,6 +370,9 @@ test('the documents view takes its tab texts from the strings setting', async ({
   const close = page.locator('.config-editor-documents__close').first();
   await expect(close).toHaveAttribute('title', 'Schließen (Entf)');
   await expect(close).toHaveAttribute('aria-label', /schließen$/);
+  const add = page.locator('.config-editor-documents__add');
+  await expect(add).toHaveAttribute('title', 'Neue Datei');
+  await expect(add).toHaveAttribute('aria-label', 'Neue Datei');
   // An edit marks the tab unsaved, in the host's words.
   await page.locator('[role="tabpanel"]:not(.config-editor-documents__panel-hidden) .config-editor__input').click();
   await page.keyboard.type('x');
@@ -379,6 +384,10 @@ test('the documents view takes its tab texts from the strings setting', async ({
     await page.locator('.config-editor-documents__close').first().click();
     await expect(page.locator('[role="tab"]')).toHaveCount(before - 1);
   }
+  // The main file is not closable until the host says so.
+  await expect(page.locator('[role="tab"]')).toHaveCount(1);
+  await page.evaluate(() => window.updateFile('main', { closable: true }));
+  await page.locator('.config-editor-documents__close').click();
   await expect(page.locator('.config-editor-documents__empty')).toHaveText('Keine Dateien');
   expect(errors).toEqual([]);
 });

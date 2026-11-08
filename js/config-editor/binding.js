@@ -437,8 +437,8 @@ export class DocumentsBinding extends Binding {
   }
 
   mountKey() {
-    const { label, viewClassName, onClose } = this.props;
-    return JSON.stringify([label ?? null, viewClassName ?? null, onClose !== undefined]);
+    const { label, viewClassName, onClose, onAdd } = this.props;
+    return JSON.stringify([label ?? null, viewClassName ?? null, onClose !== undefined, onAdd !== undefined]);
   }
 
   retryKey() {
@@ -489,6 +489,7 @@ export class DocumentsBinding extends Binding {
       label: props.label,
       onSelect: (id) => this.props.onSelect?.(id),
       onClose: props.onClose ? (request) => this.props.onClose?.(request) : undefined,
+      onAdd: props.onAdd ? () => this.props.onAdd?.() : undefined,
       onChange: (id, value) => {
         this.#texts.set(id, value);
         this.#syncOf(id).sent(value);

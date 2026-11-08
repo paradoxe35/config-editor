@@ -168,7 +168,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (163 texts)</summary>
+<summary>Every text and its default (164 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -333,6 +333,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `noDocuments`               | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
 | `closeTab`                  | `"Close {name}"`                                                                                                                     | A tab's close button.                                                                                                                                                                                                                          |
 | `closeTabTitle`             | `"Close (Delete)"`                                                                                                                   | Its tooltip.                                                                                                                                                                                                                                   |
+| `addDocument`               | `"New file"`                                                                                                                         | The "+" button after the tabs (with `on_add`): its accessible name and tooltip.                                                                                                                                                                |
 | `unsaved`                   | `"unsaved changes"`                                                                                                                  | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                                                                                                                                         |
 | `readOnlyTab`               | `"read-only"`                                                                                                                        | What a read-only document's tab adds to its accessible name.                                                                                                                                                                                   |
 
@@ -463,7 +464,9 @@ document's caret, undo history, scroll and folds. The parent owns the list,
 changed in place or replaced (a late parent never rolls a document back);
 nothing closes by itself. A new `activeId` shows that document, leaving the
 focus where it is. Props: `documents`, `activeId`, `onSelect`,
-`onClose` (without it, tabs have no close button), `onChange`, `onSave`,
+`onClose` (without it, tabs have no close button; a document with
+`closable: false` never has one), `onAdd` (the "+" after the tabs, shown
+only with it: add the new document, which opens selected), `onChange`, `onSave`,
 `onDirtyChange`, `label`, `viewClass`, `class`, `style`, `onError` and
 every [setting](#settings). Exported functions: `select(id)`, `isDirty(id)`,
 `save(id)`, `saveAll()`, `focus()`, `getActiveId()`, `getInstance()`, and

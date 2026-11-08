@@ -440,6 +440,9 @@ pub struct EditorStrings {
     pub close_tab: String,
     /// Its tooltip.
     pub close_tab_title: String,
+    /// The "+" button after the tabs (with `on_add`): its accessible name
+    /// and tooltip.
+    pub add_document: String,
     /// The dirty dot's tooltip, and what a tab's accessible name adds for
     /// it.
     pub unsaved: String,
@@ -646,6 +649,7 @@ impl Default for EditorStrings {
             no_documents: text("No open files"),
             close_tab: text("Close {name}"),
             close_tab_title: text("Close (Delete)"),
+            add_document: text("New file"),
             unsaved: text("unsaved changes"),
             read_only_tab: text("read-only"),
         }

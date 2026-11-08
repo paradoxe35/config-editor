@@ -1084,6 +1084,12 @@ export interface EditorStrings {
    */
   closeTabTitle?: string;
   /**
+   * The "+" button after the tabs (with `on_add`): its accessible name and tooltip.
+   *
+   * @default "New file"
+   */
+  addDocument?: string;
+  /**
    * The dirty dot's tooltip, and what a tab's accessible name adds for it.
    *
    * @default "unsaved changes"

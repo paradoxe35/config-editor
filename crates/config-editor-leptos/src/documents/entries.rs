@@ -29,6 +29,8 @@ pub(super) struct Entry {
     pub(super) value: RwSignal<String>,
     pub(super) baseline: RwSignal<String>,
     pub(super) read_only: RwSignal<bool>,
+    /// The user may close it (with `on_close` set).
+    pub(super) closable: RwSignal<bool>,
     pub(super) edit_as: RwSignal<Option<Language>>,
     /// The document's own settings, else the view's.
     pub(super) settings: RwSignal<Option<EditorSettings>>,
@@ -65,6 +67,7 @@ impl Entry {
             value: RwSignal::new(document.value.clone()),
             baseline: RwSignal::new(baseline),
             read_only: RwSignal::new(document.read_only),
+            closable: RwSignal::new(document.closable),
             edit_as: RwSignal::new(document.edit_as),
             settings: RwSignal::new(document.settings.clone()),
             host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
@@ -87,6 +90,9 @@ impl Entry {
         }
         if self.read_only.get_untracked() != document.read_only {
             self.read_only.set(document.read_only);
+        }
+        if self.closable.get_untracked() != document.closable {
+            self.closable.set(document.closable);
         }
         if self.edit_as.get_untracked() != document.edit_as {
             self.edit_as.set(document.edit_as);
@@ -145,6 +151,7 @@ where
 pub(super) struct Callbacks {
     pub(super) on_select: Option<Callback<String>>,
     pub(super) on_close: Option<Callback<CloseRequest>>,
+    pub(super) on_add: Option<Callback<()>>,
     pub(super) on_change: Option<Callback<(String, String)>>,
     pub(super) on_save: Option<Callback<(String, SaveRequest)>>,
     pub(super) on_dirty_change: Option<Callback<(String, bool)>>,
@@ -194,6 +201,9 @@ pub(super) struct Documents {
     /// The ids listed twice the last time the list came: each is warned
     /// about once, until the list stops repeating it.
     repeated: StoredValue<Vec<String>>,
+    /// The user asked for a new document (`on_add`) and the host has not
+    /// added one yet: the next one added is selected, its editor focused.
+    adding: StoredValue<bool>,
 }
 
 thread_local! {
@@ -245,6 +255,7 @@ impl Documents {
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
             repeated: StoredValue::new(Vec::new()),
+            adding: StoredValue::new(false),
         }
     }
 
@@ -357,8 +368,14 @@ impl Documents {
         }
         let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
         self.entries.set(entries);
-        for entry in added {
+        for entry in &added {
             self.report_dirty(&entry.id, entry.dirty.get_untracked());
+        }
+        // The document the host added for the user's "+": shown and edited.
+        if let Some(entry) = added.first().filter(|_| self.adding.get_value()) {
+            self.adding.set_value(false);
+            self.select(&entry.id, Focus::Editor);
+            return;
         }
         let active = self.active_id();
         let next = active_after(&previous_ids, &ids, active.as_deref());
@@ -406,6 +423,13 @@ impl Documents {
         true
     }
 
+    /// Selects `id` for the user (a tab, a key): a "+" still waiting for
+    /// its document no longer takes the focus when that comes.
+    pub(super) fn pick(&self, id: &str, focus: Focus) -> bool {
+        let _ = self.adding.try_set_value(false);
+        self.select(id, focus)
+    }
+
     /// Mounts the editor of `id` if it is not yet.
     fn show(&self, id: &str) {
         if let Some(entry) = self
@@ -419,15 +443,35 @@ impl Documents {
         }
     }
 
-    /// Asks the host to close `id`; see [`CloseRequest`].
+    /// Whether the user may close `entry`: `on_close` is set and the
+    /// document is closable. Reactive.
+    pub(super) fn closes(&self, entry: &Entry) -> bool {
+        self.callbacks.on_close.is_some() && entry.closable.get()
+    }
+
+    /// Asks the host to close `id`, when it may be closed; see
+    /// [`CloseRequest`].
     pub(super) fn request_close(&self, id: &str) {
         let (Some(callback), Some(entry)) = (self.callbacks.on_close, self.entry(id)) else {
             return;
         };
+        if !entry.closable.get_untracked() {
+            return;
+        }
         callback.run(CloseRequest {
             id: id.to_string(),
             dirty: entry.dirty.get_untracked(),
         });
+    }
+
+    /// Asks the host for a new document (the "+" button): the next one it
+    /// adds is selected and its editor focused.
+    pub(super) fn request_add(&self) {
+        let Some(callback) = self.callbacks.on_add else {
+            return;
+        };
+        let _ = self.adding.try_set_value(true);
+        callback.run(());
     }
 
     /// Records whether `entry` has unsaved edits, telling the host when that
@@ -514,3 +558,17 @@ impl Documents {
         });
     }
 }
+
+// The tests need a built-in language.
+#[cfg(all(
+    test,
+    any(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )
+))]
+#[path = "entries_tests.rs"]
+mod tests;

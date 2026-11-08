@@ -7,8 +7,15 @@ import { DOCUMENTS_FRAMEWORK_PAGES, setupEditor } from './helpers.mjs';
 // Several documents as tabs (`ConfigDocuments`), on the demo's `?documents`
 // page: `main` (burrow.yaml), `limits` (conf.d/limits.toml) and `clients`
 // (conf.d/clients.json, read-only). The host keeps the list, saves (the
-// baseline becomes the saved text) and asks before closing a document with
-// unsaved edits; what it saw is on `.demo__documents-status`.
+// baseline becomes the saved text), asks before closing a document with
+// unsaved edits and makes a new drop-in for the "+"; what it saw is on
+// `.demo__documents-status`.
+//
+// Roles: the strip holds a `tablist` of `tab`s (each controlling its
+// `tabpanel`) and, after it, the "+" (`on_add`): a plain `button` outside
+// the tablist, next in the `Tab` order; the arrow keys cover only the tabs.
+// A tab's close button (`tabindex=-1`, inside the tab) is drawn only while
+// its document may be closed.
 
 const tab = (page, id) => page.locator(`[role="tab"][data-document-id="${id}"]`);
 const panel = (page, id) => page.locator(`[role="tabpanel"][data-document-id="${id}"]`);
@@ -20,6 +27,8 @@ const chip = (page, id, line) => panel(page, id).locator(`.config-editor__fold-c
 const caret = (page, id) => input(page, id).evaluate((element) => [element.selectionStart, element.selectionEnd]);
 const focusedDocument = (page) =>
   page.evaluate(() => document.activeElement?.closest('[role="tabpanel"]')?.dataset.documentId ?? null);
+const plus = (page) => page.locator('.config-editor-documents__add');
+const closeButton = (page, id) => tab(page, id).locator('.config-editor-documents__close');
 const focusedRole = (page) => page.evaluate(() => document.activeElement?.getAttribute('role') ?? document.activeElement?.tagName);
 
 async function expectActive(page, id) {
@@ -284,6 +293,102 @@ test.describe('documents as tabs', () => {
     await expect(find.locator('.config-editor__find-input').first()).toHaveValue('listen');
   });
 
+  test('the "+" is a button after the tab list that asks the host; its new document is selected and focused, the page stays', async ({ page }) => {
+    const add = page.getByRole('button', { name: 'New file' });
+    await expect(add).toHaveAttribute('title', 'New file');
+    expect(await add.evaluate((element) => element.closest('[role="tablist"]') === null)).toBe(true);
+    expect(await add.evaluate((element) => element.closest('.config-editor-documents__strip') !== null)).toBe(true);
+    // As tall as a tab, right after the last one.
+    const [plusBox, lastBox] = [await add.boundingBox(), await tab(page, 'clients').boundingBox()];
+    expect(Math.abs(plusBox.height - lastBox.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(plusBox.x - (lastBox.x + lastBox.width))).toBeLessThanOrEqual(1);
+
+    // The arrows stay on the tabs; Tab from the tab list reaches the "+".
+    await tab(page, 'clients').click();
+    await page.keyboard.press('ArrowRight');
+    await expect(tab(page, 'main')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(add).toBeFocused();
+
+    // Enter, Space and a click each ask once; the host's new document is
+    // selected and its editor focused.
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[role="tab"]')).toHaveCount(4);
+    await expectActive(page, 'extra1');
+    await expect.poll(() => focusedDocument(page)).toBe('extra1');
+    await add.focus();
+    await page.keyboard.press(' ');
+    await expectActive(page, 'extra2');
+    await expect.poll(() => focusedDocument(page)).toBe('extra2');
+    await expect(page.locator('[role="tab"]')).toHaveCount(5);
+
+    // A page taller than the window, scrolled: the focus moves without
+    // scrolling it.
+    await page.addStyleTag({ content: 'body { padding-bottom: 4000px; }' });
+    await page.evaluate(() => window.scrollTo(0, 40));
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(0);
+    await add.evaluate((element) => element.click());
+    await expectActive(page, 'extra3');
+    await expect.poll(() => focusedDocument(page)).toBe('extra3');
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 100))));
+    expect(await page.evaluate(() => window.scrollY)).toBe(before);
+    await expect(status(page)).toHaveAttribute('data-selects', /,extra1,extra2,extra3$/);
+  });
+
+  test('with many tabs the "+" stays at the end of the strip', async ({ page }) => {
+    for (let index = 0; index < 10; index += 1) await page.locator('.demo__add').click();
+    const strip = page.locator('[role="tablist"]');
+    const sizes = await strip.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    expect(sizes.scroll).toBeGreaterThan(sizes.client);
+    const edge = async () => {
+      const [outer, box] = [await page.locator('.config-editor-documents__strip').boundingBox(), await plus(page).boundingBox()];
+      return Math.round(outer.x + outer.width - (box.x + box.width));
+    };
+    // At the strip's right edge (inside its 1px border), with the tabs scrolled either way.
+    await strip.evaluate((element) => (element.scrollLeft = 0));
+    expect(await edge()).toBeLessThanOrEqual(1);
+    await strip.evaluate((element) => (element.scrollLeft = element.scrollWidth));
+    expect(await edge()).toBeLessThanOrEqual(1);
+    // The last tab, selected, shows whole beside it.
+    await tab(page, 'main').click();
+    await page.keyboard.press('End');
+    await expect(tab(page, 'extra10')).toBeFocused();
+    await expect
+      .poll(async () => {
+        const [last, box] = [await tab(page, 'extra10').boundingBox(), await plus(page).boundingBox()];
+        return last.x + last.width <= box.x + 1;
+      })
+      .toBe(true);
+    await plus(page).click();
+    await expectActive(page, 'extra11');
+    await expect.poll(() => focusedDocument(page)).toBe('extra11');
+  });
+
+  test('only closable documents close: no close button, middle click or Delete on the others', async ({ page }) => {
+    await expect(closeButton(page, 'main')).toHaveCount(1);
+    await page.locator('.demo__toggle-closable').click();
+    await expect(closeButton(page, 'main')).toHaveCount(0);
+    await expect(tab(page, 'main').locator('.config-editor-documents__marker')).toHaveCount(1);
+    await expect(tab(page, 'main')).toHaveAttribute('aria-label', 'burrow.yaml');
+    await expect(closeButton(page, 'limits')).toHaveCount(1);
+    await tab(page, 'main').click({ button: 'middle' });
+    await tab(page, 'main').focus();
+    await page.keyboard.press('Delete');
+    await expect(status(page)).toHaveAttribute('data-open', 'main,limits,clients');
+    // The closable ones still close.
+    await tab(page, 'clients').click({ button: 'middle' });
+    await expect(status(page)).toHaveAttribute('data-open', 'main,limits');
+    await tab(page, 'limits').focus();
+    await page.keyboard.press('Delete');
+    await expect(status(page)).toHaveAttribute('data-open', 'main');
+    // Closable again, live.
+    await page.locator('.demo__toggle-closable').click();
+    await expect(closeButton(page, 'main')).toHaveCount(1);
+    await closeButton(page, 'main').click();
+    await expect(status(page)).toHaveAttribute('data-open', '');
+  });
+
   test('the tab colors come from the theme variables', async ({ page }) => {
     const colors = await page.locator('.config-editor-documents').evaluate((root) => {
       const style = getComputedStyle(root);
@@ -321,6 +426,23 @@ test.describe('documents at phone width', () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     });
   }
+});
+
+test.describe('the "+" on a phone', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  setupEditor(test, '?documents');
+
+  test('390px: visible at the strip\'s end and tappable', async ({ page }) => {
+    for (let index = 0; index < 3; index += 1) await page.locator('.demo__add').click();
+    await expect(plus(page)).toBeInViewport({ ratio: 1 });
+    const box = await plus(page).boundingBox();
+    expect(box.width).toBeGreaterThanOrEqual(24);
+    expect(box.height).toBeGreaterThanOrEqual(24);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await plus(page).tap();
+    await expectActive(page, 'extra4');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
 });
 
 test.describe('documents keep their scroll position', () => {
@@ -388,6 +510,47 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       await tab(page, 'limits').locator('.config-editor-documents__close').click();
       await expect(page.locator('[role="tab"]')).toHaveCount(2);
       await expect(page.locator('#log')).toContainText('select clients');
+      expect(errors).toEqual([]);
+    });
+
+    test('the "+" asks the host, whose document is selected and focused; only closable tabs close', async ({ page }) => {
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(String(error)));
+      page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+      await page.goto(example(name));
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await page.locator('.config-editor__input').waitFor();
+      // main is not closable: no close button, and neither a middle click nor Delete asks.
+      await expect(closeButton(page, 'main')).toHaveCount(0);
+      await expect(closeButton(page, 'limits')).toHaveCount(1);
+      await tab(page, 'main').click({ button: 'middle' });
+      await tab(page, 'main').focus();
+      await page.keyboard.press('Delete');
+      await expect(page.locator('[role="tab"]')).toHaveCount(3);
+
+      await page.addStyleTag({ content: 'body { padding-bottom: 4000px; }' });
+      await page.evaluate(() => window.scrollTo(0, 20));
+      const before = await page.evaluate(() => window.scrollY);
+      const add = page.getByRole('button', { name: 'New file' });
+      expect(await add.evaluate((element) => element.closest('[role="tablist"]') === null)).toBe(true);
+      await add.evaluate((element) => element.click());
+      await expect(page.locator('#log')).toContainText('add new1');
+      await expect(tab(page, 'new1')).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(() => focusedDocument(page)).toBe('new1');
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 100))));
+      expect(await page.evaluate(() => window.scrollY)).toBe(before);
+      await expect(page.locator('#log')).toContainText('select new1');
+
+      // With many tabs the "+" is still at hand.
+      for (let index = 0; index < 8; index += 1) await add.click();
+      await expect(tab(page, 'new9')).toHaveAttribute('aria-selected', 'true');
+      await expect(add).toBeInViewport({ ratio: 1 });
+
+      // Closable, live.
+      await page.evaluate(() => window.updateFile('main', { closable: true }));
+      await expect(closeButton(page, 'main')).toHaveCount(1);
+      await closeButton(page, 'main').click();
+      await expect(tab(page, 'main')).toHaveCount(0);
       expect(errors).toEqual([]);
     });
   });

@@ -13,7 +13,7 @@ await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.
 const schema = await (await fetch("../../schema.json")).text();
 
 const initialFiles: DocumentSpec[] = [
-  { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema },
+  { id: "main", fileName: "burrow.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
   { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
   { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
 ];
@@ -36,6 +36,14 @@ function App() {
   const update = (id: string, change: Partial<DocumentSpec>) =>
     setFiles((list) => list.map((file) => (file.id === id ? { ...file, ...change } : file)));
   hooks.updateFile = update;
+  // "+": the host makes the new file; the view selects it.
+  const added = useRef(0);
+  const add = () => {
+    added.current += 1;
+    const count = added.current;
+    note(`add new${count}`);
+    setFiles((list) => [...list, { id: `new${count}`, fileName: `conf.d/new-${count}.yaml`, value: "", schema }]);
+  };
 
   return (
     <>
@@ -58,6 +66,7 @@ function App() {
           update(id, { baseline: value });
         }}
         onSelect={(id) => note(`select ${id}`)}
+        onAdd={add}
         onClose={({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           setFiles((list) => list.filter((file) => file.id !== id));

@@ -31,8 +31,11 @@ export function documentsOptions() {
   return {
     ...settings,
     documents: [
-      { id: 'main', fileName: 'burrow.yaml', value: VALUE, schema: SCHEMA, hostDiagnostics: HOST_DIAGNOSTICS, secrets: SECRETS },
+      { id: 'main', fileName: 'burrow.yaml', value: VALUE, schema: SCHEMA, hostDiagnostics: HOST_DIAGNOSTICS, secrets: SECRETS, closable: false },
       { id: 'limits', fileName: 'limits.toml', value: '[limits]\nmax_pending = 512\n' },
     ],
+    // The "+" and the close buttons are drawn; the page keeps its two files.
+    onAdd: () => {},
+    onClose: () => {},
   };
 }

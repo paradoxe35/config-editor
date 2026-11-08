@@ -3,7 +3,10 @@
 //! - In the tab list (a WAI-ARIA tab list with automatic activation):
 //!   `ArrowLeft` / `ArrowRight` select the previous / next document,
 //!   wrapping around, `Home` / `End` the first / last one, `Enter` moves
-//!   into the document's editor, `Delete` asks to close the focused one.
+//!   into the document's editor, `Delete` asks to close the focused one
+//!   when it may be closed. The "+" button after the tab list is a plain
+//!   button outside it, next in the `Tab` order; no key adds a document
+//!   (`Ctrl+T` and `Ctrl+N` are the browser's).
 //! - Anywhere in the view, the editor included: `Alt+PageDown` /
 //!   `Alt+PageUp` switch to the next / previous document, the focus going
 //!   with them. Browsers keep `Ctrl+Tab` and `Ctrl+PageDown` for their own
@@ -48,7 +51,7 @@ pub(super) fn on_root_keydown(documents: Documents, event: &KeyboardEvent) {
             .and_then(|target| target.dyn_into::<web_sys::Node>().ok())
             .is_some_and(|target| strip.contains(Some(&target)))
     });
-    documents.select(&next, if from_tabs { Focus::Tab } else { Focus::Editor });
+    documents.pick(&next, if from_tabs { Focus::Tab } else { Focus::Editor });
 }
 
 /// Arrow keys, `Home`, `End`, `Enter` and `Delete` on a tab.
@@ -63,19 +66,24 @@ pub(super) fn on_tab_keydown(documents: Documents, id: &str, event: &KeyboardEve
         "Home" => ids.first().cloned(),
         "End" => ids.last().cloned(),
         "Delete" => {
-            event.prevent_default();
-            documents.request_close(id);
+            if documents
+                .entry(id)
+                .is_some_and(|entry| untrack(|| documents.closes(&entry)))
+            {
+                event.prevent_default();
+                documents.request_close(id);
+            }
             return;
         }
         "Enter" | " " => {
             event.prevent_default();
-            documents.select(id, Focus::Editor);
+            documents.pick(id, Focus::Editor);
             return;
         }
         _ => return,
     };
     event.prevent_default();
     if let Some(target) = target {
-        documents.select(&target, Focus::Tab);
+        documents.pick(&target, Focus::Tab);
     }
 }

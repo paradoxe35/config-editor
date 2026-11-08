@@ -44,7 +44,10 @@ WebAssembly.
 - Saving with `Ctrl+S`, an unsaved-edits flag, a diff gutter against a
   baseline with a before/after preview, a change summary and a unified diff,
   and a notice when the file changes on the server.
-- Several documents as tabs, each with its own language and state.
+- Several documents as tabs, each with its own language and state; a "+"
+  after the tabs (`on_add` / `onAdd`) asks the host for a new file, which
+  opens selected with the focus in it, and documents can be kept open
+  (`closable: false`: no close button, middle click or `Delete`).
 - A path API to jump to a field and follow the caret for a breadcrumb.
 - Eleven themes, per-token colour overrides, and every built-in text
   replaceable (`strings`) for translations.

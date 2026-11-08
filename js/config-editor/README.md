@@ -244,7 +244,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (163 texts)</summary>
+<summary>Every text and its default (164 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -409,6 +409,7 @@ with that reason.
 | `noDocuments`               | `"No open files"`                                                                                                                    | Shown in place of an editor while no document is open.                                                                                                                                                                                         |
 | `closeTab`                  | `"Close {name}"`                                                                                                                     | A tab's close button.                                                                                                                                                                                                                          |
 | `closeTabTitle`             | `"Close (Delete)"`                                                                                                                   | Its tooltip.                                                                                                                                                                                                                                   |
+| `addDocument`               | `"New file"`                                                                                                                         | The "+" button after the tabs (with `on_add`): its accessible name and tooltip.                                                                                                                                                                |
 | `unsaved`                   | `"unsaved changes"`                                                                                                                  | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                                                                                                                                         |
 | `readOnlyTab`               | `"read-only"`                                                                                                                        | What a read-only document's tab adds to its accessible name.                                                                                                                                                                                   |
 
@@ -973,7 +974,14 @@ import { ConfigDocuments, loadConfigEditor } from "@pngwasi/config-editor";
 
 await loadConfigEditor();
 let files = [
-  { id: "main", fileName: "burrow.yaml", value: mainText, schema },
+  // The main config stays open: no close button.
+  {
+    id: "main",
+    fileName: "burrow.yaml",
+    value: mainText,
+    schema,
+    closable: false,
+  },
   { id: "limits", fileName: "conf.d/limits.toml", value: limitsText, schema },
   {
     id: "clients",
@@ -999,6 +1007,11 @@ const view = new ConfigDocuments(document.getElementById("files"), {
     files = files.filter((file) => file.id !== id);
     view.update({ documents: files });
   },
+  // The "+" after the tabs: you decide what a new file is.
+  onAdd: () => {
+    files = [...files, newDropIn(files)];
+    view.update({ documents: files });
+  },
   onSelect: (id) => console.log("showing", id),
 });
 view.saveAll(); // saves the dirty documents; returns their ids
@@ -1012,8 +1025,18 @@ view.isDirty("main");
   `baseline`, `fileName`, `readOnly` or `editAs` updates it in place; a new
   `language` or `schema` mounts a new editor).
 - Nothing closes by itself: `onClose({ id, dirty })` asks you (close button,
-  middle click, `Delete` on a tab). Without `onClose`, tabs have no close
-  button.
+  middle click, `Delete` on a tab). Only closable documents ask: a document
+  with `closable: false` (switches live) stays open, with no close button,
+  and a middle click or `Delete` on its tab does nothing. Without `onClose`,
+  no tab has a close button.
+- Adding is yours too: with `onAdd`, a "+" button follows the last tab
+  (outside the tab list, after it in the `Tab` order; named and titled by
+  the `addDocument` text, "New file"). It only calls `onAdd()`: you decide
+  what a new document is and list it, and the next document you add is
+  selected, its editor focused without scrolling the page. When the tabs
+  overflow, the "+" stays at the end of the strip. No key adds a document
+  (`Ctrl+T` and `Ctrl+N` belong to the browser). `onClose` and `onAdd`
+  cannot be added by `update` to a view mounted without them.
 - Switching keeps each document's caret, selection, scroll position, undo
   history, folds and find widget: an editor mounts the first time its
   document is shown, then stays (hidden) while it is open. With ten
@@ -1022,7 +1045,8 @@ view.isDirty("main");
   its editor's memory back, as `destroy()` does for a `ConfigEditor` (all
   but under 1 KB).
 - Keys: `←`/`→`, `Home`/`End` in the tab list (a WAI-ARIA `tablist`),
-  `Enter` into the editor, `Delete` to close; `Alt+PageDown`/`Alt+PageUp`
+  `Enter` into the editor, `Delete` to close a closable one, `Tab` on to
+  the "+"; `Alt+PageDown`/`Alt+PageUp`
   switch documents from anywhere in the view (browsers keep `Ctrl+Tab` and
   `Ctrl+PageDown`). `Ctrl+S` saves the document being edited.
 - Settings: the options take every [setting](#settings), for all the

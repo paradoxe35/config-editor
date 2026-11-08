@@ -110,6 +110,7 @@ export interface DocumentsBindingProps extends EditorSettings {
   activeId?: string;
   onSelect?: (id: string) => void;
   onClose?: (request: CloseRequest) => void;
+  onAdd?: () => void;
   onChange?: (id: string, value: string) => void;
   onSave?: (id: string, value: string, language: LanguageName) => void;
   onDirtyChange?: (id: string, dirty: boolean) => void;
@@ -167,7 +168,7 @@ export class EditorBinding {
   detach(): void;
 }
 
-/** What a framework component does with a `ConfigDocuments` view (see `EditorBinding`); `label`, `viewClassName` and whether `onClose` is set re-mount. */
+/** What a framework component does with a `ConfigDocuments` view (see `EditorBinding`); `label`, `viewClassName` and whether `onClose` and `onAdd` are set re-mount. */
 export class DocumentsBinding {
   constructor(name: string, props?: DocumentsBindingProps);
   readonly props: DocumentsBindingProps;

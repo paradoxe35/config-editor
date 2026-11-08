@@ -37,6 +37,7 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "label",
     "onSelect",
     "onClose",
+    "onAdd",
     "onChange",
     "onSave",
     "onDirtyChange",
@@ -50,6 +51,7 @@ const DOCUMENT_KEYS: &[&str] = &[
     "language",
     "baseline",
     "readOnly",
+    "closable",
     "schema",
     "editAs",
     "settings",
@@ -132,6 +134,9 @@ fn documents_from(
         }
         if let Some(read_only) = bool_option(&item, "readOnly")? {
             document = document.read_only(read_only);
+        }
+        if let Some(closable) = bool_option(&item, "closable")? {
+            document = document.closable(closable);
         }
         if let Some(schema) = optional_text(&field(&item, "schema"), &name("schema"))? {
             document = document.schema(schema);
@@ -235,11 +240,15 @@ pub(crate) struct State {
     pub(crate) saves: RwSignal<bool>,
     on_select: StoredValue<Option<Function>, LocalStorage>,
     on_close: StoredValue<Option<Function>, LocalStorage>,
+    on_add: StoredValue<Option<Function>, LocalStorage>,
     on_change: StoredValue<Option<Function>, LocalStorage>,
     on_save: StoredValue<Option<Function>, LocalStorage>,
     on_dirty_change: StoredValue<Option<Function>, LocalStorage>,
-    /// Whether the view was mounted with `onClose`: tabs have close buttons.
-    closable: bool,
+    /// Whether the view was mounted with `onClose`: closable documents'
+    /// tabs have close buttons.
+    closes: bool,
+    /// Whether the view was mounted with `onAdd`: the strip has a "+".
+    adds: bool,
     /// Each document's text and baseline as the host last saw them.
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     pub(crate) handle: DocumentsHandle,
@@ -271,6 +280,7 @@ impl State {
         for callback in [
             self.on_select,
             self.on_close,
+            self.on_add,
             self.on_save,
             self.on_dirty_change,
         ] {
@@ -353,8 +363,10 @@ struct Setup {
     active: Option<String>,
     class: String,
     label: Option<String>,
-    /// `onClose` was given: tabs get close buttons.
-    closable: bool,
+    /// `onClose` was given: closable documents' tabs get close buttons.
+    closes: bool,
+    /// `onAdd` was given: the strip gets a "+".
+    adds: bool,
 }
 
 fn view(state: State, setup: Setup) -> AnyView {
@@ -398,7 +410,14 @@ fn view(state: State, setup: Setup) -> AnyView {
             );
         }
     };
-    let close = setup.closable.then(|| {
+    let add = setup.adds.then(|| {
+        Callback::new(move |()| {
+            if let Some(callback) = host(state.on_add) {
+                call_host_with(&callback, &[]);
+            }
+        })
+    });
+    let close = setup.closes.then(|| {
         Callback::new(move |request: CloseRequest| {
             if let Some(callback) = host(state.on_close) {
                 let out = CloseOut {
@@ -417,6 +436,7 @@ fn view(state: State, setup: Setup) -> AnyView {
             nostrip:initial_active=setup.active
             on_select=selected
             nostrip:on_close=close
+            nostrip:on_add=add
             on_change=changed
             on_save=saved
             on_dirty_change=dirty_changed
@@ -484,6 +504,7 @@ impl ConfigDocuments {
         };
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
+        let on_add = function_option(&options, "onAdd")?;
         let on_change = function_option(&options, "onChange")?;
         let on_save = function_option(&options, "onSave")?;
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
@@ -491,7 +512,8 @@ impl ConfigDocuments {
             active: string_option(&options, "activeId")?,
             class: string_option(&options, "className")?.unwrap_or_default(),
             label: string_option(&options, "label")?,
-            closable: on_close.is_some(),
+            closes: on_close.is_some(),
+            adds: on_add.is_some(),
         };
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         replace_editors_in(&element);
@@ -505,10 +527,12 @@ impl ConfigDocuments {
             saves: RwSignal::new(on_save.is_some()),
             on_select: StoredValue::new_local(on_select),
             on_close: StoredValue::new_local(on_close),
+            on_add: StoredValue::new_local(on_add),
             on_change: StoredValue::new_local(on_change),
             on_save: StoredValue::new_local(on_save),
             on_dirty_change: StoredValue::new_local(on_dirty_change),
-            closable: setup.closable,
+            closes: setup.closes,
+            adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             handle: DocumentsHandle::new(),
         });
@@ -621,9 +645,9 @@ impl ConfigDocuments {
     /// while its `id` stays listed, its text, baseline, file name and
     /// read-only state update in place, and a new `language` or `schema`
     /// mounts a new editor. `activeId` shows that document, leaving the
-    /// focus where it is (an id not listed throws). `className` and `label`, and an `onClose` for a
-    /// view mounted without one (its tabs have no close buttons), throw:
-    /// create a new view instead. Every key is checked before any applies.
+    /// focus where it is (an id not listed throws). `className` and `label`, and an `onClose` or
+    /// `onAdd` for a view mounted without one (its tabs have no close
+    /// buttons, its strip no "+"), throw: create a new view instead. Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(
@@ -643,15 +667,22 @@ impl ConfigDocuments {
         for (name, slot) in [
             ("onSelect", self.state.on_select),
             ("onClose", self.state.on_close),
+            ("onAdd", self.state.on_add),
             ("onChange", self.state.on_change),
             ("onDirtyChange", self.state.on_dirty_change),
         ] {
             callbacks.push((callback_change(&options, name)?, slot));
         }
-        if !self.state.closable && matches!(callbacks[1].0, Some(Some(_))) {
+        if !self.state.closes && matches!(callbacks[1].0, Some(Some(_))) {
             return Err(JsError::new(
                 "onClose cannot be added to a ConfigDocuments mounted without one: its tabs are \
                  built without close buttons. Create a new ConfigDocuments with onClose",
+            ));
+        }
+        if !self.state.adds && matches!(callbacks[2].0, Some(Some(_))) {
+            return Err(JsError::new(
+                "onAdd cannot be added to a ConfigDocuments mounted without one: its tab strip is \
+                 built without the \"+\" button. Create a new ConfigDocuments with onAdd",
             ));
         }
         let on_save = callback_change(&options, "onSave")?;

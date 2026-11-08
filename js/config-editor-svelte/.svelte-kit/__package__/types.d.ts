@@ -66,8 +66,10 @@ export interface ConfigDocumentsProps extends EditorSettings {
     activeId?: string;
     /** Called with a document's id when it becomes the active one. */
     onSelect?: (id: string) => void;
-    /** Called when the user asks to close a document. Nothing closes by itself: remove it from `documents`, asking first when `request.dirty`. Without it, tabs have no close button. Whether it is set re-mounts. */
+    /** Called when the user asks to close a document. Nothing closes by itself: remove it from `documents`, asking first when `request.dirty`. Only `closable` documents ask; without it, tabs have no close button. Whether it is set re-mounts. */
     onClose?: (request: CloseRequest) => void;
+    /** Called when the user asks for a new document: the "+" after the last tab, shown only with it (it stays at the strip's end when the tabs overflow). It only asks: add the new document to `documents`; the next one added is selected and its editor focused. Whether it is set re-mounts. */
+    onAdd?: () => void;
     /** Called with a document's id and text after every edit. */
     onChange?: (id: string, value: string) => void;
     /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `save(id)` / `saveAll()`. */

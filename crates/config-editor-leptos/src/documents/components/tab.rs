@@ -1,5 +1,5 @@
 //! One document's tab: its file icon and name, the dirty dot, and the close
-//! button.
+//! button (only while the document may be closed).
 
 use leptos::prelude::*;
 use web_sys::{KeyboardEvent, MouseEvent};
@@ -15,7 +15,10 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     let selected = Memo::new(move |_| {
         active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
-    let closable = documents.callbacks.on_close.is_some();
+    let closes = {
+        let entry = entry.clone();
+        Memo::new(move |_| documents.closes(&entry))
+    };
     let Entry {
         file_name,
         dirty,
@@ -40,17 +43,17 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         move || strings.with(|strings| fill(&strings.close_tab, &[("name", &file_name.get())]));
 
     let select = move |_: MouseEvent| {
-        id.with_value(|id| documents.select(id, Focus::Keep));
+        id.with_value(|id| documents.pick(id, Focus::Keep));
     };
     let middle_click = move |event: MouseEvent| {
-        if event.button() == 1 && closable {
+        if event.button() == 1 && closes.get_untracked() {
             event.prevent_default();
             id.with_value(|id| documents.request_close(id));
         }
     };
     // A middle press would otherwise start the browser's autoscroll.
     let middle_press = move |event: MouseEvent| {
-        if event.button() == 1 && closable {
+        if event.button() == 1 && closes.get_untracked() {
             event.prevent_default();
         }
     };
@@ -74,28 +77,32 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         }
         class
     };
-    let marker = if closable {
-        view! {
-            <button
-                class="config-editor-documents__close"
-                type="button"
-                tabindex="-1"
-                title=documents.text(|strings| &strings.close_tab_title)
-                aria-label=close_label
-                on:click=close
-            >
-                <span class="config-editor-documents__dirty-dot" aria-hidden="true">"●"</span>
-                <span class="config-editor-documents__close-icon" aria-hidden="true">"×"</span>
-            </button>
+    let close_title = documents.text(|strings| &strings.close_tab_title);
+    let unsaved_title = documents.text(|strings| &strings.unsaved);
+    let marker = move || {
+        if closes.get() {
+            view! {
+                <button
+                    class="config-editor-documents__close"
+                    type="button"
+                    tabindex="-1"
+                    title=close_title
+                    aria-label=close_label
+                    on:click=close
+                >
+                    <span class="config-editor-documents__dirty-dot" aria-hidden="true">"●"</span>
+                    <span class="config-editor-documents__close-icon" aria-hidden="true">"×"</span>
+                </button>
+            }
+            .into_any()
+        } else {
+            view! {
+                <span class="config-editor-documents__marker" aria-hidden="true">
+                    <span class="config-editor-documents__dirty-dot" title=unsaved_title>"●"</span>
+                </span>
+            }
+            .into_any()
         }
-        .into_any()
-    } else {
-        view! {
-            <span class="config-editor-documents__marker" aria-hidden="true">
-                <span class="config-editor-documents__dirty-dot" title=documents.text(|strings| &strings.unsaved)>"●"</span>
-            </span>
-        }
-        .into_any()
     };
 
     view! {

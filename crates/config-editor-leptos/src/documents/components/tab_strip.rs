@@ -1,8 +1,11 @@
 //! The tab strip: a WAI-ARIA tab list that scrolls sideways when the tabs
-//! overflow, keeping the active one in view.
+//! overflow, keeping the active one in view, and with `on_add` a "+"
+//! button after it. The button is no tab: it sits outside the tab list (the
+//! arrow keys stay on the tabs) and stays at the strip's end while the tabs
+//! scroll.
 
 use leptos::prelude::*;
-use web_sys::WheelEvent;
+use web_sys::{MouseEvent, WheelEvent};
 
 use super::super::entries::{Documents, Entry};
 use super::DocumentTab;
@@ -26,18 +29,44 @@ pub(in crate::documents) fn TabStrip(documents: Documents, label: Option<String>
     let default_label = documents.text(|strings| &strings.tab_list);
     let label = move || label.clone().unwrap_or_else(default_label);
     let tab = move |entry: Entry| view! { <DocumentTab documents=documents entry=entry /> };
+    let add = documents
+        .callbacks
+        .on_add
+        .map(|_| view! { <AddButton documents=documents /> });
 
     view! {
-        <div
-            class="config-editor-documents__tabs"
-            role="tablist"
-            aria-label=label
-            aria-orientation="horizontal"
-            node_ref=documents.strip
-            on:wheel=wheel
-        >
-            <KeyedList each=tabs key=|entry| entry.serial children=tab />
+        <div class="config-editor-documents__strip">
+            <div
+                class="config-editor-documents__tabs"
+                role="tablist"
+                aria-label=label
+                aria-orientation="horizontal"
+                node_ref=documents.strip
+                on:wheel=wheel
+            >
+                <KeyedList each=tabs key=|entry| entry.serial children=tab />
+            </div>
+            {add}
         </div>
+    }
+}
+
+/// The "+" after the tabs: asks the host for a new document (`on_add`).
+#[component]
+fn AddButton(documents: Documents) -> impl IntoView {
+    let text = documents.text(|strings| &strings.add_document);
+    let add = move |_: MouseEvent| documents.request_add();
+
+    view! {
+        <button
+            class="config-editor-documents__add"
+            type="button"
+            title=text
+            aria-label=text
+            on:click=add
+        >
+            <span aria-hidden="true">"+"</span>
+        </button>
     }
 }
 
