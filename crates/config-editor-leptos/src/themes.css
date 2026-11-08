@@ -33,6 +33,11 @@
 }
 
 :where(.config-editor[data-color-theme="nord"], .config-editor-documents[data-color-theme="nord"], .config-editor-theme[data-color-theme="nord"]) {
+  /* The footer's counts, readable (4.5:1) on its panel. */
+  --config-editor-status-error: #f4a3a9;
+  --config-editor-status-warning: #ebcb8b;
+  --config-editor-status-info: #88c0d0;
+  --config-editor-status-hint: #b0bacb;
   --config-editor-bg: #2e3440;
   --config-editor-panel: #3b4252;
   --config-editor-border: #434c5e;
@@ -107,8 +112,9 @@
 :where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"], .config-editor-theme[data-color-theme="solarized-light"]) {
   --config-editor-status-error: #b8281f;
   --config-editor-status-warning: #8a6100;
-  --config-editor-status-info: #0969da;
+  --config-editor-status-info: #0860c9;
   --config-editor-status-hint: #59636e;
+  --config-editor-status-changes: #1a6aa0;
   --config-editor-bg: #fdf6e3;
   --config-editor-panel: #eee8d5;
   --config-editor-border: #d6ceb9;
@@ -123,7 +129,7 @@
   --config-editor-raised: #fdf6e3;
   --config-editor-raised-border: #d6ceb9;
   --config-editor-raised-text: #536870;
-  --config-editor-raised-muted: #586e75;
+  --config-editor-raised-muted: #4f646b;
   --config-editor-raised-hover: #e5dfcc;
   --config-editor-control-bg: #f7f0dc;
   --config-editor-control-text: #4a5f66;

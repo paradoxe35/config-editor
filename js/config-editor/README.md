@@ -185,7 +185,7 @@ viewer.update({ showDiagnostics: true });
 | `showDiff`               | `true`              | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
 | `completions`            | `true`              | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
 | `autoTriggerCompletions` | `true`              | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
-| `hoverDocs`              | `true`              | Show the schema's title, description, type, default and examples when hovering a key.                                                                                                                                                                                              |
+| `hoverDocs`              | `true`              | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
 | `highlighting`           | `true`              | Syntax colors.                                                                                                                                                                                                                                                                     |
 | `autoClosing`            | `true`              | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
 | `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
@@ -249,7 +249,7 @@ and `editAsTypedCommentsNone`.
 | `hintsOne`                  | `"{count} hint"`                                                                                                                     | One hint, in the footer's problem count.                                                                                                                                                                                                       |
 | `hintsOther`                | `"{count} hints"`                                                                                                                    | Several hints, in the footer's problem count.                                                                                                                                                                                                  |
 | `problemsHint`              | `"hover or focus underlined text"`                                                                                                   | After the problem count when every problem has its place.                                                                                                                                                                                      |
-| `problemsCut`               | `"only the first {count} are shown"`                                                                                                 | After the problem count when the list was cut; `{count}` is how many are shown.                                                                                                                                                                |
+| `problemsCut`               | `"only the editor's first {count} are shown"`                                                                                        | After the problem count when the editor's own problems were cut; `{count}` is how many of them are shown (the host's are all shown).                                                                                                           |
 | `problemsMore`              | `"Only the first {count} problems are shown; more follow."`                                                                          | The problem that says the list was cut, after `{count}` problems.                                                                                                                                                                              |
 | `changesOne`                | `"{count} change"`                                                                                                                   | The footer's change count against the baseline, for one change.                                                                                                                                                                                |
 | `changesOther`              | `"{count} changes"`                                                                                                                  | The footer's change count, for several changes.                                                                                                                                                                                                |
@@ -503,7 +503,7 @@ editor.update({
   it) when they name the same stretch.
 - The editor lists and underlines at most 20 problems of each source (the
   schema's, the secret placeholders'), and the footer says how many were
-  cut ("20+ errors · only the first 20 are shown"); a problem with no place
+  cut ("20+ errors · only the editor's first 20 are shown"); a problem with no place
   (the whole document's) stays in the footer and `F8` reaches it.
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one (`null` or
@@ -786,6 +786,9 @@ ConfigEditor` and `update()`.
 
 - `Ctrl+Shift+[` / `Ctrl+Shift+]`: fold / unfold at the caret
 - `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`: fold / unfold everything
+- `Ctrl+K Ctrl+I`: show the schema docs of the key at the caret (read to
+  screen readers; `Escape` closes them); on a touch screen, a tap on a key
+  shows them
 
 **Documents** (a `ConfigDocuments` view)
 

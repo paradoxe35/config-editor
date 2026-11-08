@@ -722,6 +722,13 @@
   color: var(--config-editor-text);
 }
 
+/* A fold hiding problems: its chip underlined in the most serious one's
+   colour. */
+.config-editor__fold-chip--error { box-shadow: inset 0 -2px var(--config-editor-error); }
+.config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
+.config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
+.config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
+
 .config-editor__code-line-active { background: var(--config-editor-active-line); }
 .config-editor__code-line-error { background: var(--config-editor-error-line); }
 .config-editor__code-line-added { background: var(--config-editor-added-line); }
@@ -804,61 +811,57 @@
   outline-offset: 1px;
 }
 
-.config-editor__diagnostic-marker::after {
-  position: absolute;
-  z-index: 4;
-  bottom: calc(100% + 5px);
-  left: var(--config-editor-diagnostic-tooltip-shift, 0px);
+/* Over the same text, the more serious problem's underline is drawn on top
+   (an error over a warning), and an identical less serious one not at all. */
+.config-editor__diagnostic-marker { z-index: 4; }
+.config-editor__diagnostic-marker-warning { z-index: 3; }
+.config-editor__diagnostic-marker-info { z-index: 2; }
+.config-editor__diagnostic-marker-hint { z-index: 1; }
+.config-editor__diagnostic-marker-covered { text-decoration-line: none; }
+
+/* The problem tip: the messages of the problems at the hovered underline
+   (or where F8 went), each with who reported it, its code and docs link.
+   Placed in window pixels inside the editor; no taller than the room there,
+   it scrolls. */
+.config-editor__problem-tip {
+  position: fixed;
+  z-index: 59;
+  box-sizing: border-box;
   width: max-content;
-  max-width: var(--config-editor-diagnostic-tooltip-width, min(360px, calc(100vw - 32px)));
-  display: none;
+  max-width: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 6px;
   padding: 7px 10px;
   border: 1px solid var(--config-editor-raised-border);
   border-radius: 4px;
   background: var(--config-editor-raised);
   color: var(--config-editor-tooltip-text);
-  content: attr(data-message);
-  /* Several problems at one place: one message per line. */
-  white-space: pre-line;
-  overflow-wrap: anywhere;
   box-shadow: 0 3px 10px var(--config-editor-popup-shadow);
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
-  text-decoration: none;
-  -webkit-text-fill-color: currentColor;
-  pointer-events: none;
-}
-
-.config-editor__diagnostic-marker:hover::after,
-.config-editor__diagnostic-marker:focus-visible::after,
-.config-editor__diagnostic-marker-shown::after { display: block; }
-
-.config-editor__diagnostic-marker-near-top::after {
-  top: calc(100% + 5px);
-  bottom: auto;
-}
-
-/* A host problem's message says who reported it (and its code) on a second
-   line. */
-.config-editor__diagnostic-marker-host::after {
-  content: attr(data-message) "\A" attr(data-detail);
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
-
-/* With docs, the message stays open while the pointer moves onto it (no gap
-   below it) and a click on it opens them. */
-.config-editor__diagnostic-marker-docs::after {
-  bottom: 100%;
-  border-bottom: 6px solid transparent;
-  background-clip: padding-box;
-  pointer-events: auto;
-  cursor: pointer;
+.config-editor__problem-tip[hidden] { display: none; }
+/* Clicks go through to the text under it, unless it has a docs link or
+   scrolls. */
+.config-editor__problem-tip { pointer-events: none; }
+.config-editor__problem-tip--interactive { pointer-events: auto; }
+.config-editor__problem-tip-entry {
+  padding-left: 7px;
+  border-left: 3px solid var(--config-editor-error);
 }
-.config-editor__diagnostic-marker-docs.config-editor__diagnostic-marker-near-top::after {
-  top: 100%;
-  bottom: auto;
-  border-top: 6px solid transparent;
-  border-bottom: 1px solid var(--config-editor-raised-border);
-}
+.config-editor__problem-tip-entry--warning { border-left-color: var(--config-editor-warning); }
+.config-editor__problem-tip-entry--info { border-left-color: var(--config-editor-info); }
+.config-editor__problem-tip-entry--hint { border-left-color: var(--config-editor-hint); }
+.config-editor__problem-tip-entry--current { background: var(--config-editor-raised-hover); }
+.config-editor__problem-tip-message,
+.config-editor__problem-tip-detail { margin: 0; }
+.config-editor__problem-tip-message--docs { cursor: pointer; }
+.config-editor__problem-tip-severity { font-weight: 600; }
+.config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
+.config-editor__problem-tip-link { color: var(--config-editor-accent); }
 
 .config-editor__diagnostic-marker-eof::before {
   position: absolute;
@@ -1497,6 +1500,7 @@
   --config-editor-status-warning: #8a6100;
   --config-editor-status-info: #0969da;
   --config-editor-status-hint: #59636e;
+  --config-editor-status-changes: #1d6fa5;
   --config-editor-panel: #f0f3f1;
   --config-editor-border: #d7dfda;
   --config-editor-text: #35413a;
@@ -1510,7 +1514,7 @@
   --config-editor-raised: #ffffff;
   --config-editor-raised-border: #d5ddd8;
   --config-editor-raised-text: #35413a;
-  --config-editor-raised-muted: #6f7b73;
+  --config-editor-raised-muted: #5f6b63;
   --config-editor-raised-hover: #e7ece9;
   --config-editor-control-bg: #f5f8f6;
   --config-editor-control-text: #35413a;

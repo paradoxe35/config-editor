@@ -89,8 +89,8 @@ pub struct EditorStrings {
     pub hints_other: String,
     /// After the problem count when every problem has its place.
     pub problems_hint: String,
-    /// After the problem count when the list was cut; `{count}` is how
-    /// many are shown.
+    /// After the problem count when the editor's own problems were cut;
+    /// `{count}` is how many of them are shown (the host's are all shown).
     pub problems_cut: String,
     /// The problem that says the list was cut, after `{count}` problems.
     pub problems_more: String,
@@ -444,7 +444,7 @@ impl Default for EditorStrings {
             hints_one: text("{count} hint"),
             hints_other: text("{count} hints"),
             problems_hint: text("hover or focus underlined text"),
-            problems_cut: text("only the first {count} are shown"),
+            problems_cut: text("only the editor's first {count} are shown"),
             problems_more: text("Only the first {count} problems are shown; more follow."),
             changes_one: text("{count} change"),
             changes_other: text("{count} changes"),

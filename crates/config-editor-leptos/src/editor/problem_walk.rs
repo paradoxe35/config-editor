@@ -2,7 +2,7 @@
 //! one position one after another, then those with no position (a whole
 //! document's, a field not found), which the footer shows.
 
-use super::commands::{cycle_offset, offset_at};
+use super::commands::cycle_offset;
 use super::diagnostics::{Diagnostic, MORE_PROBLEMS_CODE};
 
 /// One stop of the walk: the problem's index, and its UTF-16 offset in the
@@ -15,8 +15,10 @@ pub(super) struct Stop {
 
 /// Every problem of `problems` (but the note that the list was cut) in walk
 /// order: placed ones by offset in `text` (those at one offset in the order
-/// they were found), then the unplaced ones.
+/// they were found), then the unplaced ones. One pass over the text finds
+/// every line's offset, so thousands of problems cost about as much as one.
 pub(super) fn stops(text: &str, problems: &[Diagnostic]) -> Vec<Stop> {
+    let lines = LineStarts::new(text);
     let mut stops: Vec<Stop> = problems
         .iter()
         .enumerate()
@@ -25,12 +27,51 @@ pub(super) fn stops(text: &str, problems: &[Diagnostic]) -> Vec<Stop> {
             offset: problem
                 .line
                 .zip(problem.column)
-                .map(|(line, column)| offset_at(text, line, column)),
+                .map(|(line, column)| lines.offset(line, column)),
             index,
         })
         .collect();
     stops.sort_by_key(|stop| (stop.offset.is_none(), stop.offset, stop.index));
     stops
+}
+
+/// Each line of a text with its UTF-16 offset.
+struct LineStarts<'a> {
+    lines: Vec<(usize, &'a str)>,
+    /// The text's length in UTF-16.
+    total: usize,
+}
+
+impl<'a> LineStarts<'a> {
+    fn new(text: &'a str) -> Self {
+        let mut offset = 0;
+        let lines = text
+            .split('\n')
+            .map(|line| {
+                let start = offset;
+                offset += line.encode_utf16().count() + 1;
+                (start, line)
+            })
+            .collect();
+        Self {
+            lines,
+            total: offset.saturating_sub(1),
+        }
+    }
+
+    /// The UTF-16 offset of one-based (`line`, `column`), clamped to the
+    /// line and the text (as `commands::offset_at`).
+    fn offset(&self, line: usize, column: usize) -> usize {
+        let Some((start, text)) = self.lines.get(line.saturating_sub(1)) else {
+            return self.total;
+        };
+        let within: usize = text
+            .chars()
+            .take(column.saturating_sub(1))
+            .map(char::len_utf16)
+            .sum();
+        (start + within).min(self.total)
+    }
 }
 
 /// The position in `stops` F8 (or Shift+F8, `backward`) goes to from the
@@ -131,5 +172,62 @@ mod tests {
         let stops = stops(TEXT, &problems);
         assert_eq!(stops.len(), 2);
         assert_eq!(walk(&problems, 0, 3, false), ["document", "a", "document"]);
+    }
+
+    /// The one-pass offsets are `offset_at`'s, clamping included.
+    #[test]
+    fn line_starts_match_offset_at_everywhere() {
+        for text in ["", "a", "a\n", "é😀x\n\nb\r\nlast", "\n\n", "abc\ndé"] {
+            let lines = super::LineStarts::new(text);
+            for line in 0..7 {
+                for column in 0..8 {
+                    assert_eq!(
+                        lines.offset(line, column),
+                        super::super::commands::offset_at(text, line, column),
+                        "{text:?} {line}:{column}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// QA 19: F8 with 3000 host problems in a 6000-line document froze
+    /// 350-1050 ms per press: each problem's offset was found by counting
+    /// the lines from the top. The walk is found in one pass over the text.
+    #[test]
+    fn the_walk_over_thousands_of_problems_in_a_long_text_is_cheap() {
+        let text: String = (0..6000)
+            .map(|line| format!("kéy{line}: value {line}\n"))
+            .collect();
+        let problems: Vec<Diagnostic> = (0..3000)
+            .map(|index| Diagnostic {
+                line: Some(2 + (index * 2) % 5990),
+                column: Some(3),
+                end_column: Some(5),
+                message: format!("host {index}"),
+                ..Diagnostic::default()
+            })
+            .collect();
+        let (took, found) = crate::editor::test_timing::best_of(3, || stops(&text, &problems));
+        assert_eq!(found.len(), 3000);
+        // Each stop is the problem's own offset (UTF-16), in order.
+        let offset = |line: usize| {
+            text.split('\n')
+                .take(line - 1)
+                .map(|text| text.encode_utf16().count() + 1)
+                .sum::<usize>()
+                + 2
+        };
+        assert!(
+            found
+                .iter()
+                .all(|stop| stop.offset == Some(offset(problems[stop.index].line.unwrap())))
+        );
+        assert!(
+            found
+                .windows(2)
+                .all(|pair| pair[0].offset <= pair[1].offset)
+        );
+        assert!(took.as_millis() < 30, "the walk took {took:?}");
     }
 }

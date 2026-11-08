@@ -2,6 +2,7 @@
 //! returns `true` when it took the key, and [`on_keydown`] stops there; the
 //! order below is the order keys are matched in.
 
+mod chord;
 mod enter;
 mod navigation;
 mod suggestions;
@@ -48,7 +49,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.hide_shown_problem();
     }
-    if super::folding::shortcuts(state, event) {
+    if chord::chord(state, event) || super::folding::shortcuts(state, event) {
         return;
     }
     if state.step_over_token(event)
@@ -112,6 +113,7 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         state.completion().explicit.set(false);
         super::changes::close_preview(state);
         state.hide_hover();
+        state.hide_shown_problem();
     }
 }
 

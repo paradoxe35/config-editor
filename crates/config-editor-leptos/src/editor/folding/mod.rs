@@ -30,7 +30,7 @@ pub(crate) mod texts;
 mod tests;
 
 pub(super) use components::mount_fold_layers;
-pub(super) use keys::{shortcuts, unfold_before_edit};
+pub(super) use keys::{chord_key, shortcuts, unfold_before_edit};
 
 use leptos::prelude::*;
 
@@ -45,8 +45,6 @@ pub(crate) struct FoldState {
     pub(crate) folded: RwSignal<Vec<FoldRange>>,
     /// What can fold in the document. Lazy: only read with folding on.
     pub(crate) fold_ranges: Memo<Vec<FoldRange>>,
-    /// `Ctrl+K` was pressed: the next key may finish a folding chord.
-    pub(crate) fold_chord: StoredValue<bool>,
     /// The closed folds before an editing key opened some for its edit:
     /// put back if the edit is then refused (a read-only value).
     pub(crate) before_edit: StoredValue<Option<Vec<FoldRange>>>,
@@ -69,7 +67,6 @@ impl FoldState {
         Self {
             folded: RwSignal::new(Vec::new()),
             fold_ranges,
-            fold_chord: StoredValue::new(false),
             before_edit: StoredValue::new(None),
         }
     }

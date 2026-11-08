@@ -87,6 +87,47 @@ fn range_of(text: &str, needle: &str) -> TextRange {
     TextRange::new(start, end)
 }
 
+/// QA 19 (H19-F9): a range starting in a line's indentation (a whole line
+/// selected from its start) goes to the field written on that line, as one
+/// starting at its first character does, not to the field around it.
+#[test]
+fn a_range_from_a_lines_indentation_is_placed_at_the_field_on_that_line() {
+    let mut failures = Vec::new();
+    for (host, host_text) in DOCUMENTS {
+        let line = host_text
+            .split('\n')
+            .position(|text| text.contains("http"))
+            .expect("the http line")
+            + 1;
+        let text = host_text.split('\n').nth(line - 1).unwrap();
+        let indent = text.len() - text.trim_start().len();
+        if indent == 0 {
+            continue;
+        }
+        let end = text.chars().count() + 1;
+        for (edit, shown) in DOCUMENTS.into_iter().filter(|(edit, _)| *edit != host) {
+            let placed_from = |column: usize| {
+                let problems = [HostDiagnostic::at_range(
+                    range(line, column, line, end),
+                    Severity::Error,
+                    "x",
+                )];
+                let ranges = RangeText::Host(host.behavior(), host_text);
+                place(edit.behavior(), shown, &problems, ranges, default_strings())
+                    .first()
+                    .and_then(|problem| marked(shown, problem))
+            };
+            let (from_start, from_text) = (placed_from(1), placed_from(indent + 1));
+            if from_start != from_text || from_text.is_none() {
+                failures.push(format!(
+                    "{host} as {edit}: from the indentation {from_start:?}, from the text {from_text:?}"
+                ));
+            }
+        }
+    }
+    report(failures);
+}
+
 #[test]
 fn a_range_is_placed_at_its_field_while_editing_as_every_other_language() {
     // (what the host's range covers, what is underlined on screen)

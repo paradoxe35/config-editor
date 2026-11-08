@@ -221,6 +221,49 @@ fn the_host_problem_replaces_the_editors_own_on_the_same_text() {
     );
 }
 
+/// QA 19 (H19-F4): the host's message takes the place of the editor's own
+/// only when it is as serious: a host hint on a field kept its schema
+/// error out of sight (and the footer said there were no errors).
+#[test]
+fn a_less_serious_host_problem_never_hides_the_editors_own() {
+    let at = |severity: Severity, origin: DiagnosticOrigin, message: &str| Diagnostic {
+        line: Some(1),
+        column: Some(1),
+        end_column: Some(5),
+        severity,
+        origin,
+        message: message.to_string(),
+        ..Diagnostic::default()
+    };
+    let severities = [
+        Severity::Error,
+        Severity::Warning,
+        Severity::Info,
+        Severity::Hint,
+    ];
+    let mut failures = Vec::new();
+    for own in severities {
+        for theirs in severities {
+            let mine = at(own, DiagnosticOrigin::Editor, "mine");
+            let host = at(theirs, DiagnosticOrigin::Host, "theirs");
+            let merged: Vec<String> =
+                merge(std::slice::from_ref(&mine), std::slice::from_ref(&host))
+                    .into_iter()
+                    .map(|problem| problem.message)
+                    .collect();
+            let expected: &[&str] = if (theirs as u8) <= (own as u8) {
+                &["theirs"]
+            } else {
+                &["mine", "theirs"]
+            };
+            if merged != expected {
+                failures.push(format!("own {own:?}, host {theirs:?}: {merged:?}"));
+            }
+        }
+    }
+    report(failures);
+}
+
 #[cfg(feature = "schema-validation")]
 #[test]
 fn a_problem_both_the_schema_and_the_host_find_shows_once_in_every_language() {

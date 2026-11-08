@@ -122,13 +122,9 @@ test.describe('touch on a phone', () => {
     await tap(page, 0, 9);
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveClass(/config-editor__diagnostic-marker-shown/);
-    const tooltip = await marker.evaluate((element) => {
-      const style = getComputedStyle(element, '::after');
-      const rect = element.getBoundingClientRect();
-      return { content: style.content, opacity: style.opacity, left: rect.left };
-    });
-    expect(tooltip.content).not.toBe('none');
-    expect(Number(tooltip.opacity)).toBeGreaterThan(0);
+    const tip = page.locator('.config-editor__problem-tip');
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('Error');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });

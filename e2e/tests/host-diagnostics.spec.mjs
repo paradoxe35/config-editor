@@ -73,9 +73,10 @@ test.describe('vanilla.html', () => {
     ]);
     await expect(footer(browserPage)).toHaveText('1 error, 1 warning, 1 info, 1 hint · the server restarted');
     // The message shows who reported it, under the message.
-    const tip = await markers(browserPage).first().evaluate((element) => getComputedStyle(element, '::after').content);
-    expect(tip).toContain('port in use');
-    expect(tip).toContain('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
+    await markers(browserPage).first().hover();
+    const tip = browserPage.locator('.config-editor__problem-tip');
+    await expect(tip).toContainText('port in use');
+    await expect(tip).toContainText('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
     const caretLine = () => input(browserPage).evaluate((element) => element.value.slice(0, element.selectionStart).split('\n').length);
@@ -158,10 +159,14 @@ test.describe('vanilla.html', () => {
     const marker = markers(browserPage).first();
     await marker.hover();
     const box = await marker.boundingBox();
-    // Near the top of the editor, the message opens below the line.
+    // Near the top of the editor, the message opens below the line; the
+    // pointer moving onto it keeps it open.
+    const message = browserPage.locator('.config-editor__problem-tip-message');
+    const tip = await message.boundingBox();
+    expect(tip.y).toBeGreaterThan(box.y + box.height);
     const popup = browserPage.waitForEvent('popup');
-    await browserPage.mouse.move(box.x + 4, box.y + box.height + 10);
-    await browserPage.mouse.click(box.x + 4, box.y + box.height + 10);
+    await browserPage.mouse.move(box.x + 4, tip.y + tip.height / 2, { steps: 4 });
+    await browserPage.mouse.click(tip.x + 10, tip.y + tip.height / 2);
     await popup;
   });
 

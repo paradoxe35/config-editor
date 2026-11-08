@@ -256,9 +256,15 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
         return Err(RANGE_SHAPE.to_string());
     };
     let end_line = number("endLine", 1.0)?.unwrap_or(line);
-    let end_column = number("endColumn", 1.0)?.unwrap_or(column + 1);
     let lines: Vec<&str> = host_text.split('\n').collect();
     let width = |line: usize| lines.get(line - 1).map_or(0, |text| text.chars().count());
+    // Left out, the end is one character on, at most the line's end (an
+    // empty line's range is its start).
+    let end_column = match number("endColumn", 1.0)? {
+        Some(end_column) => end_column,
+        None if end_line == line => (column + 1).min(width(line) + 1).max(column),
+        None => (column + 1).min(width(end_line) + 1),
+    };
     if end_line < line || (end_line == line && end_column < column) {
         return Err(format!(
             "the end ({end_line}:{end_column}) is before the start ({line}:{column})"

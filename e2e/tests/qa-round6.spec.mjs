@@ -163,12 +163,13 @@ test.describe('diagnostics: round 6', () => {
     const e = await at(page, '¦listen: 1\nbogus: 2\n');
     const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toBeVisible();
-    const shown = () => marker.evaluate((element) => getComputedStyle(element, '::after').display);
-    expect(await shown()).toBe('none');
+    const tip = page.locator('.config-editor__problem-tip');
+    await expect(tip).toBeHidden();
     await page.keyboard.press('F8');
-    await expect.poll(shown).toBe('block');
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('bogus');
     expect((await e.caret()).line).toBe(2);
     await page.keyboard.press('ArrowRight');
-    await expect.poll(shown).toBe('none');
+    await expect(tip).toBeHidden();
   });
 });

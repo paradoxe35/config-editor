@@ -62,7 +62,7 @@ export interface EditorSettings {
    */
   autoTriggerCompletions?: boolean;
   /**
-   * Show the schema's title, description, type, default and examples when hovering a key.
+   * Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.
    *
    * @default true
    */
@@ -190,9 +190,9 @@ export interface EditorStrings {
    */
   problemsHint?: string;
   /**
-   * After the problem count when the list was cut; `{count}` is how many are shown.
+   * After the problem count when the editor's own problems were cut; `{count}` is how many of them are shown (the host's are all shown).
    *
-   * @default "only the first {count} are shown"
+   * @default "only the editor's first {count} are shown"
    */
   problemsCut?: string;
   /**

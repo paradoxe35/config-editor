@@ -13,10 +13,16 @@ use super::host_diagnostics::{
     HostDiagnostic, RangeText, merge as merge_host, place as place_host,
 };
 use super::languages::Language;
+use super::problem_walk::{Stop, stops};
 use super::protect::ProtectState;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;
+use crate::reactive::later;
+
+/// How long the problem tip stays after the pointer leaves its underline,
+/// in milliseconds: time to reach it.
+const TIP_GRACE_MS: i32 = 200;
 
 /// The problems part of the editor state.
 #[derive(Clone, Copy)]
@@ -25,12 +31,33 @@ pub(super) struct ProblemsState {
     /// conversion read it.
     pub(super) diagnosed_text: RwSignal<String>,
     pub(super) diagnostics: Memo<Vec<Diagnostic>>,
+    /// The order F8 walks `diagnostics` in, found when F8 first needs it
+    /// after the text or the problems change (not on every press).
+    pub(super) walk: Memo<Vec<Stop>>,
     /// The problem F8 moved to, `(line, column)`: its message shows until the
     /// next key, click or edit.
     pub(super) current: RwSignal<Option<(usize, usize)>>,
     /// The problem F8 went to last and the caret it left: from there the
     /// next press goes on (several problems at one place each get a turn).
-    pub(super) walked: StoredValue<Option<(Diagnostic, usize)>>,
+    pub(super) walked: RwSignal<Option<(Diagnostic, usize)>>,
+    /// The underline under the pointer (or focused): its problems' messages
+    /// show in the problem tip (see `components::diagnostics`).
+    pub(super) hovered: RwSignal<Option<TipAnchor>>,
+    /// The pointer is over the problem tip (so leaving the underline for it
+    /// keeps it open).
+    pub(super) tip_entered: StoredValue<bool>,
+    /// Bumped on each hover change, so a hide scheduled before it never lands.
+    pub(super) tip_token: StoredValue<u64>,
+}
+
+/// Where the problem tip points: the problems starting at `place`, shown
+/// at the underline on one-based `line` from visual column `column`
+/// (zero-based; tabs count two).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct TipAnchor {
+    pub(super) place: (usize, usize),
+    pub(super) line: usize,
+    pub(super) column: f64,
 }
 
 /// What the problems are found from.
@@ -160,11 +187,18 @@ impl ProblemsState {
             let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
             text.with(|current| shift_diagnostics(&checked, current, &found))
         });
+        let walk = Memo::new(move |_| {
+            text.with(|current| diagnostics.with(|found| stops(current, found)))
+        });
         Self {
             diagnosed_text,
             diagnostics,
+            walk,
             current: RwSignal::new(None),
-            walked: StoredValue::new(None),
+            walked: RwSignal::new(None),
+            hovered: RwSignal::new(None),
+            tip_entered: StoredValue::new(false),
+            tip_token: StoredValue::new(0),
         }
     }
 }
@@ -183,10 +217,45 @@ impl EditorState {
         self.problems().current.set(position);
     }
 
-    /// Hides the message F8 showed.
+    /// Hides the message F8 showed, and the one under the pointer.
     pub(super) fn hide_shown_problem(&self) {
         if self.problems().current.get_untracked().is_some() {
             self.problems().current.set(None);
+        }
+        self.hide_problem_tip();
+    }
+
+    /// Shows the problems of the underline at `anchor` (under the pointer,
+    /// or focused).
+    pub(super) fn hover_problem(&self, anchor: TipAnchor) {
+        let problems = self.problems();
+        problems.tip_token.update_value(|token| *token += 1);
+        if problems.hovered.get_untracked() != Some(anchor) {
+            problems.hovered.set(Some(anchor));
+        }
+    }
+
+    /// The pointer left an underline: its tip closes a moment later, unless
+    /// the pointer reached the tip (to scroll it or click a docs link).
+    pub(super) fn leave_problem(&self) {
+        let problems = self.problems();
+        problems.tip_token.update_value(|token| *token += 1);
+        let token = problems.tip_token.get_value();
+        later::after(*self, TIP_GRACE_MS, move |state| {
+            let problems = state.problems();
+            if problems.tip_token.get_value() == token && !problems.tip_entered.get_value() {
+                state.hide_problem_tip();
+            }
+        });
+    }
+
+    /// Hides the tip of the underline under the pointer.
+    pub(super) fn hide_problem_tip(&self) {
+        let problems = self.problems();
+        problems.tip_token.update_value(|token| *token += 1);
+        problems.tip_entered.set_value(false);
+        if problems.hovered.with_untracked(Option::is_some) {
+            problems.hovered.set(None);
         }
     }
 }

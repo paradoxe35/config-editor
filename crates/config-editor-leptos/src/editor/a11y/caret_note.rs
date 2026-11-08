@@ -19,7 +19,7 @@ use crate::strings::fill;
 const NOTE_DELAY_MS: i32 = 150;
 
 /// The one-based line and character column of UTF-16 `caret` in `text`.
-pub(super) fn caret_position(text: &str, caret: usize) -> (usize, usize) {
+pub(in crate::editor) fn caret_position(text: &str, caret: usize) -> (usize, usize) {
     let byte = utf16_to_byte_index(text, caret);
     let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
     let line = text[..line_start]
@@ -138,8 +138,8 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
 }
 
 /// Shows what is at the caret as the pointer would: the message of the
-/// problem there, or what the protected text there is. A tap on a phone
-/// has no hover to show them with.
+/// problem there, what the protected text there is, or the key's docs (the
+/// hover card). A tap on a phone has no hover to show them with.
 pub(in crate::editor) fn show_at_caret(state: EditorState) {
     let caret = state.doc().caret.get_untracked();
     let (line, column) = state
@@ -154,8 +154,11 @@ pub(in crate::editor) fn show_at_caret(state: EditorState) {
     });
     match problem {
         Some(position) => state.problems().current.set(Some(position)),
+        // Else the key's docs, as the pointer's hover shows them.
         None => {
-            state.hover_protected(line - 1, column - 1);
+            if !state.hover_protected(line - 1, column - 1) {
+                state.show_hover_at_caret();
+            }
         }
     }
 }

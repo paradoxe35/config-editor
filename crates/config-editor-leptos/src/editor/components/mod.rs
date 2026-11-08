@@ -20,7 +20,7 @@ pub(super) use baseline_notice::BaselineNotice;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 pub(super) use code::CodeLayer;
 pub(super) use completions::CompletionList;
-pub(super) use diagnostics::DiagnosticOverlay;
+pub(super) use diagnostics::{DiagnosticOverlay, ProblemTip};
 pub(super) use edit_as_notice::EditAsNotice;
 pub(super) use gutter::Gutter;
 pub(super) use hover_card::{HoverCard, HoverCardView};

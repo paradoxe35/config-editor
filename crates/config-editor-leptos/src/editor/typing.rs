@@ -36,6 +36,9 @@ pub(super) struct TypingState {
     pub(super) pre_edit_selection: StoredValue<Selection>,
     /// Input events not applied yet (see `input::flush_input`).
     pub(super) input_burst: StoredValue<Option<InputBurst>>,
+    /// `Ctrl+K` was pressed: the next key may finish a chord (see
+    /// `keys::chord`).
+    pub(super) chord: StoredValue<bool>,
 }
 
 impl TypingState {
@@ -45,6 +48,7 @@ impl TypingState {
             copied_line: StoredValue::new(None),
             pre_edit_selection: StoredValue::new(UNKNOWN_SELECTION),
             input_burst: StoredValue::new(None),
+            chord: StoredValue::new(false),
         }
     }
 }

@@ -1,6 +1,7 @@
 //! Folding keys, as in VS Code (`Cmd` for `Ctrl` on macOS):
 //! `Ctrl+Shift+[` folds at the caret, `Ctrl+Shift+]` unfolds,
-//! `Ctrl+K Ctrl+0` folds everything and `Ctrl+K Ctrl+J` unfolds everything.
+//! `Ctrl+K Ctrl+0` folds everything and `Ctrl+K Ctrl+J` unfolds everything
+//! (the second key of a `Ctrl+K` chord, see `keys::chord`).
 //! Also: an editing key whose edit reaches into a fold opens it first.
 
 use leptos::prelude::*;
@@ -15,29 +16,7 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
         return false;
     }
     let command = event.ctrl_key() || event.meta_key();
-    if state.fold().fold_chord.get_value() && !matches!(event.key().as_str(), "Control" | "Meta") {
-        state.fold().fold_chord.set_value(false);
-        let key = event.key().to_ascii_lowercase();
-        if command && (key == "0" || event.code() == "Digit0") {
-            event.prevent_default();
-            state.fold_all();
-            return true;
-        }
-        if command && key == "j" {
-            event.prevent_default();
-            state.unfold_all();
-            return true;
-        }
-    }
-    if !command || event.alt_key() {
-        return false;
-    }
-    if !event.shift_key() && event.key().eq_ignore_ascii_case("k") {
-        event.prevent_default();
-        state.fold().fold_chord.set_value(true);
-        return true;
-    }
-    if !event.shift_key() {
+    if !command || event.alt_key() || !event.shift_key() {
         return false;
     }
     match event.code().as_str() {
@@ -53,6 +32,26 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
         }
         _ => false,
     }
+}
+
+/// The second key of a `Ctrl+K` chord: `Ctrl+0` folds everything,
+/// `Ctrl+J` unfolds everything. Returns whether the key was one.
+pub(in crate::editor) fn chord_key(state: EditorState, event: &KeyboardEvent) -> bool {
+    if !state.config().settings.folding.get_untracked() || !(event.ctrl_key() || event.meta_key()) {
+        return false;
+    }
+    let key = event.key().to_ascii_lowercase();
+    if key == "0" || event.code() == "Digit0" {
+        event.prevent_default();
+        state.fold_all();
+        return true;
+    }
+    if key == "j" {
+        event.prevent_default();
+        state.unfold_all();
+        return true;
+    }
+    false
 }
 
 /// Opens the folds the edit an editing key is about to make would touch:
