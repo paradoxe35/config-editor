@@ -799,6 +799,15 @@ pub struct Lexical {
 /// come from it, so a simple language gets them without code; a method a
 /// language implements itself takes precedence.
 ///
+/// A flat key/value language (one `KEY=value` entry per line, no nesting)
+/// gets schema completion and hover from its separators too, by delegating
+/// those hooks to the `flat_*` methods
+/// ([`flat_completion_context`](Self::flat_completion_context),
+/// [`flat_existing_keys`](Self::flat_existing_keys),
+/// [`flat_property_insert`](Self::flat_property_insert),
+/// [`flat_hover_key`](Self::flat_hover_key),
+/// [`flat_format_value`](Self::flat_format_value)).
+///
 /// ```
 /// use config_editor_leptos::language::LanguageConfig;
 ///
@@ -1245,6 +1254,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// looking up its path.
     fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         line_comments(self, source)
+    }
+
+    /// Byte ranges of the strings `source` writes over several lines, in
+    /// order, for languages that do not describe them line by line with
+    /// [`string_body_lines`](Self::string_body_lines). As with
+    /// [`comments`](Self::comments), the lines after a string's first are
+    /// colored as a string up to its end, and the rest of its last line by
+    /// [`highlight`](Self::highlight). Default: none.
+    fn multiline_strings(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        let _ = source;
+        Vec::new()
     }
 
     /// The line ranges that fold (see [`FoldRange`]), sorted by start with

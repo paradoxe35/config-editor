@@ -182,9 +182,60 @@ fn covered_reads_the_lines_past_each_comments_first() {
     let second = source.rfind("<!--").unwrap()..source.len();
     let comments = comment_lines(source, &[first, second]);
     assert_eq!(comments.len(), 2);
-    let seen: Vec<Option<usize>> = (0..7).map(|line| covered(&comments, line)).collect();
+    let seen: Vec<Option<usize>> = (0..7)
+        .map(|line| covered(&comments, line).map(|(end, _)| end))
+        .collect();
     assert_eq!(
         seen,
         vec![None, None, Some(usize::MAX), Some(5), None, None, Some(1)]
+    );
+}
+
+#[cfg(feature = "yaml")]
+#[test]
+fn strings_over_lines_are_colored_as_strings_to_their_end() {
+    use super::spanning_lines;
+
+    // A `'''` string on lines 1–3 whose lines look like entries, a block
+    // comment on lines 4–5, and an entry after each on its last line.
+    let source = "a: '''\nb: 1\n# c\n''', d: 2\n/* e\nf */ g: 3\nh: 4";
+    let string = source.find("'''").unwrap()..source.rfind("'''").unwrap() + 3;
+    let comment = source.find("/*").unwrap()..source.find("*/").unwrap() + 2;
+    // A comment marker inside the string is no comment.
+    let inside = source.find("# c").unwrap()..source.find("# c").unwrap() + 3;
+    let lines = spanning_lines(source, &[inside, comment], &[string]);
+    let seen: Vec<_> = (0..7).map(|line| covered(&lines, line)).collect();
+    assert_eq!(
+        seen,
+        vec![
+            None,
+            Some((usize::MAX, TokenKind::String)),
+            Some((usize::MAX, TokenKind::String)),
+            Some((3, TokenKind::String)),
+            None,
+            Some((4, TokenKind::Comment)),
+            None,
+        ]
+    );
+    let highlighting = Highlighting {
+        language: Some(Language::YAML),
+        string_bodies: &[],
+        comments: &lines,
+    };
+    let kinds = |index: usize| {
+        let line = source.split('\n').nth(index).unwrap();
+        highlighting
+            .of(index)
+            .tokens(line)
+            .into_iter()
+            .map(|token| (line[token.start..token.end].to_string(), token.kind))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(2), [("# c".to_string(), TokenKind::String)]);
+    let last = kinds(3);
+    assert_eq!(last[0], ("'''".to_string(), TokenKind::String));
+    assert!(
+        last[1..].iter().all(|(_, kind)| *kind != TokenKind::String),
+        "{last:?}"
     );
 }

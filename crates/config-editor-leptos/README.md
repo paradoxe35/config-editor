@@ -1191,15 +1191,15 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                          | Adds                                                     |
-| ------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `info`, `parse` (required)                                                      | Name, icon, extensions; syntax errors and the data model |
-| `serialize`                                                                     | Conversion into the language (Edit-as target)            |
-| `key_span`, `value_span`                                                        | Positions for schema diagnostics                         |
-| `completion_context`, `existing_keys`, `property_insert`, `format_value`        | Schema completion; see [below](#completion-and-hover)    |
-| `hover_key`                                                                     | Hover docs                                               |
-| `highlight`, `comments`                                                         | Syntax colors, comments over several lines included      |
-| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                         |
+| Method                                                                          | Adds                                                            |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `info`, `parse` (required)                                                      | Name, icon, extensions; syntax errors and the data model        |
+| `serialize`                                                                     | Conversion into the language (Edit-as target)                   |
+| `key_span`, `value_span`                                                        | Positions for schema diagnostics                                |
+| `completion_context`, `existing_keys`, `property_insert`, `format_value`        | Schema completion; see [below](#completion-and-hover)           |
+| `hover_key`                                                                     | Hover docs                                                      |
+| `highlight`, `comments`, `multiline_strings`                                    | Syntax colors, comments and strings over several lines included |
+| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
 
 ### Completion and hover
 
@@ -1214,6 +1214,13 @@ where the caret is and how an entry is written. For an INI file
 | `property_insert`    | The text an accepted key writes and the caret in it: `("port = ", 7)`, or `[server]` and a line break for an object                                                        |
 | `format_value`       | A schema value (`enum`, `boolean`, `default`) as the document writes it: `fast` rather than `"fast"`                                                                       |
 | `hover_key`          | The key under a column of a line and the column it starts at; hover shows its schema docs                                                                                  |
+
+A flat language (one `KEY=value` entry per line, no nesting) needs none of
+that code: its `config().separators` give all five, through
+`LanguageConfig::flat_completion_context`, `flat_existing_keys`,
+`flat_property_insert`, `flat_format_value` and `flat_hover_key` (the
+crate's `tests/flat_language_completion.rs`). This is what a JavaScript
+language registered with only `separators` gets.
 
 `Schema::suggestions` and `Schema::hover` give what the editor would show,
 so a language checks its completion and hover in plain tests, no browser
