@@ -72,7 +72,7 @@ pub(in crate::editor) fn close(state: EditorState) {
     dismiss(state);
     if let Some(element) = state.textarea() {
         let (top, left) = (element.scroll_top(), element.scroll_left());
-        let _ = element.focus();
+        let _ = element.focus_in_place();
         // Focusing scrolls to the caret; the match is already in view.
         element.set_scroll_top(top);
         element.set_scroll_left(left);

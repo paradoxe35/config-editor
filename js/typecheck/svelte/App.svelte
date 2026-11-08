@@ -31,6 +31,9 @@
   function goToPort(): boolean {
     return editor?.reveal(["web", "listen"]) ?? false;
   }
+  function goToStart(): boolean {
+    return editor?.revealRange({ start: 0, end: 6 }) ?? false;
+  }
   function inspect() {
     const shown: string = editor?.getText() ?? "";
     const value: string = editor?.getValue() ?? "";
@@ -40,7 +43,7 @@
     editor?.setValue("listen: 1\n");
     editor?.fold("/clients");
     editor?.foldAll();
-    return [shown, value, patch, where, dirty, validate("yaml", text), goToPort()];
+    return [shown, value, patch, where, dirty, validate("yaml", text), goToPort(), goToStart()];
   }
 
   // Saving.

@@ -98,7 +98,7 @@ impl EditorState {
             }
             None => {
                 if let Some(element) = self.textarea() {
-                    let _ = element.focus();
+                    let _ = element.focus_in_place();
                 }
             }
         }

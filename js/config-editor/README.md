@@ -458,19 +458,19 @@ ConfigEditor …"`); create a new editor to change them. The `language`
 `ConfigEditor` is an `EditorView`, the interface a document's editor in a
 [`ConfigDocuments`](#several-documents) (`view.editor(id)`) implements too:
 
-| `EditorView` member                                      | Description                                                                                                                                                                            |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value` (getter)                                         | The current document, in `language`, including an edit made in `editAs` that is still waiting out the typing pause (it is sent to `onChange` first). Still readable after `destroy()`. |
-| `text` (getter)                                          | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                |
-| `isDirty` (getter)                                       | Whether the document differs from the baseline.                                                                                                                                        |
-| `currentPath` (getter)                                   | The path of what the caret is on; see [Paths](#paths).                                                                                                                                 |
-| `foldedLines` (getter)                                   | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                          |
-| `settings` (getter)                                      | The settings in effect, every key set; see [Settings](#settings).                                                                                                                      |
-| `reveal(path)`, `rangeOf(path)`, `pathAt(index)`         | Paths and positions; see [Paths](#paths).                                                                                                                                              |
-| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()` | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                           |
-| `focus()`                                                | Focus the editor, keeping its selection.                                                                                                                                               |
-| `save()`                                                 | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                 |
-| `unifiedDiff(context?)`                                  | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same. Its lines end with LF.                 |
+| `EditorView` member                                                    | Description                                                                                                                                                                            |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value` (getter)                                                       | The current document, in `language`, including an edit made in `editAs` that is still waiting out the typing pause (it is sent to `onChange` first). Still readable after `destroy()`. |
+| `text` (getter)                                                        | The text on screen: in the `editAs` language while editing as another one. `rangeOf` and `pathAt` index into it; `value` is the document in `language`.                                |
+| `isDirty` (getter)                                                     | Whether the document differs from the baseline.                                                                                                                                        |
+| `currentPath` (getter)                                                 | The path of what the caret is on; see [Paths](#paths).                                                                                                                                 |
+| `foldedLines` (getter)                                                 | The folded blocks, one-based `{ startLine, endLine }[]`: the line that stays visible and the last hidden one.                                                                          |
+| `settings` (getter)                                                    | The settings in effect, every key set; see [Settings](#settings).                                                                                                                      |
+| `reveal(path)`, `revealRange(range)`, `rangeOf(path)`, `pathAt(index)` | Paths and positions; see [Paths](#paths).                                                                                                                                              |
+| `fold(path)`, `unfold(path)`, `foldAll()`, `unfoldAll()`               | Fold the block a field's key opens / open the folds around a field (`false` when there was nothing to do); fold or open everything. See [Folding](#folding).                           |
+| `focus()`                                                              | Focus the editor, keeping its selection.                                                                                                                                               |
+| `save()`                                                               | Save as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet).                                                 |
+| `unifiedDiff(context?)`                                                | The `diff -u` of the baseline against the document, with `context` unchanged lines around each change (default 3); `""` when they are the same. Its lines end with LF.                 |
 
 `ConfigEditor` adds:
 
@@ -647,6 +647,7 @@ everywhere a path is taken (the editor's methods, the tools,
 
 ```ts
 editor.reveal("/web/listen"); // scroll to it, select it, focus; false when absent
+editor.revealRange({ start: 0, end: 12 }); // any stretch of the text on screen, a comment included
 editor.rangeOf(["web", "listen"]);
 // { start: 31, end: 43, startLine: 3, startColumn: 3, endLine: 3, endColumn: 15 } or null
 editor.pathAt(35); // { pointer: "/web/listen", segments: ["web", "listen"] } or null
@@ -664,6 +665,12 @@ the key alone when the value is a block below it, the value alone for a list
 item, and the dash or header of an item holding a block (`- name: web`, a
 repeated HCL block, a TOML `[[array]]` entry). `pathAt` gives the key under or just before the index, else the
 value or container holding it (`""` at the top level).
+`revealRange({ start, end })` does what `reveal` does for any stretch of the
+text on screen (string indices, as `rangeOf` gives them, so
+`editor.revealRange(editor.rangeOf(path))` is `reveal(path)`): it selects
+it, scrolls it into view inside the editor and focuses the editor, leaving
+the page where it is. A range past the end is clamped to it; `false` before
+the editor mounts and for an empty document.
 
 ## Languages and themes
 

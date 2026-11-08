@@ -92,6 +92,10 @@
   export function reveal(path: FieldPath): boolean {
     return handle.reveal(path);
   }
+  /** Selects `range` (string indices into the text on screen, as `rangeOf` gives them), scrolls it into view inside the editor and focuses the editor without moving the page; `false` before the editor mounts and for an empty document. */
+  export function revealRange(range: { start: number; end: number }): boolean {
+    return handle.revealRange(range);
+  }
   /** Folds the block the field at `path` opens; `false` when there is none to fold. */
   export function fold(path: FieldPath): boolean {
     return handle.fold(path);

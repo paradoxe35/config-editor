@@ -430,6 +430,21 @@ impl ConfigEditor {
         handle_calls::reveal(Some(self.state.handle), &path)
     }
 
+    /// Selects `range` (string indices `{ start, end }` into the text on
+    /// screen, as `rangeOf` gives them: in the `editAs` language while
+    /// editing as another one), scrolls it into view inside the editor and
+    /// focuses the editor without moving the page, as `reveal` does for a
+    /// field: any stretch, comments and blank lines included. A range past
+    /// the end is clamped to it. `false` before the editor mounts and for an
+    /// empty document.
+    #[wasm_bindgen(js_name = revealRange)]
+    pub fn reveal_range(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "{ start: number; end: number }")] range: JsValue,
+    ) -> Result<bool, JsError> {
+        handle_calls::reveal_range(Some(self.state.handle), &range)
+    }
+
     /// Folds the block the field at `path` opens; `false` when there is none
     /// to fold.
     pub fn fold(

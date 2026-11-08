@@ -118,7 +118,7 @@ fn close(state: EditorState) {
     state.changes().peek.set(None);
     if let Some(element) = state.textarea() {
         let (top, left) = (element.scroll_top(), element.scroll_left());
-        let _ = element.focus();
+        let _ = element.focus_in_place();
         element.set_scroll_top(top);
         element.set_scroll_left(left);
     }

@@ -169,7 +169,7 @@ impl EditorState {
             let focused = self.card_has_focus();
             self.hover().card.set(None);
             if focused && let Some(element) = self.textarea() {
-                let _ = element.focus();
+                let _ = element.focus_in_place();
             }
         }
     }

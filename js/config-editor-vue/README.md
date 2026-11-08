@@ -393,19 +393,20 @@ const editor = ref<ConfigEditorHandle | null>(null);
 </template>
 ```
 
-| Member                                    | Description                                                                                               |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `value`                                   | The current document, in `language`.                                                                      |
-| `editor`                                  | The underlying `@pngwasi/config-editor` instance, once mounted.                                           |
-| `setValue(text)`                          | Replace the document, always; reported through `@update:model-value`.                                     |
-| `unifiedDiff(context?)`                   | The `diff -u` of the baseline against the document.                                                       |
-| `reveal(path)`                            | Scroll to a field, select it, focus; `false` if absent. A path is a JSON pointer or keys and indices.     |
-| `rangeOf(path)`, `pathAt(index)`          | Where a field is written in the text on screen / the path at a string index.                              |
-| `currentPath`, `text`                     | The caret's path; the text on screen (the `edit-as` language while editing as another).                   |
-| `fold(path)`, `unfold(path)`              | Fold the block a key opens / open the folds around a field; `false` when there was nothing to do.         |
-| `foldAll()`, `unfoldAll()`, `foldedLines` | Every block; the folds, one-based `{ startLine, endLine }`.                                               |
-| `focus()`                                 | Focus the editor, keeping its selection.                                                                  |
-| `save()`, `isDirty`                       | As `Ctrl+S` (calls `@save`; `false` when nothing was sent); whether the document differs from `baseline`. |
+| Member                                    | Description                                                                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `value`                                   | The current document, in `language`.                                                                                                 |
+| `editor`                                  | The underlying `@pngwasi/config-editor` instance, once mounted.                                                                      |
+| `setValue(text)`                          | Replace the document, always; reported through `@update:model-value`.                                                                |
+| `unifiedDiff(context?)`                   | The `diff -u` of the baseline against the document.                                                                                  |
+| `reveal(path)`                            | Scroll to a field, select it, focus; `false` if absent. A path is a JSON pointer or keys and indices.                                |
+| `revealRange({ start, end })`             | Select any stretch of the text on screen (string indices, as `rangeOf` gives them), scroll to it, focus; the page stays where it is. |
+| `rangeOf(path)`, `pathAt(index)`          | Where a field is written in the text on screen / the path at a string index.                                                         |
+| `currentPath`, `text`                     | The caret's path; the text on screen (the `edit-as` language while editing as another).                                              |
+| `fold(path)`, `unfold(path)`              | Fold the block a key opens / open the folds around a field; `false` when there was nothing to do.                                    |
+| `foldAll()`, `unfoldAll()`, `foldedLines` | Every block; the folds, one-based `{ startLine, endLine }`.                                                                          |
+| `focus()`                                 | Focus the editor, keeping its selection.                                                                                             |
+| `save()`, `isDirty`                       | As `Ctrl+S` (calls `@save`; `false` when nothing was sent); whether the document differs from `baseline`.                            |
 
 ### Saving
 

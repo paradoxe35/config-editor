@@ -28,13 +28,16 @@ const editor = ref<ConfigEditorHandle | null>(null);
 function goToPort(): boolean {
   return editor.value?.reveal(["web", "listen"]) ?? false;
 }
+function goToStart(): boolean {
+  return editor.value?.revealRange({ start: 0, end: 6 }) ?? false;
+}
 const shown: string = editor.value?.text ?? "";
 const patch: string = editor.value?.unifiedDiff(0) ?? unifiedDiff("a\n", "b\n");
 editor.value?.setValue("listen: 1\n");
 editor.value?.fold("/clients");
 editor.value?.foldAll();
 const where: EditorPath | null = editor.value?.currentPath ?? null;
-void [goToPort, shown, patch, where, validate("yaml", text.value)];
+void [goToPort, goToStart, shown, patch, where, validate("yaml", text.value)];
 
 // Saving.
 declare function putConfig(text: string): Promise<void>;

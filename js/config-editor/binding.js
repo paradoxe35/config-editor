@@ -410,6 +410,7 @@ export class EditorBinding extends Binding {
       rangeOf: (path) => binding.ask((editor) => editor.rangeOf(path), null),
       pathAt: (offset) => binding.ask((editor) => editor.pathAt(offset), null),
       reveal: (path) => binding.ask((editor) => editor.reveal(path), false),
+      revealRange: (range) => binding.ask((editor) => editor.revealRange(range), false),
       fold: (path) => binding.ask((editor) => editor.fold(path), false),
       unfold: (path) => binding.ask((editor) => editor.unfold(path), false),
       foldAll: () => binding.guard((editor) => editor.foldAll()),

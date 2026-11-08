@@ -84,6 +84,8 @@ export interface ConfigEditorHandle {
   pathAt(offset: number): EditorPath | null;
   /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
   reveal(path: FieldPath): boolean;
+  /** Selects `range` (string indices into the text on screen, as `rangeOf` gives them), scrolls it into view inside the editor and focuses the editor without moving the page; any stretch, comments and blank lines included. A range past the end is clamped. `false` before the editor mounts and for an empty document. */
+  revealRange(range: { start: number; end: number }): boolean;
   /** Folds the block the field at `path` opens; `false` when there is none to fold. */
   fold(path: FieldPath): boolean;
   /** Opens the folds around the field at `path`; `false` when none was closed. */

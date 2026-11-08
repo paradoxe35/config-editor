@@ -85,7 +85,7 @@ impl EditorState {
             // Back from the preview to the text, without the focus scrolling
             // to the old caret; the commit reveals the restored lines.
             let (top, left) = (element.scroll_top(), element.scroll_left());
-            let _ = element.focus();
+            let _ = element.focus_in_place();
             element.set_scroll_top(top);
             element.set_scroll_left(left);
         }

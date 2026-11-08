@@ -3,13 +3,13 @@
 //! classes; each method of theirs is a call here. `None` (a document whose
 //! editor has not mounted yet) answers `null`, `false` or nothing.
 
-use config_editor_leptos::EditorHandle;
+use config_editor_leptos::{EditorHandle, TextPosition, TextRange};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::typings::{LineRanges, PathResult, RangeResult};
 use crate::values::{
-    index_arg, line_ranges_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
+    field, index_arg, line_ranges_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
 };
 
 pub(crate) fn range_of(
@@ -64,6 +64,30 @@ pub(crate) fn reveal(handle: Option<EditorHandle>, path: &JsValue) -> Result<boo
     config_editor_leptos::js_support::flush_pending_input();
     let path = path_from_js(path)?;
     Ok(handle.is_some_and(|handle| handle.reveal(path)))
+}
+
+/// `revealRange({ start, end })`: string indices into the text on screen
+/// (as `rangeOf` gives them), clamped to its end.
+pub(crate) fn reveal_range(handle: Option<EditorHandle>, range: &JsValue) -> Result<bool, JsError> {
+    config_editor_leptos::js_support::flush_pending_input();
+    if !range.is_object() {
+        return Err(JsError::new(
+            "range must be { start, end } (string indices into the text on screen)",
+        ));
+    }
+    let start = index_arg(&field(range, "start"), "start")?;
+    let end = index_arg(&field(range, "end"), "end")?;
+    let Some(handle) = handle else {
+        return Ok(false);
+    };
+    let Some(text) = untrack(|| handle.text()) else {
+        return Ok(false);
+    };
+    let range = TextRange::new(
+        TextPosition::from_offset(&text, start),
+        TextPosition::from_offset(&text, end),
+    );
+    Ok(handle.reveal_range(range))
 }
 
 pub(crate) fn fold(handle: Option<EditorHandle>, path: &JsValue) -> Result<bool, JsError> {

@@ -165,12 +165,49 @@ impl EditorHandle {
         let Some(range) = self.range_of(path) else {
             return false;
         };
-        let (start, end) = state
-            .doc()
-            .text
-            .with_untracked(|text| (range.start.to_offset(text), range.end.to_offset(text)));
+        let Some((start, end)) = self.offsets_of(range) else {
+            return false;
+        };
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
+    }
+
+    /// Selects `range`, scrolls it into view inside the editor and focuses
+    /// the editor without moving the page, closing popups: what
+    /// [`reveal`](Self::reveal) does, for any stretch of text (a comment, a
+    /// blank line, part of a value). The range is in the text on screen (see
+    /// [`TextPosition`]: one-based lines, character columns), in the
+    /// `edit_as` language while editing as another one; a range past the
+    /// text's end is clamped to it, and one ending before it starts is read
+    /// from its end to its start. Returns `false` before the editor mounts
+    /// and for an empty document.
+    pub fn reveal_range(&self, range: TextRange) -> bool {
+        let Some(state) = self.editor() else {
+            return false;
+        };
+        let Some((start, end)) = self.offsets_of(range) else {
+            return false;
+        };
+        state.hide_shown_problem();
+        state.focus_range(start, end).is_some()
+    }
+
+    /// The UTF-16 offsets of `range` in the text on screen, clamped to it and
+    /// in order; `None` before the editor mounts and for an empty document.
+    pub(super) fn offsets_of(&self, range: TextRange) -> Option<(usize, usize)> {
+        let state = self.editor()?;
+        state
+            .doc()
+            .text
+            .try_with_untracked(|text| {
+                if text.is_empty() {
+                    return None;
+                }
+                let start = range.start.to_offset(text);
+                let end = range.end.to_offset(text);
+                Some((start.min(end), start.max(end)))
+            })
+            .flatten()
     }
 
     /// Saves as `Ctrl+S` does: sends the document, in the host's language,
@@ -193,7 +230,7 @@ impl EditorHandle {
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
         if let Some(element) = self.editor().and_then(|state| state.textarea()) {
-            let _ = element.focus();
+            let _ = element.focus_in_place();
         }
     }
 }

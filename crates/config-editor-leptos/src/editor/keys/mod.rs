@@ -123,7 +123,7 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         state.hide_hover();
         state.hide_shown_problem();
         if from_tip && let Some(element) = state.textarea() {
-            let _ = element.focus();
+            let _ = element.focus_in_place();
         }
     }
 }

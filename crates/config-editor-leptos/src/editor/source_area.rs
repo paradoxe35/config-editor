@@ -116,7 +116,8 @@ impl SourceArea {
         )
     }
 
-    pub(crate) fn focus(&self) -> Result<(), JsValue> {
+    /// Focuses the text area without scrolling the page (see [`crate::focus`]).
+    pub(crate) fn focus_in_place(&self) -> Result<(), JsValue> {
         crate::focus::in_place(&self.element)
     }
 

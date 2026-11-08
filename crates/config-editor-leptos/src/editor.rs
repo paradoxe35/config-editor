@@ -465,6 +465,8 @@ mod handle_tests;
     feature = "xml"
 ))]
 mod line_breaks_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod reveal_range_tests;
 #[cfg(all(
     test,
     feature = "yaml",

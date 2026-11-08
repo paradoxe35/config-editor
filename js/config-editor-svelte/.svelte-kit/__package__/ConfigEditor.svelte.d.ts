@@ -19,6 +19,10 @@ declare const ConfigEditor: import("svelte").Component<ConfigEditorProps, {
     rangeOf: (path: FieldPath) => EditorRange | null;
     pathAt: (offset: number) => EditorPath | null;
     reveal: (path: FieldPath) => boolean;
+    revealRange: (range: {
+        start: number;
+        end: number;
+    }) => boolean;
     fold: (path: FieldPath) => boolean;
     unfold: (path: FieldPath) => boolean;
     getText: () => string;

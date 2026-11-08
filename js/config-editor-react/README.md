@@ -402,6 +402,7 @@ ref.current?.unifiedDiff(); // the `diff -u` of the baseline against the documen
 
 // Paths: a JSON pointer or keys and indices, the same in every language.
 ref.current?.reveal("/web/listen"); // scroll to it, select it, focus; false if absent
+ref.current?.revealRange({ start: 0, end: 12 }); // any stretch of the text on screen, a comment included
 ref.current?.rangeOf(["web", "listen"]); // { start, end, startLine, startColumn, endLine, endColumn } | null
 ref.current?.pathAt(42); // { pointer, segments } | null, at a string index
 ref.current?.currentPath; // the caret's path

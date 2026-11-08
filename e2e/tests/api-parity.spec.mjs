@@ -92,6 +92,7 @@ const HANDLE = {
   path_at: { member: 'pathAt' },
   current_path: { member: 'currentPath' },
   reveal: { member: 'reveal' },
+  reveal_range: { member: 'revealRange' },
   save: { member: 'save' },
   is_dirty: { member: 'isDirty' },
   fold: { member: 'fold' },

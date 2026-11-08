@@ -97,7 +97,7 @@ impl EditorState {
         // Focusing scrolls back to the old caret; keep the view where the
         // user clicked (a line number, an underline), then reveal if needed.
         let (top, left) = (element.scroll_top(), element.scroll_left());
-        let _ = element.focus();
+        let _ = element.focus_in_place();
         let _ = element.set_selection_range(start as u32, end as u32);
         element.set_scroll_top(top);
         element.set_scroll_left(left);

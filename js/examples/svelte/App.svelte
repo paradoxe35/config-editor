@@ -68,6 +68,7 @@
       rangeOf: instance.rangeOf,
       pathAt: instance.pathAt,
       reveal: instance.reveal,
+      revealRange: instance.revealRange,
       fold: instance.fold,
       unfold: instance.unfold,
       foldAll: instance.foldAll,

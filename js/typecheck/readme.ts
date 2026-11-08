@@ -125,7 +125,7 @@ const view = new ConfigDocuments(element, {
   theme: "nord",
 });
 const tls: EditorView | null = view.editor("tls");
-const revealed: boolean | undefined = tls?.reveal("/cert"); tls?.fold("/ciphers"); const tlsPath = tls?.currentPath; void [revealed, tlsPath];
+const revealed: boolean | undefined = tls?.reveal("/cert"); const tlsRange = tls?.rangeOf("/cert"); const rangeShown: boolean | undefined = tlsRange ? tls?.revealRange(tlsRange) : false; void rangeShown; tls?.fold("/ciphers"); const tlsPath = tls?.currentPath; void [revealed, tlsPath];
 const tlsText: string | null | undefined = tls?.value; const tlsDiff: string | undefined = tls?.unifiedDiff(0); const tlsTheme = tls?.settings.theme; void [tlsText, tlsDiff, tlsTheme];
 const savedIds: string[] = view.saveAll(); const shown: boolean = view.select("limits"); const active: string | undefined = view.activeId; const dirtyMain: boolean = view.isDirty("main");
 view.update({ documents: files, showFooter: true }); view.update({ activeId: "limits" });
@@ -138,7 +138,7 @@ declare const emit: (text: string) => void; declare const bindingTheme: string;
 const binding = new EditorBinding("my-framework-config-editor");
 binding.attach(element, { value: "a: 1\n", onChange: (text) => emit(text), language: "yaml" });
 binding.update({ value: "a: 1\n", onChange: (text) => emit(text), language: "yaml", theme: bindingTheme });
-const found: boolean = binding.handle.reveal("/web/listen"); const bound: string = binding.handle.value;
+const found: boolean = binding.handle.reveal("/web/listen"); const foundRange: boolean = binding.handle.revealRange({ start: 0, end: 4 }); void foundRange; const bound: string = binding.handle.value;
 binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
 const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter;

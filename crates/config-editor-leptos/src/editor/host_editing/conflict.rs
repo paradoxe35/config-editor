@@ -108,7 +108,7 @@ impl EditorState {
         if focused_notice && let Some(element) = self.textarea() {
             // Back to the text where it was, without scrolling to the caret.
             let (top, left) = (element.scroll_top(), element.scroll_left());
-            let _ = element.focus();
+            let _ = element.focus_in_place();
             element.set_scroll_top(top);
             element.set_scroll_left(left);
         }
@@ -152,7 +152,7 @@ impl EditorState {
         event.prevent_default();
         if self.notice_has_focus() {
             if let Some(element) = self.textarea() {
-                let _ = element.focus();
+                let _ = element.focus_in_place();
             }
         } else if let Some(button) = self.editing().keep_mine_ref.get_untracked() {
             let _ = crate::focus::in_place(&button);

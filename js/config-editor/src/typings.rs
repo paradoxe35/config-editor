@@ -172,6 +172,8 @@ export interface EditorView {
   readonly settings: Required<EditorSettings>;
   /** Scrolls to the field at `path`, selects it and focuses the editor; `false` when there is no such field. */
   reveal(path: FieldPath): boolean;
+  /** Selects `range` (string indices into the text on screen, as `rangeOf` gives them), scrolls it into view inside the editor and focuses the editor without moving the page, as `reveal` does for a field: any stretch, comments and blank lines included. A range past the end is clamped. `false` before the editor mounts and for an empty document. */
+  revealRange(range: { start: number; end: number }): boolean;
   /** Where the field at `path` is written in the text on screen, or `null`. */
   rangeOf(path: FieldPath): EditorRange | null;
   /** The path of what the text on screen holds at string index `offset`, or `null`. */

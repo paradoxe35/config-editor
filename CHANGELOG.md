@@ -48,7 +48,9 @@ WebAssembly.
   after the tabs (`on_add` / `onAdd`) asks the host for a new file, which
   opens selected with the focus in it, and documents can be kept open
   (`closable: false`: no close button, middle click or `Delete`).
-- A path API to jump to a field and follow the caret for a breadcrumb.
+- A path API to jump to a field and follow the caret for a breadcrumb, and
+  `reveal_range` / `revealRange` to jump to any stretch of text (a comment, a
+  line); jumps and the editor's own focus never scroll the host page.
 - Eleven themes, per-token colour overrides, and every built-in text
   replaceable (`strings`) for translations.
 - Runs under a strict Content-Security-Policy (`style-src 'self'`, no
