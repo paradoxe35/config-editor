@@ -73,10 +73,13 @@ step_minimal() {
 # end-to-end suite runs only with the defaults (`browser`). Without debug
 # info: five configurations of test binaries are otherwise several GB.
 OPTIONAL=(search diff folding protect)
+# OPTIONAL_OFF=<feature> (or `none` for the yaml,json build) runs only that
+# build of this step, so CI can run them as parallel jobs.
 step_optional() {
   (cd crates/config-editor-leptos &&
     export CARGO_PROFILE_DEV_DEBUG=0 &&
     for off in "${OPTIONAL[@]}"; do
+      [[ -n "${OPTIONAL_OFF:-}" && "$OPTIONAL_OFF" != "$off" ]] && continue
       local on=(schema-validation yaml json toml hcl xml)
       for feature in "${OPTIONAL[@]}"; do
         [[ "$feature" != "$off" ]] && on+=("$feature")
@@ -87,9 +90,11 @@ step_optional() {
       cargo clippy --all-targets --no-default-features --features "$features" -- -D warnings
       run_tests test --no-default-features --features "$features"
     done
-    echo "== without any (yaml, json)"
-    cargo clippy --all-targets --no-default-features --features yaml,json -- -D warnings
-    run_tests test --no-default-features --features yaml,json)
+    if [[ -z "${OPTIONAL_OFF:-}" || "$OPTIONAL_OFF" == none ]]; then
+      echo "== without any (yaml, json)"
+      cargo clippy --all-targets --no-default-features --features yaml,json -- -D warnings
+      run_tests test --no-default-features --features yaml,json
+    fi)
 }
 
 # Generated docs are up to date (no build needed).

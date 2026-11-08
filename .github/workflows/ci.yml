@@ -14,9 +14,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The Rust checks as parallel jobs (each on its own runner); the steps
+  # live in scripts/ci.sh, so `scripts/ci.sh` runs them all locally.
   rust:
-    name: Rust (fmt, clippy, tests)
+    name: Rust (${{ matrix.check.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - { name: "fmt, clippy", steps: "fmt clippy" }
+          - { name: tests, steps: test }
+          - { name: each language alone, steps: languages }
+          - { name: every language without schema validation, steps: minimal }
+          - { name: without search, steps: optional, off: search }
+          - { name: without diff, steps: optional, off: diff }
+          - { name: without folding, steps: optional, off: folding }
+          - { name: without protect, steps: optional, off: protect }
+          - { name: "without any optional feature (yaml, json)", steps: optional, off: none }
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -24,19 +39,12 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      # The steps live in scripts/ci.sh, so `scripts/ci.sh` runs them locally.
-      - name: Formatting
-        run: scripts/ci.sh fmt
-      - name: Clippy (default features, wasm, every language without validation)
-        run: scripts/ci.sh clippy
-      - name: Tests
-        run: scripts/ci.sh test
-      - name: Each language feature on its own
-        run: scripts/ci.sh languages
-      - name: Every language without schema validation (completions and hover from the schema alone)
-        run: scripts/ci.sh minimal
-      - name: Each optional feature off, then all of them (search, diff, folding, protect)
-        run: scripts/ci.sh optional
+        with:
+          key: ${{ matrix.check.steps }}-${{ matrix.check.off }}
+      - name: scripts/ci.sh ${{ matrix.check.steps }}
+        env:
+          OPTIONAL_OFF: ${{ matrix.check.off }}
+        run: scripts/ci.sh ${{ matrix.check.steps }}
 
   browser:
     name: npm packages and end-to-end tests
