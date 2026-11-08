@@ -13,6 +13,7 @@ use super::host_diagnostics::{
     HostDiagnostic, RangeText, merge as merge_host, place as place_host,
 };
 use super::languages::Language;
+use super::problem_walk::{Stop, stops};
 use super::protect::ProtectState;
 use super::state::EditorState;
 use super::sync::SyncState;
@@ -25,6 +26,9 @@ pub(super) struct ProblemsState {
     /// conversion read it.
     pub(super) diagnosed_text: RwSignal<String>,
     pub(super) diagnostics: Memo<Vec<Diagnostic>>,
+    /// The order F8 walks `diagnostics` in, found when F8 first needs it
+    /// after the text or the problems change (not on every press).
+    pub(super) walk: Memo<Vec<Stop>>,
     /// The problem F8 moved to, `(line, column)`: its message shows until the
     /// next key, click or edit.
     pub(super) current: RwSignal<Option<(usize, usize)>>,
@@ -150,9 +154,13 @@ impl ProblemsState {
             let found = validated.with(|own| host_placed.with(|host| merge_host(own, host)));
             text.with(|current| shift_diagnostics(&checked, current, &found))
         });
+        let walk = Memo::new(move |_| {
+            text.with(|current| diagnostics.with(|found| stops(current, found)))
+        });
         Self {
             diagnosed_text,
             diagnostics,
+            walk,
             current: RwSignal::new(None),
             walked: StoredValue::new(None),
         }

@@ -10,7 +10,7 @@ use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
-use super::super::problem_walk::{next_stop, stops};
+use super::super::problem_walk::next_stop;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 
 /// Smart Home: the first non-blank character, then the line start.
@@ -145,17 +145,14 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     }
     let here = state.doc().caret.get_untracked();
     let problems = state.problems();
-    let (stops, last) = state.doc().text.with_untracked(|text| {
-        problems.diagnostics.with_untracked(|found| {
-            let stops = stops(text, found);
-            // Where the last press left off, if the caret is still there.
-            let last = problems.walked.with_value(|walked| {
-                let (problem, _) = walked.as_ref().filter(|(_, caret)| *caret == here)?;
-                stops
-                    .iter()
-                    .position(|stop| found.get(stop.index) == Some(problem))
-            });
-            (stops, last)
+    let stops = problems.walk.get_untracked();
+    // Where the last press left off, if the caret is still there.
+    let last = problems.diagnostics.with_untracked(|found| {
+        problems.walked.with_value(|walked| {
+            let (problem, _) = walked.as_ref().filter(|(_, caret)| *caret == here)?;
+            stops
+                .iter()
+                .position(|stop| found.get(stop.index) == Some(problem))
         })
     });
     let Some(position) = next_stop(&stops, here, last, event.shift_key()) else {
