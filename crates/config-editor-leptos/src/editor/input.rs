@@ -223,6 +223,15 @@ pub(super) fn flush_input(state: EditorState) {
         let (value, caret) = replay(&burst.before, &burst.latest, &before);
         (value, Some(caret))
     };
+    // Nothing to apply: the browser sends text arriving whole in one
+    // command (an IME commit, a drop, `Input.insertText`) as one input event
+    // per line, each in its own microtask, with the whole text already in
+    // the textarea at the first; the first applies it (or is refused, and
+    // the textarea shows the document again), the rest find nothing new.
+    // Committing each again would redo every per-text step once per line.
+    if value == before {
+        return;
+    }
     let selection = if replayed_caret.is_some() {
         UNKNOWN_SELECTION
     } else {
