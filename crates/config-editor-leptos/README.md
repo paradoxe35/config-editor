@@ -1135,7 +1135,9 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
   reports them as losses and an Edit-as save into one of them waits with a
   problem (an Edit-as view in one of them shows the text `inf` and keeps the
   host's number unless the user edits it). Schema validation reads them as
-  numbers beyond every bound. A custom language says it writes them with
+  numbers beyond every bound (NaN beyond both `minimum` and `maximum`),
+  never integers or multiples of anything. A YAML plain number too large
+  for a float (`1e400`) is an infinity. A custom language says it writes them with
   `ConfigLanguage::writes_non_finite`. A real string spelled that way stays
   a string: parsers hold it with one more U+FDD0 (`string_value` makes it,
   `string_of` reads it back), and every writer takes that one off; build a

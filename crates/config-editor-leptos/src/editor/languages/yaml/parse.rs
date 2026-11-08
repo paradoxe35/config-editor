@@ -3,8 +3,12 @@
 use super::*;
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
-    let parser_config =
+    let mut parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+    // A plain number too large for a float (`1e400`) is an infinity, as
+    // YAML's float syntax says, never a string (TOML and JSON read it as a
+    // number too, one too large).
+    parser_config.float_overflow_strings = false;
     // Read through `Parsed`, which keeps `.inf` and `.nan` (a plain `Value`
     // would turn them into `null`).
     noyalib::from_str_with_config(source, &parser_config)

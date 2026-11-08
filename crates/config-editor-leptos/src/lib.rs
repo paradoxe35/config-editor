@@ -134,6 +134,7 @@ pub mod js_support {
     /// assert!(check_placeholder(&SecretOptions::default().with_placeholder(".*")).is_err());
     /// assert!(config_editor_leptos::js_support::is_web_url("https://example.com/docs"));
     /// assert!(!config_editor_leptos::js_support::is_web_url("javascript:alert(1)"));
+    /// assert!(!config_editor_leptos::js_support::is_web_url("http://"));
     /// ```
     pub fn check_placeholder(options: &crate::SecretOptions) -> Result<(), String> {
         options.check_placeholder()

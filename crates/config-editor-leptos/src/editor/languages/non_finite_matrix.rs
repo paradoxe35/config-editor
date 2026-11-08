@@ -286,3 +286,88 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Infinities and NaN against each numeric keyword: an infinity is beyond
+/// every bound, NaN beyond every bound on both sides, and neither is an
+/// integer or a multiple of anything (round 16 let them pass `integer`,
+/// `multipleOf` and, for NaN, `minimum`). Finite numbers keep their results.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn non_finite_numbers_fail_integer_multiple_of_and_bounds() {
+    use super::super::diagnostics::build_schema;
+    let keywords = [
+        (r#"{"type": "integer"}"#, [true, true, true]),
+        (r#"{"multipleOf": 5}"#, [true, true, true]),
+        (r#"{"multipleOf": 0.5}"#, [true, true, true]),
+        (r#"{"minimum": 0}"#, [false, true, true]),
+        (r#"{"maximum": 100}"#, [true, false, true]),
+        (r#"{"exclusiveMinimum": 0}"#, [false, true, true]),
+        (r#"{"exclusiveMaximum": 100}"#, [true, false, true]),
+        (r#"{"type": "number"}"#, [false, false, false]),
+    ];
+    let mut failures = Vec::new();
+    for (language, source) in sources() {
+        for (keyword, fails) in keywords {
+            let schema = build_schema(&format!(
+                r#"{{"properties": {{"rate": {keyword}, "low": {keyword}, "odd": {keyword}}}}}"#
+            ))
+            .unwrap();
+            let problems = super::super::diagnostics::validate(
+                source,
+                Some(&schema),
+                None,
+                true,
+                language.behavior(),
+            );
+            for (field, fails) in ["rate", "low", "odd"].into_iter().zip(fails) {
+                let found: Vec<_> = problems
+                    .iter()
+                    .filter(|problem| problem.message.starts_with(&format!("/{field}: ")))
+                    .collect();
+                let worded = found.iter().all(|problem| {
+                    problem.message.contains("inf") || problem.message.contains("nan")
+                });
+                if found.is_empty() == fails || found.len() > 1 || !worded {
+                    failures.push(format!("{language} {keyword} /{field}: {found:?}"));
+                }
+            }
+            // `n: 1` keeps the result it always had.
+            let one = problems
+                .iter()
+                .filter(|problem| problem.message.starts_with("/n: "))
+                .count();
+            if one != 0 {
+                failures.push(format!("{language} {keyword}: /n flagged"));
+            }
+        }
+    }
+    // Without a non-finite number, validation is as before.
+    let schema = build_schema(r#"{"properties": {"n": {"multipleOf": 5, "maximum": 3}}}"#).unwrap();
+    let problems = super::super::diagnostics::validate(
+        "n: 10\n",
+        Some(&schema),
+        None,
+        true,
+        Language::YAML.behavior(),
+    );
+    if problems.len() != 1 || !problems[0].message.contains("10") {
+        failures.push(format!("finite: {problems:?}"));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A YAML plain number too large for a float (`1e400`) is an infinity, as
+/// the float syntax says, not a string; quoted it stays a string.
+#[test]
+fn an_overflowing_yaml_float_is_an_infinity() {
+    let value = Language::YAML
+        .parse("a: 1e400\nb: -1E+400\nc: \"1e400\"\nd: '1e400'\n")
+        .unwrap();
+    assert_eq!(float_of(&value["a"]), Some(f64::INFINITY), "{value:?}");
+    assert_eq!(float_of(&value["b"]), Some(f64::NEG_INFINITY), "{value:?}");
+    assert_eq!(value["c"], Value::String("1e400".into()));
+    assert_eq!(value["d"], Value::String("1e400".into()));
+    // TOML and JSON read it as a number too (one too large: an error).
+    assert!(Language::TOML.parse("a = 1e400\n").is_err());
+    assert!(Language::JSON.parse("{\"a\": 1e400}").is_err());
+}

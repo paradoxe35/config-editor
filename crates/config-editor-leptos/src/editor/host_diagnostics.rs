@@ -150,10 +150,21 @@ mod range_tests;
 ))]
 mod tests;
 
-/// Whether `url` is an `http:` or `https:` URL: the only links a host
-/// diagnostic's documentation may open.
+/// Whether `url` is an `http:` or `https:` URL with a host: the only
+/// links a host diagnostic's documentation may open (`"http://"` alone,
+/// or `"https:///path"`, is not one).
 #[must_use]
 pub fn is_web_url(url: &str) -> bool {
     let lower = url.trim_start().to_ascii_lowercase();
-    lower.starts_with("https://") || lower.starts_with("http://")
+    let Some(rest) = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    // The host: up to the path, query or fragment, past any `user@`.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = host.split(':').next().unwrap_or_default();
+    !host.is_empty() && !host.contains(char::is_whitespace)
 }
