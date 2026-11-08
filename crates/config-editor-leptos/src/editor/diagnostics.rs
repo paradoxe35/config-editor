@@ -308,6 +308,42 @@ impl Schema {
         validate(source, Some(&self.bundle), None, true, language.behavior())
     }
 
+    /// The suggestions the editor lists at `cursor` (a UTF-16 offset in
+    /// `source`) on `Ctrl+Space`, best first: the keys and values this schema
+    /// allows there, written as `language` writes them. Accept one with
+    /// [`Suggestion::accept`](super::Suggestion::accept). A custom language
+    /// checks its completion methods with it, no browser needed.
+    ///
+    /// ```
+    /// # #[cfg(feature = "toml")] {
+    /// use config_editor_leptos::{Language, Schema};
+    /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
+    /// let offered = schema.suggestions(Language::TOML, "lis", 3);
+    /// assert_eq!(offered[0].label(), "listen");
+    /// assert_eq!(offered[0].accept("lis").0, "listen = ");
+    /// # }
+    /// ```
+    pub fn suggestions(
+        &self,
+        language: super::Language,
+        source: &str,
+        cursor: usize,
+    ) -> Vec<super::Suggestion> {
+        super::completion::schema_suggestions(&self.bundle, language.behavior(), source, cursor)
+    }
+
+    /// The docs the hover card shows for the key at `position` in `source`
+    /// (or for the key of a value the schema documents), as `language` reads
+    /// it; `None` where no schema key is.
+    pub fn hover(
+        &self,
+        language: super::Language,
+        source: &str,
+        position: super::TextPosition,
+    ) -> Option<super::HoverDocs> {
+        super::completion::schema_hover(&self.bundle, language.behavior(), source, position)
+    }
+
     /// Converts `source` from one language to another, reading it as this
     /// schema expects: a single XML element where the schema wants an array
     /// is a one-item array, and converts to one.

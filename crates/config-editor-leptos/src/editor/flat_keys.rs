@@ -1,0 +1,344 @@
+//! Completion and hover for flat key/value languages (`.env`, `.properties`:
+//! one `KEY=value` entry per line, no nesting), from the separators of a
+//! [`LanguageConfig`] alone. A language with such syntax delegates its
+//! completion and hover hooks to these methods instead of writing them.
+
+use std::collections::HashSet;
+
+use serde_json::Value;
+
+use super::keyboard::utf16_to_byte_index;
+use super::language::{CompletionContext, LanguageConfig, SchemaPathSegment};
+
+impl LanguageConfig {
+    /// The separator a flat language writes after a new key: its first
+    /// [`separators`](Self::separators) entry, with `": "` for `:` (as YAML
+    /// and properties files write it) and no spaces otherwise (`KEY=`).
+    /// `None` without separators.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// assert_eq!(env.flat_separator().as_deref(), Some("="));
+    /// let colon = LanguageConfig { separators: &[":"], ..LanguageConfig::default() };
+    /// assert_eq!(colon.flat_separator().as_deref(), Some(": "));
+    /// ```
+    pub fn flat_separator(&self) -> Option<String> {
+        let separator = self.separators.first()?;
+        Some(if *separator == ":" {
+            ": ".to_string()
+        } else {
+            (*separator).to_string()
+        })
+    }
+
+    /// [`ConfigLanguage::completion_context`](super::language::ConfigLanguage::completion_context)
+    /// for a flat language: before the line's first separator the caret is
+    /// at a top-level key (the word before it typed); after it, in that
+    /// key's value. Nothing is offered on a comment line or without
+    /// separators. `cursor` is a UTF-16 index, as the hook's.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// let key = env.flat_completion_context("PORT=1\nLO", 9);
+    /// assert_eq!((key.typed.as_str(), key.value_key), ("LO", None));
+    /// let value = env.flat_completion_context("LOG=de", 6);
+    /// assert_eq!((value.typed.as_str(), value.value_key.as_deref()), ("de", Some("LOG")));
+    /// ```
+    pub fn flat_completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        let nothing = CompletionContext {
+            no_properties: true,
+            replace_start: cursor,
+            replace_end: cursor,
+            ..CompletionContext::default()
+        };
+        if self.separators.is_empty() {
+            return nothing;
+        }
+        let cursor_byte = utf16_to_byte_index(source, cursor.min(source.encode_utf16().count()));
+        let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
+        let before = &source[line_start..cursor_byte];
+        let code = before.trim_start();
+        let base_indent = before[..before.len() - code.len()].to_string();
+        if self.is_comment_line(code) {
+            return nothing;
+        }
+        let units = |text: &str| text.encode_utf16().count();
+        match self.first_separator(code) {
+            Some((at, separator)) => {
+                let key = code[..at].trim();
+                if key.is_empty() {
+                    return nothing;
+                }
+                let after = &code[at + separator.len()..];
+                let typed = after.trim_start();
+                CompletionContext {
+                    path: Vec::new(),
+                    typed: typed.to_string(),
+                    replace_start: cursor - units(typed),
+                    replace_end: cursor,
+                    value_key: Some(key.to_string()),
+                    value_needs_space: after.is_empty() && separator == ":",
+                    base_indent,
+                    ..CompletionContext::default()
+                }
+            }
+            None => {
+                // The word before the caret (`export LO|` types `LO`).
+                let typed = code.rsplit(char::is_whitespace).next().unwrap_or_default();
+                CompletionContext {
+                    path: Vec::new(),
+                    typed: typed.to_string(),
+                    replace_start: cursor - units(typed),
+                    replace_end: cursor,
+                    base_indent,
+                    ..CompletionContext::default()
+                }
+            }
+        }
+    }
+
+    /// [`ConfigLanguage::existing_keys`](super::language::ConfigLanguage::existing_keys)
+    /// for a flat language: the keys written before a separator on every
+    /// line but the caret's (`cursor_byte` is a byte index), at the top
+    /// level only.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], ..LanguageConfig::default() };
+    /// let keys = env.flat_existing_keys("# A=1\nPORT=1\nLO", 15, &[]).unwrap();
+    /// assert_eq!(keys.into_iter().collect::<Vec<_>>(), ["PORT"]);
+    /// ```
+    pub fn flat_existing_keys(
+        &self,
+        source: &str,
+        cursor_byte: usize,
+        path: &[SchemaPathSegment],
+    ) -> Option<HashSet<String>> {
+        if !path.is_empty() || self.separators.is_empty() {
+            return None;
+        }
+        let cursor_byte = cursor_byte.min(source.len());
+        let caret_line = source[..cursor_byte].matches('\n').count();
+        Some(
+            source
+                .split('\n')
+                .enumerate()
+                .filter(|(index, _)| *index != caret_line)
+                .filter_map(|(_, line)| {
+                    let code = line.trim_start();
+                    if self.is_comment_line(code) {
+                        return None;
+                    }
+                    let (at, _) = self.first_separator(code)?;
+                    let key = code[..at].trim();
+                    // `export KEY=…` names `KEY`.
+                    let key = key.rsplit(char::is_whitespace).next().unwrap_or(key);
+                    (!key.is_empty()).then(|| key.to_string())
+                })
+                .collect(),
+        )
+    }
+
+    /// [`ConfigLanguage::property_insert`](super::language::ConfigLanguage::property_insert)
+    /// for a flat language: the key and [`flat_separator`](Self::flat_separator),
+    /// the caret after them. `None` without separators.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// assert_eq!(env.flat_property_insert("PORT"), Some(("PORT=".to_string(), 5)));
+    /// ```
+    pub fn flat_property_insert(&self, key: &str) -> Option<(String, usize)> {
+        let text = format!("{key}{}", self.flat_separator()?);
+        let caret = text.encode_utf16().count();
+        Some((text, caret))
+    }
+
+    /// [`ConfigLanguage::hover_key`](super::language::ConfigLanguage::hover_key)
+    /// for a flat language: the key before the line's first separator when
+    /// character `column` is on it, and the column it starts at.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// assert_eq!(env.flat_hover_key("  PORT=1", 3), Some(("PORT".to_string(), 2)));
+    /// assert_eq!(env.flat_hover_key("  PORT=1", 7), None);
+    /// ```
+    pub fn flat_hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        let code = line.trim_start();
+        if self.is_comment_line(code) {
+            return None;
+        }
+        let (at, _) = self.first_separator(code)?;
+        let written = code[..at].trim_end();
+        let key = written
+            .rsplit(char::is_whitespace)
+            .next()
+            .unwrap_or(written);
+        if key.is_empty() {
+            return None;
+        }
+        let key_byte = line.len() - code.len() + written.len() - key.len();
+        let start = line[..key_byte].chars().count();
+        (start..start + key.chars().count())
+            .contains(&column)
+            .then(|| (key.to_string(), start))
+    }
+
+    /// [`ConfigLanguage::format_value`](super::language::ConfigLanguage::format_value)
+    /// for a flat language: a string bare when it reads back as written
+    /// (no blanks around it, no quote, comment marker, separator or line
+    /// break), else JSON-quoted; other values as JSON.
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// use serde_json::json;
+    /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], ..LanguageConfig::default() };
+    /// assert_eq!(env.flat_format_value(&json!("debug")), "debug");
+    /// assert_eq!(env.flat_format_value(&json!("a b")), "\"a b\"");
+    /// assert_eq!(env.flat_format_value(&json!(true)), "true");
+    /// ```
+    pub fn flat_format_value(&self, value: &Value) -> String {
+        match value {
+            Value::String(text)
+                if !text.is_empty()
+                    && text.trim() == text
+                    && !text.contains(['"', '\'', '\n', '\r', ' ', '\t'])
+                    && !self
+                        .separators
+                        .iter()
+                        .chain(self.line_comments)
+                        .any(|marker| text.contains(marker)) =>
+            {
+                text.clone()
+            }
+            other => other.to_string(),
+        }
+    }
+
+    fn is_comment_line(&self, code: &str) -> bool {
+        self.line_comments
+            .iter()
+            .any(|marker| code.starts_with(marker))
+    }
+
+    /// The leftmost separator in `code`: its byte offset and the separator.
+    fn first_separator(&self, code: &str) -> Option<(usize, &'static str)> {
+        self.separators
+            .iter()
+            .filter_map(|separator| code.find(separator).map(|at| (at, *separator)))
+            .min_by_key(|(at, separator)| (*at, usize::MAX - separator.len()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ENV: LanguageConfig = LanguageConfig {
+        line_comments: &["#"],
+        block_comment: None,
+        brackets: &[],
+        separators: &["="],
+        quotes: &["\""],
+    };
+
+    const COLON: LanguageConfig = LanguageConfig {
+        separators: &[":"],
+        ..ENV
+    };
+
+    #[test]
+    fn contexts_on_flat_lines() {
+        // (source with `|` for the caret, typed, value key, needs a space)
+        type Expected = Option<(&'static str, Option<&'static str>, bool)>;
+        let cases: &[(&LanguageConfig, &str, Expected)] = &[
+            (&ENV, "|", Some(("", None, false))),
+            (&ENV, "PO|", Some(("PO", None, false))),
+            (&ENV, "A=1\n  PO|", Some(("PO", None, false))),
+            (&ENV, "export PO|", Some(("PO", None, false))),
+            (&ENV, "PORT=|", Some(("", Some("PORT"), false))),
+            (&ENV, "PORT = 80|", Some(("80", Some("PORT"), false))),
+            (&ENV, "URL=a=b|", Some(("a=b", Some("URL"), false))),
+            (&COLON, "level:|", Some(("", Some("level"), true))),
+            (&COLON, "level: d|", Some(("d", Some("level"), false))),
+            (&ENV, "# PO|", None),
+            (&ENV, "=x|", None),
+        ];
+        let mut failures = Vec::new();
+        for (config, marked, expected) in cases {
+            let cursor = marked.find('|').unwrap();
+            let source = marked.replace('|', "");
+            let context = config.flat_completion_context(&source, cursor);
+            let got = (!context.no_properties).then_some({
+                (
+                    context.typed.as_str(),
+                    context.value_key.as_deref(),
+                    context.value_needs_space,
+                )
+            });
+            let replace_ok = context.replace_end == cursor
+                && context.replace_start == cursor - context.typed.len();
+            if got != *expected || !replace_ok {
+                failures.push(format!("{marked:?}: {got:?}, expected {expected:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[test]
+    fn no_separators_no_context() {
+        let none = LanguageConfig::default();
+        assert!(none.flat_completion_context("PO", 2).no_properties);
+        assert_eq!(none.flat_property_insert("PO"), None);
+        assert_eq!(none.flat_existing_keys("A=1\n", 0, &[]), None);
+        assert_eq!(none.flat_hover_key("A=1", 0), None);
+    }
+
+    #[test]
+    fn existing_keys_skip_the_caret_line_and_comments() {
+        let source = "A=1\n# B=2\nexport C=3\nD\nE=";
+        let keys = ENV.flat_existing_keys(source, source.len(), &[]).unwrap();
+        let mut keys: Vec<_> = keys.into_iter().collect();
+        keys.sort();
+        assert_eq!(keys, ["A", "C"]);
+        assert_eq!(
+            ENV.flat_existing_keys(source, 0, &[SchemaPathSegment::Key("A".into())]),
+            None
+        );
+    }
+
+    #[test]
+    fn inserts_and_hovers() {
+        assert_eq!(ENV.flat_property_insert("é"), Some(("é=".to_string(), 2)));
+        assert_eq!(
+            COLON.flat_property_insert("level"),
+            Some(("level: ".to_string(), 7))
+        );
+        assert_eq!(
+            ENV.flat_hover_key("export PORT=1", 8),
+            Some(("PORT".to_string(), 7))
+        );
+        assert_eq!(ENV.flat_hover_key("export PORT=1", 2), None);
+        assert_eq!(ENV.flat_hover_key("# PORT=1", 3), None);
+        assert_eq!(ENV.flat_hover_key("PORT", 1), None);
+        assert_eq!(ENV.flat_hover_key("éé=1", 1), Some(("éé".to_string(), 0)));
+    }
+
+    #[test]
+    fn values_bare_when_they_read_back() {
+        let cases = [
+            (serde_json::json!("debug"), "debug"),
+            (serde_json::json!(""), "\"\""),
+            (serde_json::json!("a=b"), "\"a=b\""),
+            (serde_json::json!("a#b"), "\"a#b\""),
+            (serde_json::json!(8080), "8080"),
+            (serde_json::json!(false), "false"),
+        ];
+        for (value, written) in cases {
+            assert_eq!(ENV.flat_format_value(&value), written, "{value}");
+        }
+    }
+}

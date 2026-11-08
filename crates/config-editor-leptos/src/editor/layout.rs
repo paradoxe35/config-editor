@@ -113,16 +113,19 @@ pub(super) fn string_bodies(
     Memo::new(move |_| text.with(|text| edit_language.get().behavior().string_body_lines(text)))
 }
 
-/// The lines past the first of the comments `text` (in `edit_language`)
-/// writes over several lines, found once per edit for the code layer.
+/// The lines past the first of the comments and strings `text` (in
+/// `edit_language`) writes over several lines, found once per edit for the
+/// code layer.
 pub(super) fn comment_lines(
     text: RwSignal<String>,
     edit_language: RwSignal<Language>,
 ) -> Memo<Vec<CommentLines>> {
     Memo::new(move |_| {
         text.with(|text| {
-            let comments = edit_language.get().behavior().comments(text);
-            super::highlight::comment_lines::comment_lines(text, &comments)
+            let behavior = edit_language.get().behavior();
+            let comments = behavior.comments(text);
+            let strings = behavior.multiline_strings(text);
+            super::highlight::comment_lines::spanning_lines(text, &comments, &strings)
         })
     })
 }

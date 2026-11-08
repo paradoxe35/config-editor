@@ -1,5 +1,5 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
-import { ConfigEditor, loadConfigEditor, registerLanguage, type ChangeSummary, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
+import { ConfigEditor, loadConfigEditor, registerLanguage, type ChangeSummary, type CustomLanguageContext, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
 import { convert, unifiedDiff, validate } from "@pngwasi/config-editor/tools";
 import { DocumentsBinding, EditorBinding, SETTING_TYPES } from "@pngwasi/config-editor/binding";
 const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
@@ -39,6 +39,23 @@ const env = registerLanguage({
   separators: ["="],
 });
 new ConfigEditor(element, { language: env, schema: schemaText });
+// Schema completion and hover for a nested custom language.
+const caretPlace: CustomLanguageContext = { path: ["server", 0], at: "value", prefix: "fa" };
+registerLanguage({
+  label: "HJSON",
+  parse: (text) => JSON.parse(text),
+  separators: [":"],
+  contextAt: (text, offset) => (offset > 0 ? caretPlace : null),
+  insertKey: (key, kind) => (kind === "object" ? { text: `${key}: {\n  \n}`, caret: key.length + 6 } : { text: `${key}: `, caret: key.length + 2 }),
+  keyAt: (text, offset) => ({ key: "host", path: ["server", "host"], start: offset }),
+  multilineRanges: (text) => [{ start: 0, end: text.length, kind: "comment" }],
+});
+// @ts-expect-error: `at` is "key" or "value".
+registerLanguage({ label: "Bad", parse: () => ({}), contextAt: () => ({ path: [], at: "inside", prefix: "" }) });
+// @ts-expect-error: insertKey returns { text, caret }.
+registerLanguage({ label: "Bad", parse: () => ({}), insertKey: (key: string) => key });
+// @ts-expect-error: a range's kind is "string" or "comment".
+registerLanguage({ label: "Bad", parse: () => ({}), multilineRanges: () => [{ start: 0, end: 1, kind: "key" }] });
 convert("env", "listen=7835\n", "yaml").text;
 await loadConfigEditor({ module_or_path: "/assets/config_editor_bg.wasm" });
 // Host diagnostics and read-only fields.

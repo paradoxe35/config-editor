@@ -40,8 +40,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...path) => readFileSync(join(root, ...path), 'utf8');
 const crate = (path) => read('crates', 'config-editor-leptos', 'src', ...path.split('/'));
 // `alloc_stats.rs` is a debugging aid behind a cargo feature, never published.
-const jsSources = readdirSync(join(root, 'js', 'config-editor', 'src'))
+const jsSources = readdirSync(join(root, 'js', 'config-editor', 'src'), { recursive: true })
   .filter((name) => name.endsWith('.rs') && name !== 'alloc_stats.rs')
+  .sort()
   .map((name) => read('js', 'config-editor', 'src', name))
   .join('\n');
 const bindingJs = read('js', 'config-editor', 'binding.js');
@@ -117,6 +118,71 @@ const LANGUAGE = {
   path_at: { tool: 'pathAt' },
 };
 
+// `ConfigLanguage` (the trait a custom language implements in Rust) → the
+// `CustomLanguage` members (`registerLanguage`) its JS adapter reads it from
+// (`custom`: one member, or several where the hook is the flat default of
+// `separators` replaced by a callback), or why it is Rust-only.
+const RUST_ONLY_REFINEMENT = 'a refinement for one kind of syntax, Rust-only: implement the trait method on a Rust language (`Language::new`) that needs it';
+const SAVE_FORMS = 'how an Edit-as save keeps one built-in syntax\'s own forms; a custom language\'s saves patch the values and lines `keySpan` / `valueSpan` locate and are checked by reading back through `parse`';
+const CONFIG_LANGUAGE = {
+  info: { custom: ['label', 'icon', 'extensions'] },
+  config: { custom: ['comments', 'brackets', 'separators'] },
+  parse: { custom: 'parse' },
+  serialize: { custom: 'serialize' },
+  writes_non_finite: { exempt: 'a custom language writes infinities and NaN as the text `inf` / `nan` (JS data holds them as numbers)' },
+  indent_is_structure: { exempt: RUST_ONLY_REFINEMENT },
+  plain_scalars: { exempt: RUST_ONLY_REFINEMENT },
+  key_span: { custom: 'keySpan' },
+  value_span: { custom: 'valueSpan' },
+  value_spans: { custom: 'valueSpan' },
+  first_span: { exempt: 'the first non-blank character: nothing the language says' },
+  completion_context: { custom: ['separators', 'contextAt'] },
+  existing_keys: { custom: ['separators', 'contextAt'] },
+  property_insert: { custom: ['separators', 'insertKey'] },
+  format_value: { custom: ['separators', 'contextAt'] },
+  format_value_like: { exempt: RUST_ONLY_REFINEMENT },
+  format_value_at: { exempt: RUST_ONLY_REFINEMENT },
+  hover_key: { custom: ['separators', 'keyAt'] },
+  hover_path: { custom: 'keyAt' },
+  hover_cursor: { exempt: RUST_ONLY_REFINEMENT },
+  highlight: { custom: 'highlight' },
+  newline: { custom: 'brackets' },
+  toggle_comments: { custom: 'comments' },
+  unconvertible: { exempt: SAVE_FORMS },
+  mixed_content: { exempt: SAVE_FORMS },
+  detach_shared: { exempt: SAVE_FORMS },
+  comparable_line: { exempt: SAVE_FORMS },
+  value_properties_len: { exempt: SAVE_FORMS },
+  reference_len: { exempt: SAVE_FORMS },
+  flow_map_opener: { exempt: SAVE_FORMS },
+  scalar_reads_as: { exempt: SAVE_FORMS },
+  written_value_range: { exempt: SAVE_FORMS },
+  kept_value_end: { exempt: SAVE_FORMS },
+  comment_scope: { exempt: RUST_ONLY_REFINEMENT },
+  auto_close: { exempt: RUST_ONLY_REFINEMENT },
+  reindent_on_type: { exempt: RUST_ONLY_REFINEMENT },
+  repetition: { exempt: RUST_ONLY_REFINEMENT },
+  entry_started: { exempt: RUST_ONLY_REFINEMENT },
+  lexical_state: { custom: 'multilineRanges' },
+  saved_string_lines: { custom: 'multilineRanges' },
+  string_body_lines: { custom: 'multilineRanges' },
+  comments: { custom: ['comments', 'multilineRanges'] },
+  multiline_strings: { custom: 'multilineRanges' },
+  fold_ranges: { custom: ['brackets', 'comments'] },
+  comment_start: { custom: 'comments' },
+  has_comments: { custom: 'comments' },
+  value_follows_key: { custom: 'separators' },
+  line_has_value: { custom: 'separators' },
+  empty_value_slots: { custom: 'separators' },
+  closing_markup_len: { exempt: RUST_ONLY_REFINEMENT },
+  one_line_container: { exempt: SAVE_FORMS },
+  rename_key: { custom: 'keySpan' },
+  written_key: { exempt: RUST_ONLY_REFINEMENT },
+  scalar_edit: { exempt: SAVE_FORMS },
+  keeps_forms: { exempt: SAVE_FORMS },
+  one_line_body: { exempt: SAVE_FORMS },
+};
+
 const CHANGE_SUMMARY = {
   between: { tool: 'changeSummary' },
   is_empty: { exempt: 'a summary is a plain object in JS: `summary.hunks === 0`' },
@@ -127,6 +193,8 @@ const SCHEMA = {
   warnings: { tool: 'schemaWarnings' },
   validate: { tool: 'validate' },
   convert: { tool: 'convert' },
+  suggestions: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s completion; in JS the editor lists suggestions itself' },
+  hover: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s hover docs; in JS the editor shows the hover card itself' },
 };
 
 const THEME = {
@@ -205,6 +273,7 @@ const CRATE_EXPORTS = {
   EditorTheme: { type: 'ThemeName' },
   FieldPath: { type: 'FieldPath' },
   HostDiagnostic: { type: 'HostDiagnostic' },
+  HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
   Language: { type: 'LanguageName' },
   PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
@@ -215,6 +284,7 @@ const CRATE_EXPORTS = {
   SecretOptions: { type: 'SecretOptions' },
   StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
   Severity: { type: 'Severity' },
+  Suggestion: { exempt: 'what `Schema::suggestions` returns, a Rust-only check' },
   TextPosition: { type: 'EditorRange' },
   TextRange: { type: 'EditorRange' },
   ThemeColor: { type: 'ThemeColorToken' },
@@ -270,6 +340,14 @@ function block(source, from) {
   throw new Error('unbalanced block');
 }
 
+/** Names of the methods of `pub trait <name>` in `source`. */
+function traitMethods(source, name) {
+  // Up to the closing brace at the start of a line: the docs hold braces.
+  const start = source.indexOf(`pub trait ${name}`);
+  const body = source.slice(start, source.indexOf('\n}\n', start));
+  return [...body.matchAll(/^    fn (\w+)/gm)].map(([, method]) => method);
+}
+
 /** Names of the `pub fn`s in every `impl <type> {` block of `source`. */
 function implMethods(source, type) {
   const names = new Set();
@@ -319,6 +397,7 @@ const rust = {
   documentsHandle: implMethods(crate('documents/handle.rs'), 'DocumentsHandle'),
   document: implMethods(crate('documents/model.rs'), 'Document'),
   settings: structFields(crate('settings.rs'), 'EditorSettings'),
+  configLanguage: traitMethods(crate('editor/language.rs'), 'ConfigLanguage'),
 };
 
 // --- Reading the JS package. ---------------------------------------------------
@@ -423,6 +502,8 @@ function jsPackage() {
       ...[...jsSources.matchAll(/^#\[wasm_bindgen\]\npub struct (\w+)/gm)].map(([, name]) => name),
     ]),
     types: new Set([...typings.matchAll(/^export (?:interface|type) (\w+)/gm)].map(([, name]) => name)),
+    customLanguage: members(typings, 'CustomLanguage'),
+    definitionKeys: list('DEFINITION_KEYS'),
   };
 }
 
@@ -657,7 +738,7 @@ const DOCUMENTS_SIDE = {
     js.extendsSettings.documents && binding.extendsSettings.documents && frameworks.every((framework) => framework.extendsSettings.documents),
 };
 
-const KINDS = ['option', 'member', 'main', 'tool', 'type', 'setting', 'extends'];
+const KINDS = ['option', 'member', 'main', 'tool', 'type', 'setting', 'extends', 'custom'];
 
 /** Problems with one mapped Rust item `item` (entry `entry`), reached through `side`. */
 function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
@@ -665,7 +746,12 @@ function entryProblems(what, item, entry, side, { js, binding, frameworks }) {
   const kind = KINDS.find((name) => name in entry);
   const name = entry[kind];
   const missing = (where) => problems.push(`${what} \`${item}\`: ${where}`);
-  if (kind === 'setting') {
+  if (kind === 'custom') {
+    for (const member of [name].flat()) {
+      if (!js.customLanguage.has(member)) missing(`\`${member}\` is missing from the CustomLanguage typings`);
+      if (!js.definitionKeys.has(member)) missing(`\`${member}\` is missing from DEFINITION_KEYS (js/config-editor/src/languages), which \`registerLanguage\` reads`);
+    }
+  } else if (kind === 'setting') {
     if (!js.typedSettings.has(name)) missing(`setting \`${name}\` is missing from EditorSettings`);
     if (!EDITOR_SIDE.extends(js, binding, frameworks)) missing('the JS options, the binding\'s props and every component\'s props must extend `EditorSettings`');
   } else if (kind === 'extends') {
@@ -740,7 +826,16 @@ const groups = [
   ['ConfigDocuments prop', DOCUMENTS_PROPS, rust.documentsProps, DOCUMENTS_SIDE],
   ['DocumentsHandle method', DOCUMENTS_HANDLE, rust.documentsHandle, DOCUMENTS_SIDE],
   ['Document method', DOCUMENT, rust.document, DOCUMENTS_SIDE],
+  ['ConfigLanguage method', CONFIG_LANGUAGE, rust.configLanguage, EDITOR_SIDE],
 ];
+
+/** Every `CustomLanguage` member is what some `ConfigLanguage` method is read from. */
+function customLanguageProblems({ js }) {
+  const mapped = new Set(Object.values(CONFIG_LANGUAGE).flatMap((entry) => [entry.custom ?? []].flat()));
+  return [...js.customLanguage]
+    .filter((member) => !mapped.has(member))
+    .map((member) => `CustomLanguage member \`${member}\` maps to no ConfigLanguage method: map it in CONFIG_LANGUAGE`);
+}
 
 /**
  * The options list, its typings and the `update` typings agree: every
@@ -898,6 +993,7 @@ function frameworkExportProblems({ js, frameworks }) {
 /** Every problem the checks find in `read` (what was read, or a copy). */
 function allProblems(read) {
   return [
+    ...customLanguageProblems(read),
     ...groups.flatMap(([what, table, items, side]) => check(table, items, what, side, read)),
     ...optionListProblems(EDITOR_SIDE, read),
     ...optionListProblems(DOCUMENTS_SIDE, read),
@@ -975,6 +1071,9 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     expect(rust.documentsProps).toContain('on_close');
     expect(rust.documentsHandle).toContain('save_all');
     expect(rust.document).toContain('read_only');
+    expect(rust.configLanguage).toContain('completion_context');
+    expect(js.customLanguage.has('contextAt')).toBe(true);
+    expect(js.definitionKeys.has('keyAt')).toBe(true);
     expect(js.options.has('readOnly')).toBe(true);
     expect(js.remount.has('language')).toBe(true);
     expect(js.updateKeys.has('readOnly')).toBe(true);
@@ -1127,6 +1226,9 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       ['a Svelte instance member', (read) => read.frameworks[2].handle.delete('save'), 'Svelte'],
       ['a framework type export', (read) => read.frameworks[0].exported.delete('FieldPath'), 'FieldPath'],
       ['a re-exported helper', (read) => read.frameworks[1].exported.add('validate'), 'Vue re-exports `validate`'],
+      ['a CustomLanguage member', (read) => read.js.customLanguage.delete('insertKey'), 'insertKey'],
+      ['a definition key', (read) => read.js.definitionKeys.delete('multilineRanges'), 'multilineRanges'],
+      ['a JS-only CustomLanguage member', (read) => read.js.customLanguage.add('jsOnlyThing'), 'CustomLanguage member `jsOnlyThing`'],
       ['a JS-only instance member', (read) => read.js.members.add('jsOnlyThing'), 'ConfigEditor member `jsOnlyThing` maps to no Rust item'],
       ['a JS-only documents member', (read) => read.js.documentsMembers.add('jsOnlyThing'), 'ConfigDocuments member `jsOnlyThing` maps to no Rust item'],
       ['a JS-only handle member', (read) => read.binding.handle.add('jsOnlyThing'), 'ConfigEditorHandle (binding.d.ts) member `jsOnlyThing`'],

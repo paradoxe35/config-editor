@@ -26,6 +26,7 @@ mod diff;
 mod document;
 mod edit;
 mod edit_as;
+mod flat_keys;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
 mod folding;
@@ -84,6 +85,7 @@ pub use change_summary::ChangeSummary;
 #[cfg(feature = "diff")]
 pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
+pub use completion::{HoverDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{
     Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
