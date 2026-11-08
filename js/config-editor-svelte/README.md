@@ -336,6 +336,9 @@ pairs, `…One` for 1 and `…Other` otherwise.
 
 ### Late parents
 
+<details>
+<summary>Passing value one way, late echoes, and resetting with setValue</summary>
+
 `bind:value` is immediate. A parent that applies the edits late (a store, a
 debounce, a server round trip) passes `value` one way and updates it from
 `onChange`; it cannot roll the document back to an older one: a `value`
@@ -349,6 +352,8 @@ through `value` and `onChange`.
 ```svelte
 <ConfigEditor value={$config} onChange={(next) => config.saveDebounced(next)} />
 ```
+
+</details>
 
 ## The instance
 

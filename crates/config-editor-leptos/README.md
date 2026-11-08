@@ -192,6 +192,9 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 />
 ```
 
+<details>
+<summary>What a save keeps, what waits, undo and the comments notice (all conversion rules)</summary>
+
 - Only what the user changed is written back: untouched values keep their
   exact host spelling, and the host's comments and formatting survive. An
   edited value keeps its form: a YAML block scalar stays a block with its
@@ -239,6 +242,8 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   edited text does; its texts are `editAsHostComments`,
   `editAsTypedComments` and `editAsTypedCommentsNone` of the `strings`
   setting.
+
+</details>
 
 ### Built-in texts
 
@@ -485,6 +490,9 @@ be written in `language` (invalid, or a `null` for TOML), nothing is sent,
 `save` returns `false`, and the caret goes to the problem with its message
 shown.
 
+<details>
+<summary>Line endings (CRLF, LF and CR, mixed in one text)</summary>
+
 Line endings are kept: the editor works on LF text, and when the host's text
 ends its lines with CRLF (`value`, `initial_value`, or a new `value` later),
 `on_change` and `on_save` receive the text with CRLF line endings, in every
@@ -496,6 +504,8 @@ A lone CR that the language does not read as a line break (TOML, HCL) is
 shown as the syntax error its reader gives, until that line is edited (an
 edited line then takes a break the language reads). Dirty state and the
 diff compare line endings as LF.
+
+</details>
 
 The text is dirty while it differs from `baseline` as shown (the document at
 mount when no `baseline` is given). `on_dirty_change` reports it once on
@@ -529,6 +539,9 @@ view! {
 When `baseline` changes while the user has unsaved edits, a notice opens over
 the text, "The file changed on the server.", instead of mixing the two:
 
+<details>
+<summary>Reload, Keep mine, the focus, and when a new baseline is taken silently</summary>
+
 - **Reload** makes the new baseline the text: one undo step (`Ctrl+Z` brings
   the user's text back), sent through `on_change` (exactly the new baseline,
   also while editing as another language).
@@ -548,6 +561,8 @@ the host (`on_change`, `on_save`): a save coming back while the user typed
 on is not a change from elsewhere. Colors: the notice uses `raised`,
 `raised-border`, `raised-text`, `raised-muted`, `warning`, `control-bg` and
 `control-text`.
+
+</details>
 
 ### Embedding
 
@@ -759,6 +774,9 @@ let settings = EditorSettings { show_footer: true, ..EditorSettings::default() }
 view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> }
 ```
 
+<details>
+<summary>How they show: placement, ranges, severities, duplicates, origin</summary>
+
 - They are marked where the field is written, as schema problems are (the
   value, or the key of a block), next to the editor's own problems: `F8` /
   `Shift+F8` stop at them, the footer counts them, and the hover message
@@ -783,6 +801,8 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
 - Every `Diagnostic` says where it came from (`origin`:
   `DiagnosticOrigin::Editor` or `Host`) and carries `code`, `source` and
   `docs_url`.
+
+</details>
 
 ## Read-only fields
 
@@ -811,6 +831,9 @@ view! {
     />
 }
 ```
+
+<details>
+<summary>How locks behave: refused edits, formatting, syntax errors, suggestions, Edit-as, folding</summary>
 
 - A lock shows in the gutter on each line the field covers, its value is
   muted (`--config-editor-locked`, `ThemeColor::Locked`), and hovering the
@@ -864,6 +887,8 @@ view! {
   block holding a read-only line or a secret placeholder shows its lock or
   key on the fold's row.
 
+</details>
+
 ## Secrets
 
 Fields the schema marks `writeOnly: true` or `x-secret: true` are secrets.
@@ -883,6 +908,9 @@ let secrets = SecretOptions::default()
     .with_reference_prefixes(["${", "file:"]);
 view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 ```
+
+<details>
+<summary>How placeholders behave: where they count, atomic editing, chips, references, validation, Edit-as</summary>
 
 - A placeholder is real only in the field the host gave it in: a match of
   the pattern (and of the host's check) found in that field of the host's
@@ -913,6 +941,8 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 - Edit-as conversions and saves keep each placeholder byte-for-byte, in
   every language pair and back. Real secret values never reach the editor;
   it logs nothing about field values.
+
+</details>
 
 ## Schema help
 
@@ -951,6 +981,9 @@ Completions and hover read these keywords, with or without the
 }
 ```
 
+<details>
+<summary>Option matching, required children on accept, patternProperties</summary>
+
 An object option is matched cheaply and exactly, never by validating:
 the one whose `required` keys are all present (`dns: {cloudflare: …}`),
 else the one whose `const` properties the object has
@@ -968,6 +1001,8 @@ classes without `schema-validation`) is reported through
 `on_schema_warning` and [`Schema::warnings`] instead of silently matching
 nothing. `pattern` itself is only checked by the validator, which rejects a
 schema whose regex it cannot compile.
+
+</details>
 
 ## Keyboard
 
@@ -1019,6 +1054,9 @@ always moves the focus. In a [`ConfigDocuments`](#several-documents) view,
 the other documents' editors are inert: `Tab` out of the editor goes on to
 its footer and what follows the view, `Shift+Tab` back towards the tabs.
 
+<details>
+<summary>Screen-reader descriptions and announcements, touch screens</summary>
+
 The textarea is described (`aria-describedby`) by what is at the caret: the
 message of each problem there, the editor's or the host's ("Warning from
 burrow: port in use"), why a read-only value is read-only, a secret
@@ -1031,6 +1069,8 @@ placeholder's hint. It follows the caret a moment after it stops. `F8` and
 On a touch screen a tap places the caret, a tap on underlined or read-only
 text shows its message (there is no hover), and the selection a long press
 or the selection handles make is followed like one made with the keyboard.
+
+</details>
 
 ```rust
 // Nothing to set up: the keys and descriptions are always there. The
@@ -1066,6 +1106,9 @@ comments and CDATA over several lines; runs of line comments and multi-line
 block comments everywhere. A closing bracket or tag on its own line stays
 visible.
 
+<details>
+<summary>How folds behave through edits, caret moves, problems and large documents</summary>
+
 Folding only changes the view. `value`, `on_change`, undo and saving see
 the whole text, and copying or cutting a selection across a fold takes the
 hidden lines. Hidden lines are never edited by accident: an edit that
@@ -1083,6 +1126,8 @@ structure is gone (its closing bracket deleted) disappears. The line ranges
 are computed again after each edit, in one pass over the text, and the rows
 stay virtualized: a 10,000-line document folds and scrolls to its end like
 an unfolded one.
+
+</details>
 
 ```rust
 let editor = EditorHandle::new();
@@ -1127,6 +1172,9 @@ let language: Language = "yml".parse()?;               // names and extensions
 let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 ```
 
+<details>
+<summary>Serialize round trips, infinities and NaN</summary>
+
 - `serialize` writes only a document that reads back as exactly the value
   given: it fails (`ConvertError::Unsupported`, naming the value) where
   `convert` would report a loss, such as an XML empty, nested or one-item
@@ -1148,6 +1196,8 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
   `string_of` reads it back), and every writer takes that one off; build a
   string with `string_value` when its text may start with U+FDD0 (a custom
   language's parser does it for each string it reads).
+
+</details>
 
 | Item                                       | Description                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1256,6 +1306,9 @@ Simple syntax doesn't need code: describe it with `config`, as VS Code's
 `language-configuration.json` does, and comment toggling, Enter between
 brackets, and the key/value behavior below follow from it.
 
+<details>
+<summary>The LanguageConfig fields, with an example</summary>
+
 ```rust
 use config_editor_leptos::language::LanguageConfig;
 
@@ -1270,6 +1323,8 @@ fn config(&self) -> LanguageConfig {
 }
 ```
 
+</details>
+
 ### Optional refinements
 
 Small hooks that polish editing for some kinds of languages. Each defaults to
@@ -1277,6 +1332,9 @@ what `config` describes (or to nothing), so skip the ones that don't fit, and
 override one only when your syntax needs more than `config` says: HCL
 overrides `value_follows_key` for its `name { … }` blocks, XML overrides them
 all.
+
+<details>
+<summary>The hooks by kind of language, and their helpers</summary>
 
 | Kind of language                        | Method                                        | Adds                                                                                                        | Helper                                                                                                             |
 | --------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -1291,6 +1349,8 @@ all.
 `config_editor_leptos::language` also exports the other helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
 detection). `tests/custom_language.rs` is a complete example.
+
+</details>
 
 ## Themes and colors
 
@@ -1329,6 +1389,9 @@ let settings = EditorSettings { theme: EditorTheme::Nord, colors: brand, ..Edito
 // <ConfigEditor settings=settings .../>
 ```
 
+<details>
+<summary>Every color token: diff, footer counts, find, folding, locks, secrets, tabs, and theming your own elements</summary>
+
 The same tokens are CSS variables (`--config-editor-key`, …), so a stylesheet
 can set them too. The diff colors are `Added`, `Modified` and `Removed`
 (`--config-editor-added`, `--config-editor-modified`,
@@ -1365,6 +1428,8 @@ being styled as an editor: give it the class `config-editor-theme` with
 and the rest inside it (the demo's page does). The `config-editor` class is
 the editor's own: on a wrapper it would also style the wrapper as one.
 
+</details>
+
 ## Cargo features
 
 All are on by default; turn off what you don't use to shrink the build.
@@ -1395,6 +1460,9 @@ With no language feature, use your own languages through `Language::new`.
 
 ### Without a feature
 
+<details>
+<summary>Which props, settings and hooks stay, and what exists only with its feature</summary>
+
 What a feature adds to the API goes with it, with two exceptions that keep
 a host's code the same in every build:
 
@@ -1418,6 +1486,8 @@ out (`Ctrl+F`, `Ctrl+G`, `Alt+F5`, `Ctrl+Shift+[`) stay the browser's.
 The npm packages (`@pngwasi/config-editor`, `@pngwasi/config-editor-react`)
 are built with every feature.
 
+</details>
+
 ### Size
 
 The wasm a small host ships, by features: one `<ConfigEditor>` with a schema,
@@ -1425,6 +1495,9 @@ the toolbar and the footer, its language any built-in one of the build
 (`examples/wasm_size.rs`), built for release, through wasm-bindgen, gzip -9.
 What a host does not use (`ConfigDocuments`, the handle's methods, the
 headless functions) is left out by the linker, feature or not.
+
+<details>
+<summary>The wasm size of each build, and how to measure it again</summary>
 
 <!-- wasm-sizes:start -->
 
@@ -1448,6 +1521,8 @@ To measure again (needs the `wasm32-unknown-unknown` target and the
 wasm-bindgen CLI; uses `wasm-opt` when installed):
 `scripts/wasm-sizes.sh` prints the table, and `scripts/wasm-sizes.sh --write`
 puts it here. Sizes move with the toolchain and the dependencies.
+
+</details>
 
 ## License
 

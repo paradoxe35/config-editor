@@ -341,6 +341,9 @@ keeps them) and that comments typed there are not saved.
 
 <!-- strings:end -->
 
+<details>
+<summary>Parents that apply onChange late: late echoes and resetting with setValue</summary>
+
 A parent that applies `onChange` values late cannot roll the document back to
 an older one: a `value` equal to one the editor sent in the last 10 seconds,
 while newer ones are still on their way, is taken as that late echo. Any other `value` (a revert, a reset)
@@ -351,6 +354,8 @@ when the editor mounts): it is reported through `onChange` so the parent's state
 echoes of values sent before it are skipped, and if the parent's state took
 one of them anyway, `onChange` reports the document again so both end on the
 reset.
+
+</details>
 
 ## Ref
 

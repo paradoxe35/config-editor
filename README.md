@@ -239,6 +239,9 @@ node scripts/readme-toc.mjs
 
 ## Releasing
 
+<details>
+<summary>How a version tag publishes the crate and the npm packages</summary>
+
 Versions are kept in step: `crates/config-editor-leptos/Cargo.toml`,
 `js/config-editor/package.json` and the React, Vue and Svelte packages' (`js/config-editor-*/package.json`, each peer-depending on `^` that version).
 Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
@@ -252,6 +255,8 @@ halfway is finished by re-running the workflow on the same tag.
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+</details>
 
 ## License
 

@@ -411,6 +411,9 @@ editor.update({ value: loaded, baseline: loaded }); // a file loaded from the se
 editor.update({ hostDiagnostics: problems, onSave: null });
 ```
 
+<details>
+<summary>How update treats left-out keys, null, settings, a new value and fixed options</summary>
+
 - A key left out, or set to `undefined`, stays as it is.
 - `null` removes a callback (`onSave: null` gives `Ctrl+S` back to the
   browser), clears `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`,
@@ -425,6 +428,8 @@ ConfigEditor …"`); create a new editor to change them. TypeScript types
   them `never` in `EditorUpdate`.
 - Every key is checked before any applies: a wrong value throws and changes
   nothing.
+
+</details>
 
 ### Instance members
 
@@ -481,6 +486,9 @@ editor.update({
 });
 ```
 
+<details>
+<summary>Paths and ranges, severities, F8 and hover, what throws, limits</summary>
+
 - `path` (a JSON pointer or keys and indices) is marked where the field is
   written and follows it through edits and `editAs`. `range` is in the
   document (`value`, in `language`): string indices `{ start, end }` or
@@ -510,6 +518,8 @@ editor.update({
   `[]` clears it); only the markers update. An invalid entry throws, naming
   its index.
 
+</details>
+
 ### Read-only fields
 
 A field is read-only when the schema marks it `readOnly: true` (with its
@@ -525,6 +535,9 @@ const editor = new ConfigEditor(element, {
 });
 editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
 ```
+
+<details>
+<summary>How locks behave: refused edits, formatting, syntax errors, suggestions, Edit-as</summary>
 
 - A lock in the gutter marks each locked line, the value is muted (color
   token `locked`), and hovering it shows the reason.
@@ -542,6 +555,8 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
   save that would change one is refused (shown as an error, not sent).
+
+</details>
 
 ### Secrets
 
@@ -563,6 +578,9 @@ const editor = new ConfigEditor(element, {
 });
 ```
 
+<details>
+<summary>How placeholders behave: where they count, what throws, atomic editing, chips, references, validation</summary>
+
 - A placeholder is real only in the field of the host's own `value` it
   was given in (and accepted by `isPlaceholder`). Anywhere else it is plain
   text, so it never stands for another field's secret: one of the host's
@@ -580,6 +598,8 @@ const editor = new ConfigEditor(element, {
 - The schema check accepts an untouched placeholder (no `pattern`,
   `format`, length or type problem), and `editAs` and saving keep it
   byte-for-byte.
+
+</details>
 
 ### Paths
 
@@ -738,6 +758,9 @@ binding.handle.reveal("/web/listen");
 binding.detach();
 ```
 
+<details>
+<summary>DocumentsBinding, unmounting from a callback, SETTING_TYPES, and binding from a vanilla app</summary>
+
 `DocumentsBinding` does the same for a `ConfigDocuments` view (`label`,
 `viewClassName` and whether `onClose` is set re-mount; a new `activeId`
 shows that document). A component unmounted from inside a callback (state
@@ -754,6 +777,8 @@ pays off when the app re-renders from state and passes every prop each
 time (a web component, Lit, a store of your own); an app that creates an
 editor and changes an option now and then is simpler with `new
 ConfigEditor` and `update()`.
+
+</details>
 
 ## Keyboard
 
@@ -833,6 +858,9 @@ editor.unfold("/web/listen"); // show one field; false when nothing was folded a
 editor.fold(["clients"]); // fold the block its key opens; false when there is none
 ```
 
+<details>
+<summary>How folds behave through edits and caret moves</summary>
+
 Folding only changes the view: `value`, `onChange`, undo and saving see the
 whole text, and copying a selection across a fold copies the hidden lines.
 An edit that touches a fold (typing at the end of a folded line, Backspace
@@ -841,6 +869,8 @@ opens it first, and whatever moves the caret into a fold (find, go to line,
 `F8`, `reveal`, a click on a problem) opens it. A folded block hiding an
 error or changes marks its line. The textarea holds the text on screen, so
 read the document from `value`, not from the element.
+
+</details>
 
 ## Saving and unsaved edits
 
@@ -857,6 +887,9 @@ button) are in the crate's
 section: `editor.value` is the document in `language`, `editor.text` the
 text on screen.
 
+<details>
+<summary>Line endings (CRLF, LF and CR, mixed in one text)</summary>
+
 Line endings are kept: when the host's text ends its lines with CRLF,
 `onChange` and `onSave` receive CRLF too (the editor works on LF text inside,
 and dirty state and the diff compare line endings as LF). Each line keeps its
@@ -866,6 +899,8 @@ of the line above (the text's most common one when there is none). A lone CR
 that the language does not read as a line break (TOML, HCL) is shown as the
 syntax error its reader gives (as `parse` reports it), until that line is
 edited.
+
+</details>
 
 ```js
 const editor = new ConfigEditor(element, {
@@ -1122,6 +1157,9 @@ parse, none are left out). Values are written as JSON. A result of the wrong
 shape is warned about in the console (once) and read as `null`; a callback
 that throws is logged and read as `null` too.
 
+<details>
+<summary>A sketch: completion and hover for an HJSON-like language</summary>
+
 This is what lets formats the editor does not ship (HJSON, KDL, UCL, …) get
 suggestions: `parse` comes from the host's own parser, and the callbacks
 from what it knows of positions. A sketch for an HJSON-like language
@@ -1161,6 +1199,8 @@ registerLanguage({
 });
 ```
 
+</details>
+
 ### Strings and comments over lines
 
 `highlight` colors one line at a time. For what spans lines (HJSON's `'''`
@@ -1183,6 +1223,9 @@ multilineRanges(text) {
 
 ### Edit-as with a custom language
 
+<details>
+<summary>How a save edits the stored text in place</summary>
+
 A document stored in a custom language and edited as another (`editAs`)
 is saved back by editing its own text, not by writing it anew: a changed
 value is rewritten where `valueSpan` places it, and a key added, removed or
@@ -1192,6 +1235,8 @@ entries left alone stay as written. The whole document comes from
 `serialize` only when the stored text did not parse before the edit, or no
 such patch reads back (through `parse`) as the edited data. Highlighting
 stays per line (`highlight`), with `multilineRanges` for what spans lines.
+
+</details>
 
 ## Themes
 
@@ -1234,6 +1279,9 @@ With `styled: false` the editor injects nothing, and its markup
 (`config-editor__*` classes) is yours to style; `presetCss()` returns the
 preset stylesheet to serve or adapt.
 
+<details>
+<summary>The color tokens: the colors setting, the diff, the footer counts and the tabs</summary>
+
 The `colors` setting sets the variables per editor, by token: its type is
 `ThemeColorMap`, keyed by `ThemeColorToken` (both exported), which lists
 every token. The diff markers use `added`,
@@ -1247,6 +1295,8 @@ The tabs of `ConfigDocuments` use `tab-bar` (the strip), `tab-bg` /
 unsaved-changes dot); they follow `panel`, `bg`, `muted`, `text`, `border`
 and `accent` unless set, as variables on the `.config-editor-documents` root
 or through its `colors` setting.
+
+</details>
 
 ## License
 

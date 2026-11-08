@@ -350,6 +350,9 @@ pairs, `…One` for 1 and `…Other` otherwise.
 
 ### Late parents
 
+<details>
+<summary>Late echoes, and resetting with setValue</summary>
+
 A parent that applies the edits late (a store, a debounce, a server round
 trip) cannot roll the document back to an older one: a `modelValue` equal to
 one the editor sent in the last 10 seconds, while newer ones are still on
@@ -358,6 +361,8 @@ is applied. To reset to a text the user may have just passed through while
 a late parent is catching up, call `setValue(text)` on the instance, which
 always applies (also before the editor has mounted) and is reported through
 `@update:model-value`.
+
+</details>
 
 ## The instance
 
