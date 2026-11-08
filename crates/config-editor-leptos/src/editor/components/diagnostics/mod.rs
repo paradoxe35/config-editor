@@ -9,7 +9,6 @@ use super::super::a11y::problem_marker;
 use super::super::completion::visual_column;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::positioning::row_box;
-use super::super::problems::TipAnchor;
 use super::super::state::EditorState;
 use crate::EditorStrings;
 use crate::cssom::cssom;
@@ -132,8 +131,9 @@ struct Drawn<'a> {
 }
 
 /// The underline `drawn`. Only the first underline of a problem over
-/// several lines is named for screen readers and marked shown after F8;
-/// hovering any of them shows the problem's message.
+/// several lines is named for screen readers and marked shown after F8.
+/// It takes no pointer events: the text under it gets the clicks, and the
+/// pointer over it shows the problem's message (see `input::mouse_move`).
 fn marker(
     state: EditorState,
     shown: Signal<Option<(usize, usize)>>,
@@ -168,11 +168,6 @@ fn marker(
     let detail = state.strings_untracked(|strings| detail(strings, diagnostic));
     let aria_label =
         state.strings_untracked(|strings| problem_marker(strings, state.label(), diagnostic, line));
-    let anchor = TipAnchor {
-        place: (line, column),
-        line: segment.line,
-        column: left,
-    };
     Some(view! {
         <button
             type="button"
@@ -193,12 +188,8 @@ fn marker(
             data-message=diagnostic.message.clone()
             data-detail=detail
             style=cssom(row_box(left, row, Some(visual_width.max(1.0))))
-            on:mousedown=|event| event.prevent_default()
-            on:mouseenter=move |_| state.hover_problem(anchor)
-            on:mouseleave=move |_| state.leave_problem()
-            on:focus=move |_| state.hover_problem(anchor)
+            on:focus=move |_| state.hover_problem((line, column))
             on:blur=move |_| state.leave_problem()
-            on:click=move |_| on_marker_click(state, line, column)
         >
             <span>{marked}</span>
         </button>
@@ -223,14 +214,6 @@ pub(super) fn detail(strings: &EditorStrings, diagnostic: &Diagnostic) -> Option
     .flatten()
     .collect();
     Some(parts.join(" · "))
-}
-
-/// A click (or tap) on an underline moves the caret there; the message
-/// stays shown, as after F8: a tap on a touch screen has no hover to show
-/// it with.
-fn on_marker_click(state: EditorState, line: usize, column: usize) {
-    state.focus_at(line, column);
-    state.problems().current.set(Some((line, column)));
 }
 
 #[cfg(test)]

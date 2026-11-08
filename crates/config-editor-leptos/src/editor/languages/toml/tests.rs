@@ -353,19 +353,29 @@ fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
 }
 
 #[test]
-fn table_headers_are_punctuation_with_a_trailing_comment() {
+fn table_headers_name_keys_with_a_trailing_comment() {
     assert_eq!(
         colored("  [server.http] # main"),
         vec![
             run(None, "  "),
-            run(Some(TokenKind::Punctuation), "[server.http]"),
+            run(Some(TokenKind::Punctuation), "["),
+            run(Some(TokenKind::Key), "server"),
+            run(Some(TokenKind::Punctuation), "."),
+            run(Some(TokenKind::Key), "http"),
+            run(Some(TokenKind::Punctuation), "]"),
             run(None, " "),
             run(Some(TokenKind::Comment), "# main"),
         ]
     );
     assert_eq!(
         colored("[[bin]]"),
-        vec![run(Some(TokenKind::Punctuation), "[[bin]]")]
+        vec![
+            run(Some(TokenKind::Punctuation), "["),
+            run(Some(TokenKind::Punctuation), "["),
+            run(Some(TokenKind::Key), "bin"),
+            run(Some(TokenKind::Punctuation), "]"),
+            run(Some(TokenKind::Punctuation), "]"),
+        ]
     );
 }
 

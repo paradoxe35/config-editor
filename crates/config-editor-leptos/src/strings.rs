@@ -277,9 +277,12 @@ pub struct EditorStrings {
     pub unfold: String,
     /// A closed fold's line number when it hides changes or problems.
     pub folded_changes: String,
-    /// After a closed fold's chip label when it hides problems; `{severity}`
-    /// names the most serious of them.
-    pub folded_problem: String,
+    /// After a closed fold's chip label when it hides one problem;
+    /// `{severity}` names it.
+    pub folded_problem_one: String,
+    /// After a closed fold's chip label when it hides `{count}` problems;
+    /// `{severity}` names the most serious of them.
+    pub folded_problem_other: String,
 
     // Hover and problems.
     /// The hover card's mark of a required key.
@@ -552,7 +555,8 @@ impl Default for EditorStrings {
             fold: text("Fold line {line}"),
             unfold: text("Unfold lines {first}–{last}"),
             folded_changes: text("Folded lines have changes"),
-            folded_problem: text("hides a problem: {severity}"),
+            folded_problem_one: text("hides a problem: {severity}"),
+            folded_problem_other: text("hides {count} problems, the most serious: {severity}"),
             required: text("required"),
             deprecated: text("deprecated"),
             default_value: text("Default"),

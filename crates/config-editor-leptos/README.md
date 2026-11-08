@@ -293,7 +293,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (160 texts)</summary>
+<summary>Every text and its default (161 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -392,7 +392,8 @@ they come.
 | `fold`                          | `"Fold line {line}"`                                                                                                                 | The chevron of an open range.                                                                                                                                                                                                                  |
 | `unfold`                        | `"Unfold lines {first}–{last}"`                                                                                                      | The chevron or chip of a closed fold.                                                                                                                                                                                                          |
 | `folded_changes`                | `"Folded lines have changes"`                                                                                                        | A closed fold's line number when it hides changes or problems.                                                                                                                                                                                 |
-| `folded_problem`                | `"hides a problem: {severity}"`                                                                                                      | After a closed fold's chip label when it hides problems; `{severity}` names the most serious of them.                                                                                                                                          |
+| `folded_problem_one`            | `"hides a problem: {severity}"`                                                                                                      | After a closed fold's chip label when it hides one problem; `{severity}` names it.                                                                                                                                                             |
+| `folded_problem_other`          | `"hides {count} problems, the most serious: {severity}"`                                                                             | After a closed fold's chip label when it hides `{count}` problems; `{severity}` names the most serious of them.                                                                                                                                |
 | `required`                      | `"required"`                                                                                                                         | The hover card's mark of a required key.                                                                                                                                                                                                       |
 | `deprecated`                    | `"deprecated"`                                                                                                                       | The hover card's mark of a deprecated key.                                                                                                                                                                                                     |
 | `default_value`                 | `"Default"`                                                                                                                          | The hover card's default row.                                                                                                                                                                                                                  |
@@ -980,7 +981,7 @@ Completions and hover read these keywords, with or without the
 | `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                            |
 | `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                        |
 | `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                           |
-| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                                                                                        |
+| `x-docs-url`                                 | A "Documentation" link in the hover, and an "Open docs" link (and `Alt+Enter`) on the field's problems, opening in a new tab (`http(s)` addresses only).                                     |
 | `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                      |
 | `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                  |
 | `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, the matched option's keys first. |
@@ -1092,8 +1093,10 @@ placeholder's hint. It follows the caret a moment after it stops. `F8` and
 `tooltip`, the change preview a `dialog`, and the footer's counts
 `aria-live`.
 
-On a touch screen a tap places the caret, a tap on underlined or read-only
-text shows its message (there is no hover), and the selection a long press
+A click, double-click, drag or tap on underlined text reaches the text (the
+caret lands where it is clicked), and the tip lists every problem covering
+the place. On a touch screen a tap places the caret, a tap on underlined or
+read-only text shows its message (there is no hover), and the selection a long press
 or the selection handles make is followed like one made with the keyboard.
 
 </details>

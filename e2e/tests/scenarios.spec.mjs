@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { editor, pointAt, scrollToLine, setupEditor } from './helpers.mjs';
+import { editor, pointAt, pointerOn, scrollToLine, setupEditor } from './helpers.mjs';
 
 setupEditor(test);
 
@@ -355,7 +355,7 @@ test.describe('clicking lines', () => {
     const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
     await e.input.evaluate((element) => element.setSelectionRange(0, 0));
-    await marker.click();
+    await pointerOn(page, marker, { click: true });
     const state = await e.input.evaluate((element) => {
       const position = element.selectionStart;
       const before = element.value.slice(0, position);
@@ -522,7 +522,7 @@ test.describe('diagnostics', () => {
     await e.paste('listen: 7835\nbogus_key: 1\n');
     const marker = page.locator('.config-editor__diagnostic-marker').first();
     await expect(marker).toHaveCount(1);
-    await marker.hover();
+    await pointerOn(page, marker);
     await expect(marker).toHaveAttribute('data-message', /bogus_key|bogus/);
     await e.screenshot('diagnostic-tooltip');
   });

@@ -19,10 +19,15 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
                     state.view().projection.with(|projection| projection.rows()),
                 )
             }
+            // A text box of several lines that suggests (a combobox would be
+            // one line to screen readers): `aria-expanded` is not one of a
+            // text box's states, the open list is told by `aria-controls`
+            // and `aria-activedescendant` (see `a11y::suggestions`).
+            role="textbox"
+            aria-multiline="true"
             aria-label=state.language_text(|strings| &strings.source_label)
             aria-autocomplete=move || (!read_only.get()).then_some("list")
             aria-haspopup=move || (!read_only.get()).then_some("listbox")
-            aria-expanded=move || (!state.completion().suggestions.with(Vec::is_empty)).to_string()
             aria-invalid=move || (!state.problems().diagnostics.with(Vec::is_empty)).to_string()
             // What is at the caret: its problems, a read-only reason, a
             // secret's hint (see `a11y`).
@@ -43,7 +48,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             on:beforeinput=move |event| input::before_input(state, &event)
             on:input=move |event| input::input(state, &event)
             on:mousemove=move |event| input::mouse_move(state, &event)
-            on:mouseleave=move |_| state.leave_hover()
+            on:mouseleave=move |_| input::mouse_leave(state)
             on:blur=move |_| input::blur(state)
             on:click=move |event| input::click(state, &event)
             on:keyup=move |event| input::key_up(state, &event)

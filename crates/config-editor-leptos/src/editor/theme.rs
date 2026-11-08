@@ -179,6 +179,8 @@ pub enum ThemeColor {
     CompletionKey,
     /// Suggestion type.
     CompletionType,
+    /// Suggestion type on the highlighted suggestion.
+    CompletionTypeActive,
     /// Suggestion description.
     CompletionDetail,
     /// Suggestion icon border.
@@ -312,6 +314,7 @@ impl ThemeColor {
         Self::CompletionActive,
         Self::CompletionKey,
         Self::CompletionType,
+        Self::CompletionTypeActive,
         Self::CompletionDetail,
         Self::CompletionIconBorder,
         Self::CompletionIconText,
@@ -407,6 +410,7 @@ impl ThemeColor {
             Self::CompletionActive => "--config-editor-completion-active",
             Self::CompletionKey => "--config-editor-completion-key",
             Self::CompletionType => "--config-editor-completion-type",
+            Self::CompletionTypeActive => "--config-editor-completion-type-active",
             Self::CompletionDetail => "--config-editor-completion-detail",
             Self::CompletionIconBorder => "--config-editor-completion-icon-border",
             Self::CompletionIconText => "--config-editor-completion-icon-text",

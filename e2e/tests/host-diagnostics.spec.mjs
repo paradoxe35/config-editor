@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FRAMEWORK_PAGES } from './helpers.mjs';
+import { FRAMEWORK_PAGES, pointerOn } from './helpers.mjs';
 
 // Host diagnostics (`hostDiagnostics`, `setHostDiagnostics`): a server's
 // problems shown with the editor's own, through the npm packages' example
@@ -73,7 +73,7 @@ test.describe('vanilla.html', () => {
     ]);
     await expect(footer(browserPage)).toHaveText('1 error, 1 warning, 1 info, 1 hint · the server restarted');
     // The message shows who reported it, under the message.
-    await markers(browserPage).first().hover();
+    await pointerOn(browserPage, markers(browserPage).first());
     const tip = browserPage.locator('.config-editor__problem-tip');
     await expect(tip).toContainText('port in use');
     await expect(tip).toContainText('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
@@ -157,7 +157,7 @@ test.describe('vanilla.html', () => {
     await open(browserPage, 'vanilla.html');
     await setHost(browserPage, PROBLEMS.slice(0, 1));
     const marker = markers(browserPage).first();
-    await marker.hover();
+    await pointerOn(browserPage, marker);
     const box = await marker.boundingBox();
     // Near the top of the editor, the message opens below the line; the
     // pointer moving onto it keeps it open.

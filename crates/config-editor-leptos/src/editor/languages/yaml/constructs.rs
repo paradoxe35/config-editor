@@ -6,7 +6,8 @@
 use std::ops::Range;
 
 use super::super::super::highlight::{MultilineConstruct, TokenKind, Tokens};
-use super::editing::{code_before_comment, scalar_kind};
+use super::colors::scalar_kind;
+use super::editing::code_before_comment;
 use super::parse::plain_scalar_bodies;
 
 /// The quoted scalars, plain scalars and flow collections `source` writes
@@ -150,7 +151,13 @@ pub(super) fn flow_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
             }
             '"' | '\'' => {
                 index = quoted_end(text, index).min(text.len());
-                tokens.push(offset + start, offset + index, TokenKind::String);
+                // A quoted key: `{"a b": 1}`.
+                let after = text[index..].trim_start_matches([' ', '\t']);
+                let kind = match after.strip_prefix(':') {
+                    Some(rest) if separates(rest) => TokenKind::Key,
+                    _ => TokenKind::String,
+                };
+                tokens.push(offset + start, offset + index, kind);
                 continue;
             }
             '[' | ']' | '{' | '}' | ',' => {

@@ -4,7 +4,7 @@
 //! [`value_tokens`].
 
 use super::super::super::highlight::{MultilineConstruct, TokenKind, Tokens};
-use super::editing::scalar_kind;
+use super::colors::scalar_kind;
 
 /// The strings and arrays (or inline tables) `source` writes over several
 /// lines, in order.
@@ -69,7 +69,7 @@ fn line_end(source: &str, index: usize) -> usize {
 /// The end of the string opening at `start` (a `"""` / `'''` one through
 /// its closing delimiter, over lines; a one-line one through its closing
 /// quote or to the line end), or the end of `source` when it stays open.
-fn string_end(source: &str, start: usize) -> usize {
+pub(super) fn string_end(source: &str, start: usize) -> usize {
     let rest = &source[start..];
     let quote = rest.as_bytes()[0];
     let basic = quote == b'"';
@@ -115,7 +115,13 @@ pub(super) fn value_tokens(text: &str, offset: usize, tokens: &mut Tokens) {
             }
             '"' | '\'' => {
                 index = string_end(text, index).min(text.len());
-                tokens.push(offset + start, offset + index, TokenKind::String);
+                // A quoted key of an inline table: `{ "a b" = 1 }`.
+                let kind = if text[index..].trim_start().starts_with('=') {
+                    TokenKind::Key
+                } else {
+                    TokenKind::String
+                };
+                tokens.push(offset + start, offset + index, kind);
                 continue;
             }
             '[' | ']' | '{' | '}' | ',' => {

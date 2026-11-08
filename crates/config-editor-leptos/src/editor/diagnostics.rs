@@ -686,6 +686,13 @@ pub(super) fn validate_with(
                             if inside(&path, &placeholders) {
                                 return Vec::new();
                             }
+                            // The schema's docs for the value (`x-docs-url`):
+                            // its problem links to them, as its hover does.
+                            let docs = super::completion::docs_url_at(
+                                &schema.schema,
+                                &path,
+                                behavior.repetition() != super::language::Repetition::None,
+                            );
                             let message = match error.kind() {
                                 ValidationErrorKind::AnyOf { context }
                                 | ValidationErrorKind::OneOfNotValid { context } => {
@@ -813,6 +820,7 @@ pub(super) fn validate_with(
                                         end_column: location.map(|location| location.end_column),
                                         message,
                                         severity: Severity::Error,
+                                        docs_url: docs.clone(),
                                         ..Diagnostic::default()
                                     }
                                 })
@@ -905,6 +913,11 @@ fn deprecation_warnings(
                 message,
                 severity: Severity::Warning,
                 deprecated: true,
+                docs_url: super::completion::docs_url_at(
+                    &bundle.schema,
+                    &found.pointer,
+                    behavior.repetition() != super::language::Repetition::None,
+                ),
                 ..Diagnostic::default()
             })
         })

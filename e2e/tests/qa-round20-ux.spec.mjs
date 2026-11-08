@@ -63,7 +63,8 @@ test.describe('U20-1: an underline with a docs link', () => {
         await setHost(page, WITH_DOCS);
         await expect(markers(page)).toHaveCount(1);
         const box = await markers(page).first().boundingBox();
-        const x = box.x + 6;
+        // On the left of the first character: the caret lands before it.
+        const x = box.x + 2;
         const y = box.y + box.height / 2;
         if (mode === 'touch') await page.touchscreen.tap(x, y);
         else await page.mouse.click(x, y);
@@ -219,8 +220,9 @@ test.describe('a closed fold hiding a problem', () => {
     await page.evaluate(() => window.editor.foldAll());
     const chip = page.locator('.config-editor__fold-chip');
     await expect(chip).toHaveCount(1);
-    await expect(chip).toHaveAttribute('aria-label', 'Unfold lines 1–3, hides a problem: Error');
-    await expect(chip).toHaveAttribute('title', 'Unfold lines 1–3, hides a problem: Error');
+    // QA 21: two problems, counted (they were worded as one).
+    await expect(chip).toHaveAttribute('aria-label', 'Unfold lines 1–3, hides 2 problems, the most serious: Error');
+    await expect(chip).toHaveAttribute('title', 'Unfold lines 1–3, hides 2 problems, the most serious: Error');
     expect(errors).toEqual([]);
   });
 });

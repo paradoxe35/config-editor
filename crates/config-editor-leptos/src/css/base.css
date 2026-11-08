@@ -55,6 +55,9 @@
   /* Matched letters on the selected suggestion: the accent toward the
      label's color, so they stay readable on the selection. */
   --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent) 50%, var(--config-editor-completion-key));
+  /* The type on the selected suggestion, toward the label's color: readable
+     (4.5:1) on the selection. */
+  --config-editor-completion-type-active: color-mix(in srgb, var(--config-editor-completion-type) 50%, var(--config-editor-completion-key));
   --config-editor-scrollbar-thumb: #686868;
   --config-editor-status-error: #f48771;
   --config-editor-status-warning: #cca700;
@@ -275,11 +278,14 @@
   outline-offset: 1px;
 }
 
+/* At most 80% of the window, and short enough that the editor with its
+   tab bar and footer fits a short window whole (QA 21: in a 300px window
+   the footer was cut off). */
 .config-editor__surface {
   position: relative;
-  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px)));
+  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px), 100vh - 80px));
   height: var(--config-editor-height, auto);
-  max-height: var(--config-editor-max-height, 80vh);
+  max-height: var(--config-editor-max-height, min(80vh, 100vh - 80px));
   display: flex;
   background: var(--config-editor-bg);
   overflow: hidden;
@@ -786,8 +792,8 @@
   text-decoration: underline wavy var(--config-editor-error);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-  pointer-events: auto;
-  cursor: help;
+  /* Clicks, drags and taps reach the text under it (see problem_hit.rs). */
+  pointer-events: none;
 }
 
 /* Warnings (for example a value a converted document's host language cannot
@@ -1279,6 +1285,10 @@
 .config-editor__completion-active .config-editor__completion-match {
   color: var(--config-editor-completion-match-active);
 }
+.config-editor__completion-active .config-editor__completion-type,
+.config-editor__completion-active .config-editor__completion-deprecated {
+  color: var(--config-editor-completion-type-active);
+}
 
 .config-editor__completion--deprecated .config-editor__completion-key {
   text-decoration: line-through;
@@ -1441,6 +1451,7 @@
   --config-editor-border: #dedede;
   --config-editor-text: #333333;
   --config-editor-muted: #777777;
+  --config-editor-line-number: #737373;
   --config-editor-accent: #007acc;
   --config-editor-error: #d32f2f;
   --config-editor-toolbar-text: #333333;
@@ -1514,6 +1525,7 @@
   --config-editor-border: #d7dfda;
   --config-editor-text: #35413a;
   --config-editor-muted: #7b8780;
+  --config-editor-line-number: #69736d;
   --config-editor-accent: #2780b8;
   --config-editor-error: #c43d3d;
   --config-editor-toolbar-text: #35413a;
@@ -1672,19 +1684,70 @@
   }
 }
 
-/* Forced colors (Windows high contrast) drop backgrounds: the gutter's
-   problem dots and change bars are drawn in system colors instead. */
+/* Forced colors (Windows high contrast) drop backgrounds and shadows:
+   whatever shows only through them (the gutter's problem dots, change bars,
+   lock and key icons, find matches, the active suggestion, toggles that
+   are on, the current problem in the tip, a secret's chip, a fold's
+   problem mark) is drawn in system colors instead. */
 @media (forced-colors: active) {
   .config-editor__line-number-error::before,
   .config-editor__diff-marker-added,
   .config-editor__diff-marker-modified,
-  .config-editor__diff-deleted::before {
+  .config-editor__diff-deleted::before,
+  .config-editor__lock-marker,
+  .config-editor__secret-marker,
+  .config-editor__search-match,
+  .config-editor__highlight .config-editor__secret,
+  .config-editor__completion-active,
+  .config-editor__find-toggle-on,
+  .config-editor__fold-chip--error,
+  .config-editor__fold-chip--warning,
+  .config-editor__fold-chip--info,
+  .config-editor__fold-chip--hint {
     forced-color-adjust: none;
   }
   .config-editor__line-number-error::before { background: CanvasText; }
   .config-editor__diff-marker-added,
   .config-editor__diff-marker-modified { background: Highlight; }
   .config-editor__diff-deleted::before { background: CanvasText; }
+  .config-editor__lock-marker,
+  .config-editor__secret-marker { color: CanvasText; }
+  /* Matches outlined (the text stays readable over them), the current one
+     filled. */
+  .config-editor__search-match {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px Highlight;
+  }
+  .config-editor__search-match-current {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px Highlight;
+  }
+  .config-editor__highlight .config-editor__secret {
+    background: Canvas;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+  .config-editor__completion-active,
+  .config-editor__find-toggle-on,
+  .config-editor__find-toggle-on:hover {
+    border-color: HighlightText;
+    background: Highlight;
+    color: HighlightText;
+  }
+  .config-editor__completion-active *,
+  .config-editor__completion-active .config-editor__completion-match {
+    color: HighlightText;
+  }
+  .config-editor__problem-tip-entry--current { outline: 1px solid Highlight; }
+  .config-editor__fold-chip--error,
+  .config-editor__fold-chip--warning,
+  .config-editor__fold-chip--info,
+  .config-editor__fold-chip--hint {
+    background: ButtonFace;
+    color: ButtonText;
+    box-shadow: inset 0 -2px ButtonText;
+  }
+  /* The caret's line, outlined. */
+  .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
 }
 
 /* No sliding or fading for those who ask for less motion. */

@@ -1,5 +1,5 @@
-//! The problem tip: the messages of the problems starting where the
-//! pointer (or the focus) is on an underline, or where F8 or a tap went.
+//! The problem tip: the messages of every problem covering the place under
+//! the pointer (or a focused underline's start), or where F8 or a tap went.
 //! Each problem gets its own lines (its severity, message, who reported it
 //! and its code, its docs link), the most serious first. It stays inside
 //! the editor (in an editor too short for it, the window): above its
@@ -11,11 +11,10 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::super::a11y::severity_name;
-use super::super::super::completion::visual_column;
 use super::super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::super::metrics::read_editor_metrics;
 use super::super::super::positioning::PopupFrame;
-use super::super::super::problems::TipAnchor;
+use super::super::super::problem_hit::{covering, tip_column};
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
 use crate::cssom::{Declarations, cssom};
@@ -36,8 +35,18 @@ const TIP_MARGIN: f64 = 4.0;
 /// What the tip shows.
 #[derive(Clone, Debug, PartialEq)]
 struct TipContent {
-    anchor: TipAnchor,
+    anchor: Anchor,
     entries: Vec<Entry>,
+}
+
+/// Where the tip points: one-based `line`, from rendered column `column`
+/// (zero-based; tabs count two), where the innermost problem shown starts
+/// there. The same while the pointer moves over the same problems, so the
+/// tip stays put.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Anchor {
+    line: usize,
+    column: f64,
 }
 
 /// One problem in the tip.
@@ -207,50 +216,38 @@ fn open(url: Option<&str>) {
     }
 }
 
-/// What the tip shows now: the hovered underline's problems, else those
+/// What the tip shows now: the problems at the hovered place, else at
 /// where F8 (or a tap) went.
 fn tip_content(state: EditorState) -> Option<TipContent> {
     let problems = state.problems();
-    let anchor = match problems.hovered.get() {
-        Some(anchor) => anchor,
-        None => {
-            let (line, column) = problems.current.get()?;
-            let before: String = state.doc().text.with_untracked(|text| {
-                text.split('\n')
-                    .nth(line - 1)
-                    .unwrap_or("")
-                    .chars()
-                    .take(column.saturating_sub(1))
-                    .collect()
-            });
-            TipAnchor {
-                place: (line, column),
-                line,
-                column: visual_column(&before),
-            }
-        }
-    };
+    let (line, column) = problems.hovered.get().or_else(|| problems.current.get())?;
     let walked = problems.walked.get().map(|(problem, _)| problem);
-    let entries = state.config().settings.strings.with(|strings| {
-        problems
-            .diagnostics
-            .with(|found| entries_at(strings, found, anchor.place, walked.as_ref()))
-    });
-    (!entries.is_empty()).then_some(TipContent { anchor, entries })
+    state.doc().text.with_untracked(|text| {
+        let line_text = text.split('\n').nth(line - 1).unwrap_or("");
+        state.config().settings.strings.with(|strings| {
+            problems.diagnostics.with(|found| {
+                let place = (line, column, line_text);
+                let entries = entries_at(strings, found, place, walked.as_ref());
+                let anchor = Anchor {
+                    line,
+                    column: tip_column(found, line, column, line_text),
+                };
+                (!entries.is_empty()).then_some(TipContent { anchor, entries })
+            })
+        })
+    })
 }
 
-/// Every problem starting at `place` (all of them, drawn or past the
-/// underline cap), the most serious first; `walked` is the one F8 went to.
+/// Every problem covering one-based `line`:`column` of `line_text` (all of
+/// them, drawn or past the underline cap, the outer ones of nested problems
+/// too), the most serious first; `walked` is the one F8 went to.
 fn entries_at(
     strings: &EditorStrings,
     problems: &[Diagnostic],
-    place: (usize, usize),
+    (line, column, line_text): (usize, usize, &str),
     walked: Option<&Diagnostic>,
 ) -> Vec<Entry> {
-    let mut here: Vec<&Diagnostic> = problems
-        .iter()
-        .filter(|problem| problem.line.zip(problem.column) == Some(place))
-        .collect();
+    let mut here: Vec<&Diagnostic> = covering(problems, line, column, line_text).collect();
     here.sort_by_key(|problem| problem.severity as u8);
     here.into_iter()
         .map(|problem| Entry {
@@ -309,7 +306,7 @@ struct Area {
 
 /// The placement for the tip pointing at `anchor` (tracks the scroll and
 /// the layout), or `None` while its line is scrolled out of view.
-fn placement(state: EditorState, anchor: TipAnchor, natural: f64) -> Option<Placement> {
+fn placement(state: EditorState, anchor: Anchor, natural: f64) -> Option<Placement> {
     let scroll_x = state.view().scroll_x.get();
     let scroll_y = state.view().scroll_y.get();
     state.view().layout_revision.track();
@@ -521,7 +518,7 @@ mod tests {
         let entries = entries_at(
             &EditorStrings::default(),
             &problems,
-            (2, 3),
+            (2, 3, "  key: value"),
             Some(&problems[0]),
         );
         let seen: Vec<_> = entries

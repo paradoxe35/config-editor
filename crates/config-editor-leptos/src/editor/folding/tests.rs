@@ -304,20 +304,25 @@ fn a_fold_chip_names_the_most_serious_problem_it_hides() {
     let cases = [
         (None, "Unfold lines 3–7"),
         (
-            Some(Severity::Error),
+            Some((Severity::Error, 1)),
             "Unfold lines 3–7, hides a problem: Error",
         ),
         (
-            Some(Severity::Warning),
+            Some((Severity::Warning, 1)),
             "Unfold lines 3–7, hides a problem: Warning",
         ),
         (
-            Some(Severity::Info),
+            Some((Severity::Info, 1)),
             "Unfold lines 3–7, hides a problem: Info",
         ),
         (
-            Some(Severity::Hint),
+            Some((Severity::Hint, 1)),
             "Unfold lines 3–7, hides a problem: Hint",
+        ),
+        // QA 21: two hidden problems were worded as one.
+        (
+            Some((Severity::Error, 2)),
+            "Unfold lines 3–7, hides 2 problems, the most serious: Error",
         ),
     ];
     let failures: Vec<String> = cases

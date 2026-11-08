@@ -17,20 +17,26 @@ pub(crate) fn fold_label(
     }
 }
 
-/// The label of a closed fold's `…` chip: its [`fold_label`], then the most
-/// serious problem it hides, if any ("Unfold lines 3–7, hides a problem:
-/// Error"), so its colour is not the only sign of it.
+/// The label of a closed fold's `…` chip: its [`fold_label`], then the
+/// problems it hides, if any: the most serious and how many ("Unfold lines
+/// 3–7, hides a problem: Error", "…, hides 2 problems, the most serious:
+/// Error"), so its colour is not the only sign of them.
 pub(crate) fn chip_label(
     strings: &crate::EditorStrings,
     line: usize,
     closed_end: usize,
-    hidden: Option<crate::Severity>,
+    hidden: Option<(crate::Severity, usize)>,
 ) -> String {
     let label = fold_label(strings, line, Some(closed_end));
     match hidden {
-        Some(severity) => {
+        Some((severity, count)) => {
             let name = super::super::a11y::severity_name(strings, severity);
-            let problem = crate::strings::fill(&strings.folded_problem, &[("severity", &name)]);
+            let template = if count == 1 {
+                &strings.folded_problem_one
+            } else {
+                &strings.folded_problem_other
+            };
+            let problem = crate::strings::fill(template, &[("count", &count), ("severity", &name)]);
             format!("{label}, {problem}")
         }
         None => label,

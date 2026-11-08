@@ -64,6 +64,7 @@ mod paths;
 mod positioning;
 #[cfg(all(test, feature = "yaml", feature = "protect"))]
 mod problem_cap_tests;
+mod problem_hit;
 mod problem_walk;
 mod problems;
 mod projection;

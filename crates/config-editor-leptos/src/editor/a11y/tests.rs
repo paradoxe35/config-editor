@@ -224,7 +224,20 @@ fn a_problem_covers_its_underline_and_the_caret_just_past_it() {
     let word = problem(2, Some(3), Some(7));
     let point = problem(2, Some(5), None);
     let line = problem(4, None, None);
+    // QA 21: a host's range over several lines covered no caret past its
+    // first line (a tap there showed nothing, the note said nothing).
+    let range = Diagnostic {
+        end_line: Some(6),
+        ..problem(3, Some(4), Some(2))
+    };
     let cases = [
+        (&range, 3, 3, false),
+        (&range, 3, 4, true),
+        (&range, 4, 1, true),
+        (&range, 5, 80, true),
+        (&range, 6, 2, true),
+        (&range, 6, 3, false),
+        (&range, 7, 1, false),
         (&word, 2, 2, false),
         (&word, 2, 3, true),
         (&word, 2, 5, true),

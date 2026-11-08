@@ -111,6 +111,17 @@ export function editor(page) {
   };
 }
 
+// Points the mouse at the text under `locator` (an underline takes no
+// pointer events: the text under it gets them), `at` of the way across it:
+// moves there, or clicks there.
+export async function pointerOn(page, locator, { click = false, at = 0.25 } = {}) {
+  const box = await locator.boundingBox();
+  const x = box.x + Math.max(1, Math.min(box.width - 1, box.width * at));
+  const y = box.y + box.height / 2;
+  if (click) await page.mouse.click(x, y);
+  else await page.mouse.move(x, y);
+}
+
 // Page coordinates of the character cell at (line, column) in the editor textarea.
 export async function pointAt(page, line, column) {
   const input = page.locator('.config-editor__input');

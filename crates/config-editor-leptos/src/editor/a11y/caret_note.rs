@@ -9,6 +9,7 @@ use leptos::prelude::*;
 
 use super::super::diagnostics::Diagnostic;
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::problem_hit::innermost_start;
 use super::super::state::EditorState;
 use super::texts::problem_text;
 use crate::EditorStrings;
@@ -32,16 +33,25 @@ pub(in crate::editor) fn caret_position(text: &str, caret: usize) -> (usize, usi
 
 /// Whether `problem` covers the caret at one-based `line`:`column`: its
 /// underline from the first character to just past the last (the caret
-/// after a word is on it), or its whole line when it has no column.
+/// after a word is on it), over every line of a range, or its whole line
+/// when it has no column.
 pub(super) fn covers(problem: &Diagnostic, line: usize, column: usize) -> bool {
-    if problem.line != Some(line) {
+    let Some(first) = problem.line else {
+        return false;
+    };
+    let last = problem.last_line().unwrap_or(first).max(first);
+    if line < first || line > last {
         return false;
     }
     let Some(start) = problem.column else {
         return true;
     };
-    let end = problem.end_column.unwrap_or(start + 1).max(start + 1);
-    start <= column && column <= end
+    if first == last {
+        let end = problem.end_column.unwrap_or(start + 1).max(start + 1);
+        return start <= column && column <= end;
+    }
+    (line > first || column >= start)
+        && (line < last || problem.end_column.is_none_or(|end| column <= end))
 }
 
 /// The note for the caret at one-based `line`:`column`: each problem on
@@ -137,23 +147,27 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
     true
 }
 
-/// Shows what is at the caret as the pointer would: the message of the
-/// problem there, what the protected text there is, or the key's docs (the
-/// hover card). A tap on a phone has no hover to show them with.
+/// Shows what is at the caret as the pointer would: the messages of the
+/// problems on the character after it (or, at a word's end, before it),
+/// what the protected text there is, or the key's docs (the hover card).
+/// A tap on a phone has no hover to show them with.
 pub(in crate::editor) fn show_at_caret(state: EditorState) {
     let caret = state.doc().caret.get_untracked();
-    let (line, column) = state
-        .doc()
-        .text
-        .with_untracked(|text| caret_position(text, caret));
-    let problem = state.problems().diagnostics.with_untracked(|problems| {
-        problems
-            .iter()
-            .find(|problem| covers(problem, line, column))
-            .and_then(|problem| Some((problem.line?, problem.column?)))
+    let (line, column, place) = state.doc().text.with_untracked(|text| {
+        let (line, column) = caret_position(text, caret);
+        let line_text = text.split('\n').nth(line - 1).unwrap_or("");
+        // Where the innermost problem there starts on the line: F8's place
+        // when it starts there (its underline marked shown).
+        let place = state.problems().diagnostics.with_untracked(|problems| {
+            [Some(column), column.checked_sub(1).filter(|at| *at > 0)]
+                .into_iter()
+                .flatten()
+                .find_map(|at| innermost_start(problems, line, at, line_text))
+        });
+        (line, column, place.map(|at| (line, at)))
     });
-    match problem {
-        Some(position) => state.problems().current.set(Some(position)),
+    match place {
+        Some(place) => state.problems().current.set(Some(place)),
         // Else the key's docs, as the pointer's hover shows them.
         None => {
             if !state.hover_protected(line - 1, column - 1) {

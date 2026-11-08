@@ -16,6 +16,7 @@ mod multiline;
 mod parse;
 mod suggestions;
 mod editing;
+mod colors;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -24,6 +25,7 @@ use style::*;
 use parse::*;
 use suggestions::*;
 use editing::*;
+use colors::*;
 
 use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start, entry_follows, in_front_of_inline_entry};
 use super::super::completion::{

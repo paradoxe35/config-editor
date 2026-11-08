@@ -341,21 +341,35 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
     state.hide_shown_problem();
 }
 
-/// Hovering a key shows its schema docs after a short pause; hovering a
+/// The pointer left the text: the docs card and the problem tip close
+/// (each after its moment to reach it).
+pub(super) fn mouse_leave(state: EditorState) {
+    state.leave_hover();
+    if state.problems().hovered.with_untracked(Option::is_some) {
+        state.leave_problem();
+    }
+}
+
+/// Hovering a problem shows its tip (see `problem_hit`); hovering a key
+/// shows its schema docs after a short pause; hovering a
 /// read-only value says why it is read-only.
 pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    if !state.completion().suggestions.with_untracked(Vec::is_empty) {
-        state.hide_hover();
-        return;
-    }
     let (line, column) = pointer_text_position(
         &element,
         f64::from(event.client_x()),
         f64::from(event.client_y()),
     );
+    // Not while a button is held (a drag selecting text).
+    if event.buttons() == 0 {
+        state.point_at_problems(line, column);
+    }
+    if !state.completion().suggestions.with_untracked(Vec::is_empty) {
+        state.hide_hover();
+        return;
+    }
     let on_protected = state.hover_protected(line, column);
     if !state.config().settings.hover_docs.get_untracked() {
         return;
@@ -426,6 +440,14 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
         state.hide_hover();
         if from_touch(event) {
             super::a11y::show_at_caret(state);
+        } else {
+            // The pointer is still over the problems it clicked.
+            let (line, cell) = pointer_text_position(
+                &element,
+                f64::from(event.client_x()),
+                f64::from(event.client_y()),
+            );
+            state.point_at_problems(line, cell);
         }
     }
 }

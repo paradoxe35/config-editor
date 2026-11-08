@@ -1427,7 +1427,7 @@ fn a_dash_before_a_key_stays_plain_but_a_bare_item_dash_is_punctuation() {
 
 #[test]
 fn lines_matching_no_rule_stay_plain() {
-    for line in ["---", "key with spaces: x", "url:http", "plain text", "-x"] {
+    for line in ["url:http", "plain text", "-x", "  indented text", "{a: 1}"] {
         assert_eq!(highlighted(line), [run(None, line)], "{line:?}");
     }
     assert!(highlighted("").is_empty());

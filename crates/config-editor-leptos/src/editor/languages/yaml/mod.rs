@@ -11,6 +11,7 @@ mod parse;
 mod suggestions;
 mod hover;
 mod editing;
+mod colors;
 mod style;
 mod block_scalar;
 mod folded;
@@ -26,6 +27,7 @@ use parse::*;
 use suggestions::*;
 use hover::*;
 use editing::*;
+use colors::*;
 
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};

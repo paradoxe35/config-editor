@@ -168,14 +168,47 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
         }
         _ => None,
     };
-    for token in &tokens {
-        out.push(
-            indent + token.start,
-            indent + token.end,
-            token_kind(content, token, key_end),
-        );
+    let entries = entry_keys(content, &tokens);
+    for (index, token) in tokens.iter().enumerate() {
+        let kind = if entries.contains(&index) {
+            TokenKind::Key
+        } else {
+            token_kind(content, token, key_end)
+        };
+        out.push(indent + token.start, indent + token.end, kind);
     }
     out.finish()
+}
+
+/// The tokens naming an attribute or an object's entry: a name or string
+/// first on the line or after `{` or `,`, followed by `=` (not `==` or
+/// `=>`) or `:` (`tags = { Name = "web", "kebab-key" = 1 }`).
+fn entry_keys(content: &str, tokens: &[Token]) -> Vec<usize> {
+    let significant: Vec<usize> = (0..tokens.len())
+        .filter(|index| tokens[*index].kind != Kind::Comment)
+        .collect();
+    let kind = |at: Option<&usize>| at.map(|index| tokens[*index].kind);
+    significant
+        .iter()
+        .enumerate()
+        .filter(|(at, index)| {
+            let token = &tokens[**index];
+            let named = matches!(token.kind, Kind::Ident | Kind::Str { .. });
+            let opens = *at == 0
+                || matches!(
+                    kind(significant.get(at - 1)),
+                    Some(Kind::Punct('{' | ','))
+                );
+            let next = significant.get(at + 1).map(|next| &tokens[*next]);
+            let separated = next.is_some_and(|next| match next.kind {
+                Kind::Punct(':') => true,
+                Kind::Punct('=') => !content[next.end..].starts_with(['=', '>']),
+                _ => false,
+            });
+            named && opens && separated
+        })
+        .map(|(_, index)| *index)
+        .collect()
 }
 
 /// The `#`, `//` and `/* … */` comments (a heredoc's body is not read for

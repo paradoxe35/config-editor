@@ -38,6 +38,22 @@ pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
         })
 }
 
+/// The `x-docs-url` of the value at JSON `pointer` (its property's, or an
+/// item's), so a problem there links to its docs as the hover does.
+/// `repeats_arrays` as in [`schema_at_path`].
+pub(crate) fn docs_url_at(root: &Value, pointer: &str, repeats_arrays: bool) -> Option<String> {
+    let path: Vec<SchemaPathSegment> = crate::editor::language::pointer_segments(pointer)
+        .into_iter()
+        .map(|segment| match segment.parse::<usize>() {
+            Ok(index) => SchemaPathSegment::ArrayItem(index),
+            Err(_) => SchemaPathSegment::Key(segment),
+        })
+        .collect();
+    schema_at_path(root, &path, repeats_arrays)
+        .into_iter()
+        .find_map(|schema| docs_url(schema, root))
+}
+
 /// The documentation of one allowed value.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ValueDoc {

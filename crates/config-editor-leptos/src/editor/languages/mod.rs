@@ -70,6 +70,15 @@ mod fold_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod highlight_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod nested_tests;
 #[cfg(all(
     test,

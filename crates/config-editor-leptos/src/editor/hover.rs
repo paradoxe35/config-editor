@@ -9,6 +9,10 @@ use super::components::HoverCard;
 use super::positioning::hover_card_style;
 use super::state::EditorState;
 
+/// How many characters before the caret `Ctrl+K Ctrl+I` looks for the key
+/// of the value it is on.
+const LOOK_BACK: usize = 400;
+
 /// The hover part of the editor state.
 #[derive(Clone, Copy)]
 pub(super) struct HoverState {
@@ -76,16 +80,19 @@ impl EditorState {
             let (line, column) = (line - 1, column - 1);
             self.config().schema.with_value(|schema| {
                 // On the key, just past its end, or on the `<`
-                // before an XML start tag's name.
-                [
+                // before an XML start tag's name; else on a value, its
+                // field's: the nearest key before the caret on its line.
+                let near = [
                     Some(column),
                     column.checked_sub(1),
                     past_tag_open(text, line, column),
-                ]
-                .into_iter()
-                .flatten()
-                .find_map(|at| key_hover(text, line, at, schema.as_deref(), self.behavior()))
-                .map(|info| (line, info))
+                ];
+                let before = (0..column.saturating_sub(1)).rev().take(LOOK_BACK);
+                near.into_iter()
+                    .flatten()
+                    .chain(before)
+                    .find_map(|at| key_hover(text, line, at, schema.as_deref(), self.behavior()))
+                    .map(|info| (line, info))
             })
         });
         let Some((line, info)) = found else {

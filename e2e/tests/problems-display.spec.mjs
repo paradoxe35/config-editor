@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { editor } from './helpers.mjs';
+import { editor, pointerOn } from './helpers.mjs';
 
 // How problems are shown (v0.1 plan, A; QA 18 UX): a deprecated key struck
 // through, a host range over several lines, a range while editing as
@@ -166,7 +166,7 @@ test.describe('the npm package', () => {
     expect(said.join('\n')).toContain('restart needed');
     // Hovering the place shows both messages, the error first.
     await page.keyboard.press('Escape');
-    await page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)').first().hover();
+    await pointerOn(page, page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)').first());
     await expect(page.locator('.config-editor__problem-tip-message')).toHaveText(['Error port taken', 'Warning second on listen']);
     expect(errors).toEqual([]);
   });
@@ -193,7 +193,7 @@ test.describe('the npm package', () => {
     await setHost(page, [{ path: '/listen', message: 'a long message '.repeat(12) }]);
     await expect(markers(page)).toHaveCount(1);
     await page.locator('#editor').evaluate((element) => (element.style.width = '900px'));
-    await markers(page).hover();
+    await pointerOn(page, markers(page));
     await expect
       .poll(() => page.locator('.config-editor__problem-tip').evaluate((element) => element.getBoundingClientRect().width))
       .toBe(360);

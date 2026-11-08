@@ -226,68 +226,6 @@ fn continuation_column(line: &str, unit: &str) -> usize {
     }
 }
 
-pub(super) fn highlight(line: &str) -> Vec<Token> {
-    let mut tokens = Tokens::new();
-    let indent_len = line.len() - line.trim_start().len();
-    let content = &line[indent_len..];
-    if content.starts_with('#') {
-        tokens.push(indent_len, line.len(), TokenKind::Comment);
-        return tokens.finish();
-    }
-
-    let (dash_len, content) = content
-        .strip_prefix("- ")
-        .map_or((0, content), |content| (2, content));
-    let content_start = indent_len + dash_len;
-    if let Some((key, value)) = content.split_once(':')
-        && !key.is_empty()
-        && key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
-        && (value.is_empty() || value.starts_with(' ') || value.starts_with('\t'))
-    {
-        // The dash before a key stays plain; only a bare item dash is punctuation.
-        let key_end = content_start + key.len();
-        tokens.push(content_start, key_end, TokenKind::Key);
-        tokens.push(key_end, key_end + 1, TokenKind::Punctuation);
-        highlight_value(&mut tokens, key_end + 1, value);
-        return tokens.finish();
-    }
-
-    if dash_len > 0 {
-        tokens.push(indent_len, content_start, TokenKind::Punctuation);
-        highlight_value(&mut tokens, content_start, content);
-    }
-    tokens.finish()
-}
-
-/// Tokens for `value`, which starts at byte `offset` of the line.
-pub(super) fn highlight_value(tokens: &mut Tokens, offset: usize, value: &str) {
-    let scalar_start = offset + value.len() - value.trim_start().len();
-    // A flow collection: its entries, as on its lines after.
-    if value.trim_start().starts_with(['[', '{']) {
-        super::constructs::flow_tokens(value.trim_start(), scalar_start, tokens);
-        return;
-    }
-    let (scalar, comment) = split_yaml_comment(value.trim_start());
-    let scalar_end = scalar_start + scalar.len();
-    tokens.push(scalar_start, scalar_end, scalar_kind(scalar));
-    if let Some(comment) = comment {
-        tokens.push(scalar_end, scalar_end + comment.len(), TokenKind::Comment);
-    }
-}
-
-pub(super) fn scalar_kind(scalar: &str) -> TokenKind {
-    let scalar = scalar.trim_end();
-    if matches!(scalar, "true" | "false" | "null" | "~") || scalar.parse::<f64>().is_ok() {
-        TokenKind::Literal
-    } else if scalar.starts_with('\'') || scalar.starts_with('"') {
-        TokenKind::String
-    } else {
-        TokenKind::Value
-    }
-}
-
 pub(super) fn split_yaml_comment(value: &str) -> (&str, Option<&str>) {
     let characters: Vec<_> = value.char_indices().collect();
     let mut quote = None;

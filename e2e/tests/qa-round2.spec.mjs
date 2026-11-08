@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { editor, setupEditor } from './helpers.mjs';
+import { editor, pointerOn, setupEditor } from './helpers.mjs';
 
 // Regressions found by the second hands-on QA round, replayed with real keys.
 
@@ -224,7 +224,7 @@ test.describe('tooltips on a phone', () => {
     await e.paste('heartbeat: {interval_secs: 99999}\n');
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveCount(1);
-    await marker.hover();
+    await pointerOn(page, marker);
     const tip = page.locator('.config-editor__problem-tip');
     await expect(tip).toBeVisible();
     const overflow = await tip.evaluate(

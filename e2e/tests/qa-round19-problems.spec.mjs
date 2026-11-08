@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { editor, pointAt, setupEditor } from './helpers.mjs';
+import { editor, pointAt, pointerOn, setupEditor } from './helpers.mjs';
 
 // QA round 19, problem display, hover and keyboard access: multi-line host
 // ranges counted line by line in the underline cap, several problems at one
@@ -72,7 +72,7 @@ test.describe('problems at scale and at one place', () => {
       'data-message',
       'port in use',
     );
-    await page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)').hover();
+    await pointerOn(page, page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)'));
     const entries = tip(page).locator('.config-editor__problem-tip-entry');
     await expect(entries).toHaveCount(4);
     await expect(entries.nth(0)).toHaveClass(/--error/);
@@ -107,7 +107,7 @@ test.describe('problems at scale and at one place', () => {
       { range: { startLine: last + 1, startColumn: 1, endColumn: 3 }, severity: 'error', message: 'the error' },
     ]);
     await expect(markers(page)).toHaveCount(12);
-    await page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)').hover();
+    await pointerOn(page, page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)'));
     await expect(tip(page)).toBeVisible();
     const placed = await tip(page).evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -154,7 +154,7 @@ test.describe('problems at scale and at one place', () => {
     }));
     await setHost(page, list);
     await expect(footer(page)).toHaveText(/^210 warnings/);
-    await markers(page).first().hover();
+    await pointerOn(page, markers(page).first());
     await expect(tip(page).locator('.config-editor__problem-tip-entry')).toHaveCount(10);
     expect(errors).toEqual([]);
   });

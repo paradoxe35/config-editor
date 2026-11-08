@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { editor, pointAt, setupEditor } from './helpers.mjs';
+import { editor, pointAt, pointerOn, setupEditor } from './helpers.mjs';
 
 setupEditor(test);
 
@@ -322,7 +322,7 @@ test.describe('diagnostics follow edits', () => {
     await e.paste(`listen: 1\n${'x'.repeat(70)}_unknown: 2\n`);
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveCount(1);
-    await marker.hover();
+    await pointerOn(page, marker);
     const tip = page.locator('.config-editor__problem-tip');
     await expect(tip).toBeVisible();
     const overflow = await tip.evaluate((element) => {

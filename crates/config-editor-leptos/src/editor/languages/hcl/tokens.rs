@@ -83,9 +83,10 @@ pub(super) fn scan_token(source: &str, index: usize) -> (usize, Kind, bool) {
     if rest.starts_with("${") || rest.starts_with("%{") {
         return (template_end(source, index), Kind::Template, false);
     }
-    if character.is_ascii_alphabetic() || character == '_' {
+    // HCL's names are Unicode letters and digits, `_` and `-`.
+    if character.is_alphabetic() || character == '_' {
         let end = run_end(source, index, |next| {
-            next.is_ascii_alphanumeric() || matches!(next, '_' | '-')
+            next.is_alphanumeric() || matches!(next, '_' | '-')
         });
         return (end, Kind::Ident, false);
     }

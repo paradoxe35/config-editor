@@ -3,7 +3,7 @@ import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pointAt } from './helpers.mjs';
+import { pointAt, pointerOn } from './helpers.mjs';
 
 // The editor under a strict Content-Security-Policy, as a host's admin UI
 // serves it: no inline styles or scripts (`style-src 'self'`), the wasm
@@ -144,7 +144,7 @@ async function exerciseEditor(page) {
   await page.keyboard.type(' nope');
   const marker = page.locator('.config-editor__diagnostic-marker').first();
   await expect(marker).toBeVisible();
-  await marker.hover();
+  await pointerOn(page, marker);
   await expect(page.locator('.config-editor__problem-tip')).toBeVisible();
   await page.mouse.move(0, 0);
   // Hover docs on a key.

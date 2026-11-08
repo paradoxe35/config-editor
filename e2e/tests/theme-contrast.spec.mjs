@@ -3,8 +3,9 @@ import { setupEditor } from './helpers.mjs';
 
 // Every built-in theme keeps its text readable: the theme's own variables,
 // read off the editor in each theme, measured with the WCAG contrast ratio.
-// Text in the code is held to 4.5:1, the editor's own interface text (line
-// numbers, labels, chips, icons) to 3:1, and a disabled control looks
+// Text in the code, the line numbers and the selected suggestion's type are
+// held to 4.5:1 (QA 21: they were 3.4 to 4.4 in some themes), the editor's
+// own other interface text (labels, chips, icons) to 3:1, and a disabled control looks
 // disabled (clearly dimmer than when enabled) while staying readable.
 //
 // Each pair is [what, foreground, background (bottom layer first)]; a
@@ -19,7 +20,7 @@ const PAIRS = [
     ['bg'],
   ]),
   ['read-only value', CODE, 'locked', ['bg']],
-  ['line number', UI, 'line-number', ['bg']],
+  ['line number', CODE, 'line-number', ['bg']],
   ['fold toggle', UI, 'fold-toggle', ['bg']],
   ['fold chip', UI, 'fold-chip-text', ['bg', 'fold-chip']],
   ['muted on panel (footer, tabs)', UI, 'muted', ['panel']],
@@ -31,6 +32,7 @@ const PAIRS = [
   ['completion type', UI, 'completion-type', ['raised']],
   ['completion detail', UI, 'completion-detail', ['raised']],
   ['completion key, selected', CODE, 'completion-key', ['raised', 'completion-active']],
+  ['completion type, selected', CODE, 'completion-type-active', ['raised', 'completion-active']],
   ['matched letters, selected row', UI, 'completion-match-active', ['raised', 'completion-active']],
   ['matched letters', UI, 'accent', ['raised']],
   ['control text', CODE, 'control-text', ['control-bg']],

@@ -87,64 +87,6 @@ pub(super) fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
 }
 
 
-pub(super) fn highlight(line: &str) -> Vec<Token> {
-    let mut tokens = Tokens::new();
-    let code_start = line.len() - line.trim_start().len();
-    let (code, comment) = split_toml_comment(&line[code_start..]);
-    let comment_start = code_start + code.len();
-    let push_comment = |tokens: &mut Tokens| {
-        if let Some(comment) = comment {
-            tokens.push(comment_start, comment_start + comment.len(), TokenKind::Comment);
-        }
-    };
-    if code.trim().is_empty() {
-        push_comment(&mut tokens);
-    } else if code.starts_with('[') {
-        let header_len = code.trim_end().len();
-        tokens.push(code_start, code_start + header_len, TokenKind::Punctuation);
-        push_comment(&mut tokens);
-    } else if let Some((_, start, end)) = key_assignment(code)
-        && let Some(equals) = code[end..].find('=').map(|index| end + index)
-    {
-        let after_equals = &code[equals + 1..];
-        let gap_len = after_equals.len() - after_equals.trim_start_matches([' ', '\t']).len();
-        let scalar_start = equals + 1 + gap_len;
-        tokens.push(code_start + start, code_start + end, TokenKind::Key);
-        // An array or inline table: its elements, as on its lines after.
-        if code[scalar_start..].starts_with(['[', '{']) {
-            let value_start = code_start + scalar_start;
-            super::constructs::value_tokens(&line[value_start..], value_start, &mut tokens);
-            return tokens.finish();
-        }
-        // Includes any whitespace before the comment.
-        let (scalar, trailing) = split_toml_comment(&code[scalar_start..]);
-        let scalar_end = scalar_start + scalar.len();
-        tokens.push(code_start + scalar_start, code_start + scalar_end, scalar_kind(scalar));
-        if let Some(trailing) = trailing {
-            tokens.push(
-                code_start + scalar_end,
-                code_start + scalar_end + trailing.len(),
-                TokenKind::Comment,
-            );
-        }
-        push_comment(&mut tokens);
-    }
-    tokens.finish()
-}
-
-pub(super) fn scalar_kind(scalar: &str) -> TokenKind {
-    let scalar = scalar.trim();
-    if scalar.is_empty() {
-        TokenKind::Value
-    } else if matches!(scalar, "true" | "false") || scalar.parse::<f64>().is_ok() {
-        TokenKind::Literal
-    } else if scalar.starts_with(['"', '\'', '{', '[']) {
-        TokenKind::String
-    } else {
-        TokenKind::Value
-    }
-}
-
 /// Lines inside multi-line strings' bodies: between a line that leaves a
 /// triple-quoted string open and the line that closes it.
 pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usize>> {

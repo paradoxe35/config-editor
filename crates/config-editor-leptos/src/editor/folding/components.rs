@@ -26,8 +26,8 @@ pub(crate) struct FoldItem {
     closed_end: Option<usize>,
     /// Closed and hiding changed lines.
     hidden_change: bool,
-    /// Closed and hiding problems: the most serious of them.
-    hidden_problem: Option<Severity>,
+    /// Closed and hiding problems: the most serious of them, and how many.
+    hidden_problem: Option<(Severity, usize)>,
     /// Where the chip goes: the line's width in rendered columns, in
     /// hundredths (kept whole so the item can be a key).
     chip_column: usize,
@@ -88,18 +88,20 @@ fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) 
 }
 
 /// The most serious problem starting on a line the fold `line..=end`
-/// hides (zero-based lines), shown on its chip as VS Code does.
-fn hidden_problem(state: EditorState, line: usize, end: usize) -> Option<Severity> {
+/// hides (zero-based lines), shown on its chip as VS Code does, and how
+/// many start there.
+fn hidden_problem(state: EditorState, line: usize, end: usize) -> Option<(Severity, usize)> {
     state.problems().diagnostics.with(|problems| {
-        problems
-            .iter()
-            .filter(|problem| {
-                problem
-                    .line
-                    .is_some_and(|at| (line + 2..=end + 1).contains(&at))
-            })
+        let hidden = problems.iter().filter(|problem| {
+            problem
+                .line
+                .is_some_and(|at| (line + 2..=end + 1).contains(&at))
+        });
+        let worst = hidden
+            .clone()
             .map(|problem| problem.severity)
-            .min_by_key(|severity| *severity as u8)
+            .min_by_key(|severity| *severity as u8)?;
+        Some((worst, hidden.count()))
     })
 }
 
@@ -205,10 +207,12 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
 #[component]
 fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     let line = item.line;
-    let hidden = item.hidden_problem;
+    let hidden_problem = item.hidden_problem;
+    let hidden = hidden_problem.map(|(severity, _)| severity);
     let closed_end = item.closed_end.unwrap_or(line);
     let strings = state.strings_signal();
-    let label = move || strings.with(|strings| chip_label(strings, line, closed_end, hidden));
+    let label =
+        move || strings.with(|strings| chip_label(strings, line, closed_end, hidden_problem));
     let open = move |_: web_sys::MouseEvent| {
         state.unfold_line(line);
     };

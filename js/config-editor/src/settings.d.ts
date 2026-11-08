@@ -688,11 +688,17 @@ export interface EditorStrings {
    */
   foldedChanges?: string;
   /**
-   * After a closed fold's chip label when it hides problems; `{severity}` names the most serious of them.
+   * After a closed fold's chip label when it hides one problem; `{severity}` names it.
    *
    * @default "hides a problem: {severity}"
    */
-  foldedProblem?: string;
+  foldedProblemOne?: string;
+  /**
+   * After a closed fold's chip label when it hides `{count}` problems; `{severity}` names the most serious of them.
+   *
+   * @default "hides {count} problems, the most serious: {severity}"
+   */
+  foldedProblemOther?: string;
   /**
    * The hover card's mark of a required key.
    *
@@ -1117,6 +1123,7 @@ export type ThemeColorToken =
   | "completion-active"
   | "completion-key"
   | "completion-type"
+  | "completion-type-active"
   | "completion-detail"
   | "completion-icon-border"
   | "completion-icon-text"

@@ -35,15 +35,19 @@ pub(crate) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
 /// marks drawn over the character before them (`e` + U+0301 is one `é`)
 /// taking no column.
 pub(crate) fn visual_column(text: &str) -> f64 {
-    let mut column = 0.0;
-    for character in text.chars() {
-        if character == '\t' {
-            column += COMPLETION_TAB_STOP_WIDTH - (column % COMPLETION_TAB_STOP_WIDTH);
-        } else if !zero_width(character) {
-            column += 1.0;
-        }
+    text.chars().fold(0.0, advance)
+}
+
+/// The rendered column after `character` drawn at `column` (see
+/// `visual_column`).
+pub(crate) fn advance(column: f64, character: char) -> f64 {
+    if character == '\t' {
+        column + COMPLETION_TAB_STOP_WIDTH - (column % COMPLETION_TAB_STOP_WIDTH)
+    } else if zero_width(character) {
+        column
+    } else {
+        column + 1.0
     }
-    column
 }
 
 /// Whether `character` is drawn without a width of its own: a combining
