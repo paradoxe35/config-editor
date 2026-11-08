@@ -3,6 +3,7 @@
 
 mod accept;
 mod candidates;
+mod choices;
 mod docs;
 mod hover;
 mod live;
@@ -14,6 +15,7 @@ mod stops;
 
 pub(crate) use accept::*;
 pub(crate) use candidates::*;
+pub(crate) use choices::*;
 pub(crate) use docs::*;
 pub(crate) use hover::*;
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
