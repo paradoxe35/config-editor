@@ -50,8 +50,13 @@ pub(super) fn between_tokens(behavior: &dyn ConfigLanguage, old: &str, new: &str
             && at_old > 0
             && next_old < old_chars.len()
             && (old_chars[at_old - 1] == '>') != (old_chars[next_old] == '<');
+        // Nor may a tag's name move off its `<` or `</`.
+        let opens_tag = markup
+            && at_old > 0
+            && (old_chars[at_old - 1] == '<'
+                || (old_chars[at_old - 1] == '/' && at_old > 1 && old_chars[at_old - 2] == '<'));
         if run_old != run_new
-            && (in_text || !free(behavior, &tokens, previous, next, run_old, run_new))
+            && (in_text || opens_tag || !free(behavior, &tokens, previous, next, run_old, run_new))
         {
             return false;
         }
