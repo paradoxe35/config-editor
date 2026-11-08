@@ -1601,3 +1601,40 @@ fn enter_inside_a_yaml_scalar_continues_it() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// QA 23: a leading byte order mark was a syntax error at 1:1 in JSON and
+/// HCL (YAML, TOML and XML read past it). Every language reads the
+/// document after it, and an error on its line is placed where it is.
+#[test]
+fn a_leading_byte_order_mark_is_no_part_of_the_document() {
+    let mut failures = Vec::new();
+    for (language, text, broken) in [
+        (Language::JSON, "{\"a\": 1}\n", "{\"a\": }\n"),
+        (Language::HCL, "a = 1\n", "a = \n"),
+        (Language::YAML, "a: 1\n", "a: [\n"),
+        (Language::TOML, "a = 1\n", "a = \n"),
+        (Language::XML, "<a>1</a>\n", "<a>1</b>\n"),
+    ] {
+        let marked = format!("\u{FEFF}{text}");
+        if language.parse(&marked).ok() != language.parse(text).ok()
+            || language.parse(text).is_err()
+        {
+            failures.push(format!("{language}: {:?}", language.parse(&marked)));
+        }
+        let plain = language
+            .parse(broken)
+            .err()
+            .map(|error| (error.line, error.column));
+        let with_mark = language
+            .parse(&format!("\u{FEFF}{broken}"))
+            .err()
+            .map(|error| {
+                let on_its_line = usize::from(error.line == Some(1));
+                (error.line, error.column.map(|column| column - on_its_line))
+            });
+        if language != Language::XML && (plain.is_none() || plain != with_mark) {
+            failures.push(format!("{language} error: {plain:?} vs {with_mark:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

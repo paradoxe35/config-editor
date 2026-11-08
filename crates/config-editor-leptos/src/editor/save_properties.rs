@@ -680,16 +680,25 @@ pub(super) fn comment_pairs(host: Language, text: &str) -> Vec<(&'static str, St
         (0..lines.len())
             .filter(|index| comment(lines[*index]))
             .filter_map(|index| {
-                let next = lines[index + 1..].iter().find(|line| !comment(line))?;
+                let at = index + 1 + lines[index + 1..].iter().position(|line| !comment(line))?;
+                let next = lines[at];
                 if next.trim().is_empty() || indent(next) != indent(lines[index]) {
                     return None;
                 }
-                let code = next.find(marker).map_or(*next, |at| &next[..at]);
-                Some((
-                    "above",
-                    code.trim().trim_end_matches(',').to_string(),
-                    lines[index].trim().to_string(),
-                ))
+                let code = |line: &str| {
+                    let code = line.find(marker).map_or(line, |at| &line[..at]);
+                    code.trim().trim_end_matches(',').to_string()
+                };
+                // A repeated header (`[[s]]`, `s {`) tells no item apart:
+                // with the line after it.
+                let mut item = code(next);
+                if (item.starts_with("[[") || item.ends_with('{'))
+                    && lines.iter().filter(|line| code(line) == item).count() > 1
+                    && let Some(after) = lines.get(at + 1)
+                {
+                    item = format!("{item} {}", code(after));
+                }
+                Some(("above", item, lines[index].trim().to_string()))
             }),
     );
     pairs

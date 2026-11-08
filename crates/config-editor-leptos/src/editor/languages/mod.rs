@@ -158,6 +158,9 @@ mod escapes;
 // `key   = value` aligned as formatters write it, compared as `key = value`.
 #[cfg(any(feature = "toml", feature = "hcl"))]
 mod aligned;
+// Integers past 64 bits a parser reads as floats: a syntax error.
+#[cfg(any(feature = "json", feature = "hcl"))]
+mod wide_integers;
 
 macro_rules! registry {
     ($($(#[doc = $doc:literal])* $feature:literal => $constant:ident => $module:ident::$implementation:ident,)+) => {

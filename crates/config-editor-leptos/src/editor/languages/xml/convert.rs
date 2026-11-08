@@ -98,7 +98,7 @@ pub(super) fn attribute_paths(source: &str) -> AttributePaths {
         for inner in tokenize_tag_inside(source, token) {
             if matches!(inner.kind, Kind::Text { quoted: false }) && is_attr_name(source, token, inner) {
                 let mut attribute = keys.clone();
-                attribute.push(source[inner.start..inner.end].to_string());
+                attribute.push(plan.attribute_key(token.start, &source[inner.start..inner.end]));
                 found.insert(attribute);
                 any = true;
             }
@@ -131,7 +131,10 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
             for (key, child) in map {
                 path.push(key.clone());
                 let scalar = matches!(child, Value::String(_) | Value::Number(_) | Value::Bool(_));
-                if scalar && (attributes_only || attributes.contains(path.as_slice())) {
+                // An attribute keyed `@name` (a child element has its name).
+                if scalar && key.starts_with('@') {
+                    attrs.insert(key.clone(), child.clone());
+                } else if scalar && (attributes_only || attributes.contains(path.as_slice())) {
                     attrs.insert(format!("@{key}"), child.clone());
                 } else {
                     children.insert(key.clone(), with_attributes(child, attributes, path));

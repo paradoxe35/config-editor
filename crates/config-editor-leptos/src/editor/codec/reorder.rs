@@ -118,13 +118,13 @@ fn line_items(
         if !alone && (own || !in_own_element(language, before_value, after_code)) {
             return None;
         }
-        // Own-line comments right above it go with it, but a file's header
-        // comment (nothing but comments above it) stays.
+        // Own-line comments right above it go with it, at the file's top
+        // too: a file's header is the comments a blank line ends.
         let mut top = line;
         while top > 0 && comment_only(language, lines[top - 1]) {
             top -= 1;
         }
-        slots.push((if top == 0 { line } else { top }, line, last));
+        slots.push((top, line, last));
     }
     Some(slots)
 }
@@ -249,21 +249,33 @@ fn block_items(
     lines: &[&str],
     pointer: &str,
 ) -> Option<Vec<(usize, usize, usize)>> {
-    if !language.indent_is_structure() || pointer.is_empty() {
+    if !language.indent_is_structure() {
         return None;
     }
-    let key = language.key_span(previous, pointer)?;
-    let key_line = key.line.checked_sub(1)?;
-    let key_indent = indent_of(lines.get(key_line)?);
     let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
-    // The key's line ends at its `:`: the list starts on a line of its own.
-    let opener = code(lines[key_line]);
-    if !opener.ends_with(':') {
-        return None;
-    }
+    // Where the list starts: after its key's line, which ends at its `:`;
+    // the document's own list after the document's start (`---`, a
+    // directive) when it has one.
+    let (mut at, key_indent) = if pointer.is_empty() {
+        let start = lines
+            .iter()
+            .position(|line| {
+                let code = code(line);
+                !code.trim().is_empty() && !code.starts_with('%') && code.trim() != "---"
+            })
+            .unwrap_or(lines.len());
+        (start, 0)
+    } else {
+        let key = language.key_span(previous, pointer)?;
+        let key_line = key.line.checked_sub(1)?;
+        let key_indent = indent_of(lines.get(key_line)?);
+        if !code(lines[key_line]).ends_with(':') {
+            return None;
+        }
+        (key_line + 1, key_indent)
+    };
     let mut items: Vec<(usize, usize, usize)> = Vec::new();
     let mut dash: Option<usize> = None;
-    let mut at = key_line + 1;
     while at < lines.len() {
         let line = lines[at];
         if line.trim().is_empty() || comment_only(language, line) {

@@ -6,15 +6,20 @@ use super::*;
 /// `${ ... }`-style source text; a heredoc without them reads as its text,
 /// as a quoted string does (`$${x}` is `${x}`).
 pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
+    // A leading byte order mark is no part of the document (as YAML, TOML
+    // and XML read it); columns on its line count it.
+    let bom = usize::from(source.starts_with('\u{FEFF}'));
+    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
     let read = || -> Result<Value, hcl::Error> {
-        hcl::from_body(super::heredoc::parse_body(source)?)
+        hcl::from_body(super::heredoc::parse_body(text)?)
     };
     let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
             hcl::Error::Parse(parse) => {
                 let location = parse.location();
-                (location.line(), location.column())
+                let bom = if location.line() == 1 { bom } else { 0 };
+                (location.line(), location.column() + bom)
             }
             _ => (1, 1),
         };
@@ -25,13 +30,26 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             column: Some(column.max(1)),
         }
     })?;
-    match shadowed_name(source) {
-        Some((offset, message)) => {
-            let (line, column) = line_column(source, offset);
-            Err(ParseError { message, line: Some(line), column: Some(column) })
-        }
-        None => Ok(value),
+    if let Some((offset, message)) = shadowed_name(source) {
+        let (line, column) = line_column(source, offset);
+        return Err(ParseError { message, line: Some(line), column: Some(column) });
     }
+    let written = |pointer: &str| written_at(source, hcl_value_span(source, pointer)?);
+    if let Some((pointer, text)) = super::super::wide_integers::first_past_64_bits(&value, &written) {
+        let span = hcl_value_span(source, &pointer);
+        return Err(ParseError {
+            message: super::super::wide_integers::message(&text),
+            line: span.map(|span| span.0),
+            column: span.map(|span| span.1),
+        });
+    }
+    Ok(value)
+}
+
+/// The text a span (line, first and end character columns) covers.
+pub(super) fn written_at(source: &str, (line, start, end): (usize, usize, usize)) -> Option<String> {
+    let text = source.lines().nth(line.checked_sub(1)?)?;
+    Some(text.chars().skip(start.saturating_sub(1)).take(end.saturating_sub(start)).collect())
 }
 
 /// A name one body writes in two forms the parser cannot both keep (an

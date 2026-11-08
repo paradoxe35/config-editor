@@ -186,7 +186,7 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
                             && !is_partial
                         {
                             scan.key_spans.push((
-                                attribute_key(path, &source[inner.start..inner.end]),
+                                attribute_key(path, &plan.attribute_key(token.start, &source[inner.start..inner.end])),
                                 inner.start,
                                 inner.end,
                             ));
@@ -277,7 +277,8 @@ pub(super) fn name_len(source: &str, tag: &Token) -> usize {
         .map_or(full.len(), |colon| full.len() - colon - 1)
 }
 
-/// Attributes are ordinary properties of their element.
+/// Attributes are ordinary properties of their element (`name` is the
+/// attribute's key, [`PathPlan::attribute_key`]).
 pub(super) fn attribute_key(path: &[Seg], name: &str) -> Vec<String> {
     let mut key = strings(path);
     key.push(name.to_string());
@@ -405,7 +406,7 @@ pub(super) fn record_attribute_values(source: &str, tokens: &[Token], plan: &Pat
                 .filter(|next| matches!(next.kind, Kind::Text { .. }));
             if let Some(value_token) = value_token {
                 scan.value_spans.push((
-                    attribute_key(&element_path, &name),
+                    attribute_key(&element_path, &plan.attribute_key(token.start, &name)),
                     value_token.start,
                     value_token.end,
                 ));

@@ -13,6 +13,7 @@ use super::language::ConfigLanguage;
 use std::sync::Arc;
 
 mod emptied_quotes;
+mod host_strings;
 mod merge;
 mod text_scalars;
 mod typed_spellings;
@@ -205,6 +206,20 @@ impl Bridge {
             && target.pointer(&pointer) != value.pointer(&pointer)
         {
             return Err(SaveError::NoNonFinite { pointer });
+        }
+        // So is a string a host that writes scalars as text reads back as
+        // another value (XML `<s>true</s>` is the boolean).
+        if host.scalars_are_text()
+            && let Some((pointer, read)) = host_strings::first_read_otherwise(&value, &target)
+        {
+            let string = value.pointer(&pointer).and_then(|value| value.as_str());
+            return Err(ConvertError::Unsupported(host_strings::reason(
+                self.host.label(),
+                string.unwrap_or_default(),
+                &read,
+                &pointer,
+            ))
+            .into());
         }
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.

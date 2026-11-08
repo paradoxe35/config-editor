@@ -15,6 +15,7 @@ mod colors;
 mod style;
 mod block_scalar;
 mod folded;
+mod newlines;
 mod plain;
 mod constructs;
 mod enter;
@@ -95,6 +96,25 @@ impl ConfigLanguage for YamlBehavior {
         if !has_content {
             return Ok(Value::Object(serde_json::Map::new()));
         }
+        // A `---` (at column 0) with nothing after it but comments ends the
+        // document before it: an empty document, not a second one.
+        let code_lines: Vec<(usize, &str, &str)> = source
+            .split_inclusive('\n')
+            .scan(0, |at, line| {
+                let start = *at;
+                *at += line.len();
+                Some((start, line, code_before_comment(line).trim()))
+            })
+            .filter(|(_, _, code)| !code.is_empty())
+            .collect();
+        let source = match code_lines.split_last() {
+            Some((&(start, line, "---"), before))
+                if line.starts_with("---") && before.iter().any(|(_, _, code)| *code != "---") =>
+            {
+                &source[..start]
+            }
+            _ => source,
+        };
         yaml_parse(source).map(with_merge_keys).map_err(|mut error| {
             // A second document has no line from the parser: mark its `---`.
             if error.line.is_none()
@@ -263,8 +283,15 @@ impl ConfigLanguage for YamlBehavior {
 
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::non_finite::Floats;
+        // Strings of line breaks only are written `"\n"` (see `newlines`).
+        let marked = newlines::marked(value);
+        let (value, markers) = match &marked {
+            Some((marked, markers)) => (marked, markers.as_slice()),
+            None => (value, &[][..]),
+        };
         noyalib::to_string(&Floats(value))
             .map(|text| plain::quote_typed_plain(&text, value))
+            .map(|text| newlines::written(text, markers))
             .map(|text| match previous {
                 // Nested sequences written compact, as the host writes them.
                 Some(previous) if style::writes_compact_sequences(previous) => style::compact_sequences(&text),

@@ -536,6 +536,15 @@ mod save_moves_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_newline_strings_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_properties;
 #[cfg(all(
     test,
@@ -582,6 +591,24 @@ mod save_tests;
     feature = "xml"
 ))]
 mod save_typed_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_names_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_strings_tests;
 #[cfg(all(
     test,
     feature = "yaml",

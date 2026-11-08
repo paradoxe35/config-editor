@@ -62,6 +62,41 @@ fn moving_hosts() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "l:\n  # about a\n  - alpha\n  # about b\n  - beta # tb\n  - gamma\n",
         ),
+        // Round 23: lists that start the document, the first item's
+        // comment on its first line (or after `---`), and with a file
+        // header a blank line ends.
+        (
+            Language::YAML,
+            "# about web\n- hosts: web\n  become: true\n\n# about app\n- hosts: app\n  serial: 2\n- hosts: db\n  serial: 3\n",
+        ),
+        (
+            Language::YAML,
+            "# playbook\n\n# about web\n- hosts: web\n  become: true\n# about app\n- hosts: app\n  serial: 2\n- hosts: db\n",
+        ),
+        (
+            Language::YAML,
+            "---\n# about a\n- alpha\n# about b\n- beta # tb\n- gamma\n",
+        ),
+        (
+            Language::YAML,
+            "# about a\n- alpha\n# about b\n- beta\n- gamma\n",
+        ),
+        (
+            Language::TOML,
+            "# about a\n[[s]]\nname = \"a\"\np = 1\n\n# about b\n[[s]]\nname = \"b\"\np = 2\n\n[[s]]\nname = \"c\"\np = 3\n",
+        ),
+        (
+            Language::TOML,
+            "# head\n\n# about a\n[[s]]\nname = \"a\"\np = 1\n\n# about b\n[[s]]\nname = \"b\"\np = 2\n\n[[s]]\nname = \"c\"\np = 3\n",
+        ),
+        (
+            Language::HCL,
+            "# about a\ns {\n  name = \"a\"\n  p    = 1\n}\n\n# about b\ns {\n  name = \"b\"\n  p    = 2\n}\n\ns {\n  name = \"c\"\n  p    = 3\n}\n",
+        ),
+        (
+            Language::HCL,
+            "# head\n\n# about a\ns {\n  name = \"a\"\n  p    = 1\n}\n\n# about b\ns {\n  name = \"b\"\n  p    = 2\n}\n\ns {\n  name = \"c\"\n  p    = 3\n}\n",
+        ),
     ]
 }
 

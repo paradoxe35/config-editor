@@ -371,3 +371,66 @@ fn an_overflowing_yaml_float_is_an_infinity() {
     assert!(Language::TOML.parse("a = 1e400\n").is_err());
     assert!(Language::JSON.parse("{\"a\": 1e400}").is_err());
 }
+
+/// M23-E3: an integer past 64 bits is a syntax error in every language
+/// with integers, JSON too (it read it as a float, silently not the number
+/// written), on the number's line; 64-bit ones are exact. XML text holds
+/// it as text.
+#[test]
+fn an_integer_past_64_bits_is_a_syntax_error_in_every_language() {
+    let mut failures = Vec::new();
+    for (language, past, line, at_edge) in [
+        (
+            Language::JSON,
+            "{\n  \"n\": 1,\n  \"id\": 18446744073709551616\n}\n",
+            3,
+            "{\"id\": 18446744073709551615, \"low\": -9223372036854775808}",
+        ),
+        (
+            Language::JSON,
+            "[\"18446744073709551616\",\n -9223372036854775809]",
+            2,
+            "[\"x\\\"18446744073709551616\", 1e30, 1.5, 18446744073709551616.0]",
+        ),
+        (
+            Language::YAML,
+            "n: 1\nid: 18446744073709551616\n",
+            2,
+            "id: 9223372036854775807\n",
+        ),
+        (
+            Language::TOML,
+            "n = 1\nid = 18446744073709551616\n",
+            2,
+            "id = 9223372036854775807\n",
+        ),
+        (
+            Language::HCL,
+            "n = 1\nid = 18446744073709551616\n",
+            2,
+            "id = 9223372036854775807\n",
+        ),
+    ] {
+        match language.parse(past) {
+            Err(error) if language != Language::JSON || error.line == Some(line) => {}
+            other => failures.push(format!("{language} {past:?}: {other:?}")),
+        }
+        if let Err(error) = language.parse(at_edge) {
+            failures.push(format!("{language} {at_edge:?}: {error:?}"));
+        }
+    }
+    assert_eq!(
+        Language::JSON
+            .parse("{\"id\": 18446744073709551615}")
+            .unwrap()["id"]
+            .as_u64(),
+        Some(u64::MAX)
+    );
+    assert_eq!(
+        Language::XML
+            .parse("<id>18446744073709551616</id>")
+            .unwrap()["id"],
+        Value::String("18446744073709551616".into())
+    );
+    assert!(failures.is_empty(), "{failures:#?}");
+}

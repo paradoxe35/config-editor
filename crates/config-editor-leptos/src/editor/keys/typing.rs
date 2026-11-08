@@ -66,8 +66,11 @@ pub(super) fn toggle_comments(state: EditorState, event: &KeyboardEvent) -> bool
 /// With auto-closing on: typing over closers, deleting an inserted pair,
 /// re-indenting a closing line, what the language closes as it is typed, and opening pairs.
 pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool {
-    if !unmodified(event) || caret_in_string_body(state) {
+    if !unmodified(event) {
         return false;
+    }
+    if caret_in_string_body(state) {
+        return string_body_pairs(state, event);
     }
     let Some(element) = state.textarea() else {
         return false;
@@ -90,6 +93,27 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
     match typed {
         Some(opening) => open_pair(state, event, (start, end), opening),
         None => false,
+    }
+}
+
+/// Inside a multi-line string's body (a heredoc, a block scalar) no
+/// bracket or quote pairs, but what the language closes there does (HCL's
+/// `${` in a heredoc writes `}`), typed over and deleted with its opener.
+fn string_body_pairs(state: EditorState, event: &KeyboardEvent) -> bool {
+    let Some(element) = state.textarea() else {
+        return false;
+    };
+    let (start, end) = textarea_selection(&element);
+    if start != end {
+        return false;
+    }
+    let ours = state.closer_at(start).is_some();
+    match typed_character(event) {
+        Some(typed) => {
+            (ours && type_over_closer(state, event, start, typed))
+                || auto_close(state, event, start, typed)
+        }
+        None => ours && event.key() == "Backspace" && delete_pair(state, event, start),
     }
 }
 

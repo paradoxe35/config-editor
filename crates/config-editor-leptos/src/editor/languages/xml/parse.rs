@@ -337,7 +337,16 @@ pub(super) fn finalize(open: OpenElement) -> Value {
     if open.children.is_empty() && open.attrs.is_empty() && (!text.is_empty() || open.cdata) {
         return typed_scalar(&text);
     }
-    let mut map = open.attrs;
+    // An attribute a child element shares its name with is `@name`: the
+    // two stay apart, as the serializer writes them.
+    let mut map: Map<String, Value> = open
+        .attrs
+        .into_iter()
+        .map(|(name, value)| match open.children.contains_key(&name) {
+            true => (format!("@{name}"), value),
+            false => (name, value),
+        })
+        .collect();
     for (name, value) in open.children {
         insert_child(&mut map, name, value);
     }

@@ -231,7 +231,11 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   stays a float.
 - Items moved in a list, with others added or removed in the same save, take
   their comment lines along (scalars, one-line tables, YAML block items,
-  repeated XML elements over lines); where they cannot, the save waits.
+  repeated XML elements over lines); where they cannot, the save waits. The
+  comments right above a list's first item are the item's at the top of the
+  file too: a file's header is the comments a blank line ends. A list the
+  host writes as repeated elements, HCL blocks or TOML `[[tables]]`, emptied,
+  is removed with their comments.
 - YAML tags (`!Sub 'x-${y}'`, `!GetAtt [a, b]`, `!include`, `!secret`,
   `!reference [.a, b]`) are valid YAML: the data (what the schema validates
   and other languages show) is the value under the tag, a tagged scalar as
@@ -243,7 +247,10 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 - XML element text is the value exactly as an XML reader reports it, the
   whitespace and line breaks around it included (a number, boolean or `null`
   reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
-  and a YAML `|` block keeps its final line break through the XML view.
+  and a YAML `|` block keeps its final line break through the XML view. A
+  string an XML host would read back as another value (`"true"`, `"null"`,
+  `"12"`, or `""`, an empty element) is not saved there: the save waits with
+  the reason.
 - XML mixed content (text beside child elements, `<p>a <b>b</b> c</p>`) has
   no form in other languages: such a document is not shown in another
   language, and the switch waits with the reason on the element
@@ -1293,7 +1300,9 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 
 Child elements and attributes are object properties, element text is a typed
 scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
-an array. A top-level element marked `config-root="true"` is a transparent
+an array. An attribute sharing its name with a child element is the property
+`@name` (`<r a="1"><a>2</a></r>` is `{"r": {"@a": 1, "a": 2}}`), so the two
+stay apart. A top-level element marked `config-root="true"` is a transparent
 wrapper; without it, every top-level element is a document property.
 
 ## Custom languages

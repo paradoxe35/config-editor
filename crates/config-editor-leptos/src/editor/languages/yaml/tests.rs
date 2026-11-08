@@ -1596,6 +1596,23 @@ fn several_documents_say_so_in_plain_words_at_the_second() {
     }
 }
 
+/// QA 22 L10: a `---` closing the text (comments after it at most) is an
+/// empty document's start, not a second document; text after it, or an
+/// indented `---` in a block scalar, stays as it reads.
+#[test]
+fn a_trailing_document_marker_is_no_second_document() {
+    use serde_json::json;
+    for (text, value) in [
+        ("a: 1\n---\n", json!({"a": 1})),
+        ("a: 1\n---\n# end\n\n", json!({"a": 1})),
+        ("---\na: 1\n---\n", json!({"a": 1})),
+        ("a: |\n  x\n  ---\n", json!({"a": "x\n---\n"})),
+    ] {
+        assert_eq!(YamlBehavior.parse(text).ok(), Some(value), "{text:?}");
+    }
+    assert!(YamlBehavior.parse("a: 1\n---\nb: 2\n---\n").is_err());
+}
+
 /// QA 22: a complex key's value line (`: y` under `- ? x`) was coloured as
 /// the plain key going on, colon and all; its colon is punctuation.
 #[test]

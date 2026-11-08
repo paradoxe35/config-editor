@@ -7,7 +7,7 @@
 //! path.
 
 use std::cell::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::*;
 
@@ -26,6 +26,8 @@ pub(super) struct PathPlan {
     /// Start of the config root's start tag, if the document has one. Its
     /// attributes are editor metadata.
     pub(super) root: Option<usize>,
+    /// Each element's children's names, by the element's id.
+    child_names: HashSet<(usize, String)>,
 }
 
 /// An element seen while planning: enough structure to find the config root
@@ -58,6 +60,17 @@ impl PathPlan {
             let _ = self.paths[node].set(self.build(node));
         }
         self.paths[id].get().map(Vec::as_slice)
+    }
+
+    /// The key of the attribute `name` of the element whose start tag
+    /// starts at `start`: `@name` when a child element has its name too
+    /// (`<r a="1"><a>2</a></r>`), so the two stay apart; else `name`.
+    pub(super) fn attribute_key(&self, start: usize, name: &str) -> String {
+        let id = self.nodes.binary_search_by_key(&start, |node| node.start).ok();
+        match id {
+            Some(id) if self.child_names.contains(&(id, name.to_string())) => format!("@{name}"),
+            _ => name.to_string(),
+        }
     }
 
     /// The path of element `id`, its parent's being built.
@@ -169,7 +182,12 @@ pub(super) fn plan_text(source: &str, tokens: &[Token]) -> PathPlan {
         node.occurrence = occurrence;
         node.repeated = repeated;
     }
+    let child_names = nodes
+        .iter()
+        .filter_map(|node| Some((node.parent?, node.name.clone())))
+        .collect();
     PathPlan {
+        child_names,
         paths: (0..nodes.len()).map(|_| OnceCell::new()).collect(),
         root: wrapper.map(|id| nodes[id].start),
         wrapper,

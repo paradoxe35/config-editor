@@ -3,6 +3,7 @@
 
 use super::super::language::ConfigLanguage;
 use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
+use super::list_items::opens_list_item;
 use super::{empty_containers, kept_inline, read, serialize};
 use serde_json::Value;
 
@@ -112,6 +113,7 @@ fn patch_lines(
         }
     }
     // The old → new edits, applied to the host's lines.
+    let is_comment = |line: &str| !line.trim().is_empty() && comparable(language, line).is_empty();
     let mut removed = vec![false; host.len()];
     let mut inserted: Vec<Vec<&str>> = vec![Vec::new(); host.len() + 1];
     let (mut old_index, mut new_index) = (0, 0);
@@ -191,7 +193,17 @@ fn patch_lines(
                             }
                             slot
                         }
-                        None => place.iter().find_map(|at| *at).unwrap_or(host.len()),
+                        // Above a list item's comment lines: they are its.
+                        None => match place.iter().find_map(|at| *at) {
+                            Some(mut first) if opens_list_item(language, &host, first) => {
+                                while first > 0 && is_comment(host[first - 1]) {
+                                    first -= 1;
+                                }
+                                first
+                            }
+                            Some(first) => first,
+                            None => host.len(),
+                        },
                     },
                 };
                 inserted[slot].push(written_new[new_index].as_str());
@@ -208,16 +220,16 @@ fn patch_lines(
         if !removed[index] || index == 0 || removed[index - 1] || !inserted[index].is_empty() {
             continue;
         }
-        let is_comment =
-            |line: &str| !line.trim().is_empty() && comparable(language, line).is_empty();
         let mut top = index;
         while top > 0 && is_comment(host[top - 1]) {
             top -= 1;
         }
-        // Comments at the very top are the file's header, except the lines
-        // right above the entry that name it (`# tcp` over `tcp { … }`); a
-        // header of several lines keeps its first one.
-        if top == 0 {
+        // Comments at the very top above a key are the file's header, except
+        // the lines right above the entry that name it (`# tcp` over
+        // `tcp { … }`); a header of several lines keeps its first one. Above
+        // a list's first item they are the item's: there a file's header is
+        // the comments a blank line ends.
+        if top == 0 && !opens_list_item(language, &host, index) {
             let key: String = host[index]
                 .trim_start()
                 .trim_start_matches(['<', '[', '"'])
@@ -250,6 +262,9 @@ fn patch_lines(
         }
         for line in removed.iter_mut().take(index).skip(top) {
             *line = true;
+        }
+        if top == 0 {
+            continue;
         }
         if host[top - 1].trim().is_empty() {
             if top < index {

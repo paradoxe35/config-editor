@@ -28,7 +28,12 @@ fn check(
         let Some(bridge) = Bridge::new(host, view, None) else {
             continue;
         };
-        let shown = bridge.to_edit(host_text).unwrap().text;
+        // Only JSON of the views shows a top-level list.
+        let shown = match bridge.to_edit(host_text) {
+            Ok(shown) => shown.text,
+            Err(_) if pointer.is_empty() && view.label() != "JSON" => continue,
+            Err(error) => panic!("{name} via {}: {error:?}", view.label()),
+        };
         let mut value = codec::read(view.behavior(), &shown, None).unwrap();
         *value.pointer_mut(pointer).unwrap() = serde_json::from_str::<Value>(list).unwrap();
         let edited = codec::serialize(view.behavior(), &value, Some(&shown)).unwrap();
@@ -147,5 +152,167 @@ fn comments_follow_items_moved_while_edited_added_or_removed() {
         r#"[{"name": "b", "p": 20}, {"name": "c", "p": 3}, {"name": "a", "p": 1}]"#,
         "n = 1\n\n# B\nsvc {\n  name = \"b\"\n  p    = 20\n}\n\nsvc {\n  name = \"c\"\n  p = 3\n}\n\n# A\nsvc {\n  name = \"a\"\n  p    = 1 # pa\n}\n",
     );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// H23-E1: a list that starts the document. The comments right above its
+/// first item are the item's (they move and go with it); a file's header
+/// is the comments a blank line ends, and stays.
+#[test]
+fn comments_follow_the_items_of_a_list_that_starts_the_document() {
+    let mut failures = Vec::new();
+    let play = "# Install nginx\n- hosts: web\n  become: true\n\n# Deploy the app\n- hosts: app\n  serial: 2\n";
+    let swapped = r#"[{"hosts": "app", "serial": 2}, {"hosts": "web", "become": true}]"#;
+    let first_gone = r#"[{"hosts": "app", "serial": 2}]"#;
+    let cases: [(&str, Language, String, &str, &str, String); 12] = [
+        (
+            "playbook moved",
+            Language::YAML,
+            play.to_string(),
+            "",
+            swapped,
+            "# Deploy the app\n- hosts: app\n  serial: 2\n\n# Install nginx\n- hosts: web\n  become: true\n".to_string(),
+        ),
+        (
+            "playbook, first play removed",
+            Language::YAML,
+            play.to_string(),
+            "",
+            first_gone,
+            "# Deploy the app\n- hosts: app\n  serial: 2\n".to_string(),
+        ),
+        (
+            "playbook after ---, moved",
+            Language::YAML,
+            format!("---\n{play}"),
+            "",
+            swapped,
+            "---\n# Deploy the app\n- hosts: app\n  serial: 2\n\n# Install nginx\n- hosts: web\n  become: true\n".to_string(),
+        ),
+        (
+            "playbook with a header, moved",
+            Language::YAML,
+            format!("# playbook\n\n{play}"),
+            "",
+            swapped,
+            "# playbook\n\n# Deploy the app\n- hosts: app\n  serial: 2\n\n# Install nginx\n- hosts: web\n  become: true\n".to_string(),
+        ),
+        (
+            "playbook with a header, first play removed",
+            Language::YAML,
+            format!("# playbook\n\n{play}"),
+            "",
+            first_gone,
+            "# playbook\n\n# Deploy the app\n- hosts: app\n  serial: 2\n".to_string(),
+        ),
+        (
+            "scalars moved",
+            Language::YAML,
+            "# A\n- a\n# B\n- b\n".to_string(),
+            "",
+            r#"["b", "a"]"#,
+            "# B\n- b\n# A\n- a\n".to_string(),
+        ),
+        (
+            "scalars, first removed",
+            Language::YAML,
+            "# A\n- a\n# B\n- b\n".to_string(),
+            "",
+            r#"["b"]"#,
+            "# B\n- b\n".to_string(),
+        ),
+        (
+            "TOML tables moved",
+            Language::TOML,
+            "# A\n[[s]]\nn = \"a\"\n\n# B\n[[s]]\nn = \"b\"\n".to_string(),
+            "/s",
+            r#"[{"n": "b"}, {"n": "a"}]"#,
+            "# B\n[[s]]\nn = \"b\"\n\n# A\n[[s]]\nn = \"a\"\n".to_string(),
+        ),
+        (
+            "TOML tables, first removed",
+            Language::TOML,
+            "# A\n[[s]]\nn = \"a\"\n\n# B\n[[s]]\nn = \"b\"\n".to_string(),
+            "/s",
+            r#"[{"n": "b"}]"#,
+            "# B\n[[s]]\nn = \"b\"\n".to_string(),
+        ),
+        (
+            "HCL blocks moved",
+            Language::HCL,
+            "# A\ns {\n  n = \"a\"\n}\n\n# B\ns {\n  n = \"b\"\n}\n".to_string(),
+            "/s",
+            r#"[{"n": "b"}, {"n": "a"}]"#,
+            "# B\ns {\n  n = \"b\"\n}\n\n# A\ns {\n  n = \"a\"\n}\n".to_string(),
+        ),
+        (
+            "HCL blocks, first removed",
+            Language::HCL,
+            "# A\ns {\n  n = \"a\"\n}\n\n# B\ns {\n  n = \"b\"\n}\n".to_string(),
+            "/s",
+            r#"[{"n": "b"}]"#,
+            "# B\ns {\n  n = \"b\"\n}\n".to_string(),
+        ),
+        (
+            "HCL blocks with a header, first removed",
+            Language::HCL,
+            "# head\n\n# A\ns {\n  n = \"a\"\n}\n\n# B\ns {\n  n = \"b\"\n}\n".to_string(),
+            "/s",
+            r#"[{"n": "b"}]"#,
+            "# head\n\n# B\ns {\n  n = \"b\"\n}\n".to_string(),
+        ),
+    ];
+    for (name, host, text, pointer, list, expected) in cases {
+        check(&mut failures, name, host, &text, pointer, list, &expected);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// M23-E2: every repeated HCL block or TOML `[[table]]` removed (the list
+/// emptied) goes with its comments, as XML's repeated elements do: no
+/// `tag = []` attribute for a block type, no comment left behind.
+#[test]
+fn emptying_a_list_written_as_blocks_or_tables_removes_them() {
+    let mut failures = Vec::new();
+    let cases: [(&str, Language, &str, &str, &str); 5] = [
+        (
+            "HCL blocks",
+            Language::HCL,
+            "x = 1\n\n# T1\ntag {\n  k = \"a\"\n}\n# T2\ntag {\n  k = \"b\"\n}\n",
+            "/tag",
+            "x = 1\n",
+        ),
+        (
+            "HCL blocks in a block",
+            Language::HCL,
+            "resource \"x\" \"y\" {\n  name = \"a\" # n\n  port = 80\n\n  # T1\n  tag {\n    k = \"a\"\n  }\n\n  # T2\n  tag {\n    k = \"b\"\n  }\n}\n",
+            "/resource/x/y/tag",
+            "resource \"x\" \"y\" {\n  name = \"a\" # n\n  port = 80\n}\n",
+        ),
+        (
+            "HCL blocks before an attribute",
+            Language::HCL,
+            "# T1\ntag {\n  k = \"a\"\n}\n\n# T2\ntag {\n  k = \"b\"\n}\n\nx = 1 # x\n",
+            "/tag",
+            "x = 1 # x\n",
+        ),
+        (
+            "TOML tables",
+            Language::TOML,
+            "x = 1\n\n# A\n[[s]]\nn = 1\n",
+            "/s",
+            "x = 1\n",
+        ),
+        (
+            "TOML tables before a table",
+            Language::TOML,
+            "x = 1\n\n# A\n[[s]]\nn = 1\n\n# B\n[[s]]\nn = 2\n\n# T\n[t]\ny = 2\n",
+            "/s",
+            "x = 1\n\n# T\n[t]\ny = 2\n",
+        ),
+    ];
+    for (name, host, text, pointer, expected) in cases {
+        check(&mut failures, name, host, text, pointer, "[]", expected);
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

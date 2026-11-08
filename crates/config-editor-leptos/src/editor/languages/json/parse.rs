@@ -5,9 +5,16 @@ use super::*;
 /// Parses with `serde_json` for syntax, then rejects duplicate keys in the same
 /// object, which `serde_json` would otherwise silently keep the last of.
 pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
-    let document: Value = serde_json::from_str(source).map_err(|error| {
+    // A leading byte order mark is no part of the document (as YAML, TOML
+    // and XML read it); columns on its line count it.
+    let bom = usize::from(source.starts_with('\u{FEFF}'));
+    let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
+    let document: Value = serde_json::from_str(text).map_err(|error| {
         let line_count = source.split('\n').count().max(1);
         let (mut line, mut column) = (error.line().clamp(1, line_count), error.column().max(1));
+        if line == 1 {
+            column += bom;
+        }
         // The marker shows the position, so the message drops serde's
         // " at line N column M".
         let full = error.to_string();
@@ -33,6 +40,19 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
             column: Some(column),
         }
     })?;
+    let written = |pointer: &str| {
+        let (start, end) = *scanned(source).values.get(&pointer_segments(pointer))?;
+        source.get(start..end).map(str::to_string)
+    };
+    if let Some((pointer, text)) = super::super::wide_integers::first_past_64_bits(&document, &written) {
+        let start = scanned(source).values.get(&pointer_segments(&pointer)).map(|(start, _)| *start);
+        let (line, column) = start.map(|start| line_column(source, start)).unzip();
+        return Err(ParseError {
+            message: super::super::wide_integers::message(&text),
+            line,
+            column,
+        });
+    }
     let mut seen = HashSet::new();
     for (owner, key, start) in analyze_caret(source, 0).keys {
         if !seen.insert((owner, key.clone())) {

@@ -4,10 +4,12 @@
 
 mod compare;
 mod elements;
+mod emptied_items;
 mod empty_containers;
 mod flow;
 mod kept_inline;
 mod lines;
+mod list_items;
 mod lists;
 mod moves;
 pub(super) mod non_finite;
@@ -136,6 +138,7 @@ pub(super) fn serialize(
     } else {
         non_finite::as_text(value)
     };
+    let value = emptied_items::without_emptied(language, previous, value);
     let mut text = language
         .serialize(&value, previous)
         .map_err(ConvertError::Unsupported)?;
