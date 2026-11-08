@@ -19,6 +19,7 @@ import {
   ref,
   watch,
 } from "vue";
+import { joinListeners, listener } from "./listeners.js";
 import { type SettingProps, settingProps } from "./settings.js";
 
 /** A prop whose absence matters (an event listener, an optional value): `undefined` when not passed. */
@@ -40,11 +41,11 @@ const editorProps = {
   /** Edit in another language; switches live. */
   editAs: optional(String as PropType<LanguageName | null>),
   /** `@edit-as-change`: the language on screen, when an `editAs` switch completes and when undo or redo steps back across one. */
-  onEditAsChange: optional(Function as PropType<(language: LanguageName) => void>),
+  onEditAsChange: listener<(language: LanguageName) => void>(),
   /** `@change-summary`: how the document differs from `baseline`, on mount and whenever that changes. */
-  onChangeSummary: optional(Function as PropType<(summary: ChangeSummary) => void>),
+  onChangeSummary: listener<(summary: ChangeSummary) => void>(),
   /** `@path-change`: the path of what the caret is on, each time it changes (and once on mount). The path is computed only while a listener is set. */
-  onPathChange: optional(Function as PropType<(path: EditorPath) => void>),
+  onPathChange: listener<(path: EditorPath) => void>(),
   /** Problems the host found (a server's validation), by path or range, shown next to the editor's own. Updates live. */
   hostDiagnostics: optional(Array as PropType<HostDiagnostic[]>),
   /** Fields the user cannot change, each with everything inside it, on top of the schema's `readOnly` ones. Updates live. */
@@ -56,15 +57,15 @@ const editorProps = {
   /** JSON Schema as JSON text. Changing it re-mounts. */
   schema: optional(String),
   /** `@schema-warning`: once per thing in `schema` the editor cannot use. Without a listener, a console warning. */
-  onSchemaWarning: optional(Function as PropType<(message: string) => void>),
+  onSchemaWarning: listener<(message: string) => void>(),
   /** Text the diff gutter compares against: the version last saved or loaded. A new one under unsaved edits opens a notice (Reload / Keep mine). */
   baseline: optional(String),
   /** `@save`: `Ctrl+S` / `Cmd+S` or `save()`, with the document in `language`. Without a listener, `Ctrl+S` is the browser's. */
-  onSave: optional(Function as PropType<(value: string, language: LanguageName) => void>),
+  onSave: listener<(value: string, language: LanguageName) => void>(),
   /** `@dirty-change`: whether the document differs from `baseline`, once on mount and then each time that changes. */
-  onDirtyChange: optional(Function as PropType<(dirty: boolean) => void>),
+  onDirtyChange: listener<(dirty: boolean) => void>(),
   /** `@baseline-conflict`: a new `baseline` arrived under unsaved edits, or that conflict was settled. */
-  onBaselineConflict: optional(Function as PropType<(event: BaselineConflict) => void>),
+  onBaselineConflict: listener<(event: BaselineConflict) => void>(),
   /** Shown in the toolbar. Changing it re-mounts. */
   fileName: optional(String),
   /** View mode; switches live. */
@@ -72,7 +73,7 @@ const editorProps = {
   /** Class on the editor root (inside the component's `<div>`, which takes `class` and `style`). Changing it re-mounts. */
   editorClass: optional(String),
   /** `@error`: an error from loading, mounting or a prop the editor rejects. Without a listener, logged. */
-  onError: optional(Function as PropType<(error: unknown) => void>),
+  onError: listener<(error: unknown) => void>(),
 };
 
 /** The runtime props: the editor's own and one per setting. */
@@ -106,10 +107,10 @@ export const ConfigEditor = defineComponent({
     // Svelte packages: `EditorBinding` from `@pngwasi/config-editor`.
     const binding = new EditorBinding("config-editor-vue");
     const onChange = (value: string) => emit("update:modelValue", value);
-    // The props as the binding names them; the watcher below follows each
-    // one, deeply.
+    // The props as the binding names them (a listener given twice, as an
+    // array, made one function); the watcher below follows each one, deeply.
     const current = (): EditorBindingProps => {
-      const { modelValue, editorClass, ...rest } = props;
+      const { modelValue, editorClass, ...rest } = joinListeners(props);
       return { ...rest, value: modelValue, editorClassName: editorClass, onChange };
     };
     onMounted(() => binding.attach(host.value!, current()));

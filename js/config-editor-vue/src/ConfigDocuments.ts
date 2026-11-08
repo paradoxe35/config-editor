@@ -10,6 +10,7 @@ import {
   ref,
   watch,
 } from "vue";
+import { joinListeners, listener } from "./listeners.js";
 import { type SettingProps, settingProps } from "./settings.js";
 
 const optional = <T>(type: PropType<T>) => ({ type, default: undefined });
@@ -25,21 +26,21 @@ const documentsProps = {
   /** The document shown first (default: the first one); a new id shows that document, leaving the focus where it is. */
   activeId: optional(String),
   /** `@select`: a document's id when it becomes the active one. */
-  onSelect: optional(Function as PropType<(id: string) => void>),
+  onSelect: listener<(id: string) => void>(),
   /** `@close`: the user asks to close a document. Nothing closes by itself: remove it from `documents` (asking first when `request.dirty`). Without a listener, tabs have no close button. Whether one is set re-mounts. */
-  onClose: optional(Function as PropType<(request: CloseRequest) => void>),
+  onClose: listener<(request: CloseRequest) => void>(),
   /** `@change`: a document's id and text after every edit. */
-  onChange: optional(Function as PropType<(id: string, value: string) => void>),
+  onChange: listener<(id: string, value: string) => void>(),
   /** `@save`: the user saved a document (`Ctrl+S` / `Cmd+S`), or you called `save(id)` / `saveAll()`. */
-  onSave: optional(Function as PropType<(id: string, value: string, language: LanguageName) => void>),
+  onSave: listener<(id: string, value: string, language: LanguageName) => void>(),
   /** `@dirty-change`: a document's id and whether it differs from its baseline, when added and then each time that changes. */
-  onDirtyChange: optional(Function as PropType<(id: string, dirty: boolean) => void>),
+  onDirtyChange: listener<(id: string, dirty: boolean) => void>(),
   /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
   label: optional(String),
   /** Class on the view's root (inside the component's `<div>`). Changing it re-mounts. */
   viewClass: optional(String),
   /** `@error`: an error from loading, mounting or a prop the view rejects. Without a listener, logged. */
-  onError: optional(Function as PropType<(error: unknown) => void>),
+  onError: listener<(error: unknown) => void>(),
 };
 
 /** The runtime props: the view's own and one per setting. */
@@ -65,7 +66,8 @@ export const ConfigDocuments = defineComponent({
     const host = ref<HTMLDivElement>();
     const binding = new DocumentsBinding("config-editor-vue");
     const current = (): DocumentsBindingProps => {
-      const { viewClass, ...rest } = props;
+      // A listener given twice (an array) is made one function.
+      const { viewClass, ...rest } = joinListeners(props);
       return { ...rest, viewClassName: viewClass };
     };
     onMounted(() => binding.attach(host.value!, current()));
