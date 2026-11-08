@@ -1218,3 +1218,47 @@ mod placing_tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json"
+))]
+mod key_placing_tests {
+    use super::super::Language;
+    use super::Schema;
+
+    /// QA 18: switching a large document to YAML or JSON paused 300-650 ms,
+    /// most of it placing the problems shown: each unknown key's marker read
+    /// the whole document again (its key lines, or its JSON scan). One read
+    /// serves every problem of a pass now.
+    #[test]
+    fn problems_on_keys_of_a_large_document_read_it_once() {
+        let schema = Schema::compile(
+            r#"{"type": "object", "properties": {"a": {"type": "object", "additionalProperties": false, "properties": {"k": {}}}}}"#,
+        )
+        .unwrap();
+        let mut a = serde_json::Map::new();
+        for index in 0..12000 {
+            a.insert(format!("unknown_{index}"), serde_json::json!(index));
+        }
+        let document = serde_json::json!({ "a": a });
+        let mut failures = Vec::new();
+        for language in [Language::YAML, Language::JSON] {
+            let text = language.serialize(&document).unwrap();
+            let (took, problems) =
+                crate::editor::test_timing::best_of(5, || schema.validate(language, &text));
+            let placed = problems
+                .iter()
+                .filter(|problem| problem.line.is_some())
+                .count();
+            // Read once it takes about 30 ms here; read per problem, 170 ms
+            // and more.
+            if took.as_millis() > 110 || placed < 20 {
+                failures.push(format!("{language}: {placed} placed in {took:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}

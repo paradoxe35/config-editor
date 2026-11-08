@@ -345,10 +345,9 @@ impl EditorState {
     /// refusal stays only where typing was refused (see
     /// [`Self::note_refused`]).
     pub(crate) fn note_applied(&self, edit: &Edit) {
-        let inserted = inserted_at(edit).map(|at| {
-            let length = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
-            (at, at + length)
-        });
+        // Typing goes on at the caret the insertion left (its end), read
+        // without measuring the document on every key.
+        let inserted = inserted_at(edit).map(|at| (at, edit.caret().max(at)));
         self.protect().marks.update_value(|marks| {
             let at_refusal = marks.refused.as_ref().is_some_and(|(refused_at, _)| {
                 edit.replaced(edit.caret()).1 == *refused_at || edit.caret() == *refused_at
