@@ -8,8 +8,9 @@ use serde_json::Value;
 
 use super::super::super::codec;
 use super::super::super::language::ConfigLanguage;
+use super::super::super::language::SchemaPathSegment;
 use super::super::locate::LineIndex;
-use super::super::marks::{SchemaMarks, schema_marks};
+use super::super::marks::{SchemaMarks, read_only_names, schema_marks};
 use super::super::scan::{self, Written};
 use super::{Protected, Sources, protect};
 
@@ -24,7 +25,7 @@ pub(super) struct Reading<'a> {
     /// The line the parser stopped at, when it does not parse.
     error_line: Option<usize>,
     stand_in: OnceCell<Option<StandInLocks>>,
-    scanned: OnceCell<Option<Vec<Written>>>,
+    scanned: OnceCell<Vec<Written>>,
 }
 
 /// The locks of a stand-in (see `scan::stand_in`), and the lines it
@@ -104,11 +105,32 @@ impl<'a> Reading<'a> {
     }
 
     /// Every line of the text holding code, with its path (see
-    /// `scan::written`); `None` when it is too large to read so.
-    pub(super) fn written(&self) -> Option<&[Written]> {
-        self.scanned
-            .get_or_init(|| scan::written(self.behavior, self.text, &self.lines, None))
-            .as_deref()
+    /// `scan::written`: in a large text, the lines that may hold a
+    /// protected field).
+    pub(super) fn written(&self) -> &[Written] {
+        self.scanned.get_or_init(|| {
+            scan::written(self.behavior, self.text, &self.lines, None, &self.names())
+        })
+    }
+
+    /// The keys of the protected fields: the schema's read-only ones and
+    /// those in the host's paths.
+    pub(super) fn names(&self) -> Vec<String> {
+        let mut names = self
+            .sources
+            .marking_schema
+            .map(read_only_names)
+            .unwrap_or_default();
+        for path in self.sources.paths {
+            for segment in path.segments() {
+                if let SchemaPathSegment::Key(key) = segment
+                    && !names.contains(key)
+                {
+                    names.push(key.clone());
+                }
+            }
+        }
+        names
     }
 
     /// The parsed text, taking it out of the reading.

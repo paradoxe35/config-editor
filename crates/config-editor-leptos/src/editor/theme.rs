@@ -595,14 +595,45 @@ impl<'de> serde::de::Visitor<'de> for ColorsVisitor {
                 .iter()
                 .copied()
                 .find(|color| color.token() == token)
-                .ok_or_else(|| {
-                    serde::de::Error::custom(format!("unknown color token \"{token}\""))
-                })?;
+                .ok_or_else(|| serde::de::Error::custom(unknown_token(&token)))?;
             let value = map.next_value::<CssColor>()?;
             colors = colors.set(color, value.0);
         }
         Ok(colors)
     }
+}
+
+/// The error for a color token that is not one: the nearest token, and
+/// where they are all listed.
+fn unknown_token(token: &str) -> String {
+    let nearest = ThemeColor::ALL
+        .iter()
+        .map(|color| (distance(token, color.token()), color.token()))
+        .min()
+        .filter(|(distance, _)| *distance <= 2)
+        .map(|(_, nearest)| format!(" (did you mean \"{nearest}\"?)"))
+        .unwrap_or_default();
+    format!(
+        "unknown color token \"{token}\"{nearest}; the tokens are listed by ThemeColorToken (TypeScript) and ThemeColor::ALL (Rust)"
+    )
+}
+
+/// Characters to insert, delete or replace to turn `one` into `other`.
+fn distance(one: &str, other: &str) -> usize {
+    let other: Vec<char> = other.chars().collect();
+    let mut row: Vec<usize> = (0..=other.len()).collect();
+    for (index, character) in one.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = index + 1;
+        for (at, wanted) in other.iter().enumerate() {
+            let next = (diagonal + usize::from(character != *wanted))
+                .min(row[at] + 1)
+                .min(row[at + 1] + 1);
+            diagonal = row[at + 1];
+            row[at + 1] = next;
+        }
+    }
+    row[other.len()]
 }
 
 /// A color's value: a string, else an error saying so.

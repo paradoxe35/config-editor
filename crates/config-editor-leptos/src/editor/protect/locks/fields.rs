@@ -11,15 +11,6 @@ use super::super::texts::Reason;
 use super::Protected;
 use super::reading::Reading;
 
-/// The fields the schema marks read-only, with their reasons.
-pub(super) struct Marked {
-    pub(super) fields: Vec<(String, Reason)>,
-    /// The text does not parse, has no stand-in and is too large to read
-    /// line by line: what it holds is not known, so it is held as a field
-    /// not found.
-    pub(super) unread: bool,
-}
-
 /// The fields marked read-only: those of the text before when this one
 /// does not parse and carries from it; else, in a text that does not
 /// parse, those read from its stand-in and its lines; else those the
@@ -29,25 +20,21 @@ pub(super) fn marked(
     reading: &Reading<'_>,
     carried: Option<&Protected>,
     read_only: Vec<(String, Option<String>)>,
-) -> Marked {
-    let fields = match (carried, &reading.document, reading.sources.marking_schema) {
+) -> Vec<(String, Reason)> {
+    match (carried, &reading.document, reading.sources.marking_schema) {
         (Some(previous), _, _) => previous.marked.clone(),
-        (None, None, Some(schema)) => return marked_unparsed(reading, schema),
+        (None, None, Some(schema)) => marked_unparsed(reading, schema),
         _ => read_only
             .into_iter()
             .map(|(pointer, reason)| (pointer, reason.map_or(Reason::Field, Reason::Given)))
             .collect(),
-    };
-    Marked {
-        fields,
-        unread: false,
     }
 }
 
 /// The fields `schema` marks in a text that does not parse: the stand-in's
 /// marks, and those on the lines it blanked; without a stand-in, those on
 /// every line.
-fn marked_unparsed(reading: &Reading<'_>, schema: &Value) -> Marked {
+fn marked_unparsed(reading: &Reading<'_>, schema: &Value) -> Vec<(String, Reason)> {
     let (mut fields, found) = match reading.stand_in() {
         Some(stand) => (
             stand.protected.marked.clone(),
@@ -56,17 +43,17 @@ fn marked_unparsed(reading: &Reading<'_>, schema: &Value) -> Marked {
                 reading.text,
                 &reading.lines,
                 Some(&stand.blanked),
+                &[],
             ),
         ),
-        None => (Vec::new(), reading.written().map(<[_]>::to_vec)),
+        None => (Vec::new(), reading.written().to_vec()),
     };
-    let unread = found.is_none();
-    for (pointer, reason) in scan::marked(reading.behavior, schema, &found.unwrap_or_default()) {
+    for (pointer, reason) in scan::marked(reading.behavior, schema, &found) {
         if !fields.iter().any(|(known, _)| *known == pointer) {
             fields.push((pointer, reason));
         }
     }
-    Marked { fields, unread }
+    fields
 }
 
 /// The fields to lock: those `marked`, plus the host's paths written in

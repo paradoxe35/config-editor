@@ -42,6 +42,8 @@ const ELSEWHERE = {
   invalidPattern: 'unit tested with count_label',
   invalidPlaceholder: 'an unusable secrets pattern: protect pattern_tests (JS throws before mounting)',
   oneOf: 'needs an object oneOf before any option matches (a schema problem, whose hover takes its place): choices_matrix',
+  readOnlyChanged: 'a repair of a host text that never parsed changing a read-only value: protect repair_tests',
+  readOnlyUnchecked: 'more lines changed in a broken host text than can be read: protect repair rule',
   editAsTypedCommentsNone: 'a JSON host: edit_as tests',
   addedLine: 'a modified line is previewed here; diff tests',
   removedLines: 'as addedLine',

@@ -4,7 +4,13 @@
 //!   parses: its locks fall on the same places, and its values are pinned;
 //! - `written`: each line's path, read by the tolerant path lookup the
 //!   caret uses, so the schema's read-only fields and the contents of a
-//!   locked block are found where the stand-in has none.
+//!   locked block are found where the stand-in has none (in a large text,
+//!   the lines naming a protected field and the block under each).
+//!
+//! Neither reading decides what an edit may do to a locked value: that is
+//! decided when the text parses again (`guard::repair`), against the
+//! reference text. They place the locks shown, and refuse an edit on them
+//! at once rather than at the repair.
 
 use serde_json::Value;
 
@@ -17,8 +23,13 @@ use super::marks::read_only_reason;
 use super::texts::Reason;
 
 /// Lines of a text read line by line at most (each line's path is read
-/// from the top); a larger one without a stand-in is not read so.
+/// from the top); a larger one is read on the lines `candidates` picks.
 const MAX_LINES: usize = 500;
+
+/// Line reads a large text gets (each costs a read from the top, so they
+/// are this divided by its lines), as many as a text of `MAX_LINES` lines
+/// gets for every line.
+const LARGE_READS: usize = MAX_LINES * MAX_LINES / 2;
 
 /// Lines tried blanked (their last character, then all of it) in each
 /// round at most: the one the parser stopped
@@ -128,25 +139,23 @@ pub(super) struct Written {
 }
 
 /// The path at the start of each line of `text` holding code (not blank,
-/// not only a comment): of the lines `only`, else of every line, `None`
-/// when there are too many to read so.
+/// not only a comment): of the lines `only`, else of every line, or in a
+/// large text of the lines naming one of `names` (see `candidates`).
 pub(super) fn written(
     behavior: &dyn ConfigLanguage,
     text: &str,
     lines: &LineIndex<'_>,
     only: Option<&[usize]>,
-) -> Option<Vec<Written>> {
-    let every: Vec<usize>;
-    let chosen = match only {
-        Some(only) => only,
-        None if lines.line_count() > MAX_LINES => return None,
-        None => {
-            every = (0..lines.line_count()).collect();
-            &every
-        }
+    names: &[String],
+) -> Vec<Written> {
+    let count = lines.line_count();
+    let chosen: Vec<usize> = match only {
+        Some(only) => only.to_vec(),
+        None if count > MAX_LINES => candidates(lines, names, LARGE_READS / count),
+        None => (0..count).collect(),
     };
     let mut found = Vec::new();
-    for &line in chosen {
+    for line in chosen {
         let content = lines.line_text(line);
         let indent = content.len() - content.trim_start().len();
         if content.trim().is_empty() || behavior.comment_start(content) == Some(indent) {
@@ -160,7 +169,44 @@ pub(super) fn written(
             });
         }
     }
-    Some(found)
+    found
+}
+
+/// Up to `budget` lines of a large text that may hold a protected field:
+/// each line naming one of `names` (a protected field's key), with the
+/// lines indented under it, or up to the next header after a header line
+/// (`[limits]`): its block.
+fn candidates(lines: &LineIndex<'_>, names: &[String], budget: usize) -> Vec<usize> {
+    let indent = |text: &str| text.len() - text.trim_start().len();
+    let header = |text: &str| text.starts_with('[');
+    let mut chosen = Vec::new();
+    let mut line = 0;
+    while line < lines.line_count() && chosen.len() < budget {
+        let content = lines.line_text(line);
+        line += 1;
+        if !names.iter().any(|name| content.contains(name.as_str())) {
+            continue;
+        }
+        chosen.push(line - 1);
+        let own = indent(content);
+        let opens_section = header(content);
+        while line < lines.line_count() && chosen.len() < budget {
+            let next = lines.line_text(line);
+            if !next.trim().is_empty() {
+                let inside = if opens_section {
+                    !header(next)
+                } else {
+                    indent(next) > own
+                };
+                if !inside {
+                    break;
+                }
+                chosen.push(line);
+            }
+            line += 1;
+        }
+    }
+    chosen
 }
 
 /// The fields `schema` marks read-only among those `written`, outermost

@@ -236,7 +236,7 @@ mod tests {
             (r#"{"theme": "no-such-theme"}"#, "unknown editor theme"),
             (
                 r#"{"colors": {"keys": "red"}}"#,
-                "unknown color token \"keys\"",
+                "unknown color token \"keys\" (did you mean \"key\"?); the tokens are listed by ThemeColorToken",
             ),
             (r#"{"colors": {"key": 7}}"#, "a CSS color string"),
             (r#"{"folding": "yes"}"#, "expected a boolean"),

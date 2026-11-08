@@ -91,6 +91,15 @@ mod extend_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod large_broken_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod moved_token_tests;
 #[cfg(all(
     test,
@@ -101,6 +110,15 @@ mod moved_token_tests;
     feature = "xml"
 ))]
 mod placeholder_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod repair_tests;
 #[cfg(all(
     test,
     feature = "yaml",

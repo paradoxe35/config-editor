@@ -30,6 +30,68 @@ pub(crate) fn mentions_marks(schema: &Value) -> bool {
     }
 }
 
+/// The keys of the fields `root` marks read-only, wherever they are (a
+/// field whose items or entries are read-only by its own key), to find the
+/// lines that may hold one in a text too large to read every line of.
+pub(crate) fn read_only_names(root: &Value) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_names(root, root, &mut names, 0);
+    names
+}
+
+fn collect_names(schema: &Value, root: &Value, names: &mut Vec<String>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    match schema {
+        Value::Object(map) => {
+            if let Some(Value::Object(properties)) = map.get("properties") {
+                for (key, child) in properties {
+                    if holds_read_only(child, root, 0) && !names.contains(key) {
+                        names.push(key.clone());
+                    }
+                }
+            }
+            for value in map.values() {
+                collect_names(value, root, names, depth + 1);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_names(item, root, names, depth + 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether the field `schema` describes is read-only, or its items or
+/// entries are.
+fn holds_read_only(schema: &Value, root: &Value, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    if read_only_reason(&[schema], root).is_some() {
+        return true;
+    }
+    resolve_branches(schema, root, 0).iter().any(|branch| {
+        ["items", "additionalProperties", "contains"]
+            .iter()
+            .filter_map(|key| branch.get(*key))
+            .chain(
+                ["prefixItems", "patternProperties"]
+                    .iter()
+                    .filter_map(|key| branch.get(*key))
+                    .flat_map(|inner| match inner {
+                        Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                        Value::Object(map) => map.values().collect(),
+                        _ => Vec::new(),
+                    }),
+            )
+            .any(|inner| holds_read_only(inner, root, depth + 1))
+    })
+}
+
 /// The read-only reason the branches of a field's schemas give: `Some` when
 /// one says `readOnly: true` (the inner `Option` is its
 /// `x-readonly-reason`).

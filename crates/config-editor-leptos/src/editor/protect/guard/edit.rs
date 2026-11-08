@@ -18,7 +18,7 @@ use super::stretch::{is_blank, kept};
 /// The edit turning `before` (whose locks are `protected`) into `after`.
 pub(super) struct Edited<'a> {
     pub(super) behavior: &'a dyn ConfigLanguage,
-    reading_schema: Option<&'a Value>,
+    pub(super) reading_schema: Option<&'a Value>,
     pub(super) protected: &'a Protected,
     pub(super) before: &'a str,
     pub(super) after: &'a str,
