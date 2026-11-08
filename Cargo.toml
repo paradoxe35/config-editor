@@ -8,6 +8,15 @@ publish = false
 members = ["crates/config-editor-leptos", "js/config-editor"]
 resolver = "3"
 
+# bytecount (through jsonschema) compiles WebAssembly SIMD into every wasm32
+# build, and a browser without SIMD rejects the whole module. This fork
+# compiles it only when the build enables simd128, so the npm package's wasm
+# loads in every browser (upstream: llogiq/bytecount#94, #96, #106). It applies
+# to this workspace's builds only; delete it once bytecount releases the fix,
+# then `cargo update -p bytecount`.
+[patch.crates-io]
+bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019" }
+
 [dependencies]
 console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.23", features = ["csr"] }

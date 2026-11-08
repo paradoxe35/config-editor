@@ -117,7 +117,7 @@ jobs:
         run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+          tool: wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }},wasm-tools
       - name: Install wasm-opt (smaller .wasm)
         run: sudo apt-get update && sudo apt-get install -y binaryen
       - uses: actions/setup-node@v5
@@ -127,6 +127,8 @@ jobs:
       - name: Build
         working-directory: js
         run: npm ci && npm run build
+      - name: The npm wasm loads in browsers without SIMD
+        run: scripts/ci.sh wasm
       - name: Publish @pngwasi/config-editor, then its React, Vue and Svelte packages
         working-directory: js
         run: |

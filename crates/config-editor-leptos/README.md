@@ -70,6 +70,18 @@ Requires Leptos 0.8 with client-side rendering (`csr`), a Rust 1.88+
 toolchain, and the `wasm32-unknown-unknown` target for the browser build.
 The headless API also works natively (servers, CLIs, tests).
 
+With schema validation on (the default), the wasm uses WebAssembly SIMD
+(Chrome/Edge 91+, Firefox 89+, Safari 16.4+): `bytecount`, a dependency of
+`jsonschema`, compiles SIMD code into every wasm build
+([upstream issue](https://github.com/llogiq/bytecount/issues/94)). To load in
+browsers without SIMD too, add this to your workspace's `Cargo.toml` (the npm
+packages are built with it):
+
+```toml
+[patch.crates-io]
+bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019" }
+```
+
 ## Quick start
 
 ```rust

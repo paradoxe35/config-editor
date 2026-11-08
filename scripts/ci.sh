@@ -117,9 +117,31 @@ step_docs() {
 # (needs trunk, wasm-bindgen and Playwright's Chromium).
 step_browser() {
   (cd js && npm ci && npm run build && npm run typecheck)
+  step_wasm
   trunk build
   # Workers: playwright.config.mjs (1 in CI, E2E_WORKERS or 4 locally).
   (cd e2e && npm ci && npx playwright test)
+}
+
+# The npm package's wasm loads in browsers without WebAssembly SIMD: one SIMD
+# instruction anywhere in a module makes such a browser reject all of it (a
+# dependency's SIMD path compiled in, or wasm-opt allowed to use SIMD). Run
+# after `npm run build`; needs wasm-tools.
+step_wasm() {
+  local file=js/config-editor/pkg/config_editor_bg.wasm
+  if ! command -v wasm-tools >/dev/null; then
+    echo "wasm-tools not installed: cargo install --locked wasm-tools" >&2
+    return 1
+  fi
+  if [[ ! -f "$file" ]]; then
+    echo "no $file: run 'cd js && npm run build' first" >&2
+    return 1
+  fi
+  if ! wasm-tools validate --features=-simd "$file"; then
+    echo "$file uses WebAssembly SIMD: browsers without it cannot load it" >&2
+    return 1
+  fi
+  echo "$file: no SIMD"
 }
 
 # The steps of one lane, in order, with that lane's output prefixed.

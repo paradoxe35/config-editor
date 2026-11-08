@@ -52,7 +52,7 @@ jobs:
         run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@v2
         with:
-          tool: trunk,wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }}
+          tool: trunk,wasm-bindgen@${{ steps.versions.outputs.wasm_bindgen }},wasm-tools
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -62,6 +62,8 @@ jobs:
       - name: Type-check the README examples (tsc, vue-tsc, svelte-check)
         working-directory: js
         run: npm run typecheck
+      - name: The npm wasm loads in browsers without SIMD
+        run: scripts/ci.sh wasm
       - name: Docs are up to date and well formed (contents lists, screenshot gallery, tables)
         run: scripts/ci.sh docs
       - name: Build the demo

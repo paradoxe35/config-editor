@@ -53,12 +53,19 @@ execFileSync(
     .replace(/export interface InitOutput \{[\s\S]*?\n\}/, 'export interface InitOutput {\n    readonly memory: WebAssembly.Memory;\n}');
   writeFileSync(types, cleaned);
 }
-// Optional: shrink further with binaryen's wasm-opt when it is installed.
+// Optional: shrink further with binaryen's wasm-opt when it is installed. Its
+// features are listed, without SIMD (the wasm loads in browsers without it);
+// a wasm-opt that is installed but fails fails the build.
+let hasWasmOpt = true;
 try {
+  execFileSync('wasm-opt', ['--version'], { stdio: 'ignore' });
+} catch {
+  hasWasmOpt = false;
+  console.log('wasm-opt not found: skipping the optional size pass');
+}
+if (hasWasmOpt) {
   const wasm = join(here, 'pkg', 'config_editor_bg.wasm');
   execFileSync('wasm-opt', ['-Os', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
     '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', wasm, '-o', wasm], { stdio: 'inherit' });
-} catch {
-  console.log('wasm-opt not found: skipping the optional size pass');
 }
 console.log('built js/config-editor/pkg');
