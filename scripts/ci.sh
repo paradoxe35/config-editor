@@ -103,6 +103,13 @@ step_docs() {
   fi
   git ls-files '*.md' | xargs js/node_modules/.bin/prettier --check --log-level warn
   node e2e/screenshots.mjs --check
+  # The GitHub workflows, when actionlint is installed (it also runs
+  # shellcheck on their scripts when that is installed).
+  if command -v actionlint >/dev/null; then
+    actionlint
+  else
+    echo "actionlint not installed: the workflows are not checked"
+  fi
 }
 
 # The npm packages, their README examples' types, the demo and the e2e suite
