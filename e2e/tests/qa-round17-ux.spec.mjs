@@ -37,18 +37,21 @@ test.describe('the Settings list', () => {
     await expect(list).toBeVisible();
   });
 
-  test('is re-placed inside the window when it narrows', async ({ page }) => {
-    await page.locator('.demo__settings-toggle').click();
+  test('is re-placed inside the window when it resizes (a phone rotated)', async ({ page }) => {
     const list = page.locator('.demo__settings-list');
-    await expect(list).toBeVisible();
-    await page.setViewportSize({ width: 320, height: 700 });
-    await expect
-      .poll(async () => {
-        const box = await list.boundingBox();
-        const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-        return box.x >= 0 && box.x + box.width <= 320 && pageWidth <= 320;
-      }, { message: 'the open list is within the narrowed window and the page no wider' })
-      .toBe(true);
+    const fits = (width) => async () => {
+      const box = await list.boundingBox();
+      const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      return box.x >= 0 && box.x + box.width <= width && pageWidth <= width;
+    };
+    // Opened narrow (moved sideways to fit), then wide, then narrow again.
+    for (const width of [320, 900, 1440, 390]) {
+      await page.setViewportSize({ width, height: 700 });
+      if (!(await list.isVisible())) await page.locator('.demo__settings-toggle').click();
+      await expect
+        .poll(fits(width), { message: `the open list is within the ${width}px window and the page no wider` })
+        .toBe(true);
+    }
   });
 });
 

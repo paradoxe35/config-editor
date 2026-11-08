@@ -7,7 +7,9 @@
 mod span_memo;
 mod types;
 
-pub(crate) use span_memo::{value_span as memo_value_span, with_value_spans};
+pub(crate) use span_memo::value_span as memo_value_span;
+#[cfg(feature = "schema-validation")]
+pub(crate) use span_memo::with_value_spans;
 pub use types::{FieldPath, TextPosition, TextRange};
 
 use super::codec::inline_location;

@@ -25,6 +25,10 @@ thread_local! {
 /// Runs `work` with the spans of `pointers` (and each one's ancestors) in
 /// `source` read at once; [`value_span`] calls for that text inside it read
 /// them instead of the document.
+#[cfg_attr(
+    not(feature = "schema-validation"),
+    allow(dead_code, reason = "schema problems are what read spans at once")
+)]
 pub(crate) fn with_value_spans<T>(
     behavior: &dyn ConfigLanguage,
     source: &str,

@@ -293,7 +293,13 @@ mod tests {
     #[test]
     fn a_cut_list_says_which_kinds_have_more() {
         let strings = EditorStrings::default();
-        let cases: [(&[(Severity, usize)], &[Severity], &str); 6] = [
+        // The problems shown by kind, the kinds a cap cut, and the footer.
+        type Case = (
+            &'static [(Severity, usize)],
+            &'static [Severity],
+            &'static str,
+        );
+        let cases: [Case; 6] = [
             (
                 &[(Severity::Error, 20)],
                 &[Severity::Error],
