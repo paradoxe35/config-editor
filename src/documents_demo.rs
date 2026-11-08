@@ -187,7 +187,7 @@ pub fn view(many: bool) -> impl IntoView {
     // The page takes the editor's theme (its variables) for its own controls.
     view! {
         <div
-            class="config-editor demo demo-documents"
+            class="config-editor-theme demo demo-documents"
             data-theme=move || theme().css_family()
             data-color-theme=move || theme().as_str()
         >

@@ -180,6 +180,18 @@ pub(crate) fn context_arg(value: &JsValue) -> Result<usize, JsError> {
         .ok_or_else(|| JsError::new("context must be a whole number of lines, 0 or more"))
 }
 
+/// A plain object with only the `keys` of `object` it has.
+fn pick(object: &JsValue, keys: &[&str]) -> JsValue {
+    let picked = js_sys::Object::new();
+    for key in keys {
+        let value = field(object, key);
+        if !value.is_undefined() {
+            let _ = js_sys::Reflect::set(&picked, &JsValue::from_str(key), &value);
+        }
+    }
+    picked.into()
+}
+
 /// What a range from JavaScript must be.
 const RANGE_SHAPE: &str = "range must be { start, end } (string indices) or { startLine, startColumn, endLine?, endColumn? } (one-based)";
 
@@ -202,8 +214,31 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
             .map(|number| Some(number as usize))
             .ok_or_else(|| format!("{name} must be a whole number, {least} or more"))
     };
-    if let Some(start) = number("start", 0.0)? {
-        let end = number("end", 0.0)?.unwrap_or(start);
+    let by_index = ["start", "end"]
+        .iter()
+        .any(|name| !field(range, name).is_undefined());
+    let by_line = ["startLine", "startColumn", "endLine", "endColumn"]
+        .iter()
+        .any(|name| !field(range, name).is_undefined());
+    if by_index && by_line {
+        // Both, as `rangeOf` returns them: they must name one stretch.
+        let indices = range_from_js(&pick(range, &["start", "end"]), host_text)?;
+        let lines = range_from_js(
+            &pick(range, &["startLine", "startColumn", "endLine", "endColumn"]),
+            host_text,
+        )?;
+        if indices != lines {
+            return Err(
+                "range gives { start, end } and { startLine, startColumn, … } for different stretches: give one"
+                    .to_string(),
+            );
+        }
+        return Ok(indices);
+    }
+    if by_index {
+        let (Some(start), Some(end)) = (number("start", 0.0)?, number("end", 0.0)?) else {
+            return Err(RANGE_SHAPE.to_string());
+        };
         let length = host_text.encode_utf16().count();
         if end < start {
             return Err(format!("end ({end}) is before start ({start})"));

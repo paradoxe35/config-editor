@@ -3,9 +3,19 @@
    is one of the theme's variables, so the page follows the theme. */
 body { margin: 0; }
 /* The page takes the theme's background below the editor too. */
+/* The page takes the editor's theme variables (`config-editor-theme`)
+   without being an editor itself: its own text and box rules. */
 .demo {
+  position: relative;
   min-height: 100vh;
   background: var(--config-editor-bg);
+  color: var(--config-editor-text);
+  font: 13px/1.65 ui-monospace, var(--config-editor-mono);
+}
+.demo *,
+.demo *::before,
+.demo *::after {
+  box-sizing: border-box;
 }
 .demo__picker,
 .demo__check {

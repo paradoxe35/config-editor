@@ -170,7 +170,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 | `show_diff`                | `true`                    | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
 | `completions`              | `true`                    | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
 | `auto_trigger_completions` | `true`                    | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
-| `hover_docs`               | `true`                    | Show the schema's description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                          |
+| `hover_docs`               | `true`                    | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
 | `highlighting`             | `true`                    | Syntax colors.                                                                                                                                                                                                                                                                     |
 | `auto_closing`             | `true`                    | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
 | `search`                   | `true`                    | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
@@ -488,10 +488,14 @@ shown.
 Line endings are kept: the editor works on LF text, and when the host's text
 ends its lines with CRLF (`value`, `initial_value`, or a new `value` later),
 `on_change` and `on_save` receive the text with CRLF line endings, in every
-language and while editing as another one. The endings are the text's
-majority, on every line: a text mixing CRLF and LF is sent with CRLF when
-most of its lines end so, else with LF, and old Mac CR endings become LF.
-Dirty state and the diff compare line endings as LF.
+language and while editing as another one. Each line keeps its own: a text
+mixing CRLF, LF and old Mac CR endings is sent with each untouched line
+ending as it did, an edited line keeps its ending, and a new line takes the
+ending of the line above (the text's most common one when there is none).
+A lone CR that the language does not read as a line break (TOML, HCL) is
+shown as the syntax error its reader gives, until that line is edited (an
+edited line then takes a break the language reads). Dirty state and the
+diff compare line endings as LF.
 
 The text is dirty while it differs from `baseline` as shown (the document at
 mount when no `baseline` is given). `on_dirty_change` reports it once on
@@ -817,8 +821,11 @@ view! {
   change a read-only value, delete its key (also by deleting a selection or
   a parent block that holds it), rename a key holding it, or add to a
   read-only block is refused whole: the text stays as it was, and a short
-  tooltip at the caret says why. Replace All replaces the other matches and
-  reports how many it skipped.
+  tooltip at the caret says why. Typing refused part-way leaves nothing
+  half-written: what was typed of that entry on the line goes too (`<i` of
+  a refused `<id>`), and the keys typed there after it are refused, until
+  the caret moves. Replace All replaces the other matches and reports how
+  many it skipped.
 - Formatting around and inside a locked field stays free: blank lines,
   trailing spaces, a comment after the value, punctuation next to it (`,`
   in JSON), a space after `:` or `=`, and re-indenting where indentation is
@@ -1133,7 +1140,9 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
   reports them as losses and an Edit-as save into one of them waits with a
   problem (an Edit-as view in one of them shows the text `inf` and keeps the
   host's number unless the user edits it). Schema validation reads them as
-  numbers beyond every bound. A custom language says it writes them with
+  numbers beyond every bound (NaN beyond both `minimum` and `maximum`),
+  never integers or multiples of anything. A YAML plain number too large
+  for a float (`1e400`) is an infinity. A custom language says it writes them with
   `ConfigLanguage::writes_non_finite`. A real string spelled that way stays
   a string: parsers hold it with one more U+FDD0 (`string_value` makes it,
   `string_of` reads it back), and every writer takes that one off; build a
@@ -1347,6 +1356,13 @@ following `Accent`) and `TabDirty` (the unsaved-changes dot, following
 `--config-editor-tab-active-text`, `--config-editor-tab-border`,
 `--config-editor-tab-active-border`, `--config-editor-tab-dirty`. The view's
 root carries the theme too (`data-color-theme`), so they follow the theme.
+
+A page's own element can take a theme's variables for its controls without
+being styled as an editor: give it the class `config-editor-theme` with
+`data-theme` (the family, `EditorTheme::css_family`) and
+`data-color-theme` (`EditorTheme::as_str`), and read `var(--config-editor-bg)`
+and the rest inside it (the demo's page does). The `config-editor` class is
+the editor's own: on a wrapper it would also style the wrapper as one.
 
 ## Cargo features
 

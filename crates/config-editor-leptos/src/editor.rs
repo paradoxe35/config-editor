@@ -192,8 +192,9 @@ pub fn ConfigEditor(
     on_change_summary: Option<Callback<ChangeSummary>>,
     /// Called once per problem with something in `schema` the editor cannot
     /// use (see [`Schema::warnings`]), such as a `patternProperties` regex
-    /// its engine cannot compile. Without it, each goes to the browser
-    /// console as a warning.
+    /// its engine cannot compile, right after the editor mounts (a microtask
+    /// later, never while it is being made). Without it, each goes to the
+    /// browser console as a warning.
     #[prop(optional, into)]
     on_schema_warning: Option<Callback<String>>,
     /// Disable editing while keeping highlighting, diagnostics, diffs, and
@@ -258,9 +259,10 @@ pub fn ConfigEditor(
         None => (None, None),
     };
     let has_schema = schema.is_some();
-    if let Some(schema) = &schema {
-        report_schema_warnings(&schema.warnings, on_schema_warning);
-    }
+    let schema_warnings = schema
+        .as_ref()
+        .map(|schema| schema.warnings.clone())
+        .unwrap_or_default();
     // As the host wrote it: the state keeps its line endings for what it
     // hands back (see `line_endings`).
     let initial_value = initial_value.unwrap_or_default();
@@ -287,6 +289,13 @@ pub fn ConfigEditor(
         on_save,
         on_baseline_conflict,
     });
+    // After the editor is made, not while: the host has its handle (a
+    // JavaScript `new ConfigEditor` has returned) when it hears them.
+    if !schema_warnings.is_empty() {
+        crate::reactive::later::soon(state, move |_| {
+            report_schema_warnings(&schema_warnings, on_schema_warning);
+        });
+    }
     sync::connect(
         state,
         sync::Host {

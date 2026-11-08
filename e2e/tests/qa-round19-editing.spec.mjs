@@ -92,7 +92,7 @@ test.describe('TOML edited as XML', () => {
     await select(e, '1979-05-27T07:32:00Z');
     await page.keyboard.press('Delete');
     await page.keyboard.type('2');
-    await expect(page.locator('.config-editor').first()).toContainText('not a TOML date or time');
+    await expect(page.locator('.demo')).toContainText('not a TOML date or time');
     expect(await saved(page)).toBe(host);
     await page.keyboard.type('024-01-02T03:04:05Z');
     await expect.poll(() => saved(page)).toBe(host.replace('1979-05-27T07:32:00Z', '2024-01-02T03:04:05Z'));

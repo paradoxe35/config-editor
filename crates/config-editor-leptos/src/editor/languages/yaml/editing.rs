@@ -103,6 +103,9 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     let content = line.trim_start();
     let unit = indent_unit(source);
 
+    if let Some(continuation) = scalar_continuation(source, line_start, byte_index, &unit) {
+        return format!("\n{continuation}");
+    }
     if content.is_empty() {
         return format!("\n{indent}");
     }
@@ -150,6 +153,66 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
         }
     }
     format!("\n{indent}")
+}
+
+/// The indentation of the line Enter opens inside a scalar that may run over
+/// lines: a quoted one still open at the caret, or a plain value with more of
+/// it after the caret. The new line continues the scalar, so it goes deeper
+/// than the scalar's key (or at its item's content column); `None` when the
+/// caret is not inside such a scalar.
+fn scalar_continuation(source: &str, line_start: usize, caret: usize, unit: &str) -> Option<String> {
+    let line_end = source[caret..].find('\n').map_or(source.len(), |at| caret + at);
+    let line = &source[line_start..line_end];
+    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+    if let Some((_, opener)) = open_quoted_scalar(&source[..caret]) {
+        let line_index = source[..line_start].matches('\n').count();
+        let opener_line = source.split('\n').nth(opener).unwrap_or_default();
+        let owner = continuation_column(opener_line, unit);
+        if opener != line_index && indent >= owner {
+            return Some(line[..indent].to_string());
+        }
+        return Some(" ".repeat(owner));
+    }
+    // A plain value with text on both sides of the caret.
+    let column = caret - line_start;
+    let rest = code_before_comment(&line[column..]);
+    if rest.trim().is_empty() {
+        return None;
+    }
+    let content_column = item_content_column(line);
+    let content = &line[content_column..];
+    let value_start = match mapping_colon(content) {
+        Some(colon) => content_column + colon + 1,
+        None if content_column > indent => content_column,
+        None => return None,
+    };
+    let value_start = value_start + line[value_start..].len() - line[value_start..].trim_start().len();
+    if column <= value_start || line[value_start..column].trim().is_empty() {
+        return None;
+    }
+    let plain = !line[value_start..].starts_with(['"', '\'', '[', '{', '|', '>', '&', '!', '*', '#']);
+    plain.then(|| " ".repeat(continuation_column(line, unit)))
+}
+
+/// The byte column of a line's content past its indentation and any item
+/// dashes (`  - - key: x` gives the column of `key`).
+fn item_content_column(line: &str) -> usize {
+    let mut rest = line.trim_start_matches([' ', '\t']);
+    while let Some(after) = rest.strip_prefix('-').filter(|after| after.starts_with([' ', '\t'])) {
+        rest = after.trim_start_matches([' ', '\t']);
+    }
+    line.len() - rest.len()
+}
+
+/// The column a scalar's continuation lines start at: one indent unit past
+/// its key (`key: "…`), or its item's content column (`- "…`).
+fn continuation_column(line: &str, unit: &str) -> usize {
+    let content_column = item_content_column(line);
+    if mapping_colon(&line[content_column..]).is_some() {
+        content_column + unit.len()
+    } else {
+        content_column
+    }
 }
 
 pub(super) fn highlight(line: &str) -> Vec<Token> {
@@ -361,6 +424,18 @@ fn block_scalar_opener(line: &str) -> Option<usize> {
 /// Lines inside quoted scalars that run over several lines (`a: "x` …
 /// `c"`): from the line after the opening quote through the closing one.
 pub(super) fn quoted_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
+    scan_quoted_scalars(source).0
+}
+
+/// The line index where a quoted scalar opened that is still open at the
+/// end of `source`, with its quote (`"` or `'`).
+pub(super) fn open_quoted_scalar(source: &str) -> Option<(char, usize)> {
+    scan_quoted_scalars(source).1
+}
+
+/// [`quoted_scalar_bodies`], and the quote still open at the end with the
+/// line index it opened on.
+fn scan_quoted_scalars(source: &str) -> (Vec<std::ops::Range<usize>>, Option<(char, usize)>) {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut bodies = Vec::new();
     let mut open: Option<(char, usize)> = None;
@@ -417,7 +492,7 @@ pub(super) fn quoted_scalar_bodies(source: &str) -> Vec<std::ops::Range<usize>> 
             open = None;
         }
     }
-    bodies
+    (bodies, open.map(|(quote, body_start)| (quote, body_start - 1)))
 }
 
 /// The UTF-16 selection `start..end` widened to the end of the indented

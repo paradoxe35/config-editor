@@ -62,7 +62,7 @@ export interface EditorSettings {
    */
   autoTriggerCompletions?: boolean;
   /**
-   * Show the schema's description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.
+   * Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.
    *
    * @default true
    */

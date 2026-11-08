@@ -1,4 +1,4 @@
-:where(.config-editor, .config-editor-documents) {
+:where(.config-editor, .config-editor-documents, .config-editor-theme) {
   --config-editor-bg: #1e1e1e;
   --config-editor-panel: #252526;
   --config-editor-border: #3c3c3c;
@@ -1206,6 +1206,12 @@
   font-size: 12px;
 }
 
+.config-editor__hover-title {
+  margin: 0;
+  color: var(--config-editor-raised-text);
+  font-weight: 600;
+}
+
 .config-editor__hover-description {
   margin: 0;
   color: var(--config-editor-raised-text);
@@ -1416,7 +1422,7 @@
   outline-offset: 1px;
 }
 
-:where(.config-editor[data-theme="vscode-light"], .config-editor-documents[data-theme="vscode-light"]) {
+:where(.config-editor[data-theme="vscode-light"], .config-editor-documents[data-theme="vscode-light"], .config-editor-theme[data-theme="vscode-light"]) {
   --config-editor-bg: #ffffff;
   --config-editor-status-error: #c72e0f;
   --config-editor-status-warning: #8a6100;
@@ -1454,7 +1460,7 @@
   --config-editor-caret: #333333;
 }
 
-:where(.config-editor[data-theme="obsidian"], .config-editor-documents[data-theme="obsidian"]) {
+:where(.config-editor[data-theme="obsidian"], .config-editor-documents[data-theme="obsidian"], .config-editor-theme[data-theme="obsidian"]) {
   --config-editor-bg: #090b0c;
   --config-editor-panel: #0c0f10;
   --config-editor-border: #24292c;
@@ -1488,7 +1494,7 @@
   --config-editor-caret: #e6edf2;
 }
 
-:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"], .config-editor-theme[data-theme="obsidian-light"]) {
   --config-editor-bg: #f8faf8;
   --config-editor-status-error: #b42318;
   --config-editor-status-warning: #8a6100;
@@ -1530,10 +1536,10 @@
 /* Tokens that VS Code Dark tunes by hand; the other families derive them
    from their palette, so every data-color-theme on top of them follows. */
 .config-editor[data-theme="vscode-light"],
-.config-editor-documents[data-theme="vscode-light"],
+.config-editor-documents[data-theme="vscode-light"], .config-editor-theme[data-theme="vscode-light"],
 .config-editor[data-theme="obsidian"],
-.config-editor-documents[data-theme="obsidian"],
-:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"]) {
+.config-editor-documents[data-theme="obsidian"], .config-editor-theme[data-theme="obsidian"],
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"], .config-editor-theme[data-theme="obsidian-light"]) {
   --config-editor-diff-removed-bg: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
   --config-editor-diff-removed-text: var(--config-editor-text);
   --config-editor-diff-current-bg: color-mix(in srgb, var(--config-editor-modified) 12%, transparent);

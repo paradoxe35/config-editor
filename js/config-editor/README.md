@@ -128,7 +128,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `onChangeSummary`    | `(summary: ChangeSummary) => void`          | —                | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                                                                                                                                                                                                                    |
 | `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                         |
 | `onPathChange`       | `(path: EditorPath) => void`                | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                                                                                                                                                                                                                       |
-| `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs).                                                                                                                                                                                                                                       |
+| `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). Called a microtask after `new ConfigEditor` returns, never inside it, so the instance is yours by then.                                                                                                                               |
 | `readOnlyPaths`      | `FieldPath[]`                               | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                               |
 | `readOnlyRanges`     | `TextRangeInput[]`                          | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` string indices or one-based `{ startLine, startColumn, endLine?, endColumn? }`.                                                                                                                                                                                                                                               |
 | `secrets`            | `SecretOptions`                             | defaults         | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: how secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                            |
@@ -185,7 +185,7 @@ viewer.update({ showDiagnostics: true });
 | `showDiff`               | `true`              | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
 | `completions`            | `true`              | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
 | `autoTriggerCompletions` | `true`              | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
-| `hoverDocs`              | `true`              | Show the schema's description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                          |
+| `hoverDocs`              | `true`              | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
 | `highlighting`           | `true`              | Syntax colors.                                                                                                                                                                                                                                                                     |
 | `autoClosing`            | `true`              | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
 | `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
@@ -489,15 +489,18 @@ editor.update({
   marks the field it starts in (its key when it starts on the key). With
   neither, or when the field is missing, the problem shows in the footer,
   after the field's path (`/web/listen: port 80 is taken`).
-- `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`;
-  colors `error`, `warning`, `info` and `hint` in `colors`.
+- `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`,
+  written so (`"ERROR"` throws); colors `error`, `warning`, `info` and
+  `hint` in `colors`. `message` is required and not empty.
 - `F8` stops at them, the footer counts them, and the hover message adds
   `source` (default `"host"`), `code` and "Open docs ↗": a click on the
-  message opens `docsUrl` (an `http:` or `https:` URL), as `Alt+Enter`
+  message opens `docsUrl` (an `http:` or `https:` URL with a host), as `Alt+Enter`
   does with the caret on the problem; screen readers hear the code and the
   link with the problem.
 - `path` and `range` are exclusive; a range past the text's end, ending
-  before it starts, or a pointer without its leading `/` throws.
+  before it starts, `{ start }` without `end`, or a pointer without its
+  leading `/` throws. A range may give both styles (as `rangeOf` returns
+  it) when they name the same stretch.
 - The editor lists and underlines at most 20 problems of each source (the
   schema's, the secret placeholders'), and the footer says how many were
   cut ("20+ errors · only the editor's first 20 are shown"); a problem with no place
@@ -566,7 +569,9 @@ const editor = new ConfigEditor(element, {
   tokens pasted into another field, or under a renamed key, is flagged, and
   so is a token the host did not give in a secret field. Put back into its
   own field it is real again. `placeholder` must be a regular expression
-  that matches no empty text (`.*` throws).
+  that matches no empty text (`.*` throws). An exception `isPlaceholder`
+  throws is logged, and the token is not real. `referencePrefixes` must be
+  non-empty strings.
 - A placeholder is atomic: the caret never lands inside, `Backspace` and
   `Delete` remove it whole, an edit cutting into it replaces it whole, and
   copying keeps its text. It shows as a chip (color tokens `secret-chip`,
@@ -854,10 +859,13 @@ text on screen.
 
 Line endings are kept: when the host's text ends its lines with CRLF,
 `onChange` and `onSave` receive CRLF too (the editor works on LF text inside,
-and dirty state and the diff compare line endings as LF). The endings are the
-text's majority, on every line: a text mixing CRLF and LF is sent with CRLF
-when most of its lines end so, else with LF, and old Mac CR endings become
-LF.
+and dirty state and the diff compare line endings as LF). Each line keeps its
+own: in a text mixing CRLF, LF and old Mac CR endings, an untouched line ends
+as it did, an edited line keeps its ending, and a new line takes the ending
+of the line above (the text's most common one when there is none). A lone CR
+that the language does not read as a line break (TOML, HCL) is shown as the
+syntax error its reader gives (as `parse` reports it), until that line is
+edited.
 
 ```js
 const editor = new ConfigEditor(element, {
@@ -964,7 +972,10 @@ view.isDirty("main");
   own over the view's) and `unifiedDiff` against its baseline, paths,
   folds, `focus`, `save` and `isDirty`. An editor mounts the first time
   its document is shown: until then its queries answer `null` or `false`
-  (`text` answers the document's `value`).
+  (`text` answers the document's `value`). Once its document is removed,
+  it stays with it and answers `null` (`value`, `text`, `currentPath`) or
+  `false` (`save()`, `isDirty`, `reveal`, …), also when a new document
+  with the same id is listed: ask `editor(id)` again for that one.
 - `update(options)` changes the view live, with `ConfigEditor`'s rules
   (left out or `undefined` stays, `null` removes a callback or returns a
   setting to its default, every key checked before any applies): the

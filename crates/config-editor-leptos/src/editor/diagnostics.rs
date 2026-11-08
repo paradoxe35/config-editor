@@ -619,8 +619,19 @@ pub(super) fn validate_with(
                 .any(|pointer| path == pointer || path.starts_with(&format!("{pointer}/")))
         };
         // Infinities and NaN are numbers to the schema (see `non_finite`).
-        let validated = super::codec::non_finite::for_validation(&document);
+        use super::codec::non_finite::{StandIn, for_validation};
+        let validated = for_validation(&document, StandIn::Bounds);
         let restore = matches!(validated, std::borrow::Cow::Owned(_));
+        // No one stand-in fails every check an infinity or NaN fails: the
+        // other passes add the checks they stand for.
+        let further: Vec<(StandIn, std::borrow::Cow<'_, Value>)> = if restore {
+            StandIn::ALL[1..]
+                .iter()
+                .map(|pass| (*pass, for_validation(&document, *pass)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         // The errors shown (enough for the cap), then where each is
         // written: the spans of their values read at once (see
         // `paths::with_value_spans`), not a read of the document each.
@@ -634,6 +645,30 @@ pub(super) fn validate_with(
             tops.push(top);
             if shown > MAX_DIAGNOSTICS {
                 break;
+            }
+        }
+        let mut found: std::collections::HashSet<(String, String)> = tops
+            .iter()
+            .flat_map(|top| specific_errors(top))
+            .map(|error| {
+                let keyword = error.kind().keyword().to_string();
+                (error.instance_path().as_str().to_string(), keyword)
+            })
+            .collect();
+        for (pass, value) in &further {
+            for error in schema.validator.iter_errors(value) {
+                let key = (
+                    error.instance_path().as_str().to_string(),
+                    error.kind().keyword().to_string(),
+                );
+                if shown <= MAX_DIAGNOSTICS
+                    && pass.reports(error.instance(), error.kind())
+                    && !inside(&key.0, &placeholders)
+                    && found.insert(key)
+                {
+                    shown += 1;
+                    tops.push(error);
+                }
             }
         }
         let pointers: Vec<String> = tops
@@ -1226,6 +1261,50 @@ mod placing_tests {
                 .filter(|problem| problem.line.is_some())
                 .count();
             if took.as_millis() > 650 || placed < 20 {
+                failures.push(format!("{language}: {placed} placed in {took:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json"
+))]
+mod key_placing_tests {
+    use super::super::Language;
+    use super::Schema;
+
+    /// QA 18: switching a large document to YAML or JSON paused 300-650 ms,
+    /// most of it placing the problems shown: each unknown key's marker read
+    /// the whole document again (its key lines, or its JSON scan). One read
+    /// serves every problem of a pass now.
+    #[test]
+    fn problems_on_keys_of_a_large_document_read_it_once() {
+        let schema = Schema::compile(
+            r#"{"type": "object", "properties": {"a": {"type": "object", "additionalProperties": false, "properties": {"k": {}}}}}"#,
+        )
+        .unwrap();
+        let mut a = serde_json::Map::new();
+        for index in 0..12000 {
+            a.insert(format!("unknown_{index}"), serde_json::json!(index));
+        }
+        let document = serde_json::json!({ "a": a });
+        let mut failures = Vec::new();
+        for language in [Language::YAML, Language::JSON] {
+            let text = language.serialize(&document).unwrap();
+            let (took, problems) =
+                crate::editor::test_timing::best_of(5, || schema.validate(language, &text));
+            let placed = problems
+                .iter()
+                .filter(|problem| problem.line.is_some())
+                .count();
+            // Read once it takes about 30 ms here; read per problem, 170 ms
+            // and more.
+            if took.as_millis() > 110 || placed < 20 {
                 failures.push(format!("{language}: {placed} placed in {took:?}"));
             }
         }

@@ -1402,3 +1402,95 @@ fn round_14_saves_change_only_the_edit() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// A YAML block list emptied in another view (the host then holds `l: []`,
+/// the only way YAML writes an empty list) and given items again is a
+/// block list again: an empty `[]` says nothing about the style (round 18
+/// left it `[b]`). A list the host wrote in flow with items stays in flow.
+#[test]
+fn a_yaml_block_list_emptied_and_refilled_stays_a_block_list() {
+    let cases = [
+        ("l:\n  - a\nn: 1\n", "l: []\nn: 1\n", "l:\n  - b\nn: 1\n"),
+        (
+            "top:\n  l:\n    - a\n  n: 1\n",
+            "top:\n  l: []\n  n: 1\n",
+            "top:\n  l:\n    - b\n  n: 1\n",
+        ),
+        (
+            "l:\n  - a\n  - c\nn: 1\n",
+            "l: []\nn: 1\n",
+            "l:\n  - b\n  - d\nn: 1\n",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for edit in [Language::JSON, Language::TOML, Language::HCL] {
+        let bridge = Bridge::new(Language::YAML, edit, None).unwrap();
+        let shown = |yaml: &str| bridge.to_edit(yaml).unwrap().text;
+        for (host, empty, refilled) in cases {
+            let emptied = bridge.to_host(&shown(empty), host).unwrap().text;
+            let saved = bridge.to_host(&shown(refilled), &emptied).unwrap().text;
+            if emptied != empty || saved != refilled {
+                failures.push(format!("as {edit}: {host:?} -> {emptied:?} -> {saved:?}"));
+            }
+        }
+        // Items written in flow keep it.
+        let saved = bridge
+            .to_host(&shown("l: [b]\nn: 1\n"), "l: [a]\nn: 1\n")
+            .unwrap()
+            .text;
+        if saved != "l: [b]\nn: 1\n" {
+            failures.push(format!("as {edit}: flow {saved:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// An empty list filled from another view in every host language: the
+/// items are written as the host writes new ones where its empty form says
+/// nothing of their style (YAML), on the line it had elsewhere, and nothing
+/// else changes.
+#[test]
+fn an_empty_list_filled_from_another_view_changes_only_its_entry() {
+    let cases = [
+        (
+            Language::JSON,
+            "{\n  \"l\": [],\n  \"n\": 1\n}\n",
+            "{\n  \"l\": [\"b\"],\n  \"n\": 1\n}\n",
+        ),
+        (
+            Language::TOML,
+            "# c\nl = []\nn = 1\n",
+            "# c\nl = [\"b\"]\nn = 1\n",
+        ),
+        (
+            Language::HCL,
+            "# c\nl = []\nn = 1\n",
+            "# c\nl = [\"b\"]\nn = 1\n",
+        ),
+        (
+            Language::YAML,
+            "# c\nl: []\nn: 1\n",
+            "# c\nl:\n  - b\nn: 1\n",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (host, text, expected) in cases {
+        let edit = if host == Language::YAML {
+            Language::JSON
+        } else {
+            Language::YAML
+        };
+        let bridge = Bridge::new(host, edit, None).unwrap();
+        let shown = bridge.to_edit(text).unwrap().text;
+        let filled = if edit == Language::YAML {
+            shown.replace("l: []", "l:\n  - b")
+        } else {
+            shown.replace("[]", "[\"b\"]")
+        };
+        let saved = bridge.to_host(&filled, text).unwrap().text;
+        if saved != expected {
+            failures.push(format!("{host}: {saved:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
