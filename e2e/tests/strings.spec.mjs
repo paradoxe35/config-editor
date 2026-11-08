@@ -71,6 +71,7 @@ const ELSEWHERE = {
   readOnlyText: 'read-only ranges: protect tests',
   holdsReadOnly: 'renaming a locked field’s key: protect tests',
   saveRefused: 'an Edit-as save over a read-only value: protect tests',
+  saveWaits: 'a broken text in a custom language without spans: qa-round21-host spec',
   secretHint: 'the page gives its own hint',
   secretValue: 'schema messages on secret fields: protect tests',
   unknownPlaceholder: 'protect tests',

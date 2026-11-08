@@ -191,6 +191,9 @@ pub(super) struct Documents {
     pub(super) prefix: u32,
     next_serial: StoredValue<u64>,
     schemas: StoredValue<SchemaCache, LocalStorage>,
+    /// The ids listed twice the last time the list came: each is warned
+    /// about once, until the list stops repeating it.
+    repeated: StoredValue<Vec<String>>,
 }
 
 thread_local! {
@@ -241,6 +244,7 @@ impl Documents {
             prefix,
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
+            repeated: StoredValue::new(Vec::new()),
         }
     }
 
@@ -310,6 +314,7 @@ impl Documents {
         };
         let mut entries = Vec::with_capacity(documents.len());
         let mut added = Vec::new();
+        let mut repeated = Vec::new();
         for ((document, setup), fate) in documents.iter().zip(setups).zip(fates) {
             match fate {
                 Fate::Keep(index) => {
@@ -334,15 +339,19 @@ impl Documents {
                     added.push(entry.clone());
                     entries.push(entry);
                 }
-                Fate::Duplicate => web_sys::console::warn_1(
-                    &format!(
-                        "config-editor: document id \"{}\" is listed twice; the second is ignored",
-                        document.id
-                    )
-                    .into(),
-                ),
+                Fate::Duplicate => repeated.push(document.id.clone()),
             }
         }
+        let warned = self.repeated.get_value();
+        for id in repeated.iter().filter(|id| !warned.contains(id)) {
+            web_sys::console::warn_1(
+                &format!(
+                    "config-editor: document id \"{id}\" is listed twice; the second is ignored"
+                )
+                .into(),
+            );
+        }
+        self.repeated.set_value(repeated);
         for index in removed {
             existing[index].dispose_later(*self);
         }

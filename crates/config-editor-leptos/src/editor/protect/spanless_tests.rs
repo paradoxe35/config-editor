@@ -3,15 +3,22 @@
 //! (I1), checked by value on every edit whose text parses, and edits that
 //! keep every locked value stay free (I2).
 
+use leptos::prelude::*;
 use serde_json::{Map, Value, json};
 
+use super::super::Language;
+use super::super::edit::Edit;
+use super::super::host_editing::SaveRequest;
 use super::super::language::{ConfigLanguage, LanguageInfo, ParseError};
 use super::super::paths::FieldPath;
+use super::super::state::EditorState;
+use super::super::test_state::TestEditor;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
 use super::save::locked_pointers;
 
-/// `KEY=value` lines, `#` comments; nothing else.
+/// `KEY=value` lines, `#` comments, `\\` at a line's end going on on the
+/// next line; nothing else.
 struct Env;
 
 impl ConfigLanguage for Env {
@@ -25,7 +32,9 @@ impl ConfigLanguage for Env {
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
         let mut map = Map::new();
-        for (index, line) in source.split('\n').enumerate() {
+        // A line ending in `\` goes on on the next one.
+        let joined = source.replace("\\\n", " ");
+        for (index, line) in joined.split('\n').enumerate() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
@@ -143,10 +152,10 @@ fn edits_keeping_every_locked_value_stay_free_without_spans() {
 #[test]
 fn a_text_broken_on_the_way_parses_again_only_with_the_locked_values() {
     let protected = locks(TEXT, None);
-    let broken = "# c\nIDsrv-1\nNAME=a\nPORT=80\n";
+    let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
     assert!(
         allowed(&protected, TEXT, broken),
-        "breaking the text is free"
+        "breaking a free line is free"
     );
     let held = locks(broken, Some(&protected));
     assert!(
@@ -179,4 +188,182 @@ fn the_save_check_names_the_fields_the_language_cannot_locate() {
     );
     pointers.sort();
     assert_eq!(pointers, ["/ID", "/PORT"]);
+}
+
+/// Each step from `TEXT`, every one checked against the locks of the text
+/// before it (as the editor reads them): the index of the first refused.
+fn first_refused(steps: &[&str]) -> Option<usize> {
+    let mut protected = locks(TEXT, None);
+    let mut before = TEXT.to_string();
+    for (index, after) in steps.iter().enumerate() {
+        if !allowed(&protected, &before, after) {
+            return Some(index);
+        }
+        protected = locks(after, Some(&protected));
+        before = after.to_string();
+    }
+    None
+}
+
+#[test]
+fn a_locked_value_holds_through_broken_text_without_spans() {
+    let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
+    let cases: [(&str, &[&str]); 8] = [
+        (
+            "edit a locked value while another line is broken",
+            &[broken, "# c\nID=srv-19\nNAMEa\nPORT=80\n"],
+        ),
+        (
+            "edit a host-locked value while another line is broken",
+            &[broken, "# c\nID=srv-1\nNAMEa\nPORT=8\n"],
+        ),
+        (
+            "replace a locked line with broken text",
+            &["# c\nz\nNAME=a\nPORT=80\n"],
+        ),
+        ("break a locked line", &["# c\nIDsrv-1\nNAME=a\nPORT=80\n"]),
+        (
+            "delete a locked line while another is broken",
+            &[broken, "# c\nNAMEa\nPORT=80\n"],
+        ),
+        (
+            "a space after a locked value, then a new value",
+            &[
+                broken,
+                "# c\nID=srv-1 \nNAMEa\nPORT=80\n",
+                "# c\nID=srv-2 \nNAMEa\nPORT=80\n",
+            ],
+        ),
+        (
+            "a duplicate of a locked key while broken",
+            &[broken, "# c\nID=srv-1\nNAMEa\nPORT=80\nID=evil\n"],
+        ),
+        ("replace everything with broken text", &["x"]),
+    ];
+    let failures: Vec<&str> = cases
+        .iter()
+        .filter(|(_, steps)| first_refused(steps) != Some(steps.len() - 1))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "not refused at the last step: {failures:?}"
+    );
+}
+
+#[test]
+fn edits_keeping_every_locked_value_stay_free_in_broken_text_without_spans() {
+    let broken = "# c\nID=srv-1\nNAMEa\nPORT=80\n";
+    let cases: [(&str, &[&str]); 6] = [
+        ("break a free line", &[broken]),
+        (
+            "edit the broken line",
+            &[broken, "# c\nID=srv-1\nNAMEab\nPORT=80\n"],
+        ),
+        (
+            "edit a comment while broken",
+            &[broken, "# comment\nID=srv-1\nNAMEa\nPORT=80\n"],
+        ),
+        (
+            "add a key while broken",
+            &[broken, "# c\nID=srv-1\nNAMEa\nPORT=80\nNEW=1\n"],
+        ),
+        (
+            "a space after a locked value while broken",
+            &[broken, "# c\nID=srv-1 \nNAMEa\nPORT=80\n"],
+        ),
+        (
+            "a new line after a locked value while broken",
+            &[broken, "# c\nID=srv-1\n\nNAMEa\nPORT=80\n"],
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, steps)| first_refused(steps).map(|at| format!("{name} (step {at})")))
+        .collect();
+    assert!(failures.is_empty(), "refused: {failures:?}");
+}
+
+static ENV: Env = Env;
+
+/// The editor on `TEXT` in `Env`, `/PORT` and `/ID` read-only by path,
+/// with the saves it sends.
+fn mounted() -> (Owner, EditorState, RwSignal<Vec<String>>) {
+    let saves = RwSignal::new(Vec::<String>::new());
+    let mut editor = TestEditor::new(Language::new(&ENV), TEXT);
+    editor.read_only_paths = vec![FieldPath::from("/PORT"), FieldPath::from("/ID")];
+    editor.on_save = Some(Callback::new(move |request: SaveRequest| {
+        saves.update(|all| all.push(request.text));
+    }));
+    let (owner, state) = editor.mount();
+    (owner, state, saves)
+}
+
+/// Replaces the first `old` of the text on screen with `new`.
+fn change(state: EditorState, old: &str, new: &str) -> bool {
+    let before = state.doc().text.get_untracked();
+    let at = before.find(old).expect("the text to change");
+    let after = format!("{}{new}{}", &before[..at], &before[at + old.len()..]);
+    state.commit(Edit::new(
+        before,
+        (at, at + old.len()),
+        after,
+        at + new.len(),
+    ))
+}
+
+#[test]
+fn a_save_waits_for_a_text_that_parses_without_spans() {
+    let (_owner, state, saves) = mounted();
+    assert!(state.save(), "a text that parses is saved");
+    assert!(
+        change(state, "NAME=a", "NAMEa"),
+        "breaking a free line is free"
+    );
+    assert!(!state.save(), "a broken text holding a locked field waits");
+    assert_eq!(
+        saves.get_untracked(),
+        [TEXT],
+        "only the valid text was sent"
+    );
+    let tip = state.protect().tip.get_untracked().map(|tip| tip.message);
+    assert!(
+        tip.as_deref()
+            .is_some_and(|tip| tip.contains("/PORT") || tip.contains("/ID")),
+        "the reason shows: {tip:?}"
+    );
+    assert!(!change(state, "ID=srv-1", "ID=srv-2"), "the lock holds");
+    assert!(
+        change(state, "NAMEa", "NAME=b"),
+        "the repair keeps the locks"
+    );
+    assert!(state.save(), "valid again, it is saved");
+}
+
+#[test]
+fn a_refusal_takes_back_only_the_typing_it_is_about() {
+    // A word typed at the end of a free line, then `\` joining the locked
+    // line below to it: the `\` is refused, and the word, which the
+    // refusal does not need, stays.
+    let (_owner, state, _) = mounted();
+    let end = TEXT.find("NAME=a").unwrap() + "NAME=a".len();
+    for (offset, typed) in ["b", "c", "\\"].iter().enumerate() {
+        let before = state.doc().text.get_untracked();
+        let at = end + offset;
+        let after = format!("{}{typed}{}", &before[..at], &before[at..]);
+        let edit = Edit::input(
+            before,
+            (at, at),
+            after,
+            (at + 1, at + 1),
+            "insertText".into(),
+            0.0,
+        );
+        assert_eq!(state.commit(edit), *typed != "\\", "{typed}");
+    }
+    assert_eq!(
+        state.doc().text.get_untracked(),
+        TEXT.replace("NAME=a", "NAME=abc"),
+        "only the refused input is undone"
+    );
 }

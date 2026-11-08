@@ -20,6 +20,7 @@ mod constructs;
 mod enter;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
+mod tags;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -46,6 +47,9 @@ use serde_json::Value;
 use std::collections::HashSet;
 
 pub(super) struct YamlBehavior;
+
+/// Why a text of several YAML documents (`---` between them) is not read.
+const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (separated by ---): the editor reads one document per file. Keep one, or split them into files";
 
 
 impl ConfigLanguage for YamlBehavior {
@@ -104,6 +108,9 @@ impl ConfigLanguage for YamlBehavior {
             {
                 error.line = Some(index + 1);
                 error.column = Some(1);
+            }
+            if error.message.contains("more than one document") {
+                error.message = MULTI_DOCUMENT.to_string();
             }
             error
         })
@@ -194,6 +201,10 @@ impl ConfigLanguage for YamlBehavior {
 
     fn detach_shared(&self, previous: &str, old: &Value, new: &Value) -> Option<String> {
         aliases::detach_shared(previous, old, new)
+    }
+
+    fn tags(&self, source: &str) -> Vec<(String, String)> {
+        tags::yaml_tags(source)
     }
 
     fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {

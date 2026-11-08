@@ -862,6 +862,12 @@ export interface EditorStrings {
    */
   saveRefused?: string;
   /**
+   * A save waiting for the text to be valid: the language cannot say where the read-only field at `{pointer}` is written, so its value is checked only in a text that parses.
+   *
+   * @default "Not saved: {pointer} is read-only, and it can be checked only once the text is valid"
+   */
+  saveWaits?: string;
+  /**
    * An edit refused because it makes a text that did not parse parse with the read-only field at `{pointer}` reading otherwise than in the host's text, and why the field is read-only (`{reason}`).
    *
    * @default "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first"

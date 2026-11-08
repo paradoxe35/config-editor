@@ -21,6 +21,7 @@ use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use super::texts::save_waits;
 use crate::reactive::later::{self, Timeout};
 
 /// How long a refused edit's tooltip stays, in milliseconds.
@@ -325,7 +326,12 @@ impl EditorState {
                 let line = typed.rsplit('\n').next().unwrap_or_default();
                 at - line.trim_start().encode_utf16().count()
             })
-            .filter(|start| *start < at);
+            .filter(|start| *start < at)
+            // Taken back only when it is what the refusal is about: the
+            // input refused without it would be let through. A word the
+            // refused input does not need (typed before a quote that
+            // closes a string over a locked field) is the user's and stays.
+            .filter(|start| self.refused_for(edit, *start, at));
         let refused_at = word_start.unwrap_or(at);
         self.protect().marks.update_value(|marks| {
             marks.refused = Some((refused_at, message));
@@ -339,6 +345,28 @@ impl EditorState {
         );
         let text = format!("{}{}", &before[..from], &before[to..]);
         Some(Edit::new(before, (start, at), text, start))
+    }
+
+    /// Whether the refused `edit` is let through without what typing wrote
+    /// from UTF-16 `start` to `at`, where the edit inserts.
+    fn refused_for(&self, edit: &Edit, start: usize, at: usize) -> bool {
+        let (from, to) = (
+            utf16_to_byte_index(&edit.text, start),
+            utf16_to_byte_index(&edit.text, at),
+        );
+        let without = format!("{}{}", &edit.text[..from], &edit.text[to..]);
+        self.protect().protected.with_untracked(|protected| {
+            self.config().schema.with_value(|schema| {
+                check(
+                    self.behavior(),
+                    schema.as_deref().map(|bundle| &bundle.schema),
+                    protected,
+                    &edit.before,
+                    &without,
+                )
+                .is_ok()
+            })
+        })
     }
 
     /// After an edit was made: typing goes on from where it ended, and a
@@ -427,6 +455,23 @@ impl EditorState {
             Vec::new()
         };
         self.protect().ranges.set(placed);
+    }
+
+    /// Why a save of the text on screen waits, when it does: the text does
+    /// not parse and holds a read-only field the language cannot locate
+    /// (it gives no spans), so nothing shows that its value is kept.
+    pub(crate) fn save_waits(&self) -> Option<String> {
+        let pointer = self.protect().protected.with_untracked(|protected| {
+            protected
+                .unplaced
+                .first()
+                .map(|(pointer, _)| pointer.clone())
+        })?;
+        let parses = self
+            .doc()
+            .text
+            .with_untracked(|text| codec::read(self.behavior(), text, None).is_ok());
+        (!parses).then(|| self.strings_untracked(|strings| save_waits(strings, &pointer)))
     }
 
     /// Refuses an Edit-as save from the host's `old` text to `new` that would

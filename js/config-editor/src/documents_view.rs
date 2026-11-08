@@ -80,8 +80,13 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
         static WARNED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
     }
     if WARNED.with(|warned| warned.borrow_mut().insert(file_name.to_string())) {
+        // A name with no extension (`Dockerfile`) is named whole.
+        let what = match std::path::Path::new(file_name).extension() {
+            Some(extension) => format!("the extension .{}", extension.to_string_lossy()),
+            None => format!("the file name {file_name:?} (it has no extension)"),
+        };
         web_sys::console::warn_1(&JsValue::from_str(&format!(
-            "config-editor: no language claims the extension of {file_name:?}; it opens as {}. Give the document a `language`, or register one for the extension",
+            "config-editor: no language claims {what}, so {file_name:?} opens as {}. Give the document a `language`, or register a language for it",
             fallback.label()
         )));
     }

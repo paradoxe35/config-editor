@@ -11,8 +11,11 @@
 //! External crates implement [`ConfigLanguage`] the same way and wrap it with
 //! [`Language::new`].
 
+use std::borrow::Cow;
+
 use super::codec::{self, Conversion, ConvertError};
 use super::language::{ConfigLanguage, LanguageInfo, ParseError};
+use super::line_breaks;
 use super::paths::{self, FieldPath, TextPosition, TextRange};
 use serde_json::Value;
 
@@ -270,11 +273,22 @@ impl Language {
         // CRLF line endings read as LF, inside multi-line strings and block
         // scalars too: what the editor reads (it holds LF text), and what
         // TOML and YAML readers do with a file's own line breaks. A lone
-        // carriage return is left for the language to judge.
-        if source.contains("\r\n") {
-            return self.0.parse(&source.replace("\r\n", "\n"));
+        // carriage return is left for the language to judge; an error is
+        // placed with it read as a line break (`line_breaks`).
+        let source: Cow<'_, str> = if source.contains("\r\n") {
+            Cow::Owned(source.replace("\r\n", "\n"))
+        } else {
+            Cow::Borrowed(source)
+        };
+        if !source.contains('\r') {
+            return self.0.parse(&source);
         }
-        self.0.parse(source)
+        self.0
+            .parse(&source)
+            .map_err(|error| match self.0.parse(&line_breaks::as_lf(&source)) {
+                Err(placed) => placed,
+                Ok(_) => line_breaks::rejected_lone_cr(self.0, &source).unwrap_or(error),
+            })
     }
 
     /// Renders a data model value as a document in this language, only when
@@ -338,7 +352,8 @@ impl Language {
     /// # }
     /// ```
     pub fn range_of(self, source: &str, path: impl Into<FieldPath>) -> Option<TextRange> {
-        paths::field_range(self.0, source, &path.into().to_pointer())
+        let source = line_breaks::as_lf(source);
+        paths::field_range(self.0, &source, &path.into().to_pointer())
     }
 
     /// The line ranges of `source` that fold (see
@@ -357,7 +372,7 @@ impl Language {
     /// ```
     #[cfg(feature = "folding")]
     pub fn fold_ranges(self, source: &str) -> Vec<super::language::FoldRange> {
-        self.0.fold_ranges(source)
+        self.0.fold_ranges(&line_breaks::as_lf(source))
     }
 
     /// The path of what `position` is on in `source`: the key under or just
@@ -373,11 +388,12 @@ impl Language {
     /// # }
     /// ```
     pub fn path_at(self, source: &str, position: TextPosition) -> Option<FieldPath> {
+        let source = line_breaks::as_lf(source);
         let lines = source.split('\n').count();
         if position.line > lines {
             return None;
         }
-        paths::path_at(self.0, source, position.to_offset(source))
+        paths::path_at(self.0, &source, position.to_offset(&source))
     }
 
     pub(super) fn behavior(self) -> &'static dyn ConfigLanguage {

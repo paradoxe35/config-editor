@@ -230,6 +230,15 @@ are never saved. Its texts are `editAsHostComments` (`editAsHostInstructions`
 for an XML file with processing instructions), `editAsTypedComments` and
 `editAsTypedCommentsNone`.
 
+YAML tags (`!Sub 'x-${y}'`, `!GetAtt [a, b]`, `!include`, `!secret`,
+`!reference`) are valid YAML: the data (what the schema validates, `parse`
+returns and other languages show) is the value under the tag, a tagged
+scalar as its text, and the tag stays in the YAML through every edit. An
+edit the tag cannot follow (a tagged map replaced by a number) waits, naming
+the tag. Several YAML documents in one text (`---` between them) are one per
+file here: the problem shows at the second `---`, and `editAs` is refused
+with that reason.
+
 <!-- strings:start -->
 
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
@@ -363,6 +372,7 @@ for an XML file with processing instructions), `editAsTypedComments` and
 | `readOnlyText`              | `"This text is read-only"`                                                                                                           | Why text in a read-only range the host gave cannot change.                                                                                                                                                                                     |
 | `holdsReadOnly`             | `"Holds a read-only field: {reason}"`                                                                                                | Why renaming or moving the key above a read-only field is refused.                                                                                                                                                                             |
 | `saveRefused`               | `"{pointer} is read-only and this change would alter it"`                                                                            | A save refused because it would change a read-only value.                                                                                                                                                                                      |
+| `saveWaits`                 | `"Not saved: {pointer} is read-only, and it can be checked only once the text is valid"`                                             | A save waiting for the text to be valid: the language cannot say where the read-only field at `{pointer}` is written, so its value is checked only in a text that parses.                                                                      |
 | `readOnlyChanged`           | `"This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first"`   | An edit refused because it makes a text that did not parse parse with the read-only field at `{pointer}` reading otherwise than in the host's text, and why the field is read-only (`{reason}`).                                               |
 | `readOnlyUnchecked`         | `"Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first"` | An edit refused because it makes a text that did not parse parse after more lines that may hold the read-only field at `{pointer}` were deleted from the host's text than can be checked through, and why the field is read-only (`{reason}`). |
 | `readOnlyLabel`             | `"Read-only"`                                                                                                                        | The gutter lock's label, before the reason.                                                                                                                                                                                                    |
@@ -431,8 +441,9 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   it are in the new document.
 - `language`, `schema`, `fileName`, `className` and `secrets` are what the
   editor is built from: they throw (`"language cannot change on a mounted
-ConfigEditor …"`); create a new editor to change them. TypeScript types
-  them `never` in `EditorUpdate`.
+ConfigEditor …"`); create a new editor to change them. The `language`
+  the editor already has changes nothing. TypeScript types them `never` in
+  `EditorUpdate`.
 - Every key is checked before any applies: a wrong value throws and changes
   nothing.
 
@@ -517,7 +528,11 @@ editor.update({
 - `path` and `range` are exclusive; a range past the text's end, ending
   before it starts, `{ start }` without `end`, or a pointer without its
   leading `/` throws. A range may give both styles (as `rangeOf` returns
-  it) when they name the same stretch.
+  it) when they name the same stretch. `start` and `end` are string indices
+  (UTF-16 units, as `selectionStart` counts); `startColumn` and `endColumn`
+  count characters (code points, as problems' columns do): `😀` is two
+  indices and one column. A column past its line's end is read as the
+  line's end, with a console warning (the rest of the update applies).
 - The editor lists and underlines at most 20 problems of each source (the
   schema's, the secret placeholders'), and the footer says how many were
   cut ("20+ errors · only the editor's first 20 are shown"); a problem with no place
@@ -564,6 +579,10 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
   save that would change one is refused (shown as an error, not sent).
+- In a custom language without `spans`, a field is checked by value: while
+  the text does not parse, an edit that would change a read-only value in
+  the last text that parsed is refused, and `save()` waits (returns
+  `false`, saying which field) until the text parses again.
 
 </details>
 
@@ -613,8 +632,8 @@ const editor = new ConfigEditor(element, {
 ### Paths
 
 A path names a field the same way in every language: a JSON pointer
-(`"/web/hosts/1"`, `""` for the whole document) or its keys and indices
-(`["web", "hosts", 1]`). A pointer starts with `/`: `"web/hosts"` throws,
+(`"/web/hosts/1"`, `""` for the whole document; as RFC 6901 has it, `"/"`
+is the key `""`) or its keys and indices (`["web", "hosts", 1]`). A pointer starts with `/`: `"web/hosts"` throws,
 everywhere a path is taken (the editor's methods, the tools,
 `readOnlyPaths`, host diagnostics).
 
@@ -665,18 +684,18 @@ The editor's answers about a text, without an editor: for a server, a
 build step or a review screen. They need the WebAssembly module loaded:
 `loadConfigEditor()`, which this entry exports too.
 
-| Function                                   | Returns               | Description                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `validate(language, text, schema?)`        | `Diagnostic[]`        | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                                                                                                                                              |
-| `convert(from, text, to, schema?)`         | `{ text, losses }`    | Convert between languages. `losses` lists JSON pointers of values the target reads back differently (an infinity or `NaN` is written as the text `inf` or `nan` in JSON, HCL and XML, and listed). Throws when the text does not parse or the target cannot express it at all (TOML has no `null`). With a schema, a lone XML element where it expects a list converts as a one-item list. |
-| `unifiedDiff(baseline, current, context?)` | `string`              | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                              |
-| `changeSummary(baseline, current)`         | `ChangeSummary`       | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                                                                                                                                              |
-| `parse(language, text)`                    | `unknown`             | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. Integers past 2^53 (TOML holds 64-bit ones) lose precision as JavaScript numbers, as with `JSON.parse`.                                                 |
-| `serialize(language, value)`               | `string`              | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list).                                         |
-| `rangeOf(language, text, path)`            | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                |
-| `pathAt(language, text, index)`            | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                    |
-| `schemaWarnings(schema)`                   | `string[]`            | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                             |
-| `presetCss()`                              | `string`              | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                           |
+| Function                                   | Returns               | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate(language, text, schema?)`        | `Diagnostic[]`        | Syntax problems, plus schema problems when a schema is given.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `convert(from, text, to, schema?)`         | `{ text, losses }`    | Convert between languages. `losses` lists JSON pointers of values the target reads back differently (an infinity or `NaN` is written as the text `inf` or `nan` in JSON, HCL and XML, and listed). Throws when the text does not parse or the target cannot express it at all (TOML has no `null`). With a schema, a lone XML element where it expects a list converts as a one-item list.                                                                                                                                                                                    |
+| `unifiedDiff(baseline, current, context?)` | `string`              | The `diff -u` of two texts: `--- baseline` / `+++ current` headers, then `@@` hunks with `context` lines around each change (default 3). `""` when they have the same lines; line endings are compared as LF.                                                                                                                                                                                                                                                                                                                                                                 |
+| `changeSummary(baseline, current)`         | `ChangeSummary`       | `{ added, removed, modified, hunks }` between two texts, as the diff gutter and `onChangeSummary` count them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `parse(language, text)`                    | `unknown`             | The document as plain data (objects, arrays, strings, numbers, booleans, `null`): the model schema validation sees, the same in every language. YAML's `.inf`/`.nan` and TOML's `inf`/`nan` are `Infinity`, `-Infinity` and `NaN`. An integer past 2^53 (TOML and YAML hold 64-bit ones) is a `bigint`, exact, and `serialize` takes one back; one past 64 bits, or a JSON number past a float's range (`1e400`), is a syntax error, in the editor too. A YAML number with a leading zero (`012`) is the string it is written as (YAML 1.1 read it as octal, 1.2 as decimal). |
+| `serialize(language, value)`               | `string`              | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list).                                                                                                                                                                                                                            |
+| `rangeOf(language, text, path)`            | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `pathAt(language, text, index)`            | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `schemaWarnings(schema)`                   | `string[]`            | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `presetCss()`                              | `string`              | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ```ts
 interface Diagnostic {
@@ -905,7 +924,9 @@ as it did, an edited line keeps its ending, and a new line takes the ending
 of the line above (the text's most common one when there is none). A lone CR
 that the language does not read as a line break (TOML, HCL) is shown as the
 syntax error its reader gives (as `parse` reports it), until that line is
-edited.
+edited. Every position the tools give or take (`validate`, `rangeOf`,
+`pathAt`, `parse` errors) counts LF, CRLF and a lone CR each as one line
+break, as the editor does.
 
 </details>
 

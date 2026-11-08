@@ -298,7 +298,7 @@ impl Bridge {
             Some(text) => Some(text),
             None => save(previous_host, &old, &target)?,
         };
-        Ok(match patched {
+        let conversion = match patched {
             Some(text) => Conversion {
                 text: typed_spellings::kept(
                     (host, self.edit.behavior()),
@@ -314,7 +314,42 @@ impl Bridge {
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
                 rendered
             }
-        })
+        };
+        self.tags_kept(previous_host, &conversion.text, &target)?;
+        Ok(conversion)
+    }
+
+    /// Every tag of the host's `previous` text (YAML `!Sub`) on a value the
+    /// edit kept is still on it in `saved`, else the save waits: the edit
+    /// language has no tags, so a value written anew loses its tag.
+    fn tags_kept(
+        &self,
+        previous: &str,
+        saved: &str,
+        target: &serde_json::Value,
+    ) -> Result<(), SaveError> {
+        let host = self.host.behavior();
+        let before = host.tags(previous);
+        if before.is_empty() {
+            return Ok(());
+        }
+        let after = host.tags(saved);
+        let lost = before.iter().find(|(pointer, tag)| {
+            target.pointer(pointer).is_some()
+                && !after
+                    .iter()
+                    .any(|(known, kept)| known == pointer && kept == tag)
+        });
+        match lost {
+            Some((pointer, tag)) => Err(ConvertError::Unsupported(format!(
+                "{} has no tags, and this edit would write this value without its {} tag {tag}: edit it as {} (at {pointer})",
+                self.edit.label(),
+                self.host.label(),
+                self.host.label()
+            ))
+            .into()),
+            None => Ok(()),
+        }
     }
 
     /// A warning on each value the host cannot carry exactly, or an error when

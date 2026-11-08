@@ -213,7 +213,9 @@ fn pointers_and_segments_name_the_same_path() {
     assert_eq!(FieldPath::from(built.to_pointer()), built);
     assert_eq!(FieldPath::from("a~1b/c~0d/3"), built);
     assert!(FieldPath::from("").is_root());
-    assert!(FieldPath::from("/").is_root());
+    // RFC 6901: "/" is the key "" under the root, not the root.
+    assert_eq!(FieldPath::from("/"), FieldPath::root().key(""));
+    assert_eq!(FieldPath::root().key("").to_pointer(), "/");
     assert_eq!(FieldPath::root().to_pointer(), "");
 }
 
@@ -286,4 +288,23 @@ fn the_caret_path_stays_cheap_in_large_documents() {
         }
     }
     report(failures);
+}
+
+#[test]
+fn the_pointer_slash_names_the_empty_key_in_every_language_that_has_one() {
+    let cases = [
+        (Language::YAML, "\"\": empty\na: 1\n", "\"\": empty"),
+        (Language::JSON, "{\n  \"\": 1,\n  \"a\": 2\n}\n", "\"\": 1"),
+        (Language::TOML, "\"\" = 1\na = 2\n", "\"\" = 1"),
+    ];
+    let mut failures = Vec::new();
+    for (language, text, expected) in cases {
+        let found = language
+            .range_of(text, "/")
+            .map(|range| range.slice(text).to_string());
+        if found.as_deref() != Some(expected) {
+            failures.push(format!("{language}: {found:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

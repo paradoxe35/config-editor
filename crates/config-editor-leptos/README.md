@@ -220,6 +220,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   character references (`&#233;`) around the change, YAML anchors stay on their items
   (an alias or merge is written out only where the edit parts it from its
   anchor, numbers as the host wrote them), and a JSON string keeps its
+
   `\uXXXX` escapes. A quoted string emptied and typed again keeps the quotes
   it had when the session began, and a heredoc whose text gains a line equal
   to its delimiter takes another one (`EOT_1`).
@@ -232,6 +233,14 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 - Items moved in a list, with others added or removed in the same save, take
   their comment lines along (scalars, one-line tables, YAML block items,
   repeated XML elements over lines); where they cannot, the save waits.
+- YAML tags (`!Sub 'x-${y}'`, `!GetAtt [a, b]`, `!include`, `!secret`,
+  `!reference [.a, b]`) are valid YAML: the data (what the schema validates
+  and other languages show) is the value under the tag, a tagged scalar as
+  its text, and the tag stays in the host's text through every edit of that
+  value or others. An edit the tag cannot follow (a tagged map replaced by a
+  number) waits, naming the tag and the value. Several YAML documents in
+  one text (`---` between them) are one per file here: the text shows the
+  problem at the second `---`, and Edit as is refused with that reason.
 - XML element text is the value exactly as an XML reader reports it, the
   whitespace and line breaks around it included (a number, boolean or `null`
   reads without them): `<s>  a  </s>` shows as `"  a  "` in other languages,
@@ -433,6 +442,7 @@ they come.
 | `read_only_text`                | `"This text is read-only"`                                                                                                           | Why text in a read-only range the host gave cannot change.                                                                                                                                                                                     |
 | `holds_read_only`               | `"Holds a read-only field: {reason}"`                                                                                                | Why renaming or moving the key above a read-only field is refused.                                                                                                                                                                             |
 | `save_refused`                  | `"{pointer} is read-only and this change would alter it"`                                                                            | A save refused because it would change a read-only value.                                                                                                                                                                                      |
+| `save_waits`                    | `"Not saved: {pointer} is read-only, and it can be checked only once the text is valid"`                                             | A save waiting for the text to be valid: the language cannot say where the read-only field at `{pointer}` is written, so its value is checked only in a text that parses.                                                                      |
 | `read_only_changed`             | `"This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first"`   | An edit refused because it makes a text that did not parse parse with the read-only field at `{pointer}` reading otherwise than in the host's text, and why the field is read-only (`{reason}`).                                               |
 | `read_only_unchecked`           | `"Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first"` | An edit refused because it makes a text that did not parse parse after more lines that may hold the read-only field at `{pointer}` were deleted from the host's text than can be checked through, and why the field is read-only (`{reason}`). |
 | `read_only_label`               | `"Read-only"`                                                                                                                        | The gutter lock's label, before the reason.                                                                                                                                                                                                    |
@@ -535,7 +545,10 @@ ending of the line above (the text's most common one when there is none).
 A lone CR that the language does not read as a line break (TOML, HCL) is
 shown as the syntax error its reader gives, until that line is edited (an
 edited line then takes a break the language reads). Dirty state and the
-diff compare line endings as LF.
+diff compare line endings as LF. Every position the API gives or takes
+(`Language::range_of`, `path_at`, `fold_ranges`, `check_syntax`,
+`Schema::validate`, `TextPosition::from_offset` and `to_offset`) counts
+LF, CRLF and a lone CR each as one line break, as the editor does.
 
 </details>
 
@@ -1306,7 +1319,12 @@ const ENV: Language = Language::new(&DOTENV);
 Read-only fields hold in a language without spans too: the editor then
 compares the field's value on every edit whose text parses, and refuses one
 that changes it (with spans the field is also muted, locked in the gutter,
-and refused as it is typed on). A language without `serialize` is never
+and refused as it is typed on). While the text does not parse, an edit is
+tried on the last text that parsed, line by line: one that changes a
+read-only value there (typed into it while another line is broken, the
+line holding it replaced or broken) is refused, and a save waits until the
+text parses again, saying which field it cannot check (`save_waits` of
+the `strings` setting). A language without `serialize` is never
 edited as another language, nor another as it: the switch is refused with
 the reason.
 

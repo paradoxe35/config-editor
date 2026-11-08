@@ -123,7 +123,8 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         };
         let key_raw = &rest[..colon];
         let key = key_raw.trim().trim_matches(['\'', '"']);
-        if key.is_empty() {
+        // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
+        if key_raw.trim().is_empty() {
             continue;
         }
         while stack
@@ -364,9 +365,6 @@ fn path_lines(source: &str) -> std::rc::Rc<Vec<PathLine>> {
 pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = crate::editor::language::pointer_segments(path);
     let key = wanted.last()?.clone();
-    if key.is_empty() {
-        return None;
-    }
 
     if let Some((_, line, column, end_column)) = path_lines(source)
         .iter()

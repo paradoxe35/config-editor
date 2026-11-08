@@ -55,6 +55,19 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
     if let Some(text) = value.as_string() {
         return Ok(config_editor_leptos::string_value(text));
     }
+    if value.is_bigint() {
+        // An integer `parse` gave as a bigint (past 2^53), exact.
+        let text = String::from(
+            js_sys::BigInt::unchecked_from_js_ref(value)
+                .to_string(10)
+                .unwrap_or_default(),
+        );
+        return text
+            .parse::<i64>()
+            .map(Value::from)
+            .or_else(|_| text.parse::<u64>().map(Value::from))
+            .map_err(|_| format!("it holds the bigint {text}, which does not fit in 64 bits"));
+    }
     if Array::is_array(value) {
         return Array::from(value)
             .iter()
@@ -84,7 +97,7 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
         }
         return Ok(Value::Object(map));
     }
-    Err("it holds a value JSON cannot (undefined, a function, a symbol, or a bigint)".to_string())
+    Err("it holds a value JSON cannot (undefined, a function or a symbol)".to_string())
 }
 
 /// A JavaScript number in the data model. A whole number is an integer
@@ -258,6 +271,7 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
     let end_line = number("endLine", 1.0)?.unwrap_or(line);
     let lines: Vec<&str> = host_text.split('\n').collect();
     let width = |line: usize| lines.get(line - 1).map_or(0, |text| text.chars().count());
+    let column = clamped_column("start", line, column, &lines)?;
     // Left out, the end is one character on, at most the line's end (an
     // empty line's range is its start).
     let end_column = match number("endColumn", 1.0)? {
@@ -270,24 +284,32 @@ pub(crate) fn range_from_js(range: &JsValue, host_text: &str) -> Result<TextRang
             "the end ({end_line}:{end_column}) is before the start ({line}:{column})"
         ));
     }
-    for (name, line, column) in [("start", line, column), ("end", end_line, end_column)] {
-        if line > lines.len() {
-            return Err(format!(
-                "{name} line {line} is past the text's last line ({})",
-                lines.len()
-            ));
-        }
-        if column > width(line) + 1 {
-            return Err(format!(
-                "{name} column {column} is past the end of line {line} ({} characters)",
-                width(line)
-            ));
-        }
-    }
+    let end_column = clamped_column("end", end_line, end_column, &lines)?;
     Ok(TextRange::new(
         TextPosition::new(line, column),
         TextPosition::new(end_line, end_column),
     ))
+}
+
+/// `column` of one-based `line` of `lines`: a line past the text is an
+/// error; a column past the line's end (counted in another unit, or for a
+/// line since shortened) is the line's end, with a warning: one range is
+/// not worth refusing the whole update for.
+fn clamped_column(name: &str, line: usize, column: usize, lines: &[&str]) -> Result<usize, String> {
+    let Some(text) = lines.get(line - 1) else {
+        return Err(format!(
+            "{name} line {line} is past the text's last line ({})",
+            lines.len()
+        ));
+    };
+    let width = text.chars().count();
+    if column > width + 1 {
+        warn(&format!(
+            "config-editor: a range's {name} column {column} is past the end of line {line} ({width} characters); it is read as the line's end (columns count characters, code points)"
+        ));
+        return Ok(width + 1);
+    }
+    Ok(column)
 }
 
 /// A path from JavaScript: a JSON pointer, or keys (strings) and indices
@@ -391,19 +413,49 @@ pub(crate) fn to_js<T: Serialize>(value: &T) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
-/// A data model value as plain JavaScript data, as `JSON.parse` reads it
-/// (integers past 2^53 lose precision there too), with infinities and NaN
-/// as `Infinity`, `-Infinity` and `NaN`.
+/// A data model value as plain JavaScript data, as `JSON.parse` reads it,
+/// with infinities and NaN as `Infinity`, `-Infinity` and `NaN`, and an
+/// integer past 2^53 (TOML and YAML hold 64-bit ones) as a `bigint`, exact.
 pub(crate) fn json_to_js(value: &Value) -> JsValue {
-    let text = value.to_string();
-    // The noncharacter that starts a non-finite number (rare: walk only then).
-    if text.contains('\u{FDD0}') {
+    // The noncharacter that starts a non-finite number, or a large integer
+    // (rare: walk only then).
+    if needs_walk(value) {
         return data_to_js(value);
     }
-    js_sys::JSON::parse(&text).unwrap_or(JsValue::NULL)
+    js_sys::JSON::parse(&value.to_string()).unwrap_or(JsValue::NULL)
+}
+
+/// The largest integer a JavaScript number holds exactly (2^53 - 1).
+const SAFE_INTEGER: u64 = (1 << 53) - 1;
+
+/// Whether `value` holds a large integer or a non-finite number.
+fn needs_walk(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => large_integer(number).is_some(),
+        Value::String(text) => text.starts_with('\u{FDD0}'),
+        Value::Array(items) => items.iter().any(needs_walk),
+        Value::Object(map) => map.values().any(needs_walk),
+        _ => false,
+    }
+}
+
+/// `number` as a bigint, when it is an integer a JavaScript number cannot
+/// hold exactly.
+fn large_integer(number: &serde_json::Number) -> Option<JsValue> {
+    if let Some(integer) = number.as_i64() {
+        return (integer.unsigned_abs() > SAFE_INTEGER)
+            .then(|| js_sys::BigInt::from(integer).into());
+    }
+    let integer = number.as_u64()?;
+    (integer > SAFE_INTEGER).then(|| js_sys::BigInt::from(integer).into())
 }
 
 fn data_to_js(value: &Value) -> JsValue {
+    if let Value::Number(number) = value
+        && let Some(big) = large_integer(number)
+    {
+        return big;
+    }
     if let Some(number) = config_editor_leptos::float_of(value) {
         return JsValue::from_f64(number);
     }
@@ -467,4 +519,12 @@ pub(crate) fn line_ranges_to_js(ranges: impl IntoIterator<Item = (usize, usize)>
         })
         .collect();
     to_js(&ranges)
+}
+
+/// A console warning (none in native tests).
+fn warn(message: &str) {
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::warn_1(&JsValue::from_str(message));
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = message;
 }

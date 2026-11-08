@@ -1551,3 +1551,47 @@ fn a_lone_cr_breaks_lines_in_every_headless_entry() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+
+#[test]
+fn custom_tags_are_valid_yaml_read_as_the_values_under_them() {
+    let schema = build_schema(
+        r#"{"type":"object","properties":{"s":{"type":"string"},"l":{"type":"array"},"m":{"type":"object"}}}"#,
+    )
+    .unwrap();
+    let cases = [
+        ("!Sub", "s: !Sub 'arn:${AWS::Region}'\n"),
+        ("!GetAtt", "l: !GetAtt [Bucket, Arn]\n"),
+        ("!GetAtt dotted", "s: !GetAtt Bucket.Arn\n"),
+        ("!include", "m: !include\n  k: v\n"),
+        ("!secret", "s: !secret db_password\n"),
+        ("!reference", "l: !reference [.setup, script]\n"),
+        ("!Ref in a list", "l:\n  - !Ref A\n  - !Ref B\n"),
+        ("verbatim tag", "s: !<tag:example.com,2026:x> v\n"),
+        ("tag on a block map", "m: !Tag\n  a: 1\n  b: [1, 2]\n"),
+        ("tag with a comment", "s: !Sub x # note\n"),
+    ];
+    let mut failures = Vec::new();
+    for (name, text) in cases {
+        let problems = validate_yaml(text, Some(&schema), None, true);
+        if !problems.is_empty() {
+            failures.push(format!("{name}: {:?}", problems.iter().map(|p| &p.message).collect::<Vec<_>>()));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn several_documents_say_so_in_plain_words_at_the_second() {
+    for text in ["a: 1\n---\nb: 2\n", "---\na: 1\n---\nb: 2\n", "a: 1\n...\n---\nb: 2\n"] {
+        let error = YamlBehavior.parse(text).expect_err(text);
+        assert!(
+            error.message.contains("more than one YAML document")
+                && !error.message.contains("deserializ")
+                && !error.message.contains("serde"),
+            "{text:?}: {}",
+            error.message
+        );
+        let second = text.rfind("---").unwrap();
+        assert_eq!(error.line, Some(text[..second].matches('\n').count() + 1), "{text:?}");
+    }
+}

@@ -317,7 +317,7 @@ impl Schema {
     /// Syntax and schema diagnostics for `source`, as the editor shows them
     /// (the editor's own messages in English, the `strings` defaults).
     pub fn validate(&self, language: super::Language, source: &str) -> Vec<Diagnostic> {
-        validate(source, Some(&self.bundle), None, true, language.behavior())
+        headless_validate(source, Some(&self.bundle), language.behavior())
     }
 
     /// The suggestions the editor lists at `cursor` (a UTF-16 offset in
@@ -341,7 +341,8 @@ impl Schema {
         source: &str,
         cursor: usize,
     ) -> Vec<super::Suggestion> {
-        super::completion::schema_suggestions(&self.bundle, language.behavior(), source, cursor)
+        let source = super::line_breaks::as_lf(source);
+        super::completion::schema_suggestions(&self.bundle, language.behavior(), &source, cursor)
     }
 
     /// The docs the hover card shows for the key at `position` in `source`
@@ -353,7 +354,8 @@ impl Schema {
         source: &str,
         position: super::TextPosition,
     ) -> Option<super::HoverDocs> {
-        super::completion::schema_hover(&self.bundle, language.behavior(), source, position)
+        let source = super::line_breaks::as_lf(source);
+        super::completion::schema_hover(&self.bundle, language.behavior(), &source, position)
     }
 
     /// Converts `source` from one language to another, reading it as this
@@ -393,7 +395,27 @@ const MAX_QUOTED_VALUE: usize = 80;
 /// # }
 /// ```
 pub fn check_syntax(language: super::Language, source: &str) -> Vec<Diagnostic> {
-    validate(source, None, None, true, language.behavior())
+    headless_validate(source, None, language.behavior())
+}
+
+/// [`validate`] of a text from outside the editor, its line breaks read as
+/// the editor reads them (see `line_breaks`): every position is one in
+/// `source`, and a lone CR the language rejects is its problem.
+fn headless_validate(
+    source: &str,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+) -> Vec<Diagnostic> {
+    let read = super::line_breaks::as_lf(source);
+    let mut problems = validate(&read, schema, None, true, behavior);
+    if let Some(rejected) = super::line_breaks::rejected_lone_cr_problem(behavior, source) {
+        let at = problems
+            .iter()
+            .position(|problem| (problem.line, problem.column) > (rejected.line, rejected.column))
+            .unwrap_or(problems.len());
+        problems.insert(at, rejected);
+    }
+    problems
 }
 /// `diagnostics` found in `validated`, moved to where their lines are in
 /// `current`: those after the edited lines shift by the lines it added or

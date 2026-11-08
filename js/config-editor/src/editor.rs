@@ -228,14 +228,26 @@ impl ConfigEditor {
     /// replaces the document as a host update (the caret kept when the
     /// text is unchanged). `language`, `schema`, `fileName`, `className`
     /// and `secrets` are what the editor is built from: they throw (create
-    /// a new editor instead). Every key is checked before any applies.
+    /// a new editor instead), but for `language` naming the editor's own.
+    /// Every key is checked before any applies.
     pub fn update(&self, options: EditorUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(
             &options,
             "update takes an object of options: { value?, readOnly?, theme?, onChange?, … }",
         )?;
-        refuse_remount(&options, EDITOR_REMOUNT_OPTIONS, "ConfigEditor")?;
+        // The language it already has changes nothing (a framework passing
+        // all its props again).
+        let same_language = given(&options, "language")
+            .and_then(|name| name.as_string())
+            .and_then(|name| language_named(&name).ok())
+            .is_some_and(|language| language == self.state.language);
+        let remount: Vec<&str> = EDITOR_REMOUNT_OPTIONS
+            .iter()
+            .copied()
+            .filter(|key| !(same_language && *key == "language"))
+            .collect();
+        refuse_remount(&options, &remount, "ConfigEditor")?;
         warn_unknown_options(&options, EDITOR_OPTIONS);
         let value = given(&options, "value")
             .map(|value| text_arg(&value, "value"))

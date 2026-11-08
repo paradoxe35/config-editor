@@ -423,6 +423,13 @@ impl<'de> Visitor<'de> for ParsedVisitor {
         Parsed::deserialize(deserializer).map(|parsed| parsed.0)
     }
 
+    /// A tagged node (YAML `!Sub x`, `!GetAtt [a, b]`, `!include`): read as
+    /// the value under the tag, which the text keeps.
+    fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Value, A::Error> {
+        let (_tag, variant): (de::IgnoredAny, _) = data.variant()?;
+        de::VariantAccess::newtype_variant::<Parsed>(variant).map(|parsed| parsed.0)
+    }
+
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
         let mut items = Vec::new();
         while let Some(Parsed(item)) = seq.next_element()? {

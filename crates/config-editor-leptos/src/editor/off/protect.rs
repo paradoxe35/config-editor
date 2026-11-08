@@ -164,6 +164,10 @@ impl EditorState {
         Ok(())
     }
 
+    pub(super) fn save_waits(&self) -> Option<String> {
+        None
+    }
+
     pub(super) fn snap_to_tokens(&self) {}
 
     pub(super) fn recheck_tokens(&self) {}

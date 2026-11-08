@@ -349,6 +349,10 @@ pub struct EditorStrings {
     pub holds_read_only: String,
     /// A save refused because it would change a read-only value.
     pub save_refused: String,
+    /// A save waiting for the text to be valid: the language cannot say
+    /// where the read-only field at `{pointer}` is written, so its value is
+    /// checked only in a text that parses.
+    pub save_waits: String,
     /// An edit refused because it makes a text that did not parse parse
     /// with the read-only field at `{pointer}` reading otherwise than in
     /// the host's text, and why the field is read-only (`{reason}`).
@@ -589,6 +593,9 @@ impl Default for EditorStrings {
             read_only_text: text("This text is read-only"),
             holds_read_only: text("Holds a read-only field: {reason}"),
             save_refused: text("{pointer} is read-only and this change would alter it"),
+            save_waits: text(
+                "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
+            ),
             read_only_changed: text(
                 "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first",
             ),

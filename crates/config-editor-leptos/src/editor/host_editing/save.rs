@@ -12,13 +12,24 @@ impl EditorState {
     /// waiting out the typing pause first. Returns whether it was sent: not
     /// without `on_save`, and not while the text on screen cannot be written
     /// in the host's language (invalid, or holding a value it cannot, such
-    /// as a `null` for TOML): then the caret goes to the problem, whose
+    /// as a `null` for TOML), nor while it does not parse and holds a
+    /// read-only field the language cannot locate (its value cannot be
+    /// read to be checked): then the caret goes to the problem, whose
     /// message shows, and nothing is sent.
     pub(in crate::editor) fn save(&self) -> bool {
         let Some(on_save) = self.editing().on_save else {
             return false;
         };
-        match self.host_document() {
+        let document = self.host_document();
+        if document.is_some()
+            && let Some(message) = self.save_waits()
+        {
+            self.show_conversion_problem();
+            self.protect()
+                .flash(message, self.doc().caret.get_untracked());
+            return false;
+        }
+        match document {
             Some(text) => {
                 self.editing().sent.update_value(|sent| sent.note(&text));
                 on_save.run(SaveRequest {

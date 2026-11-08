@@ -17,7 +17,10 @@
 //!   it, or a second key holding it (duplicates are errors here, but a
 //!   host's parser may let the last one win).
 //! - the document does not parse afterwards and the edit, made inside a
-//!   locked block, opens a comment or string running over its lines below.
+//!   locked block, opens a comment or string running over its lines below;
+//! - the document does not parse afterwards, the language cannot say where
+//!   a locked field is written, and the lines the edit changed, tried on
+//!   the last text that parsed, change a pinned value (`spanless`).
 //!
 //! Formatting around a locked field stays free: blank lines, trailing
 //! spaces, comments after the value, and whitespace inside it (a space
@@ -39,6 +42,7 @@ mod joining;
 mod pins;
 mod repair;
 mod spacing;
+mod spanless;
 mod stretch;
 
 use std::ops::Range;
@@ -121,6 +125,8 @@ pub(crate) fn check(
         }
         pins_still_hold(edited, protected)?;
         pointed.retain(|lock| !is_pinned(protected, lock));
+    } else {
+        spanless::hunks_keep_pins(&edit)?;
     }
     if pointed.is_empty() || edit.spacing_only() {
         return Ok(());

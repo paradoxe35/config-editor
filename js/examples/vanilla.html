@@ -88,6 +88,8 @@
       saved.textContent = initial;
       // For tests: `?options={...}` adds or overrides constructor options.
       const extra = JSON.parse(new URLSearchParams(location.search).get("options") ?? "{}");
+      // The Edit-as language on screen ("" for the host's own).
+      let onScreen = "";
       const editor = new ConfigEditor(document.getElementById("editor"), {
         language: "yaml",
         value: initial,
@@ -101,7 +103,8 @@
         onEditAsChange: (language) => {
           document.body.dataset.editing = language;
           const select = document.getElementById("edit-as");
-          select.value = [...select.options].some((option) => option.value === language) ? language : "";
+          onScreen = [...select.options].some((option) => option.value === language) ? language : "";
+          select.value = onScreen;
         },
         onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
         secrets: { hint: "Keeps the stored secret" },
@@ -123,7 +126,12 @@
       // A theme given in `?options` shows as chosen.
       if (typeof extra.theme === "string") themeSelect.value = extra.theme;
       themeSelect.onchange = () => editor.update({ theme: themeSelect.value });
-      document.getElementById("edit-as").onchange = (event) => editor.update({ editAs: event.target.value || null });
+      // The select shows the language on screen: a switch that waits (the
+      // document cannot convert yet, its problem says why) shows once done.
+      document.getElementById("edit-as").onchange = (event) => {
+        editor.update({ editAs: event.target.value || null });
+        event.target.value = onScreen;
+      };
       document.getElementById("read-only").onchange = (event) => editor.update({ readOnly: event.target.checked });
       document.getElementById("replace").onclick = () => editor.update({ value: "listen: 9000\n" });
       document.getElementById("destroy").onclick = () => editor.destroy();

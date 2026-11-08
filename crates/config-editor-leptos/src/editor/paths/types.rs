@@ -42,10 +42,11 @@ impl FieldPath {
         self
     }
 
-    /// The path read from a JSON pointer.
+    /// The path read from a JSON pointer (RFC 6901): `""` is the root, and
+    /// `"/"` the key `""` under it.
     pub fn from_pointer(pointer: &str) -> Self {
         let pointer = pointer.trim();
-        if pointer.is_empty() || pointer == "/" {
+        if pointer.is_empty() {
             return FieldPath::root();
         }
         let pointer = pointer.strip_prefix('/').unwrap_or(pointer);
@@ -147,17 +148,21 @@ impl TextPosition {
     }
 
     /// The position of UTF-16 offset `offset` in `text` (a JavaScript string
-    /// index, as a textarea's `selectionStart`), clamped to the text.
+    /// index, as a textarea's `selectionStart`), clamped to the text. LF,
+    /// CRLF and a lone CR each end a line.
     pub fn from_offset(text: &str, offset: usize) -> Self {
         let mut line = 1;
         let mut column = 1;
         let mut units = 0;
-        for character in text.chars() {
+        let mut characters = text.chars().peekable();
+        while let Some(character) = characters.next() {
             if units >= offset {
                 break;
             }
             units += character.len_utf16();
-            if character == '\n' {
+            let breaks =
+                character == '\n' || (character == '\r' && characters.peek() != Some(&'\n'));
+            if breaks {
                 line += 1;
                 column = 1;
             } else {
@@ -168,9 +173,11 @@ impl TextPosition {
     }
 
     /// The UTF-16 offset of this position in `text`; a column past its line's
-    /// end is the line's end, a line past the text the text's end.
+    /// end is the line's end, a line past the text the text's end. LF, CRLF
+    /// and a lone CR each end a line.
     pub fn to_offset(self, text: &str) -> usize {
-        super::super::commands::offset_at(text, self.line, self.column)
+        // One pass up to the position, whatever ends the lines.
+        super::super::line_breaks::offset_at(text, self.line, self.column)
     }
 }
 

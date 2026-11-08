@@ -40,6 +40,25 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 );
+// Used before the module loads, the glue would fail on its first use of the
+// module's exports with an internal message (reading
+// `__wbindgen_add_to_stack_pointer` of undefined): until the load, they are
+// a stand-in that says what to do.
+{
+  const glue = join(here, 'pkg', 'config_editor.js');
+  let code = readFileSync(glue, 'utf8');
+  const patch = (from, to) => {
+    if (!code.includes(from)) throw new Error(`wasm-bindgen glue changed: ${JSON.stringify(from)} not found`);
+    code = code.split(from).join(to);
+  };
+  patch(
+    'let wasmModule, wasmInstance, wasm;',
+    'const NOT_LOADED = new Proxy({}, { get() { throw new Error("config-editor: the WebAssembly module is not loaded: await loadConfigEditor() before using the editor or the tools"); } });\n' +
+      'let wasmModule, wasmInstance, wasm = NOT_LOADED;',
+  );
+  patch('if (wasm !== undefined) return wasm;', 'if (wasm !== NOT_LOADED) return wasm;');
+  writeFileSync(glue, code);
+}
 // The public types: wasm-bindgen also declares its own internals (the start
 // hook, stream adapters) and `[Symbol.dispose]`, which needs `lib: esnext`.
 {

@@ -1119,6 +1119,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The JSON pointer of each value `source` writes with a tag (YAML
+    /// `!Sub x`, `!include`), with the tag: the data holds the value under
+    /// it, and an Edit-as save keeps each one or waits. Empty by default.
+    fn tags(&self, source: &str) -> Vec<(String, String)> {
+        let _ = source;
+        Vec::new()
+    }
+
     /// `previous` with what it writes once and reads in several places (YAML
     /// aliases and merge keys) written out in place wherever `new` gives that
     /// place a value of its own, so a save can patch the rest; `None` when

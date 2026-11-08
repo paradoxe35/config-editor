@@ -45,6 +45,7 @@ mod keys;
 pub mod language;
 mod languages;
 mod layout;
+mod line_breaks;
 mod line_endings;
 mod line_rows;
 mod live_settings;
@@ -447,6 +448,16 @@ fn moves_editor(state: EditorState, event: &web_sys::Event) -> bool {
 mod handle_tests;
 #[cfg(all(
     test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod line_breaks_tests;
+#[cfg(all(
+    test,
     feature = "yaml",
     feature = "json",
     feature = "toml",
@@ -517,6 +528,15 @@ mod save_session_tests;
     feature = "xml"
 ))]
 mod save_splice_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_tags_tests;
 #[cfg(all(
     test,
     feature = "yaml",

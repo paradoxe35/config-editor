@@ -293,7 +293,15 @@ fn debounce_validation(state: EditorState) {
 fn convert_edits(state: EditorState) {
     Effect::new(move |_| {
         let text = state.problems().diagnosed_text.get();
-        convert_now(state, text, state.sync().edit_language.get());
+        let language = state.sync().edit_language.get();
+        // A text the document no longer is (the first run, after the host
+        // replaced the text in the same task) is not an edit: converting it
+        // would send the old data under the host's new text. The pause
+        // after the new text converts that one.
+        if state.doc().text.with_untracked(|current| *current != text) {
+            return;
+        }
+        convert_now(state, text, language);
     });
     // `flush_pending_edits` converts an edit still waiting out the pause.
     let id = NEXT_EDITOR.with(|next| {

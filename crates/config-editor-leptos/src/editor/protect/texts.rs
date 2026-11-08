@@ -80,6 +80,13 @@ pub(crate) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.save_refused, &[("pointer", &place)])
 }
 
+/// A save waiting for a text that parses: the read-only value at
+/// `pointer` cannot be read in it to be checked.
+pub(crate) fn save_waits(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    fill(&strings.save_waits, &[("pointer", &place)])
+}
+
 /// A placeholder the host did not give, in a secret field.
 pub(crate) fn unknown_placeholder(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.unknown_placeholder, &[("pointer", &pointer)])
