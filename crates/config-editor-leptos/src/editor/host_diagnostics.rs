@@ -105,8 +105,10 @@ impl HostDiagnostic {
 }
 
 /// The editor's `own` problems and the host's, each problem once: where the
-/// host marks the same text (an overlapping marker on the same line), only
-/// the host's shows, as its text is what the host acts on.
+/// host marks the same text (an overlapping marker on the same line) with a
+/// problem as serious or more, only the host's shows, as its text is what
+/// the host acts on. A less serious one (a hint on a field the schema finds
+/// wrong) never hides the editor's.
 pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> {
     let overlaps = |mine: &Diagnostic| {
         let (Some(line), Some(column)) = (mine.line, mine.column) else {
@@ -121,7 +123,10 @@ pub(super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> 
                 .end_column
                 .unwrap_or(their_column + 1)
                 .max(their_column + 1);
-            their_line == line && column < their_end && their_column < end
+            their_line == line
+                && column < their_end
+                && their_column < end
+                && theirs.severity as u8 <= mine.severity as u8
         })
     };
     own.iter()

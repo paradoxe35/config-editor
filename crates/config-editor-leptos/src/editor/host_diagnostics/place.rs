@@ -155,8 +155,16 @@ fn through_field(
     range: TextRange,
     at_field: &dyn Fn(&str) -> Option<Position>,
 ) -> Option<Position> {
-    if range.start.line > text.split('\n').count() {
-        return None;
+    let line_text = text.split('\n').nth(range.start.line.saturating_sub(1))?;
+    // Starting in the line's indentation (a whole line selected from its
+    // start), it starts at the field written on that line.
+    let mut range = range;
+    let indent = line_text
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .count();
+    if range.start.column <= indent && indent < line_text.chars().count() {
+        range.start.column = indent + 1;
     }
     let path = path_at(host, text, range.start.to_offset(text))?;
     if path.is_root() {

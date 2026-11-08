@@ -8,6 +8,7 @@ use wasm_bindgen::JsCast;
 
 use super::super::changes::hides_change;
 use super::super::completion::visual_column;
+use super::super::diagnostics::Severity;
 use super::super::state::EditorState;
 use super::texts::{self, fold_label};
 use crate::reactive::KeyedList;
@@ -23,6 +24,8 @@ pub(crate) struct FoldItem {
     closed_end: Option<usize>,
     /// Closed and hiding changed lines.
     hidden_change: bool,
+    /// Closed and hiding problems: the most serious of them.
+    hidden_problem: Option<Severity>,
     /// Where the chip goes: the line's width in rendered columns, in
     /// hundredths (kept whole so the item can be a key).
     chip_column: usize,
@@ -53,11 +56,14 @@ fn fold_items(state: EditorState) -> FoldItems {
                                 Some(end) => closed_details(state, line, end),
                                 None => (false, 0),
                             };
+                            let hidden_problem =
+                                closed_end.and_then(|end| hidden_problem(state, line, end));
                             Some(FoldItem {
                                 row,
                                 line,
                                 closed_end,
                                 hidden_change,
+                                hidden_problem,
                                 chip_column,
                             })
                         })
@@ -77,6 +83,22 @@ fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) 
             .map_or(0.0, |rendered| visual_column(&rendered.text))
     });
     (changed, (width * 100.0).round() as usize)
+}
+
+/// The most serious problem starting on a line the fold `line..=end`
+/// hides (zero-based lines), shown on its chip as VS Code does.
+fn hidden_problem(state: EditorState, line: usize, end: usize) -> Option<Severity> {
+    state.problems().diagnostics.with(|problems| {
+        problems
+            .iter()
+            .filter(|problem| {
+                problem
+                    .line
+                    .is_some_and(|at| (line + 2..=end + 1).contains(&at))
+            })
+            .map(|problem| problem.severity)
+            .min_by_key(|severity| *severity as u8)
+    })
 }
 
 /// The chevrons beside the lines in view that start a fold: shown while
@@ -190,7 +212,13 @@ fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     view! {
         <button
             type="button"
-            class="config-editor__fold-chip"
+            class=match item.hidden_problem {
+                Some(severity) => format!(
+                    "config-editor__fold-chip config-editor__fold-chip--{}",
+                    severity.as_str()
+                ),
+                None => "config-editor__fold-chip".to_string(),
+            }
             data-line=line + 1
             style=format!(
                 "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height));",

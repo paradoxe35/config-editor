@@ -4,7 +4,7 @@
 
 use leptos::prelude::*;
 
-use super::super::diagnostics::{Diagnostic, MORE_PROBLEMS_CODE, Severity};
+use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, MORE_PROBLEMS_CODE, Severity};
 use super::super::state::EditorState;
 use crate::EditorStrings;
 use crate::strings::{counted, counted_as, fill};
@@ -156,7 +156,12 @@ fn summary_parts(strings: &EditorStrings, problems: &[Diagnostic]) -> Summary {
     let unplaced = counted_problems
         .iter()
         .find(|problem| problem.line.is_none());
-    let cut_note = more.then(|| fill(&strings.problems_cut, &[("count", &counted_problems.len())]));
+    // The cap cuts the editor's own problems: the host's are all listed.
+    let own = counted_problems
+        .iter()
+        .filter(|problem| problem.origin != DiagnosticOrigin::Host)
+        .count();
+    let cut_note = more.then(|| fill(&strings.problems_cut, &[("count", &own)]));
     let detail = match (unplaced, cut_note) {
         (Some(unplaced), Some(note)) => format!("{} · {note}", unplaced.message),
         (Some(unplaced), None) => unplaced.message.clone(),
@@ -193,7 +198,24 @@ mod tests {
         });
         assert_eq!(
             summary(&EditorStrings::default(), &problems),
-            "20+ errors, 1 warning · restart needed to apply · only the first 21 are shown"
+            "20+ errors, 1 warning · restart needed to apply · only the editor's first 21 are shown"
+        );
+    }
+
+    /// QA 19: the note counts the editor's own problems, the ones the cap
+    /// cut, not the host's (all listed): "770+ errors · only the first 790
+    /// are shown" while all were.
+    #[test]
+    fn the_cut_note_counts_the_editors_own_problems() {
+        let mut problems: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
+        problems.push(more_note());
+        problems.extend((0..750).map(|_| Diagnostic {
+            origin: super::super::super::diagnostics::DiagnosticOrigin::Host,
+            ..placed(Severity::Error)
+        }));
+        assert_eq!(
+            summary(&EditorStrings::default(), &problems),
+            "770+ errors · only the editor's first 20 are shown"
         );
     }
 
@@ -305,32 +327,32 @@ mod tests {
             (
                 &[(Severity::Error, 20)],
                 &[Severity::Error],
-                "20+ errors · only the first 20 are shown",
+                "20+ errors · only the editor's first 20 are shown",
             ),
             (
                 &[(Severity::Warning, 20)],
                 &[Severity::Warning],
-                "20+ warnings · only the first 20 are shown",
+                "20+ warnings · only the editor's first 20 are shown",
             ),
             (
                 &[(Severity::Error, 20), (Severity::Warning, 20)],
                 &[Severity::Error, Severity::Warning],
-                "20+ errors, 20+ warnings · only the first 40 are shown",
+                "20+ errors, 20+ warnings · only the editor's first 40 are shown",
             ),
             (
                 &[(Severity::Error, 20), (Severity::Warning, 20)],
                 &[Severity::Warning],
-                "20 errors, 20+ warnings · only the first 40 are shown",
+                "20 errors, 20+ warnings · only the editor's first 40 are shown",
             ),
             (
                 &[(Severity::Error, 20), (Severity::Warning, 20)],
                 &[Severity::Error],
-                "20+ errors, 20 warnings · only the first 40 are shown",
+                "20+ errors, 20 warnings · only the editor's first 40 are shown",
             ),
             (
                 &[(Severity::Hint, 1), (Severity::Error, 20)],
                 &[Severity::Error],
-                "20+ errors, 1 hint · only the first 21 are shown",
+                "20+ errors, 1 hint · only the editor's first 21 are shown",
             ),
         ];
         let mut failures = Vec::new();

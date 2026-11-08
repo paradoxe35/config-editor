@@ -15,18 +15,30 @@ pub(super) const MAX_DIAGNOSTICS: usize = 20;
 /// The [`Diagnostic::code`] of the note that the problem list was cut.
 pub(super) const MORE_PROBLEMS_CODE: &str = "config-editor/more-problems";
 
-/// The first [`MAX_DIAGNOSTICS`] of `diagnostics`, and when there are more,
-/// one without a position saying so (the footer shows it), so a cut list is
-/// never taken for the whole one. The note has the severity of the most
-/// serious problem it cut: the footer's count of that kind says "20+".
+/// The [`MAX_DIAGNOSTICS`] most serious of `diagnostics` (errors before
+/// warnings, each kind in the order found, kept in that order), and when
+/// there are more, one without a position saying so (the footer shows it),
+/// so a cut list is never taken for the whole one. The note has the
+/// severity of the most serious problem it cut: the footer's count of that
+/// kind says "20+".
 pub(super) fn capped(mut diagnostics: Vec<Diagnostic>, strings: &EditorStrings) -> Vec<Diagnostic> {
     if diagnostics.len() > MAX_DIAGNOSTICS {
-        let severity = diagnostics[MAX_DIAGNOSTICS..]
+        let mut order: Vec<usize> = (0..diagnostics.len()).collect();
+        order.sort_by_key(|index| diagnostics[*index].severity as u8);
+        let mut kept = vec![false; diagnostics.len()];
+        for index in &order[..MAX_DIAGNOSTICS] {
+            kept[*index] = true;
+        }
+        let severity = order[MAX_DIAGNOSTICS..]
             .iter()
-            .map(|problem| problem.severity)
+            .map(|index| diagnostics[*index].severity)
             .min_by_key(|severity| *severity as u8)
             .unwrap_or(Severity::Warning);
-        diagnostics.truncate(MAX_DIAGNOSTICS);
+        let mut index = 0;
+        diagnostics.retain(|_| {
+            index += 1;
+            kept[index - 1]
+        });
         diagnostics.push(Diagnostic {
             line: None,
             column: None,
@@ -1018,6 +1030,43 @@ mod message_tests {
                 r#"/services/web/mode: "fastest" is not one of "failover", "balance", "least_connections", "ip_hash""#
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::{Diagnostic, MAX_DIAGNOSTICS, MORE_PROBLEMS_CODE, Severity, capped};
+    use crate::EditorStrings;
+
+    /// QA 19 (H19-F4): the cap keeps the most serious problems: warnings
+    /// listed first no longer crowd the errors out.
+    #[test]
+    fn the_cap_keeps_errors_over_less_serious_problems_in_their_order() {
+        let at = |line: usize, severity: Severity| Diagnostic {
+            line: Some(line),
+            column: Some(1),
+            severity,
+            ..Diagnostic::default()
+        };
+        let mut problems: Vec<Diagnostic> =
+            (1..=25).map(|line| at(line, Severity::Warning)).collect();
+        problems.extend((26..=35).map(|line| at(line, Severity::Error)));
+        let kept = capped(problems, &EditorStrings::default());
+        let errors = kept
+            .iter()
+            .filter(|problem| problem.severity == Severity::Error && problem.line.is_some())
+            .count();
+        assert_eq!(errors, 10, "{kept:#?}");
+        let placed: Vec<usize> = kept.iter().filter_map(|problem| problem.line).collect();
+        assert_eq!(placed.len(), MAX_DIAGNOSTICS);
+        // In the order they were found.
+        assert!(
+            placed.windows(2).all(|pair| pair[0] < pair[1]),
+            "{placed:?}"
+        );
+        let note = kept.last().unwrap();
+        assert_eq!(note.code.as_deref(), Some(MORE_PROBLEMS_CODE));
+        assert_eq!(note.severity, Severity::Warning);
     }
 }
 
