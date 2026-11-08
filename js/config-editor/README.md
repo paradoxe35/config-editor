@@ -486,15 +486,18 @@ editor.update({
   marks the field it starts in (its key when it starts on the key). With
   neither, or when the field is missing, the problem shows in the footer,
   after the field's path (`/web/listen: port 80 is taken`).
-- `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`;
-  colors `error`, `warning`, `info` and `hint` in `colors`.
+- `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`,
+  written so (`"ERROR"` throws); colors `error`, `warning`, `info` and
+  `hint` in `colors`. `message` is required and not empty.
 - `F8` stops at them, the footer counts them, and the hover message adds
   `source` (default `"host"`), `code` and "Open docs ↗": a click on the
-  message opens `docsUrl` (an `http:` or `https:` URL), as `Alt+Enter`
+  message opens `docsUrl` (an `http:` or `https:` URL with a host), as `Alt+Enter`
   does with the caret on the problem; screen readers hear the code and the
   link with the problem.
 - `path` and `range` are exclusive; a range past the text's end, ending
-  before it starts, or a pointer without its leading `/` throws.
+  before it starts, `{ start }` without `end`, or a pointer without its
+  leading `/` throws. A range may give both styles (as `rangeOf` returns
+  it) when they name the same stretch.
 - The editor lists and underlines at most 20 problems of each source (the
   schema's, the secret placeholders'), and the footer says how many were
   cut ("20+ errors · only the first 20 are shown"); a problem with no place
@@ -563,7 +566,9 @@ const editor = new ConfigEditor(element, {
   tokens pasted into another field, or under a renamed key, is flagged, and
   so is a token the host did not give in a secret field. Put back into its
   own field it is real again. `placeholder` must be a regular expression
-  that matches no empty text (`.*` throws).
+  that matches no empty text (`.*` throws). An exception `isPlaceholder`
+  throws is logged, and the token is not real. `referencePrefixes` must be
+  non-empty strings.
 - A placeholder is atomic: the caret never lands inside, `Backspace` and
   `Delete` remove it whole, an edit cutting into it replaces it whole, and
   copying keeps its text. It shows as a chip (color tokens `secret-chip`,
