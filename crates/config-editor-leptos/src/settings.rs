@@ -49,9 +49,10 @@ pub struct EditorSettings {
     /// Colors overriding the theme's, by token (`bg`, `key`, `string`,
     /// `selection`, …), for a custom palette.
     pub colors: ThemeColors,
-    /// Inject the preset stylesheet. Off, style the `config-editor__*`
-    /// markup yourself (the preset is `PRESET_CSS`, `presetCss()` in
-    /// JavaScript).
+    /// Inject the preset stylesheet. Off, serve it as a file (`preset.css`
+    /// in the crate and the npm package, as a strict Content-Security-Policy
+    /// needs) or style the `config-editor__*` markup yourself (the preset is
+    /// `PRESET_CSS`, `presetCss()` in JavaScript).
     pub styled: bool,
     /// Show the built-in toolbar: the file name, its language and the
     /// schema's state.

@@ -22,6 +22,7 @@ mod plan;
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};
 
+use crate::cssom::cssom;
 use crate::reactive::KeyedList;
 use crate::{EditorSettings, PRESET_CSS, SaveRequest};
 use components::{DocumentPanel, TabStrip};
@@ -159,9 +160,7 @@ pub fn ConfigDocuments(
         move |entry: Entry| view! { <DocumentPanel documents=documents_view entry=entry /> };
     let empty = move || documents_view.entries.with(Vec::is_empty);
     let theme = Memo::new(move |_| settings.with(|settings| settings.theme));
-    let style = move || {
-        settings.with(|settings| (!settings.colors.is_empty()).then(|| settings.colors.to_style()))
-    };
+    let style = move || settings.with(|settings| settings.colors.declarations());
     let styled = Memo::new(move |_| settings.with(|settings| settings.styled));
 
     view! {
@@ -169,7 +168,7 @@ pub fn ConfigDocuments(
             class=root_class
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=style
+            style=cssom(style)
             node_ref=documents_view.root
             on:keydown=keydown
         >

@@ -9,8 +9,10 @@ use wasm_bindgen::JsCast;
 use super::super::changes::hides_change;
 use super::super::completion::visual_column;
 use super::super::diagnostics::Severity;
+use super::super::positioning::row_box;
 use super::super::state::EditorState;
 use super::texts::{self, chip_label, fold_label};
+use crate::cssom::{Declarations, cssom};
 use crate::reactive::KeyedList;
 
 /// A line in view that starts a fold range.
@@ -159,9 +161,9 @@ fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
     let strings = state.strings_signal();
     let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
     let toggle = move |_: web_sys::MouseEvent| state.toggle_fold(line);
-    let top = format!(
-        "top: calc({} * var(--config-editor-line-height));",
-        item.row
+    let top = Declarations::new().set(
+        "top",
+        format!("calc({} * var(--config-editor-line-height))", item.row),
     );
     view! {
         <button
@@ -169,7 +171,7 @@ fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
             class="config-editor__fold-toggle"
             class:config-editor__fold-toggle-closed=closed
             data-line=line + 1
-            style=top.clone()
+            style=cssom(top.clone())
             tabindex="-1"
             aria-label=label
             aria-expanded=(!closed).to_string()
@@ -178,7 +180,7 @@ fn FoldToggle(state: EditorState, item: FoldItem) -> impl IntoView {
             on:click=toggle
         ></button>
         {item.hidden_change.then(|| view! {
-            <span class="config-editor__fold-changes" data-line=line + 1 style=top title=state.text(|strings| &strings.folded_changes)></span>
+            <span class="config-editor__fold-changes" data-line=line + 1 style=cssom(top) title=state.text(|strings| &strings.folded_changes)></span>
         })}
     }
 }
@@ -219,11 +221,7 @@ fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
             class:config-editor__fold-chip--info=hidden == Some(Severity::Info)
             class:config-editor__fold-chip--hint=hidden == Some(Severity::Hint)
             data-line=line + 1
-            style=format!(
-                "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height));",
-                item.chip_column as f64 / 100.0 + 1.0,
-                item.row,
-            )
+            style=cssom(row_box(item.chip_column as f64 / 100.0 + 1.0, item.row, None))
             tabindex="-1"
             aria-label=label
             title=label

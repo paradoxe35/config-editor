@@ -54,6 +54,7 @@ method and headless function here has a JS option, method or function there
   - [Describing syntax as data](#describing-syntax-as-data)
   - [Optional refinements](#optional-refinements)
 - [Themes and colors](#themes-and-colors)
+- [Strict Content-Security-Policy](#strict-content-security-policy)
 - [Cargo features](#cargo-features)
   - [Without a feature](#without-a-feature)
   - [Size](#size)
@@ -103,7 +104,9 @@ fn Config() -> impl IntoView {
 }
 ```
 
-The editor injects its stylesheet ([`PRESET_CSS`]) by default.
+The editor injects its stylesheet ([`PRESET_CSS`]) by default; under a
+strict Content-Security-Policy, serve it as a file instead (see
+[Strict Content-Security-Policy](#strict-content-security-policy)).
 
 ## `<ConfigEditor>` props
 
@@ -175,7 +178,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 | -------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `theme`                    | `EditorTheme::VsCodeDark` | The bundled color theme.                                                                                                                                                                                                                                                           |
 | `colors`                   | none                      | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                             |
-| `styled`                   | `true`                    | Inject the preset stylesheet. Off, style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                                                                                                                                         |
+| `styled`                   | `true`                    | Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                        |
 | `show_toolbar`             | `false`                   | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                     |
 | `show_footer`              | `false`                   | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                              |
 | `show_diagnostics`         | `true`                    | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                      |
@@ -1459,6 +1462,31 @@ and the rest inside it (the demo's page does). The `config-editor` class is
 the editor's own: on a wrapper it would also style the wrapper as one.
 
 </details>
+
+## Strict Content-Security-Policy
+
+The editor runs under a policy without `'unsafe-inline'`:
+
+```text
+Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self' 'wasm-unsafe-eval'
+```
+
+- Set `styled: false` (`EditorSettings { styled: false, .. }`, and the same
+  on `ConfigDocuments`): the injected `<style>` is inline, so the policy
+  refuses it.
+- Serve the preset as a file instead: the crate ships it as `preset.css`,
+  one file with the base styles, every theme and the tabs of
+  `ConfigDocuments` (byte for byte [`PRESET_CSS`]; copy it from the crate's
+  folder, or write `PRESET_CSS` to a file in your build), and link it:
+  `<link rel="stylesheet" href="/preset.css">`. Themes and `colors` then
+  switch as they do with the injected stylesheet.
+- `'wasm-unsafe-eval'` lets the page compile WebAssembly; nothing else in
+  the editor evaluates code.
+
+Everything else holds as it is: the editor sets positions, sizes and
+`colors` through the CSSOM (`style.setProperty`), which the policy allows,
+never as `style` attributes, and its icons are inline SVG, not `data:`
+images. An end-to-end test runs every feature under this policy.
 
 ## Cargo features
 

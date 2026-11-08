@@ -48,6 +48,11 @@ WebAssembly.
 - A path API to jump to a field and follow the caret for a breadcrumb.
 - Eleven themes, per-token colour overrides, and every built-in text
   replaceable (`strings`) for translations.
+- Runs under a strict Content-Security-Policy (`style-src 'self'`, no
+  `'unsafe-inline'`): with `styled: false` and the preset served as a file
+  (`preset.css` in the crate, `@pngwasi/config-editor/preset.css` in npm),
+  nothing inline is needed; inline styles go through the CSSOM and icons are
+  inline SVG.
 - A headless API (parse, serialize, convert, validate, diff, positions) for
   servers and build steps, in Rust and in `@pngwasi/config-editor/tools`.
 - Optional Cargo features (each language, schema validation, search, diff,

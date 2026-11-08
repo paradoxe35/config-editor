@@ -4,13 +4,14 @@ use leptos::prelude::*;
 
 use super::super::completion::{ChoiceHover, HoverValue, KeyHover};
 use super::super::state::EditorState;
+use crate::cssom::cssom;
 
 /// A hover card being shown: what it documents and where.
 #[derive(Clone, PartialEq)]
 pub(crate) struct HoverCard {
     pub(crate) info: KeyHover,
     pub(crate) line: usize,
-    pub(crate) style: String,
+    pub(crate) style: crate::cssom::Declarations,
 }
 
 #[component]
@@ -32,7 +33,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class="config-editor__hover"
                         class:config-editor__hover--interactive=interactive
                         role="tooltip"
-                        style=card.style
+                        style=cssom(card.style)
                         on:mouseenter=move |_| state.hover().card_entered.set_value(true)
                         on:mouseleave=move |_| leave_card(state)
                         // Clicking the link keeps the caret (and the card).

@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use config_editor_leptos::{EditorSettings, EditorStrings, EditorTheme, ThemeColor};
+use config_editor_leptos::{EditorSettings, EditorStrings, EditorTheme, PRESET_CSS, ThemeColor};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -448,6 +448,13 @@ fn generated_settings_are_up_to_date() {
     let mut generated = vec![
         ("js/config-editor/src/settings.d.ts", typescript()),
         ("js/config-editor/setting-types.js", setting_types()),
+        // The preset as files, for hosts that serve it themselves (a strict
+        // Content-Security-Policy refuses the injected `<style>`).
+        (
+            "crates/config-editor-leptos/preset.css",
+            PRESET_CSS.to_string(),
+        ),
+        ("js/config-editor/preset.css", PRESET_CSS.to_string()),
     ];
     for (path, rust) in [
         ("crates/config-editor-leptos/README.md", true),

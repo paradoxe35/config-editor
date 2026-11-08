@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 
 /// Font size in pixels when computed style is unavailable; matches
-/// `--config-editor-font-size` in `preset.css`.
+/// `--config-editor-font-size` in `css/base.css`.
 pub(super) const FALLBACK_FONT_SIZE: f64 = 12.0;
 
-/// Line-height multiplier fallback; matches the `font` shorthand in `preset.css`.
+/// Line-height multiplier fallback; matches the `font` shorthand in `css/base.css`.
 pub(super) const FALLBACK_LINE_HEIGHT_FACTOR: f64 = 1.8;
 
 #[derive(Clone, Copy, Debug)]

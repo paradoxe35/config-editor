@@ -1,6 +1,7 @@
 //! The gutter's line diff against the baseline, with the change previews
 //! it opens and where they show.
 
+use crate::cssom::Declarations;
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -137,7 +138,7 @@ pub(in crate::editor) struct PeekViewport {
 }
 
 /// Change-preview header height, in pixels: the sticky header and one row
-/// of side headings (`h3` in `preset.css`).
+/// of side headings (`h3` in `css/base.css`).
 pub(in crate::editor) const PEEK_HEADER_HEIGHT: f64 = 72.0;
 
 /// A side heading's height (`Before`, `Current`), in pixels: a second one
@@ -157,7 +158,7 @@ pub(in crate::editor) const PEEK_MAX_HEIGHT: f64 = 360.0;
 /// Change-preview height cap as a fraction of the viewport height.
 pub(in crate::editor) const PEEK_MAX_HEIGHT_VIEWPORT_FRACTION: f64 = 0.55;
 
-/// Change-preview minimum width, in pixels; mirrors `preset.css`.
+/// Change-preview minimum width, in pixels; mirrors `css/base.css`.
 pub(in crate::editor) const PEEK_MIN_WIDTH: f64 = 180.0;
 
 /// Change-preview preferred width, in pixels: two `minmax(240px, 1fr)`
@@ -176,7 +177,7 @@ pub(in crate::editor) fn peek_geometry(
     line: usize,
     old_line_count: usize,
     new_line_count: usize,
-) -> String {
+) -> Declarations {
     let margin = POPUP_MARGIN;
     let anchor_y = viewport.editor_top
         + metrics.padding_top
@@ -187,7 +188,7 @@ pub(in crate::editor) fn peek_geometry(
     let area_bottom = viewport.editor_bottom.min(viewport.viewport_height) - margin;
     // Its line scrolled out of view: hide it rather than pin it to an edge.
     if anchor_y + metrics.line_height < area_top - margin || anchor_y > area_bottom + margin {
-        return "visibility:hidden".to_string();
+        return Declarations::new().set("visibility", "hidden");
     }
     let left_in_viewport = (viewport.editor_left + PEEK_GUTTER_NUDGE).clamp(
         margin,
@@ -212,18 +213,18 @@ pub(in crate::editor) fn peek_geometry(
     let left = left_in_viewport - viewport.root_left;
     if place_below {
         let top = anchor_y + metrics.line_height + POPUP_GAP;
-        format!(
-            "top:{:.1}px;left:{left:.1}px;width:{width:.1}px;max-height:{:.1}px",
-            top - viewport.root_top,
-            space_below.min(cap),
-        )
+        Declarations::new()
+            .set("top", format!("{:.1}px", top - viewport.root_top))
+            .set("left", format!("{left:.1}px"))
+            .set("width", format!("{width:.1}px"))
+            .set("max-height", format!("{:.1}px", space_below.min(cap)))
     } else {
         let bottom = anchor_y - POPUP_GAP;
-        format!(
-            "bottom:{:.1}px;left:{left:.1}px;width:{width:.1}px;max-height:{:.1}px",
-            viewport.root_bottom - bottom,
-            space_above.min(cap),
-        )
+        Declarations::new()
+            .set("bottom", format!("{:.1}px", viewport.root_bottom - bottom))
+            .set("left", format!("{left:.1}px"))
+            .set("width", format!("{width:.1}px"))
+            .set("max-height", format!("{:.1}px", space_above.min(cap)))
     }
 }
 
@@ -236,7 +237,7 @@ pub(in crate::editor) fn peek_popup_style(
     line: usize,
     old_line_count: usize,
     new_line_count: usize,
-) -> String {
+) -> Declarations {
     let editor_rect = frame.bounds(&editor.get_bounding_client_rect());
     let root_rect = frame.bounds(&root.get_bounding_client_rect());
     let element: &web_sys::Element = editor.unchecked_ref();
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn peek_sizing_constants_match_the_preset_stylesheet() {
-        // `preset.css` sources: `.config-editor__diff-peek` min-width,
+        // `css/base.css` sources: `.config-editor__diff-peek` min-width,
         // `.config-editor__diff-peek-columns` minmax(240px, 1fr),
         // `.config-editor__diff-peek-line` 22px rows, and the sticky header.
         assert_eq!(PEEK_MIN_WIDTH, 180.0);
@@ -490,7 +491,8 @@ mod tests {
 
     #[test]
     fn peek_geometry_places_the_popup_below_the_line_when_space_allows() {
-        let style = peek_geometry(&test_viewport(), &EditorMetrics::fallback(), 2, 1, 1);
+        let style =
+            peek_geometry(&test_viewport(), &EditorMetrics::fallback(), 2, 1, 1).to_string();
         // Anchor is at editor_top + one line height; the popup sits below it
         // and the style is relative to the root element.
         assert!(style.starts_with("top:67.2px;"), "{style}");
@@ -506,7 +508,7 @@ mod tests {
         viewport.root_top = 0.0;
         viewport.root_bottom = 200.0;
         let metrics = EditorMetrics::fallback();
-        let style = peek_geometry(&viewport, &metrics, 5, 1, 1);
+        let style = peek_geometry(&viewport, &metrics, 5, 1, 1).to_string();
         // Anchor near the bottom of a short viewport: popup goes above it,
         // its bottom just over the line, and stays inside the viewport margin.
         let bottom = viewport.root_bottom - style_number(&style, "bottom:");
@@ -542,7 +544,7 @@ mod tests {
             root_bottom: 700.0,
             root_left: 0.0,
         };
-        let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 2, 1, 1);
+        let style = peek_geometry(&viewport, &EditorMetrics::fallback(), 2, 1, 1).to_string();
         let content = PEEK_HEADER_HEIGHT + PEEK_SIDE_HEADING_HEIGHT + 2.0 * PEEK_LINE_HEIGHT;
         assert!(style_number(&style, "max-height:") >= content, "{style}");
     }
@@ -554,7 +556,8 @@ mod tests {
         // A large change near the area's bottom edge, and one near its top:
         // the preview, at its tallest, stays between the two.
         for line in [8, 2] {
-            let style = peek_geometry(&viewport, &EditorMetrics::fallback(), line, 6, 6);
+            let style =
+                peek_geometry(&viewport, &EditorMetrics::fallback(), line, 6, 6).to_string();
             let height = style_number(&style, "max-height:");
             let (top, bottom) = if style.starts_with("top:") {
                 let top = viewport.root_top + style_number(&style, "top:");

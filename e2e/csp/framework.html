@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>config-editor under a strict CSP (framework binding)</title>
+    <!-- No inline scripts or styles; `?framework=react|vue|svelte` picks the
+         bundle (js/examples/csp-*.ts, built by `make packages`). -->
+    <link rel="stylesheet" href="/js/config-editor/preset.css" />
+    <link rel="stylesheet" href="/e2e/csp/page.css" />
+    <script type="module" src="/e2e/csp/framework.js"></script>
+  </head>
+  <body>
+    <div id="editor"></div>
+  </body>
+</html>

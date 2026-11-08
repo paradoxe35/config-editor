@@ -10,6 +10,7 @@ use super::super::hunk_for_peek;
 use super::super::keys::go_to_change;
 use super::super::line_diff::{DiffPeek, peek_popup_style, peek_survives_edit};
 use crate::EditorStrings;
+use crate::cssom::{Declarations, cssom};
 use crate::reactive::Relay;
 use crate::strings::fill;
 use std::ops::Range;
@@ -36,18 +37,18 @@ pub(in crate::editor) fn DiffPeekPopup(state: EditorState) -> impl IntoView {
 #[derive(Clone, Copy)]
 struct PeekFollows {
     /// Its position (see [`peek_style`]).
-    style: Relay<String>,
+    style: Relay<Declarations>,
     read_only: Relay<bool>,
 }
 
 /// Where the open preview goes, under its line; re-measured as the text
 /// scrolls or the layout changes.
-fn peek_style(state: EditorState) -> String {
+fn peek_style(state: EditorState) -> Declarations {
     let Some((line, old_count, new_count)) = state.changes().peek.with(|peek| {
         peek.as_ref()
             .map(|peek| (peek.line, peek.before.len(), peek.after.len()))
     }) else {
-        return String::new();
+        return Declarations::new();
     };
     state.view().layout_revision.track();
     state.view().scroll_y.track();
@@ -67,7 +68,7 @@ fn peek_style(state: EditorState) -> String {
                 new_count,
             )
         }
-        _ => "visibility:hidden".to_string(),
+        _ => Declarations::new().set("visibility", "hidden"),
     }
 }
 
@@ -194,7 +195,7 @@ fn Peek(state: EditorState, follows: PeekFollows, peek: DiffPeek) -> impl IntoVi
             class="config-editor__diff-peek"
             role="dialog"
             aria-label=dialog_label
-            style=style
+            style=cssom(style)
             on:keydown=keydown
         >
             <header class="config-editor__diff-peek-header">

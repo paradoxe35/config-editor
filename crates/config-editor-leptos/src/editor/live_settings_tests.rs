@@ -132,15 +132,15 @@ fn theme_and_colors_follow_the_signal() {
     let (_owner, state) = editor(settings);
     let live = state.config().settings;
     assert_eq!(live.theme.get_untracked(), EditorTheme::VsCodeDark);
-    assert_eq!(live.color_style(), None);
+    assert_eq!(live.color_style().to_string(), "");
     settings.update(|settings| {
         settings.theme = EditorTheme::Nord;
         settings.colors = ThemeColors::new().set(ThemeColor::Key, "#123456");
     });
     assert_eq!(live.theme.get_untracked(), EditorTheme::Nord);
     assert_eq!(
-        live.color_style().as_deref(),
-        Some("--config-editor-key: #123456;")
+        live.color_style().to_string(),
+        "--config-editor-key:#123456"
     );
 }
 

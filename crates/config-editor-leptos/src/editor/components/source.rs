@@ -13,9 +13,9 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
     view! {
         <textarea
             class="config-editor__input"
-            style=move || {
+            style:--config-editor-content-height=move || {
                 format!(
-                    "--config-editor-content-height: calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height));",
+                    "calc(var(--config-editor-padding-top) + var(--config-editor-padding-bottom) + {} * var(--config-editor-line-height))",
                     state.view().projection.with(|projection| projection.rows()),
                 )
             }

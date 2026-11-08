@@ -7,8 +7,10 @@ use std::ops::Range;
 use leptos::prelude::*;
 
 use super::super::super::completion::visual_column;
+use super::super::super::positioning::row_box;
 use super::super::super::state::EditorState;
 use super::super::SearchMatch;
+use crate::cssom::cssom;
 
 /// Most boxes drawn at once (a minified line can hold thousands of matches).
 const MAX_BOXES: usize = 1_000;
@@ -41,12 +43,7 @@ fn match_box(found: MatchBox) -> impl IntoView {
         <span
             class="config-editor__search-match"
             class:config-editor__search-match-current=found.current
-            style=format!(
-                "left: {}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
-                found.left,
-                found.row,
-                found.width,
-            )
+            style=cssom(row_box(found.left, found.row, Some(found.width)))
         ></span>
     }
 }

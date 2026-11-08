@@ -4,6 +4,7 @@ use leptos::prelude::*;
 
 use super::super::completion::{Completion, completion_popup_style};
 use super::super::state::EditorState;
+use crate::cssom::{Declarations, cssom};
 use crate::reactive::Relay;
 
 #[component]
@@ -19,7 +20,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
             id=state.a11y().suggestions_id()
             aria-label=state.language_text(|strings| &strings.suggestions_label)
             node_ref=state.view().completion_ref
-            style=move || {
+            style=cssom(move || {
                 state.view().layout_revision.get();
                 state.view().scroll_x.get();
                 state.view().scroll_y.get();
@@ -27,7 +28,7 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                 // list hidden forces no layout.
                 let count = state.completion().suggestions.with(Vec::len);
                 if count == 0 {
-                    return "visibility:hidden".to_string();
+                    return hidden();
                 }
                 state
                     .view().textarea_ref
@@ -37,8 +38,8 @@ pub(crate) fn CompletionList(state: EditorState) -> impl IntoView {
                             completion_popup_style(state, &editor, projection, &state.doc().text.get(), state.doc().caret.get(), count)
                         })
                     })
-                    .unwrap_or_else(|| "visibility:hidden".to_string())
-            }
+                    .unwrap_or_else(hidden)
+            })
         >
             {move || {
                 let active = active.read();
@@ -121,4 +122,9 @@ fn hover_selects(state: EditorState, index: usize, event: &web_sys::MouseEvent) 
     if moved && state.completion().active.get_untracked() != index {
         state.completion().active.set(index);
     }
+}
+
+/// The list's style while it has nothing to show.
+fn hidden() -> Declarations {
+    Declarations::new().set("visibility", "hidden")
 }

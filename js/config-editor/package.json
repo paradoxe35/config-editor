@@ -19,7 +19,8 @@
       "types": "./binding.d.ts",
       "default": "./binding.js"
     },
-    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm"
+    "./config_editor_bg.wasm": "./pkg/config_editor_bg.wasm",
+    "./preset.css": "./preset.css"
   },
   "files": [
     "index.js",
@@ -32,6 +33,7 @@
     "load.d.ts",
     "sync.js",
     "setting-types.js",
+    "preset.css",
     "pkg/config_editor.js",
     "pkg/config_editor.d.ts",
     "pkg/config_editor_bg.wasm",

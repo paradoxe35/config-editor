@@ -1,4 +1,5 @@
 use super::super::theme::{EditorTheme, ThemeColors};
+use crate::cssom::cssom;
 use leptos::prelude::*;
 
 /// Toolbar container styled to match the editor.
@@ -19,7 +20,7 @@ pub fn ConfigEditorToolbar(
             class=format!("config-editor config-editor__toolbar {}", class.unwrap_or_default())
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=move || colors.get().map(|colors| colors.to_style())
+            style=cssom(move || colors.with(|colors| colors.as_ref().map(ThemeColors::declarations)))
         >
             {children()}
         </div>
@@ -44,7 +45,7 @@ pub fn ConfigEditorFooter(
             class=format!("config-editor config-editor__status {}", class.unwrap_or_default())
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=move || colors.get().map(|colors| colors.to_style())
+            style=cssom(move || colors.with(|colors| colors.as_ref().map(ThemeColors::declarations)))
         >
             {children()}
         </div>

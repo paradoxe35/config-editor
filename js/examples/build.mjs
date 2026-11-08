@@ -29,12 +29,12 @@ const svelte = {
 await Promise.all([
   build({
     ...common,
-    entryPoints: ['react.tsx', 'load-retry.ts', 'documents-react.tsx'].map((name) => join(here, name)),
+    entryPoints: ['react.tsx', 'load-retry.ts', 'documents-react.tsx', 'csp-react.tsx'].map((name) => join(here, name)),
     jsx: 'automatic',
   }),
   build({
     ...common,
-    entryPoints: ['vue.ts', 'documents-vue.ts'].map((name) => join(here, name)),
+    entryPoints: ['vue.ts', 'documents-vue.ts', 'csp-vue.ts'].map((name) => join(here, name)),
     alias: { vue: require.resolve('vue/dist/vue.esm-bundler.js') },
     define: {
       'process.env.NODE_ENV': '"development"',
@@ -45,7 +45,7 @@ await Promise.all([
   }),
   build({
     ...common,
-    entryPoints: ['svelte.ts', 'documents-svelte.ts'].map((name) => join(here, name)),
+    entryPoints: ['svelte.ts', 'documents-svelte.ts', 'csp-svelte.ts'].map((name) => join(here, name)),
     conditions: ['svelte', 'development', 'browser'],
     plugins: [svelte],
   }),

@@ -8,7 +8,7 @@
 //! in the status line's `data-*` attributes, for the e2e tests.
 
 use config_editor_leptos::{
-    CloseRequest, ConfigDocuments, Document, DocumentsHandle, EditorSettings, Language, SaveRequest,
+    CloseRequest, ConfigDocuments, Document, DocumentsHandle, Language, SaveRequest,
 };
 use leptos::prelude::*;
 
@@ -103,10 +103,7 @@ pub fn view(many: bool) -> impl IntoView {
     // A dirty document the user asked to close, waiting for "Discard".
     let asking = RwSignal::new(None::<String>);
     let added = RwSignal::new(0usize);
-    let settings = RwSignal::new(EditorSettings {
-        show_footer: true,
-        ..EditorSettings::default()
-    });
+    let settings = RwSignal::new(crate::initial_settings(&crate::query_flags()));
 
     let changed = move |(id, text): (String, String)| {
         with_document(documents, &id, |document| document.value = text);

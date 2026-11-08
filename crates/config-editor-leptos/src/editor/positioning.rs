@@ -1,6 +1,7 @@
 use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
 use super::state::EditorState;
+use crate::cssom::Declarations;
 use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -19,11 +20,11 @@ pub(super) const POPUP_GAP: f64 = 4.0;
 pub(super) const FALLBACK_VIEWPORT_WIDTH: f64 = 1024.0;
 pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
 
-/// Matches `max-width` on `.config-editor__hover` in `preset.css`.
+/// Matches `max-width` on `.config-editor__hover` in `css/base.css`.
 pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 
 /// Card height assumed when deciding to flip above the line; matches the
-/// editor `min-height` in `preset.css`.
+/// editor `min-height` in `css/base.css`.
 pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
 
 /// Side of the square probe [`PopupFrame`] is measured from, in pixels.
@@ -31,9 +32,18 @@ const FRAME_PROBE_SIZE: f64 = 100.0;
 
 /// Inline style of the probe [`PopupFrame`] is measured from: a fixed,
 /// invisible square at the popups' origin (inline, so it holds without the
-/// preset stylesheet too).
-pub(super) const FRAME_PROBE_STYLE: &str =
-    "position:fixed;left:0;top:0;width:100px;height:100px;visibility:hidden;pointer-events:none";
+/// preset stylesheet too; set through the CSSOM, so a strict CSP allows it).
+pub(super) fn frame_probe_style() -> Declarations {
+    let side = format!("{FRAME_PROBE_SIZE}px");
+    Declarations::new()
+        .set("position", "fixed")
+        .set("left", "0")
+        .set("top", "0")
+        .set("width", side.clone())
+        .set("height", side)
+        .set("visibility", "hidden")
+        .set("pointer-events", "none")
+}
 
 /// A box, in [`PopupFrame`] pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,7 +185,7 @@ pub(super) fn pointer_text_position(element: &SourceArea, x: f64, y: f64) -> (us
 
 /// Fixed-position style for the hover card; flips above the line when space
 /// below is short.
-pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> String {
+pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> Declarations {
     let target: &web_sys::Element = element.element().unchecked_ref();
     let line = element.row_of_line(line);
     let frame = PopupFrame::measure(element.state());
@@ -197,7 +207,7 @@ pub(super) fn hover_card_geometry(
     x: f64,
     line_top: f64,
     line_height: f64,
-) -> String {
+) -> Declarations {
     let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
     // At most the window's width, so narrow screens do not clip the text.
     let width = HOVER_CARD_MAX_WIDTH.min(viewport_width - 2.0 * POPUP_MARGIN);
@@ -209,16 +219,23 @@ pub(super) fn hover_card_geometry(
     let room_below = rect.bottom.min(viewport_height) - (line_top + line_height);
     let room_above = line_top - rect.top.max(0.0);
     let left = frame.left(left);
-    if room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below {
-        format!(
-            "left:{left:.1}px;top:{:.1}px;max-width:{width:.1}px;transform:translateY(calc(-100% - {POPUP_GAP}px))",
-            frame.top(line_top)
+    let above = room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below;
+    let top = if above {
+        frame.top(line_top)
+    } else {
+        frame.top(line_top + line_height + POPUP_GAP)
+    };
+    let style = Declarations::new()
+        .set("left", format!("{left:.1}px"))
+        .set("top", format!("{top:.1}px"))
+        .set("max-width", format!("{width:.1}px"));
+    if above {
+        style.set(
+            "transform",
+            format!("translateY(calc(-100% - {POPUP_GAP}px))"),
         )
     } else {
-        format!(
-            "left:{left:.1}px;top:{:.1}px;max-width:{width:.1}px",
-            frame.top(line_top + line_height + POPUP_GAP)
-        )
+        style
     }
 }
 
@@ -308,6 +325,25 @@ pub(super) fn schedule_hover(state: EditorState, callback: impl FnOnce(EditorSta
     later::after(state, HOVER_DELAY_MS, callback);
 }
 
+/// The box of an overlay on a code row (a problem's underline, a match, a
+/// fold chip): `left` and `width` in columns (`ch`), its row's `top`.
+pub(super) fn row_box(
+    left: impl std::fmt::Display,
+    row: usize,
+    width: Option<f64>,
+) -> Declarations {
+    let style = Declarations::new().set("left", format!("{left}ch")).set(
+        "top",
+        format!(
+            "calc(var(--config-editor-padding-top) + {row} * var(--config-editor-line-height))"
+        ),
+    );
+    match width {
+        Some(width) => style.set("width", format!("{width}ch")),
+        None => style,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,7 +405,8 @@ mod tests {
                 right: frame.viewport_width,
                 bottom: frame.viewport_height,
             };
-            let style = hover_card_geometry(&frame, rect, frame.viewport_width - 10.0, 20.0, 20.0);
+            let style = hover_card_geometry(&frame, rect, frame.viewport_width - 10.0, 20.0, 20.0)
+                .to_string();
             let number = |key: &str| -> f64 {
                 let from = style.find(key).unwrap() + key.len();
                 style[from..].split("px").next().unwrap().parse().unwrap()

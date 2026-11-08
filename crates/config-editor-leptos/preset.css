@@ -343,9 +343,17 @@
   left: calc(var(--config-editor-marker-column) - 20px);
   width: 9px;
   height: 10px;
-  background: var(--config-editor-locked);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 18'%3E%3Cpath d='M3 8V5a5 5 0 0 1 10 0v3h1.5v10h-13V8zm2.5 0h5V5a2.5 2.5 0 0 0-5 0z'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 18'%3E%3Cpath d='M3 8V5a5 5 0 0 1 10 0v3h1.5v10h-13V8zm2.5 0h5V5a2.5 2.5 0 0 0-5 0z'/%3E%3C/svg%3E") center / contain no-repeat;
+  color: var(--config-editor-locked);
+}
+
+/* The lock's and the key's icons: inline SVG (a strict CSP refuses
+   `data:` images). */
+.config-editor__lock-marker svg,
+.config-editor__secret-marker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
 }
 
 /* A line with a secret placeholder: a key before the number. */
@@ -355,9 +363,7 @@
   left: calc(var(--config-editor-marker-column) - 20px);
   width: 10px;
   height: 10px;
-  background: var(--config-editor-secret-chip-border);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 2a4 4 0 0 1 3.9 4.9L16 14v2h-3v-2h-2v-2H9.4L7 9.6A4 4 0 1 1 5 2zm-.5 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 2a4 4 0 0 1 3.9 4.9L16 14v2h-3v-2h-2v-2H9.4L7 9.6A4 4 0 1 1 5 2zm-.5 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z'/%3E%3C/svg%3E") center / contain no-repeat;
+  color: var(--config-editor-secret-chip-border);
 }
 
 /* A secret placeholder: a chip, drawn without changing the text's width
@@ -1690,4 +1696,412 @@
   .config-editor__diff-deleted::before {
     transition: none;
   }
+}
+:where(.config-editor[data-color-theme="dracula"], .config-editor-documents[data-color-theme="dracula"], .config-editor-theme[data-color-theme="dracula"]) {
+  --config-editor-bg: #282a36;
+  --config-editor-panel: #21222c;
+  --config-editor-border: #44475a;
+  --config-editor-text: #f8f8f2;
+  --config-editor-muted: #8b91a8;
+  --config-editor-accent: #bd93f9;
+  --config-editor-error: #ff5555;
+  --config-editor-toolbar-text: #f8f8f2;
+  --config-editor-line-active: #f8f8f2;
+  --config-editor-added: #50fa7b;
+  --config-editor-modified: #8be9fd;
+  --config-editor-raised: #343746;
+  --config-editor-raised-border: #50546a;
+  --config-editor-raised-text: #f8f8f2;
+  --config-editor-raised-muted: #b6bbd1;
+  --config-editor-raised-hover: #44475a;
+  --config-editor-control-bg: #343746;
+  --config-editor-control-text: #f8f8f2;
+  --config-editor-completion-active: #44475a;
+  --config-editor-comment: #9297ab;
+  --config-editor-key: #8be9fd;
+  --config-editor-punctuation: #f8f8f2;
+  --config-editor-string: #f1fa8c;
+  --config-editor-literal: #bd93f9;
+  --config-editor-value: #f1fa8c;
+  --config-editor-active-line: rgb(255 255 255 / 5%);
+  --config-editor-error-line: rgb(255 85 85 / 8%);
+  --config-editor-added-line: rgb(80 250 123 / 8%);
+  --config-editor-modified-line: rgb(139 233 253 / 8%);
+  --config-editor-selection: rgb(98 114 164 / 40%);
+  --config-editor-caret: #f8f8f2;
+}
+
+:where(.config-editor[data-color-theme="nord"], .config-editor-documents[data-color-theme="nord"], .config-editor-theme[data-color-theme="nord"]) {
+  /* The footer's counts, readable (4.5:1) on its panel. */
+  --config-editor-status-error: #f4a3a9;
+  --config-editor-status-warning: #ebcb8b;
+  --config-editor-status-info: #88c0d0;
+  --config-editor-status-hint: #b0bacb;
+  --config-editor-bg: #2e3440;
+  --config-editor-panel: #3b4252;
+  --config-editor-border: #434c5e;
+  --config-editor-text: #d8dee9;
+  --config-editor-muted: #8792aa;
+  --config-editor-accent: #88c0d0;
+  --config-editor-error: #bf616a;
+  --config-editor-toolbar-text: #e5e9f0;
+  --config-editor-line-active: #eceff4;
+  --config-editor-added: #a3be8c;
+  --config-editor-modified: #88c0d0;
+  --config-editor-raised: #3b4252;
+  --config-editor-raised-border: #4c566a;
+  --config-editor-raised-text: #e5e9f0;
+  --config-editor-raised-muted: #b0bacb;
+  --config-editor-raised-hover: #434c5e;
+  --config-editor-control-bg: #3b4252;
+  --config-editor-control-text: #e5e9f0;
+  --config-editor-completion-active: #434c5e;
+  --config-editor-comment: #9aa8bd;
+  --config-editor-key: #88c0d0;
+  --config-editor-punctuation: #d8dee9;
+  --config-editor-string: #a3be8c;
+  --config-editor-literal: #bc96b5;
+  --config-editor-value: #a3be8c;
+  --config-editor-active-line: rgb(255 255 255 / 5%);
+  --config-editor-error-line: rgb(191 97 106 / 8%);
+  --config-editor-added-line: rgb(163 190 140 / 8%);
+  --config-editor-modified-line: rgb(136 192 208 / 8%);
+  --config-editor-selection: rgb(94 129 172 / 40%);
+  --config-editor-caret: #eceff4;
+}
+
+:where(.config-editor[data-color-theme="github-light"], .config-editor-documents[data-color-theme="github-light"], .config-editor-theme[data-color-theme="github-light"]) {
+  --config-editor-status-error: #cf222e;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
+  --config-editor-bg: #ffffff;
+  --config-editor-panel: #f6f8fa;
+  --config-editor-border: #d0d7de;
+  --config-editor-text: #1f2328;
+  --config-editor-muted: #59636e;
+  --config-editor-accent: #0969da;
+  --config-editor-error: #cf222e;
+  --config-editor-toolbar-text: #1f2328;
+  --config-editor-line-active: #1f2328;
+  --config-editor-added: #1a7f37;
+  --config-editor-modified: #0969da;
+  --config-editor-raised: #ffffff;
+  --config-editor-raised-border: #d0d7de;
+  --config-editor-raised-text: #1f2328;
+  --config-editor-raised-muted: #59636e;
+  --config-editor-raised-hover: #eaeef2;
+  --config-editor-control-bg: #f6f8fa;
+  --config-editor-control-text: #1f2328;
+  --config-editor-completion-active: #ddf4ff;
+  --config-editor-comment: #6e7781;
+  --config-editor-key: #0550ae;
+  --config-editor-punctuation: #57606a;
+  --config-editor-string: #0a3069;
+  --config-editor-literal: #0550ae;
+  --config-editor-value: #116329;
+  --config-editor-active-line: rgb(31 35 40 / 5%);
+  --config-editor-error-line: rgb(207 34 46 / 6%);
+  --config-editor-added-line: rgb(26 127 55 / 8%);
+  --config-editor-modified-line: rgb(9 105 218 / 8%);
+  --config-editor-selection: rgb(84 174 255 / 35%);
+  --config-editor-caret: #1f2328;
+}
+
+:where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"], .config-editor-theme[data-color-theme="solarized-light"]) {
+  --config-editor-status-error: #b8281f;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0860c9;
+  --config-editor-status-hint: #59636e;
+  --config-editor-status-changes: #1a6aa0;
+  --config-editor-bg: #fdf6e3;
+  --config-editor-panel: #eee8d5;
+  --config-editor-border: #d6ceb9;
+  --config-editor-text: #586e75;
+  --config-editor-muted: #657b83;
+  --config-editor-accent: #268bd2;
+  --config-editor-error: #dc322f;
+  --config-editor-toolbar-text: #536870;
+  --config-editor-line-active: #073642;
+  --config-editor-added: #859900;
+  --config-editor-modified: #268bd2;
+  --config-editor-raised: #fdf6e3;
+  --config-editor-raised-border: #d6ceb9;
+  --config-editor-raised-text: #536870;
+  --config-editor-raised-muted: #4f646b;
+  --config-editor-raised-hover: #e5dfcc;
+  --config-editor-control-bg: #f7f0dc;
+  --config-editor-control-text: #4a5f66;
+  --config-editor-completion-active: #d8e6e8;
+  --config-editor-comment: #586e75;
+  --config-editor-key: #1b6f9c;
+  --config-editor-punctuation: #586e75;
+  --config-editor-string: #5b6f00;
+  --config-editor-literal: #c52e77;
+  --config-editor-value: #14756d;
+  --config-editor-active-line: rgb(7 54 66 / 5%);
+  --config-editor-error-line: rgb(220 50 47 / 6%);
+  --config-editor-added-line: rgb(133 153 0 / 8%);
+  --config-editor-modified-line: rgb(38 139 210 / 8%);
+  --config-editor-selection: rgb(38 139 210 / 24%);
+  --config-editor-caret: #586e75;
+}
+
+:where(.config-editor[data-color-theme="atom-one-dark"], .config-editor-documents[data-color-theme="atom-one-dark"], .config-editor-theme[data-color-theme="atom-one-dark"]) {
+  --config-editor-bg: #282c34;
+  --config-editor-panel: #21252b;
+  --config-editor-border: #3e4451;
+  --config-editor-text: #abb2bf;
+  --config-editor-muted: #737984;
+  --config-editor-accent: #61afef;
+  --config-editor-error: #e06c75;
+  --config-editor-toolbar-text: #abb2bf;
+  --config-editor-line-active: #d7dae0;
+  --config-editor-added: #98c379;
+  --config-editor-modified: #61afef;
+  --config-editor-raised: #21252b;
+  --config-editor-raised-border: #3e4451;
+  --config-editor-raised-text: #d7dae0;
+  --config-editor-raised-muted: #9299a5;
+  --config-editor-raised-hover: #323842;
+  --config-editor-control-bg: #292e37;
+  --config-editor-control-text: #d7dae0;
+  --config-editor-completion-active: #2c313a;
+  --config-editor-comment: #9298a2;
+  --config-editor-key: #e87a83;
+  --config-editor-punctuation: #abb2bf;
+  --config-editor-string: #98c379;
+  --config-editor-literal: #d19a66;
+  --config-editor-value: #e5c07b;
+  --config-editor-active-line: rgb(255 255 255 / 4%);
+  --config-editor-error-line: rgb(224 108 117 / 8%);
+  --config-editor-added-line: rgb(152 195 121 / 8%);
+  --config-editor-modified-line: rgb(97 175 239 / 8%);
+  --config-editor-selection: rgb(97 126 178 / 40%);
+  --config-editor-caret: #abb2bf;
+}
+
+:where(.config-editor[data-color-theme="github-dark"], .config-editor-documents[data-color-theme="github-dark"], .config-editor-theme[data-color-theme="github-dark"]) {
+  --config-editor-bg: #0d1117;
+  --config-editor-panel: #161b22;
+  --config-editor-border: #30363d;
+  --config-editor-text: #e6edf3;
+  --config-editor-muted: #7d8590;
+  --config-editor-accent: #2f81f7;
+  --config-editor-error: #f85149;
+  --config-editor-toolbar-text: #e6edf3;
+  --config-editor-line-active: #e6edf3;
+  --config-editor-added: #3fb950;
+  --config-editor-modified: #58a6ff;
+  --config-editor-raised: #161b22;
+  --config-editor-raised-border: #30363d;
+  --config-editor-raised-text: #e6edf3;
+  --config-editor-raised-muted: #8b949e;
+  --config-editor-raised-hover: #21262d;
+  --config-editor-control-bg: #21262d;
+  --config-editor-control-text: #e6edf3;
+  --config-editor-completion-active: #1f3a5f;
+  --config-editor-comment: #8b949e;
+  --config-editor-key: #79c0ff;
+  --config-editor-punctuation: #c9d1d9;
+  --config-editor-string: #a5d6ff;
+  --config-editor-literal: #79c0ff;
+  --config-editor-value: #a5d6ff;
+  --config-editor-active-line: rgb(177 186 196 / 8%);
+  --config-editor-error-line: rgb(248 81 73 / 8%);
+  --config-editor-added-line: rgb(63 185 80 / 8%);
+  --config-editor-modified-line: rgb(88 166 255 / 8%);
+  --config-editor-selection: rgb(56 139 253 / 40%);
+  --config-editor-caret: #e6edf3;
+}
+
+:where(.config-editor[data-color-theme="vira-inspired"], .config-editor-documents[data-color-theme="vira-inspired"], .config-editor-theme[data-color-theme="vira-inspired"]) {
+  --config-editor-bg: #171b24;
+  --config-editor-panel: #1e2430;
+  --config-editor-border: #343c4b;
+  --config-editor-text: #c6ceda;
+  --config-editor-muted: #798493;
+  --config-editor-accent: #83b4cb;
+  --config-editor-error: #d27676;
+  --config-editor-toolbar-text: #d2d9e2;
+  --config-editor-line-active: #e0e5ec;
+  --config-editor-added: #a6c58d;
+  --config-editor-modified: #83b4cb;
+  --config-editor-raised: #202734;
+  --config-editor-raised-border: #3b4555;
+  --config-editor-raised-text: #d2d9e2;
+  --config-editor-raised-muted: #9aa5b3;
+  --config-editor-raised-hover: #2a3341;
+  --config-editor-control-bg: #242c39;
+  --config-editor-control-text: #d2d9e2;
+  --config-editor-completion-active: #303e4d;
+  --config-editor-comment: #788493;
+  --config-editor-key: #83b4cb;
+  --config-editor-punctuation: #b7c1ce;
+  --config-editor-string: #c9ad86;
+  --config-editor-literal: #b39acb;
+  --config-editor-value: #b8c99a;
+  --config-editor-active-line: rgb(207 221 239 / 5%);
+  --config-editor-error-line: rgb(210 118 118 / 7%);
+  --config-editor-added-line: rgb(166 197 141 / 7%);
+  --config-editor-modified-line: rgb(131 180 203 / 7%);
+  --config-editor-selection: rgb(90 117 145 / 40%);
+  --config-editor-caret: #dce3eb;
+}
+
+.config-editor[data-theme] .config-editor__gutter {
+  border-right: 0;
+  background: var(--config-editor-bg);
+}
+
+/* The documents view (`ConfigDocuments`): a tab strip over one editor per
+   document. Colors come from the `--config-editor-tab-*` tokens. */
+.config-editor-documents {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--config-editor-text);
+}
+
+.config-editor-documents__tabs {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--config-editor-tab-border);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: var(--config-editor-tab-bar);
+  font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  scrollbar-width: thin;
+  scrollbar-color: var(--config-editor-scrollbar-thumb) transparent;
+}
+
+.config-editor-documents__tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 35px;
+  padding: 0 6px 0 10px;
+  border-right: 1px solid var(--config-editor-tab-border);
+  background: var(--config-editor-tab-bg);
+  color: var(--config-editor-tab-text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.config-editor-documents__tab-active {
+  background: var(--config-editor-tab-active-bg);
+  color: var(--config-editor-tab-active-text);
+}
+
+.config-editor-documents__tab-active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--config-editor-tab-active-border);
+}
+
+.config-editor-documents__tab:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: -1px;
+}
+
+.config-editor-documents__icon { flex: none; }
+
+.config-editor-documents__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+
+.config-editor-documents__close,
+.config-editor-documents__marker {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: 14px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Touch screens: at least 24×24px to a finger. */
+@media (pointer: coarse) {
+  .config-editor-documents__close,
+  .config-editor-documents__marker {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+.config-editor-documents__close { cursor: pointer; }
+.config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
+.config-editor-documents__close > span,
+.config-editor-documents__marker > span { grid-area: 1 / 1; }
+
+/* A dirty tab shows its dot; hovering a closable tab (or a clean active
+   one) shows the close button instead. */
+.config-editor-documents__dirty-dot {
+  color: var(--config-editor-tab-dirty);
+  font-size: 11px;
+  visibility: hidden;
+}
+.config-editor-documents__close-icon { visibility: hidden; }
+.config-editor-documents__tab-dirty .config-editor-documents__dirty-dot { visibility: visible; }
+.config-editor-documents__tab:hover .config-editor-documents__close-icon,
+.config-editor-documents__tab-active:not(.config-editor-documents__tab-dirty) .config-editor-documents__close-icon {
+  visibility: visible;
+}
+.config-editor-documents__tab-dirty:hover .config-editor-documents__close .config-editor-documents__dirty-dot {
+  visibility: hidden;
+}
+
+.config-editor-documents__panels {
+  position: relative;
+  min-width: 0;
+}
+
+.config-editor-documents__panels .config-editor__frame {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Hidden panels keep their editor laid out (so its scroll position and
+   measurements stay), out of sight and out of the page's height. */
+.config-editor-documents__panel-hidden {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.config-editor-documents__empty {
+  margin: 0;
+  padding: 24px;
+  border: 1px solid var(--config-editor-tab-border);
+  border-radius: 0 0 6px 6px;
+  background: var(--config-editor-bg);
+  color: var(--config-editor-muted);
+  font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (max-width: 600px) {
+  .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
 }

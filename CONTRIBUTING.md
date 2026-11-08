@@ -195,6 +195,11 @@ locks, tokens, folds and diagnostics follow the field there), and
   through props and settings.
 - Colors only through theme CSS variables: a `ThemeColor` and its
   `--config-editor-*` variable, documented with the others.
+- It runs under a strict Content-Security-Policy (`style-src 'self'`): an
+  inline style is `style=cssom(Declarations)` or `style:<name>=` (both set
+  through the CSSOM), never a `style` string, which `tests/strict_csp.rs`
+  enforces; the preset loads nothing (no `url()`: icons are inline SVG);
+  `e2e/tests/strict-csp.spec.mjs` runs every feature under the policy.
 
 ### Everyone can use it
 
@@ -222,6 +227,10 @@ packages.
 
 ## Generated docs
 
+- `preset.css` in the crate and in `js/config-editor`: the whole
+  `PRESET_CSS` (the parts in `crates/config-editor-leptos/src/css/`: base
+  styles, themes, documents tabs) written by `make docs-generate` (a test
+  fails when they are stale).
 - The README contents lists: `node scripts/readme-toc.mjs` after adding or
   renaming a section.
 - The screenshots in `docs/screenshots` and their gallery page:

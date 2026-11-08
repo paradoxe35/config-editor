@@ -35,6 +35,13 @@ Screenshots from the run are written to `test-results/screens/`.
   (`samples/generate.py --scale 5`) in every language: load, keystroke latency
   (worst and 95th percentile), Ctrl+End and the wheel, find, fold all and Edit-as,
   each within a budget; the numbers are logged.
+- `tests/strict-csp.spec.mjs`: the Leptos demo, the npm package and the
+  React, Vue and Svelte components under a strict Content-Security-Policy
+  (pages in `e2e/csp`, served with the header by a small server in the spec,
+  `styled: false` with `preset.css` linked): typing, schema and host problems,
+  hover, suggestions, find and go to line, folding, the change preview, the
+  read-only and secret tips, Edit as, tabs, every theme from the one
+  `preset.css` and custom colors, with no refusal.
 - `tests/memory.spec.mjs`: memory over many cycles, through the npm package:
   editors mounted and destroyed, a long document scrolled and folded, underlines
   and suggestion lists redrawn, documents opened and closed in `ConfigDocuments`,

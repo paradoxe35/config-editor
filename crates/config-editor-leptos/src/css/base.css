@@ -1,0 +1,1699 @@
+:where(.config-editor, .config-editor-documents, .config-editor-theme) {
+  --config-editor-bg: #1e1e1e;
+  --config-editor-panel: #252526;
+  --config-editor-border: #3c3c3c;
+  --config-editor-text: #d4d4d4;
+  --config-editor-muted: #858585;
+  --config-editor-accent: #007acc;
+  --config-editor-error: #f14c4c;
+  --config-editor-toolbar-text: #cccccc;
+  --config-editor-line-active: #c6c6c6;
+  --config-editor-added: #89d185;
+  --config-editor-modified: #75beff;
+  --config-editor-removed: var(--config-editor-error);
+  --config-editor-raised: #252526;
+  --config-editor-raised-border: #454545;
+  --config-editor-raised-text: #d4d4d4;
+  --config-editor-raised-muted: #a0a0a0;
+  --config-editor-raised-hover: #3c3c3c;
+  --config-editor-control-bg: #333333;
+  --config-editor-control-text: #cccccc;
+  --config-editor-completion-active: #094771;
+  --config-editor-comment: #6a9955;
+  --config-editor-key: #9cdcfe;
+  --config-editor-punctuation: #d4d4d4;
+  --config-editor-string: #ce9178;
+  --config-editor-literal: #569cd6;
+  --config-editor-value: #ce9178;
+  --config-editor-active-line: rgb(255 255 255 / 4%);
+  --config-editor-error-line: rgb(241 76 76 / 5%);
+  --config-editor-added-line: rgb(129 184 139 / 10%);
+  --config-editor-modified-line: rgb(117 190 255 / 10%);
+  --config-editor-selection: rgb(38 79 120 / 40%);
+  --config-editor-caret: #aeafad;
+  --config-editor-warning: #cca700;
+  --config-editor-info: #3794ff;
+  --config-editor-hint: #8a8a8a;
+  --config-editor-line-number: #858585;
+  --config-editor-file-icon-bg: #8a6e2f;
+  --config-editor-file-icon-text: #fff;
+  /* Disabled: the control's text part way to its background, in every theme. */
+  --config-editor-control-disabled-text: color-mix(in srgb, var(--config-editor-control-text) 60%, var(--config-editor-control-bg));
+  --config-editor-focus-ring: #75beff;
+  --config-editor-diff-focus-ring: #ffffff;
+  --config-editor-diff-peek-divider: #383838;
+  --config-editor-diff-removed-bg: rgb(241 76 76 / 18%);
+  --config-editor-diff-removed-text: #f1b3b3;
+  --config-editor-diff-current-bg: rgb(117 190 255 / 13%);
+  --config-editor-diff-current-text: #c5e1f9;
+  --config-editor-tooltip-text: #f0f0f0;
+  --config-editor-completion-key: #e8e8e8;
+  --config-editor-completion-type: #9da0a3;
+  --config-editor-completion-detail: #a7a7a7;
+  --config-editor-completion-icon-border: #6b6b6b;
+  --config-editor-completion-icon-text: #bdbdbd;
+  /* Matched letters on the selected suggestion: the accent toward the
+     label's color, so they stay readable on the selection. */
+  --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent) 50%, var(--config-editor-completion-key));
+  --config-editor-scrollbar-thumb: #686868;
+  --config-editor-status-error: #f48771;
+  --config-editor-status-warning: #cca700;
+  --config-editor-status-info: #3794ff;
+  --config-editor-status-hint: #a0a0a0;
+  --config-editor-status-changes: var(--config-editor-modified);
+  --config-editor-popup-shadow: rgb(0 0 0 / 35%);
+  --config-editor-peek-shadow: rgb(0 0 0 / 45%);
+  --config-editor-hover-shadow: rgba(0, 0, 0, 0.28);
+  --config-editor-search-match: rgb(234 92 0 / 33%);
+  --config-editor-search-match-current: rgb(81 92 106 / 90%);
+  --config-editor-search-match-current-border: #74879f;
+  --config-editor-input-bg: #3c3c3c;
+  --config-editor-input-border: #3c3c3c;
+  --config-editor-toggle-active: rgb(36 137 219 / 51%);
+  /* Read-only values: dimmer than the text, readable as text (4.5:1). */
+  --config-editor-locked: color-mix(in srgb, var(--config-editor-muted) 45%, var(--config-editor-text));
+  --config-editor-secret-chip: rgb(204 167 0 / 16%);
+  --config-editor-secret-chip-border: rgb(204 167 0 / 55%);
+  --config-editor-fold-toggle: var(--config-editor-line-number);
+  --config-editor-fold-chip: color-mix(in srgb, var(--config-editor-muted) 24%, transparent);
+  --config-editor-fold-chip-text: color-mix(in srgb, var(--config-editor-muted) 50%, var(--config-editor-text));
+  --config-editor-tab-bar: var(--config-editor-panel);
+  --config-editor-tab-bg: var(--config-editor-panel);
+  --config-editor-tab-active-bg: var(--config-editor-bg);
+  --config-editor-tab-text: var(--config-editor-muted);
+  --config-editor-tab-active-text: var(--config-editor-text);
+  --config-editor-tab-border: var(--config-editor-border);
+  --config-editor-tab-active-border: var(--config-editor-accent);
+  --config-editor-tab-dirty: var(--config-editor-text);
+  --config-editor-font-size: 12px;
+  --config-editor-line-height: round(var(--config-editor-font-size) * 1.8, 1px);
+  --config-editor-padding-top: 15px;
+  --config-editor-padding-bottom: 15px;
+  --config-editor-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.config-editor {
+  position: relative;
+  /* A whole number of pixels: fractional line heights round differently in the
+     textarea and the overlay, and the gap grows with every line. */
+  color: var(--config-editor-text);
+  font: 13px/1.65 ui-monospace, var(--config-editor-mono);
+}
+
+.config-editor *,
+.config-editor *::before,
+.config-editor *::after {
+  box-sizing: border-box;
+}
+
+.config-editor__frame {
+  overflow: hidden;
+  border: 1px solid var(--config-editor-border);
+  border-radius: 6px;
+  background: var(--config-editor-panel);
+}
+
+.config-editor__frame:focus-within {
+  border-color: var(--config-editor-accent);
+}
+
+.config-editor__toolbar {
+  min-height: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--config-editor-border);
+  background: var(--config-editor-panel);
+  color: var(--config-editor-toolbar-text);
+  font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__file,
+.config-editor__toolbar-meta,
+.config-editor__schema-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.config-editor__file {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  border-bottom: 1px solid var(--config-editor-accent);
+}
+/* A long name ends in an ellipsis (its title tells it whole). */
+.config-editor__file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-editor__file-icon { flex: none; }
+.config-editor__file-icon {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  background: var(--config-editor-file-icon-bg);
+  color: var(--config-editor-file-icon-text);
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
+.config-editor__schema-state { color: var(--config-editor-raised-muted); }
+.config-editor__schema-check { color: var(--config-editor-added); }
+.config-editor__language {
+  padding-left: 12px;
+  border-left: 1px solid var(--config-editor-border);
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__action-button {
+  padding: 5px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+/* A host's button in the toolbar keeps its own height (the row stretches
+   the file name's underline, not buttons). */
+.config-editor__toolbar > .config-editor__action-button { align-self: center; }
+
+.config-editor__action-button:hover:not(:disabled) {
+  background: var(--config-editor-raised-hover);
+}
+
+.config-editor__action-button:disabled {
+  color: var(--config-editor-control-disabled-text);
+  cursor: default;
+}
+
+/* The notice when the host's baseline changed under unsaved edits. */
+.config-editor__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  border-left: 3px solid var(--config-editor-warning);
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__notice[hidden] { display: none; }
+
+/* Editing as another language: a quiet line under the toolbar. */
+.config-editor__edit-as-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  border-left: 3px solid var(--config-editor-accent);
+  background: var(--config-editor-panel);
+  color: var(--config-editor-muted);
+  font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__edit-as-notice[hidden] { display: none; }
+
+.config-editor__edit-as-notice-message { flex: 1; min-width: 0; }
+
+.config-editor__edit-as-notice-dismiss {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: 14px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.config-editor__edit-as-notice-dismiss:hover {
+  background: var(--config-editor-raised-hover);
+  color: var(--config-editor-raised-text);
+}
+
+.config-editor__edit-as-notice-dismiss:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: -2px;
+}
+
+.config-editor__notice-detail { color: var(--config-editor-raised-muted); }
+
+.config-editor__notice-actions { display: flex; gap: 6px; }
+
+.config-editor__notice-button {
+  padding: 3px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.config-editor__notice-button:hover { background: var(--config-editor-raised-hover); }
+
+.config-editor__notice-button:focus-visible {
+  outline: 2px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+.config-editor__surface {
+  position: relative;
+  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px)));
+  height: var(--config-editor-height, auto);
+  max-height: var(--config-editor-max-height, 80vh);
+  display: flex;
+  background: var(--config-editor-bg);
+  overflow: hidden;
+}
+
+/* Above the text layers, opaque: code scrolled sideways passes under it. */
+.config-editor__gutter {
+  position: relative;
+  z-index: 5;
+  background: var(--config-editor-bg);
+  /* A column for the markers (a lock or key, then the problem dot), the
+     longest line number (`--config-editor-gutter-digits`, set from the line
+     count, at least 3), then the padding before the text. */
+  --config-editor-marker-column: 24px;
+  --config-editor-gutter-padding: 13px;
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding)
+  );
+  flex: 0 0 auto;
+  /* Its rows never size it: it stretches to the textarea, so resizing the
+     textarea (or a short document) sets the editor's height. */
+  contain: size;
+  align-self: stretch;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--config-editor-padding-top) var(--config-editor-gutter-padding)
+    var(--config-editor-padding-bottom) 0;
+  color: var(--config-editor-line-number);
+  text-align: right;
+  user-select: none;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
+}
+
+.config-editor__gutter-content > div {
+  position: relative;
+  height: var(--config-editor-line-height);
+  cursor: pointer;
+}
+
+.config-editor__line-number-active { color: var(--config-editor-line-active); }
+.config-editor__line-number-error { color: var(--config-editor-error); }
+.config-editor__line-number-added { color: var(--config-editor-added); }
+.config-editor__line-number-modified { color: var(--config-editor-modified); }
+.config-editor__line-number-error::before {
+  position: absolute;
+  top: 8px;
+  left: calc(var(--config-editor-marker-column) - 9px);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--config-editor-error);
+  content: "";
+}
+
+/* A read-only line: a lock before the number. */
+.config-editor__lock-marker {
+  position: absolute;
+  top: calc(50% - 5px);
+  left: calc(var(--config-editor-marker-column) - 20px);
+  width: 9px;
+  height: 10px;
+  color: var(--config-editor-locked);
+}
+
+/* The lock's and the key's icons: inline SVG (a strict CSP refuses
+   `data:` images). */
+.config-editor__lock-marker svg,
+.config-editor__secret-marker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* A line with a secret placeholder: a key before the number. */
+.config-editor__secret-marker {
+  position: absolute;
+  top: calc(50% - 5px);
+  left: calc(var(--config-editor-marker-column) - 20px);
+  width: 10px;
+  height: 10px;
+  color: var(--config-editor-secret-chip-border);
+}
+
+/* A secret placeholder: a chip, drawn without changing the text's width
+   (the textarea above holds the same characters). */
+.config-editor__highlight .config-editor__secret {
+  border-radius: 3px;
+  background: var(--config-editor-secret-chip);
+  box-shadow: inset 0 0 0 1px var(--config-editor-secret-chip-border);
+}
+
+/* A read-only value, muted (its key keeps its color). */
+.config-editor__highlight .config-editor__locked,
+.config-editor__highlight .config-editor__locked > span {
+  color: var(--config-editor-locked);
+}
+
+.config-editor__diff-marker {
+  position: absolute;
+  top: 0;
+  right: -9px;
+  bottom: 0;
+  width: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.config-editor__diff-marker-added { background: var(--config-editor-added); }
+.config-editor__diff-marker-modified { background: var(--config-editor-modified); }
+
+.config-editor__diff-marker-added,
+.config-editor__diff-marker-modified {
+  cursor: pointer;
+  transition: width 100ms ease, right 100ms ease, box-shadow 100ms ease;
+}
+
+.config-editor__diff-marker-added::after,
+.config-editor__diff-marker-modified::after {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  left: -4px;
+  content: "";
+}
+
+.config-editor__diff-marker-added:hover,
+.config-editor__diff-marker-added:focus-visible,
+.config-editor__diff-marker-modified:hover,
+.config-editor__diff-marker-modified:focus-visible {
+  right: -10px;
+  width: 5px;
+}
+
+.config-editor__diff-marker-added:hover,
+.config-editor__diff-marker-added:focus-visible {
+  background: var(--config-editor-added);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-added) 70%, transparent);
+}
+
+.config-editor__diff-marker-modified:hover,
+.config-editor__diff-marker-modified:focus-visible {
+  background: var(--config-editor-modified);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-modified) 70%, transparent);
+}
+
+.config-editor__diff-deleted {
+  position: absolute;
+  z-index: 1;
+  top: -3px;
+  right: -9px;
+  width: 9px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.config-editor__diff-deleted-after {
+  top: auto;
+  bottom: -3px;
+}
+
+.config-editor__diff-deleted::before {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--config-editor-removed);
+  content: "";
+  transition: height 100ms ease, top 100ms ease, box-shadow 100ms ease;
+}
+
+.config-editor__diff-deleted-after::before {
+  top: auto;
+  bottom: 4px;
+}
+
+.config-editor__diff-deleted:hover::before,
+.config-editor__diff-deleted:focus-visible::before {
+  top: 3px;
+  height: 5px;
+  background: var(--config-editor-removed);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-removed) 65%, transparent);
+}
+
+.config-editor__diff-deleted-after:hover::before,
+.config-editor__diff-deleted-after:focus-visible::before {
+  top: auto;
+  bottom: 3px;
+}
+
+.config-editor__diff-change-trigger:focus-visible,
+.config-editor__diff-deleted:focus-visible {
+  outline: 1px solid var(--config-editor-diff-focus-ring);
+  outline-offset: 1px;
+}
+
+.config-editor__diff-peek {
+  position: absolute;
+  z-index: 5;
+  min-width: 180px;
+  overflow: auto;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 6px 20px var(--config-editor-peek-shadow);
+  font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__diff-peek-header {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  background: var(--config-editor-raised);
+}
+
+.config-editor__diff-peek-header button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--config-editor-control-text);
+  cursor: pointer;
+  font: 18px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__diff-peek-header button:hover,
+.config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
+
+/* On one line however narrow the screen (its title tells it whole). */
+.config-editor__diff-peek-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-editor__diff-peek-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+
+.config-editor__diff-peek-header .config-editor__diff-peek-revert {
+  width: auto;
+  padding: 0 8px;
+  border: 1px solid var(--config-editor-raised-border);
+  font: 12px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__diff-peek-header .config-editor__diff-peek-revert:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+.config-editor__diff-peek-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+
+.config-editor__diff-peek-side { min-width: 0; }
+.config-editor__diff-peek-side + .config-editor__diff-peek-side { border-left: 1px solid var(--config-editor-raised-border); }
+
+.config-editor__diff-peek-side h3 {
+  margin: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--config-editor-diff-peek-divider);
+  color: var(--config-editor-raised-muted);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__diff-peek-line {
+  min-height: 22px;
+  display: flex;
+  gap: 9px;
+  padding: 2px 10px;
+  font: 12px/1.5 var(--config-editor-mono);
+}
+
+.config-editor__diff-peek-line > span { flex: 0 0 10px; text-align: center; }
+.config-editor__diff-peek-line code { overflow-wrap: anywhere; white-space: pre-wrap; }
+.config-editor__diff-peek-removed {
+  background: var(--config-editor-diff-removed-bg);
+  color: var(--config-editor-diff-removed-text);
+}
+
+.config-editor__diff-peek-current {
+  background: var(--config-editor-diff-current-bg);
+  color: var(--config-editor-diff-current-text);
+}
+
+.config-editor__input-wrap { position: relative; min-width: 0; min-height: 0; flex: 1; }
+.config-editor__highlight,
+.config-editor__input {
+  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px)));
+  padding: var(--config-editor-padding-top) 20px var(--config-editor-padding-bottom) 0;
+  border: 0;
+  margin: 0;
+  tab-size: 2;
+  white-space: pre;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
+}
+
+/* Above the textarea: its selection and caret paint under the highlighted
+   text, so selected text keeps its colors and contrast. The overlay takes
+   no pointer events, so the textarea still gets every click. */
+.config-editor__highlight {
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  overflow: visible;
+  color: var(--config-editor-text);
+  pointer-events: none;
+}
+
+/* The overlay must use exactly the textarea's font, or the caret and selection
+   drift off the text; browsers give <code> their own monospace otherwise. */
+.config-editor__highlight code,
+.config-editor__highlight span {
+  font: inherit;
+}
+
+.config-editor__row-spacer { display: block; }
+
+.config-editor__code-line {
+  width: max-content;
+  min-width: 100%;
+  height: var(--config-editor-line-height);
+  display: block;
+}
+
+.config-editor__gutter-content {
+  position: relative;
+}
+
+/* Folding: chevrons right of the diff markers, shown while the gutter is
+   hovered (always on touch screens and on folded lines). */
+.config-editor__gutter.config-editor__gutter-folding {
+  --config-editor-fold-gutter: 14px;
+  width: calc(
+    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
+  );
+  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter));
+}
+
+.config-editor__fold-toggle {
+  position: absolute;
+  z-index: 1;
+  right: calc(-11px - var(--config-editor-fold-gutter));
+  width: var(--config-editor-fold-gutter);
+  height: var(--config-editor-line-height);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--config-editor-fold-toggle);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.config-editor__fold-toggle::before {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-75%) rotate(45deg);
+}
+
+.config-editor__fold-toggle-closed::before {
+  transform: translate(-25%, -50%) rotate(-45deg);
+}
+
+.config-editor__gutter:hover .config-editor__fold-toggle,
+.config-editor__fold-toggle-closed,
+.config-editor__fold-toggle:focus-visible {
+  opacity: 1;
+}
+
+.config-editor__fold-toggle:hover {
+  color: var(--config-editor-line-active);
+}
+
+@media (hover: none) {
+  .config-editor__fold-toggle { opacity: 1; }
+}
+
+/* A closed fold hiding changes: a dotted bar where the diff markers go. */
+.config-editor__fold-changes {
+  position: absolute;
+  right: -9px;
+  width: 3px;
+  height: calc(var(--config-editor-line-height) - 6px);
+  margin-top: 3px;
+  background: repeating-linear-gradient(var(--config-editor-modified) 0 2px, transparent 2px 4px);
+}
+
+/* The chips after folded lines, over the text; only the chips take the
+   pointer. */
+.config-editor__fold-chips {
+  position: absolute;
+  z-index: 3;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  pointer-events: none;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+}
+
+.config-editor__fold-chip {
+  position: absolute;
+  height: var(--config-editor-line-height);
+  padding: 0 0.6ch;
+  border: 0;
+  border-radius: 3px;
+  background: var(--config-editor-fold-chip);
+  color: var(--config-editor-fold-chip-text);
+  font: inherit;
+  line-height: var(--config-editor-line-height);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.config-editor__fold-chip:hover {
+  color: var(--config-editor-text);
+}
+
+/* A fold hiding problems: its chip underlined in the most serious one's
+   colour. */
+.config-editor__fold-chip--error { box-shadow: inset 0 -2px var(--config-editor-error); }
+.config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
+.config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
+.config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
+
+.config-editor__code-line-active { background: var(--config-editor-active-line); }
+.config-editor__code-line-error { background: var(--config-editor-error-line); }
+.config-editor__code-line-added { background: var(--config-editor-added-line); }
+.config-editor__code-line-modified { background: var(--config-editor-modified-line); }
+
+.config-editor__input {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: block;
+  resize: vertical;
+  outline: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--config-editor-caret);
+  -webkit-text-fill-color: transparent;
+  overflow: auto;
+  height: var(--config-editor-height, var(--config-editor-content-height, auto));
+  max-height: var(--config-editor-max-height, 80vh);
+  overscroll-behavior: contain;
+}
+
+.config-editor__input::selection { background: var(--config-editor-selection); color: transparent; }
+.config-editor__input:focus-visible { outline: none; }
+
+.config-editor__diagnostic-overlay {
+  position: absolute;
+  z-index: 3;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.config-editor__diagnostic-marker {
+  position: absolute;
+  height: var(--config-editor-line-height);
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  text-align: left;
+  white-space: pre;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
+  -webkit-text-fill-color: transparent;
+  text-decoration: underline wavy var(--config-editor-error);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  pointer-events: auto;
+  cursor: help;
+}
+
+/* Warnings (for example a value a converted document's host language cannot
+   keep exactly) use VS Code's warning yellow unless a theme sets the token. */
+.config-editor__diagnostic-marker-warning {
+  text-decoration-color: var(--config-editor-warning);
+}
+
+/* Info is VS Code's blue; a hint is a quiet dotted underline. */
+.config-editor__diagnostic-marker-info {
+  text-decoration-color: var(--config-editor-info);
+}
+.config-editor__diagnostic-marker-hint {
+  text-decoration: underline dotted var(--config-editor-hint);
+  text-decoration-thickness: 2px;
+}
+
+/* A deprecated key is struck through (in the muted text colour) under its
+   wavy underline, as VS Code does. */
+.config-editor__diagnostic-marker-deprecated > span {
+  text-decoration: line-through var(--config-editor-muted);
+  text-decoration-thickness: 1px;
+}
+
+.config-editor__diagnostic-marker:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Over the same text, the more serious problem's underline is drawn on top
+   (an error over a warning), and an identical less serious one not at all. */
+.config-editor__diagnostic-marker { z-index: 4; }
+.config-editor__diagnostic-marker-warning { z-index: 3; }
+.config-editor__diagnostic-marker-info { z-index: 2; }
+.config-editor__diagnostic-marker-hint { z-index: 1; }
+.config-editor__diagnostic-marker-covered { text-decoration-line: none; }
+
+/* The problem tip: the messages of the problems at the hovered underline
+   (or where F8 went), each with who reported it, its code and docs link.
+   Placed inside the editor and the window; no taller than the room there,
+   it scrolls. */
+.config-editor__problem-tip {
+  position: fixed;
+  z-index: 59;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-tooltip-text);
+  box-shadow: 0 3px 10px var(--config-editor-popup-shadow);
+  font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.config-editor__problem-tip[hidden] { display: none; }
+/* Clicks go through to the text under it, unless it has a docs link or
+   scrolls. */
+.config-editor__problem-tip { pointer-events: none; }
+.config-editor__problem-tip--interactive { pointer-events: auto; }
+/* Unseen for the moment until its height is measured and it is placed
+   beside its line (never over it). */
+.config-editor__problem-tip--unmeasured { visibility: hidden; }
+.config-editor__problem-tip-entry {
+  padding-left: 7px;
+  border-left: 3px solid var(--config-editor-error);
+}
+.config-editor__problem-tip-entry--warning { border-left-color: var(--config-editor-warning); }
+.config-editor__problem-tip-entry--info { border-left-color: var(--config-editor-info); }
+.config-editor__problem-tip-entry--hint { border-left-color: var(--config-editor-hint); }
+.config-editor__problem-tip-entry--current { background: var(--config-editor-raised-hover); }
+.config-editor__problem-tip-message,
+.config-editor__problem-tip-detail { margin: 0; }
+.config-editor__problem-tip-message--docs { cursor: pointer; }
+.config-editor__problem-tip-severity { font-weight: 600; }
+.config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
+.config-editor__problem-tip-link { color: var(--config-editor-accent); }
+
+.config-editor__diagnostic-marker-eof::before {
+  position: absolute;
+  right: 0;
+  bottom: 3px;
+  left: 0;
+  border-bottom: 1px solid var(--config-editor-error);
+  content: "";
+}
+
+/* Go to line: a field over the top right of the text, like the find widget. */
+.config-editor__goto {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  right: 14px;
+  width: min(300px, calc(100% - 22px));
+  display: grid;
+  gap: 3px;
+  padding: 5px 6px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-muted);
+  box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__goto[hidden] { display: none; }
+
+/* Scoped to the widget: the shared `find-input` rule below drops borders. */
+.config-editor__goto .config-editor__goto-input {
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__goto .config-editor__goto-input:focus { border-color: var(--config-editor-focus-ring); }
+
+/* Lined up with the field's text (its border and padding). */
+.config-editor__goto-hint { padding: 0 7px; }
+
+/* Find matches sit under the textarea and the highlighted text, like the
+   selection, so the text keeps its colors. */
+.config-editor__search-highlights {
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto auto 0;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  pointer-events: none;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+}
+
+.config-editor__search-match {
+  position: absolute;
+  height: var(--config-editor-line-height);
+  border-radius: 2px;
+  background: var(--config-editor-search-match);
+}
+
+.config-editor__search-match-current {
+  z-index: 1;
+  background: var(--config-editor-search-match-current);
+  box-shadow: inset 0 0 0 1px var(--config-editor-search-match-current-border);
+}
+
+/* The find widget: over the top right of the text, clear of the scrollbar. */
+.config-editor__find {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  right: 14px;
+  width: min(440px, calc(100% - 22px));
+  display: grid;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 4px 12px var(--config-editor-popup-shadow);
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__find[hidden],
+.config-editor__find [hidden] { display: none; }
+
+.config-editor__find-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.config-editor__find-field {
+  min-width: 0;
+  flex: 1 1 150px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 2px;
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__find-field:focus-within { border-color: var(--config-editor-focus-ring); }
+.config-editor__find-field-invalid,
+.config-editor__find-field-invalid:focus-within { border-color: var(--config-editor-error); }
+
+.config-editor__find-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--config-editor-raised-text);
+  font: 12px var(--config-editor-mono);
+}
+
+.config-editor__replace-input {
+  flex: 1 1 90px;
+  border: 1px solid var(--config-editor-input-border);
+  border-radius: 3px;
+  background: var(--config-editor-input-bg);
+}
+
+.config-editor__replace-input:focus { border-color: var(--config-editor-focus-ring); }
+
+.config-editor__find-input::placeholder { color: var(--config-editor-raised-muted); }
+
+.config-editor__find-toggle,
+.config-editor__find-button {
+  min-width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--config-editor-control-text);
+  cursor: pointer;
+  font: 12px/1 var(--config-editor-mono);
+}
+
+.config-editor__find-toggle:hover,
+.config-editor__find-button:hover { background: var(--config-editor-raised-hover); }
+
+.config-editor__find-toggle-on,
+.config-editor__find-toggle-on:hover {
+  border-color: var(--config-editor-accent);
+  background: var(--config-editor-toggle-active);
+}
+
+.config-editor__find-toggle:focus-visible,
+.config-editor__find-button:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: -1px;
+}
+
+.config-editor__find-text-button {
+  padding: 0 7px;
+  border-color: var(--config-editor-raised-border);
+  background: var(--config-editor-control-bg);
+  font: 12px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__find-expand { font-size: 15px; transition: transform 100ms ease; }
+.config-editor__find-expand-open { transform: rotate(90deg); }
+
+.config-editor__find-count {
+  min-width: 64px;
+  flex: none;
+  padding: 0 2px;
+  color: var(--config-editor-raised-muted);
+  white-space: nowrap;
+}
+
+.config-editor__find-count-empty { color: var(--config-editor-status-error); }
+
+.config-editor__find-actions { display: flex; flex: none; gap: 1px; margin-left: auto; }
+
+.config-editor__comment { color: var(--config-editor-comment); }
+.config-editor__key { color: var(--config-editor-key); }
+.config-editor__punctuation { color: var(--config-editor-punctuation); }
+.config-editor__string { color: var(--config-editor-string); }
+.config-editor__literal { color: var(--config-editor-literal); }
+.config-editor__value { color: var(--config-editor-value); }
+
+.config-editor__completions {
+  position: fixed;
+  z-index: 1000;
+  width: min(420px, calc(100vw - 16px));
+  max-height: min(320px, 45vh, calc(100vh - 64px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 6px 16px var(--config-editor-popup-shadow);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.config-editor__completions::-webkit-scrollbar { width: 8px; }
+.config-editor__completions::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--config-editor-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.config-editor__completions.hidden { display: none; }
+.config-editor__completion {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 5px 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__completion-active { background: var(--config-editor-completion-active); }
+
+.config-editor__hover {
+  position: fixed;
+  z-index: 60;
+  width: max-content;
+  max-width: 340px;
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 6px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 8px 24px var(--config-editor-hover-shadow);
+  pointer-events: none;
+  font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__protect-tip {
+  position: fixed;
+  z-index: 61;
+  width: max-content;
+  max-width: 340px;
+  padding: 4px 8px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 4px 12px var(--config-editor-hover-shadow);
+  pointer-events: none;
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__protect-tip--refused {
+  border-color: var(--config-editor-locked);
+}
+
+.config-editor__hover-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-editor__hover-key {
+  font: 12px var(--config-editor-mono);
+  color: var(--config-editor-key);
+}
+
+.config-editor__hover-type {
+  color: var(--config-editor-raised-muted);
+  font: 11px var(--config-editor-mono);
+}
+
+.config-editor__hover-required {
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--config-editor-raised-muted);
+  border: 1px solid var(--config-editor-raised-border);
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__hover--interactive { pointer-events: auto; }
+
+.config-editor__hover-deprecated {
+  padding: 0 5px;
+  border-radius: 3px;
+  color: var(--config-editor-warning);
+  border: 1px solid currentColor;
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__hover-deprecation {
+  margin: 0;
+  color: var(--config-editor-raised-muted);
+  font-style: italic;
+}
+
+.config-editor__hover-value {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+}
+
+.config-editor__hover-value-label {
+  font: 12px var(--config-editor-mono);
+  color: var(--config-editor-string);
+}
+
+.config-editor__hover-link {
+  justify-self: start;
+  color: var(--config-editor-accent);
+  font-size: 11px;
+}
+
+.config-editor__hover-choice {
+  display: grid;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--config-editor-raised-border);
+}
+
+.config-editor__hover-choice-title {
+  color: var(--config-editor-raised-text);
+  font-size: 12px;
+}
+
+.config-editor__hover-title {
+  margin: 0;
+  color: var(--config-editor-raised-text);
+  font-weight: 600;
+}
+
+.config-editor__hover-description {
+  margin: 0;
+  color: var(--config-editor-raised-text);
+}
+
+.config-editor__hover-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--config-editor-raised-muted);
+  font-size: 11px;
+}
+
+.config-editor__hover-meta code {
+  font: 11px var(--config-editor-mono);
+  color: var(--config-editor-raised-text);
+  overflow-wrap: anywhere;
+}
+.config-editor__completion-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  border: 1px solid var(--config-editor-completion-icon-border);
+  border-radius: 3px;
+  color: var(--config-editor-completion-icon-text);
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__completion-content {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.config-editor__completion-primary {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.config-editor__completion-key {
+  overflow: hidden;
+  color: var(--config-editor-completion-key);
+  font: 12px var(--config-editor-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-editor__completion-match { color: var(--config-editor-accent); }
+.config-editor__completion-active .config-editor__completion-match {
+  color: var(--config-editor-completion-match-active);
+}
+
+.config-editor__completion--deprecated .config-editor__completion-key {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.config-editor__completion-deprecated {
+  flex: 0 0 auto;
+  color: var(--config-editor-completion-type);
+  font: italic 10px ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__completion-type {
+  flex: 0 0 auto;
+  color: var(--config-editor-completion-type);
+  font: 11px var(--config-editor-mono);
+}
+
+.config-editor__completion-detail {
+  overflow: hidden;
+  color: var(--config-editor-completion-detail);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-editor__status {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border-top: 1px solid var(--config-editor-border);
+  background: var(--config-editor-panel);
+  color: var(--config-editor-raised-muted);
+  font: 10px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.config-editor__hint,
+.config-editor__hint > span,
+.config-editor__status-meta { display: flex; align-items: center; gap: 8px; }
+.config-editor__hint kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 3px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  font: 10px var(--config-editor-mono);
+}
+
+.config-editor__line-count { font-family: var(--config-editor-mono); }
+/* The message shrinks with an ellipsis; the line count always stays. */
+.config-editor__status-meta { min-width: 0; flex: 0 1 auto; }
+.config-editor__line-count { flex: none; }
+@media (max-width: 540px) {
+  .config-editor__hint { display: none; }
+  .config-editor__status { justify-content: flex-end; }
+}
+
+.config-editor__diagnostic-status {
+  min-width: 0;
+  max-width: min(60vw, 680px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A button since it jumps to the first error; reset UA chrome so it reads
+     as status text, with a pointer affordance only when errors exist. */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.config-editor__diagnostic-status:not(:disabled) { cursor: pointer; }
+
+.config-editor__diagnostic-status:not(:disabled):hover { text-decoration: underline; }
+
+.config-editor__diagnostic-status:disabled { cursor: default; }
+
+.config-editor__diagnostic-status:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Each count in its severity's color; the detail after them stays muted. */
+.config-editor__diagnostic-count-error { color: var(--config-editor-status-error); }
+.config-editor__diagnostic-count-warning { color: var(--config-editor-status-warning); }
+.config-editor__diagnostic-count-info { color: var(--config-editor-status-info); }
+.config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
+
+/* On a phone the detail (a hint, or an unplaced problem's message) goes on
+   a line of its own under the counts, wrapped rather than cut. */
+@media (max-width: 540px) {
+  .config-editor__status-meta { flex-wrap: wrap; justify-content: flex-end; }
+  .config-editor__diagnostic-status { max-width: 100%; white-space: normal; }
+  .config-editor__diagnostic-detail { display: block; }
+  .config-editor__diagnostic-separator { display: none; }
+}
+
+/* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */
+.config-editor__tab-focus-status {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 3px;
+  background: var(--config-editor-control-bg);
+  color: var(--config-editor-control-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.config-editor__tab-focus-status:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Read by screen readers only: the caret's note, announcements. */
+.config-editor__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+/* "2 changes": status text that jumps to the next change. */
+.config-editor__change-status {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--config-editor-status-changes);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.config-editor__change-status:hover { text-decoration: underline; }
+
+.config-editor__change-status:focus-visible {
+  outline: 1px solid var(--config-editor-focus-ring);
+  outline-offset: 1px;
+}
+
+:where(.config-editor[data-theme="vscode-light"], .config-editor-documents[data-theme="vscode-light"], .config-editor-theme[data-theme="vscode-light"]) {
+  --config-editor-bg: #ffffff;
+  --config-editor-status-error: #c72e0f;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
+  --config-editor-panel: #f3f3f3;
+  --config-editor-border: #dedede;
+  --config-editor-text: #333333;
+  --config-editor-muted: #777777;
+  --config-editor-accent: #007acc;
+  --config-editor-error: #d32f2f;
+  --config-editor-toolbar-text: #333333;
+  --config-editor-line-active: #222222;
+  --config-editor-added: #16803c;
+  --config-editor-modified: #006ab1;
+  --config-editor-raised: #ffffff;
+  --config-editor-raised-border: #cccccc;
+  --config-editor-raised-text: #333333;
+  --config-editor-raised-muted: #666666;
+  --config-editor-raised-hover: #e8e8e8;
+  --config-editor-control-bg: #f8f8f8;
+  --config-editor-control-text: #333333;
+  --config-editor-completion-active: #cce8ff;
+  --config-editor-comment: #008000;
+  --config-editor-key: #0451a5;
+  --config-editor-punctuation: #333333;
+  --config-editor-string: #a31515;
+  --config-editor-literal: #098658;
+  --config-editor-value: #267f99;
+  --config-editor-active-line: rgb(0 0 0 / 5%);
+  --config-editor-error-line: rgb(211 47 47 / 6%);
+  --config-editor-added-line: rgb(22 128 60 / 9%);
+  --config-editor-modified-line: rgb(0 106 177 / 9%);
+  --config-editor-selection: rgb(173 214 255 / 40%);
+  --config-editor-caret: #333333;
+}
+
+:where(.config-editor[data-theme="obsidian"], .config-editor-documents[data-theme="obsidian"], .config-editor-theme[data-theme="obsidian"]) {
+  --config-editor-bg: #090b0c;
+  --config-editor-panel: #0c0f10;
+  --config-editor-border: #24292c;
+  --config-editor-text: #cbd2d8;
+  --config-editor-muted: #687178;
+  --config-editor-accent: #69baff;
+  --config-editor-error: #ff6868;
+  --config-editor-toolbar-text: #d0d5da;
+  --config-editor-line-active: #f0f3f5;
+  --config-editor-added: #acd99d;
+  --config-editor-modified: #81c8ff;
+  --config-editor-raised: #101415;
+  --config-editor-raised-border: #30383c;
+  --config-editor-raised-text: #d5dce1;
+  --config-editor-raised-muted: #929ba1;
+  --config-editor-raised-hover: #20282c;
+  --config-editor-control-bg: #171d20;
+  --config-editor-control-text: #d5dce1;
+  --config-editor-completion-active: #173a50;
+  --config-editor-comment: #7f878d;
+  --config-editor-key: #83c8ff;
+  --config-editor-punctuation: #cbd2d8;
+  --config-editor-string: #b4e1a5;
+  --config-editor-literal: #b4e1a5;
+  --config-editor-value: #b4e1a5;
+  --config-editor-active-line: rgb(255 255 255 / 4%);
+  --config-editor-error-line: rgb(255 104 104 / 7%);
+  --config-editor-added-line: rgb(172 217 157 / 8%);
+  --config-editor-modified-line: rgb(129 200 255 / 8%);
+  --config-editor-selection: rgb(78 124 157 / 40%);
+  --config-editor-caret: #e6edf2;
+}
+
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"], .config-editor-theme[data-theme="obsidian-light"]) {
+  --config-editor-bg: #f8faf8;
+  --config-editor-status-error: #b42318;
+  --config-editor-status-warning: #8a6100;
+  --config-editor-status-info: #0969da;
+  --config-editor-status-hint: #59636e;
+  --config-editor-status-changes: #1d6fa5;
+  --config-editor-panel: #f0f3f1;
+  --config-editor-border: #d7dfda;
+  --config-editor-text: #35413a;
+  --config-editor-muted: #7b8780;
+  --config-editor-accent: #2780b8;
+  --config-editor-error: #c43d3d;
+  --config-editor-toolbar-text: #35413a;
+  --config-editor-line-active: #26342c;
+  --config-editor-added: #347b42;
+  --config-editor-modified: #267eb4;
+  --config-editor-raised: #ffffff;
+  --config-editor-raised-border: #d5ddd8;
+  --config-editor-raised-text: #35413a;
+  --config-editor-raised-muted: #5f6b63;
+  --config-editor-raised-hover: #e7ece9;
+  --config-editor-control-bg: #f5f8f6;
+  --config-editor-control-text: #35413a;
+  --config-editor-completion-active: #dceef8;
+  --config-editor-comment: #66736b;
+  --config-editor-key: #2778a9;
+  --config-editor-punctuation: #526058;
+  --config-editor-string: #467a46;
+  --config-editor-literal: #347b42;
+  --config-editor-value: #467a46;
+  --config-editor-active-line: rgb(20 50 30 / 5%);
+  --config-editor-error-line: rgb(196 61 61 / 6%);
+  --config-editor-added-line: rgb(52 123 66 / 8%);
+  --config-editor-modified-line: rgb(38 126 180 / 8%);
+  --config-editor-selection: rgb(130 181 215 / 40%);
+  --config-editor-caret: #35413a;
+}
+
+/* Tokens that VS Code Dark tunes by hand; the other families derive them
+   from their palette, so every data-color-theme on top of them follows. */
+.config-editor[data-theme="vscode-light"],
+.config-editor-documents[data-theme="vscode-light"], .config-editor-theme[data-theme="vscode-light"],
+.config-editor[data-theme="obsidian"],
+.config-editor-documents[data-theme="obsidian"], .config-editor-theme[data-theme="obsidian"],
+:where(.config-editor[data-theme="obsidian-light"], .config-editor-documents[data-theme="obsidian-light"], .config-editor-theme[data-theme="obsidian-light"]) {
+  --config-editor-diff-removed-bg: color-mix(in srgb, var(--config-editor-error) 14%, transparent);
+  --config-editor-diff-removed-text: var(--config-editor-text);
+  --config-editor-diff-current-bg: color-mix(in srgb, var(--config-editor-modified) 12%, transparent);
+  --config-editor-diff-current-text: var(--config-editor-text);
+  --config-editor-tooltip-text: var(--config-editor-raised-text);
+  --config-editor-completion-key: var(--config-editor-raised-text);
+  --config-editor-completion-type: var(--config-editor-raised-muted);
+  --config-editor-completion-detail: var(--config-editor-raised-muted);
+  --config-editor-completion-icon-text: var(--config-editor-raised-muted);
+  --config-editor-completion-icon-border: color-mix(in srgb, var(--config-editor-raised-muted) 55%, transparent);
+  --config-editor-diff-peek-divider: var(--config-editor-raised-border);
+  /* The accent: VS Code Dark's light blue fades on a light background. */
+  --config-editor-focus-ring: var(--config-editor-accent);
+  --config-editor-diff-focus-ring: var(--config-editor-focus-ring);
+  --config-editor-search-match: color-mix(in srgb, var(--config-editor-warning) 32%, transparent);
+  --config-editor-search-match-current: color-mix(in srgb, var(--config-editor-accent) 38%, transparent);
+  --config-editor-search-match-current-border: var(--config-editor-accent);
+  --config-editor-input-bg: var(--config-editor-bg);
+  --config-editor-input-border: var(--config-editor-raised-border);
+  --config-editor-toggle-active: color-mix(in srgb, var(--config-editor-accent) 30%, transparent);
+}
+
+/* The peek's single-side dividers also colour their undrawn sides in these
+   families (invisible; kept so computed styles stay identical). */
+.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-header,
+.config-editor[data-theme="obsidian"] .config-editor__diff-peek-header,
+.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-header,
+.config-editor[data-theme="vscode-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
+.config-editor[data-theme="obsidian"] .config-editor__diff-peek-side + .config-editor__diff-peek-side,
+.config-editor[data-theme="obsidian-light"] .config-editor__diff-peek-side + .config-editor__diff-peek-side {
+  border-color: var(--config-editor-raised-border);
+}
+
+.config-editor__code-line-active.config-editor__code-line-added {
+  background:
+    linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
+    var(--config-editor-added-line);
+}
+
+.config-editor__code-line-active.config-editor__code-line-modified {
+  background:
+    linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
+    var(--config-editor-modified-line);
+}
+
+.config-editor__code-line-active.config-editor__code-line-error {
+  background:
+    linear-gradient(var(--config-editor-active-line), var(--config-editor-active-line)),
+    var(--config-editor-error-line);
+}
+
+@media (max-width: 600px) {
+  .config-editor__toolbar { padding: 0 10px; }
+  .config-editor__gutter {
+    --config-editor-marker-column: 23px;
+    --config-editor-gutter-padding: 10px;
+  }
+  .config-editor__schema-state { font-size: 0; }
+  .config-editor__status-meta { gap: 5px; }
+}
+
+/* Touch screens: every control is at least 24×24px to a finger (WCAG
+   2.5.8), the small marks through a larger invisible hit area. The gutter
+   widens so the change bars' and the chevrons' areas stay apart. */
+@media (pointer: coarse) {
+  .config-editor__gutter:not(.config-editor__gutter-folding) {
+    padding-right: calc(var(--config-editor-gutter-padding) + 11px);
+    width: calc(
+      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+        var(--config-editor-gutter-padding) + 11px
+    );
+  }
+  .config-editor__gutter.config-editor__gutter-folding {
+    --config-editor-fold-gutter: 24px;
+    padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
+    width: calc(
+      var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
+        var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
+    );
+  }
+  .config-editor__fold-toggle {
+    right: calc(-24px - var(--config-editor-fold-gutter));
+    top: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2);
+    height: max(24px, var(--config-editor-line-height));
+  }
+  .config-editor__fold-toggle::before { left: 9px; }
+  /* The bar's area: from the number's edge to the chevrons, 24px tall. */
+  .config-editor__diff-marker-added::after,
+  .config-editor__diff-marker-modified::after {
+    top: -1px;
+    right: -15px;
+    bottom: -1px;
+    left: -6px;
+  }
+  .config-editor__diff-deleted::after {
+    position: absolute;
+    top: -6px;
+    right: -15px;
+    width: 24px;
+    height: 24px;
+    content: "";
+  }
+  .config-editor__diagnostic-status,
+  .config-editor__change-status,
+  .config-editor__tab-focus-status,
+  .config-editor__notice-button,
+  .config-editor__action-button {
+    min-height: 24px;
+  }
+  .config-editor__find-toggle,
+  .config-editor__find-button {
+    min-width: 24px;
+    height: 24px;
+  }
+  .config-editor__fold-chip { min-width: 24px; }
+  /* The chip is a line tall; its hit area is 24px. */
+  .config-editor__fold-chip::before {
+    position: absolute;
+    inset: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2) 0;
+    content: "";
+  }
+}
+
+/* Forced colors (Windows high contrast) drop backgrounds: the gutter's
+   problem dots and change bars are drawn in system colors instead. */
+@media (forced-colors: active) {
+  .config-editor__line-number-error::before,
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified,
+  .config-editor__diff-deleted::before {
+    forced-color-adjust: none;
+  }
+  .config-editor__line-number-error::before { background: CanvasText; }
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified { background: Highlight; }
+  .config-editor__diff-deleted::before { background: CanvasText; }
+}
+
+/* No sliding or fading for those who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .config-editor__fold-toggle,
+  .config-editor__find-expand,
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified,
+  .config-editor__diff-deleted::before {
+    transition: none;
+  }
+}

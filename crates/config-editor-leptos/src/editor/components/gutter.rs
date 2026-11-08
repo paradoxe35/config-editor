@@ -67,19 +67,42 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
                 // A lock, else a key beside a secret placeholder: one node.
                 row.with(|row| {
                     row.marks.as_ref().and_then(|marks| match (&marks.lock, &marks.key) {
-                        (Some(lock), _) => Some(("config-editor__lock-marker", lock.clone())),
-                        (None, Some(key)) => Some(("config-editor__secret-marker", key.clone())),
+                        (Some(lock), _) => Some((LOCK, lock.clone())),
+                        (None, Some(key)) => Some((KEY, key.clone())),
                         (None, None) => None,
                     })
                 })
-                .map(|(class, label)| view! {
-                    <span class=class role="img" aria-label=label.clone() title=label></span>
+                .map(|(icon, label)| view! {
+                    <span class=icon.class role="img" aria-label=label.clone() title=label>
+                        <svg viewBox=icon.view_box aria-hidden="true"><path d=icon.path /></svg>
+                    </span>
                 })
             }}
             <ChangeMarkers state=state row=row line=line />
         </div>
     }
 }
+
+/// A gutter icon, drawn as inline SVG (a strict CSP refuses `data:` images).
+struct Icon {
+    class: &'static str,
+    view_box: &'static str,
+    path: &'static str,
+}
+
+/// A read-only line's lock.
+const LOCK: Icon = Icon {
+    class: "config-editor__lock-marker",
+    view_box: "0 0 16 18",
+    path: "M3 8V5a5 5 0 0 1 10 0v3h1.5v10h-13V8zm2.5 0h5V5a2.5 2.5 0 0 0-5 0z",
+};
+
+/// A secret placeholder's key.
+const KEY: Icon = Icon {
+    class: "config-editor__secret-marker",
+    view_box: "0 0 16 16",
+    path: "M5 2a4 4 0 0 1 3.9 4.9L16 14v2h-3v-2h-2v-2H9.4L7 9.6A4 4 0 1 1 5 2zm-.5 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
+};
 
 /// The state classes of a line number.
 fn line_number_class(row: &RowUiState) -> &'static str {

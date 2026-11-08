@@ -17,9 +17,13 @@
 //!   `&lock=/name,/listen` locks more fields as the host.
 //! - `?documents` — several files as tabs (`ConfigDocuments`), see
 //!   `documents_demo`.
+//! - `?styled=0` — no injected stylesheet (`styled: false`): the page serves
+//!   `preset.css` itself, as under a strict Content-Security-Policy;
+//!   `?colors=custom` overrides a few theme colors (`colors`).
 
 use config_editor_leptos::{
     ConfigEditor, ConfigEditorToolbar, EditorSettings, FieldPath, Language, SaveRequest,
+    ThemeColor, ThemeColors,
 };
 use leptos::prelude::*;
 
@@ -111,6 +115,26 @@ fn query_flags() -> Vec<String> {
         .collect()
 }
 
+/// The settings both demos start from: the footer on, and the `styled`,
+/// `colors` and `folding` flags.
+fn initial_settings(flags: &[String]) -> EditorSettings {
+    let colors = if query_value(flags, "colors").as_deref() == Some("custom") {
+        ThemeColors::new()
+            .set(ThemeColor::Key, "#ffcc66")
+            .set(ThemeColor::Background, "#101418")
+            .set(ThemeColor::TabActiveBackground, "#203040")
+    } else {
+        ThemeColors::new()
+    };
+    EditorSettings {
+        show_footer: true,
+        folding: query_value(flags, "folding").as_deref() != Some("0"),
+        styled: query_value(flags, "styled").as_deref() != Some("0"),
+        colors,
+        ..EditorSettings::default()
+    }
+}
+
 fn query_value(flags: &[String], name: &str) -> Option<String> {
     let prefix = format!("{name}=");
     flags
@@ -196,11 +220,7 @@ fn main() {
                 .any(|pair| pair == "readonly" || pair == "readonly=1"),
         );
         // Every setting switches live from the panel below the editor.
-        let settings = RwSignal::new(EditorSettings {
-            show_footer: true,
-            folding: query_value(&flags, "folding").as_deref() != Some("0"),
-            ..EditorSettings::default()
-        });
+        let settings = RwSignal::new(initial_settings(&flags));
         let theme = Signal::derive(move || settings.with(|settings| settings.theme));
         let (schema, sample) = match query_value(&flags, "schema").as_deref() {
             Some("help") => (HELP_SCHEMA, ""),

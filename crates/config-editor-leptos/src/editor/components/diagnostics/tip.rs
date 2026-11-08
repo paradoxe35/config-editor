@@ -18,6 +18,7 @@ use super::super::super::positioning::PopupFrame;
 use super::super::super::problems::TipAnchor;
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
+use crate::cssom::{Declarations, cssom};
 use crate::reactive::later;
 use wasm_bindgen::JsCast;
 
@@ -106,7 +107,7 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             role="tooltip"
             node_ref=tip_ref
             hidden=move || placement.with(Option::is_none)
-            style=move || placement.get().map(|placed| placed.style()).unwrap_or_default()
+            style=cssom(move || placement.get().map(Placement::style))
             on:mouseenter=move |_| state.problems().tip_entered.set_value(true)
             on:mouseleave=move |_| leave_tip(state)
             // Scrolling it or clicking a link keeps the caret.
@@ -287,11 +288,12 @@ struct Placement {
 }
 
 impl Placement {
-    fn style(self) -> String {
-        format!(
-            "left:{:.1}px;top:{:.1}px;max-width:{:.1}px;max-height:{:.1}px",
-            self.left, self.top, self.width, self.max_height
-        )
+    fn style(self) -> Declarations {
+        Declarations::new()
+            .set("left", format!("{:.1}px", self.left))
+            .set("top", format!("{:.1}px", self.top))
+            .set("max-width", format!("{:.1}px", self.width))
+            .set("max-height", format!("{:.1}px", self.max_height))
     }
 }
 

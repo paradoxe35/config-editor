@@ -66,10 +66,9 @@ impl LiveSettings {
         }
     }
 
-    /// The colors as the root's inline style, when any is set.
-    pub(super) fn color_style(&self) -> Option<String> {
-        self.colors
-            .with(|colors| (!colors.is_empty()).then(|| colors.to_style()))
+    /// The colors as the root's inline style (set through the CSSOM).
+    pub(super) fn color_style(&self) -> crate::cssom::Declarations {
+        self.colors.with(|colors| colors.declarations())
     }
 }
 

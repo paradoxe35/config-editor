@@ -1,0 +1,11 @@
+body {
+  margin: 0;
+  font: 13px system-ui, sans-serif;
+  background: #1e1e1e;
+  color: #ddd;
+}
+
+.csp-page__editor,
+.csp-page__documents {
+  height: 280px;
+}

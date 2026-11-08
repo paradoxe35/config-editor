@@ -101,25 +101,29 @@ pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
 use crate::EditorSettings;
+use crate::cssom::cssom;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
     HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar,
 };
-use positioning::FRAME_PROBE_STYLE;
+use positioning::frame_probe_style;
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
 use state::{EditorState, Init};
 
-/// The preset stylesheet: layout plus every bundled theme, and the tabs of
-/// [`ConfigDocuments`](crate::ConfigDocuments).
+/// The preset stylesheet: the base styles, every bundled theme, and the tabs
+/// of [`ConfigDocuments`](crate::ConfigDocuments) (the parts in `src/css/`).
 ///
 /// The editor injects it unless the `styled` setting is off, in which case a
-/// host can serve it itself.
+/// host can serve it itself: the crate ships it whole as one file,
+/// `preset.css` (and the npm package as `@pngwasi/config-editor/preset.css`),
+/// for pages under a strict Content-Security-Policy that refuses the
+/// injected `<style>`.
 pub const PRESET_CSS: &str = concat!(
-    include_str!("preset.css"),
-    include_str!("themes.css"),
-    include_str!("documents.css")
+    include_str!("css/base.css"),
+    include_str!("css/themes.css"),
+    include_str!("css/documents.css")
 );
 
 /// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
@@ -345,7 +349,7 @@ pub fn ConfigEditor(
             }
             data-theme=move || shown.theme.get().css_family()
             data-color-theme=move || shown.theme.get().as_str()
-            style=move || shown.color_style()
+            style=cssom(move || shown.color_style())
             node_ref=state.view().root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
@@ -357,7 +361,7 @@ pub fn ConfigEditor(
                 <div class="config-editor__surface">
                     <Gutter state=state rows=rows />
                     <div class="config-editor__input-wrap">
-                        <div aria-hidden="true" style=FRAME_PROBE_STYLE node_ref=state.view().frame_probe_ref></div>
+                        <div aria-hidden="true" style=cssom(frame_probe_style()) node_ref=state.view().frame_probe_ref></div>
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
                         <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />

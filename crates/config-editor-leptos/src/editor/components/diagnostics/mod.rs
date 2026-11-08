@@ -8,9 +8,11 @@ use leptos::prelude::*;
 use super::super::a11y::problem_marker;
 use super::super::completion::visual_column;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
+use super::super::positioning::row_box;
 use super::super::problems::TipAnchor;
 use super::super::state::EditorState;
 use crate::EditorStrings;
+use crate::cssom::cssom;
 use crate::reactive::Relay;
 use segments::{Segment, plan};
 
@@ -190,11 +192,7 @@ fn marker(
             aria-hidden=(!first).then_some("true")
             data-message=diagnostic.message.clone()
             data-detail=detail
-            style=format!(
-                "left: {left}ch; top: calc(var(--config-editor-padding-top) + {} * var(--config-editor-line-height)); width: {}ch;",
-                row,
-                visual_width.max(1.0),
-            )
+            style=cssom(row_box(left, row, Some(visual_width.max(1.0))))
             on:mousedown=|event| event.prevent_default()
             on:mouseenter=move |_| state.hover_problem(anchor)
             on:mouseleave=move |_| state.leave_problem()

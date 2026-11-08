@@ -84,7 +84,7 @@ mod tests {
         MATCH_TIER_SUBSEQUENCE, MATCH_TIER_SUBSTRING, PopupFrame, completion_popup_geometry,
     };
 
-    /// Changing these must be deliberate: the sizes mirror `preset.css`.
+    /// Changing these must be deliberate: the sizes mirror `css/base.css`.
     #[test]
     fn ranking_tiers_and_popup_sizing_match_their_documentation() {
         assert_eq!(MATCH_TIER_EXACT_PREFIX, 1000);
@@ -108,7 +108,8 @@ mod tests {
             200.0,
             21.6,
             3,
-        );
+        )
+        .to_string();
         // 3 options: ideal height = 3*44+2 = 134. Below: 768-200-21.6-8 = 538.4.
         assert!(
             style.contains("top:221.6px"),
@@ -132,7 +133,8 @@ mod tests {
             700.0,
             21.6,
             3,
-        );
+        )
+        .to_string();
         // Below: 768-700-21.6-8 = 38.4 < 134; above: 700-8 = 692. So flip.
         assert!(
             style.contains("top:700.0px") && style.contains("translateY(-100%)"),
@@ -152,7 +154,8 @@ mod tests {
             200.0,
             21.6,
             3,
-        );
+        )
+        .to_string();
         // width = min(420, 1024-16) = 420; left clamped to 1024-420-8 = 596.
         assert!(
             style.contains("left:596.0px"),

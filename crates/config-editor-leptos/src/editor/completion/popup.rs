@@ -1,6 +1,7 @@
 //! Where the suggestion list opens and how it scrolls.
 
 use super::*;
+use crate::cssom::Declarations;
 
 /// Rows PageUp/PageDown move: one popup page
 /// (`COMPLETION_POPUP_MAX_HEIGHT / COMPLETION_ROW_HEIGHT`).
@@ -76,7 +77,7 @@ pub(crate) const COMPLETION_POPUP_WIDTH: f64 = 420.0;
 pub(crate) const COMPLETION_POPUP_VIEWPORT_GUTTER: f64 = 16.0;
 
 /// Height of one suggestion row, in pixels; mirrors the
-/// `.config-editor__completion` rule in `preset.css`.
+/// `.config-editor__completion` rule in `css/base.css`.
 pub(crate) const COMPLETION_ROW_HEIGHT: f64 = 44.0;
 
 /// Vertical padding of the completion list, in pixels.
@@ -93,7 +94,7 @@ pub(crate) fn completion_popup_geometry(
     caret_y: f64,
     line_height: f64,
     option_count: usize,
-) -> String {
+) -> Declarations {
     let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
     let width =
         COMPLETION_POPUP_WIDTH.min((viewport_width - COMPLETION_POPUP_VIEWPORT_GUTTER).max(0.0));
@@ -109,17 +110,22 @@ pub(crate) fn completion_popup_geometry(
     let available_height = if below { space_below } else { space_above };
     let max_height = ideal_height.min(available_height).max(0.0);
     let left = frame.left(left);
+    let top = frame.top(if below {
+        caret_y + line_height
+    } else {
+        caret_y
+    });
+    let style = Declarations::new()
+        .set("position", "fixed")
+        .set("left", format!("{left:.1}px"))
+        .set("top", format!("{top:.1}px"))
+        .set("width", format!("{width:.1}px"))
+        .set("max-height", format!("{max_height:.1}px"));
     if below {
-        format!(
-            "position:fixed;left:{left:.1}px;top:{:.1}px;width:{width:.1}px;max-height:{max_height:.1}px",
-            frame.top(caret_y + line_height)
-        )
+        style
     } else {
         // Its bottom on the caret's line, however tall its rows turn out.
-        format!(
-            "position:fixed;left:{left:.1}px;top:{:.1}px;width:{width:.1}px;max-height:{max_height:.1}px;transform:translateY(-100%)",
-            frame.top(caret_y)
-        )
+        style.set("transform", "translateY(-100%)")
     }
 }
 
@@ -130,7 +136,7 @@ pub(crate) fn completion_popup_style(
     source: &str,
     cursor: usize,
     option_count: usize,
-) -> String {
+) -> Declarations {
     let element: &web_sys::Element = editor.unchecked_ref();
     let frame = PopupFrame::measure(state);
     let rect = frame.bounds(&element.get_bounding_client_rect());

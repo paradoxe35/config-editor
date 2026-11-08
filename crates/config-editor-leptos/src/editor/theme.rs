@@ -507,6 +507,18 @@ impl ThemeColors {
             .join(" ")
     }
 
+    /// The overrides as declarations set through the CSSOM (which a strict
+    /// CSP allows), with the same values [`Self::to_style`] keeps.
+    pub(crate) fn declarations(&self) -> crate::cssom::Declarations {
+        self.colors
+            .iter()
+            .filter(|(_, value)| !value.contains([';', '{', '}']))
+            .fold(
+                crate::cssom::Declarations::new(),
+                |style, (color, value)| style.set(color.css_var(), value.trim()),
+            )
+    }
+
     /// Whether no color is overridden.
     pub fn is_empty(&self) -> bool {
         self.colors.is_empty()
@@ -675,7 +687,7 @@ mod color_tests {
     /// Every token is a variable the preset stylesheet defines.
     #[test]
     fn every_theme_color_is_a_preset_token() {
-        let preset = include_str!("../preset.css");
+        let preset = include_str!("../css/base.css");
         for color in ThemeColor::ALL {
             assert!(
                 preset.contains(&format!("{}:", color.css_var())),

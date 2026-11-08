@@ -1,6 +1,7 @@
 //! The short tooltip of protected text: why an edit was refused (at the
 //! caret, for a moment), or what the hovered protected text is.
 
+use crate::cssom::{Declarations, cssom};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -23,7 +24,7 @@ pub(in crate::editor) fn ProtectTipView(state: EditorState) -> impl IntoView {
                 class:config-editor__protect-tip--refused=!tip.hover
                 role=if tip.hover { "tooltip" } else { "status" }
                 aria-live="polite"
-                style=style
+                style=cssom(style)
             >
                 {tip.message}
             </div>
@@ -33,7 +34,7 @@ pub(in crate::editor) fn ProtectTipView(state: EditorState) -> impl IntoView {
 
 /// Where the tooltip goes: under (or above) the text it points at, which
 /// it follows as the text scrolls; `None` while that is out of view.
-fn tip_style(state: EditorState, tip: &Tip) -> Option<String> {
+fn tip_style(state: EditorState, tip: &Tip) -> Option<Declarations> {
     let element = state.textarea()?;
     state.view().layout_revision.track();
     state.view().scroll_x.track();
