@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { editor, setupEditor } from './helpers.mjs';
 
 // Gaps earlier rounds (16-18) left: each replayed in the demo with real
@@ -56,3 +59,73 @@ test.describe('the page sample', () => {
     await expect(picker.locator('option:checked')).toHaveText(/Page sample \(3 lines\)/);
   });
 });
+
+// The npm package's example pages (built by `npm run build` in js/).
+const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
+const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
+const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
+
+test.describe('onSchemaWarning', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  test('arrives after new ConfigEditor returns, never inside it', async ({ page }) => {
+    await page.goto(example('vanilla.html'));
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const result = await page.evaluate(async () => {
+      const { ConfigEditor } = await import('../config-editor/index.js');
+      const host = document.createElement('div');
+      document.body.append(host);
+      const schema = JSON.stringify({ type: 'object', patternProperties: { '^(?!x-)[a-z]+$': { type: 'string' } } });
+      const heard = [];
+      let editor;
+      editor = new ConfigEditor(host, {
+        language: 'yaml',
+        value: 'a: b\n',
+        schema,
+        onSchemaWarning: (message) => heard.push({ message, instance: editor !== undefined }),
+      });
+      const during = heard.length;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      editor.destroy();
+      return { during, heard };
+    });
+    expect(result.during).toBe(0);
+    expect(result.heard).toHaveLength(1);
+    expect(result.heard[0].instance).toBe(true);
+    expect(result.heard[0].message).toContain('patternProperties');
+  });
+});
+
+// Typing refused at a read-only field leaves nothing half-written.
+async function caretAt(e, needle, offset) {
+  await e.input.evaluate((element, [needle, offset]) => {
+    const at = needle === null ? element.value.length : element.value.indexOf(needle) + offset;
+    element.focus();
+    element.setSelectionRange(at, at);
+  }, [needle, offset]);
+}
+
+for (const [language, place, opened, typed] of [
+  ['toml', 'burst = 20', true, 'extra = 5'],
+  ['hcl', 'burst = 20', true, 'extra = 5'],
+  ['yaml', 'burst: 20', true, 'extra: 5'],
+  ['xml', null, false, '<id>other</id>'],
+  ['hcl', null, false, 'id = "other"'],
+]) {
+  test.describe(`${language}: typing refused at a read-only field`, () => {
+    setupEditor(test, `?schema=protected&language=${language}`);
+
+    test(`${typed} leaves nothing half-written`, async ({ page }) => {
+      const e = editor(page);
+      const before = await e.value();
+      await caretAt(e, place, place === null ? 0 : place.length);
+      if (opened) await page.keyboard.press('Enter');
+      const afterEnter = await e.value();
+      await page.keyboard.type(typed, { delay: 20 });
+      await expect(page.locator('.config-editor__protect-tip--refused')).toBeVisible();
+      // Only the line Enter opened stays (its indentation included).
+      expect(await e.value()).toBe(afterEnter);
+      if (!opened) expect(await e.value()).toBe(before);
+    });
+  });
+}

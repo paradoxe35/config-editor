@@ -820,8 +820,11 @@ view! {
   change a read-only value, delete its key (also by deleting a selection or
   a parent block that holds it), rename a key holding it, or add to a
   read-only block is refused whole: the text stays as it was, and a short
-  tooltip at the caret says why. Replace All replaces the other matches and
-  reports how many it skipped.
+  tooltip at the caret says why. Typing refused part-way leaves nothing
+  half-written: what was typed of that entry on the line goes too (`<i` of
+  a refused `<id>`), and the keys typed there after it are refused, until
+  the caret moves. Replace All replaces the other matches and reports how
+  many it skipped.
 - Formatting around and inside a locked field stays free: blank lines,
   trailing spaces, a comment after the value, punctuation next to it (`,`
   in JSON), a space after `:` or `=`, and re-indenting where indentation is
