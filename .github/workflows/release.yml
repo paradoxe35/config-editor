@@ -130,21 +130,21 @@ jobs:
       - name: Publish @pngwasi/config-editor, then its React, Vue and Svelte packages
         working-directory: js
         run: |
-          flags="--access public"
+          flags=(--access public)
           if [ "${{ github.event_name }}" = "push" ] && [ "$HAS_TOKEN" = "true" ]; then
-            flags="$flags --provenance"
+            flags+=(--provenance)
           else
             if [ "${{ github.event_name }}" = "push" ]; then
               echo "::notice::NPM_TOKEN is not set: npm publish skipped (dry run only)"
             fi
-            flags="$flags --dry-run"
+            flags+=(--dry-run)
           fi
           # The core first: the framework packages peer-depend on it.
           for package in config-editor config-editor-react config-editor-vue config-editor-svelte; do
             if npm view "@pngwasi/$package@$VERSION" version >/dev/null 2>&1; then
               echo "::notice::@pngwasi/$package $VERSION is already on npm; skipped"
             else
-              npm publish --workspace "@pngwasi/$package" $flags
+              npm publish --workspace "@pngwasi/$package" "${flags[@]}"
             fi
           done
         env:
