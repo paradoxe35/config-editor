@@ -9,6 +9,7 @@ use super::super::super::state::EditorState;
 use super::super::hunk_for_peek;
 use super::super::keys::go_to_change;
 use super::super::line_diff::{DiffPeek, peek_popup_style, peek_survives_edit};
+use super::tab_order::tab_past_edge;
 use crate::EditorStrings;
 use crate::cssom::{Declarations, cssom};
 use crate::reactive::Relay;
@@ -136,6 +137,7 @@ fn on_peek_keydown(state: EditorState, peek: &DiffPeek, event: &KeyboardEvent) {
             event.prevent_default();
             state.revert_change(peek);
         }
+        "Tab" if plain => tab_past_edge(state, event),
         _ => {
             go_to_change(state, event);
         }

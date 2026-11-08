@@ -8,8 +8,9 @@ import { setupEditor } from './helpers.mjs';
 // own other interface text (labels, chips, icons) to 3:1, and a disabled control looks
 // disabled (clearly dimmer than when enabled) while staying readable.
 //
-// Each pair is [what, foreground, background (bottom layer first)]; a
-// translucent layer is composited over the ones under it.
+// Each pair is [what, foreground, background (bottom layer first)], each a
+// theme variable or a `.class` (the color its rule gives); a translucent
+// layer is composited over the ones under it.
 const CODE = 4.5;
 const UI = 3;
 const PAIRS = [
@@ -21,6 +22,11 @@ const PAIRS = [
   ]),
   ['read-only value', CODE, 'locked', ['bg']],
   ['line number', CODE, 'line-number', ['bg']],
+  // A changed or broken line's number, as its rule colors it (QA 23:
+  // Solarized Light's added lines were 2.97:1).
+  ['line number, added line', CODE, '.config-editor__line-number-added', ['bg']],
+  ['line number, modified line', CODE, '.config-editor__line-number-modified', ['bg']],
+  ['line number, error line', CODE, '.config-editor__line-number-error', ['bg']],
   ['fold toggle', UI, 'fold-toggle', ['bg']],
   ['fold chip', UI, 'fold-chip-text', ['bg', 'fold-chip']],
   ['muted on panel (footer, tabs)', UI, 'muted', ['panel']],
@@ -64,8 +70,11 @@ async function themeColors(page, names) {
       frame.append(probe);
       const colors = {};
       for (const name of wanted) {
+        // A variable, or (`.class`) the color a class's rule gives.
+        const rule = name.startsWith('.');
+        probe.className = rule ? name.slice(1) : '';
         probe.style.color = '';
-        probe.style.color = `var(--config-editor-${name})`;
+        if (!rule) probe.style.color = `var(--config-editor-${name})`;
         const computed = getComputedStyle(probe).color;
         const srgb = computed.match(/color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)/);
         const rgb = computed.match(/rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?\)/);

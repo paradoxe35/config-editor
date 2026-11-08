@@ -361,7 +361,7 @@ with that reason.
 | `problem`                   | `"{severity}{source}: {message}"`                                                                                                    | A problem at the caret, for screen readers.                                                                                                                                                                                                    |
 | `problemPosition`           | `"{severity} {position} of {total}{source}: {message}"`                                                                              | Announced on `F8`: problem `{position}` of `{total}`.                                                                                                                                                                                          |
 | `problemCode`               | `" Code {code}."`                                                                                                                    | After a problem's text for screen readers: its `{code}` (from the host).                                                                                                                                                                       |
-| `problemDocs`               | `" Documentation: {url} (Alt+Enter opens it)."`                                                                                      | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it.                                                                                                                                             |
+| `problemDocs`               | `" Documentation: {url} (Alt+Enter opens it)."`                                                                                      | After a problem's text (or the hover card's docs) for screen readers: its documentation's `{url}`, and the key that opens it.                                                                                                                  |
 | `problemMarker`             | `"{language} {severity}{source} on line {line}: {message}"`                                                                          | An underlined problem's accessible name.                                                                                                                                                                                                       |
 | `protectedNote`             | `"{label}: {message}"`                                                                                                               | What protected text at the caret is, for screen readers: its `{label}` and `{message}`.                                                                                                                                                        |
 | `sourceLabel`               | `"{language} source"`                                                                                                                | The text area.                                                                                                                                                                                                                                 |
@@ -835,11 +835,12 @@ ConfigEditor` and `update()`.
 - `Ctrl+F` / `Ctrl+H`: find / find and replace; `Enter` and `Shift+Enter` (or `F3` / `Shift+F3`) next / previous match
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
-- `Alt+Enter`: open the documentation of the problem at the caret (a host problem with a docs link)
+- `Alt+Enter`: open the documentation of the problem at the caret (a problem with a docs link), else the hover card's Documentation link
 - `F6`: while the "file changed on the server" notice is open, move to its choices and back
 - `Ctrl+K Ctrl+I`: show the schema docs of the key at the caret (read to
-  screen readers; `Escape` closes them); on a touch screen, a tap on a key
-  shows them
+  screen readers, its Documentation link too; `Escape` closes them; in
+  `Ctrl+M` mode `Tab` moves into its links); on a touch screen, a tap on a
+  key shows them
 
 **Changes against the baseline**
 

@@ -119,25 +119,37 @@ pub(super) fn update_note(state: EditorState) {
     }
 }
 
-/// `Alt+Enter` on a problem with a docs link opens it in a new tab: the
-/// keyboard's way to the link the pointer clicks under the message.
-pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
-    let plain_alt = event.alt_key() && !event.ctrl_key() && !event.meta_key() && !event.shift_key();
-    if event.key() != "Enter" || !plain_alt {
-        return false;
-    }
+/// The docs link of the first problem at the caret that has one.
+pub(in crate::editor) fn caret_problem_docs(state: EditorState) -> Option<String> {
     let caret = state.doc().caret.get_untracked();
     let (line, column) = state
         .doc()
         .text
         .with_untracked(|text| caret_position(text, caret));
-    let url = state.problems().diagnostics.with_untracked(|problems| {
+    state.problems().diagnostics.with_untracked(|problems| {
         problems
             .iter()
             .filter(|problem| covers(problem, line, column))
             .find_map(|problem| problem.docs_url.clone())
-    });
-    let Some(url) = url else {
+    })
+}
+
+/// `Alt+Enter` opens a docs link in a new tab: a problem's at the caret,
+/// else the shown hover card's (the field's Documentation link): the
+/// keyboard's way to the links the pointer clicks.
+pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
+    let plain_alt = event.alt_key() && !event.ctrl_key() && !event.meta_key() && !event.shift_key();
+    if event.key() != "Enter" || !plain_alt {
+        return false;
+    }
+    let card_docs = || {
+        state.hover().card.with_untracked(|card| {
+            card.as_ref()
+                .filter(|_| state.completion().suggestions.with_untracked(Vec::is_empty))
+                .and_then(|card| card.info.docs_url.clone())
+        })
+    };
+    let Some(url) = caret_problem_docs(state).or_else(card_docs) else {
         return false;
     };
     event.prevent_default();

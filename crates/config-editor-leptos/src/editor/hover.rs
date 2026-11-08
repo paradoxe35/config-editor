@@ -2,8 +2,11 @@
 //! short pause (see `input::mouse_move`) and hidden as the pointer leaves.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
-use super::a11y::{caret_position, caret_problems_said, hover_text, problems_at_caret};
+use super::a11y::{
+    caret_position, caret_problem_docs, caret_problems_said, hover_text, problems_at_caret,
+};
 use super::completion::key_hover;
 use super::components::HoverCard;
 use super::positioning::hover_card_style;
@@ -26,6 +29,9 @@ pub(super) struct HoverState {
     /// The card was shown at the caret (`Ctrl+K Ctrl+I`, a tap), not by
     /// the pointer: the pointer leaving does not close it.
     pub(super) at_caret: StoredValue<bool>,
+    /// The card's element while it shows: the keyboard reaches its links
+    /// (see [`EditorState::keep_card_for`]).
+    pub(super) card_ref: NodeRef<leptos::html::Div>,
 }
 
 impl HoverState {
@@ -36,6 +42,7 @@ impl HoverState {
             card_entered: StoredValue::new(false),
             token: StoredValue::new(0),
             at_caret: StoredValue::new(false),
+            card_ref: NodeRef::new(),
         }
     }
 }
@@ -98,7 +105,9 @@ impl EditorState {
         let caret = problems_at_caret(*self);
         // The problems it lists, then its docs.
         let problems = caret_problems_said(*self);
-        let docs = self.strings_untracked(|strings| hover_text(strings, &info));
+        // Alt+Enter opens a problem's link first.
+        let docs_key = caret_problem_docs(*self).is_none();
+        let docs = self.strings_untracked(|strings| hover_text(strings, &info, docs_key));
         let said = if problems.is_empty() {
             docs
         } else {
@@ -122,8 +131,47 @@ impl EditorState {
         self.hover().card_entered.set_value(false);
         self.hover().at_caret.set_value(false);
         if self.hover().card.with_untracked(Option::is_some) {
+            // A link in it had the focus (Tab, in `Ctrl+M` mode): the text
+            // takes it back instead of the page.
+            let focused = self.card_has_focus();
             self.hover().card.set(None);
+            if focused && let Some(element) = self.textarea() {
+                let _ = element.focus();
+            }
         }
+    }
+
+    /// Whether the focus is in the hover card (on one of its links).
+    pub(super) fn card_has_focus(&self) -> bool {
+        let active = web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.active_element());
+        self.hover()
+            .card_ref
+            .get_untracked()
+            .zip(active)
+            .is_some_and(|(card, active)| card.contains(Some(&active)))
+    }
+
+    /// Whether the focus moving to `to` keeps the card: into it (Tab from
+    /// the text to its links, in `Ctrl+M` mode, as to the problem tip's),
+    /// or from it back to the text (Shift+Tab). The text's blur and the
+    /// card's focus-out hide it otherwise.
+    pub(super) fn keep_card_for(&self, to: Option<&web_sys::EventTarget>) -> bool {
+        let Some(to) = to.and_then(|to| to.dyn_ref::<web_sys::Node>()) else {
+            return false;
+        };
+        let into_card = self
+            .hover()
+            .card_ref
+            .get_untracked()
+            .is_some_and(|card| card.contains(Some(to)));
+        let into_text = self
+            .view()
+            .textarea_ref
+            .get_untracked()
+            .is_some_and(|text| text.is_same_node(Some(to)));
+        into_card || into_text
     }
 }
 

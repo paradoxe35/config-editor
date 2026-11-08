@@ -19,10 +19,12 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
                     state.view().projection.with(|projection| projection.rows()),
                 )
             }
-            // A text box of several lines that suggests (a combobox would be
-            // one line to screen readers): `aria-expanded` is not one of a
-            // text box's states, the open list is told by `aria-controls`
-            // and `aria-activedescendant` (see `a11y::suggestions`).
+            // A text box of several lines that suggests, as CodeMirror's
+            // and Monaco's are. Not a combobox: screen readers take one for
+            // a single-line field (reading and moving by line break), and
+            // `aria-expanded` is not one of a text box's states. The open
+            // list shows by `aria-controls` and `aria-activedescendant`,
+            // set only while it is open (see `a11y::suggestions`).
             role="textbox"
             aria-multiline="true"
             aria-label=state.language_text(|strings| &strings.source_label)
@@ -49,7 +51,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             on:input=move |event| input::input(state, &event)
             on:mousemove=move |event| input::mouse_move(state, &event)
             on:mouseleave=move |_| input::mouse_leave(state)
-            on:blur=move |_| input::blur(state)
+            on:blur=move |event| input::blur(state, &event)
             on:click=move |event| input::click(state, &event)
             on:keyup=move |event| input::key_up(state, &event)
             on:scroll=move |event| input::scroll(state, &event)

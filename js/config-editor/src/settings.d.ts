@@ -796,7 +796,7 @@ export interface EditorStrings {
    */
   problemCode?: string;
   /**
-   * After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it.
+   * After a problem's text (or the hover card's docs) for screen readers: its documentation's `{url}`, and the key that opens it.
    *
    * @default " Documentation: {url} (Alt+Enter opens it)."
    */

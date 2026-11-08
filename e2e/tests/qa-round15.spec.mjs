@@ -59,7 +59,8 @@ test.describe('the suggestion list, for screen readers', () => {
     await page.keyboard.press('Escape');
     await expect(list.locator('[role="option"]')).toHaveCount(0);
     await expect(e.input).not.toHaveAttribute('aria-activedescendant', /./);
-    await expect(e.input).toHaveAttribute('aria-controls', listId);
+    // Closed: it controls no list (QA 23: the open state shows by it).
+    await expect(e.input).not.toHaveAttribute('aria-controls', /./);
   });
 });
 

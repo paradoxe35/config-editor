@@ -321,8 +321,8 @@ pub struct EditorStrings {
     /// After a problem's text for screen readers: its `{code}` (from the
     /// host).
     pub problem_code: String,
-    /// After a problem's text for screen readers: its documentation's
-    /// `{url}`, and the key that opens it.
+    /// After a problem's text (or the hover card's docs) for screen
+    /// readers: its documentation's `{url}`, and the key that opens it.
     pub problem_docs: String,
     /// An underlined problem's accessible name.
     pub problem_marker: String,

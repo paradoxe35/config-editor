@@ -430,7 +430,7 @@ they come.
 | `problem`                       | `"{severity}{source}: {message}"`                                                                                                    | A problem at the caret, for screen readers.                                                                                                                                                                                                    |
 | `problem_position`              | `"{severity} {position} of {total}{source}: {message}"`                                                                              | Announced on `F8`: problem `{position}` of `{total}`.                                                                                                                                                                                          |
 | `problem_code`                  | `" Code {code}."`                                                                                                                    | After a problem's text for screen readers: its `{code}` (from the host).                                                                                                                                                                       |
-| `problem_docs`                  | `" Documentation: {url} (Alt+Enter opens it)."`                                                                                      | After a problem's text for screen readers: its documentation's `{url}`, and the key that opens it.                                                                                                                                             |
+| `problem_docs`                  | `" Documentation: {url} (Alt+Enter opens it)."`                                                                                      | After a problem's text (or the hover card's docs) for screen readers: its documentation's `{url}`, and the key that opens it.                                                                                                                  |
 | `problem_marker`                | `"{language} {severity}{source} on line {line}: {message}"`                                                                          | An underlined problem's accessible name.                                                                                                                                                                                                       |
 | `protected_note`                | `"{label}: {message}"`                                                                                                               | What protected text at the caret is, for screen readers: its `{label}` and `{message}`.                                                                                                                                                        |
 | `source_label`                  | `"{language} source"`                                                                                                                | The text area.                                                                                                                                                                                                                                 |
@@ -1075,38 +1075,38 @@ schema whose regex it cannot compile.
 
 ## Keyboard
 
-| Keys                                         | Action                                                                            |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| `Ctrl+Space`                                 | Open suggestions (with schema examples)                                           |
-| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                  |
-| `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote            |
-| `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                       |
-| `Ctrl+M`                                     | Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting |
-| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                    |
-| `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element  |
-| `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                         |
-| `Ctrl+/`                                     | Toggle comments                                                                   |
-| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                        |
-| `F8` / `Shift+F8`                            | Next / previous problem                                                           |
-| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                               |
-| `Ctrl+K Ctrl+I`                              | Show the schema docs of the key at the caret, read to screen readers (`Escape`)   |
-| `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                       |
-| `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert              |
-| `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)          |
-| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel       |
-| `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                           |
-| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                      |
-| `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                        |
-| `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold     |
-| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                               |
-| `Home`                                       | First non-blank character, then the line start                                    |
-| `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                              |
-| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)           |
-| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                             |
-| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                      |
-| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                           |
-| `Escape`                                     | Close popups and the find widget, then collapse the selection                     |
-| `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                              |
+| Keys                                         | Action                                                                                                                     |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Ctrl+Space`                                 | Open suggestions (with schema examples)                                                                                    |
+| `↑` `↓` `PageUp` `PageDown`, `Enter` / `Tab` | Move through suggestions, accept                                                                                           |
+| `Tab` after accepting a block                | Jump to the next empty value, or select the next value the block wrote                                                     |
+| `Tab` / `Shift+Tab`                          | Indent / outdent the line or selected lines                                                                                |
+| `Ctrl+M`                                     | Toggle Tab moves focus: `Tab` / `Shift+Tab` leave the editor instead of indenting                                          |
+| `Escape`, then `Tab` / `Shift+Tab`           | Leave the editor once (when the `Escape` had nothing to close)                                                             |
+| `Enter`                                      | New line with the right indentation; steps out of a just-typed string or element                                           |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter`            | Open a line below / above                                                                                                  |
+| `Ctrl+/`                                     | Toggle comments                                                                                                            |
+| `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                                                                 |
+| `F8` / `Shift+F8`                            | Next / previous problem                                                                                                    |
+| `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab (else the hover card's Documentation link)                                             |
+| `Ctrl+K Ctrl+I`                              | Show the schema docs of the key at the caret, read to screen readers (`Escape`); in `Ctrl+M` mode, `Tab` reaches its links |
+| `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                                                                |
+| `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert                                                       |
+| `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)                                                   |
+| `Ctrl+G`                                     | Go to line: type `line` or `line:column`, `Enter` to go, `Escape` to cancel                                                |
+| `Ctrl+S`                                     | Save through `on_save` (left to the browser without it)                                                                    |
+| `F6` while the baseline notice is open       | Move the focus to its Keep mine button, and back to the text                                                               |
+| `Escape` in the baseline notice              | Keep mine: keep the text, diff it against the new baseline                                                                 |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]`              | Fold the innermost block around the caret (again: the one around it) / unfold                                              |
+| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`            | Fold everything / unfold everything                                                                                        |
+| `Home`                                       | First non-blank character, then the line start                                                                             |
+| `Ctrl+C` / `Ctrl+X` with nothing selected    | Copy / cut the whole line (pasting it inserts above)                                                                       |
+| `Ctrl+F` / `Ctrl+H`                          | Find / find and replace (the selection, on one line, becomes the query)                                                    |
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`   | Next / previous match                                                                                                      |
+| `Alt+C` / `Alt+W` / `Alt+R` in find          | Match case / whole word / regular expression                                                                               |
+| `Enter` / `Ctrl+Alt+Enter` in replace        | Replace the current match / all matches (one undo step)                                                                    |
+| `Escape`                                     | Close popups and the find widget, then collapse the selection                                                              |
+| `Alt+PageDown` / `Alt+PageUp`                | Next / previous document in a `ConfigDocuments` view                                                                       |
 
 `Cmd` works in place of `Ctrl` on macOS.
 

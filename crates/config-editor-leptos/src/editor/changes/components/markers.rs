@@ -80,14 +80,24 @@ fn PeekTrigger(
 ) -> impl IntoView {
     let strings = state.strings_signal();
     let label = move || strings.with(|strings| fill(label(strings), &[("line", &line)]));
-    let toggle = move |_| {
-        state.changes().peek.update(|selected| {
-            *selected = if selected.as_ref() == Some(&peek) {
-                None
-            } else {
-                Some(peek.clone())
-            };
-        });
+    let toggle = move |event: web_sys::MouseEvent| {
+        let opens = state
+            .changes()
+            .peek
+            .with_untracked(|selected| selected.as_ref() != Some(&peek));
+        // From the keyboard (Enter or Space, a click of no presses): the
+        // revert button takes the focus, as with `Alt+F3`, and the line
+        // number under the marker does not take it into the text.
+        if event.detail() == 0 {
+            event.stop_propagation();
+        }
+        if opens && event.detail() == 0 {
+            state
+                .changes()
+                .focus_preview
+                .set_value(!state.config().read_only.get_untracked());
+        }
+        state.changes().peek.set(opens.then(|| peek.clone()));
     };
     let keydown = move |event: web_sys::KeyboardEvent| {
         if event.key() == "Escape" {

@@ -420,9 +420,11 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     });
 }
 
-pub(super) fn blur(state: EditorState) {
+pub(super) fn blur(state: EditorState, event: &web_sys::FocusEvent) {
     state.close_suggestions();
-    state.hide_hover();
+    if !state.keep_card_for(event.related_target().as_ref()) {
+        state.hide_hover();
+    }
     state.protect().hide_tip(true);
     state.forget_refusal();
 }

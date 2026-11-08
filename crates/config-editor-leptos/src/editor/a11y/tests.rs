@@ -486,8 +486,41 @@ fn the_docs_announcement_has_one_full_stop_after_each_part() {
         value: None,
     };
     assert_eq!(
-        hover_text(&crate::EditorStrings::default(), &hover),
+        hover_text(&crate::EditorStrings::default(), &hover, true),
         "listen (integer), required. Port. Use ports instead! Port to listen on. Default: 7835. Examples: 80"
+    );
+}
+
+/// QA 23: the card's Documentation link was not in its announcement, so a
+/// screen reader never heard of it (nor of `Alt+Enter`, which opens it).
+#[test]
+fn the_docs_announcement_names_the_documentation_link() {
+    use super::texts::hover_text;
+    use crate::editor::completion::KeyHover;
+    let hover = KeyHover {
+        key: "mode".into(),
+        start_column: 0,
+        type_label: "string".into(),
+        title: None,
+        description: Some("Routing mode.".into()),
+        default: None,
+        examples: Vec::new(),
+        required: false,
+        deprecated: false,
+        deprecation: None,
+        docs_url: Some("https://example.com/docs/mode".into()),
+        choice: None,
+        value: None,
+    };
+    let strings = crate::EditorStrings::default();
+    assert_eq!(
+        hover_text(&strings, &hover, true),
+        "mode (string). Routing mode. Documentation: https://example.com/docs/mode (Alt+Enter opens it)."
+    );
+    // A problem's own link takes Alt+Enter: the card's is only named.
+    assert_eq!(
+        hover_text(&strings, &hover, false),
+        "mode (string). Routing mode. Documentation: https://example.com/docs/mode"
     );
 }
 

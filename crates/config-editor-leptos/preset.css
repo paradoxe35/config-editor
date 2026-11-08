@@ -330,9 +330,11 @@
 }
 
 .config-editor__line-number-active { color: var(--config-editor-line-active); }
-.config-editor__line-number-error { color: var(--config-editor-error); }
-.config-editor__line-number-added { color: var(--config-editor-added); }
-.config-editor__line-number-modified { color: var(--config-editor-modified); }
+/* A changed or broken line's number takes its marker's color, unless the
+   theme gives a darker one (a line number is text, 4.5:1 on the editor). */
+.config-editor__line-number-error { color: var(--config-editor-line-number-error, var(--config-editor-error)); }
+.config-editor__line-number-added { color: var(--config-editor-line-number-added, var(--config-editor-added)); }
+.config-editor__line-number-modified { color: var(--config-editor-line-number-modified, var(--config-editor-modified)); }
 .config-editor__line-number-error::before {
   position: absolute;
   top: 8px;
@@ -1561,6 +1563,8 @@
   --config-editor-error: #c43d3d;
   --config-editor-toolbar-text: #35413a;
   --config-editor-line-active: #26342c;
+  /* Line numbers are text: the modified color, darkened to 4.5:1. */
+  --config-editor-line-number-modified: color-mix(in srgb, var(--config-editor-modified) 60%, var(--config-editor-line-active));
   --config-editor-added: #347b42;
   --config-editor-modified: #267eb4;
   --config-editor-raised: #ffffff;
@@ -1837,6 +1841,8 @@
 }
 
 :where(.config-editor[data-color-theme="nord"], .config-editor-documents[data-color-theme="nord"], .config-editor-theme[data-color-theme="nord"]) {
+  /* Line numbers are text: the error color, lightened to 4.5:1. */
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   /* The footer's counts, readable (4.5:1) on its panel. */
   --config-editor-status-error: #f4a3a9;
   --config-editor-status-warning: #ebcb8b;
@@ -1916,6 +1922,10 @@
 }
 
 :where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"], .config-editor-theme[data-color-theme="solarized-light"]) {
+  /* Line numbers are text: the markers' colors, darkened to 4.5:1. */
+  --config-editor-line-number-added: color-mix(in srgb, var(--config-editor-added) 60%, var(--config-editor-line-active));
+  --config-editor-line-number-modified: color-mix(in srgb, var(--config-editor-modified) 60%, var(--config-editor-line-active));
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   --config-editor-status-error: #b8281f;
   --config-editor-status-warning: #8a6100;
   --config-editor-status-info: #0860c9;
@@ -1956,6 +1966,8 @@
 }
 
 :where(.config-editor[data-color-theme="atom-one-dark"], .config-editor-documents[data-color-theme="atom-one-dark"], .config-editor-theme[data-color-theme="atom-one-dark"]) {
+  /* Line numbers are text: the error color, lightened to 4.5:1. */
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   --config-editor-bg: #282c34;
   --config-editor-panel: #21252b;
   --config-editor-border: #3e4451;
@@ -2244,4 +2256,14 @@
 
 @media (max-width: 600px) {
   .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
+}
+
+/* Forced colors (Windows high contrast) drop backgrounds: the selected
+   tab's bar would be gone (closable or not), so it is drawn in a system
+   color. */
+@media (forced-colors: active) {
+  .config-editor-documents__tab-active::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
 }

@@ -20,10 +20,15 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     super::input::flush_input(state);
     // Before anything closes: an Escape only arms Tab to leave when it had
     // nothing to close.
-    if super::a11y::focus_keys(state, event) {
+    // Before the card hides: Alt+Enter opens its link.
+    if super::a11y::focus_keys(state, event) || super::a11y::open_docs_key(state, event) {
         return;
     }
-    state.hide_hover();
+    // A modifier alone keeps the card: Alt for Alt+Enter, which opens its
+    // link, Ctrl for a chord.
+    if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") {
+        state.hide_hover();
+    }
     state.protect().hide_tip(false);
     // Typing refused at a read-only field ends with any key that is not
     // more of it (see `note_refused`).
@@ -54,7 +59,6 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     if state.step_over_token(event)
-        || super::a11y::open_docs_key(state, event)
         || navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
         || super::changes::go_to_change(state, event)
@@ -110,12 +114,28 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
     }
     if event.key() == "Escape" {
         event.prevent_default();
+        // From a link in the problem tip (the hover card's hands the focus
+        // back itself): the text takes the focus back, not the page.
+        let from_tip = from_problem_tip(event);
         state.close_suggestions();
         state.completion().explicit.set(false);
         super::changes::close_preview(state);
         state.hide_hover();
         state.hide_shown_problem();
+        if from_tip && let Some(element) = state.textarea() {
+            let _ = element.focus();
+        }
     }
+}
+
+/// Whether `event` comes from inside the problem tip.
+fn from_problem_tip(event: &KeyboardEvent) -> bool {
+    use wasm_bindgen::JsCast;
+    event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|target| target.closest(".config-editor__problem-tip").ok().flatten())
+        .is_some()
 }
 
 /// `Ctrl+S` / `Cmd+S` saves through `on_save`, instead of the browser's

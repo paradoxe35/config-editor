@@ -381,15 +381,7 @@ impl Documents {
         let next = active_after(&previous_ids, &ids, active.as_deref());
         match next {
             Some(next) if active.as_deref() != Some(next.as_str()) => {
-                let had_focus = self.has_focus();
-                self.select(
-                    &next,
-                    if had_focus {
-                        Focus::Editor
-                    } else {
-                        Focus::Keep
-                    },
-                );
+                self.select(&next, self.focus_after_close());
             }
             Some(next) => self.show(&next),
             None => self.active.set(None),
@@ -524,15 +516,25 @@ impl Documents {
             .collect()
     }
 
-    /// Whether the focus is inside the view.
-    fn has_focus(&self) -> bool {
+    /// Where the focus goes when the active document closes: to the tab
+    /// taking its place when it was in the tab list (the WAI-ARIA tabs
+    /// pattern: a second `Delete` closes that tab, it never edits its
+    /// text), into the next editor when it was elsewhere in the view (the
+    /// closed editor), and nowhere when it was outside (the host's page).
+    fn focus_after_close(&self) -> Focus {
+        // Not mounted. Mounted, the closed tab still holds the focus here:
+        // the tab list renders the new list later.
         let Some(root) = self.root.get_untracked() else {
-            return false;
+            return Focus::Keep;
         };
         let active = web_sys::window()
             .and_then(|window| window.document())
             .and_then(|document| document.active_element());
-        active.is_some_and(|active| root.contains(Some(&active)))
+        let inside = |node: Option<web_sys::HtmlDivElement>| {
+            node.zip(active.as_ref())
+                .is_some_and(|(node, active)| node.contains(Some(active)))
+        };
+        focus_place(inside(self.strip.get_untracked()), inside(Some(root)))
     }
 
     /// The tab element of `id`.
@@ -556,6 +558,18 @@ impl Documents {
                 let _ = crate::focus::in_place(&tab);
             }
         });
+    }
+}
+
+/// [`Documents::focus_after_close`] from where the focus is: in the tab
+/// list, elsewhere in the view.
+pub(super) fn focus_place(in_tab_list: bool, in_view: bool) -> Focus {
+    if in_tab_list {
+        Focus::Tab
+    } else if in_view {
+        Focus::Editor
+    } else {
+        Focus::Keep
     }
 }
 

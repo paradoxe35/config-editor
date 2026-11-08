@@ -46,7 +46,9 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class="config-editor__hover"
                         class:config-editor__hover--interactive=interactive
                         role="tooltip"
+                        node_ref=state.hover().card_ref
                         style=cssom(card.style)
+                        on:focusout=move |event| leave_card_focus(state, &event)
                         on:mouseenter=move |_| enter_card(state)
                         on:mouseleave=move |_| leave_card(state)
                         // Clicking the link keeps the caret (and the card).
@@ -113,8 +115,19 @@ fn enter_card(state: EditorState) {
 fn leave_card(state: EditorState) {
     state.hover().card_entered.set_value(false);
     state.problems().tip_entered.set_value(false);
+    if state.card_has_focus() {
+        return;
+    }
     state.hide_hover();
     state.leave_problem();
+}
+
+/// The focus left a link in the card: it closes, unless the focus went to
+/// another of its links or back to the text.
+fn leave_card_focus(state: EditorState, event: &web_sys::FocusEvent) {
+    if !state.keep_card_for(event.related_target().as_ref()) {
+        state.hide_hover();
+    }
 }
 
 /// The problems on the card's line, first, as the problem tip lists them.

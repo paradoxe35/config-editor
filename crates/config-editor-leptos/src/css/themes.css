@@ -34,6 +34,8 @@
 }
 
 :where(.config-editor[data-color-theme="nord"], .config-editor-documents[data-color-theme="nord"], .config-editor-theme[data-color-theme="nord"]) {
+  /* Line numbers are text: the error color, lightened to 4.5:1. */
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   /* The footer's counts, readable (4.5:1) on its panel. */
   --config-editor-status-error: #f4a3a9;
   --config-editor-status-warning: #ebcb8b;
@@ -113,6 +115,10 @@
 }
 
 :where(.config-editor[data-color-theme="solarized-light"], .config-editor-documents[data-color-theme="solarized-light"], .config-editor-theme[data-color-theme="solarized-light"]) {
+  /* Line numbers are text: the markers' colors, darkened to 4.5:1. */
+  --config-editor-line-number-added: color-mix(in srgb, var(--config-editor-added) 60%, var(--config-editor-line-active));
+  --config-editor-line-number-modified: color-mix(in srgb, var(--config-editor-modified) 60%, var(--config-editor-line-active));
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   --config-editor-status-error: #b8281f;
   --config-editor-status-warning: #8a6100;
   --config-editor-status-info: #0860c9;
@@ -153,6 +159,8 @@
 }
 
 :where(.config-editor[data-color-theme="atom-one-dark"], .config-editor-documents[data-color-theme="atom-one-dark"], .config-editor-theme[data-color-theme="atom-one-dark"]) {
+  /* Line numbers are text: the error color, lightened to 4.5:1. */
+  --config-editor-line-number-error: color-mix(in srgb, var(--config-editor-error) 60%, var(--config-editor-line-active));
   --config-editor-bg: #282c34;
   --config-editor-panel: #21252b;
   --config-editor-border: #3e4451;

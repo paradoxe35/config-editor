@@ -4,7 +4,8 @@
 //!   `ArrowLeft` / `ArrowRight` select the previous / next document,
 //!   wrapping around, `Home` / `End` the first / last one, `Enter` moves
 //!   into the document's editor, `Delete` asks to close the focused one
-//!   when it may be closed. The "+" button after the tab list is a plain
+//!   when it may be closed (the focus then on the tab taking its place).
+//!   The "+" button after the tab list is a plain
 //!   button outside it, next in the `Tab` order; no key adds a document
 //!   (`Ctrl+T` and `Ctrl+N` are the browser's).
 //! - Anywhere in the view, the editor included: `Alt+PageDown` /

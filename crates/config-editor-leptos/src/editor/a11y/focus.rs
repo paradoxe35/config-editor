@@ -108,6 +108,11 @@ pub(in crate::editor) fn focus_keys(state: EditorState, event: &KeyboardEvent) -
         }
         Action::Leave => {
             state.close_suggestions();
+            // The change preview comes right after the text (see
+            // `changes`); otherwise the browser moves the focus on.
+            if !event.shift_key() && super::super::changes::tab_into_preview(state) {
+                event.prevent_default();
+            }
             true
         }
         Action::Pass => false,

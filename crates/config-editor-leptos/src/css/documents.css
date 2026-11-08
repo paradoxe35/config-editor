@@ -181,3 +181,13 @@
 @media (max-width: 600px) {
   .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
 }
+
+/* Forced colors (Windows high contrast) drop backgrounds: the selected
+   tab's bar would be gone (closable or not), so it is drawn in a system
+   color. */
+@media (forced-colors: active) {
+  .config-editor-documents__tab-active::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}

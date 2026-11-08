@@ -179,8 +179,11 @@ pub fn ConfigDocuments(
     let styled = Memo::new(move |_| settings.with(|settings| settings.styled));
 
     view! {
+        // Code reads left to right, in a right-to-left page too: the tabs,
+        // their arrow keys and every editor in it.
         <div
             class=root_class
+            dir="ltr"
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
             style=cssom(style)

@@ -23,7 +23,9 @@ impl A11yState {
 }
 
 /// Keeps the textarea's `aria-controls` and `aria-activedescendant` in
-/// step with the list.
+/// step with the list: both only while it is open, which is how the open
+/// state shows (CodeMirror's pattern for a multi-line editor; see
+/// `components::source` for why the textarea is no combobox).
 pub(in crate::editor) fn connect_suggestions(state: EditorState) {
     Effect::new(move |_| {
         let Some(element) = state.view().textarea_ref.get() else {
@@ -31,11 +33,12 @@ pub(in crate::editor) fn connect_suggestions(state: EditorState) {
         };
         let open = !state.completion().suggestions.with(Vec::is_empty);
         let active = state.completion().active.get();
-        let _ = element.set_attribute("aria-controls", &state.a11y().suggestions_id());
         if open {
+            let _ = element.set_attribute("aria-controls", &state.a11y().suggestions_id());
             let _ =
                 element.set_attribute("aria-activedescendant", &state.a11y().suggestion_id(active));
         } else {
+            let _ = element.remove_attribute("aria-controls");
             let _ = element.remove_attribute("aria-activedescendant");
         }
     });

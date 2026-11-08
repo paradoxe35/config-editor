@@ -105,8 +105,14 @@ pub(in crate::editor) fn problem_marker(
 
 /// The hover card's docs as one text, for screen readers when the card is
 /// shown from the keyboard or a tap: the value's, then the key's name, type,
-/// marks and title, its description, its `oneOf` option, default and examples.
-pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -> String {
+/// marks and title, its description, its `oneOf` option, default and
+/// examples, and its docs link, which `Alt+Enter` opens unless a problem
+/// at the caret has a link of its own (`docs_key`, see `open_docs_key`).
+pub(in crate::editor) fn hover_text(
+    strings: &EditorStrings,
+    hover: &KeyHover,
+    docs_key: bool,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(value) = &hover.value {
         parts.extend(
@@ -152,6 +158,13 @@ pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -
             strings.examples,
             hover.examples.join(", ")
         ));
+    }
+    if let Some(url) = &hover.docs_url {
+        parts.push(if docs_key {
+            fill(&strings.problem_docs, &[("url", &url)])
+        } else {
+            format!("{}: {url}", strings.documentation)
+        });
     }
     sentences(&parts)
 }

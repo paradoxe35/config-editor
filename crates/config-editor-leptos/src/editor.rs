@@ -352,6 +352,9 @@ pub fn ConfigEditor(
                 let read_only = if read_only.get() { " config-editor__readonly" } else { "" };
                 format!("config-editor {root_class}{read_only}")
             }
+            // Code reads left to right, in a right-to-left page too: the
+            // text, the gutter, the popups (all inside) and the footer.
+            dir="ltr"
             data-theme=move || shown.theme.get().css_family()
             data-color-theme=move || shown.theme.get().as_str()
             style=cssom(move || shown.color_style())

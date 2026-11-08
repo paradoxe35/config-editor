@@ -57,6 +57,9 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
             event.prevent_default();
         }
     };
+    // A press on × leaves the focus where it was (the editor, as in VS
+    // Code), not on the button.
+    let close_press = move |event: MouseEvent| event.prevent_default();
     let close = move |event: MouseEvent| {
         event.stop_propagation();
         id.with_value(|id| documents.request_close(id));
@@ -88,6 +91,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
                     tabindex="-1"
                     title=close_title
                     aria-label=close_label
+                    on:mousedown=close_press
                     on:click=close
                 >
                     <span class="config-editor-documents__dirty-dot" aria-hidden="true">"●"</span>

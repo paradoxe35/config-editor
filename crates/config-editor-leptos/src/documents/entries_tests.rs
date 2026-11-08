@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use leptos::prelude::*;
 
-use super::{Callbacks, Documents, Focus};
+use super::{Callbacks, Documents, Focus, focus_place};
 use crate::EditorSettings;
 use crate::documents::model::{CloseRequest, Document};
 
@@ -179,4 +179,15 @@ fn without_on_add_nothing_is_asked() {
     list.push(Document::new("new", "new.yaml", ""));
     documents.sync(&list);
     assert_eq!(documents.active_id().as_deref(), Some("main"));
+}
+
+/// QA 23: closing the active tab with `Delete` sent the focus into the next
+/// document's editor, so a second `Delete` edited its text. From the tab
+/// list the focus stays on the tabs (the one now selected); from the
+/// closed editor it goes into the next one; from outside it stays there.
+#[test]
+fn closing_the_active_document_keeps_the_focus_where_it_was() {
+    assert_eq!(focus_place(true, true), Focus::Tab);
+    assert_eq!(focus_place(false, true), Focus::Editor);
+    assert_eq!(focus_place(false, false), Focus::Keep);
 }
