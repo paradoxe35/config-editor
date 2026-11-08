@@ -1,4 +1,4 @@
-# @pngwasi/config-editor-svelte
+# Config Editor for Svelte
 
 Svelte 5 components for [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor):
 a fast, schema-aware YAML, JSON, TOML, HCL and XML editor running as WebAssembly,

@@ -1,4 +1,4 @@
-# @pngwasi/config-editor
+# Config Editor for JavaScript
 
 A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,

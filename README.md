@@ -1,4 +1,4 @@
-# config-editor
+# Config Editor
 
 A lightweight and fast, VS Code–style editor for configuration files that runs in the
 browser. It edits **YAML, JSON, TOML, HCL and XML**, and one JSON Schema
