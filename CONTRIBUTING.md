@@ -25,6 +25,11 @@ The end-to-end tests run on 4 workers locally (`E2E_WORKERS` to change it)
 and on one in CI; the specs that measure time run after the others, alone.
 A test that fails only under that load assumes a timing it should not.
 
+On an idle machine, `CI_LANES=3 scripts/ci.sh` (`make check LANES=3`) runs
+the heavy steps in three lanes at once, each with its own target directory
+(several GB of disk per extra lane); the default, one lane, runs them in
+order.
+
 `CI_MEMORY_LIMIT` caps the test binaries' memory: a runaway test once ate
 all of a machine's memory. A loop that scans text must advance at least one
 character on every turn.
@@ -139,7 +144,7 @@ changes through one method, `update`, whose rules are in `src/update.rs`.
 What a framework component does with an editor is written once, in
 `EditorBinding` and `DocumentsBinding` (`js/config-editor/binding.js`, the
 `@pngwasi/config-editor/binding` entry): which
-props apply live and which re-mount, the bound value through `ValueSync`,
+props apply live and which re-mount, the bound value through `ValueSync` (internal),
 focus and caret carried through a re-mount, retries, the one WebAssembly
 load, the instance API. The React, Vue and Svelte components only hand it
 their props (renamed to their idiom) and expose its handle, so a fix there

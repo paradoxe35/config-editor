@@ -1,15 +1,18 @@
 # Everyday commands. The checks are the steps of scripts/ci.sh (what CI
 # runs); `make help` lists every target.
 #
-# Tune with variables: `make test JOBS=4`, `make e2e E2E_WORKERS=2`.
+# Tune with variables: `make test JOBS=4`, `make e2e E2E_WORKERS=2`,
+# `make check LANES=3` (steps in parallel lanes; only on an idle machine).
 
 JOBS ?= 8
 E2E_WORKERS ?= 4
+LANES ?= 1
 CI_MEMORY_LIMIT ?= 4000000000
 PRETTIER := js/node_modules/.bin/prettier
 
 export CARGO_BUILD_JOBS := $(JOBS)
 export E2E_WORKERS
+export CI_LANES := $(LANES)
 export CI_MEMORY_LIMIT
 
 .DEFAULT_GOAL := help
