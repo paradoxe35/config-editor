@@ -569,6 +569,29 @@ fn check(
             problems.push(format!("loses comments {lost:?}"));
         }
     }
+    // Moved items take their comments along: a comment after a line's code
+    // stays after that code (not left on the item now in its place).
+    if op == Op::ReorderItems {
+        let trailing = |text: &str| -> Vec<(String, String)> {
+            let marker = if host.label() == "XML" { "<!--" } else { "#" };
+            text.lines()
+                .filter_map(|line| {
+                    let at = line.find(marker)?;
+                    let code = line[..at].trim();
+                    (!code.is_empty() && !code.contains(['[', '{', '"', '\'']))
+                        .then(|| (code.to_string(), line[at..].trim().to_string()))
+                })
+                .collect()
+        };
+        let kept = trailing(&saved);
+        let moved: Vec<(String, String)> = trailing(host_text)
+            .into_iter()
+            .filter(|pair| !kept.contains(pair))
+            .collect();
+        if !moved.is_empty() {
+            problems.push(format!("leaves comments on other items: {moved:?}"));
+        }
+    }
     // Forms consumers tell apart stay as the host wrote them: an XML
     // attribute is not turned into an element, an HCL block not into an
     // attribute (or the reverse).

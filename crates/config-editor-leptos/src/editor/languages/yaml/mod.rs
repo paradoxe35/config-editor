@@ -137,8 +137,18 @@ impl ConfigLanguage for YamlBehavior {
 
     /// Bare where a value could be (and an identifier), else in double
     /// quotes: `"on"`, `"1_000"`, `"host name"`.
+    /// As the document writer writes it: plain where every reader takes it
+    /// as that text (`foo bar`, `a/b`, `Über`), quoted where YAML 1.1 types
+    /// it (`on`, `1_000`, a date) or it holds what plain text cannot.
     fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
-        Some(yaml_key_for_completion(key).unwrap_or_else(|| yaml_quoted(key)))
+        let mut entry = serde_json::Map::new();
+        entry.insert(key.to_string(), Value::from(0));
+        let written = self
+            .serialize(&Value::Object(entry), None)
+            .ok()
+            .and_then(|text| Some(text.trim_end_matches('\n').strip_suffix(": 0")?.to_string()))
+            .filter(|written| !written.contains('\n') && !written.starts_with('?'));
+        Some(written.unwrap_or_else(|| yaml_quoted(key)))
     }
 
     /// A key opening a block (`websocket:`) takes its indented lines along:
