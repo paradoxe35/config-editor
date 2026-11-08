@@ -4,6 +4,11 @@ use super::*;
 
 /// Every error carries a one-based line and character column.
 pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
+    // A character XML 1.0 does not allow (a control character, U+FFFE),
+    // which XML readers refuse.
+    if let Some((at, character)) = source.char_indices().find(|(_, character)| !is_xml_char(*character)) {
+        return Err(syntax_error(source, at, not_xml_char_message(character)));
+    }
     // `<>` and `</>` name no element.
     if let Some(at) = source.find("<>").or_else(|| source.find("</>")) {
         let (line, column) = line_column(source, at);
@@ -14,6 +19,38 @@ pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
         });
     }
     build_value(source)
+}
+
+/// Whether XML 1.0 allows `character` in a document, raw or as a
+/// character reference: tab, line feed, carriage return, and U+0020 on but
+/// the surrogates, U+FFFE and U+FFFF (its `Char` production).
+pub(super) fn is_xml_char(character: char) -> bool {
+    matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..)
+}
+
+/// Why `character` cannot be in an XML document.
+pub(super) fn not_xml_char_message(character: char) -> String {
+    format!("XML 1.0 cannot hold the character U+{:04X}, not even escaped", u32::from(character))
+}
+
+/// The JSON pointer of the first key or string in `value` holding a
+/// character XML 1.0 does not allow, and that character.
+pub(super) fn first_non_xml_char(value: &Value, pointer: &str) -> Option<(String, char)> {
+    let bad = |text: &str| text.chars().find(|character| !is_xml_char(*character));
+    match value {
+        Value::String(text) => bad(text).map(|character| (pointer.to_string(), character)),
+        Value::Object(map) => map.iter().find_map(|(key, child)| {
+            let child_pointer = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+            bad(key)
+                .map(|character| (child_pointer.clone(), character))
+                .or_else(|| first_non_xml_char(child, &child_pointer))
+        }),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(index, child)| first_non_xml_char(child, &format!("{pointer}/{index}"))),
+        _ => None,
+    }
 }
 
 /// An element whose end tag has not been read yet.
@@ -480,6 +517,70 @@ pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> 
 /// elements (mixed content), which the value model reads as a `#text`
 /// entry no other language could tell from a key: such a document does
 /// not convert. `None` when there is none, or when `source` does not parse.
+/// Two elements (or attributes) of one parent with the same local name
+/// under different prefixes (`<c:item>` and `<item>`): the document model
+/// keys them by local name, so another language would merge them. Says
+/// which, at the parent's pointer.
+pub(super) fn namespace_clash(source: &str) -> Option<String> {
+    build_value(source).ok()?;
+    let mut reader = Reader::from_str(source);
+    reader.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    // Each open element: its local name, and its children's and
+    // attributes' qualified names by local name.
+    let mut stack: Vec<(String, HashMap<String, String>)> = vec![(String::new(), HashMap::new())];
+    let text = |name: &str| name.to_string();
+    loop {
+        let (element, empty) = match reader.read_event_into(&mut buf).ok()? {
+            Event::Eof => return None,
+            Event::Start(element) => (element.into_owned(), false),
+            Event::Empty(element) => (element.into_owned(), true),
+            Event::End(_) => {
+                stack.pop();
+                buf.clear();
+                continue;
+            }
+            _ => {
+                buf.clear();
+                continue;
+            }
+        };
+        let (local, qualified) = (text(element.local_name().as_ref()), text(element.name().as_ref()));
+        let pointer: String = stack
+            .iter()
+            .skip(1)
+            .map(|(name, _)| format!("/{}", name.replace('~', "~0").replace('/', "~1")))
+            .collect();
+        let siblings = &mut stack.last_mut()?.1;
+        if let Some(other) = siblings.get(&local).filter(|other| **other != qualified) {
+            let at = if pointer.is_empty() { "/".to_string() } else { pointer };
+            return Some(format!(
+                "<{other}> and <{qualified}> are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {at})"
+            ));
+        }
+        siblings.insert(local.clone(), qualified);
+        // Its attributes, beside its children (namespace declarations aside).
+        let mut attributes: HashMap<String, String> = HashMap::new();
+        for attribute in element.attributes().flatten() {
+            let qualified = text(attribute.key.as_ref());
+            if qualified == "xmlns" || qualified.starts_with("xmlns:") {
+                continue;
+            }
+            let local = text(attribute.key.local_name().as_ref());
+            if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
+                return Some(format!(
+                    "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{local})"
+                ));
+            }
+            attributes.insert(local, qualified);
+        }
+        if !empty {
+            stack.push((local, attributes));
+        }
+        buf.clear();
+    }
+}
+
 pub(super) fn mixed_content(source: &str) -> Option<String> {
     struct Open {
         /// Its name and how many same-named siblings came before it.

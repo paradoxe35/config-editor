@@ -135,6 +135,12 @@ impl ConfigLanguage for YamlBehavior {
         yaml_value(value)
     }
 
+    /// Bare where a value could be (and an identifier), else in double
+    /// quotes: `"on"`, `"1_000"`, `"host name"`.
+    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+        Some(yaml_key_for_completion(key).unwrap_or_else(|| yaml_quoted(key)))
+    }
+
     /// A key opening a block (`websocket:`) takes its indented lines along:
     /// commented alone, they would be left without their parent.
     fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
@@ -169,7 +175,9 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn format_value_like(&self, value: &Value, written: &str) -> String {
-        style::yaml_value_like(self, value, written, "")
+        // Where the host writes a value without its place (a flow
+        // collection's entries): as inside one.
+        style::yaml_value_like(self, value, written, "", true)
     }
 
     /// A block scalar kept with `+` holds the blank lines after its text.
@@ -179,7 +187,8 @@ impl ConfigLanguage for YamlBehavior {
 
     fn format_value_at(&self, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
         let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
-        style::yaml_value_like(self, value, &source[range.clone()], &source[line_start..range.start])
+        let in_flow = style::in_flow_collection(source, range.clone());
+        style::yaml_value_like(self, value, &source[range.clone()], &source[line_start..range.start], in_flow)
     }
 
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
@@ -223,10 +232,15 @@ impl ConfigLanguage for YamlBehavior {
         Lexical { quote, in_comment }
     }
 
-    fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::non_finite::Floats;
         noyalib::to_string(&Floats(value))
             .map(|text| plain::quote_typed_plain(&text, value))
+            .map(|text| match previous {
+                // Nested sequences written compact, as the host writes them.
+                Some(previous) if style::writes_compact_sequences(previous) => style::compact_sequences(&text),
+                _ => text,
+            })
             .map_err(|error| error.to_string())
     }
 
@@ -270,6 +284,16 @@ impl ConfigLanguage for YamlBehavior {
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         let mut bodies = block_scalar_bodies(source);
         bodies.extend(quoted_scalar_bodies(source));
+        bodies
+    }
+
+    /// With a plain scalar's continuation lines (`p: plain` then
+    /// `  continued`), which the editor leaves to be typed as keys.
+    fn saved_string_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        let mut bodies = self.string_body_lines(source);
+        let plain = plain_scalar_bodies(source, &bodies);
+        bodies.extend(plain);
+        bodies.sort_by_key(|range| range.start);
         bodies
     }
 }

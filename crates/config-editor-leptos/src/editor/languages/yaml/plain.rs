@@ -39,7 +39,7 @@ pub(super) fn can_be_plain(text: &str) -> bool {
         && !(first == '-' && second.is_some_and(|second| !matches!(second, ' ' | '\t')));
     !indicator
         && !text.chars().any(|character| {
-            character.is_control() || matches!(character, '\u{85}' | '\u{2028}' | '\u{2029}' | '\u{feff}')
+            character.is_control() || character == '\u{feff}' || super::suggestions::needs_yaml_escape(character)
         })
         && !text.starts_with(' ')
         && !text.ends_with([' ', ':'])
@@ -48,6 +48,13 @@ pub(super) fn can_be_plain(text: &str) -> bool {
         && !text.starts_with("---")
         && !text.starts_with("...")
         && !TYPED.is_match(text)
+}
+
+/// [`can_be_plain`] inside a flow collection (`[a, b]`, `{k: v}`), where
+/// YAML 1.1 readers end a plain scalar at `?`, `,` and brackets, and older
+/// ones refuse a `:` in it (PyYAML before 5.1).
+pub(super) fn can_be_plain_in_flow(text: &str) -> bool {
+    can_be_plain(text) && !text.contains(['?', ',', '[', ']', '{', '}', ':'])
 }
 
 /// `text` (a document the YAML writer wrote for `value`) with each string
@@ -59,24 +66,42 @@ pub(super) fn quote_typed_plain(text: &str, value: &Value) -> String {
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
-    for (path, line_number, _, _) in super::parse::yaml_path_lines(text) {
+    for (path, line_number, column, end_column) in super::parse::yaml_path_lines(text) {
         let pointer: String = path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect();
+        // A key follows the same rule (`"yes": 1`).
+        if let (Some(key), Some(&start)) = (path.last(), line_starts.get(line_number - 1)) {
+            let line = &text[start..text[start..].find('\n').map_or(text.len(), |end| start + end)];
+            let byte = |column: usize| line.char_indices().nth(column - 1).map_or(line.len(), |(at, _)| at);
+            let (from, to) = (byte(column), byte(end_column));
+            if line.get(from..to) == Some(key.as_str()) && line[to..].starts_with(':') && !can_be_plain(key) {
+                edits.push((start + from..start + to, super::suggestions::yaml_quoted(key)));
+            }
+        }
         let Some(Value::String(string)) = value.pointer(&pointer) else {
             continue;
         };
-        if can_be_plain(string) {
-            continue;
-        }
         let Some(&start) = line_starts.get(line_number - 1) else {
             continue;
         };
         let line = &text[start..text[start..].find('\n').map_or(text.len(), |end| start + end)];
+        if can_be_plain(string) {
+            // One the writer quoted that the rule writes plain (`-Xmx512m`,
+            // `--flag`): plain, as a spliced value is.
+            let quoted = [format!("'{}'", string.replace('\'', "''")), serde_json::to_string(string).unwrap_or_default()];
+            if let Some(before) = quoted.iter().find_map(|quoted| line.strip_suffix(quoted.as_str()))
+                && (before.ends_with(": ") || before.trim_start() == "- ")
+                && super::parse::yaml_parse(&format!("k: {string}\n")).ok() == Some(serde_json::json!({ "k": string }))
+            {
+                edits.push((start + before.len()..start + line.len(), string.clone()));
+            }
+            continue;
+        }
         // The line ends with the value, after its key's `: ` or its item's
         // `- ` (the writer adds no comments).
         if let Some(before) = line.strip_suffix(string.as_str())
             && (before.ends_with(": ") || before.trim_start() == "- ")
         {
-            let quoted = super::suggestions::escaped_breaks(serde_json::to_string(string).unwrap_or_default());
+            let quoted = super::suggestions::yaml_quoted(string);
             edits.push((start + before.len()..start + line.len(), quoted));
         }
     }

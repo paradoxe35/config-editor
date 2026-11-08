@@ -217,5 +217,5 @@ fn own_keys(source: &str, line_start: usize, indent: usize) -> Vec<String> {
 
 /// A key as YAML writes it bare where it can.
 fn yaml_key(key: &str) -> String {
-    if is_plain_identifier(key) { key.to_string() } else { serde_json::to_string(key).unwrap_or_else(|_| key.to_string()) }
+    if is_plain_identifier(key) { key.to_string() } else { super::suggestions::yaml_quoted(key) }
 }

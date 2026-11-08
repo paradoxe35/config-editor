@@ -16,10 +16,9 @@ pub(super) fn rewrite_list_lines(
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
-    if lines.len() < 2
-        || first.trim() != "[" && !first.trim_end().ends_with('[')
-        || last.trim() != "]"
-    {
+    // The opening line may end with a comment (`[  # ports`).
+    let first_code = first[..comment_start(language, first)].trim_end();
+    if lines.len() < 2 || !first_code.ends_with('[') || last.trim() != "]" {
         return None;
     }
     // Each item line: the comment lines right above it (they go where it
@@ -173,7 +172,8 @@ pub(super) fn rewrite_map_lines(
 ) -> Option<String> {
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
-    if lines.len() < 2 || !first.trim_end().ends_with('{') || last.trim() != "}" {
+    let first_code = first[..comment_start(language, first)].trim_end();
+    if lines.len() < 2 || !first_code.ends_with('{') || last.trim() != "}" {
         return None;
     }
     // Each entry line: the comment lines above it, the line, its key, the
@@ -281,15 +281,7 @@ pub(super) fn rewrite_map_lines(
             None => {
                 let separator =
                     &model.head[model.head.trim_end_matches([' ', '\t', ':', '=']).len()..];
-                let bare = !key.is_empty()
-                    && key.chars().all(|character| {
-                        character.is_alphanumeric() || matches!(character, '_' | '-')
-                    });
-                let name = if bare && !model.head.starts_with(['"', '\'']) {
-                    key.clone()
-                } else {
-                    serde_json::to_string(key).ok()?
-                };
+                let name = super::key_like(language, key, model.head)?;
                 let written = if value.is_object() || value.is_array() {
                     language.format_value(value)
                 } else {

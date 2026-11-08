@@ -86,6 +86,10 @@ impl ConfigLanguage for HclBehavior {
     }
 
     /// A one-line block holds a single attribute; more open it over lines.
+    fn keeps_forms(&self, previous: &str, patched: &str) -> bool {
+        keeps_forms(previous, patched)
+    }
+
     fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
         let map = value.as_object()?;
         if let Some((key, child)) = map.iter().next().filter(|_| map.len() == 1)
@@ -115,6 +119,19 @@ impl ConfigLanguage for HclBehavior {
 
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
         rename_block_key(source, pointer, new_key)
+    }
+
+    /// An identifier (`café`, `x-y`) bare; any other key quoted where a
+    /// string may stand (a block label, an object's key), and nowhere else:
+    /// a block type or an attribute name is an identifier. In an object,
+    /// `null`, `true` and `false` are values, so quoted.
+    fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
+        let names = names_block_or_attribute(source, pointer);
+        let keyword = matches!(key, "null" | "true" | "false");
+        if hcl::Identifier::new(key).is_ok() && (names || !keyword) {
+            return Some(key.to_string());
+        }
+        (!names).then(|| hcl_text(&Value::String(key.to_string())))
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
@@ -159,6 +176,23 @@ impl ConfigLanguage for HclBehavior {
             && !text.lines().any(|line| line.trim() == terminator.trim())
             && !text.chars().any(|character| character.is_control() && !matches!(character, '\t' | '\n'))
         {
+            // An indented heredoc (`<<-EOT`) keeps its text's indentation:
+            // the readers take off the shortest one.
+            let body: Vec<&str> = written.lines().skip(1).take(written.lines().count().saturating_sub(2)).collect();
+            let indent = header
+                .starts_with("<<-")
+                .then(|| {
+                    body.iter()
+                        .filter(|line| !line.trim().is_empty())
+                        .map(|line| &line[..line.len() - line.trim_start_matches([' ', '\t']).len()])
+                        .min_by_key(|indent| indent.len())
+                })
+                .flatten()
+                .unwrap_or("");
+            let text: String = text
+                .split_inclusive('\n')
+                .map(|line| if line.trim().is_empty() { line.to_string() } else { format!("{indent}{line}") })
+                .collect();
             return format!("{header}\n{text}{terminator}");
         }
         // A bare expression the host wrote (`var.azs`, read as `${var.azs}`)

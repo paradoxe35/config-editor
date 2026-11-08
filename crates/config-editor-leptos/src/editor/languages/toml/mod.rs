@@ -75,6 +75,37 @@ impl ConfigLanguage for TomlBehavior {
         rename_toml_key(source, pointer, new_key)
     }
 
+    /// A date or time the host writes bare stays one: written as TOML
+    /// reads it back, and a text that is no date or time (typed half-way)
+    /// waits rather than turn it into a string.
+    fn scalar_edit(&self, previous: &str, pointer: &str, value: &Value) -> Result<Option<Value>, String> {
+        let Value::String(text) = value else {
+            return Ok(None);
+        };
+        let Some(span) = self.value_span(previous, pointer) else {
+            return Ok(None);
+        };
+        let written = previous
+            .lines()
+            .nth(span.line.saturating_sub(1))
+            .map(|line| line.chars().skip(span.start_column.saturating_sub(1)).take(span.end_column.saturating_sub(span.start_column)).collect::<String>())
+            .unwrap_or_default();
+        let written = written.trim();
+        if written.starts_with(['"', '\'']) || written.parse::<toml::value::Datetime>().is_err() {
+            return Ok(None);
+        }
+        match text.parse::<toml::value::Datetime>() {
+            Ok(datetime) => Ok(Some(Value::String(datetime.to_string()))),
+            Err(_) => Err(format!("\"{text}\" is not a TOML date or time, and TOML writes one here: the edit is saved once it is one again (to make it text, edit it as TOML)")),
+        }
+    }
+
+    /// Bare (`A-Za-z0-9_-`), else a basic string (`"a.b"`).
+    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+        let bare = !key.is_empty() && key.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+        Some(if bare { key.to_string() } else { basic_string(key) })
+    }
+
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
         toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
     }

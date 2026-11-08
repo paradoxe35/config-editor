@@ -176,10 +176,13 @@ pub(super) fn convert(
 }
 
 /// Refuses a document holding what no other language can show (XML mixed
-/// content): converting it would change it.
+/// content, one key in two namespaces): converting it would change it.
 pub(super) fn convertible(language: &dyn ConfigLanguage, source: &str) -> Result<(), ConvertError> {
-    match language.mixed_content(source) {
-        Some(pointer) => Err(ConvertError::MixedContent { pointer }),
+    if let Some(pointer) = language.mixed_content(source) {
+        return Err(ConvertError::MixedContent { pointer });
+    }
+    match language.unconvertible(source) {
+        Some(reason) => Err(ConvertError::Unsupported(reason)),
         None => Ok(()),
     }
 }
@@ -421,6 +424,20 @@ pub(super) fn patch_inline(
             return None;
         }
     }
+}
+
+/// `key` written as a new entry of a collection whose entry `model_head`
+/// (`"a": `, `a = `) shows how keys are written there: as the language
+/// writes keys (YAML quotes `on`), in quotes where the model has them.
+fn key_like(language: &dyn ConfigLanguage, key: &str, model_head: &str) -> Option<String> {
+    let written = language.written_key("", "", key)?;
+    Some(
+        if model_head.starts_with(['"', '\'']) && !written.starts_with(['"', '\'']) {
+            format!("\"{written}\"")
+        } else {
+            written
+        },
+    )
 }
 
 /// The pointer of the deepest value holding every difference between `old`

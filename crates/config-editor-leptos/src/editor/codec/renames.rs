@@ -27,19 +27,17 @@ pub(in super::super) fn patch_renames(
     // children keep their pointers (only equal values are renamed).
     let mut patched = previous.to_string();
     for (pointer, old_key, new_key) in renames {
-        if !plain_key(&new_key) {
-            return None;
-        }
-        patched = match language.rename_key(&patched, &pointer, &new_key) {
+        let written = language.written_key(&patched, &pointer, &new_key)?;
+        patched = match language.rename_key(&patched, &pointer, &written) {
             Some(renamed) => renamed,
-            None => rename_at_key_span(language, &patched, &pointer, &old_key, &new_key)?,
+            None => rename_at_key_span(language, &patched, &pointer, &old_key, &written)?,
         };
     }
     (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
 }
 
-/// `source` with the key at `pointer` written `new_key`, found by the
-/// language's key span; quotes around it stay.
+/// `source` with the key at `pointer` written `new_key` (as the language
+/// writes it), found by the language's key span; quotes around it stay.
 fn rename_at_key_span(
     language: &dyn ConfigLanguage,
     source: &str,
@@ -49,17 +47,24 @@ fn rename_at_key_span(
 ) -> Option<String> {
     let range = byte_range(source, language.key_span(source, pointer)?)?;
     let written = &source[range.clone()];
-    let inner = match written.chars().next()? {
-        quote @ ('"' | '\'') if written.len() >= 2 && written.ends_with(quote) => {
-            range.start + 1..range.end - 1
-        }
-        _ => range,
+    let quote = written.chars().next().filter(|quote| {
+        matches!(quote, '"' | '\'') && written.len() >= 2 && written.ends_with(*quote)
+    });
+    let inner = match quote {
+        Some(_) => range.start + 1..range.end - 1,
+        None => range.clone(),
     };
     if source[inner.clone()] != *old_key {
         return None;
     }
     let mut renamed = source.to_string();
-    renamed.replace_range(inner, new_key);
+    match quote {
+        // A bare new key in the host's quotes.
+        Some(quote) if !new_key.starts_with(['"', '\'']) => {
+            renamed.replace_range(range, &format!("{quote}{new_key}{quote}"));
+        }
+        _ => renamed.replace_range(range, new_key),
+    }
     Some(renamed)
 }
 
@@ -97,16 +102,6 @@ fn renamed_keys(
         }
         _ => (old == new).then_some(()),
     }
-}
-
-/// A key every language writes bare.
-fn plain_key(key: &str) -> bool {
-    let mut characters = key.chars();
-    characters
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && characters
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }
 
 /// `previous` with a scalar that became a container written as an inline
