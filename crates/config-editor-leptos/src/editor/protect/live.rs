@@ -162,6 +162,7 @@ impl ProtectState {
                         || old.secret != new.secret
                         || old.pins != new.pins
                         || old.marked != new.marked
+                        || old.unplaced != new.unplaced
                         || old.epoch != new.epoch
                 }
                 _ => true,

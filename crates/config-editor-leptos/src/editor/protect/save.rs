@@ -3,6 +3,7 @@
 //! did, whatever route the edit took to get there.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -87,7 +88,9 @@ pub(crate) fn locked_pointers(
     if !sources.ranges.is_empty() {
         let document = match protected.document {
             Some(document) => Some(document),
-            None => codec::read(behavior, text, sources.reading_schema).ok(),
+            None => codec::read(behavior, text, sources.reading_schema)
+                .ok()
+                .map(Arc::new),
         };
         if let Some(document) = document {
             pointers.extend(range_pointers(behavior, text, &document, sources.ranges));
