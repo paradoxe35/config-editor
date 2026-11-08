@@ -599,7 +599,7 @@ handling (after `loadConfigEditor()`):
 | `languages()`                  | `LanguageInfo[]` | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
 | `themes()`                     | `ThemeInfo[]`    | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
 | `languageForFile(path)`        | `string \| null` | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
-| `registerLanguage(definition)` | `string`         | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                |
+| `registerLanguage(definition)` | `string`         | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                                     |
 
 ```js
 import { languageForFile, languages, themes } from "@pngwasi/config-editor";
