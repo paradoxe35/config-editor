@@ -1,6 +1,6 @@
 # config-editor
 
-A lightweight, VS Code–style editor for configuration files that runs in the
+A lightweight and fast, VS Code–style editor for configuration files that runs in the
 browser. It edits **YAML, JSON, TOML, HCL and XML**, and one JSON Schema
 drives completion, hover docs and validation in all of them. Written in Rust
 and compiled to WebAssembly, with packages for Leptos, plain JavaScript,
