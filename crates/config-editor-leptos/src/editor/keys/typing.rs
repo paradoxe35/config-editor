@@ -10,7 +10,8 @@ use super::super::keyboard::{
     delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
 };
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
-use super::{typed_character, unmodified};
+use super::super::typing::Closer;
+use super::{complete, typed_character, unmodified};
 
 /// Whether the caret is in a multi-line string's body, where typing is text.
 fn caret_in_string_body(state: EditorState) -> bool {
@@ -77,7 +78,8 @@ pub(super) fn pairs_and_tags(state: EditorState, event: &KeyboardEvent) -> bool 
         && let Some(typed) = typed
         && (type_over_closer(state, event, start, typed)
             || closer_already_there(state, event, start, typed)
-            || reindent(state, event, start, typed)
+            || complete::reindent(state, event, start, typed)
+            || complete::complete(state, event, start, typed)
             || auto_close(state, event, start, typed))
     {
         return true;
@@ -112,10 +114,15 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
         }
         return false;
     }
-    if !matches!(typed, ')' | ']' | '}' | '"' | '\'') {
+    let ours = state.closer_at(start);
+    // Any character of a completion the editor wrote (`</|tcp>`) is typed
+    // over; otherwise only closing brackets and quotes are.
+    if !ours.is_some_and(|closer| closer.completion)
+        && !matches!(typed, ')' | ']' | '}' | '"' | '\'')
+    {
         return false;
     }
-    let ours = state.closer_at(start).is_some();
+    let ours = ours.is_some();
     let ends_string = matches!(typed, '"' | '\'')
         && state.behavior().lexical_state(&source, start).quote == Some(typed);
     if !(ours || ends_string) {
@@ -131,7 +138,11 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     if let Some(closer) = closer
         && closer.len > 1
     {
-        state.remember_closer(&source, next, closer.len - 1, closer.opener);
+        state.remember(Closer {
+            distance: closer.distance - (next - start),
+            len: closer.len - (next - start),
+            ..closer
+        });
     }
     state.place_caret(next);
     // The value or container is finished: its suggestions are done too.
@@ -280,28 +291,6 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
     true
 }
 
-/// A line that only now shows it closes a block re-indents.
-fn reindent(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
-    let before = state.doc().text.get_untracked();
-    let Some(indent) = state.behavior().reindent_on_type(&before, start, typed) else {
-        return false;
-    };
-    event.prevent_default();
-    let byte = utf16_to_byte_index(&before, start);
-    let line_start = before[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let content = before[line_start..byte].trim_start();
-    let line_start_utf16 = before[..line_start].encode_utf16().count();
-    let (updated, caret) = replace_selection(
-        &before,
-        line_start_utf16,
-        start,
-        &format!("{indent}{content}{typed}"),
-    );
-    state.commit(Edit::new(before, (start, start), updated, caret));
-    state.close_suggestions();
-    true
-}
-
 /// Text the language closes as it is typed (`>` finishing `<k>` writes
 /// `</k>`; `"""` writes its closing `"""`).
 fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: char) -> bool {
@@ -320,6 +309,10 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
             closing[..len].encode_utf16().count(),
             Some(typed),
         );
+    } else if matches!(closing.as_str(), ")" | "]" | "}") {
+        // A bracket the language closes (HCL's `${` in a string): typed
+        // over, deleted with its opener.
+        state.remember_closer(&updated, caret, 1, Some(typed));
     } else if !closing.is_empty() && closing.chars().all(|quote| matches!(quote, '"' | '\'')) {
         // A closing quote run (TOML's `"""`) is typed over and deleted with
         // its opener; Enter inside it is a line break of the string.

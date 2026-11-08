@@ -17,6 +17,7 @@ mod block_scalar;
 mod folded;
 mod plain;
 mod constructs;
+mod enter;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 // The fold ranges (the `folding` feature).
@@ -37,7 +38,7 @@ use super::super::inline::{caret_value_end,
 };
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default, schema_example};
 use super::super::keyboard::utf16_to_byte_index;
-use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::language::{LanguageConfig, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
 use noyalib::{DuplicateKeyPolicy, ParserConfig};
@@ -229,27 +230,7 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn newline(&self, source: &str, cursor: usize) -> Newline {
-        // Between flow brackets (`[|]`) the collection opens across lines.
-        let byte = utf16_to_byte_index(source, cursor);
-        let before = source[..byte].trim_end_matches([' ', '\t']);
-        let after = source[byte..].trim_start_matches([' ', '\t']);
-        if before.ends_with(['[', '{']) && after.starts_with([']', '}']) {
-            return bracket_newline(source, cursor, &[('{', '}'), ('[', ']')], code_before_comment);
-        }
-        // Enter on an empty `- ` item ends the list: the dash goes, and the
-        // caret stays at the list's indentation.
-        let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-        let line = &source[line_start..byte];
-        if line.trim() == "-" && after.split('\n').next().is_some_and(|rest| rest.trim().is_empty()) {
-            let content_start = line.len() - line.trim_start().len();
-            return Newline {
-                text: String::new(),
-                caret: 0,
-                replaces: 0,
-                replaces_before: line.len() - content_start,
-            };
-        }
-        Newline::new(newline_with_indent(source, cursor))
+        enter::newline(source, cursor)
     }
 
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {

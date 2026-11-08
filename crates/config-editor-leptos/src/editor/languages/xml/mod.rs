@@ -20,6 +20,7 @@ mod parse;
 mod suggestions;
 mod hover;
 mod editing;
+mod typed;
 mod convert;
 mod text;
 // The fold ranges (the `folding` feature).
@@ -83,7 +84,15 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
-        (typed == '>').then(|| end_tag_for(source, cursor)).flatten()
+        match typed {
+            '>' => end_tag_for(source, cursor),
+            '"' | '\'' => typed::attribute_quote(source, cursor, typed),
+            _ => None,
+        }
+    }
+
+    fn complete_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        (typed == '/').then(|| typed::end_tag_after_slash(source, cursor)).flatten()
     }
 
     fn info(&self) -> LanguageInfo {
@@ -248,6 +257,10 @@ impl ConfigLanguage for XmlBehavior {
         selection_end: usize,
     ) -> Option<(String, usize, usize)> {
         toggle_xml_comments(source, selection_start, selection_end)
+    }
+
+    fn whole_constructs(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        editing::over_balanced_xml_lines(source, start, end)
     }
 
     fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {

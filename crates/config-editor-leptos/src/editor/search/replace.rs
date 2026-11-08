@@ -43,7 +43,7 @@ pub(in crate::editor) fn replace_all_except(
     let mut first = None;
     let mut from = 0;
     while let Some(found) = matcher.find_from(text, from) {
-        from = found.end;
+        from = Matcher::after(text, &found);
         if skip(&found) {
             skipped += 1;
             continue;

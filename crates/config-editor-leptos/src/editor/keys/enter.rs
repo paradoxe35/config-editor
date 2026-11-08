@@ -18,14 +18,36 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     let Some(element) = state.textarea() else {
         return;
     };
-    // The selection before the edit, for undo.
-    let selection = textarea_selection(&element);
-    let text = state.doc().text.get_untracked();
     let modified = event.ctrl_key() || event.meta_key();
-    if modified && event.shift_key() {
+    let pressed = if modified && event.shift_key() {
+        Pressed::LineAbove
+    } else if modified {
+        Pressed::LineBelow
+    } else {
+        Pressed::Enter
+    };
+    enter_at(state, textarea_selection(&element), pressed);
+}
+
+/// Which of the Enter keys was pressed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::editor) enum Pressed {
+    Enter,
+    /// Ctrl+Enter: a line below, this one not split.
+    LineBelow,
+    /// Ctrl+Shift+Enter: a line above.
+    LineAbove,
+}
+
+/// The Enter key `pressed` with `selection` (UTF-16, before the edit, for
+/// undo) in the document.
+pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize), pressed: Pressed) {
+    let text = state.doc().text.get_untracked();
+    if pressed == Pressed::LineAbove {
         open_line_above(state, text, selection);
         return;
     }
+    let modified = pressed == Pressed::LineBelow;
     let (mut start, mut end) = selection;
     // Ctrl+Enter opens a line below without splitting this one.
     if modified {

@@ -79,17 +79,30 @@ impl Matcher {
         }))
     }
 
-    /// The first non-empty match starting at or after byte `from`.
+    /// The first match starting at or after byte `from`. A pattern may match
+    /// empty text (`^`, `$`, `x*`): it is found where it matches, as in VS
+    /// Code, and [`after`](Self::after) steps past it.
     pub(in crate::editor) fn find_from(&self, text: &str, mut from: usize) -> Option<Range<usize>> {
         while from <= text.len() {
             let found = self.raw_find(text, from)?;
-            if !found.is_empty() && (!self.whole_word || is_whole_word(text, &found)) {
+            if !self.whole_word || is_whole_word(text, &found) {
                 return Some(found);
             }
-            // An empty match or a part of a word: look again one character on.
+            // Part of a word: look again one character on.
             from = found.start + text[found.start..].chars().next().map_or(1, char::len_utf8);
         }
         None
+    }
+
+    /// Where the search for the match after `found` starts: its end, or
+    /// one character on from an empty match (past the end of `text` after
+    /// one there), so every loop over the matches ends.
+    pub(in crate::editor) fn after(text: &str, found: &Range<usize>) -> usize {
+        if found.is_empty() {
+            found.end + text[found.end..].chars().next().map_or(1, char::len_utf8)
+        } else {
+            found.end
+        }
     }
 
     fn raw_find(&self, text: &str, from: usize) -> Option<Range<usize>> {
@@ -145,7 +158,7 @@ pub(in crate::editor) fn find_matches(text: &str, matcher: &Matcher) -> (Vec<Sea
             line,
             line_start,
         });
-        from = found.end;
+        from = Matcher::after(text, &found);
     }
     (matches, false)
 }

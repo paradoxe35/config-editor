@@ -282,6 +282,22 @@ impl ConfigLanguage for HclBehavior {
         Lexical { quote, in_comment }
     }
 
+    /// `{` after `$` or `%` in a quoted string opens an interpolation or a
+    /// directive (`"${`, `"%{`): its `}` is written too, as VS Code's HCL
+    /// support does; `$${` is literal text.
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        if typed != '{' || hcl_lexical_state(source, cursor).0 != Some('"') {
+            return None;
+        }
+        let before = &source[..utf16_to_byte_index(source, cursor)];
+        let sigil = before.strip_suffix(['$', '%'])?;
+        let marker = &before[sigil.len()..];
+        let escaped = sigil.ends_with(marker);
+        let next = source[before.len()..].chars().next();
+        (!escaped && next.is_none_or(|next| !next.is_alphanumeric() && next != '_'))
+            .then(|| "}".to_string())
+    }
+
 
     /// An object whose keys are all identifiers becomes a block (`web { … }`),
     /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.

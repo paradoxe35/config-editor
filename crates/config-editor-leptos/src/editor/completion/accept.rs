@@ -149,18 +149,21 @@ pub(crate) fn inserted_closers(
                     distance: length - offset,
                     len: 1,
                     opener: None,
+                    completion: false,
                 });
             } else if matches!(character, '"' | '\'') {
                 closers.push(Closer {
                     distance: length - offset,
                     len: 1,
                     opener: opener(offset),
+                    completion: false,
                 });
             } else if let Some(len) = behavior.closing_markup_len(&insert[byte..]) {
                 closers.push(Closer {
                     distance: length - offset,
                     len: insert[byte..byte + len].encode_utf16().count(),
                     opener: opener(offset),
+                    completion: false,
                 });
             }
         }

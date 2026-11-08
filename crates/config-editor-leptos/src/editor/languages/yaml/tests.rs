@@ -889,10 +889,11 @@ fn enter_aligns_sequence_item_mappings_and_preserves_spacing_after_the_dash() {
     let padded = "services:\n  -   web:";
     assert_eq!(newline_with_indent(padded, padded.len()), "\n        ");
 
-    // Enter on an empty item ends the list: the `- ` is removed.
+    // Enter on an empty item ends the list: the line goes back to the
+    // column of the key holding it.
     let empty_item = "services:\n  - ";
     let ended = YamlBehavior.newline(empty_item, empty_item.len());
-    assert_eq!((ended.text.as_str(), ended.replaces_before), ("", 2));
+    assert_eq!((ended.text.as_str(), ended.replaces_before), ("", 4));
 
     let plain_scalar_key = "services:\n  -web: 8080";
     assert_eq!(

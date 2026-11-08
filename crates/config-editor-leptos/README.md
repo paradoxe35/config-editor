@@ -1280,15 +1280,15 @@ const ENV: Language = Language::new(&DOTENV);
 // <ConfigEditor language=ENV .../>, ENV.convert(text, Language::YAML), …
 ```
 
-| Method                                                                          | Adds                                                            |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `info`, `parse` (required)                                                      | Name, icon, extensions; syntax errors and the data model        |
-| `serialize`                                                                     | Conversion into the language (Edit-as, either way)              |
-| `key_span`, `value_span`                                                        | Positions for schema diagnostics and read-only fields           |
-| `completion_context`, `existing_keys`, `property_insert`, `format_value`        | Schema completion; see [below](#completion-and-hover)           |
-| `hover_key`                                                                     | Hover docs                                                      |
-| `highlight`, `comments`, `multiline_strings`                                    | Syntax colors, comments and strings over several lines included |
-| `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
+| Method                                                                                              | Adds                                                            |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `info`, `parse` (required)                                                                          | Name, icon, extensions; syntax errors and the data model        |
+| `serialize`                                                                                         | Conversion into the language (Edit-as, either way)              |
+| `key_span`, `value_span`                                                                            | Positions for schema diagnostics and read-only fields           |
+| `completion_context`, `existing_keys`, `property_insert`, `format_value`                            | Schema completion; see [below](#completion-and-hover)           |
+| `hover_key`                                                                                         | Hover docs                                                      |
+| `highlight`, `comments`, `multiline_strings`                                                        | Syntax colors, comments and strings over several lines included |
+| `newline`, `toggle_comments`, `auto_close`, `complete_on_type`, `reindent_on_type`, `lexical_state` | Editing behavior                                                |
 
 Read-only fields hold in a language without spans too: the editor then
 compares the field's value on every edit whose text parses, and refuses one

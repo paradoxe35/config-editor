@@ -3,7 +3,8 @@
 //! order below is the order keys are matched in.
 
 mod chord;
-mod enter;
+pub(super) mod complete;
+pub(super) mod enter;
 mod navigation;
 mod suggestions;
 mod tab;

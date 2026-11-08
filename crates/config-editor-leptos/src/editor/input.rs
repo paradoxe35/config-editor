@@ -4,7 +4,7 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::commands::line_range;
+use super::commands::{copied_lines, line_range};
 use super::completion::{key_hover, should_auto_trigger};
 use super::components::HoverCard;
 use super::edit::{After, Edit};
@@ -639,7 +639,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         return;
     };
     let text = state.doc().text.get_untracked();
-    let (line_start, line_end) = line_range(&text, start);
+    let (line_start, line_end) = state
+        .view()
+        .projection
+        .with_untracked(|projection| copied_lines(state.behavior(), &text, start, projection));
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut line = String::from_utf16_lossy(&units[line_start..line_end]);
     if !line.ends_with('\n') {

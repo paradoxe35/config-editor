@@ -517,6 +517,15 @@ mod save_tests;
     feature = "xml"
 ))]
 mod save_xml_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod termination_matrix;
 #[cfg(test)]
 mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`

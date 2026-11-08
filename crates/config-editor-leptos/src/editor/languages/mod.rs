@@ -61,6 +61,16 @@ mod editing_matrix;
     feature = "xml",
     feature = "folding"
 ))]
+mod fold_copy_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding"
+))]
 mod fold_matrix;
 #[cfg(all(
     test,
@@ -108,6 +118,15 @@ mod qa_regressions;
     feature = "xml"
 ))]
 mod schema_help_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod typing_matrix;
 
 /// A document language: a built-in one ([`Language::YAML`], …) or any
 /// [`ConfigLanguage`] implementation wrapped with [`Language::new`].

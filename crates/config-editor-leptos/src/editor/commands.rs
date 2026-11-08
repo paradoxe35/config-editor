@@ -1,5 +1,6 @@
 use super::keyboard::utf16_to_byte_index;
 use super::language::ConfigLanguage;
+use super::projection::Projection;
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -20,6 +21,29 @@ pub(super) fn line_range(source: &str, cursor: usize) -> (usize, usize) {
     (
         source[..start].encode_utf16().count(),
         source[..end].encode_utf16().count(),
+    )
+}
+
+/// For copy or cut with nothing selected: [`line_range`], and when a fold
+/// is closed on the caret's line, the whole block it folds, as Ctrl+/
+/// takes it: the hidden lines and what closes the block (a closing bracket
+/// or end tag a fold leaves shown).
+pub(super) fn copied_lines(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    cursor: usize,
+    projection: &Projection,
+) -> (usize, usize) {
+    let (start, end) = line_range(source, cursor);
+    let byte = utf16_to_byte_index(source, end);
+    let header_end = end - usize::from(source[..byte].ends_with('\n'));
+    let Some(hidden_end) = projection.hidden_from(header_end) else {
+        return (start, end);
+    };
+    let (first, last) = behavior.whole_constructs(source, start, hidden_end);
+    (
+        line_range(source, first.min(start)).0,
+        line_range(source, last.max(hidden_end)).1,
     )
 }
 

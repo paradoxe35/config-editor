@@ -1055,6 +1055,26 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         })
     }
 
+    /// The UTF-16 selection `start..end` widened over whole lines and the
+    /// constructs it would cut through (strings, brackets, elements over
+    /// lines, and what [`comment_scope`](Self::comment_scope) adds): what
+    /// Ctrl+/ comments, and what copy or cut on a folded line takes. The
+    /// default widens over strings and the [`LanguageConfig::brackets`].
+    fn whole_constructs(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        let (mut start, mut end) = (start, end);
+        // Whole strings and constructs over lines, until both hold.
+        loop {
+            let widened = over_whole_strings(self, source, start, end);
+            let widened =
+                super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
+            let widened = self.comment_scope(source, widened.0, widened.1);
+            if widened == (start, end) {
+                return widened;
+            }
+            (start, end) = widened;
+        }
+    }
+
     /// The document with the selected lines commented or uncommented, and the
     /// remapped selection; `None` when the language has no comments. The
     /// default uses [`LanguageConfig::line_comments`].
@@ -1072,18 +1092,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         {
             return Some(unwrapped);
         }
-        // Whole strings and constructs over lines, until both hold.
-        let (mut selection_start, mut selection_end) = (selection_start, selection_end);
-        loop {
-            let widened = over_whole_strings(self, source, selection_start, selection_end);
-            let widened =
-                super::comment_scope::over_balanced_lines(self, source, widened.0, widened.1);
-            let widened = self.comment_scope(source, widened.0, widened.1);
-            if widened == (selection_start, selection_end) {
-                break;
-            }
-            (selection_start, selection_end) = widened;
-        }
+        let (selection_start, selection_end) =
+            self.whole_constructs(source, selection_start, selection_end);
         config
             .block_comment
             .and_then(|block| unwrap_block_comments(source, selection_start, selection_end, block))
@@ -1191,6 +1201,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// closing `"""` of a TOML multi-line string. Checked before the shared
     /// bracket and quote pairing.
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        let _ = (source, cursor, typed);
+        None
+    }
+
+    /// Text that finishes what `typed`, typed at `cursor` (UTF-16), begins,
+    /// written after it with the caret moving past it: the end tag XML
+    /// writes when `/` follows a `<` (`<a>x</` → `<a>x</a>`). The line then
+    /// re-indents as [`reindent_on_type`](Self::reindent_on_type) says for
+    /// its last character.
+    fn complete_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         let _ = (source, cursor, typed);
         None
     }

@@ -21,7 +21,8 @@ test.describe('yaml: editing', () => {
     const e = await at(page, 'hosts:\n  - a|\n');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
-    expect(await e.value()).toBe('hosts:\n  - a\n  \n');
+    // At the column of the key holding the list (round 21).
+    expect(await e.value()).toBe('hosts:\n  - a\n\n');
   });
 
   test('Ctrl+Shift+Enter opens a line above', async ({ page }) => {

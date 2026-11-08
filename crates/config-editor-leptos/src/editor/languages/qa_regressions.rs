@@ -892,10 +892,35 @@ fn comment_toggling_on_a_blank_line_starts_a_comment() {
 
 #[test]
 fn yaml_enter_rules_for_lists_flow_and_node_properties() {
-    assert_eq!(
-        enter(Language::YAML, "hosts:\n  - a\n  - |\n"),
-        "hosts:\n  - a\n  |\n"
-    );
+    // An empty item ends the list at the column of what holds it (round 21:
+    // it stayed at the dash's, under the list, where a key is invalid).
+    for (marked, ended) in [
+        ("hosts:\n  - a\n  - |\n", "hosts:\n  - a\n|\n"),
+        ("hosts:\n- a\n- |\n", "hosts:\n- a\n|\n"),
+        (
+            "m:\n  hosts:\n    - a\n    - |\nn: 1\n",
+            "m:\n  hosts:\n    - a\n  |\nn: 1\n",
+        ),
+        (
+            "- name: a\n  hosts:\n    - x\n    - |\n",
+            "- name: a\n  hosts:\n    - x\n  |\n",
+        ),
+        ("- a\n- |\n", "- a\n|\n"),
+    ] {
+        assert_eq!(enter(Language::YAML, marked), ended, "{marked:?}");
+    }
+    // Inside a flow collection opened on the line: one level deeper (round
+    // 21: the new line had the key's indentation, which YAML refuses).
+    for (marked, entered) in [
+        ("l: [a,| b]\n", "l: [a,\n  | b]\n"),
+        ("m:\n  l: [a,|\n", "m:\n  l: [a,\n    |\n"),
+        ("- {a: 1,| b: 2}\n", "- {a: 1,\n  | b: 2}\n"),
+        ("l: [a, b|]\n", "l: [a, b\n|]\n"),
+        ("a: b[1|\n", "a: b[1\n|\n"),
+        ("l: [\"a,|\n", "l: [\"a,\n|\n"),
+    ] {
+        assert_eq!(enter(Language::YAML, marked), entered, "{marked:?}");
+    }
     assert_eq!(enter(Language::YAML, "- - a|\n"), "- - a\n  - |\n");
     assert_eq!(enter(Language::YAML, "list: [|\n"), "list: [\n  |\n");
     assert_eq!(
@@ -1566,7 +1591,8 @@ fn enter_inside_a_yaml_scalar_continues_it() {
         ("key: value|\n", "key: value\n|\n"),
         ("key: v|  # c\n", "key: v\n|  # c\n"),
         ("key: \"done\"|\n", "key: \"done\"\n|\n"),
-        ("key: [a, |b]\n", "key: [a, \n|b]\n"),
+        // In a flow collection, one level deeper (round 21).
+        ("key: [a, |b]\n", "key: [a, \n  |b]\n"),
     ] {
         let actual = enter(Language::YAML, marked);
         if actual != expected {

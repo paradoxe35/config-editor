@@ -22,6 +22,9 @@ pub(super) struct Closer {
     /// before the caret no longer ends with it, a value was typed, and Enter
     /// steps past the closer. `None` for brackets, which Enter opens instead.
     pub(super) opener: Option<char>,
+    /// Markup a typed character finished (`</` writing `tcp>`): each of
+    /// its characters is typed over, not only closing brackets and quotes.
+    pub(super) completion: bool,
 }
 
 /// The typing part of the editor state.
@@ -90,14 +93,19 @@ impl EditorState {
         len: usize,
         opener: Option<char>,
     ) {
-        let distance = text.encode_utf16().count() - offset;
-        self.typing().closers.update_value(|closers| {
-            closers.push(Closer {
-                distance,
-                len,
-                opener,
-            });
+        self.remember(Closer {
+            distance: text.encode_utf16().count() - offset,
+            len,
+            opener,
+            completion: false,
         });
+    }
+
+    /// Remembers `closer`.
+    pub(super) fn remember(&self, closer: Closer) {
+        self.typing()
+            .closers
+            .update_value(|closers| closers.push(closer));
     }
 
     /// Forgets the typing aids tied to the caret's place (inserted closers,

@@ -190,6 +190,16 @@ impl Projection {
             .then_some((region.doc_start, region.doc_start + region.len))
     }
 
+    /// The end (UTF-16, in the document) of the text a fold hides from
+    /// `line_end`, the end of its first line, if one does.
+    pub(crate) fn hidden_from(&self, line_end: usize) -> Option<usize> {
+        let at = self
+            .regions
+            .partition_point(|region| region.doc_start < line_end);
+        let region = self.regions.get(at)?;
+        (region.doc_start == line_end).then_some(region.doc_start + region.len)
+    }
+
     /// The textarea row of document line `line` (0-based); a hidden line is
     /// on its fold's first row.
     pub(crate) fn row_of_line(&self, line: usize) -> usize {

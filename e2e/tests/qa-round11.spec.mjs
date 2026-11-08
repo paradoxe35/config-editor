@@ -25,10 +25,12 @@ test.describe('xml', () => {
 
   test('a closing tag typed closes the open element instead of renaming it', async ({ page }) => {
     const e = await at(page, '<websocket>\n  <path>/x</path>\n  ¦');
+    // `</` writes the open element's end tag, lined up with its start tag
+    // (round 21); the name typed after it types over it.
     await page.keyboard.type('</we');
-    await expect.poll(() => e.keys()).toEqual(['websocket']);
+    expect(await e.value()).toBe('<websocket>\n  <path>/x</path>\n</websocket>');
     await page.keyboard.press('Enter');
-    expect(await e.value()).toBe('<websocket>\n  <path>/x</path>\n  </websocket>');
+    expect(await e.value()).toBe('<websocket>\n  <path>/x</path>\n</websocket>\n');
   });
 });
 

@@ -57,7 +57,13 @@ fn scan(
     let mut previous: Option<char> = None;
     let mut index = 0;
     while index < source.len() {
-        if index == line_start && depth == 0 && bodies.iter().any(|lines| lines.contains(&line)) {
+        // A body line is skipped to its line break, read next; an empty
+        // one has nothing to skip.
+        if index == line_start
+            && depth == 0
+            && !source[index..].starts_with('\n')
+            && bodies.iter().any(|lines| lines.contains(&line))
+        {
             index = source[index..].find('\n').map_or(source.len(), |at| index + at);
             continue;
         }

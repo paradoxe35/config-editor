@@ -90,9 +90,58 @@ fn regular_expressions_match_with_their_flags() {
     );
     // `$` ends lines, not only the document.
     assert_eq!(found(text, r"\d+$", regex), ["7835", "80"]);
-    // Empty matches are skipped instead of looping.
-    assert_eq!(found("ab", "x*", regex), Vec::<String>::new());
-    assert_eq!(found("aab", "a*", regex), ["aa"]);
+    // Empty matches are found where they match, as in VS Code, without
+    // looping.
+    assert_eq!(starts("ab", "x*", regex), [0, 1, 2]);
+    assert_eq!(found("aab", "a*", regex), ["aa", "", ""]);
+}
+
+/// Round 21: a pattern matching empty text (`^`, `$`, `\b`, `x*`) finds
+/// it at each place it matches, and replace all inserts there, as in VS
+/// Code; before, `^` found nothing.
+#[test]
+fn patterns_matching_empty_text_find_and_replace_where_they_match() {
+    let regex = options(false, false, true);
+    let text = "a: 1\nb: 2\n";
+    let mut failures = Vec::new();
+    for (pattern, starts_expected, replacement, replaced) in [
+        ("^", vec![0, 5, 10], "# ", "# a: 1\n# b: 2\n# "),
+        ("$", vec![4, 9, 10], ";", "a: 1;\nb: 2;\n;"),
+        (
+            r"\b",
+            vec![0, 1, 3, 4, 5, 6, 8, 9],
+            "|",
+            "|a|: |1|\n|b|: |2|\n",
+        ),
+        ("x*", (0..=10).collect(), "", text),
+        (r"^\s*$", vec![10], "end", "a: 1\nb: 2\nend"),
+    ] {
+        let matcher = Matcher::new(pattern, regex).unwrap().unwrap();
+        let found: Vec<usize> = find_matches(text, &matcher)
+            .0
+            .iter()
+            .map(|found| found.start)
+            .collect();
+        if found != starts_expected {
+            failures.push(format!(
+                "{pattern}: found at {found:?}, expected {starts_expected:?}"
+            ));
+        }
+        let result = replace_all(text, &matcher, replacement).map(|(text, _, _)| text);
+        if result.as_deref() != Some(replaced) {
+            failures.push(format!(
+                "{pattern} -> {replacement:?}: {result:?}, expected {replaced:?}"
+            ));
+        }
+    }
+    // Multi-byte text: each empty match on a character boundary.
+    let matcher = Matcher::new("x*", regex).unwrap().unwrap();
+    let (matches, _) = find_matches("é😀", &matcher);
+    let at: Vec<usize> = matches.iter().map(|found| found.start).collect();
+    if at != [0, 2, 6] {
+        failures.push(format!("x* in é😀: {at:?}"));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

@@ -134,7 +134,7 @@ pub(super) fn newline_insertion(source: &str, cursor: usize) -> (String, usize) 
 /// Unwraps when every selected line is commented; otherwise wraps each line.
 /// The line selection of `start..end` (UTF-16) widened so it holds whole
 /// elements, start tags, attribute values, CDATA sections and comments.
-fn over_balanced_xml_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
+pub(super) fn over_balanced_xml_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
     use super::super::super::comment_scope::{LineState, selected_lines, selection_over, widen};
     let lines: Vec<&str> = source.split('\n').collect();
     let mut starts = Vec::with_capacity(lines.len() + 1);
@@ -625,6 +625,20 @@ pub(super) fn highlight_end_tag(line: &str, token: Token, out: &mut Tokens) {
 /// The indentation of the line holding the start tag of the innermost open
 /// `name` element in `before`, so a typed `</name>` lines up with it.
 pub(super) fn open_element_indent(before: &str, name: &str) -> Option<String> {
+    let open = open_elements(before);
+    let (_, start) = open.iter().rev().find(|(open_name, _)| *open_name == name)?;
+    let line_start = before[..*start].rfind('\n').map_or(0, |index| index + 1);
+    Some(
+        before[line_start..*start]
+            .chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .collect(),
+    )
+}
+
+/// The elements still open at the end of `before`, outermost first: each
+/// one's name and the byte its start tag starts at.
+pub(super) fn open_elements(before: &str) -> Vec<(&str, usize)> {
     let mut open: Vec<(&str, usize)> = Vec::new();
     let mut at = 0;
     while let Some(offset) = before[at..].find('<') {
@@ -677,12 +691,5 @@ pub(super) fn open_element_indent(before: &str, name: &str) -> Option<String> {
             None => break,
         }
     }
-    let (_, start) = open.iter().rev().find(|(open_name, _)| *open_name == name)?;
-    let line_start = before[..*start].rfind('\n').map_or(0, |index| index + 1);
-    Some(
-        before[line_start..*start]
-            .chars()
-            .take_while(|character| matches!(character, ' ' | '\t'))
-            .collect(),
-    )
+    open
 }
