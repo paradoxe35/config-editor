@@ -13,9 +13,11 @@ import { editor } from './helpers.mjs';
 // Timings come from the browser's Event Timing API (the data behind INP):
 // each interaction's time from the input event to the next paint, which
 // covers our handlers, the reactive updates and rendering. Each test logs
-// its numbers. The budgets leave at least 1.7× (mostly 5–10×) headroom
-// over what a debug build measures on a shared 2-core box, while O(n²)
-// work per keystroke still fails them. They are soft: one run reports
+// its numbers. The budgets are about five times what an idle machine
+// measures (a slower or busy one measures up to three times as much), while
+// O(n²) work per keystroke still fails them. Steps repeated many times are
+// judged by their median, which one stalled step (a busy machine) does not
+// move and work done on every step does. They are soft: one run reports
 // every number over its budget.
 const LANGUAGES = ['yaml', 'json', 'toml', 'hcl', 'xml'];
 const SCALE = 5;
@@ -23,14 +25,23 @@ const SCALE = 5;
 const JSON_TYPED = '-edge-tuned-for-many-lines';
 const BUDGET = {
   loadMs: 3000,
-  keystrokeWorstMs: 400,
-  keystrokeP95Ms: 250,
+  // 40-60 ms here; each line measured from the document's start, 300-600.
+  keystrokeMedianMs: 250,
+  // Work on some keystrokes (a re-parse every few): 50-130 ms here, the
+  // keystrokes of a busy machine under 250.
+  keystrokeP95Ms: 300,
+  // No single keystroke stalls.
+  keystrokeWorstMs: 1000,
   jumpToEndMs: 400,
   wheelStepMs: 250,
   findMs: 1000,
   foldAllMs: 1000,
   selectAllMs: 1000,
-  shiftArrowMs: 250,
+  // 40-70 ms here; selecting beside a <details> (quadratic in Chrome),
+  // 3-8 s.
+  shiftArrowMedianMs: 300,
+  shiftArrowWorstMs: 1000,
+  // 150-250 ms here; beside a <details>, 3-4 s.
   typeOverAllMs: 1000,
   editAsMs: 3000,
 };
@@ -98,8 +109,9 @@ const settle = (page) =>
   page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 80))));
 
 /**
- * The worst and the 95th percentile of `count` interactions: those under the
- * observer's 16 ms threshold are not reported and count as 16 ms.
+ * The worst, the 95th percentile and the median of `count` interactions:
+ * those under the observer's 16 ms threshold are not reported and count as
+ * 16 ms.
  */
 async function interactionStats(page, count) {
   await settle(page);
@@ -108,6 +120,7 @@ async function interactionStats(page, count) {
   return {
     worst: all[all.length - 1] ?? 0,
     p95: all[Math.min(all.length - 1, Math.floor(all.length * 0.95))] ?? 0,
+    median: all[Math.floor(all.length / 2)] ?? 0,
   };
 }
 
@@ -183,8 +196,11 @@ test.describe('large files', () => {
       const typing = await interactionStats(page, keys);
       record(language, 'keyWorst', typing.worst);
       record(language, 'keyP95', typing.p95);
-      expect.soft(typing.worst, `${language} keystrokeWorstMs`).toBeLessThan(BUDGET.keystrokeWorstMs);
+      record(language, 'keyMedian', typing.median);
+      expect(keys).toBeGreaterThanOrEqual(20);
+      expect.soft(typing.median, `${language} keystrokeMedianMs`).toBeLessThan(BUDGET.keystrokeMedianMs);
       expect.soft(typing.p95, `${language} keystrokeP95Ms`).toBeLessThan(BUDGET.keystrokeP95Ms);
+      expect.soft(typing.worst, `${language} keystrokeWorstMs`).toBeLessThan(BUDGET.keystrokeWorstMs);
       await expect.poll(() => e.diagnosticCount(), { timeout: 20000 }).toBe(0);
 
       // Ctrl+End reaches the last line.
@@ -258,9 +274,11 @@ test.describe('large files', () => {
       expect.soft(selectAll, `${language} selectAllMs`).toBeLessThan(BUDGET.selectAllMs);
       await startProbe(page);
       for (let line = 0; line < 10; line += 1) await page.keyboard.press('Shift+ArrowUp');
-      const shiftArrow = (await interactionStats(page, 10)).worst;
-      record(language, 'shiftArrow', shiftArrow);
-      expect.soft(shiftArrow, `${language} shiftArrowMs`).toBeLessThan(BUDGET.shiftArrowMs);
+      const shift = await interactionStats(page, 10);
+      record(language, 'shiftArrow', shift.median);
+      record(language, 'shiftArrowWorst', shift.worst);
+      expect.soft(shift.median, `${language} shiftArrowMedianMs`).toBeLessThan(BUDGET.shiftArrowMedianMs);
+      expect.soft(shift.worst, `${language} shiftArrowWorstMs`).toBeLessThan(BUDGET.shiftArrowWorstMs);
       const whole = await e.value();
       await page.keyboard.press('Control+a');
       await startProbe(page);

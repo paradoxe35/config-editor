@@ -18,6 +18,7 @@ use super::codec::inline_location;
 use super::completion::{hovered_key, path_with_key};
 use super::keyboard::utf16_to_byte_index;
 use super::language::{ConfigLanguage, Repetition, Span};
+use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
 /// without its `/0` steps: a lone XML element or HCL block read as a one-item
@@ -204,6 +205,7 @@ pub(crate) fn path_at(
     source: &str,
     cursor: usize,
 ) -> Option<FieldPath> {
+    note(Work::PathLookup);
     if cursor > source.encode_utf16().count() {
         return None;
     }

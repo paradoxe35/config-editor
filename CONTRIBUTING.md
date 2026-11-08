@@ -25,6 +25,15 @@ The end-to-end tests run on 4 workers locally (`E2E_WORKERS` to change it)
 and on one in CI; the specs that measure time run after the others, alone.
 A test that fails only under that load assumes a timing it should not.
 
+Performance tests count work where they can: a test guarding against work
+repeated per item (a read of the whole document for each problem, a path
+lookup for each line) counts it with `work_count::counted` (the code calls
+`work_count::note` where the work starts; nothing in a release build), which
+gives the same answer on any machine under any load. Wall-clock time stays
+only as a ceiling against one pass growing slower (the best of several runs,
+a few times what it costs here), and a long end-to-end test that is not a
+speed claim gets a longer timeout (`test.slow()`), not a tighter loop.
+
 On an idle machine, `CI_LANES=3 scripts/ci.sh` (`make check LANES=3`) runs
 the heavy steps in three lanes at once, each with its own target directory
 (several GB of disk per extra lane); the default, one lane, runs them in

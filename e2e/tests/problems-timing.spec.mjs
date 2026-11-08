@@ -84,7 +84,7 @@ test.describe('problem timing', () => {
   });
 
   test('U20-N2: 3000 host ranges in a long document add little to any edit, in every language', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     const failures = [];
     for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
       const text = longDocument(language);
@@ -100,20 +100,33 @@ test.describe('problem timing', () => {
         await work();
         await page.waitForTimeout(1200);
       });
-      const edits = async () => ({
+      const once = async () => ({
         key: await settled(() => page.keyboard.press('x')),
         undo: await settled(() => page.keyboard.press('Control+z')),
         comment: await settled(() => page.keyboard.press('Control+/')),
         back: await settled(() => page.keyboard.press('Control+/')),
       });
-      const alone = await edits();
-      await addHostRanges(page, text);
-      const withHost = await edits();
-      console.log(`${language}: longest task per edit ${JSON.stringify(alone)} alone, ${JSON.stringify(withHost)} with 3000 host ranges`);
+      // Rounds without and with the host ranges, taken in turn (each round
+      // leaves the text as it was), and each edit's shortest of three: load
+      // only ever makes one longer, and taking them in turn lets a busy
+      // stretch slow both sides alike, not only one.
+      const alone = [];
+      const withHost = [];
+      for (let round = 0; round < 3; round += 1) {
+        await setHostRanges(page, text, false);
+        alone.push(await once());
+        await setHostRanges(page, text, true);
+        withHost.push(await once());
+      }
+      const shortest = (rounds) =>
+        Object.fromEntries(Object.keys(rounds[0]).map((edit) => [edit, Math.min(...rounds.map((round) => round[edit]))]));
+      const bare = shortest(alone);
+      const hosted = shortest(withHost);
+      console.log(`${language}: longest task per edit ${JSON.stringify(bare)} alone, ${JSON.stringify(hosted)} with 3000 host ranges`);
       // They added 150-350 ms to each edit.
-      for (const edit of Object.keys(alone)) {
-        if (withHost[edit] - alone[edit] >= 100) {
-          failures.push(`${language} ${edit}: ${Math.round(withHost[edit])} ms, ${Math.round(alone[edit])} ms alone`);
+      for (const edit of Object.keys(bare)) {
+        if (hosted[edit] - bare[edit] >= 100) {
+          failures.push(`${language} ${edit}: ${Math.round(hosted[edit])} ms, ${Math.round(bare[edit])} ms alone`);
         }
       }
     }
@@ -175,6 +188,14 @@ async function openLong(page, language, text, host = true) {
   await page.evaluate((value) => window.editor.update({ value }), text);
   await page.waitForTimeout(1500);
   if (host) await addHostRanges(page, text);
+}
+
+/** Gives the editor of `text` its 3000 host ranges (`on`) or none. */
+async function setHostRanges(page, text, on) {
+  if (on) return addHostRanges(page, text);
+  await page.evaluate(() => window.editor.update({ hostDiagnostics: [] }));
+  await expect(footer(page)).not.toContainText('750 hints', { timeout: 20000 });
+  await page.waitForTimeout(1500);
 }
 
 /** Gives the editor of `text` 3000 host ranges of three lines. */

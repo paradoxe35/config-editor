@@ -9,6 +9,7 @@ use serde_json::Value;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
 use super::super::language::ConfigLanguage;
 use super::super::paths::{TextRange, path_at, problem_span};
+use super::super::work_count::{Work, note};
 use super::{DiagnosticTarget, HostDiagnostic, is_web_url};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -91,7 +92,10 @@ pub(in crate::editor) fn place(
             }
             DiagnosticTarget::Range(range) => match ranges {
                 RangeText::OnScreen => covered(
-                    lines.get_or_insert_with(|| source.split('\n').collect()),
+                    lines.get_or_insert_with(|| {
+                        note(Work::LineSplit);
+                        source.split('\n').collect()
+                    }),
                     *range,
                 ),
                 RangeText::Host(host, text) => {

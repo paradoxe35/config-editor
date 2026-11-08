@@ -80,6 +80,7 @@ mod sync;
 mod test_state;
 mod theme;
 mod typing;
+mod work_count;
 
 pub use change_summary::ChangeSummary;
 #[cfg(feature = "diff")]

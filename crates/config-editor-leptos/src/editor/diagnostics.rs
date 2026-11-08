@@ -1276,6 +1276,7 @@ mod placing_tests {
 ))]
 mod key_placing_tests {
     use super::super::Language;
+    use super::super::work_count::{Work, counted};
     use super::Schema;
 
     /// QA 18: switching a large document to YAML or JSON paused 300-650 ms,
@@ -1296,16 +1297,23 @@ mod key_placing_tests {
         let mut failures = Vec::new();
         for language in [Language::YAML, Language::JSON] {
             let text = language.serialize(&document).unwrap();
-            let (took, problems) =
-                crate::editor::test_timing::best_of(5, || schema.validate(language, &text));
+            let (problems, reads) =
+                counted(Work::DocumentRead, || schema.validate(language, &text));
             let placed = problems
                 .iter()
                 .filter(|problem| problem.line.is_some())
                 .count();
-            // Read once it takes about 30 ms here; read per problem, 170 ms
-            // and more.
-            if took.as_millis() > 110 || placed < 20 {
-                failures.push(format!("{language}: {placed} placed in {took:?}"));
+            // Two reads (the values, the keys) for every problem placed;
+            // read per problem, 20 and more.
+            if reads > 2 || placed < 20 {
+                failures.push(format!("{language}: {placed} placed in {reads} reads"));
+            }
+            // And the pass itself stays linear: about 30 ms here, where work
+            // growing with the square of 12,000 keys takes seconds.
+            let (took, _) =
+                crate::editor::test_timing::best_of(5, || schema.validate(language, &text));
+            if took.as_millis() > 300 {
+                failures.push(format!("{language}: validated in {took:?}"));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));

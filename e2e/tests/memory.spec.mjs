@@ -211,6 +211,8 @@ test.describe('memory', () => {
   });
 
   test('documents opened and closed give their memory back', async ({ page: browserPage }) => {
+    // 400 cycles: a long test, not a speed claim; a slower machine needs the room.
+    test.slow();
     const errors = await open(browserPage, 'documents.html');
     await browserPage.evaluate(() => {
       window.mainFile = { id: 'main', fileName: 'main.yaml', value: 'listen: 7835\n' };

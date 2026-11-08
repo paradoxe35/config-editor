@@ -261,13 +261,27 @@ fn the_caret_path_stays_cheap_in_large_documents() {
     let mut failures = Vec::new();
     for (language, text) in samples {
         let lines = text.split('\n').count();
-        let (elapsed, ()) = crate::editor::test_timing::best_of(5, || {
+        // No read of the whole document for spans at a caret move.
+        let ((), reads) = crate::editor::work_count::counted(
+            crate::editor::work_count::Work::DocumentRead,
+            || {
+                let _ = language.path_at(text, TextPosition::new(lines / 2, 5));
+            },
+        );
+        if reads > 0 {
+            failures.push(format!("{language}: {reads} document reads per caret move"));
+        }
+        // The best of many runs: a few milliseconds each, and a run on a
+        // loaded machine (parallel test lanes) takes several times as long.
+        let (elapsed, ()) = crate::editor::test_timing::best_of(20, || {
             for line in [lines / 2, lines - 2] {
                 let _ = language.path_at(text, TextPosition::new(line, 5));
             }
         });
         let elapsed = elapsed / 2;
-        if elapsed > std::time::Duration::from_millis(15) {
+        // About 1-2 ms here, XML (a markup walk) about 5.
+        let budget = if language == Language::XML { 25 } else { 15 };
+        if elapsed > std::time::Duration::from_millis(budget) {
             failures.push(format!("{language}: {elapsed:?} per caret move"));
         }
     }

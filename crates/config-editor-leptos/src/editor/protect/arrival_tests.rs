@@ -8,6 +8,7 @@
 use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;
+use super::super::work_count::{Work, counted};
 use super::broken_tests::breaks;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
@@ -458,10 +459,20 @@ fn a_large_text_that_never_parsed_is_locked_quickly() {
                 .replacen("<k1>1</k1>", "<k1>1</k", 1);
             for text in [&broken, &twice] {
                 for from in [From::Schema, From::Paths] {
+                    // A few lines' paths read (each a read from the top),
+                    // not every line's: read line by line, thousands.
+                    let (_, lookups) =
+                        counted(Work::PathLookup, || locks(language, text, from, true, None));
+                    if lookups > 50 {
+                        slow.push(format!(
+                            "{language} {size} ({from:?}, {bad:?}): {lookups} path lookups"
+                        ));
+                    }
+                    // The stand-in's parses: up to about 150 ms here.
                     let (took, _) = crate::editor::test_timing::best_of(2, || {
                         locks(language, text, from, true, None)
                     });
-                    if took > std::time::Duration::from_millis(400) {
+                    if took > std::time::Duration::from_millis(700) {
                         slow.push(format!("{language} {size} ({from:?}, {bad:?}): {took:?}"));
                     }
                 }

@@ -46,6 +46,8 @@ test.describe('xml: very deep nesting', () => {
   setupEditor(test, '?language=xml');
 
   test('is reported as an error and the editor keeps working', async ({ page }) => {
+    // 40,000 tags pasted and read: a long test, not a speed claim.
+    test.slow();
     const errors = [];
     page.on('pageerror', (error) => errors.push(String(error)));
     const e = editor(page);

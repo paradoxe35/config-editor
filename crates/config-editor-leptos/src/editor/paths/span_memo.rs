@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::super::language::{ConfigLanguage, Span};
+use super::super::work_count::{Work, note};
 
 /// The spans read for one text (by address and length: the text borrowed
 /// for the whole call).
@@ -53,6 +54,7 @@ pub(crate) fn batch_cached<T: 'static>(source: &str, make: impl FnOnce() -> T) -
     if let Some(value) = cached {
         return value;
     }
+    note(Work::DocumentRead);
     let made = Rc::new(make());
     SCRATCH.with(|slot| {
         if let Some(scratch) = slot
@@ -92,6 +94,7 @@ pub(crate) fn with_value_spans<T>(
     let text = (source.as_ptr() as usize, source.len());
     let previous_scratch =
         SCRATCH.with(|slot| slot.borrow_mut().replace(Scratch { text, value: None }));
+    note(Work::DocumentRead);
     let spans = behavior.value_spans(source, &wanted);
     let memo = Memo {
         label: behavior.info().label,
@@ -130,7 +133,10 @@ pub(crate) fn value_span(
     });
     match known {
         Some(span) => span,
-        None => behavior.value_span(source, pointer),
+        None => {
+            note(Work::DocumentRead);
+            behavior.value_span(source, pointer)
+        }
     }
 }
 
