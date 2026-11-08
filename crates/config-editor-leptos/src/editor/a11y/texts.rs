@@ -104,8 +104,8 @@ pub(in crate::editor) fn problem_marker(
 }
 
 /// The hover card's docs as one text, for screen readers when the card is
-/// shown from the keyboard or a tap: the value's, then the key's name, type
-/// and marks, its description, its `oneOf` option, default and examples.
+/// shown from the keyboard or a tap: the value's, then the key's name, type,
+/// marks and title, its description, its `oneOf` option, default and examples.
 pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(value) = &hover.value {
@@ -130,6 +130,7 @@ pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -
         }
     }
     parts.push(key);
+    parts.extend(hover.title.clone());
     parts.extend(hover.deprecation.clone());
     parts.extend(hover.description.clone());
     match &hover.choice {
