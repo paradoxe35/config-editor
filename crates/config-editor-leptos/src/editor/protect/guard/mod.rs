@@ -16,19 +16,26 @@
 //!   would join a locked field once it does: a line whose path is inside
 //!   it, or a second key holding it (duplicates are errors here, but a
 //!   host's parser may let the last one win).
+//! - the document does not parse afterwards and the edit, made inside a
+//!   locked block, opens a comment or string running over its lines below.
 //!
 //! Formatting around a locked field stays free: blank lines, trailing
 //! spaces, comments after the value, and whitespace inside it (a space
 //! after `:` or `=`, re-indenting where indentation carries no structure:
 //! JSON, TOML, HCL, XML) while the text parses and every locked value reads
 //! as pinned. In YAML a locked line's indent cannot change. While the text
-//! does not parse, a locked stretch keeps its text exactly, and a YAML
-//! plain value takes nothing glued onto it (`abc<`).
+//! does not parse, a locked stretch keeps its text exactly but for
+//! whitespace between its tokens (`spacing`: the same formatting, a space
+//! inside a string or a YAML plain value excepted), and a YAML plain value
+//! takes nothing glued onto it (`abc<`).
 
+mod closers;
 mod edit;
+mod hiding;
 mod joining;
 mod pins;
 mod repair;
+mod spacing;
 mod stretch;
 
 use std::ops::Range;
@@ -41,7 +48,8 @@ use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
 use edit::Edited;
-use joining::{is_near, joining_lines};
+use hiding::hidden;
+use joining::{is_near, joining_lines, near_lines, span};
 use pins::{is_pinned, pins_hold};
 use stretch::indent_kept;
 
@@ -75,7 +83,7 @@ impl Blocked {
         match (self.why, &self.pointer) {
             (Why::Holds, _) => self.reason.holding(strings),
             (Why::Changed, Some(pointer)) => self.reason.changed(strings, pointer),
-            (Why::Unread, _) => strings.read_only_unchecked.clone(),
+            (Why::Unread, pointer) => self.reason.unchecked(strings, pointer.as_deref()),
             _ => self.reason.text(strings),
         }
     }
@@ -94,7 +102,10 @@ pub(crate) fn check(
         return Ok(());
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after);
-    stretches_kept(&edit)?;
+    // The edit making the text parse is decided by the repair rule alone,
+    // which names the field: a closer added to a locked line completes it.
+    let repairing = protected.document.is_none() && edit.parsed().is_some();
+    stretches_kept(&edit, repairing)?;
     let mut pointed: Vec<&Lock> = protected
         .locks
         .iter()
@@ -107,19 +118,23 @@ pub(crate) fn check(
         pins_still_hold(edited, protected, &pointed)?;
         pointed.retain(|lock| !is_pinned(protected, lock));
     }
-    if pointed.is_empty() {
+    if pointed.is_empty() || edit.spacing_only() {
         return Ok(());
     }
+    nothing_hidden(&edit, &pointed)?;
     nothing_joins(&edit, &pointed)?;
     indents_kept(&edit, &pointed)
 }
 
 /// Every lock's stretches, and the keys holding it, survive the edit;
 /// whitespace changed inside a locked field is free when every locked
-/// value still reads as pinned.
-fn stretches_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
+/// value still reads as pinned. A repair checks the fields itself.
+fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
     for lock in &edit.protected.locks {
-        let free = || lock.pointer.is_some() && edit.reformat_only();
+        if repairing && lock.pointer.is_some() {
+            continue;
+        }
+        let free = || lock.pointer.is_some() && (edit.reformat_only() || edit.spacing_only());
         if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
             return Err(refused(&lock.reason));
         }
@@ -163,16 +178,64 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
     let new_lines = LineIndex::new(edit.after);
     for lock in pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
-        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>| {
-            joining_lines(edit.behavior, text, lines, region, pointer)
+        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>, near| {
+            joining_lines(edit.behavior, text, lines, region, near, pointer)
+        };
+        let Some((low, high)) = span(lock) else {
+            continue;
+        };
+        let near_before = near_lines(edit.behavior, &edit.lines, low, high);
+        // Where the lock is after the edit: before or after the region it
+        // keeps its text; over it, anywhere in it.
+        let near_after = if high <= edit.region.start {
+            near_lines(edit.behavior, &new_lines, low, high)
+        } else if low >= edit.region.end {
+            let moved = |at: usize| at + edit.new.len() - edit.old.len();
+            near_lines(edit.behavior, &new_lines, moved(low), moved(high))
+        } else {
+            0..new_lines.line_count()
         };
         let (Some(was), Some(now)) = (
-            count(edit.before, &edit.lines, &edit.region),
-            count(edit.after, &new_lines, &edit.new_region),
+            count(edit.before, &edit.lines, &edit.region, near_before),
+            count(edit.after, &new_lines, &edit.new_region, near_after),
         ) else {
             return Err(refused(&lock.reason));
         };
         if now > was {
+            return Err(refused(&lock.reason));
+        }
+    }
+    Ok(())
+}
+
+/// The edited text does not parse: an edit inside a locked block may not
+/// open a comment or a string running over the block's lines below it
+/// (`<!--` on a line of its own), where they would be text no lock is found
+/// in. Opening one above a locked field, outside it, is typing as usual
+/// (`<!--` before `-->`, a quote before its closer): the field is then
+/// decided when the text parses again.
+fn nothing_hidden(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
+    if edit.parsed().is_some() {
+        return Ok(());
+    }
+    // The locked text right after an edit made inside a locked stretch,
+    // before and after the edit.
+    let moved: Vec<(&Lock, usize, usize)> = pointed
+        .iter()
+        .flat_map(|lock| {
+            lock.ranges
+                .iter()
+                .filter(|range| range.start < edit.region.start && edit.region.end < range.end)
+                .map(|_| (*lock, edit.region.end, edit.new_region.end))
+        })
+        .collect();
+    let starts = |pick: fn(&(&Lock, usize, usize)) -> usize| -> Vec<usize> {
+        moved.iter().map(pick).collect()
+    };
+    let was = hidden(edit.behavior, edit.before, &starts(|(_, low, _)| *low));
+    let now = hidden(edit.behavior, edit.after, &starts(|(_, _, after)| *after));
+    for ((lock, _, _), (was, now)) in moved.iter().zip(was.into_iter().zip(now)) {
+        if now && !was {
             return Err(refused(&lock.reason));
         }
     }

@@ -13,6 +13,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::locate::LineIndex;
 use super::super::locks::Protected;
 use super::pins::{all_pinned, pins_hold};
+use super::spacing::between_tokens;
 use super::stretch::{is_blank, kept};
 
 /// The edit turning `before` (whose locks are `protected`) into `after`.
@@ -37,6 +38,7 @@ pub(super) struct Edited<'a> {
     parsed: OnceCell<Option<Value>>,
     unchanged: OnceCell<Option<Vec<bool>>>,
     reformat: OnceCell<bool>,
+    spacing: OnceCell<bool>,
 }
 
 impl<'a> Edited<'a> {
@@ -78,6 +80,7 @@ impl<'a> Edited<'a> {
             parsed: OnceCell::new(),
             unchanged: OnceCell::new(),
             reformat: OnceCell::new(),
+            spacing: OnceCell::new(),
         }
     }
 
@@ -128,6 +131,29 @@ impl<'a> Edited<'a> {
                 && all_pinned(self.protected)
                 && (!self.behavior.indent_is_structure()
                     || indents(self.behavior, self.before) == indents(self.behavior, self.after))
+        })
+    }
+
+    /// Whether the edit, made on a text that does not parse afterwards,
+    /// changes only whitespace between tokens (see `spacing`): formatting,
+    /// free around and inside locked fields as it is while the text parses.
+    pub(super) fn spacing_only(&self) -> bool {
+        *self.spacing.get_or_init(|| {
+            if self.parsed().is_some() {
+                return false;
+            }
+            let lines = &self.lines;
+            let start = lines.line_bounds(lines.line_of(self.region.start)).start;
+            let end = lines.line_bounds(lines.line_of(self.region.end)).end;
+            let new_end = end + self.new.len() - self.old.len();
+            if new_end < self.new_region.end || end < self.region.end {
+                return false;
+            }
+            between_tokens(
+                self.behavior,
+                &String::from_utf16_lossy(&self.old[start..end]),
+                &String::from_utf16_lossy(&self.new[start..new_end]),
+            )
         })
     }
 

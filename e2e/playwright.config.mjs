@@ -10,7 +10,7 @@ const workers = Number(process.env.E2E_WORKERS) || (process.env.CI ? 1 : 4);
 
 // Specs that measure time (latency budgets on large documents): they run
 // after the others, one at a time, so parallel load does not skew them.
-const TIMED = ['**/large-files.spec.mjs', '**/problems-timing.spec.mjs', '**/large-samples.spec.mjs', '**/folding.spec.mjs', '**/search.spec.mjs'];
+const TIMED = ['**/large-files.spec.mjs', '**/insert-text-burst.spec.mjs', '**/problems-timing.spec.mjs', '**/large-samples.spec.mjs', '**/folding.spec.mjs', '**/search.spec.mjs'];
 
 export default defineConfig({
   testDir: 'tests',

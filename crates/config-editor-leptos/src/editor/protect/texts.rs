@@ -42,6 +42,19 @@ impl Reason {
         )
     }
 
+    /// Why an edit making the text parse is refused when the lines removed
+    /// that may hold the field at `pointer` are too many to read.
+    pub(crate) fn unchecked(&self, strings: &EditorStrings, pointer: Option<&str>) -> String {
+        let place = match pointer {
+            Some("") | None => "/",
+            Some(pointer) => pointer,
+        };
+        fill(
+            &strings.read_only_unchecked,
+            &[("pointer", &place), ("reason", &self.text(strings))],
+        )
+    }
+
     /// "Read-only: …", the gutter lock's label.
     pub(crate) fn label(&self, strings: &EditorStrings) -> String {
         labelled(strings, &strings.read_only_label, &self.text(strings))

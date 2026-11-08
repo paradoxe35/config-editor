@@ -342,8 +342,9 @@ pub struct EditorStrings {
     /// the host's text, and why the field is read-only (`{reason}`).
     pub read_only_changed: String,
     /// An edit refused because it makes a text that did not parse parse
-    /// after more changes to the host's text than the read-only fields can
-    /// be checked through.
+    /// after more lines that may hold the read-only field at `{pointer}`
+    /// were deleted from the host's text than can be checked through, and
+    /// why the field is read-only (`{reason}`).
     pub read_only_unchecked: String,
     /// The gutter lock's label, before the reason.
     pub read_only_label: String,
@@ -571,7 +572,7 @@ impl Default for EditorStrings {
                 "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first",
             ),
             read_only_unchecked: text(
-                "Too much changed while the text was invalid to check its read-only fields: undo some changes first",
+                "Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first",
             ),
             read_only_label: text("Read-only"),
             secret_label: text("Secret placeholder"),

@@ -26,7 +26,9 @@
 //!    absent included);
 //! 3. else, when the new text has the field: made there of the reference
 //!    text's own lines, kept, with only closers added (`}`, `]`, `)`, end
-//!    tags, a comma moved past them), none of its lines removed;
+//!    tags, a comma moved past them, and once the quote, `>` or `:`/`=`
+//!    the line itself left out, its strings then all written there), none
+//!    of its lines removed;
 //! 4. else, absent from the new text, absent from the reference text too
 //!    (no lock found there, no line of it removed, no key): a path the
 //!    text never had keeps nothing, as in a text that parses.
@@ -35,11 +37,15 @@
 //! text before, the host's paths, and the fields the schema marks in the
 //! new text and on the reference text's lines the edits removed: none
 //! depends on finding the field in the broken text. A refusal names the
-//! field (`Why::Changed`). One limit: when the reference text never
-//! parsed and the edits since removed more of its lines than can be read
-//! for their paths in a moment (`guard::repair::REMOVED_READS`: about 80
-//! in a text of 3000 lines, every one in a text of 250), the repair is
-//! refused, asking to undo some (`Why::Unread`).
+//! field (`Why::Changed`). The removed lines read for their paths are
+//! those that may hold a protected field (naming one of the keys, or in the
+//! block under such a line) and those where a field's own lines end, so
+//! deleting unrelated lines costs nothing. One limit: when the reference
+//! text never parsed and the edits since removed more lines naming a
+//! protected key than can be read in a moment (`guard::repair::
+//! REMOVED_READS`: about 80 in a text of 3000 lines), the repair is
+//! refused, naming the field and asking to undo the deletion
+//! (`Why::Unread`).
 //!
 //! While the text does not parse, the locks found in it (carried through
 //! edits, from the stand-in, or by the line scan, which in a large text
