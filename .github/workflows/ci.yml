@@ -46,15 +46,23 @@ jobs:
           OPTIONAL_OFF: ${{ matrix.check.off }}
         run: scripts/ci.sh ${{ matrix.check.steps }}
 
+  # The e2e suite as two parallel jobs: the timed specs (speed budgets, one
+  # worker, alone) on their own runner, the rest with the package checks.
   browser:
-    name: npm packages and end-to-end tests
+    name: npm packages and end-to-end tests (${{ matrix.project }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [editor, timed]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: browser
       - name: wasm-bindgen version from Cargo.lock
         id: versions
         run: echo "wasm_bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
@@ -71,11 +79,14 @@ jobs:
         working-directory: js
         run: npm ci && npm run build
       - name: Type-check the README examples (tsc, vue-tsc, svelte-check)
+        if: matrix.project == 'editor'
         working-directory: js
         run: npm run typecheck
       - name: The npm wasm loads in browsers without SIMD
+        if: matrix.project == 'editor'
         run: scripts/ci.sh wasm
       - name: Docs are up to date and well formed (contents lists, screenshot gallery, tables)
+        if: matrix.project == 'editor'
         run: scripts/ci.sh docs
       - name: Build the demo
         run: trunk build
@@ -84,4 +95,4 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          npx playwright test --reporter=line
+          npx playwright test --reporter=line --project=${{ matrix.project }} --no-deps
