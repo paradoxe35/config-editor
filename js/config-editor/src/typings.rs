@@ -253,9 +253,14 @@ export interface ThemeInfo {
 export interface Diagnostic {
   line?: number;
   column?: number;
+  /** Just past the marker, on `endLine` when it is set. */
   endColumn?: number;
+  /** The line the marker ends on, only when it covers several lines. */
+  endLine?: number;
   message: string;
   severity: Severity;
+  /** `true` on the warning of a key the schema marks `deprecated` (the marker is the key). */
+  deprecated?: boolean;
 }
 
 export interface Conversion {

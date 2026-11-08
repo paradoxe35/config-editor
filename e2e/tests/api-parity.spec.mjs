@@ -243,6 +243,16 @@ const DOCUMENTS_JS_ONLY = {
   settings: 'the setting props',
 };
 
+// Instance members (of the classes, handles and components) that no Rust
+// method maps to, and why.
+const EDITOR_MEMBERS_JS_ONLY = {
+  editor: 'a component\'s way to the `ConfigEditor` instance it mounted (Rust: the `handle` prop is that instance)',
+  setValue: 'a component\'s controlled value: the `value` prop in Rust, which a signal sets',
+};
+const DOCUMENTS_MEMBERS_JS_ONLY = {
+  instance: 'a component\'s way to the `ConfigDocuments` instance it mounted (Rust: the `handle` prop is that instance)',
+};
+
 // Exports of the entries that no Rust item maps to.
 const MAIN_ONLY = { loadConfigEditor: 'loads the WebAssembly module (Rust compiles it in)' };
 const TOOLS_ONLY = { loadConfigEditor: 'the same load, for code that imports only the tools' };
@@ -816,6 +826,37 @@ function memberProblems({ members, jsOnly, handle, implemented, frameworks, fram
   return problems;
 }
 
+/**
+ * The reverse of the tables: every instance member of the JS classes, the
+ * bindings' handles and the components' instance APIs comes from a Rust
+ * item (a table entry naming it as its `member`), or is listed in
+ * `jsOnly` / `exempt` with the reason it has no Rust counterpart.
+ */
+function memberSourceProblems({ js, binding, frameworks }) {
+  const named = (tables) => new Set(tables.flatMap((table) => Object.values(table)).filter((entry) => entry.member).map((entry) => entry.member));
+  const editorMapped = named([HANDLE]);
+  const documentsMapped = named([DOCUMENTS_HANDLE]);
+  const problems = [];
+  const each = (names, mapped, exempt, where) => {
+    for (const name of names) {
+      if (!mapped.has(name) && !(name in exempt)) problems.push(`${where} member \`${name}\` maps to no Rust item (add it to a table, or exempt it with its reason)`);
+    }
+  };
+  const editorExempt = { ...EDITOR_JS_ONLY, ...EDITOR_MEMBERS_JS_ONLY };
+  const documentsExempt = { ...DOCUMENTS_JS_ONLY, ...DOCUMENTS_MEMBERS_JS_ONLY };
+  each(js.members, editorMapped, editorExempt, 'ConfigEditor');
+  each(js.viewMembers, editorMapped, editorExempt, 'EditorView');
+  each(js.documentEditorMembers, editorMapped, editorExempt, 'DocumentEditorView');
+  each(js.documentsMembers, documentsMapped, documentsExempt, 'ConfigDocuments');
+  each(binding.handle, editorMapped, editorExempt, 'ConfigEditorHandle (binding.d.ts)');
+  each(binding.documentsHandle, documentsMapped, documentsExempt, 'ConfigDocumentsHandle (binding.d.ts)');
+  for (const framework of frameworks) {
+    each(framework.handle, editorMapped, editorExempt, `${framework.name} ConfigEditor instance API`);
+    each(framework.documentsHandle, documentsMapped, documentsExempt, `${framework.name} ConfigDocuments instance API`);
+  }
+  return problems;
+}
+
 /** Every export of the main and tools entries is mapped from a Rust item, or listed with its reason. */
 function entryListProblems({ js }) {
   const tables = groups.map(([, table]) => table);
@@ -900,6 +941,7 @@ function allProblems(read) {
       frameworks: read.frameworks,
       frameworkHandle: (framework) => framework.documentsHandle,
     }),
+    ...memberSourceProblems(read),
     ...entryListProblems(read),
     ...frameworkExportProblems(read),
   ];
@@ -1049,6 +1091,10 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
     ]).toEqual([]);
   });
 
+  test('every JS instance member, handle member and component member maps back to the Rust API, or is exempted', () => {
+    expect(memberSourceProblems(read)).toEqual([]);
+  });
+
   test('every export of the entries maps to the Rust API', () => {
     expect(entryListProblems(read)).toEqual([]);
   });
@@ -1081,6 +1127,10 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       ['a Svelte instance member', (read) => read.frameworks[2].handle.delete('save'), 'Svelte'],
       ['a framework type export', (read) => read.frameworks[0].exported.delete('FieldPath'), 'FieldPath'],
       ['a re-exported helper', (read) => read.frameworks[1].exported.add('validate'), 'Vue re-exports `validate`'],
+      ['a JS-only instance member', (read) => read.js.members.add('jsOnlyThing'), 'ConfigEditor member `jsOnlyThing` maps to no Rust item'],
+      ['a JS-only documents member', (read) => read.js.documentsMembers.add('jsOnlyThing'), 'ConfigDocuments member `jsOnlyThing` maps to no Rust item'],
+      ['a JS-only handle member', (read) => read.binding.handle.add('jsOnlyThing'), 'ConfigEditorHandle (binding.d.ts) member `jsOnlyThing`'],
+      ['a JS-only component member', (read) => read.frameworks[2].documentsHandle.add('jsOnlyThing'), 'Svelte ConfigDocuments instance API member `jsOnlyThing`'],
     ];
     const silent = [];
     for (const [what, takeOut, mentioned] of cases) {

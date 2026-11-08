@@ -8,7 +8,7 @@ use serde_json::Value;
 use leptos::prelude::*;
 
 use super::super::completion::{Completion, SuggestionPlace};
-use super::super::diagnostics::Diagnostic;
+use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::line_rows::LineMarks;
 use super::live::ProtectState;
@@ -16,6 +16,7 @@ use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
 use super::view::line_marks;
 use crate::EditorStrings;
+use crate::strings::fill;
 
 impl ProtectState {
     /// The marks of every line of `text` (the text on screen); empty when
@@ -74,6 +75,24 @@ impl ProtectState {
     /// Whether the host gave any placeholder. Tracked.
     pub(crate) fn has_placeholders(&self) -> bool {
         self.secrets.known.with(|known| !known.is_empty())
+    }
+
+    /// The document problem (an error) saying the host's placeholder pattern
+    /// cannot be used, worded as the npm package throws it; then no token is
+    /// a placeholder.
+    pub(crate) fn placeholder_pattern_problem(
+        &self,
+        strings: &EditorStrings,
+    ) -> Option<Diagnostic> {
+        let error = self
+            .secrets
+            .options
+            .with_value(|options| options.check_placeholder().err())?;
+        Some(Diagnostic {
+            message: fill(&strings.invalid_placeholder, &[("error", &error)]),
+            severity: Severity::Error,
+            ..Diagnostic::default()
+        })
     }
 
     /// A warning on each placeholder of `text` that is not real: one of the

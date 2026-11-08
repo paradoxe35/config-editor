@@ -76,14 +76,17 @@ test.describe('vanilla.html', () => {
     const tip = await markers(browserPage).first().evaluate((element) => getComputedStyle(element, '::after').content);
     expect(tip).toContain('port in use');
     expect(tip).toContain('burrow · E_PORT · Open docs ↗ (Alt+Enter)');
-    // F8 walks them in order.
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
     const caretLine = () => input(browserPage).evaluate((element) => element.value.slice(0, element.selectionStart).split('\n').length);
-    for (const line of [2, 3, 4, 2]) {
+    // F8 walks them in order, then the whole document's (the caret stays).
+    for (const line of [2, 3, 4, 4, 2]) {
       await browserPage.keyboard.press('F8');
       await expect.poll(caretLine).toBe(line);
     }
+    // Back: the whole document's, then the last placed one.
+    await browserPage.keyboard.press('Shift+F8');
+    await expect(browserPage.locator('.config-editor__announcement')).toContainText('the server restarted');
     await browserPage.keyboard.press('Shift+F8');
     await expect.poll(caretLine).toBe(4);
     expect(errors).toEqual([]);
@@ -123,13 +126,14 @@ test.describe('vanilla.html', () => {
       .poll(() => markers(browserPage).first().evaluate((element) => element.style.top))
       .toContain('2 * var(--config-editor-line-height)');
     await expect(markers(browserPage).first()).toHaveText('7835');
-    // In TOML the paths still find their fields; the range, given in the
-    // YAML text, shows unplaced.
+    // In TOML the paths still find their fields, and the range, given in the
+    // YAML text (line 4: `public_address` since the line added), marks the
+    // key it starts on there.
     await browserPage.locator('#edit-as').selectOption('toml');
     await expect(input(browserPage)).toHaveValue(/listen = 7835/);
-    await expect(markers(browserPage)).toHaveCount(2);
-    expect((await shown(browserPage)).map((marker) => marker.text)).toEqual(['7835', '"tunnel.example.com"']);
-    await expect(footer(browserPage)).toContainText('consider TLS');
+    await expect(markers(browserPage)).toHaveCount(3);
+    expect((await shown(browserPage)).map((marker) => marker.text)).toEqual(['7835', '"tunnel.example.com"', 'public_address']);
+    await expect(footer(browserPage)).not.toContainText('consider TLS');
   });
 
   test('the host problem replaces the editor’s own on the same value', async ({ page: browserPage }) => {

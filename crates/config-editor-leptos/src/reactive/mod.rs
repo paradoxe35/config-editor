@@ -29,6 +29,7 @@ mod kept;
 mod keyed;
 pub(crate) mod later;
 mod relay;
+mod size_observer;
 #[cfg(test)]
 mod tests;
 mod window_listener;
@@ -36,4 +37,5 @@ mod window_listener;
 pub(crate) use kept::Kept;
 pub(crate) use keyed::{KeyedList, detached_owner};
 pub(crate) use relay::{Fanout, Relay, notify};
+pub(crate) use size_observer::size_observer;
 pub(crate) use window_listener::window_listener;

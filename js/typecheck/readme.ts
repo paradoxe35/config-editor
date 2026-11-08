@@ -9,6 +9,11 @@ const editor = new ConfigEditor(document.getElementById("config")!, { language: 
 validate("json", '{"insecure_plaintext": "yes"}', schemaText);
 convert("yaml", "listen: 7835\n", "toml");
 validate("yaml", "a: 1\n");
+for (const problem of validate("yaml", "a: 1\n", schemaText)) {
+  const struck: boolean = problem.deprecated === true;
+  const lastLine: number | undefined = problem.endLine ?? problem.line;
+  void struck; void lastLine;
+}
 // update: partial, merging; null removes or resets.
 editor.update({ readOnly: true, theme: "nord" });
 declare const loaded: string;

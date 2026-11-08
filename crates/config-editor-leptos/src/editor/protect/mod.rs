@@ -43,6 +43,9 @@ pub(crate) use marks::mentions_marks;
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::save_refused;
 
+#[cfg(all(test, feature = "yaml"))]
+mod pattern_tests;
+
 #[cfg(all(
     test,
     feature = "yaml",
