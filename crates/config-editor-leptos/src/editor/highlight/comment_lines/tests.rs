@@ -35,47 +35,47 @@ fn colored(language: Language, source: &str) -> Vec<(String, String)> {
 /// its own, one inside a nested block, an unclosed one at the end, and the
 /// expected comment text of each line.
 fn cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
-    let mut cases = Vec::new();
-    #[cfg(feature = "xml")]
-    cases.push((
-        Language::XML,
-        "<config>\n  <a>1</a> <!-- <listen>7835</listen>\n  <b>x</b> --> <c>2</c>\n  <limits>\n    <!--\n    <max>5</max>\n    -->\n  </limits>\n  <!-- one line -->\n  <!--\n  <open>",
-        vec![
-            "",
-            "<!-- <listen>7835</listen>",
-            "  <b>x</b> -->",
-            "",
-            "<!--",
-            "    <max>5</max>",
-            "    -->",
-            "",
-            "<!-- one line -->",
-            "<!--",
-            "  <open>",
-        ],
-    ));
-    #[cfg(feature = "hcl")]
-    cases.push((
-        Language::HCL,
-        "a = 1 /* listen = 7835\n  b = \"x\" */ c = 2\nlimits {\n  /*\n  max = 5\n  */\n}\ns = \"/* not a comment\"\nh = <<EOT\n/* body\nEOT\n/* one line */\n/*\nopen = 1",
-        vec![
-            "/* listen = 7835",
-            "  b = \"x\" */",
-            "",
-            "/*",
-            "  max = 5",
-            "  */",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "/* one line */",
-            "/*",
-            "open = 1",
-        ],
-    ));
-    cases
+    vec![
+        #[cfg(feature = "xml")]
+        (
+            Language::XML,
+            "<config>\n  <a>1</a> <!-- <listen>7835</listen>\n  <b>x</b> --> <c>2</c>\n  <limits>\n    <!--\n    <max>5</max>\n    -->\n  </limits>\n  <!-- one line -->\n  <!--\n  <open>",
+            vec![
+                "",
+                "<!-- <listen>7835</listen>",
+                "  <b>x</b> -->",
+                "",
+                "<!--",
+                "    <max>5</max>",
+                "    -->",
+                "",
+                "<!-- one line -->",
+                "<!--",
+                "  <open>",
+            ],
+        ),
+        #[cfg(feature = "hcl")]
+        (
+            Language::HCL,
+            "a = 1 /* listen = 7835\n  b = \"x\" */ c = 2\nlimits {\n  /*\n  max = 5\n  */\n}\ns = \"/* not a comment\"\nh = <<EOT\n/* body\nEOT\n/* one line */\n/*\nopen = 1",
+            vec![
+                "/* listen = 7835",
+                "  b = \"x\" */",
+                "",
+                "/*",
+                "  max = 5",
+                "  */",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "/* one line */",
+                "/*",
+                "open = 1",
+            ],
+        ),
+    ]
 }
 
 #[test]
@@ -120,38 +120,38 @@ fn every_line_of_a_comment_over_several_lines_is_a_comment_in_every_language() {
 /// A document in each language with comments, and markers that are not
 /// comments (in strings, in multi-line string bodies), and its comments.
 fn comment_cases() -> Vec<(Language, &'static str, Vec<&'static str>)> {
-    let mut cases = Vec::new();
-    #[cfg(feature = "yaml")]
-    cases.push((
-        Language::YAML,
-        "a: 1 # one\ns: \"# not\"\nb: |\n  # body\nc: 2\n# two",
-        vec!["# one", "# two"],
-    ));
-    #[cfg(feature = "json")]
-    cases.push((
-        Language::JSON,
-        "{\"a\": \"# not // not /* not */\"}",
-        vec![],
-    ));
-    #[cfg(feature = "toml")]
-    cases.push((
-        Language::TOML,
-        "a = 1 # one\ns = \"# not\"\nm = \"\"\"\n# body\n\"\"\"\n# two",
-        vec!["# one", "# two"],
-    ));
-    #[cfg(feature = "hcl")]
-    cases.push((
-        Language::HCL,
-        "a = 1 # one\nb = 2 // two\ns = \"# not /* not\"\n/* three\n */\nh = <<EOT\n# body\nEOT",
-        vec!["# one", "// two", "/* three\n */"],
-    ));
-    #[cfg(feature = "xml")]
-    cases.push((
-        Language::XML,
-        "<a># not</a> <!-- one -->\n<b x=\"&lt;!-- not\"/>\n<!-- two\n-->",
-        vec!["<!-- one -->", "<!-- two\n-->"],
-    ));
-    cases
+    vec![
+        #[cfg(feature = "yaml")]
+        (
+            Language::YAML,
+            "a: 1 # one\ns: \"# not\"\nb: |\n  # body\nc: 2\n# two",
+            vec!["# one", "# two"],
+        ),
+        #[cfg(feature = "json")]
+        (
+            Language::JSON,
+            "{\"a\": \"# not // not /* not */\"}",
+            vec![],
+        ),
+        #[cfg(feature = "toml")]
+        (
+            Language::TOML,
+            "a = 1 # one\ns = \"# not\"\nm = \"\"\"\n# body\n\"\"\"\n# two",
+            vec!["# one", "# two"],
+        ),
+        #[cfg(feature = "hcl")]
+        (
+            Language::HCL,
+            "a = 1 # one\nb = 2 // two\ns = \"# not /* not\"\n/* three\n */\nh = <<EOT\n# body\nEOT",
+            vec!["# one", "// two", "/* three\n */"],
+        ),
+        #[cfg(feature = "xml")]
+        (
+            Language::XML,
+            "<a># not</a> <!-- one -->\n<b x=\"&lt;!-- not\"/>\n<!-- two\n-->",
+            vec!["<!-- one -->", "<!-- two\n-->"],
+        ),
+    ]
 }
 
 #[test]
