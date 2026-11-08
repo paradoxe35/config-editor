@@ -45,7 +45,7 @@ use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
 use edit::Edited;
-use joining::{is_near, joining_lines};
+use joining::{is_near, joining_lines, near_lines, span};
 use pins::{is_pinned, pins_hold};
 use stretch::indent_kept;
 
@@ -79,7 +79,7 @@ impl Blocked {
         match (self.why, &self.pointer) {
             (Why::Holds, _) => self.reason.holding(strings),
             (Why::Changed, Some(pointer)) => self.reason.changed(strings, pointer),
-            (Why::Unread, _) => strings.read_only_unchecked.clone(),
+            (Why::Unread, pointer) => self.reason.unchecked(strings, pointer.as_deref()),
             _ => self.reason.text(strings),
         }
     }
@@ -173,12 +173,26 @@ fn nothing_joins(edit: &Edited<'_>, pointed: &[&Lock]) -> Result<(), Blocked> {
     let new_lines = LineIndex::new(edit.after);
     for lock in pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
-        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>| {
-            joining_lines(edit.behavior, text, lines, region, pointer)
+        let count = |text: &str, lines: &LineIndex<'_>, region: &Range<usize>, near| {
+            joining_lines(edit.behavior, text, lines, region, near, pointer)
+        };
+        let Some((low, high)) = span(lock) else {
+            continue;
+        };
+        let near_before = near_lines(edit.behavior, &edit.lines, low, high);
+        // Where the lock is after the edit: before or after the region it
+        // keeps its text; over it, anywhere in it.
+        let near_after = if high <= edit.region.start {
+            near_lines(edit.behavior, &new_lines, low, high)
+        } else if low >= edit.region.end {
+            let moved = |at: usize| at + edit.new.len() - edit.old.len();
+            near_lines(edit.behavior, &new_lines, moved(low), moved(high))
+        } else {
+            0..new_lines.line_count()
         };
         let (Some(was), Some(now)) = (
-            count(edit.before, &edit.lines, &edit.region),
-            count(edit.after, &new_lines, &edit.new_region),
+            count(edit.before, &edit.lines, &edit.region, near_before),
+            count(edit.after, &new_lines, &edit.new_region, near_after),
         ) else {
             return Err(refused(&lock.reason));
         };

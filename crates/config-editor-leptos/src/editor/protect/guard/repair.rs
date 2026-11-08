@@ -12,20 +12,23 @@ use serde_json::Value;
 
 use super::super::super::codec;
 use super::super::super::diff::{DiffEdit, myers_edits};
-use super::super::super::language::ConfigLanguage;
-use super::super::super::paths::{key_range, path_at};
+use super::super::super::language::{ConfigLanguage, SchemaPathSegment};
+use super::super::super::paths::{FieldPath, key_range, path_at};
 use super::super::locate::{LineIndex, extent, within};
-use super::super::marks::schema_marks;
-use super::super::scan::{self, Written};
+use super::super::marks::{read_only_names, schema_marks};
+use super::super::scan::{self, Written, names_word};
 use super::super::texts::Reason;
 use super::closers::{Part, compact};
 use super::edit::Edited;
 use super::{Blocked, Why};
 
 /// Line reads (each a path read from the top of the reference text) the
-/// lines the edits removed from it get: as many lines as this divided by
-/// the text's lines, at least `MIN_REMOVED_LINES`. Past that, the fields
-/// they held are not known, and the repair is refused rather than guessed.
+/// removed lines that may hold a protected field get (those naming one,
+/// and the blocks under them): as many lines as this divided by the text's
+/// lines, at least `MIN_REMOVED_LINES`. Past that, the fields they held
+/// are not known, and the repair is refused, naming one, rather than
+/// guessed. Other removed lines are read only where a field's own lines
+/// end, one past the field's.
 const REMOVED_READS: usize = 250_000;
 const MIN_REMOVED_LINES: usize = 64;
 
@@ -39,13 +42,19 @@ pub(super) fn repair_keeps_locks(edit: &Edited<'_>, edited: &Value) -> Result<()
     let behavior = edit.behavior;
     let reference = codec::read(behavior, origin, edit.reading_schema).ok();
     let diff = LineDiff::new(origin, edit.after);
+    let names = names(edit);
     let removed = match &reference {
         Some(_) => Vec::new(),
-        None => diff.removed_paths(behavior, origin).ok_or(Blocked {
-            reason: Reason::Field,
-            why: Why::Unread,
-            pointer: None,
-        })?,
+        None => diff
+            .removed_paths(behavior, origin, &names)
+            .map_err(|unread| unchecked(edit, edited, &names, &unread))?,
+    };
+    let pointer_of = |line: usize| {
+        removed
+            .iter()
+            .find(|written| written.line == line)
+            .map(|written| written.pointer.clone())
+            .or_else(|| diff.pointer_of(behavior, origin, line))
     };
     let after_lines = LineIndex::new(edit.after);
     for (pointer, reason) in fields(edit, edited, &removed) {
@@ -97,19 +106,75 @@ pub(super) fn repair_keeps_locks(edit: &Edited<'_>, edited: &Value) -> Result<()
         ) else {
             return Err(refuse(Why::Changed));
         };
-        let held = |line: &Written| within(behavior, &line.pointer, &pointer);
-        if !diff.kept_with_closers(
-            behavior,
-            &after_lines,
-            &found.ranges,
-            value,
-            &removed,
-            &held,
-        ) {
+        let held =
+            |line: usize| pointer_of(line).is_some_and(|path| within(behavior, &path, &pointer));
+        if !diff.kept_with_closers(behavior, &after_lines, &found.ranges, value, &held) {
             return Err(refuse(Why::Changed));
         }
     }
     Ok(())
+}
+
+/// The keys of the fields that may be locked: those of the fields the
+/// text before knew of, and those the schema marks read-only.
+fn names(edit: &Edited<'_>) -> Vec<String> {
+    let protected = edit.protected;
+    let mut names: Vec<String> = edit
+        .reading_schema
+        .filter(|_| protected.marking)
+        .map(read_only_names)
+        .unwrap_or_default();
+    let pointers = protected
+        .locks
+        .iter()
+        .filter_map(|lock| lock.pointer.as_ref())
+        .chain(protected.unplaced.iter().map(|(pointer, _)| pointer))
+        .chain(protected.marked.iter().map(|(pointer, _)| pointer))
+        .chain(protected.pins.iter().map(|(pointer, _)| pointer))
+        .chain(&protected.paths);
+    for pointer in pointers {
+        for segment in FieldPath::from(pointer.as_str()).segments() {
+            if let SchemaPathSegment::Key(key) = segment
+                && !names.contains(key)
+            {
+                names.push(key.clone());
+            }
+        }
+    }
+    names
+}
+
+/// The refusal of a repair after more lines that may hold a protected field
+/// were removed than can be read (`unread`, lines of the reference text):
+/// naming the field one of them names.
+fn unchecked(edit: &Edited<'_>, edited: &Value, names: &[String], unread: &[usize]) -> Blocked {
+    let origin = edit.protected.origin.as_deref().unwrap_or_default();
+    let lines = LineIndex::new(origin);
+    let named: Vec<&String> = names
+        .iter()
+        .filter(|name| {
+            unread
+                .iter()
+                .any(|line| names_word(std::slice::from_ref(*name), lines.line_text(*line)))
+        })
+        .collect();
+    let fields = fields(edit, edited, &[]);
+    let field = fields.iter().find(|(pointer, _)| {
+        FieldPath::from(pointer.as_str())
+            .segments()
+            .iter()
+            .any(|segment| matches!(segment, SchemaPathSegment::Key(key) if named.contains(&key)))
+    });
+    let (pointer, reason) = match (field, named.first()) {
+        (Some((pointer, reason)), _) => (pointer.clone(), reason.clone()),
+        (None, Some(name)) => (format!("/{name}"), Reason::Field),
+        (None, None) => (String::new(), Reason::Field),
+    };
+    Blocked {
+        reason,
+        why: Why::Unread,
+        pointer: Some(pointer),
+    }
 }
 
 /// The fields to check, with their reasons: those locked or held in the
@@ -200,32 +265,54 @@ impl<'a> LineDiff<'a> {
         }
     }
 
-    /// The paths of the removed lines holding code, read in the reference
-    /// text; `None` when there are too many to read.
-    fn removed_paths(&self, behavior: &dyn ConfigLanguage, origin: &str) -> Option<Vec<Written>> {
+    /// The paths, read in the reference text, of the removed lines holding
+    /// code that may hold a protected field: those naming one of `names`,
+    /// and the blocks under the lines naming one; the lines when there are
+    /// too many to read.
+    fn removed_paths(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        origin: &str,
+        names: &[String],
+    ) -> Result<Vec<Written>, Vec<usize>> {
+        let count = self.origin.line_count();
+        let mut named = vec![false; count];
+        if !self.removed.is_empty() {
+            let accept = |line: &str| names_word(names, line);
+            for line in scan::candidates(&self.origin, &accept, usize::MAX) {
+                named[line] = true;
+            }
+        }
         let lines: Vec<usize> = self
             .removed
             .iter()
             .map(|(line, _)| *line)
-            .filter(|line| holds_code(behavior, self.origin.line_text(*line)))
+            .filter(|line| named[*line] && holds_code(behavior, self.origin.line_text(*line)))
             .collect();
-        let most = (REMOVED_READS / self.origin.line_count().max(1)).max(MIN_REMOVED_LINES);
+        let most = (REMOVED_READS / count.max(1)).max(MIN_REMOVED_LINES);
         if lines.len() > most {
-            return None;
+            return Err(lines);
         }
-        let mut found = Vec::new();
-        for line in lines {
-            let content = self.origin.line_text(line);
-            let indent = content.len() - content.trim_start().len();
-            let at = self.origin.line_bounds(line).start + content[..indent].encode_utf16().count();
-            if let Some(path) = path_at(behavior, origin, at) {
-                found.push(Written {
-                    line,
-                    pointer: path.to_pointer(),
-                });
-            }
-        }
-        Some(found)
+        Ok(lines
+            .into_iter()
+            .filter_map(|line| {
+                let pointer = self.pointer_of(behavior, origin, line)?;
+                Some(Written { line, pointer })
+            })
+            .collect())
+    }
+
+    /// The path at the start of the reference text's `line`.
+    fn pointer_of(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        origin: &str,
+        line: usize,
+    ) -> Option<String> {
+        let content = self.origin.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        let at = self.origin.line_bounds(line).start + content[..indent].encode_utf16().count();
+        path_at(behavior, origin, at).map(|path| path.to_pointer())
     }
 
     /// Whether the field covering `ranges` of the edited text is made of
@@ -241,8 +328,7 @@ impl<'a> LineDiff<'a> {
         lines: &LineIndex<'_>,
         ranges: &[Range<usize>],
         value: &Value,
-        removed: &[Written],
-        held: &dyn Fn(&Written) -> bool,
+        held: &dyn Fn(usize) -> bool,
     ) -> bool {
         let (Some(first), Some(last)) = (ranges.first(), ranges.last()) else {
             return true;
@@ -276,21 +362,36 @@ impl<'a> LineDiff<'a> {
         // The reference text's lines removed inside the field or just around
         // it, which its changed lines may come from; those inside it, and
         // those around it that were the field's own, must reappear in it.
-        let candidates: Vec<(usize, bool)> = self
+        // A field's lines are one stretch: around it, the lines nearest it
+        // that it held, up to the first it did not.
+        let code = |line: &usize| holds_code(behavior, self.origin.line_text(*line));
+        let removed_before = |at: usize| -> Vec<usize> {
+            self.removed
+                .iter()
+                .filter(|(_, before)| *before == at)
+                .map(|(line, _)| *line)
+                .filter(code)
+                .collect()
+        };
+        let mut candidates: Vec<(usize, bool)> = self
             .removed
             .iter()
-            .filter(|(line, _)| holds_code(behavior, self.origin.line_text(*line)))
-            .filter_map(|(line, before)| {
-                let inside = *before > first_line && *before <= last_line;
-                let around = *before == first_line || *before == last_line + 1;
-                let own = || {
-                    removed
-                        .iter()
-                        .any(|written| written.line == *line && held(written))
-                };
-                (inside || around).then(|| (*line, inside || own()))
-            })
+            .filter(|(line, before)| *before > first_line && *before <= last_line && code(line))
+            .map(|(line, _)| (*line, true))
             .collect();
+        let above = removed_before(first_line);
+        let below = if last_line + 1 == first_line {
+            Vec::new()
+        } else {
+            removed_before(last_line + 1)
+        };
+        for run in [above.into_iter().rev().collect::<Vec<_>>(), below] {
+            let mut own = true;
+            for line in run {
+                own = own && held(line);
+                candidates.push((line, own));
+            }
+        }
         let mut matched = vec![false; candidates.len()];
         let mut completed = false;
         for part in &changed {

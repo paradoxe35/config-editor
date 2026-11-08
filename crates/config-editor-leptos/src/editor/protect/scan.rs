@@ -151,7 +151,11 @@ pub(super) fn written(
     let count = lines.line_count();
     let chosen: Vec<usize> = match only {
         Some(only) => only.to_vec(),
-        None if count > MAX_LINES => candidates(lines, names, LARGE_READS / count),
+        None if count > MAX_LINES => {
+            let names_one =
+                |content: &str| names.iter().any(|name| content.contains(name.as_str()));
+            candidates(lines, &names_one, LARGE_READS / count)
+        }
         None => (0..count).collect(),
     };
     let mut found = Vec::new();
@@ -173,10 +177,14 @@ pub(super) fn written(
 }
 
 /// Up to `budget` lines of a large text that may hold a protected field:
-/// each line naming one of `names` (a protected field's key), with the
+/// each line `names_one` accepts (naming a protected field's key), with the
 /// lines indented under it, or up to the next header after a header line
 /// (`[limits]`): its block.
-fn candidates(lines: &LineIndex<'_>, names: &[String], budget: usize) -> Vec<usize> {
+pub(super) fn candidates(
+    lines: &LineIndex<'_>,
+    names_one: &dyn Fn(&str) -> bool,
+    budget: usize,
+) -> Vec<usize> {
     let indent = |text: &str| text.len() - text.trim_start().len();
     let header = |text: &str| text.starts_with('[');
     let mut chosen = Vec::new();
@@ -184,7 +192,7 @@ fn candidates(lines: &LineIndex<'_>, names: &[String], budget: usize) -> Vec<usi
     while line < lines.line_count() && chosen.len() < budget {
         let content = lines.line_text(line);
         line += 1;
-        if !names.iter().any(|name| content.contains(name.as_str())) {
+        if !names_one(content) {
             continue;
         }
         chosen.push(line - 1);
@@ -207,6 +215,19 @@ fn candidates(lines: &LineIndex<'_>, names: &[String], budget: usize) -> Vec<usi
         }
     }
     chosen
+}
+
+/// Whether `line` names one of `names` as a word (`"id"`, `<id>`, `id:`,
+/// not `valid`).
+pub(super) fn names_word(names: &[String], line: &str) -> bool {
+    let word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
+    names.iter().any(|name| {
+        !name.is_empty()
+            && line.match_indices(name.as_str()).any(|(at, _)| {
+                !line[..at].chars().next_back().is_some_and(word)
+                    && !line[at + name.len()..].chars().next().is_some_and(word)
+            })
+    })
 }
 
 /// The fields `schema` marks read-only among those `written`, outermost

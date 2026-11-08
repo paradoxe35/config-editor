@@ -7,6 +7,7 @@
 use super::super::Language;
 use super::super::codec;
 use super::arrival_tests::{From, GHOST, LOCKED, allowed, locks};
+use super::guard::check;
 use super::locks::Protected;
 use super::tests::{documents, edits, schema};
 
@@ -228,4 +229,130 @@ fn repairs_of_a_large_text_are_checked_quickly() {
         }
     }
     assert!(slow.is_empty(), "{slow:#?}");
+}
+
+/// `text` without `count` of its lines, from the one starting with `from`.
+fn without_lines(text: &str, from: &str, count: usize) -> String {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let start = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with(from))
+        .unwrap();
+    let end = start.saturating_add(count).min(lines.len());
+    lines[..start].concat() + &lines[end..].concat()
+}
+
+/// Many lines deleted from a large broken text, none holding a locked
+/// field, then the break repaired: the deletion and the repair go through,
+/// each in a moment (I2). Deleted with the locked fields among them, it is refused naming
+/// one (I1).
+#[test]
+fn deleting_many_unrelated_lines_then_repairing_goes_through() {
+    let strings = crate::EditorStrings::default();
+    let schema = schema();
+    let mut failures = Vec::new();
+    for (language, text) in documents() {
+        let (good, pairs) = large(language, text, 3000, 1);
+        let (fixed, bad) = (&pairs[0].0, &pairs[0].1);
+        let first = match language.label() {
+            "JSON" => "\"k100\"",
+            "XML" => "<k100>",
+            "YAML" => "k100:",
+            _ => "k100 ",
+        };
+        let check = |protected: &Protected, before: &str, after: &str| {
+            check(language.behavior(), Some(&schema), protected, before, after)
+        };
+        for from in [From::Schema, From::Paths] {
+            let shown = broken(&good, &pairs);
+            let protected = locks(language, &shown, from, true, None);
+            for count in [200, 500, 1000, 2500] {
+                let tag = format!("{language} ({from:?}) {count} lines deleted");
+                let deleted = without_lines(&shown, first, count);
+                let (took, deletion) = crate::editor::test_timing::best_of(2, || {
+                    allowed(language, &shown, &deleted, &protected)
+                });
+                if !deletion {
+                    failures.push(format!("{tag}: the deletion refused"));
+                    continue;
+                }
+                if took > std::time::Duration::from_millis(400) {
+                    failures.push(format!("{tag}: the deletion took {took:?}"));
+                }
+                let carried = locks(language, &deleted, from, true, Some(&protected));
+                let repaired = deleted.replacen(bad, fixed, 1);
+                assert!(
+                    codec::read(language.behavior(), &repaired, None).is_ok(),
+                    "{tag}"
+                );
+                let (took, result) =
+                    crate::editor::test_timing::best_of(2, || check(&carried, &deleted, &repaired));
+                if let Err(blocked) = result {
+                    let message = blocked.message(&strings);
+                    failures.push(format!("{tag}: the repair refused: {message}"));
+                }
+                if took > std::time::Duration::from_millis(400) {
+                    failures.push(format!("{tag}: the repair took {took:?}"));
+                }
+            }
+            // The locked fields deleted with the lines before them.
+            let tag = format!("{language} ({from:?}) deleted through the locked fields");
+            let deleted = without_lines(&shown, first, usize::MAX);
+            let deleted = match language.label() {
+                "JSON" => format!("{deleted}  \"z\": 0\n}}\n"),
+                _ => deleted,
+            };
+            let carried = locks(language, &deleted, from, true, Some(&protected));
+            let repaired = deleted.replacen(bad, fixed, 1);
+            if codec::read(language.behavior(), &repaired, None).is_err() {
+                failures.push(format!("{tag}: {repaired:?} does not parse"));
+                continue;
+            }
+            match check(&carried, &deleted, &repaired) {
+                Ok(()) => failures.push(format!("{tag}: the repair went through")),
+                Err(blocked) => {
+                    let message = blocked.message(&strings);
+                    if !LOCKED.iter().any(|pointer| message.contains(pointer)) {
+                        failures.push(format!("{tag}: refused with {message:?}"));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{failures:#?}",
+        failures.len()
+    );
+}
+
+/// More deleted lines naming a protected field's key than can be read: the
+/// repair is refused, naming the field and the change to undo.
+#[test]
+fn a_repair_past_the_reading_budget_names_the_field() {
+    let language = Language::YAML;
+    let schema = schema();
+    let items: String = (0..3000)
+        .map(|index| format!("  - id: {index}\n"))
+        .collect();
+    let good = format!("name: x\nlist:\n{items}id: abc\nmeta:\n  a: 1\nport: 80\n");
+    let shown = good.replacen("name: x\n", "name: x\n@@@ : : x\n", 1);
+    let protected = locks(language, &shown, From::Schema, true, None);
+    let deleted = without_lines(&shown, "- id: 100", 2000);
+    let carried = locks(language, &deleted, From::Schema, true, Some(&protected));
+    let repaired = deleted.replacen("@@@ : : x\n", "", 1);
+    assert!(codec::read(language.behavior(), &repaired, None).is_ok());
+    let blocked = check(
+        language.behavior(),
+        Some(&schema),
+        &carried,
+        &deleted,
+        &repaired,
+    )
+    .unwrap_err();
+    let message = blocked.message(&crate::EditorStrings::default());
+    assert!(
+        message.contains("/id") && message.contains("undo deleting"),
+        "{message}"
+    );
 }

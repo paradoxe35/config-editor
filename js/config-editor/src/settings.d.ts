@@ -844,9 +844,9 @@ export interface EditorStrings {
    */
   readOnlyChanged?: string;
   /**
-   * An edit refused because it makes a text that did not parse parse after more changes to the host's text than the read-only fields can be checked through.
+   * An edit refused because it makes a text that did not parse parse after more lines that may hold the read-only field at `{pointer}` were deleted from the host's text than can be checked through, and why the field is read-only (`{reason}`).
    *
-   * @default "Too much changed while the text was invalid to check its read-only fields: undo some changes first"
+   * @default "Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first"
    */
   readOnlyUnchecked?: string;
   /**
