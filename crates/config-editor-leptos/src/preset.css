@@ -1203,6 +1203,12 @@
   font-size: 12px;
 }
 
+.config-editor__hover-title {
+  margin: 0;
+  color: var(--config-editor-raised-text);
+  font-weight: 600;
+}
+
 .config-editor__hover-description {
   margin: 0;
   color: var(--config-editor-raised-text);

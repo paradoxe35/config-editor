@@ -325,3 +325,45 @@ fn keys_matching_a_supported_pattern_get_docs_and_unsupported_ones_are_reported(
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// A key's hover card shows the property's `title` above its description
+/// (as VS Code's JSON hover does), in every language; a property without
+/// one shows none.
+#[test]
+fn hover_shows_a_keys_title() {
+    let bundle = build_schema(
+        r#"{"properties": {
+            "listen": {"type": "integer", "title": "Listen port", "description": "Where it listens."},
+            "name": {"type": "string", "description": "No title."}
+        }}"#,
+    )
+    .unwrap();
+    let documents = [
+        (Language::YAML, "listen: 1\nname: a\n"),
+        (
+            Language::JSON,
+            "{\n  \"listen\": 1,\n  \"name\": \"a\"\n}\n",
+        ),
+        (Language::TOML, "listen = 1\nname = \"a\"\n"),
+        (Language::HCL, "listen = 1\nname = \"a\"\n"),
+        (Language::XML, "<listen>1</listen>\n<name>a</name>\n"),
+    ];
+    let mut failures = Vec::new();
+    for (language, source) in documents {
+        let (line, column) = position_of(source, "listen");
+        let hover = key_hover(source, line, column, Some(&bundle), language.behavior());
+        let shown = hover
+            .as_ref()
+            .map(|hover| (hover.title.as_deref(), hover.description.as_deref()));
+        if shown != Some((Some("Listen port"), Some("Where it listens."))) {
+            failures.push(format!("{language:?} listen: {shown:?}"));
+        }
+        let (line, column) = position_of(source, "name");
+        let title = key_hover(source, line, column, Some(&bundle), language.behavior())
+            .map(|hover| hover.title);
+        if title != Some(None) {
+            failures.push(format!("{language:?} name: {title:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

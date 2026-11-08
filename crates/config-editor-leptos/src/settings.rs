@@ -71,7 +71,7 @@ pub struct EditorSettings {
     /// Open suggestions while typing and after accepting a key. Off, only
     /// `Ctrl+Space` opens them.
     pub auto_trigger_completions: bool,
-    /// Show the schema's description, type, default and examples when
+    /// Show the schema's title, description, type, default and examples when
     /// hovering a key.
     pub hover_docs: bool,
     /// Syntax colors.
