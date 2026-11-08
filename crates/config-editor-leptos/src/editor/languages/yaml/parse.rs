@@ -3,8 +3,12 @@
 use super::*;
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
-    let parser_config =
+    let mut parser_config =
         ParserConfig::serde_yaml_compat().duplicate_key_policy(DuplicateKeyPolicy::Error);
+    // A plain number too large for a float (`1e400`) is an infinity, as
+    // YAML's float syntax says, never a string (TOML and JSON read it as a
+    // number too, one too large).
+    parser_config.float_overflow_strings = false;
     // Read through `Parsed`, which keeps `.inf` and `.nan` (a plain `Value`
     // would turn them into `null`).
     noyalib::from_str_with_config(source, &parser_config)
@@ -319,9 +323,10 @@ pub(super) fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, u
     if parent.is_empty() || key.is_empty() {
         return None;
     }
-    let (_, parent_line, _, _) = yaml_path_lines(source)
-        .into_iter()
-        .find(|(candidate, _, _, _)| candidate == parent)?;
+    let (_, parent_line, _, _) = path_lines(source)
+        .iter()
+        .find(|(candidate, _, _, _)| candidate == parent)
+        .cloned()?;
     let text = source.lines().nth(parent_line.checked_sub(1)?)?;
     let value_begin = text.find(':')? + 1;
     let is_word = |character: char| character.is_alphanumeric() || matches!(character, '_' | '-');
@@ -347,6 +352,15 @@ pub(super) fn flow_key_span(source: &str, wanted: &[String]) -> Option<(usize, u
     None
 }
 
+/// A key's path, line, and first and last columns (see [`yaml_path_lines`]).
+type PathLine = (Vec<String>, usize, usize, usize);
+
+/// [`yaml_path_lines`] of `source`, read once for all the spans a batch
+/// of problems asks for (see `paths::batch_cached`).
+fn path_lines(source: &str) -> std::rc::Rc<Vec<PathLine>> {
+    crate::editor::paths::batch_cached(source, || yaml_path_lines(source))
+}
+
 pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = crate::editor::language::pointer_segments(path);
     let key = wanted.last()?.clone();
@@ -354,9 +368,10 @@ pub(super) fn yaml_span_for_path(source: &str, path: &str) -> Option<(usize, usi
         return None;
     }
 
-    if let Some((_, line, column, end_column)) = yaml_path_lines(source)
-        .into_iter()
+    if let Some((_, line, column, end_column)) = path_lines(source)
+        .iter()
         .find(|(candidate, _, _, _)| *candidate == wanted)
+        .cloned()
     {
         return Some((line, column, end_column));
     }
@@ -387,9 +402,10 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     }
     // Only block-structured entries have a value slot on their line. Inline
     // mapping keys resolve through `yaml_span_for_path`, which points at the key.
-    let (line_number, key_column) = yaml_path_lines(source)
-        .into_iter()
+    let (line_number, key_column) = path_lines(source)
+        .iter()
         .find(|(candidate, _, _, _)| *candidate == wanted)
+        .cloned()
         .map(|(_, line, column, _)| (line, column))?;
     let line = source.lines().nth(line_number.saturating_sub(1))?;
     // The key starts after the line's indentation and dashes (ASCII), so its
@@ -446,9 +462,10 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
 pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usize, usize, usize)> {
     let (last, _) = wanted.split_last()?;
     last.parse::<usize>().ok()?;
-    let (line_number, column) = yaml_path_lines(source)
-        .into_iter()
+    let (line_number, column) = path_lines(source)
+        .iter()
         .find(|(candidate, _, _, _)| candidate.as_slice() == wanted)
+        .cloned()
         .map(|(_, line, column, _)| (line, column))?;
     let line = source.lines().nth(line_number - 1)?;
     // After the line's indentation and dashes (ASCII): the column is a byte

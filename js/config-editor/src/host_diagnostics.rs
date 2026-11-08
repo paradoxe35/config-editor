@@ -42,12 +42,12 @@ pub(crate) fn host_diagnostic_from(
     }
     warn_unknown_keys(item, HOST_DIAGNOSTIC_KEYS, "host diagnostic key");
     let message = string_field(item, "message").ok_or("message must be a string")?;
+    if message.trim().is_empty() {
+        return Err("message must not be empty".to_string());
+    }
     let severity = match field(item, "severity") {
         value if value.is_undefined() || value.is_null() => Severity::Error,
-        value => value
-            .as_string()
-            .ok_or_else(|| "severity must be a string".to_string())?
-            .parse::<Severity>()?,
+        value => severity_from(value.as_string())?,
     };
     let path = field(item, "path");
     let range = field(item, "range");
@@ -84,7 +84,32 @@ pub(crate) fn host_diagnostic_from(
     if let Some(url) = &diagnostic.docs_url
         && !config_editor_leptos::js_support::is_web_url(url)
     {
-        return Err(format!("docsUrl must be an http(s) URL (got {url:?})"));
+        return Err(format!(
+            "docsUrl must be an http(s) URL with a host (got {url:?})"
+        ));
     }
     Ok(diagnostic)
+}
+
+/// The severities a host diagnostic takes, written as the typings name them.
+const SEVERITIES: [(&str, Severity); 4] = [
+    ("error", Severity::Error),
+    ("warning", Severity::Warning),
+    ("info", Severity::Info),
+    ("hint", Severity::Hint),
+];
+
+/// A severity from JavaScript: exactly one of the lower-case names
+/// (`"ERROR"` or `" error"` is a mistake the host should hear about).
+fn severity_from(name: Option<String>) -> Result<Severity, String> {
+    let name = name.ok_or("severity must be a string")?;
+    SEVERITIES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, severity)| *severity)
+        .ok_or_else(|| {
+            format!(
+                "unknown severity {name:?} (expected \"error\", \"warning\", \"info\" or \"hint\", lower-case)"
+            )
+        })
 }

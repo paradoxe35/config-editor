@@ -52,21 +52,29 @@ pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, us
     (line, column, column + source[start..end].chars().count())
 }
 
+/// The document's scan, read once for all the spans a batch of problems
+/// asks for (see `paths::batch_cached`).
+fn scanned(source: &str) -> std::rc::Rc<Scan> {
+    crate::editor::paths::batch_cached(source, || analyze(source, 0))
+}
+
 pub(super) fn json_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
-    analyze(source, 0)
+    scanned(source)
         .key_spans
-        .into_iter()
+        .iter()
         .find(|(segments, _, _)| *segments == wanted)
+        .cloned()
         .map(|(_, start, end)| span_between(source, start, end))
 }
 
 pub(super) fn json_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     let wanted = pointer_segments(path);
-    let (_, start, end) = analyze(source, 0)
+    let (_, start, end) = scanned(source)
         .value_spans
-        .into_iter()
-        .find(|(segments, _, _)| *segments == wanted)?;
+        .iter()
+        .find(|(segments, _, _)| *segments == wanted)
+        .cloned()?;
     if source[start..].starts_with(['{', '[']) {
         // A container is marked at its opening bracket, not its whole body.
         let (line, column) = line_column(source, start);

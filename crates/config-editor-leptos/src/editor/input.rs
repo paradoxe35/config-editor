@@ -350,10 +350,12 @@ pub(super) fn blur(state: EditorState) {
     state.close_suggestions();
     state.hide_hover();
     state.protect().hide_tip(true);
+    state.forget_refusal();
 }
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.protect().hide_tip(false);
+    state.forget_refusal();
     // The caret never lands inside a secret placeholder.
     state.snap_to_tokens();
     state.forget_typing_aids();

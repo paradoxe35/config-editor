@@ -63,6 +63,7 @@ impl ProblemsState {
         let edit_language = sync.edit_language;
         let host_text = sync.host_text;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
+        let line_endings = sync.line_endings;
         let validated = Memo::new(move |_| {
             let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
@@ -80,6 +81,15 @@ impl ProblemsState {
                         strings,
                     )
                 });
+                // A line break the host's language does not read (a lone
+                // CR in TOML) fails its reader as the host saves the text.
+                if enabled
+                    && edit_language.get() == host_language
+                    && let Some(problem) =
+                        diagnosed_text.with(|text| line_endings.rejected_break(text))
+                {
+                    return vec![problem];
+                }
                 if enabled {
                     let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
                         problems

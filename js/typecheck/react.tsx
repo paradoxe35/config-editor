@@ -53,7 +53,7 @@ export function Files({ schema }: { schema: string }) {
   const tabs = useRef<ConfigDocumentsHandle>(null);
   const sent: string[] | undefined = tabs.current?.saveAll(); tabs.current?.select("tls"); tabs.current?.activeId; void sent;
   tabs.current?.editor("tls")?.reveal("/cert");
-  const tlsView: EditorView | null | undefined = tabs.current?.editor("tls"); const tlsValue: string | undefined = tlsView?.value; void tlsValue;
+  const tlsView: EditorView | null | undefined = tabs.current?.editor("tls"); const tlsValue: string | null | undefined = tlsView?.value; void tlsValue;
   return (
     <ConfigDocuments ref={tabs} documents={files} showFooter folding={false} theme="nord" onChange={(id, value) => update(id, { value })}
       onSave={async (id, value) => { await putFile(id, value); update(id, { baseline: value }); }}

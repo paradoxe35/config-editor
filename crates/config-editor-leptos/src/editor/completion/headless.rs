@@ -65,6 +65,8 @@ pub struct HoverDocs {
     pub key: String,
     /// The property's type as shown (`string`, `"fast" | "safe"`, …).
     pub type_label: String,
+    /// The property's `title`, shown above its description.
+    pub title: Option<String>,
     /// The property's `description`.
     pub description: Option<String>,
     /// Its `default`, as written in the card.
@@ -117,6 +119,7 @@ pub(crate) fn schema_hover(
     Some(HoverDocs {
         key: hover.key,
         type_label: hover.type_label,
+        title: hover.title,
         description: hover.description,
         default: hover.default,
         examples: hover.examples,

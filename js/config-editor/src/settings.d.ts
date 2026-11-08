@@ -62,7 +62,7 @@ export interface EditorSettings {
    */
   autoTriggerCompletions?: boolean;
   /**
-   * Show the schema's description, type, default and examples when hovering a key.
+   * Show the schema's title, description, type, default and examples when hovering a key.
    *
    * @default true
    */

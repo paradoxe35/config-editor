@@ -198,6 +198,43 @@ test.describe('vanilla.html', () => {
     await expect(setHost(browserPage, [{ message: 'x', severity: 'fatal' }])).rejects.toThrow(/unknown severity "fatal"/);
     await expect(setHost(browserPage, [{ message: 'x', range: { line: 1 } }])).rejects.toThrow(/range must be/);
     await expect(setHost(browserPage, {})).rejects.toThrow(/must be an array/);
+    // Round 16-18 leftovers: each mistake throws, saying why.
+    await expect(setHost(browserPage, [{ message: 'x', docsUrl: 'http://' }])).rejects.toThrow(/docsUrl must be an http\(s\) URL with a host/);
+    await expect(setHost(browserPage, [{ message: 'x', docsUrl: 'https:///docs' }])).rejects.toThrow(/docsUrl must be/);
+    await expect(setHost(browserPage, [{ message: 'x', severity: 'ERROR' }])).rejects.toThrow(/unknown severity "ERROR" \(expected "error", "warning", "info" or "hint", lower-case\)/);
+    await expect(setHost(browserPage, [{ message: '' }])).rejects.toThrow(/hostDiagnostics\[0\]: message must not be empty/);
+    await expect(setHost(browserPage, [{ message: 'x', range: { start: 2 } }])).rejects.toThrow(/range must be \{ start, end \}/);
+    await expect(setHost(browserPage, [{ message: 'x', range: { start: 0, end: 3, startLine: 2, startColumn: 1 } }])).rejects.toThrow(/different stretches/);
+    // Both styles for one stretch, as rangeOf returns them, are fine.
+    await setHost(browserPage, [{ message: 'x', range: { start: 0, end: 1, startLine: 1, startColumn: 1, endLine: 1, endColumn: 2 } }]);
+    await expect(markers(browserPage)).toHaveCount(1);
+    await setHost(browserPage, [{ message: 'x', docsUrl: 'https://example.com/docs' }]);
+  });
+
+  test('bad secrets options throw; a throwing isPlaceholder is logged', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    const result = await browserPage.evaluate(async () => {
+      const { ConfigEditor } = await import('../config-editor/index.js');
+      const host = document.createElement('div');
+      document.body.append(host);
+      let prefixes = null;
+      try {
+        new ConfigEditor(host, { language: 'yaml', value: 'a: 1\n', secrets: { referencePrefixes: [''] } });
+      } catch (error) {
+        prefixes = error.message;
+      }
+      const editor = new ConfigEditor(host, {
+        language: 'yaml',
+        value: 'pw: «secret 3f2a»\n',
+        schema: JSON.stringify({ type: 'object', properties: { pw: { type: 'string', writeOnly: true } } }),
+        secrets: { isPlaceholder: () => { throw new Error('boom'); } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      editor.destroy();
+      return { prefixes };
+    });
+    expect(result.prefixes).toMatch(/secrets\.referencePrefixes must be an array of non-empty strings/);
+    expect(errors.some((error) => /config-editor: a callback threw/.test(error))).toBe(true);
   });
 });
 

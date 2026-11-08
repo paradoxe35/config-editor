@@ -79,11 +79,15 @@ pub(crate) fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
     }
     let prefixes = field(value, "referencePrefixes");
     if !prefixes.is_undefined() && !prefixes.is_null() {
-        let invalid = || JsError::new("secrets.referencePrefixes must be an array of strings");
+        let invalid =
+            || JsError::new("secrets.referencePrefixes must be an array of non-empty strings");
         let list = Array::is_array(&prefixes)
             .then(|| Array::from(&prefixes))
             .ok_or_else(invalid)?;
-        let prefixes: Option<Vec<String>> = list.iter().map(|prefix| prefix.as_string()).collect();
+        let prefixes: Option<Vec<String>> = list
+            .iter()
+            .map(|prefix| prefix.as_string().filter(|prefix| !prefix.is_empty()))
+            .collect();
         options = options.with_reference_prefixes(prefixes.ok_or_else(invalid)?);
     }
     if let Some(check) = function_option(value, "isPlaceholder")? {
@@ -92,9 +96,17 @@ pub(crate) fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
             check
                 .try_with_value(|check| {
                     check.as_ref().is_some_and(|check| {
-                        check
-                            .call1(&JsValue::NULL, &JsValue::from_str(&token))
-                            .is_ok_and(|real| real.is_truthy())
+                        match check.call1(&JsValue::NULL, &JsValue::from_str(&token)) {
+                            Ok(real) => real.is_truthy(),
+                            // Logged as every callback's exception is.
+                            Err(error) => {
+                                web_sys::console::error_2(
+                                    &JsValue::from_str("config-editor: a callback threw"),
+                                    &error,
+                                );
+                                false
+                            }
+                        }
                     })
                 })
                 .unwrap_or(false)
