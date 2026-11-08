@@ -44,6 +44,10 @@ pub(crate) fn in_batch(source: &str) -> bool {
     BATCHES.with(|batches| batches.borrow().iter().any(|batch| batch.text == key))
 }
 
+#[cfg_attr(
+    not(any(feature = "yaml", feature = "json", feature = "hcl", feature = "xml")),
+    allow(dead_code, reason = "the YAML, JSON, HCL and XML readers share it")
+)]
 /// `make()`, a reading of all of `source` (the lines of its keys, say):
 /// made once while [`with_spans`] runs for that text, so the spans asked one
 /// by one inside it share it; made each time outside one. Each type is one

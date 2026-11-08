@@ -8,8 +8,14 @@ mod lines;
 mod span_memo;
 mod types;
 
-pub(crate) use lines::{Lines, line_column, line_start, lines, split_line, text_line};
-pub(crate) use span_memo::{batch_cached, in_batch, with_spans};
+#[cfg(feature = "yaml")]
+pub(crate) use lines::text_line;
+pub(crate) use lines::{Lines, line_column, line_start, lines, split_line};
+#[cfg(any(feature = "yaml", feature = "json", feature = "hcl", feature = "xml"))]
+pub(crate) use span_memo::batch_cached;
+#[cfg(feature = "xml")]
+pub(crate) use span_memo::in_batch;
+pub(crate) use span_memo::with_spans;
 pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};
 

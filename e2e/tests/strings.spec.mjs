@@ -24,6 +24,7 @@ const ELSEWHERE = {
   infosOne: 'info-level problems come from hosts; counts are unit tested',
   infosOther: 'as infosOne',
   problemCode: 'a host problem with a code: a11y tests and host-diagnostics.spec',
+  editAsHostInstructions: 'an XML host holding processing instructions: edit_as::tests (the notice names them)',
   problemDocs: 'as problemCode',
   hintsOne: 'as infosOne',
   hintsOther: 'as infosOne',

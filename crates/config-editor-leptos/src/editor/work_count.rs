@@ -18,6 +18,10 @@ pub(crate) enum Work {
     LineSplit,
     /// A scan of a whole document recording where every key and value is
     /// written (with its path), where only the caret's place was wanted.
+    #[cfg_attr(
+        not(any(feature = "json", feature = "xml")),
+        allow(dead_code, reason = "only the JSON and XML scanners note it")
+    )]
     SpanScan,
 }
 
