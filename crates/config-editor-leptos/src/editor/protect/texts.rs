@@ -31,6 +31,17 @@ impl Reason {
         fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
     }
 
+    /// Why an edit making the text parse is refused: the field at
+    /// `pointer`, locked for this reason, would read otherwise than in the
+    /// host's text.
+    pub(crate) fn changed(&self, strings: &EditorStrings, pointer: &str) -> String {
+        let place = if pointer.is_empty() { "/" } else { pointer };
+        fill(
+            &strings.read_only_changed,
+            &[("pointer", &place), ("reason", &self.text(strings))],
+        )
+    }
+
     /// "Read-only: …", the gutter lock's label.
     pub(crate) fn label(&self, strings: &EditorStrings) -> String {
         labelled(strings, &strings.read_only_label, &self.text(strings))

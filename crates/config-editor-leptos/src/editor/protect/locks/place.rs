@@ -137,7 +137,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                 .map(|(_, value)| value),
         };
         let inside = match (value, document) {
-            (None, None) => Some(self.reading.written().unwrap_or_default()),
+            (None, None) => Some(self.reading.written()),
             _ => None,
         };
         extent(*behavior, text, lines, value, inside, pointer).or_else(|| {
@@ -147,8 +147,9 @@ impl<'r, 'a> Placer<'r, 'a> {
 
     /// Whether a field not found is held until the text parses: in a text
     /// that does not parse, when it was found or held so in the text
-    /// before, or written in the last text that parsed or the stand-in (or
-    /// neither says otherwise).
+    /// before, or written in the last text that parsed or the stand-in.
+    /// Else it is not written (a path the text never had): nothing to keep
+    /// until the text parses, where `guard::repair` reads it again.
     fn held(&self, pointer: &str) -> bool {
         if self.reading.document.is_some() {
             return false;
@@ -166,11 +167,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                     .iter()
                     .any(|lock| lock.pointer.as_deref() == Some(pointer))
         });
-        before
-            || match (last, stand) {
-                (None, None) => true,
-                (last, stand) => last.is_some_and(has) || stand.is_some_and(has),
-            }
+        before || last.is_some_and(has) || stand.is_some_and(has)
     }
 
     /// The keys of the fields holding `pointer`.
