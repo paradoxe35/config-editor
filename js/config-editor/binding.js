@@ -16,7 +16,7 @@ import { loadConfigEditor, whenLoaded } from "./load.js";
 import { SETTING_TYPES } from "./setting-types.js";
 import { ValueSync } from "./sync.js";
 
-export { SETTING_TYPES, ValueSync };
+export { SETTING_TYPES };
 
 /** The settings among `props`: the keys of `EditorSettings` it sets, as plain data. */
 function settingsOf(props) {

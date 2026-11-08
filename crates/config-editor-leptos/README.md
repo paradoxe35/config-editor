@@ -49,7 +49,7 @@ method and headless function here has a JS option, method or function there
   - [Large documents](#large-documents)
 - [Headless API](#headless-api)
 - [XML mapping](#xml-mapping)
-- [Your own language](#your-own-language)
+- [Custom languages](#custom-languages)
   - [Describing syntax as data](#describing-syntax-as-data)
   - [Optional refinements](#optional-refinements)
 - [Themes and colors](#themes-and-colors)
@@ -1009,7 +1009,7 @@ Each line that starts a block gets a chevron in the gutter, shown while the
 pointer is over the gutter (always on touch screens and on folded lines),
 as in VS Code. A folded line shows `…` after its text; clicking it or the
 chevron opens the fold. What folds comes from the language
-([`fold_ranges`](#your-own-language)): YAML mappings, sequences and block
+([`fold_ranges`](#custom-languages)): YAML mappings, sequences and block
 scalars by indentation; JSON objects and arrays; TOML tables and arrays of
 tables (header to the next header) and multi-line arrays, inline tables and
 strings; HCL blocks, objects, lists, calls and heredocs; XML elements,
@@ -1123,7 +1123,7 @@ scalar (`<listen>7835</listen>` is the number 7835), and repeated siblings are
 an array. A top-level element marked `config-root="true"` is a transparent
 wrapper; without it, every top-level element is a document property.
 
-## Your own language
+## Custom languages
 
 Every built-in language implements the public `ConfigLanguage` trait, and
 yours can too. Only `info` and `parse` are required; each further method adds
@@ -1304,7 +1304,7 @@ a host's code the same in every build:
   `protect` (the browser console says so once when one is given). Each
   one's documentation names its feature. So do the `Document` builder's
   methods that feed them.
-- The [`ConfigLanguage`](#your-own-language) hooks and building blocks
+- The [`ConfigLanguage`](#custom-languages) hooks and building blocks
   stay (`fold_ranges`, `FoldRange`, …), so a language of your own builds
   either way.
 

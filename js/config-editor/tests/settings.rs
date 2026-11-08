@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use config_editor_leptos::{EditorSettings, EditorStrings, EditorTheme};
+use config_editor_leptos::{EditorSettings, EditorStrings, EditorTheme, ThemeColor};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -293,11 +293,35 @@ fn interface(described: &Described) -> String {
 fn typescript() -> String {
     let (settings, strings) = (settings(), strings());
     format!(
-        "// {}\n// {}\n\n{}\n{}",
+        "// {}\n// {}\n\n{}\n{}\n{}",
         header(&settings),
         header(&strings),
         interface(&settings),
-        interface(&strings)
+        interface(&strings),
+        color_tokens()
+    )
+}
+
+/// The `colors` keys: one per `ThemeColor`, named as its CSS variable
+/// without the `--config-editor-` prefix (what the JavaScript `colors`
+/// option accepts), so editors complete them and a typo fails to compile.
+fn color_tokens() -> String {
+    let tokens: Vec<String> = ThemeColor::ALL
+        .iter()
+        .map(|color| {
+            let token = color
+                .css_var()
+                .strip_prefix("--config-editor-")
+                .unwrap_or_else(|| panic!("{color:?}'s variable has no --config-editor- prefix"));
+            format!("  | \"{token}\"\n")
+        })
+        .collect();
+    format!(
+        "/** A token `colors` accepts: one of the theme's colors (from `ThemeColor` in the crate). */\n\
+         export type ThemeColorToken =\n{};\n\n\
+         /** Color overrides: a CSS color per token, e.g. `{{ bg: \"#101418\", key: \"#7dd3fc\" }}`. */\n\
+         export type ThemeColorMap = Partial<Record<ThemeColorToken, string>>;\n",
+        tokens.concat().trim_end()
     )
 }
 

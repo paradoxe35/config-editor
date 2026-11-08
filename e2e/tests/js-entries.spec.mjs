@@ -20,9 +20,7 @@ const ENTRIES = {
   main: ['ConfigDocuments', 'ConfigEditor', 'languageForFile', 'languages', 'loadConfigEditor', 'registerLanguage', 'themes'],
   tools: [
     'changeSummary',
-    'colorTokens',
     'convert',
-    'foldRanges',
     'loadConfigEditor',
     'parse',
     'pathAt',
@@ -33,7 +31,7 @@ const ENTRIES = {
     'unifiedDiff',
     'validate',
   ],
-  binding: ['DocumentsBinding', 'EditorBinding', 'SETTING_TYPES', 'ValueSync'],
+  binding: ['DocumentsBinding', 'EditorBinding', 'SETTING_TYPES'],
 };
 
 const FRAMEWORKS = {
@@ -65,9 +63,14 @@ test('package.json maps each entry to its module and types', () => {
   expect(manifest.exports['.']).toEqual({ types: './index.d.ts', default: './index.js' });
   expect(manifest.exports['./tools']).toEqual({ types: './tools.d.ts', default: './tools.js' });
   expect(manifest.exports['./binding']).toEqual({ types: './binding.d.ts', default: './binding.js' });
-  for (const file of ['index.js', 'tools.js', 'binding.js', 'load.js', 'sync.js', 'setting-types.js']) {
+  // Modules the entries import; the internal ones (`sync.js`, the bindings'
+  // echo check, and the generated `setting-types.js`) ship without types.
+  const internal = ['sync.js', 'setting-types.js'];
+  for (const file of ['index.js', 'tools.js', 'binding.js', 'load.js', ...internal]) {
     expect(manifest.files, file).toContain(file);
-    if (file !== 'setting-types.js') expect(manifest.files, file).toContain(file.replace('.js', '.d.ts'));
+    const types = file.replace('.js', '.d.ts');
+    if (internal.includes(file)) expect(manifest.files, file).not.toContain(types);
+    else expect(manifest.files, file).toContain(types);
   }
 });
 

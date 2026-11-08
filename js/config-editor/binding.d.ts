@@ -19,8 +19,6 @@ import {
   type TextRangeInput,
 } from "./pkg/config_editor.js";
 
-export { ValueSync } from "./sync.js";
-
 /**
  * Each key of `EditorSettings` and the JavaScript type of its values
  * (generated from the Rust struct): the settings among a component's props,
@@ -150,7 +148,7 @@ export interface ConfigDocumentsHandle {
  * after every change, `detach` on unmount) and expose `handle`. Settings and
  * most props apply live; `language`, `schema`, `fileName`, `editorClassName`
  * and the `secrets` patterns re-mount (the document, baseline and caret
- * carried over); the bound value goes through `ValueSync`; a mount that
+ * carried over); a late echo of the bound value never rolls the document back; a mount that
  * failed on a bad prop is retried when a prop changes.
  */
 export class EditorBinding {

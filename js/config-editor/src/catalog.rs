@@ -1,12 +1,12 @@
 //! What the editor accepts: language and theme names with what they stand
 //! for, color tokens, and the preset stylesheet.
 
-use config_editor_leptos::{EditorTheme, Language, PRESET_CSS, ThemeColor};
+use config_editor_leptos::{EditorTheme, Language, PRESET_CSS};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::languages::REGISTERED;
-use crate::typings::{LanguageInfos, NameResult, Names, ThemeInfos};
+use crate::typings::{LanguageInfos, NameResult, ThemeInfos};
 use crate::values::{text_arg, to_js};
 
 /// A language's name in JavaScript: its label, lowercased (`"yaml"`, or a
@@ -105,16 +105,6 @@ pub fn themes() -> ThemeInfos {
         })
         .collect();
     to_js(&themes).unchecked_into()
-}
-
-/// Token names accepted in `colors`.
-#[wasm_bindgen(js_name = colorTokens)]
-pub fn color_tokens() -> Names {
-    let names: Vec<&str> = ThemeColor::ALL
-        .iter()
-        .filter_map(|color| color.css_var().strip_prefix("--config-editor-"))
-        .collect();
-    to_js(&names).unchecked_into()
 }
 
 /// The stylesheet the editor injects (layout and every bundled theme), for

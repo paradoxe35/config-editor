@@ -1,8 +1,6 @@
 export {
   changeSummary,
-  colorTokens,
   convert,
-  foldRanges,
   parse,
   pathAt,
   presetCss,

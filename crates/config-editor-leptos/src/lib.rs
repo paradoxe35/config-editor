@@ -61,7 +61,7 @@
 //! # }
 //! ```
 //!
-//! # Your own language
+//! # Custom languages
 //!
 //! Implement [`language::ConfigLanguage`] and wrap it with [`Language::new`];
 //! see the [`language`] module.

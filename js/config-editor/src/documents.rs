@@ -5,10 +5,10 @@
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
-use crate::typings::{Data, LineRanges, PathResult, RangeResult};
+use crate::typings::{Data, PathResult, RangeResult};
 use crate::values::{
-    index_arg, json_from_js, json_to_js, line_ranges_to_js, path_at_index, path_from_js,
-    path_to_js, range_to_js, text_arg,
+    index_arg, json_from_js, json_to_js, path_at_index, path_from_js, path_to_js, range_to_js,
+    text_arg,
 };
 
 /// Parses `text` into plain data (objects, arrays, strings, numbers,
@@ -74,21 +74,6 @@ pub fn path_at(
     Ok(
         path_at_index(&text, index, |position| language.path_at(&text, position))
             .map_or(JsValue::NULL, |path| path_to_js(&path))
-            .unchecked_into(),
-    )
-}
-
-/// The blocks of `text` that fold, as the editor's gutter chevrons offer
-/// them: one-based `{ startLine, endLine }`, `startLine` staying visible.
-#[wasm_bindgen(js_name = foldRanges)]
-pub fn fold_ranges(
-    #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
-) -> Result<LineRanges, JsError> {
-    let language = language_named(&text_arg(&language, "language")?)?;
-    let ranges = language.fold_ranges(&text_arg(&text, "text")?);
-    Ok(
-        line_ranges_to_js(ranges.iter().map(|range| (range.start + 1, range.end + 1)))
             .unchecked_into(),
     )
 }

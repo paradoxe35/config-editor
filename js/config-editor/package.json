@@ -31,7 +31,6 @@
     "load.js",
     "load.d.ts",
     "sync.js",
-    "sync.d.ts",
     "setting-types.js",
     "pkg/config_editor.js",
     "pkg/config_editor.d.ts",

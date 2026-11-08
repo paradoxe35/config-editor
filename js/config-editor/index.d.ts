@@ -31,6 +31,7 @@ export {
   type Severity,
   type TextRangeInput,
   type ThemeColorMap,
+  type ThemeColorToken,
   type ThemeInfo,
   type ThemeName,
 } from "./pkg/config_editor.js";

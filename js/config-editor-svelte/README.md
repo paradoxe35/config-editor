@@ -476,7 +476,7 @@ The helpers come from `@pngwasi/config-editor`, a peer dependency:
 `loadConfigEditor`, `languages()`, `themes()`, `languageForFile` and
 `registerLanguage` from its main entry, and the tools (`validate`,
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`,
-`pathAt`, `foldRanges`, `schemaWarnings`, `colorTokens`, `presetCss`) from
+`pathAt`, `schemaWarnings`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
 resolved; see the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#pngwasiconfig-editortools).
 

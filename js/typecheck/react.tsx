@@ -33,13 +33,13 @@ export function Saving() {
 }
 // Parity with the Rust API.
 import { languageForFile, languages, type LanguageInfo, type ThemeInfo } from "@pngwasi/config-editor";
-import { changeSummary, parse, serialize, rangeOf, pathAt, foldRanges, presetCss } from "@pngwasi/config-editor/tools";
+import { changeSummary, parse, serialize, rangeOf, pathAt, presetCss } from "@pngwasi/config-editor/tools";
 import type { EditorView, LineRange } from "@pngwasi/config-editor-react";
 export function Viewer({ text }: { text: string }) {
   const ref = useRef<ConfigEditorHandle>(null);
   const onScreen: string | undefined = ref.current?.text; const folds: LineRange[] | undefined = ref.current?.foldedLines;
   const info: LanguageInfo | undefined = languages()[0]; const theme: ThemeInfo | undefined = themes().find((one) => one.dark);
-  void [onScreen, folds, info, theme, changeSummary("a", "b"), parse("yaml", text), serialize("json", {}), rangeOf("yaml", text, "/a"), pathAt("yaml", text, 0), foldRanges("yaml", text), languageForFile("a.tf"), presetCss()];
+  void [onScreen, folds, info, theme, changeSummary("a", "b"), parse("yaml", text), serialize("json", {}), rangeOf("yaml", text, "/a"), pathAt("yaml", text, 0), languageForFile("a.tf"), presetCss()];
   return (<ConfigEditor ref={ref} value={text} readOnly highlighting={false} showDiff={false} completions={false}
     autoTriggerCompletions={false} hoverDocs={false} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
 }

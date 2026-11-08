@@ -11,9 +11,6 @@ export type LanguageName = string;
 /** A bundled theme slug, such as `"vscode-dark"`, `"vscode-light"`, `"nord"`. See `themes()`. */
 export type ThemeName = string;
 
-/** Color overrides keyed by token (`bg`, `key`, `string`, `selection`, …; see `colorTokens()`). */
-export type ThemeColorMap = Record<string, string>;
-
 /** What `new ConfigEditor` takes: the document and its callbacks, and every setting of `EditorSettings`. */
 export interface EditorOptions extends EditorSettings {
   /** The document, in `language`. */

@@ -51,7 +51,7 @@ React, Vue and Svelte.
 - **A path API:** jump to a field and follow the caret's path for a breadcrumb.
 - **Eleven themes** and per-token color overrides; a read-only mode.
 - **Fast with large files:** only visible lines are rendered.
-- **Your own languages,** in Rust or in JavaScript.
+- **Custom languages,** in Rust or in JavaScript.
 
 |                                                  |                                            |
 | ------------------------------------------------ | ------------------------------------------ |

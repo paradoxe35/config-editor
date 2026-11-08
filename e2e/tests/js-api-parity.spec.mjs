@@ -193,7 +193,7 @@ const DOCUMENTS = {
 
 test.describe('headless functions, every language', () => {
   for (const [language, text] of Object.entries(DOCUMENTS)) {
-    test(`${language}: parse, serialize, rangeOf, pathAt, foldRanges`, async ({ page }) => {
+    test(`${language}: parse, serialize, rangeOf, pathAt`, async ({ page }) => {
       await open(page, 'vanilla.html');
       const result = await page.evaluate(
         async ({ language, text }) => {
@@ -209,7 +209,6 @@ test.describe('headless functions, every language', () => {
             missing: api.rangeOf(language, text, '/web/nope'),
             path: api.pathAt(language, text, text.indexOf('80') + 1),
             pastEnd: api.pathAt(language, text, text.length + 1),
-            folds: api.foldRanges(language, text),
             info: languages().find((info) => info.name === language),
           };
         },
@@ -222,9 +221,6 @@ test.describe('headless functions, every language', () => {
       expect(result.missing).toBeNull();
       expect(result.path).toEqual({ pointer: '/web/http', segments: ['web', 'http'] });
       expect(result.pastEnd).toBeNull();
-      const webLine = text.split('\n').findIndex((line) => /\bweb\b/.test(line)) + 1;
-      expect(result.folds.map((fold) => fold.startLine)).toContain(webLine);
-      for (const fold of result.folds) expect(fold.endLine).toBeGreaterThan(fold.startLine);
       expect(result.info.name).toBe(language);
       expect(result.info.extensions).toContain(language);
       expect(result.info.defaultFileName).toBe(`untitled.${result.info.extensions[0]}`);
@@ -271,7 +267,6 @@ test.describe('headless functions, every language', () => {
         api.parse('toml', '[web]\nhttp = 80\n'),
         api.serialize('hcl', { web: { http: 80 } }),
         api.rangeOf('yaml', 'web:\n  http: 80\n', '/web/http'),
-        api.foldRanges('json', '{\n  "web": {\n    "http": 80\n  }\n}'),
         languageForFile('deploy/main.tf'),
         languages().find((info) => info.extensions.includes('yml')),
       ];
@@ -280,7 +275,6 @@ test.describe('headless functions, every language', () => {
       { web: { http: 80 } },
       'web {\n  http = 80\n}\n',
       { start: 7, end: 15, startLine: 2, startColumn: 3, endLine: 2, endColumn: 11 },
-      [{ startLine: 1, endLine: 4 }, { startLine: 2, endLine: 3 }],
       'hcl',
       { name: 'yaml', label: 'YAML', icon: 'Y', extensions: ['yaml', 'yml'], defaultFileName: 'untitled.yaml' },
     ]);

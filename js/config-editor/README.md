@@ -38,14 +38,13 @@ which build on this package.
 - [Languages and themes](#languages-and-themes)
 - [`@pngwasi/config-editor/tools`](#pngwasiconfig-editortools)
 - [`@pngwasi/config-editor/binding`](#pngwasiconfig-editorbinding)
-  - [`ValueSync`](#valuesync)
 - [Keyboard](#keyboard)
   - [Leaving the editor and screen readers](#leaving-the-editor-and-screen-readers)
   - [Folding](#folding)
 - [Saving and unsaved edits](#saving-and-unsaved-edits)
 - [Several documents](#several-documents)
 - [Reviewing changes](#reviewing-changes)
-- [Languages written in JavaScript](#languages-written-in-javascript)
+- [Custom languages](#custom-languages)
 - [Themes](#themes)
 - [Styling](#styling)
 - [License](#license)
@@ -600,7 +599,7 @@ handling (after `loadConfigEditor()`):
 | `languages()`                  | `LanguageInfo[]` | The built-in and registered languages: `{ name, label, icon, extensions, defaultFileName }` each (`name` is what `language` and `editAs` take). |
 | `themes()`                     | `ThemeInfo[]`    | The bundled themes: `{ name, label, dark }` each (`name` is what `theme` takes, `label` its display name, `dark` whether it is a dark theme).   |
 | `languageForFile(path)`        | `string \| null` | The language of a file from its extension (`"main.tf"` gives `"hcl"`), registered languages included.                                           |
-| `registerLanguage(definition)` | `string`         | Add a language written in JavaScript; returns its name. See [Languages written in JavaScript](#languages-written-in-javascript).                |
+| `registerLanguage(definition)` | `string`         | Add a custom language (written in JavaScript); returns its name. See [Custom languages](#custom-languages).                |
 
 ```js
 import { languageForFile, languages, themes } from "@pngwasi/config-editor";
@@ -628,9 +627,7 @@ build step or a review screen. They need the WebAssembly module loaded:
 | `serialize(language, value)`               | `string`              | Plain data as a document, only when it reads back as exactly that value (the check `convert`'s `losses` make). Throws when the value is not plain data (a `Date`, `Map`, `Set` or class instance throws: pass a date's `toISOString()`) or the language cannot express it exactly (TOML has no `null`; XML has no empty, nested or one-item list).                                         |
 | `rangeOf(language, text, path)`            | `EditorRange \| null` | Where a field is written in a text, as the editor's `rangeOf` answers; see [Paths](#paths).                                                                                                                                                                                                                                                                                                |
 | `pathAt(language, text, index)`            | `EditorPath \| null`  | The path at a string index of a text, as the editor's `pathAt` answers.                                                                                                                                                                                                                                                                                                                    |
-| `foldRanges(language, text)`               | `LineRange[]`         | The blocks that fold, one-based `{ startLine, endLine }` (`startLine` stays visible), as the gutter chevrons offer them.                                                                                                                                                                                                                                                                   |
 | `schemaWarnings(schema)`                   | `string[]`            | What the editor cannot use in a schema (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                             |
-| `colorTokens()`                            | `string[]`            | Tokens accepted by `colors`.                                                                                                                                                                                                                                                                                                                                                               |
 | `presetCss()`                              | `string`              | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                           |
 
 ```ts
@@ -646,7 +643,6 @@ interface Diagnostic {
 ```js
 import {
   convert,
-  foldRanges,
   loadConfigEditor,
   parse,
   rangeOf,
@@ -670,15 +666,12 @@ parse("toml", "[web]\nhttp = 80\n"); // { web: { http: 80 } }
 serialize("hcl", { web: { http: 80 } }); // "web {\n  http = 80\n}\n"
 rangeOf("yaml", "web:\n  http: 80\n", "/web/http");
 // { start: 7, end: 15, startLine: 2, startColumn: 3, endLine: 2, endColumn: 11 }
-foldRanges("json", '{\n  "web": {\n    "http": 80\n  }\n}');
-// [{ startLine: 1, endLine: 4 }, { startLine: 2, endLine: 3 }]
 ```
 
 ## `@pngwasi/config-editor/binding`
 
 React, Vue and Svelte have packages of their own, built on what this
-entry exports (`EditorBinding`, `DocumentsBinding`, `ValueSync`,
-`SETTING_TYPES`):
+entry exports (`EditorBinding`, `DocumentsBinding`, `SETTING_TYPES`):
 
 | Package                                                                                        | Component                                                     |
 | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
@@ -691,8 +684,9 @@ those components do, written once: feed it the component's props and it
 decides what each change means. Settings and most props apply live (the
 caret, undo history and folds stay); `language`, `schema`, `fileName`,
 `editorClassName` and the `secrets` patterns re-mount the editor, carrying
-the document, its baseline and the caret over; the bound value goes through
-`ValueSync` (below), so a late echo never rolls the document back; a mount
+the document, its baseline and the caret over; the bound value is kept in step so a late echo never rolls the
+document back (an edit the framework passes back in late is told apart
+from a value the app sets, such as a reset or a loaded file); a mount
 that failed on a bad prop is retried when a prop changes; the WebAssembly
 loads once (`loadConfigEditor`); and `handle` is the instance API
 (`ConfigEditorHandle`: `value`, `setValue`, `reveal`, `save`, `isDirty`, …).
@@ -730,49 +724,11 @@ JavaScript type of its values, generated from the Rust struct: plain data,
 readable before the WebAssembly loads (Vue declares its props from it, and
 `Object.keys(SETTING_TYPES)` picks the settings out of a component's props).
 
-### `ValueSync`
-
-A framework that binds the document two ways (Vue's `v-model`, Svelte's
-`bind:value`, Angular's `ControlValueAccessor`, Solid signals) passes every
-edit back in as its value, sometimes late and several at a time. Applying
-such an echo with `update({ value })` would roll the document back. `ValueSync` tells
-the host's own values (a reset, a loaded file: applied) from echoes
-(skipped). `EditorBinding` is built on it; use it alone to bind the value
-your own way.
-
-```ts
-import { ConfigEditor } from "@pngwasi/config-editor";
-import { ValueSync } from "@pngwasi/config-editor/binding";
-
-const sync = new ValueSync();
-const editor = new ConfigEditor(element, {
-  value,
-  onChange: (text) => {
-    sync.sent(text); // before telling the host
-    emit(text);
-  },
-});
-
-// Whenever the bound value changes:
-const { apply, report } = sync.received(newValue, editor.value);
-if (apply !== null) editor.update({ value: apply });
-if (report !== null) emit(report); // the host took a stale echo: correct it
-
-// Replacing the document from code, whatever is in flight:
-sync.supersede();
-editor.update({ value: text });
-sync.sent(text);
-emit(text);
-```
-
-A value sent within the last 10 seconds that comes back while newer ones are
-still on their way is taken as a late echo
-(`new ValueSync({ echoWindowMs })` changes the window). Read `editor.value`
-right before `received`: it sends an edit made in `editAs` that is still
-waiting out the typing pause first. Feed `received` the value as the host
-has it: a component that also writes the bound value itself (Svelte's
-`bind:value`) reads the parent's value apart from its own write, or the
-host's late echoes would be hidden.
+A vanilla app can use `EditorBinding` too: it is plain JavaScript. It
+pays off when the app re-renders from state and passes every prop each
+time (a web component, Lit, a store of your own); an app that creates an
+editor and changes an option now and then is simpler with `new
+ConfigEditor` and `update()`.
 
 ## Keyboard
 
@@ -1025,7 +981,7 @@ reviewButton.onclick = () => showPatch(editor.unifiedDiff());
 // After saving: editor.update({ baseline: editor.value }) clears the changes.
 ```
 
-## Languages written in JavaScript
+## Custom languages
 
 ```js
 import { registerLanguage, ConfigEditor } from "@pngwasi/config-editor";

@@ -1,7 +1,7 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
 import { ConfigEditor, loadConfigEditor, registerLanguage, type ChangeSummary, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
 import { convert, unifiedDiff, validate } from "@pngwasi/config-editor/tools";
-import { DocumentsBinding, EditorBinding, SETTING_TYPES, ValueSync } from "@pngwasi/config-editor/binding";
+import { DocumentsBinding, EditorBinding, SETTING_TYPES } from "@pngwasi/config-editor/binding";
 const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
 await loadConfigEditor();
 declare const schemaText: string; declare const element: HTMLElement; declare function save(t: string): void;
@@ -59,8 +59,8 @@ new ConfigEditor(element, { folding: false });
 editor.foldAll(); editor.unfoldAll();
 const folded: boolean = editor.fold(["clients"]) && editor.unfold("/web/listen");
 // Parity with the Rust API: feature switches, the instance's text and folds, the catalogs and tools.
-import { languageForFile, languages, themes, type EditorSettings, type LanguageInfo, type ThemeInfo } from "@pngwasi/config-editor";
-import { changeSummary, colorTokens, foldRanges, parse, pathAt, presetCss, rangeOf, schemaWarnings, serialize, type EditorPath, type EditorRange, type LineRange } from "@pngwasi/config-editor/tools";
+import { languageForFile, languages, themes, type EditorSettings, type LanguageInfo, type ThemeColorMap, type ThemeInfo } from "@pngwasi/config-editor";
+import { changeSummary, parse, pathAt, presetCss, rangeOf, schemaWarnings, serialize, type EditorPath, type EditorRange, type LineRange } from "@pngwasi/config-editor/tools";
 declare const text: string;
 const viewer = new ConfigEditor(element, {
   value: text, readOnly: true, styled: false, saveShortcut: false,
@@ -74,11 +74,13 @@ const data: unknown = parse("toml", "[web]\nhttp = 80\n");
 const hcl: string = serialize("hcl", { web: { http: 80 } });
 const where: EditorRange | null = rangeOf("yaml", "web:\n  http: 80\n", "/web/http");
 const at: EditorPath | null = pathAt("yaml", "web:\n  http: 80\n", 12);
-const blocks: LineRange[] = foldRanges("json", '{\n  "web": {\n    "http": 80\n  }\n}');
 const yaml: LanguageInfo | undefined = languages().find((language) => language.extensions.includes("yml")); const fileLanguage: string | null = languageForFile("deploy/main.tf");
 const nord: ThemeInfo | undefined = themes().find((theme) => theme.name === "nord"); const css: string = presetCss();
-const dark: boolean = themes()[0].dark; const tokens: string[] = colorTokens(); const warnings: string[] = schemaWarnings(schemaText);
-void [onScreen, folds, counted, data, hcl, where, at, blocks, yaml, fileLanguage, nord, css, dark, tokens, warnings];
+const dark: boolean = themes()[0].dark; const tokens: ThemeColorMap = { bg: "#101418", key: "#7dd3fc" };
+// @ts-expect-error: a colour token that does not exist
+const typo: ThemeColorMap = { backgrund: "#000" };
+const warnings: string[] = schemaWarnings(schemaText);
+void [onScreen, folds, counted, data, hcl, where, at, typo, yaml, fileLanguage, nord, css, dark, tokens, warnings];
 // Several documents.
 import { ConfigDocuments, type DocumentSpec } from "@pngwasi/config-editor";
 declare function putFile(id: string, text: string): Promise<void>; declare const mainText: string;
@@ -117,10 +119,4 @@ const found: boolean = binding.handle.reveal("/web/listen"); const bound: string
 binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
 const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter;
-const sync = new ValueSync();
-const synced = new ConfigEditor(element, { value: "a: 1\n", onChange: (text) => { sync.sent(text); emit(text); } });
-const { apply, report } = sync.received("a: 2\n", synced.value);
-if (apply !== null) synced.update({ value: apply });
-if (report !== null) emit(report);
-sync.supersede(); synced.update({ value: "b: 1\n" }); sync.sent("b: 1\n");
 void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, shown, active, dirtyMain];

@@ -113,7 +113,7 @@ const LANGUAGE = {
   serialize: { tool: 'serialize' },
   convert: { tool: 'convert' },
   range_of: { tool: 'rangeOf' },
-  fold_ranges: { tool: 'foldRanges' },
+  fold_ranges: { exempt: 'the editor folds by itself (`fold`, `foldAll`, `foldedLines`); a custom language describes its folds in Rust' },
   path_at: { tool: 'pathAt' },
 };
 
@@ -217,7 +217,7 @@ const CRATE_EXPORTS = {
   Severity: { type: 'Severity' },
   TextPosition: { type: 'EditorRange' },
   TextRange: { type: 'EditorRange' },
-  ThemeColor: { tool: 'colorTokens' },
+  ThemeColor: { type: 'ThemeColorToken' },
   ThemeColors: { type: 'ThemeColorMap' },
   UnknownLanguage: { exempt: 'thrown as an `Error` with its message' },
   UnknownTheme: { exempt: 'thrown as an `Error` with its message' },

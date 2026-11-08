@@ -5,9 +5,7 @@
 // (also exported here) first.
 export {
   changeSummary,
-  colorTokens,
   convert,
-  foldRanges,
   parse,
   pathAt,
   presetCss,

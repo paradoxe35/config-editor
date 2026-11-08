@@ -847,12 +847,12 @@ test.describe('round 12', () => {
   });
 });
 
-test.describe('ValueSync without a framework', () => {
+test.describe('ValueSync (internal to the bindings) without a framework', () => {
   test('a binding with a slow host never rolls back, and applies the host’s own value', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     const result = await browserPage.evaluate(async () => {
       const module = await import('../config-editor/pkg/config_editor.js');
-      const { ValueSync } = await import('../config-editor/binding.js');
+      const { ValueSync } = await import('../config-editor/sync.js');
       const element = document.body.appendChild(document.createElement('div'));
       const sync = new ValueSync();
       let hostValue = 'a: 1\n';
