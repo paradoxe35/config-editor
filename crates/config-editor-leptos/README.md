@@ -1,6 +1,6 @@
 # config-editor-leptos
 
-A lightweight, VS Code–style config editor component for [Leptos], plus a
+A lightweight and fast, VS Code–style config editor component for [Leptos], plus a
 headless API for the same parsing, validation, and conversion.
 
 - **Languages:** YAML (default), JSON, TOML, HCL, XML, and your own through

@@ -1,7 +1,7 @@
 # @pngwasi/config-editor-react
 
 React component for [`@pngwasi/config-editor`](https://www.npmjs.com/package/@pngwasi/config-editor):
-a schema-aware YAML, JSON, TOML, HCL and XML editor running as WebAssembly,
+a fast, schema-aware YAML, JSON, TOML, HCL and XML editor running as WebAssembly,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes.
 
