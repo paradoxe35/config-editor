@@ -69,6 +69,24 @@ k = 'v' # note4
             Language::HCL,
             "# note1\nh = <<-EOT\n  a\n  b\n  EOT\nblk \"lab\" {\n  # note2\n  s = \"x\" # note3\n  h = <<EOT\nc\nEOT\n}\n",
         ),
+        // Indentless sequences (`l:` then `- …` at its column) holding
+        // maps with blocks, compact nested sequences and a block scalar.
+        (
+            Language::YAML,
+            "# note1\nl:\n- k: >-\n    x\n  j: y # note2\n- - a # note3\n  - b\n- |\n  lit\n- plain # note4\nm:\n  l:\n  - k: |-\n      x\n    j: z\nn: 1  # note5\n",
+        ),
+        // Quoted and plain scalars over several lines: folded breaks, blank
+        // lines, an escaped break, a list item.
+        (
+            Language::YAML,
+            "# note1\nml: \"l1\n\n  l2\"\nq2: \"l1\n  l2\"  # note2\nq3: 'l1\n\n  l2'\npl: plain\n  continued\nl:\n  - \"l1\n    l2\"\nq6: \"l1 \\\n  l2\"\nn: 1  # note3\n",
+        ),
+        // Flow collections, nested and with maps, where YAML 1.1 ends a
+        // plain scalar at `?`, `,`, brackets and `:`.
+        (
+            Language::YAML,
+            "# note1\nf: [a, b] # note2\ng: {k: v, j: w}\nh: [{k: v}, [x, y]] # note3\nn: 1\n",
+        ),
         // Comments, processing instructions and CDATA inside text, in
         // elements with and without attributes, and attribute values.
         (
@@ -148,6 +166,19 @@ const VALUES: &[&str] = &[
     "l1\r\nl2\n",
     "a\n\rb",
     "\r",
+    // What YAML 1.1 ends a plain scalar at inside a flow collection.
+    "http://h/p?q=1",
+    "a,b",
+    "x[0]",
+    "a:b",
+    "x}",
+    // Characters no reader takes raw: control characters, noncharacters.
+    "a\u{1}b",
+    "\u{0}",
+    "a\u{7f}b",
+    "\u{fffe}x",
+    "x\u{ffff}",
+    "a\u{9c}b",
 ];
 
 /// The JSON pointers of every string in `value`.
@@ -168,6 +199,41 @@ fn strings(value: &Value, pointer: String, out: &mut Vec<String>) {
     }
 }
 
+/// Whether a list on the way to `pointer` in `document` holds a list.
+fn beside_nested_list(document: &Value, pointer: &str) -> bool {
+    let mut at = document;
+    for segment in pointer.split('/').skip(1) {
+        if let Value::Array(items) = at
+            && items.iter().any(Value::is_array)
+        {
+            return true;
+        }
+        match at
+            .get(segment)
+            .or_else(|| at.get(segment.parse::<usize>().ok()?))
+        {
+            Some(next) => at = next,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Whether `host` refuses `character` written raw in its text: control
+/// characters (but tab and line feed) everywhere; DEL in TOML and YAML; C1
+/// controls in YAML (but its line break U+0085, checked apart); the
+/// noncharacters U+FFFE and U+FFFF in YAML and XML.
+pub(super) fn unreadable_raw(host: Language, character: char) -> bool {
+    let c0 = character < ' ' && !matches!(character, '\t' | '\n');
+    let del = character == '\u{7f}' && (host == Language::TOML || host == Language::YAML);
+    let c1 = ('\u{80}'..='\u{9f}').contains(&character)
+        && character != '\u{85}'
+        && host == Language::YAML;
+    let nonchar = matches!(character, '\u{fffe}' | '\u{ffff}')
+        && (host == Language::YAML || host == Language::XML);
+    c0 || del || c1 || nonchar
+}
+
 /// Host lines the save dropped or rewrote.
 fn changed_lines(host: &str, saved: &str) -> usize {
     let before: Vec<&str> = host.lines().collect();
@@ -184,7 +250,7 @@ fn changed_lines(host: &str, saved: &str) -> usize {
 /// `written` as the string it spells: their scanner's indicators and their
 /// implicit resolvers' patterns (PyYAML's `resolver.py`), written out here
 /// apart from the crate's own rule.
-fn yaml_1_1_reads_plain_as_text(written: &str) -> bool {
+fn yaml_1_1_reads_plain_as_text(written: &str, in_flow: bool) -> bool {
     let resolvers = [
         r"^(?:yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|y|Y|n|N)$",
         r"^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$",
@@ -196,7 +262,11 @@ fn yaml_1_1_reads_plain_as_text(written: &str) -> bool {
     let second = written.chars().nth(1).unwrap_or(' ');
     let indicator = "-?:,[]{}#&*!|>'\"%@`".contains(first)
         && !("-?:".contains(first) && !matches!(second, ' ' | '\t'));
+    // Inside a flow collection a plain scalar ends at `?`, `,` and
+    // brackets, and older PyYAML refuses a `:` anywhere in it.
+    let flow_stop = in_flow && written.contains(['?', ',', '[', ']', '{', '}', ':']);
     !indicator
+        && !flow_stop
         && !written.contains(['\t', '\r', '\n'])
         && !written.contains(": ")
         && !written.contains(" #")
@@ -210,9 +280,12 @@ fn yaml_1_1_reads_plain_as_text(written: &str) -> bool {
 }
 
 /// The value at `pointer` of the YAML `saved` as written, when it is a
-/// plain scalar.
-fn yaml_plain_written<'a>(saved: &'a str, pointer: &str) -> Option<&'a str> {
-    let span = Language::YAML.behavior().value_span(saved, pointer)?;
+/// plain scalar, and whether it is inside a flow collection.
+fn yaml_plain_written<'a>(saved: &'a str, pointer: &str) -> Option<(&'a str, bool)> {
+    let behavior = Language::YAML.behavior();
+    let span = behavior
+        .value_span(saved, pointer)
+        .or_else(|| super::codec::inline_location(behavior, saved, pointer, false))?;
     let line = saved.lines().nth(span.line - 1)?;
     let start = line.char_indices().nth(span.start_column - 1)?.0;
     let end = line
@@ -220,7 +293,9 @@ fn yaml_plain_written<'a>(saved: &'a str, pointer: &str) -> Option<&'a str> {
         .nth(span.end_column - 1)
         .map_or(line.len(), |(at, _)| at);
     let written = line.get(start..end)?;
-    (!written.starts_with(['"', '\'', '|', '>', '&', '*', '!', '[', '{'])).then_some(written)
+    let in_flow = line[..start].contains(['[', '{']);
+    (!written.starts_with(['"', '\'', '|', '>', '&', '*', '!', '[', '{']))
+        .then_some((written, in_flow))
 }
 
 #[test]
@@ -243,15 +318,10 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                 .map_or(1, |old| old.trim_end_matches('\n').lines().count());
             for value in VALUES {
                 for edit in ALL.into_iter().filter(|edit| *edit != host) {
-                    // The XML view shows nested lists flat: their items
-                    // are not where the pointer says (the bridge tests
-                    // cover them).
-                    let nested = pointer
-                        .split('/')
-                        .collect::<Vec<_>>()
-                        .windows(2)
-                        .any(|pair| pair.iter().all(|segment| segment.parse::<usize>().is_ok()));
-                    if edit == Language::XML && nested {
+                    // The XML view shows nested lists flat: their items,
+                    // and the items after them, are not where the pointer
+                    // says (the bridge tests cover them).
+                    if edit == Language::XML && beside_nested_list(&old, pointer) {
                         continue;
                     }
                     let shown = std::cell::Cell::new(true);
@@ -300,6 +370,13 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                             "{case}: a raw carriage return\n--- saved\n{saved:?}"
                         ));
                     }
+                    // No reader takes these raw: written escaped, or refused.
+                    if let Some(raw) = saved
+                        .chars()
+                        .find(|character| unreadable_raw(host, *character))
+                    {
+                        failures.push(format!("{case}: a raw {raw:?}\n--- saved\n{saved:?}"));
+                    }
                     // Read back the same, when the host carries it exactly.
                     if losses.is_empty() {
                         let read = host
@@ -326,8 +403,8 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
                         let changed = old.pointer(pointer).and_then(Value::as_str) != Some(*value);
                         if read_as_text
                             && changed
-                            && let Some(written) = yaml_plain_written(&saved, pointer)
-                            && !yaml_1_1_reads_plain_as_text(written)
+                            && let Some((written, in_flow)) = yaml_plain_written(&saved, pointer)
+                            && !yaml_1_1_reads_plain_as_text(written, in_flow)
                         {
                             failures.push(format!(
                                 "{case}: written plain as {written:?}, which YAML 1.1 reads otherwise\n--- saved\n{saved}"
@@ -356,6 +433,209 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
     );
 }
 
+/// Keys a rename may write: forms YAML 1.1 types, ones no language writes
+/// bare (spaces, dots, a digit first, indicators), and Unicode.
+const KEYS: &[&str] = &[
+    "on",
+    "yes",
+    "No",
+    "y",
+    "null",
+    "~",
+    "true",
+    "1_000",
+    "0b101",
+    "12",
+    "1.5",
+    "2001-12-14",
+    "host name",
+    "1host",
+    "a.b",
+    "x-y",
+    "a: b",
+    "#k",
+    "k #c",
+    "-k",
+    "? k",
+    "*k",
+    "&k",
+    "tab\tk",
+    "k:",
+    "<<",
+    "=",
+    "café",
+    "a\"b",
+    "[k]",
+    "a,b",
+    "\u{fffe}k",
+];
+
+/// The JSON pointers of every key in `value` (the pointer of its value).
+fn keys(value: &Value, pointer: String, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                let child_pointer =
+                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                // XML's text slot is no key the host writes.
+                if key != "#text" {
+                    out.push(child_pointer.clone());
+                }
+                keys(child, child_pointer, out);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                keys(child, format!("{pointer}/{index}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `document` with the key at `pointer` renamed `to` in its place.
+fn rename(document: &mut Value, pointer: &str, to: &str) -> bool {
+    let Some((parent, key)) = pointer.rsplit_once('/') else {
+        return false;
+    };
+    let key = key.replace("~1", "/").replace("~0", "~");
+    let Some(Value::Object(map)) = find_slot(document, parent) else {
+        return false;
+    };
+    if !map.contains_key(&key) || map.contains_key(to) {
+        return false;
+    }
+    *map = std::mem::take(map)
+        .into_iter()
+        .map(|(name, value)| (if name == key { to.to_string() } else { name }, value))
+        .collect();
+    true
+}
+
+/// HCL openers: a block (`name {`) and an object attribute (`name = {`) are
+/// different things, so a rename must keep the count of each.
+fn hcl_openers(text: &str) -> (usize, usize) {
+    // The text before each line's first `{`, its strings left out.
+    let heads = text.lines().filter_map(|line| {
+        let head = line.split_once('{')?.0.trim();
+        let unquoted: String = head.split('"').step_by(2).collect();
+        (!head.is_empty() && !head.starts_with(['#', '/'])).then_some(unquoted)
+    });
+    let (attributes, blocks): (Vec<String>, Vec<String>) =
+        heads.partition(|head| head.contains('='));
+    (blocks.len(), attributes.len())
+}
+
+/// A renamed key is renamed where it is written, whatever it holds: every
+/// key of a commented host set to a key that needs quotes (or that YAML 1.1
+/// types written bare), from every other view. Comments and the other lines
+/// stay, the key reads back, an HCL block stays a block, and a YAML key is
+/// written plain only where YAML 1.1 reads it as text.
+#[test]
+fn any_key_renamed_from_any_view_is_renamed_in_place() {
+    let mut failures = Vec::new();
+    let (mut tried, mut saved_count) = (0, 0);
+    for (host, text) in hosts() {
+        let mut pointers = Vec::new();
+        keys(
+            &host.parse(text).expect("parses"),
+            String::new(),
+            &mut pointers,
+        );
+        let notes = text.matches("note").count();
+        for pointer in &pointers {
+            for to in KEYS {
+                for edit in ALL.into_iter().filter(|edit| *edit != host) {
+                    let shown = std::cell::Cell::new(true);
+                    let set = |document: &mut Value| {
+                        if !rename(document, pointer, to) {
+                            shown.set(false);
+                        }
+                    };
+                    let renders = WHOLE_RENDERS.with(std::cell::Cell::get);
+                    let Ok(saved) = save_conversion(host, edit, text, &set) else {
+                        continue;
+                    };
+                    if !shown.get() {
+                        continue;
+                    }
+                    tried += 1;
+                    let case = format!("{host} host, {pointer} renamed {to:?} via {edit}");
+                    let (losses, saved) = (saved.losses, saved.text);
+                    if !losses.is_empty() {
+                        continue;
+                    }
+                    saved_count += 1;
+                    if WHOLE_RENDERS.with(std::cell::Cell::get) != renders {
+                        failures.push(format!(
+                            "{case}: the whole document written\n--- saved\n{saved}"
+                        ));
+                    }
+                    let kept = saved.matches("note").count();
+                    let changed = changed_lines(text, &saved);
+                    if kept < notes || changed > 2 {
+                        failures.push(format!(
+                            "{case}: {kept}/{notes} comments, {changed} lines changed\n--- saved\n{saved}"
+                        ));
+                    }
+                    if let Some(raw) = saved
+                        .chars()
+                        .find(|character| unreadable_raw(host, *character))
+                    {
+                        failures.push(format!("{case}: a raw {raw:?}\n--- saved\n{saved:?}"));
+                    }
+                    let mut expected = host.parse(text).expect("parses");
+                    rename(&mut expected, pointer, to);
+                    if host.parse(&saved).ok().as_ref() != Some(&expected) {
+                        failures.push(format!("{case}: reads back otherwise\n--- saved\n{saved}"));
+                    }
+                    if host == Language::HCL && hcl_openers(&saved) != hcl_openers(text) {
+                        failures.push(format!(
+                            "{case}: a block and an attribute switched\n--- saved\n{saved}"
+                        ));
+                    }
+                    if host == Language::YAML
+                        && let Some((written, in_flow)) = yaml_key_written(&saved, pointer, to)
+                        && !yaml_1_1_reads_plain_as_text(written, in_flow)
+                    {
+                        failures.push(format!(
+                            "{case}: key written plain as {written:?}, which YAML 1.1 reads otherwise\n--- saved\n{saved}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        saved_count * 10 > tried * 5,
+        "only {saved_count} of {tried} saved"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} failing:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+/// The renamed key at `pointer` (renamed `to`) of the YAML `saved` as
+/// written, when it is written bare, and whether it is in a flow mapping.
+fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a str, bool)> {
+    let (parent, _) = pointer.rsplit_once('/')?;
+    let renamed = format!("{parent}/{}", to.replace('~', "~0").replace('/', "~1"));
+    let span = Language::YAML.behavior().key_span(saved, &renamed)?;
+    let line = saved.lines().nth(span.line - 1)?;
+    let start = line.char_indices().nth(span.start_column - 1)?.0;
+    let end = line
+        .char_indices()
+        .nth(span.end_column - 1)
+        .map_or(line.len(), |(at, _)| at);
+    let written = line.get(start..end)?;
+    let in_flow = line[..start].contains(['[', '{']);
+    let quoted = written.starts_with(['"', '\'']) || line[..start].ends_with(['"', '\'']);
+    (!quoted).then_some((written, in_flow))
+}
+
 /// A document written whole follows the same plain-scalar rule as a
 /// spliced value: every string reads back the same, and none is written
 /// bare where a YAML 1.1 reader would take it for another type.
@@ -363,7 +643,8 @@ fn any_string_edited_from_any_view_is_spliced_in_place() {
 fn any_string_written_whole_reads_back_in_yaml_1_1_and_1_2() {
     let mut failures = Vec::new();
     for value in VALUES {
-        let document = serde_json::json!({ "k": value, "l": [value, "x"], "m": { "n": value } });
+        let document =
+            serde_json::json!({ "k": value, "l": [value, "x"], "m": { "n": value }, *value: 1 });
         let Ok(text) = super::codec::serialize(Language::YAML.behavior(), &document, None) else {
             failures.push(format!("{value:?}: not written"));
             continue;
@@ -372,10 +653,46 @@ fn any_string_written_whole_reads_back_in_yaml_1_1_and_1_2() {
             failures.push(format!("{value:?}: reads back otherwise\n{text}"));
         }
         for pointer in ["/k", "/l/0", "/m/n"] {
-            if let Some(written) = yaml_plain_written(&text, pointer)
-                && !yaml_1_1_reads_plain_as_text(written)
+            if let Some((written, in_flow)) = yaml_plain_written(&text, pointer)
+                && !yaml_1_1_reads_plain_as_text(written, in_flow)
             {
                 failures.push(format!("{value:?} at {pointer}: written plain\n{text}"));
+            }
+        }
+        if let Some((written, in_flow)) = yaml_key_written(&text, "/k", value)
+            && !yaml_1_1_reads_plain_as_text(written, in_flow)
+        {
+            failures.push(format!("{value:?} as a key: written plain\n{text}"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failing:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+/// Every language's writer escapes what its readers refuse raw (control
+/// characters, noncharacters), or refuses the value: the headless
+/// `serialize` and a conversion never write a file a reader rejects.
+#[test]
+fn any_string_written_whole_holds_no_raw_character_a_reader_refuses() {
+    let mut failures = Vec::new();
+    for host in ALL {
+        for value in VALUES {
+            let document =
+                serde_json::json!({ "k": value, "l": [value, "x"], "m": { "n": value } });
+            let Ok(text) = host.serialize(&document) else {
+                continue;
+            };
+            if let Some(raw) = text
+                .chars()
+                .find(|character| unreadable_raw(host, *character))
+            {
+                failures.push(format!(
+                    "{host}: {value:?} written with a raw {raw:?}\n{text:?}"
+                ));
             }
         }
     }

@@ -360,7 +360,8 @@ test.describe('vanilla API: fourth-round findings', () => {
       module.registerLanguage({ label: 'Num', parse: () => ({ n: 5, list: [1, 2], ratio: 0.5 }) });
       return ['yaml', 'toml', 'json'].map((target) => module.convert('num', 'x', target).text);
     });
-    expect(converted[0]).toBe('n: 5\nlist:\n  - 1\n  - 2\nratio: 0.5\n');
+    // The key `n` is quoted: YAML 1.1 readers take a bare `n` for `false`.
+    expect(converted[0]).toBe('"n": 5\nlist:\n  - 1\n  - 2\nratio: 0.5\n');
     expect(converted[1]).toContain('n = 5\n');
     expect(converted[2]).toContain('"n": 5');
   });

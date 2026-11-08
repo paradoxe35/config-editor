@@ -362,5 +362,6 @@ pub(super) fn numeric_entity(entity: &str) -> Option<char> {
     } else {
         digits.parse::<u32>().ok()?
     };
-    char::from_u32(code)
+    // A reference to a character XML does not allow (`&#1;`) is not one.
+    char::from_u32(code).filter(|character| super::parse::is_xml_char(*character))
 }

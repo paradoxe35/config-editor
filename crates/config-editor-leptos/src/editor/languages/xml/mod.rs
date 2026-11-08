@@ -150,8 +150,23 @@ impl ConfigLanguage for XmlBehavior {
         property_insert(key, property, root, context)
     }
 
+    /// Comments, and processing instructions (`<?pi …?>`, not the XML
+    /// declaration), which no other language shows either: a save keeps
+    /// both.
+    fn has_comments(&self, source: &str) -> bool {
+        let comment = source.contains("<!--");
+        let instruction = source
+            .match_indices("<?")
+            .any(|(at, _)| !source[at..].starts_with("<?xml ") && !source[at..].starts_with("<?xml?"));
+        comment || instruction
+    }
+
     fn mixed_content(&self, source: &str) -> Option<String> {
         parse::mixed_content(source)
+    }
+
+    fn unconvertible(&self, source: &str) -> Option<String> {
+        namespace_clash(source)
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -233,6 +248,9 @@ impl ConfigLanguage for XmlBehavior {
         if let Some(pointer) = empty_key(value, String::new()) {
             return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
         }
+        if let Some((pointer, character)) = first_non_xml_char(value, "") {
+            return Err(format!("{} (at {pointer})", not_xml_char_message(character)));
+        }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let attributes = previous.map(attribute_paths).unwrap_or_default();
         let Value::Object(map) = &with_attributes(value, &attributes, &mut Vec::new()) else {
@@ -281,6 +299,15 @@ impl ConfigLanguage for XmlBehavior {
 
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
         rename_element(source, pointer, new_key)
+    }
+
+    /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,
+    /// digits, `_`, `-` and `.`.
+    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+        let mut characters = key.chars();
+        let name = characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
+            && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'));
+        name.then(|| key.to_string())
     }
 
     fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {

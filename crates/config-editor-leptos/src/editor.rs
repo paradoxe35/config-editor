@@ -414,6 +414,15 @@ mod save_blocks_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_exact_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_forms_tests;
 #[cfg(all(
     test,

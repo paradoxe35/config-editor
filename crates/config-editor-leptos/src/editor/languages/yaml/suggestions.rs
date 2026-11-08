@@ -11,11 +11,11 @@ pub(super) fn yaml_key_for_completion(key: &str) -> Option<String> {
         && key.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
         })
-        && !matches!(key.to_ascii_lowercase().as_str(), "true" | "false" | "null");
+        && super::plain::can_be_plain(key);
     if plain_key {
         Some(key.to_string())
     } else {
-        serde_json::to_string(key).ok()
+        Some(yaml_quoted(key))
     }
 }
 
@@ -27,7 +27,7 @@ pub(super) fn yaml_value(value: &Value) -> String {
     }
     match value {
         Value::String(value) if is_plain_identifier(non_finite::written(value)) => non_finite::written(value).to_string(),
-        Value::String(value) => escaped_breaks(serde_json::to_string(non_finite::written(value)).unwrap_or_else(|_| value.clone())),
+        Value::String(value) => yaml_quoted(non_finite::written(value)),
         // Flow style, as people write it: `{a: 1, b: x}`, `[a, b]`.
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(yaml_value).collect();
@@ -37,11 +37,7 @@ pub(super) fn yaml_value(value: &Value) -> String {
             let pairs: Vec<String> = map
                 .iter()
                 .map(|(key, child)| {
-                    let key = if is_plain_identifier(key) {
-                        key.clone()
-                    } else {
-                        serde_json::to_string(key).unwrap_or_else(|_| key.clone())
-                    };
+                    let key = if is_plain_identifier(key) { key.clone() } else { yaml_quoted(key) };
                     format!("{key}: {}", yaml_value(child))
                 })
                 .collect();
@@ -51,14 +47,35 @@ pub(super) fn yaml_value(value: &Value) -> String {
     }
 }
 
-/// A double-quoted string with the characters YAML 1.1 reads as line
-/// breaks (U+0085, U+2028, U+2029) escaped, as YAML writes them (`\N`,
-/// `\L`, `\P`).
-pub(super) fn escaped_breaks(quoted: String) -> String {
-    if !quoted.contains(['\u{85}', '\u{2028}', '\u{2029}']) {
+/// `text` in double quotes, escaped so every YAML reader takes it back:
+/// JSON's escapes, the characters YAML 1.1 reads as line breaks (U+0085,
+/// U+2028, U+2029) as YAML writes them (`\N`, `\L`, `\P`), and the
+/// characters YAML does not allow raw (DEL, C1 controls, U+FFFE, U+FFFF) as
+/// `\x7F` or `\uFFFE`.
+pub(super) fn yaml_quoted(text: &str) -> String {
+    let quoted = serde_json::to_string(text).unwrap_or_default();
+    if !quoted.chars().any(needs_yaml_escape) {
         return quoted;
     }
-    quoted.replace('\u{85}', "\\N").replace('\u{2028}', "\\L").replace('\u{2029}', "\\P")
+    let mut out = String::with_capacity(quoted.len() + 8);
+    for character in quoted.chars() {
+        match character {
+            '\u{85}' => out.push_str("\\N"),
+            '\u{2028}' => out.push_str("\\L"),
+            '\u{2029}' => out.push_str("\\P"),
+            '\u{7f}'..='\u{9f}' => out.push_str(&format!("\\x{:02X}", u32::from(character))),
+            '\u{fffe}' | '\u{ffff}' => out.push_str(&format!("\\u{:04X}", u32::from(character))),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Whether YAML writes `character` only escaped, in double quotes: a line
+/// break of YAML 1.1 or a character YAML does not allow raw (beyond the
+/// C0 controls JSON's escapes already cover).
+pub(super) fn needs_yaml_escape(character: char) -> bool {
+    matches!(character, '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}' | '\u{fffe}' | '\u{ffff}')
 }
 
 /// Enum-style words (`udp`, `least_connections`) read as plain YAML scalars, the way

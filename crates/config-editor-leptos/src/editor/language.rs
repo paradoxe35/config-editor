@@ -1073,6 +1073,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
             })
     }
 
+    /// Why `source` does not convert to another language although it parses
+    /// (XML elements of one parent with the same local name in different
+    /// namespaces, which the document model would merge), ending with
+    /// `(at /pointer)`; `None` when nothing stands in the way.
+    fn unconvertible(&self, source: &str) -> Option<String> {
+        let _ = source;
+        None
+    }
+
     /// The JSON pointer of the first value `source` writes as text beside
     /// child elements (XML mixed content): no other language can show it, so
     /// the document does not convert. `None` when there is none.
@@ -1196,6 +1205,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Lexical::default()
     }
 
+    /// The lines of strings written over lines that a save keeps as written
+    /// (see [`string_body_lines`](Self::string_body_lines)): those, and in
+    /// YAML a plain scalar's continuation lines, which the editor leaves to
+    /// be typed as keys.
+    fn saved_string_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        self.string_body_lines(source)
+    }
+
     /// Lines (0-based, end exclusive) that lie wholly inside the body of a
     /// multi-line string (TOML `"""`, an HCL heredoc, a YAML block scalar).
     /// They are text: Enter keeps their indentation, nothing is paired,
@@ -1305,12 +1322,59 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// `source` with the key at `pointer` renamed `new_key` everywhere the
-    /// language writes it (an XML element's start and end tags), or `None`
-    /// to rename just the text at [`key_span`](Self::key_span).
+    /// `source` with the key at `pointer` renamed everywhere the language
+    /// writes it (an XML element's start and end tags), or `None` to rename
+    /// just the text at [`key_span`](Self::key_span). `new_key` is the new
+    /// key as [`written_key`](Self::written_key) writes it; a key the host
+    /// wrote in quotes keeps them.
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
         let _ = (source, pointer, new_key);
         None
+    }
+
+    /// `key` as the language writes it in place of the key at `pointer` of
+    /// `source` (a rename): bare, or quoted and escaped where it must be
+    /// (YAML quotes `on` and `1_000`, which YAML 1.1 reads as other types).
+    /// `None` when the language cannot write it there (an HCL block type is
+    /// an identifier): a rename then takes the other save paths, which
+    /// refuse what the language cannot hold. By default only keys every
+    /// language writes bare (`[A-Za-z_][A-Za-z0-9_-]*`).
+    fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
+        let _ = (source, pointer);
+        let mut characters = key.chars();
+        let bare = characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && characters.all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+            });
+        bare.then(|| key.to_string())
+    }
+
+    /// The value a save writes at `pointer` of `previous` for `value` (a
+    /// changed scalar): `Ok(None)` keeps `value`; `Ok(Some)` is the
+    /// language's own form of it where its reader normalizes what it reads
+    /// (TOML reads the datetime `…00.50Z` as `…00.5Z`); `Err` says why the
+    /// save waits (a TOML datetime made text that is no datetime, which
+    /// would make it a string).
+    fn scalar_edit(
+        &self,
+        previous: &str,
+        pointer: &str,
+        value: &Value,
+    ) -> Result<Option<Value>, String> {
+        let _ = (previous, pointer, value);
+        Ok(None)
+    }
+
+    /// Whether `patched` (a save's patch of `previous`) writes every map
+    /// both still hold in the same form: an HCL block stays a block and an
+    /// object attribute (`name = { … }`) an attribute, which read the same
+    /// but are different things to HCL's readers. A patch that switches one
+    /// is not taken.
+    fn keeps_forms(&self, previous: &str, patched: &str) -> bool {
+        let _ = (previous, patched);
+        true
     }
 
     /// The text for the `value` range of a [`OneLine`] now holding `value`

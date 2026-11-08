@@ -83,9 +83,14 @@ pub(super) fn hide(
     // the serializer writes them on one.
     let host_lines: Vec<&str> = previous.split('\n').collect();
     let bodies: Vec<String> = language
-        .string_body_lines(previous)
+        .saved_string_lines(previous)
         .into_iter()
-        .filter_map(|range| host_lines.get(range).map(|lines| lines.join("\n")))
+        // With the line that opens it, which may hold its first words (`m: "a`).
+        .filter_map(|range| {
+            host_lines
+                .get(range.start.saturating_sub(1)..range.end)
+                .map(|lines| lines.join("\n"))
+        })
         .collect();
     let string_bodies = !bodies.is_empty();
     // Only where a reference stands as a value (`key: *p`, `- *p`).

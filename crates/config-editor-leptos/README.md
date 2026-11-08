@@ -211,7 +211,17 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
   language, and the switch waits with the reason on the element
   (`mixed_content` of the `strings` setting); text typed beside child elements
   in an XML view is not saved. `Language::convert` refuses it too
-  (`ConvertError::MixedContent`).
+  (`ConvertError::MixedContent`). So is one key in two namespaces
+  (`<c:item>` beside `<item>`), which other languages would merge, and a
+  character XML 1.0 cannot hold (a control character, U+FFFE): the XML
+  reader and writer refuse it, even as a character reference.
+- A save that cannot write what the edit means waits, with the reason on
+  the value: an edit inside nested or empty lists that the XML view shows
+  flat and cannot map back, a TOML date or time typed half-way (it is saved
+  as a datetime once it is one again), a key of an HCL block renamed to
+  something that is no identifier (the block would have to become an
+  attribute). A renamed key is written as the host writes keys there (YAML
+  quotes `on` and `1_000`, which YAML 1.1 reads as other types).
 - Switching the language is an undo step: `Ctrl+Z` goes back to the view and
   text before the switch (`on_edit_as_change` hears it), `Ctrl+Y` returns,
   and the caret stays on the field it was on.

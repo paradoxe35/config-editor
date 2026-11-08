@@ -12,6 +12,27 @@ use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::language::ConfigLanguage;
 use std::sync::Arc;
 
+mod merge;
+use merge::merge_changes;
+
+/// A save's patch of the host's text: `previous` made to read as `new`.
+type Patch = fn(
+    &dyn ConfigLanguage,
+    &str,
+    &serde_json::Value,
+    &serde_json::Value,
+    Option<&serde_json::Value>,
+) -> Option<String>;
+
+/// The patches that change only what one edit touched, in the order tried.
+const PRECISE: [Patch; 5] = [
+    codec::patch_reorder,
+    codec::patch_scalars,
+    codec::patch_renames,
+    codec::patch_scalar_to_container,
+    codec::patch_inline,
+];
+
 // How many saves wrote the host whole (its comments and formatting gone):
 // the save property tests require none for a value edit.
 #[cfg(test)]
@@ -85,14 +106,27 @@ impl Bridge {
         // host value as the edit language showed it, so values that language
         // cannot tell apart (XML reads `null`, `""` and `"1"` as text) keep
         // the host's own.
-        let seen = self
-            .to_edit(previous_host)
-            .ok()
+        let shown = self.to_edit(previous_host).ok();
+        let seen = shown
+            .as_ref()
             .and_then(|shown| codec::read(self.edit.behavior(), &shown.text, self.shape()).ok());
+        let unshown = shown.map(|shown| shown.losses).unwrap_or_default();
         let value = match &seen {
-            Some(seen) => merge_changes(&old, seen, &edited),
+            // An edit where the view could not show the host's value (an
+            // XML view of nested or empty lists) that does not map back onto
+            // it waits: saving the view's approximation would change data.
+            Some(seen) => merge_changes(&old, seen, &edited, &unshown).map_err(|pointer| {
+                ConvertError::Unsupported(format!(
+                    "{} cannot show the value at {pointer} exactly, so this edit of it cannot be saved: edit it as {} (at {pointer})",
+                    self.edit.label(),
+                    self.host.label()
+                ))
+            })?,
             None => edited,
         };
+        // Each changed value in the host's own form (a TOML datetime read
+        // back normalized), or the reason the save waits.
+        let value = host_scalars(host, previous_host, &old, value)?;
         let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
@@ -128,13 +162,23 @@ impl Bridge {
             .detach_shared(previous_host, &old, &target)
             .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(&old));
         let previous_host = detached.as_deref().unwrap_or(previous_host);
-        // The patches that change only what one edit touched.
+        // The first patch that applies, of those that change only what one
+        // edit touched. A patch that writes a map in another form (an HCL
+        // block as an attribute) is not taken.
+        let first = |patches: &[Patch],
+                     previous: &str,
+                     old: &serde_json::Value,
+                     target: &serde_json::Value| {
+            patches.iter().find_map(|patch| {
+                patch(host, previous, old, target, shape)
+                    .filter(|patched| host.keeps_forms(previous, patched))
+            })
+        };
         let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
-            codec::patch_reorder(host, previous, old, target, shape)
-                .or_else(|| codec::patch_scalars(host, previous, old, target, shape))
-                .or_else(|| codec::patch_renames(host, previous, old, target, shape))
-                .or_else(|| codec::patch_scalar_to_container(host, previous, old, target, shape))
-                .or_else(|| codec::patch_inline(host, previous, old, target, shape))
+            first(&PRECISE, previous, old, target)
+        };
+        let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
+            first(&[codec::patch_structure], previous, old, target)
         };
         let patched = precise(previous_host, &old, &target)
             // Several edits in one save: one step at a time.
@@ -146,12 +190,12 @@ impl Bridge {
                 let (mut text, mut current) = (previous_host.to_string(), old.clone());
                 for step in steps {
                     text = precise(&text, &current, &step)
-                        .or_else(|| codec::patch_structure(host, &text, &current, &step, shape))?;
+                        .or_else(|| structure(&text, &current, &step))?;
                     current = step;
                 }
                 Some(text)
             })
-            .or_else(|| codec::patch_structure(host, previous_host, &old, &target, shape));
+            .or_else(|| structure(previous_host, &old, &target));
         Ok(match patched {
             Some(text) => Conversion {
                 text,
@@ -236,131 +280,56 @@ impl Bridge {
     }
 }
 
-/// The host value with the user's edits applied: where the edit equals what
-/// the edit language showed, the host's original value is kept; elsewhere
-/// the edit wins. Keys and items added or removed follow the edit.
-fn merge_changes(
-    host: &serde_json::Value,
-    seen: &serde_json::Value,
-    edited: &serde_json::Value,
-) -> serde_json::Value {
-    use serde_json::Value;
-    if seen == edited {
-        return host.clone();
+/// `value` with each scalar changed from `old` as the host saves it there
+/// ([`ConfigLanguage::scalar_edit`]), or the reason the save waits.
+fn host_scalars(
+    host: &dyn ConfigLanguage,
+    previous: &str,
+    old: &serde_json::Value,
+    mut value: serde_json::Value,
+) -> Result<serde_json::Value, SaveError> {
+    let mut changed = Vec::new();
+    changed_scalars(old, &value, String::new(), &mut changed);
+    for pointer in changed {
+        let Some(slot) = value.pointer_mut(&pointer) else {
+            continue;
+        };
+        match host.scalar_edit(previous, &pointer, slot) {
+            Ok(Some(own)) => *slot = own,
+            Ok(None) => {}
+            Err(reason) => {
+                return Err(ConvertError::Unsupported(format!("{reason} (at {pointer})")).into());
+            }
+        }
     }
-    match (host, seen, edited) {
-        (Value::Object(host), Value::Object(seen), Value::Object(edited)) => {
-            // In the host's key order (the edit language may order keys its
-            // own way: TOML puts plain keys before tables).
-            // A renamed key: gone from the edit, and a new key holding what
-            // the edit showed for it. It keeps its place and the host's own
-            // value (which the edit language may not show exactly).
-            let mut renamed_to: Vec<(&String, &String)> = Vec::new();
-            for (key, value) in edited {
-                if host.contains_key(key) {
-                    continue;
-                }
-                let from = host.keys().find(|old| {
-                    !edited.contains_key(*old)
-                        && seen.get(*old) == Some(value)
-                        && !renamed_to.iter().any(|(taken, _)| taken == old)
-                });
-                if let Some(from) = from {
-                    renamed_to.push((from, key));
-                }
-            }
-            let mut entries: Vec<(String, Value)> = Vec::new();
-            for (key, host_value) in host {
-                match (seen.get(key), edited.get(key)) {
-                    (Some(seen_value), Some(value)) => {
-                        entries.push((key.clone(), merge_changes(host_value, seen_value, value)));
-                    }
-                    // Renamed by the user.
-                    (Some(_), None)
-                        if let Some((_, to)) = renamed_to.iter().find(|(from, _)| *from == key) =>
-                    {
-                        entries.push(((*to).clone(), host_value.clone()));
-                    }
-                    // Removed by the user.
-                    (Some(_), None) => {}
-                    // Re-added after the edit language could not show it, or
-                    // never shown: the edit wins, else the host's stays.
-                    (None, Some(value)) => entries.push((key.clone(), value.clone())),
-                    (None, None) => entries.push((key.clone(), host_value.clone())),
-                }
-            }
-            // A new key goes after the key before it in the edit, so a renamed
-            // key keeps its place.
-            let mut previous: Option<&String> = None;
-            for (key, value) in edited {
-                let renamed = renamed_to.iter().any(|(_, to)| *to == key);
-                if !host.contains_key(key) && !renamed {
-                    let at = previous
-                        .and_then(|before| entries.iter().position(|(name, _)| name == before))
-                        .map_or(0, |index| index + 1);
-                    entries.insert(at, (key.clone(), value.clone()));
-                }
-                previous = Some(key);
-            }
-            Value::Object(entries.into_iter().collect())
-        }
-        (Value::Array(host), Value::Array(seen), Value::Array(edited))
-            if host.len() == seen.len() && seen.len() == edited.len() =>
-        {
-            Value::Array(
-                host.iter()
-                    .zip(seen)
-                    .zip(edited)
-                    .map(|((host, seen), edited)| merge_changes(host, seen, edited))
-                    .collect(),
-            )
-        }
-        // A view that writes nested lists flat (XML repeats elements): the
-        // view's items are the host's leaves in order, so an item edited
-        // there is merged into its leaf and the nesting stays.
-        (Value::Array(host), Value::Array(seen), Value::Array(edited))
-            if seen.len() == edited.len() =>
-        {
-            let mut leaves = Vec::new();
-            array_leaves(host, &mut String::new(), &mut leaves);
-            if leaves.len() != seen.len() {
-                return Value::Array(edited.clone());
-            }
-            let mut merged = Value::Array(host.clone());
-            for ((pointer, leaf), (seen, edited)) in leaves.iter().zip(seen.iter().zip(edited)) {
-                if seen != edited
-                    && let Some(slot) = merged.pointer_mut(pointer)
-                {
-                    *slot = merge_changes(leaf, seen, edited);
-                }
-            }
-            merged
-        }
-        // A one-item list the view shows as its lone item (XML).
-        (Value::Array(host), seen, edited)
-            if host.len() == 1 && !seen.is_array() && !edited.is_array() =>
-        {
-            Value::Array(vec![merge_changes(&host[0], seen, edited)])
-        }
-        _ => edited.clone(),
-    }
+    Ok(value)
 }
 
-/// The non-list items of `items`, nested lists read through, with their
-/// pointers relative to `items`.
-fn array_leaves<'a>(
-    items: &'a [serde_json::Value],
-    prefix: &mut String,
-    out: &mut Vec<(String, &'a serde_json::Value)>,
+/// The pointers of the scalars `new` changes where `old` holds one too.
+fn changed_scalars(
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+    pointer: String,
+    out: &mut Vec<String>,
 ) {
-    for (index, item) in items.iter().enumerate() {
-        let length = prefix.len();
-        prefix.push_str(&format!("/{index}"));
-        match item {
-            serde_json::Value::Array(nested) => array_leaves(nested, prefix, out),
-            leaf => out.push((prefix.clone(), leaf)),
+    use serde_json::Value;
+    match (old, new) {
+        (Value::Object(left), Value::Object(right)) => {
+            for (key, value) in right {
+                if let Some(before) = left.get(key) {
+                    let child = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    changed_scalars(before, value, child, out);
+                }
+            }
         }
-        prefix.truncate(length);
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
+            for (index, (before, value)) in left.iter().zip(right).enumerate() {
+                changed_scalars(before, value, format!("{pointer}/{index}"), out);
+            }
+        }
+        (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
+        _ if old != new => out.push(pointer),
+        _ => {}
     }
 }
 

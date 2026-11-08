@@ -608,13 +608,19 @@ pub(super) fn required_properties(branch: &Value) -> Vec<(&str, &Value)> {
 }
 
 /// Non-string scalars render as JSON, which TOML also accepts.
+/// `text` as a TOML basic string (`"…"`): JSON's escapes, and DEL, which
+/// TOML allows only escaped, as `\u007F`.
+pub(super) fn basic_string(text: &str) -> String {
+    serde_json::to_string(text).unwrap_or_default().replace('\u{7f}', "\\u007F")
+}
+
 pub(super) fn toml_text(value: &Value) -> String {
     if let Some(name) = super::super::super::codec::non_finite::name(value) {
         return name.to_string();
     }
     match value {
         // Always quoted: a bare string could read back as a date or number.
-        Value::String(text) => serde_json::to_string(super::super::super::codec::non_finite::written(text)).unwrap_or_else(|_| text.clone()),
+        Value::String(text) => basic_string(super::super::super::codec::non_finite::written(text)),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(toml_text).collect();
             format!("[{}]", items.join(", "))
@@ -658,7 +664,7 @@ pub(super) fn toml_key_for_completion(key: &str) -> Option<String> {
             } else if segment.is_empty() {
                 format!("\"{segment}\"")
             } else {
-                serde_json::to_string(segment).unwrap_or_else(|_| format!("\"{segment}\""))
+                basic_string(segment)
             }
         })
         .collect();

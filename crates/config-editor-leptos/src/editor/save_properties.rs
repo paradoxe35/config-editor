@@ -218,6 +218,21 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "# top\nblock {\n}\n\n# mid\nobj = {\n  a = 1\n}\nlisten = 1 # l\n",
         ),
+        // Round 18 shapes: lists over lines with a comment after their
+        // opening bracket, indentless YAML sequences, YAML scalars over
+        // lines, an indented heredoc.
+        (
+            Language::TOML,
+            "# top\nlisten = 1  # l\n\n[server]  # sc\nports = [  # pc\n  80,  # p80\n  443,\n  8443,\n]\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nlisten = 1  # l\nserver {  # sc\n  ports = [  # pc\n    80,  # p80\n    443,\n    8443,\n  ]\n}\nnote = <<-EOT\n  a\n  b\n  EOT\n",
+        ),
+        (
+            Language::YAML,
+            "# top\nl:\n- k: >-\n    x\n  j: 2\n- - a\n  - b\nm: \"l1\n  l2\" # m\np: plain\n  continued\nlisten: 1 # l\n",
+        ),
     ]
 }
 

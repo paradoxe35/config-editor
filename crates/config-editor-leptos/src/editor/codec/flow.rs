@@ -85,12 +85,7 @@ pub(super) fn restyle(
                     None => {
                         let separator =
                             &model_head[model_head.trim_end_matches([' ', '\t', ':', '=']).len()..];
-                        let quoted = model_head.starts_with(['"', '\'']) || !is_bare(key);
-                        let key = if quoted {
-                            serde_json::to_string(key).ok()?
-                        } else {
-                            key.clone()
-                        };
+                        let key = super::key_like(language, key, model_head)?;
                         let text = fresh_text(language, child, model_value, written);
                         place(&mut out, "", format!("{key}{separator}{text}"), "");
                     }
@@ -227,11 +222,4 @@ fn split_items(inner: &str) -> Option<Vec<&str>> {
         items.push(last);
     }
     Some(items)
-}
-
-fn is_bare(key: &str) -> bool {
-    !key.is_empty()
-        && key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }

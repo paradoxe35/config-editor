@@ -72,6 +72,16 @@ pub(super) fn host_forms(source: &str) -> HostForms {
     }
 }
 
+/// Whether `patched` writes as a block no map `previous` writes as an
+/// attribute (`name = { … }`), and the other way round.
+pub(super) fn keeps_forms(previous: &str, patched: &str) -> bool {
+    let (before, after) = (host_forms(previous), host_forms(patched));
+    let unnumbered = |path: &Vec<String>| -> Vec<String> { path.iter().filter(|segment| segment.parse::<usize>().is_err()).cloned().collect() };
+    let attributes = |forms: &HostForms| -> std::collections::HashSet<Vec<String>> { forms.attributes.iter().map(unnumbered).collect() };
+    let (attributes_before, attributes_after) = (attributes(&before), attributes(&after));
+    !attributes_before.iter().any(|path| after.blocks.contains(path)) && !before.blocks.iter().any(|path| attributes_after.contains(path))
+}
+
 /// The blocks of `source` opened and closed on their header's line, with
 /// the line each is on.
 fn one_line_headers(source: &str, scan: &Scan) -> Vec<(Vec<String>, usize)> {
@@ -149,12 +159,18 @@ pub(super) fn hcl_body(
 ) -> Result<hcl::Body, String> {
     let labelled = &forms.labelled;
     let mut body = hcl::Body::builder();
+    let pointer_of = |path: &[String]| -> String {
+        path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect()
+    };
     for (key, value) in map {
-        let identifier = hcl::Identifier::new(key.as_str()).map_err(|_| {
-            format!("\"{key}\" is not an HCL identifier, so it cannot be a top-level key")
-        })?;
         let mut child_path = path.to_vec();
         child_path.push(key.clone());
+        let identifier = hcl::Identifier::new(key.as_str()).map_err(|_| {
+            format!(
+                "\"{key}\" is not an HCL identifier, so it cannot name an attribute or a block (at {})",
+                pointer_of(&child_path)
+            )
+        })?;
         match value {
             // Labelled blocks before, all of them gone: an empty block.
             Value::Object(children) if labelled.contains_key(&child_path) && children.is_empty() => {
@@ -192,6 +208,35 @@ pub(super) fn hcl_body(
                     labels: Vec::new(),
                     body: hcl_body(children, forms, &child_path)?,
                 });
+            }
+            // A block the host writes cannot take a key that is no
+            // identifier: written as an attribute (`name = { … }`) it
+            // would no longer be a block.
+            Value::Object(children) if forms.blocks.contains(&child_path) && !forms.attributes.contains(&child_path) => {
+                let key = children.keys().find(|key| !is_ident(key)).cloned().unwrap_or_default();
+                let mut at = child_path.clone();
+                at.push(key.clone());
+                return Err(format!(
+                    "\"{key}\" is not an HCL identifier, so it cannot name an attribute of the block {} (at {})",
+                    child_path.join("."),
+                    pointer_of(&at)
+                ));
+            }
+            Value::Array(items)
+                if forms.blocks.contains(&child_path) && !items.is_empty() && items.iter().all(Value::is_object) =>
+            {
+                let (index, key) = items
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, item)| Some((index, item.as_object()?.keys().find(|key| !is_ident(key))?.clone())))
+                    .unwrap_or_default();
+                let mut at = child_path.clone();
+                at.extend([index.to_string(), key.clone()]);
+                return Err(format!(
+                    "\"{key}\" is not an HCL identifier, so it cannot name an attribute of the block {} (at {})",
+                    child_path.join("."),
+                    pointer_of(&at)
+                ));
             }
             _ => body = body.add_attribute(hcl::Attribute::new(identifier, hcl_expression_in(value, forms))),
         }
@@ -333,31 +378,52 @@ pub(super) fn one_line_block(source: &str, pointer: &str) -> Option<OneLine> {
 pub(super) fn rename_block_key(source: &str, pointer: &str, new_key: &str) -> Option<String> {
     let wanted = pointer_segments(pointer);
     let scan = analyze(source, 0);
-    let mut edits: Vec<(usize, usize)> = Vec::new();
+    // Each place: its span, and whether it is a label (which may be a
+    // string).
+    let mut edits: Vec<((usize, usize), bool)> = Vec::new();
     for header in &scan.headers {
         let mut path = body_path(&scan, header.parent);
         path.push(header.block_type.clone());
         if path == wanted {
-            edits.push(header.type_span);
+            edits.push((header.type_span, false));
             continue;
         }
         for (label, span) in header.labels.iter().zip(&header.label_spans) {
             path.push(label.clone());
             if path == wanted {
-                let quoted = source[span.0..span.1].starts_with('"');
-                edits.push(if quoted { (span.0 + 1, span.1 - 1) } else { *span });
+                edits.push((*span, true));
                 break;
             }
         }
     }
-    if edits.is_empty() || !is_ident(new_key) && edits.iter().any(|(start, _)| !source[..*start].ends_with('"')) {
+    // A string (`"host name"`) only as a label.
+    let string = new_key.starts_with('"');
+    if edits.is_empty() || string && edits.iter().any(|(_, label)| !label) {
         return None;
     }
     edits.sort();
     edits.dedup();
     let mut renamed = source.to_string();
-    for (start, end) in edits.into_iter().rev() {
+    for ((start, end), _) in edits.into_iter().rev() {
+        // A quoted label keeps its quotes around a bare new key.
+        let quoted = source[start..end].starts_with('"') && !string;
+        let (start, end) = if quoted { (start + 1, end - 1) } else { (start, end) };
         renamed.replace_range(start..end, new_key);
     }
     Some(renamed)
+}
+
+/// Whether `pointer` names a block type or an attribute written in a body
+/// of `source` (which HCL writes only as identifiers).
+pub(super) fn names_block_or_attribute(source: &str, pointer: &str) -> bool {
+    let wanted = pointer_segments(pointer);
+    let scan = analyze(source, 0);
+    scan.headers.iter().any(|header| {
+        let mut path = body_path(&scan, header.parent);
+        path.push(header.block_type.clone());
+        path == wanted
+    }) || scan
+        .attributes
+        .iter()
+        .any(|attribute| attribute.prefix.is_empty() && attribute_path(&scan, attribute) == wanted)
 }

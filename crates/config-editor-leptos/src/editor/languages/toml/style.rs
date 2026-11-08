@@ -103,7 +103,7 @@ pub(super) fn fold_dotted_tables(rendered: &str, dotted: &HashSet<Dotted>, previ
                 if bare {
                     segment.clone()
                 } else {
-                    serde_json::to_string(segment).unwrap_or_else(|_| format!("\"{segment}\""))
+                    super::suggestions::basic_string(segment)
                 }
             })
             .collect::<Vec<_>>()
@@ -204,7 +204,8 @@ pub(super) fn rename_toml_key(source: &str, pointer: &str, new_key: &str) -> Opt
     }
     let mut renamed = source.to_string();
     for (start, end) in edits.into_iter().rev() {
-        let quoted = renamed[start..end].starts_with(['"', '\'']);
+        // A bare new key in the host's quotes.
+        let quoted = renamed[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
         renamed.replace_range(start..end, &if quoted { format!("\"{new_key}\"") } else { new_key.to_string() });
     }
     Some(renamed)
