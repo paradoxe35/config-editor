@@ -615,7 +615,7 @@ fn highlights_comments_whole() {
 }
 
 #[test]
-fn highlights_declarations_and_cdata_as_punctuation() {
+fn highlights_declarations_as_punctuation_and_cdata_text_as_a_string() {
     use TokenKind::*;
     assert_eq!(
         highlighted("<?xml version=\"1.0\"?>"),
@@ -627,7 +627,11 @@ fn highlights_declarations_and_cdata_as_punctuation() {
     );
     assert_eq!(
         highlighted("<![CDATA[<a>]]>"),
-        vec![run(Punctuation, "<![CDATA[<a>]]>")]
+        vec![
+            run(Punctuation, "<![CDATA["),
+            run(String, "<a>"),
+            run(Punctuation, "]]>")
+        ]
     );
 }
 

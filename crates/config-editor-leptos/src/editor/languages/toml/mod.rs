@@ -11,6 +11,7 @@
 //! - `Ctrl+/` toggles `#` line comments.
 
 mod style;
+mod constructs;
 mod multiline;
 mod parse;
 mod suggestions;
@@ -33,7 +34,7 @@ use super::super::language::pointer_segments;
 use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
-use super::super::highlight::{Token, TokenKind, Tokens};
+use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -287,6 +288,18 @@ impl ConfigLanguage for TomlBehavior {
 
     fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         multi_line_string_bodies(source)
+    }
+
+    /// `"""` / `'''` strings, and arrays (or inline tables) over lines.
+    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
+        constructs::multiline_constructs(source)
+    }
+
+    /// The inside of an array: its elements.
+    fn highlight_continued(&self, text: &str) -> Vec<Token> {
+        let mut tokens = Tokens::new();
+        constructs::value_tokens(text, 0, &mut tokens);
+        tokens.finish()
     }
 }
 

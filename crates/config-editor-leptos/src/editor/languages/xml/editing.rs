@@ -468,22 +468,46 @@ pub(super) fn xml_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
 }
 
 
-/// Colors a line: tags and their parts, comments, declarations, and element
-/// text. Whitespace between tokens and inside tags stays plain.
+/// Colors a line: tags and their parts, comments, declarations, CDATA, and
+/// element text. Whitespace between tokens and inside tags stays plain.
 pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     let mut out = Tokens::new();
     for token in tokenize(line) {
         match token.kind {
             Kind::Comment => out.push(token.start, token.end, TokenKind::Comment),
+            Kind::Special if line[token.start..].starts_with(CDATA_OPEN) => {
+                highlight_cdata(line, token, &mut out);
+            }
             Kind::Special => out.push(token.start, token.end, TokenKind::Punctuation),
             Kind::OpenTag { name_end, .. } => highlight_open_tag(line, token, name_end, &mut out),
             Kind::EndTag => highlight_end_tag(line, token, &mut out),
+            // The `]]>` closing CDATA opened on a line above.
+            Kind::Text { .. } if line[token.start..token.end].starts_with(CDATA_CLOSE) => {
+                out.push(token.start, token.start + 3, TokenKind::Punctuation);
+                out.push(token.start + 3, token.end, TokenKind::Value);
+            }
             Kind::Text { .. } | Kind::Equals => {
                 out.push(token.start, token.end, TokenKind::Value);
             }
         }
     }
     out.finish()
+}
+
+const CDATA_OPEN: &str = "<![CDATA[";
+const CDATA_CLOSE: &str = "]]>";
+
+/// `<![CDATA[text]]>`: the delimiters, and the text as a string.
+fn highlight_cdata(line: &str, token: Token, out: &mut Tokens) {
+    let text_start = token.start + CDATA_OPEN.len();
+    let text_end = if line[..token.end].ends_with(CDATA_CLOSE) {
+        token.end - CDATA_CLOSE.len()
+    } else {
+        token.end
+    };
+    out.push(token.start, text_start, TokenKind::Punctuation);
+    out.push(text_start, text_end.max(text_start), TokenKind::String);
+    out.push(text_end.max(text_start), token.end, TokenKind::Punctuation);
 }
 
 /// The `<!-- … -->` comments.
@@ -495,6 +519,55 @@ pub(super) fn comments(source: &str) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// Start tags over lines (structure), the attribute values in them over
+/// lines, CDATA text and other declarations over lines.
+pub(super) fn multiline_constructs(source: &str) -> Vec<MultilineConstruct> {
+    let spans_lines = |start: usize, end: usize| source[start..end].contains('\n');
+    let mut found = Vec::new();
+    for token in tokenize(source) {
+        if !spans_lines(token.start, token.end) {
+            continue;
+        }
+        match token.kind {
+            Kind::OpenTag { .. } => {
+                found.push(MultilineConstruct::structure(token.start..token.end));
+                for part in tokenize_tag_inside(source, &token) {
+                    if matches!(part.kind, Kind::Text { quoted: true }) && spans_lines(part.start, part.end) {
+                        found.push(MultilineConstruct::colored(part.start..part.end, TokenKind::String));
+                    }
+                }
+            }
+            Kind::Special if source[token.start..].starts_with(CDATA_OPEN) => {
+                let start = token.start + CDATA_OPEN.len();
+                let end = if source[..token.end].ends_with(CDATA_CLOSE) {
+                    token.end - CDATA_CLOSE.len()
+                } else {
+                    token.end
+                };
+                found.push(MultilineConstruct::colored(start..end.max(start), TokenKind::String));
+            }
+            Kind::Special => {
+                found.push(MultilineConstruct::colored(token.start..token.end, TokenKind::Punctuation));
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// The inside of a start tag opened on a line above: its attributes, and
+/// the tag's closing `>` or `/>`.
+pub(super) fn highlight_continued(text: &str) -> Vec<HighlightToken> {
+    let mut out = Tokens::new();
+    let inside = Token {
+        start: 0,
+        end: text.len(),
+        kind: Kind::Text { quoted: false },
+    };
+    highlight_attributes(text, inside, 0, &mut out);
+    out.finish()
+}
+
 /// `<name attr="value" ...>` or `<name ...` while typing. The tag-inside scan
 /// does not stop at `>`, so the closing `>` usually lands in the last word
 /// and is colored as a value.
@@ -502,7 +575,12 @@ pub(super) fn highlight_open_tag(line: &str, token: Token, name_end: usize, out:
     out.push(token.start, token.start + 1, TokenKind::Punctuation);
     let name_end = name_end.min(line.len());
     out.push(token.start + 1, name_end, TokenKind::Key);
-    // The closing `>` or `/>` is punctuation; attribute runs stop before it.
+    highlight_attributes(line, token, name_end, out);
+}
+
+/// The attributes of the tag `token` (from byte `from`) and its closing `>`
+/// or `/>`, which is punctuation; attribute runs stop before it.
+fn highlight_attributes(line: &str, token: Token, from: usize, out: &mut Tokens) {
     let tag = &line[..token.end.min(line.len())];
     let close = if tag.ends_with("/>") {
         token.end - 2
@@ -511,7 +589,7 @@ pub(super) fn highlight_open_tag(line: &str, token: Token, name_end: usize, out:
     } else {
         token.end
     }
-    .max(name_end);
+    .max(from);
     let inner = tokenize_tag_inside(line, &token);
     for (index, part) in inner.iter().enumerate() {
         if part.start >= close {

@@ -3,26 +3,18 @@
 use super::*;
 
 /// Start of a `#` or `//` comment in a line fragment, ignoring markers inside
-/// quoted strings. A marker starts a comment at the fragment start or after
-/// whitespace.
+/// quoted strings (and the template sequences in them: `"${ "#" }"`). A
+/// marker starts a comment at the fragment start or after whitespace.
 pub(super) fn line_comment_start(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
     let mut index = 0;
     let bytes = line.as_bytes();
     while index < line.len() {
         let character = line[index..].chars().next().unwrap_or('\0');
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
-            }
-        } else if matches!(character, '"' | '\'') {
-            quote = Some(character);
-        } else if (character == '#' || (character == '/' && bytes.get(index + 1) == Some(&b'/')))
+        if let Some(end) = quoted_end(line, index) {
+            index = end;
+            continue;
+        }
+        if (character == '#' || (character == '/' && bytes.get(index + 1) == Some(&b'/')))
             && (index == 0
                 || line[..index]
                     .chars()
@@ -34,6 +26,21 @@ pub(super) fn line_comment_start(line: &str) -> Option<usize> {
         index += character.len_utf8();
     }
     None
+}
+
+/// The end of the quoted string opening at `index` of `line` (`"…"` with
+/// its template sequences, or `'…'`), or `None` when no quote opens there.
+/// An unclosed one runs to the line end.
+fn quoted_end(line: &str, index: usize) -> Option<usize> {
+    match line.as_bytes().get(index) {
+        Some(b'"') => Some(string_end(line, index).0),
+        Some(b'\'') => Some(
+            line[index + 1..]
+                .find(['\'', '\n'])
+                .map_or(line.len(), |offset| index + 1 + offset + 1),
+        ),
+        _ => None,
+    }
 }
 
 /// Code before a trailing `#` / `//` comment, or `None` when the fragment is
@@ -80,26 +87,27 @@ pub(super) fn hcl_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
     }
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..byte];
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
+    let mut index = 0;
+    while index < line.len() {
+        let character = line[index..].chars().next().unwrap_or('\0');
         if in_block_comment {
             if line[index..].starts_with("*/") {
                 in_block_comment = false;
+                index += 2;
+            } else {
+                index += character.len_utf8();
             }
             continue;
         }
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
+        if let Some(end) = quoted_end(line, index) {
+            // The caret is in a string that runs to it unclosed.
+            if end >= line.len() && !string_closes(line, index) {
+                return (Some(character), false);
             }
-        } else if matches!(character, '"' | '\'') {
-            quote = Some(character);
-        } else if (character == '#' || line[index..].starts_with("//"))
+            index = end;
+            continue;
+        }
+        if (character == '#' || line[index..].starts_with("//"))
             && (index == 0
                 || line[..index]
                     .chars()
@@ -107,13 +115,23 @@ pub(super) fn hcl_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
                     .is_some_and(char::is_whitespace))
         {
             return (None, true);
-        } else if character == '/' && line[index..].starts_with("/*") {
+        } else if line[index..].starts_with("/*") {
             in_block_comment = true;
+            index += 2;
+            continue;
         }
+        index += character.len_utf8();
     }
-    (quote, in_block_comment)
+    (None, in_block_comment)
 }
 
+/// Whether the string opening at `index` of `line` closes in it.
+fn string_closes(line: &str, index: usize) -> bool {
+    match line.as_bytes()[index] {
+        b'"' => string_end(line, index).1,
+        _ => line[index + 1..].contains('\''),
+    }
+}
 
 pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     let indent = line.len() - line.trim_start().len();

@@ -36,7 +36,7 @@ use convert::*;
 
 use super::super::commands::indent_unit;
 use super::super::completion::{array_branch, object_branch, schema_const, schema_default, schema_example};
-use super::super::highlight::{Token as HighlightToken, TokenKind, Tokens};
+use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
 use super::super::language::{OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
@@ -121,6 +121,17 @@ impl ConfigLanguage for XmlBehavior {
 
     fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
         comments(source)
+    }
+
+    /// Start tags with attributes over lines, attribute values and CDATA
+    /// text over lines.
+    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
+        multiline_constructs(source)
+    }
+
+    /// The inside of a start tag: its attributes.
+    fn highlight_continued(&self, text: &str) -> Vec<HighlightToken> {
+        highlight_continued(text)
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {

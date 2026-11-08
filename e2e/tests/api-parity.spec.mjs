@@ -168,6 +168,8 @@ const CONFIG_LANGUAGE = {
   string_body_lines: { custom: 'multilineRanges' },
   comments: { custom: ['comments', 'multilineRanges'] },
   multiline_strings: { custom: 'multilineRanges' },
+  multiline_constructs: { custom: 'multilineRanges' },
+  highlight_continued: { exempt: RUST_ONLY_REFINEMENT },
   fold_ranges: { custom: ['brackets', 'comments'] },
   comment_start: { custom: 'comments' },
   has_comments: { custom: 'comments' },
