@@ -6,7 +6,9 @@
 //! - `marks`: what the schema marks on each field;
 //! - `locate`, `locks`: where each protected field is written (by path,
 //!   with everything inside a container); `carry`: the locks moved
-//!   through an edit leaving the text unparseable;
+//!   through an edit leaving the text unparseable; `scan`: the fields of
+//!   a text that does not parse, line by line, when there is none to
+//!   carry from;
 //! - `guard`: one check every edit passes, whatever made it;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
@@ -26,6 +28,7 @@ mod locks;
 mod marks;
 mod problems;
 mod save;
+mod scan;
 mod secrets;
 mod suggest;
 mod texts;
@@ -40,6 +43,15 @@ pub(crate) use marks::mentions_marks;
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::save_refused;
 
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod arrival_tests;
 #[cfg(all(
     test,
     feature = "yaml",

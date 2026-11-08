@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::paths::{TextRange, field_range, key_range, path_at};
 use super::marks::escape;
+use super::scan::Written;
 
 /// Line starts of a text, to turn one-based positions into UTF-16 offsets
 /// without rescanning it for each.
@@ -100,16 +101,29 @@ pub(crate) struct Extent {
 const MAX_DESCENDANTS: usize = 2000;
 
 /// Where the field at `pointer` is written in `text`, with everything
-/// inside it when its `value` is a container.
+/// inside it when its `value` is a container (without a value, the lines
+/// `written` inside it).
 pub(crate) fn extent(
     behavior: &dyn ConfigLanguage,
     text: &str,
     lines: &LineIndex<'_>,
     value: Option<&Value>,
+    written: Option<&[Written]>,
     pointer: &str,
 ) -> Option<Extent> {
     let mut ranges = vec![lines.range(field_range(behavior, text, pointer)?)];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
+    // Lines written inside it, each from its indent to its last character.
+    for field in written.unwrap_or_default() {
+        if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
+            let bounds = lines.line_bounds(field.line);
+            let content = lines.line_text(field.line);
+            let indent = content.len() - content.trim_start().len();
+            let start = bounds.start + content[..indent].encode_utf16().count();
+            let end = bounds.start + content.trim_end().encode_utf16().count();
+            ranges.push(start..end);
+        }
+    }
     if let Some(value) = value {
         let mut inside = Vec::new();
         descendants(value, pointer.to_string(), &mut inside);

@@ -84,6 +84,22 @@ pub(super) fn read(
     Ok(value)
 }
 
+/// [`read`] without the shared parse: a text read once on the side (a
+/// stand-in for one that does not parse) does not push out the one on
+/// screen.
+#[cfg(feature = "protect")]
+pub(super) fn read_aside(
+    language: &dyn ConfigLanguage,
+    source: &str,
+    schema: Option<&Value>,
+) -> Result<Value, ParseError> {
+    let mut value = language.parse(source)?;
+    if let Some(schema) = schema.filter(|_| language.repetition() != Repetition::None) {
+        conform_arrays(&mut value, schema, language.repetition());
+    }
+    Ok(value)
+}
+
 /// Renders `value` in `target`, reading the result back to find the losses.
 pub(super) fn render(
     value: &Value,
