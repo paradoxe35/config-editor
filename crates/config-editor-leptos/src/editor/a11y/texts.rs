@@ -153,5 +153,26 @@ pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -
             hover.examples.join(", ")
         ));
     }
-    parts.join(". ")
+    sentences(&parts)
+}
+
+/// `parts` as sentences: each ends with a full stop unless it already ends
+/// in one (or a question or exclamation mark), so a description written
+/// as a sentence is not read with two.
+fn sentences(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .enumerate()
+        .fold(String::new(), |mut said, (index, part)| {
+            if index > 0 {
+                if !said.ends_with(['.', '!', '?', '…']) {
+                    said.push('.');
+                }
+                said.push(' ');
+            }
+            said.push_str(part);
+            said
+        })
 }

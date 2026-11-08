@@ -48,6 +48,9 @@ pub(super) struct ProblemsState {
     pub(super) tip_entered: StoredValue<bool>,
     /// Bumped on each hover change, so a hide scheduled before it never lands.
     pub(super) tip_token: StoredValue<u64>,
+    /// The underline cap left some problems' lines without an underline
+    /// (set by the underlines, said in the footer).
+    pub(super) underlines_cut: RwSignal<bool>,
 }
 
 /// Where the problem tip points: the problems starting at `place`, shown
@@ -199,6 +202,7 @@ impl ProblemsState {
             hovered: RwSignal::new(None),
             tip_entered: StoredValue::new(false),
             tip_token: StoredValue::new(0),
+            underlines_cut: RwSignal::new(false),
         }
     }
 }

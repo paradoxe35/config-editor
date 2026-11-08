@@ -202,6 +202,12 @@ export interface EditorStrings {
    */
   problemsMore?: string;
   /**
+   * After the problem count when the problems have more underlines than are drawn; `{count}` is how many are (the most serious first).
+   *
+   * @default "only {count} underlines are drawn, the most serious first"
+   */
+  underlinesCut?: string;
+  /**
    * The footer's change count against the baseline, for one change.
    *
    * @default "{count} change"
@@ -681,6 +687,12 @@ export interface EditorStrings {
    * @default "Folded lines have changes"
    */
   foldedChanges?: string;
+  /**
+   * After a closed fold's chip label when it hides problems; `{severity}` names the most serious of them.
+   *
+   * @default "hides a problem: {severity}"
+   */
+  foldedProblem?: string;
   /**
    * The hover card's mark of a required key.
    *

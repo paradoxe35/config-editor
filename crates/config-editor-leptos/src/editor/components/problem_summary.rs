@@ -6,6 +6,7 @@ use leptos::prelude::*;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, MORE_PROBLEMS_CODE, Severity};
 use super::super::state::EditorState;
+use super::diagnostics::MAX_UNDERLINES;
 use crate::EditorStrings;
 use crate::strings::{counted, counted_as, fill};
 
@@ -23,8 +24,12 @@ pub(super) fn ProblemCount(state: EditorState) -> impl IntoView {
             state.go_to_diagnostic(index);
         }
     };
+    let underlines_cut = state.problems().underlines_cut;
     let summary = Memo::new(move |_| {
-        state.strings(|strings| diagnostics.with(|problems| summary_parts(strings, problems)))
+        let underlines_cut = underlines_cut.get();
+        state.strings(|strings| {
+            diagnostics.with(|problems| summary_parts(strings, problems, underlines_cut))
+        })
     });
     // The whole summary, for when the footer is too narrow to show it.
     let title =
@@ -102,8 +107,13 @@ fn is_more_note(problem: &Diagnostic) -> bool {
     problem.code.as_deref() == Some(MORE_PROBLEMS_CODE)
 }
 
-/// The counts, then an unplaced problem's message or a hint.
-fn summary_parts(strings: &EditorStrings, problems: &[Diagnostic]) -> Summary {
+/// The counts, then an unplaced problem's message and the notes that the
+/// list or (`underlines_cut`) the underlines were cut, or else a hint.
+fn summary_parts(
+    strings: &EditorStrings,
+    problems: &[Diagnostic],
+    underlines_cut: bool,
+) -> Summary {
     // The notes that more problems follow are not among them: the count of
     // the kind each note cut says "20+" instead.
     let cut = |severity: Severity| {
@@ -162,11 +172,21 @@ fn summary_parts(strings: &EditorStrings, problems: &[Diagnostic]) -> Summary {
         .filter(|problem| problem.origin != DiagnosticOrigin::Host)
         .count();
     let cut_note = more.then(|| fill(&strings.problems_cut, &[("count", &own)]));
-    let detail = match (unplaced, cut_note) {
-        (Some(unplaced), Some(note)) => format!("{} · {note}", unplaced.message),
-        (Some(unplaced), None) => unplaced.message.clone(),
-        (None, Some(note)) => note,
-        (None, None) => strings.problems_hint.clone(),
+    // Past the underline cap, the most serious problems are drawn.
+    let underlines_note =
+        underlines_cut.then(|| fill(&strings.underlines_cut, &[("count", &MAX_UNDERLINES)]));
+    let notes: Vec<String> = [
+        unplaced.map(|unplaced| unplaced.message.clone()),
+        cut_note,
+        underlines_note,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let detail = if notes.is_empty() {
+        strings.problems_hint.clone()
+    } else {
+        notes.join(" · ")
     };
     Summary {
         counts,
@@ -181,7 +201,7 @@ mod tests {
 
     /// "2 errors, 1 warning · …" as one text.
     fn summary(strings: &EditorStrings, problems: &[Diagnostic]) -> String {
-        summary_parts(strings, problems).text()
+        summary_parts(strings, problems, false).text()
     }
     use crate::EditorStrings;
 
@@ -200,6 +220,41 @@ mod tests {
             summary(&EditorStrings::default(), &problems),
             "20+ errors, 1 warning · restart needed to apply · only the editor's first 21 are shown"
         );
+    }
+
+    /// QA 20: when the underline cap left problems undrawn the footer gave
+    /// no hint; it says so, after the other notes, instead of the hint.
+    #[test]
+    fn the_footer_says_when_underlines_were_cut() {
+        let strings = EditorStrings::default();
+        let note = "only 200 underlines are drawn, the most serious first";
+        let one = [placed(Severity::Error)];
+        let mut cut_list: Vec<Diagnostic> = (0..20).map(|_| placed(Severity::Error)).collect();
+        cut_list.push(more_note());
+        cut_list.push(Diagnostic {
+            message: "restart needed".into(),
+            severity: Severity::Warning,
+            ..Diagnostic::default()
+        });
+        let cases: [(&[Diagnostic], bool, String); 3] = [
+            (&one, true, format!("1 error · {note}")),
+            (&one, false, format!("1 error · {}", strings.problems_hint)),
+            (
+                &cut_list,
+                true,
+                format!(
+                    "20+ errors, 1 warning · restart needed · only the editor's first 21 are shown · {note}"
+                ),
+            ),
+        ];
+        let mut failures = Vec::new();
+        for (problems, cut, expected) in cases {
+            let found = summary_parts(&strings, problems, cut).text();
+            if found != expected {
+                failures.push(format!("expected {expected:?}, found {found:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     /// QA 19: the note counts the editor's own problems, the ones the cap
@@ -233,7 +288,7 @@ mod tests {
         .into_iter()
         .map(placed)
         .collect();
-        let found = summary_parts(&EditorStrings::default(), &problems);
+        let found = summary_parts(&EditorStrings::default(), &problems, false);
         assert_eq!(
             found,
             Summary {
@@ -247,7 +302,7 @@ mod tests {
             }
         );
         assert_eq!(
-            summary_parts(&EditorStrings::default(), &[]),
+            summary_parts(&EditorStrings::default(), &[], false),
             Summary {
                 counts: Vec::new(),
                 detail: Some("No errors".to_string()),

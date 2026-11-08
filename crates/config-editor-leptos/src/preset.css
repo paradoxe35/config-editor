@@ -848,6 +848,9 @@
    scrolls. */
 .config-editor__problem-tip { pointer-events: none; }
 .config-editor__problem-tip--interactive { pointer-events: auto; }
+/* Unseen for the moment until its height is measured and it is placed
+   beside its line (never over it). */
+.config-editor__problem-tip--unmeasured { visibility: hidden; }
 .config-editor__problem-tip-entry {
   padding-left: 7px;
   border-left: 3px solid var(--config-editor-error);

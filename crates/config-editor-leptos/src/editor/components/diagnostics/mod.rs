@@ -17,6 +17,8 @@ use segments::{Segment, plan};
 mod segments;
 mod tip;
 
+/// Most underlines drawn in all (see `segments`).
+pub(super) use segments::MAX_DRAWN as MAX_UNDERLINES;
 pub(crate) use tip::ProblemTip;
 
 #[component]
@@ -24,6 +26,21 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
     // The underlines are redrawn after every check, so they read the
     // problem F8 showed through a relay (see `reactive`).
     let shown = Relay::new(move || state.problems().current.get());
+    // Thousands of a host's problems (or lines of one) would slow every
+    // key: all are counted and walked with F8, the most serious drawn. A
+    // folded line's problem shows on the fold's line in the gutter, not as
+    // an underline.
+    let planned = Memo::new(move |_| {
+        let projection = state.view().projection.get();
+        state.doc().text.with(|text| {
+            let lines: Vec<&str> = text.split('\n').collect();
+            state
+                .problems()
+                .diagnostics
+                .with(|problems| plan(problems, &lines, |line| projection.is_hidden(line)))
+        })
+    });
+    Effect::new(move |_| note_cut(state, planned.with(|planned| planned.cut)));
     view! {
         <div
             class="config-editor__diagnostic-overlay"
@@ -40,11 +57,9 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                 let lines: Vec<&str> = text.split('\n').collect();
                 let problems = state.problems().diagnostics.get();
                 let covered = covered(&problems);
-                // Thousands of a host's problems (or lines of one) would
-                // slow every key: all are counted and walked with F8, the
-                // first underlines drawn. A folded line's problem shows on
-                // the fold's line in the gutter, not as an underline.
-                plan(&problems, &lines, |line| projection.is_hidden(line))
+                planned
+                    .get()
+                    .drawn
                     .into_iter()
                     .filter_map(|(index, segment)| {
                         let line_text = lines.get(segment.line - 1).copied().unwrap_or("");
@@ -59,6 +74,15 @@ pub(crate) fn DiagnosticOverlay(state: EditorState) -> impl IntoView {
                     .collect_view()
             }}
         </div>
+    }
+}
+
+/// Tells the footer whether the underline cap left some problems' lines
+/// without an underline.
+fn note_cut(state: EditorState, cut: bool) {
+    let underlines_cut = state.problems().underlines_cut;
+    if underlines_cut.get_untracked() != cut {
+        underlines_cut.set(cut);
     }
 }
 

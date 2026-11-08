@@ -10,7 +10,7 @@ use super::super::changes::hides_change;
 use super::super::completion::visual_column;
 use super::super::diagnostics::Severity;
 use super::super::state::EditorState;
-use super::texts::{self, fold_label};
+use super::texts::{self, chip_label, fold_label};
 use crate::reactive::KeyedList;
 
 /// A line in view that starts a fold range.
@@ -204,9 +204,9 @@ fn FoldChips(state: EditorState, folds: FoldItems) -> impl IntoView {
 fn FoldChip(state: EditorState, item: FoldItem) -> impl IntoView {
     let line = item.line;
     let hidden = item.hidden_problem;
-    let closed_end = Some(item.closed_end.unwrap_or(line));
+    let closed_end = item.closed_end.unwrap_or(line);
     let strings = state.strings_signal();
-    let label = move || strings.with(|strings| fold_label(strings, line, closed_end));
+    let label = move || strings.with(|strings| chip_label(strings, line, closed_end, hidden));
     let open = move |_: web_sys::MouseEvent| {
         state.unfold_line(line);
     };

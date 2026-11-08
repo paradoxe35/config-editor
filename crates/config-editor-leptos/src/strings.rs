@@ -94,6 +94,9 @@ pub struct EditorStrings {
     pub problems_cut: String,
     /// The problem that says the list was cut, after `{count}` problems.
     pub problems_more: String,
+    /// After the problem count when the problems have more underlines
+    /// than are drawn; `{count}` is how many are (the most serious first).
+    pub underlines_cut: String,
     /// The footer's change count against the baseline, for one change.
     pub changes_one: String,
     /// The footer's change count, for several changes.
@@ -274,6 +277,9 @@ pub struct EditorStrings {
     pub unfold: String,
     /// A closed fold's line number when it hides changes or problems.
     pub folded_changes: String,
+    /// After a closed fold's chip label when it hides problems; `{severity}`
+    /// names the most serious of them.
+    pub folded_problem: String,
 
     // Hover and problems.
     /// The hover card's mark of a required key.
@@ -446,6 +452,7 @@ impl Default for EditorStrings {
             problems_hint: text("hover or focus underlined text"),
             problems_cut: text("only the editor's first {count} are shown"),
             problems_more: text("Only the first {count} problems are shown; more follow."),
+            underlines_cut: text("only {count} underlines are drawn, the most serious first"),
             changes_one: text("{count} change"),
             changes_other: text("{count} changes"),
             change_details_one: text("{lines} line · Alt+F5 for the next"),
@@ -542,6 +549,7 @@ impl Default for EditorStrings {
             fold: text("Fold line {line}"),
             unfold: text("Unfold lines {first}–{last}"),
             folded_changes: text("Folded lines have changes"),
+            folded_problem: text("hides a problem: {severity}"),
             required: text("required"),
             deprecated: text("deprecated"),
             default_value: text("Default"),

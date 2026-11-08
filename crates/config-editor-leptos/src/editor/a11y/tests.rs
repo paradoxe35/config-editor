@@ -451,6 +451,33 @@ fn the_caret_note_says_why_a_locked_value_is_read_only_in_every_language() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// QA 20: `Ctrl+K Ctrl+I` read "Port to listen on.. Default: 7835": a
+/// description written as a sentence got a second full stop.
+#[test]
+fn the_docs_announcement_has_one_full_stop_after_each_part() {
+    use super::texts::hover_text;
+    use crate::editor::completion::KeyHover;
+    let hover = KeyHover {
+        key: "listen".into(),
+        start_column: 0,
+        type_label: "integer".into(),
+        title: Some("Port".into()),
+        description: Some("Port to listen on.".into()),
+        default: Some("7835".into()),
+        examples: vec!["80".into()],
+        required: true,
+        deprecated: false,
+        deprecation: Some("Use ports instead! ".into()),
+        docs_url: None,
+        choice: None,
+        value: None,
+    };
+    assert_eq!(
+        hover_text(&crate::EditorStrings::default(), &hover),
+        "listen (integer), required. Port. Use ports instead! Port to listen on. Default: 7835. Examples: 80"
+    );
+}
+
 #[cfg(all(
     feature = "yaml",
     feature = "json",

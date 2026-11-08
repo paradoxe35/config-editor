@@ -9,32 +9,78 @@ pub(super) const MAX_LINES: usize = 200;
 /// Most underlines drawn in all, every problem's lines counted: past them
 /// problems are still counted, listed and reached with F8 (200 ranges of
 /// 200 lines each drew 40,000 underlines and hung the page).
-pub(super) const MAX_DRAWN: usize = 200;
+pub(crate) const MAX_DRAWN: usize = 200;
 
-/// The underlines to draw for `problems`, each with its problem's index:
-/// the problems' in the order they are listed (the editor's own, then the
-/// host's), each over at most [`MAX_LINES`] lines, until [`MAX_DRAWN`]
-/// underlines in all. The first ones in that order, not those nearest the
-/// view, so scrolling never redraws them.
+/// The underlines to draw, and whether the cap left some out.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Plan {
+    /// Each underline with its problem's index.
+    pub(super) drawn: Vec<(usize, Segment)>,
+    /// [`MAX_DRAWN`] left lines of some problems without an underline (the
+    /// footer says so).
+    pub(super) cut: bool,
+}
+
+/// The underlines to draw for `problems`, each over at most [`MAX_LINES`]
+/// lines, until [`MAX_DRAWN`] in all, the most serious problems first
+/// (errors, then warnings, info and hints; within each, in the order they
+/// are listed: the editor's own, then the host's). Within a severity,
+/// first every problem's start, then the rest of their lines. So neither a
+/// range over the whole file nor a crowd of hints hides an error's
+/// underline, nor one wide error the next. Picked by seriousness, not by
+/// nearness to the view, so scrolling never redraws them.
 pub(super) fn plan(
     problems: &[Diagnostic],
     lines: &[&str],
     hidden: impl Fn(usize) -> bool,
-) -> Vec<(usize, Segment)> {
-    let mut drawn = Vec::new();
-    for (index, problem) in problems.iter().enumerate() {
-        let left = MAX_DRAWN - drawn.len();
-        if left == 0 {
+) -> Plan {
+    let mut order: Vec<usize> = (0..problems.len()).collect();
+    // A stable sort: the list order within each severity.
+    order.sort_by_key(|index| problems[*index].severity as u8);
+    let mut planned = Plan::default();
+    for kind in order.chunk_by(|a, b| problems[*a].severity == problems[*b].severity) {
+        planned.add(
+            kind.iter().map(|index| (*index, &problems[*index])),
+            lines,
+            &hidden,
+        );
+        if planned.cut {
             break;
         }
-        drawn.extend(
-            segments(problem, lines, &hidden)
-                .into_iter()
-                .take(left)
-                .map(|segment| (index, segment)),
-        );
     }
-    drawn
+    planned
+}
+
+impl Plan {
+    /// Adds the underlines of `problems` (of one severity) while there is
+    /// room: every start, then the rest of their lines.
+    fn add<'a>(
+        &mut self,
+        problems: impl Iterator<Item = (usize, &'a Diagnostic)>,
+        lines: &[&str],
+        hidden: &impl Fn(usize) -> bool,
+    ) {
+        // Each problem's lines after its start, for the second round.
+        let mut rest: Vec<(usize, std::vec::IntoIter<Segment>)> = Vec::new();
+        for (index, problem) in problems {
+            let mut found = segments(problem, lines, hidden).into_iter();
+            let Some(start) = found.next() else {
+                continue;
+            };
+            if self.drawn.len() == MAX_DRAWN {
+                self.cut = true;
+                break;
+            }
+            self.drawn.push((index, start));
+            rest.push((index, found));
+        }
+        for (index, more) in rest {
+            let left = MAX_DRAWN - self.drawn.len();
+            self.cut |= more.len() > left;
+            self.drawn
+                .extend(more.take(left).map(|segment| (index, segment)));
+        }
+    }
 }
 
 /// The underline of a problem on one line.
@@ -184,25 +230,97 @@ mod tests {
         let problems: Vec<Diagnostic> = (0..200)
             .map(|index| over(1 + index * 7, 1, Some(1 + index * 7 + 200), 2))
             .collect();
-        let (took, drawn) =
+        let (took, planned) =
             crate::editor::test_timing::best_of(3, || plan(&problems, &lines, |_| false));
-        assert_eq!(drawn.len(), MAX_DRAWN);
-        // The first problem gets its 200 lines (all the budget), in order.
-        assert!(drawn.iter().all(|(index, _)| *index == 0));
+        assert_eq!(planned.drawn.len(), MAX_DRAWN);
+        assert!(planned.cut);
+        // Every problem's start first (QA 20: the first one took the whole
+        // budget, hiding the others).
+        let mut starts: Vec<usize> = planned.drawn.iter().map(|(index, _)| *index).collect();
+        starts.dedup();
+        assert_eq!(starts, (0..200).collect::<Vec<_>>());
         assert!(took.as_millis() < 50, "planning took {took:?}");
         // One-line problems: the first 200 of them.
         let short: Vec<Diagnostic> = (0..300).map(|index| over(1 + index, 1, None, 3)).collect();
-        let drawn = plan(&short, &lines, |_| false);
-        assert_eq!(drawn.len(), MAX_DRAWN);
-        assert_eq!(drawn.last().map(|(index, _)| *index), Some(199));
-        // Mixed: a long range takes what is left after the short ones.
+        let planned = plan(&short, &lines, |_| false);
+        assert_eq!(planned.drawn.len(), MAX_DRAWN);
+        assert_eq!(planned.drawn.last().map(|(index, _)| *index), Some(199));
+        assert!(planned.cut);
+        // Mixed: every start, then a long range takes what is left.
         let mut mixed: Vec<Diagnostic> =
             (0..150).map(|index| over(1 + index, 1, None, 3)).collect();
         mixed.push(over(1, 1, Some(500), 2));
         mixed.push(over(2, 1, None, 3));
-        let drawn = plan(&mixed, &lines, |_| false);
-        assert_eq!(drawn.len(), MAX_DRAWN);
-        assert_eq!(drawn.iter().filter(|(index, _)| *index == 150).count(), 50);
-        assert!(drawn.iter().all(|(index, _)| *index <= 150));
+        let planned = plan(&mixed, &lines, |_| false);
+        assert_eq!(planned.drawn.len(), MAX_DRAWN);
+        let of = |wanted: usize| {
+            planned
+                .drawn
+                .iter()
+                .filter(|(index, _)| *index == wanted)
+                .count()
+        };
+        assert_eq!((of(150), of(151)), (49, 1));
+        // Under the cap nothing is cut.
+        let planned = plan(&short[..20], &lines, |_| false);
+        assert_eq!((planned.drawn.len(), planned.cut), (20, false));
+    }
+
+    /// QA 20: the cap went in list order, so a wide info (or 250 hints
+    /// listed first) hid a later error's underline. The most serious
+    /// problems are drawn first, each kind in list order, across every
+    /// mix of severities.
+    #[test]
+    fn the_cap_draws_the_most_serious_problems_first() {
+        use crate::Severity::{self, Error, Hint, Info, Warning};
+        let text = "key: value\n".repeat(600);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let with = |severity: Severity, problem: Diagnostic| Diagnostic {
+            severity,
+            ..problem
+        };
+        let mut failures = Vec::new();
+        let kinds = [Error, Warning, Info, Hint];
+        for crowd in kinds {
+            for wanted in kinds
+                .iter()
+                .copied()
+                .filter(|wanted| (*wanted as u8) < (crowd as u8))
+            {
+                let cases: [(&str, Vec<Diagnostic>); 2] = [
+                    (
+                        "a range over 400 lines",
+                        vec![with(crowd, over(1, 1, Some(400), 2))],
+                    ),
+                    (
+                        "250 one-line problems",
+                        (0..250)
+                            .map(|index| with(crowd, over(30 + index, 1, None, 3)))
+                            .collect(),
+                    ),
+                ];
+                for (name, mut problems) in cases {
+                    problems.push(with(wanted, over(10, 1, None, 4)));
+                    problems.push(with(wanted, over(500, 1, Some(503), 2)));
+                    let planned = plan(&problems, &lines, |_| false);
+                    let last = problems.len() - 1;
+                    let drawn =
+                        |index: usize| planned.drawn.iter().filter(|(at, _)| *at == index).count();
+                    if (drawn(last - 1), drawn(last)) != (1, 4)
+                        || planned.drawn.len() != MAX_DRAWN
+                        || !planned.cut
+                    {
+                        failures.push(format!(
+                            "{name} of {crowd:?} then {wanted:?}s: drawn {} and {} lines of them, {} in all, cut {}",
+                            drawn(last - 1),
+                            drawn(last),
+                            planned.drawn.len(),
+                            planned.cut
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

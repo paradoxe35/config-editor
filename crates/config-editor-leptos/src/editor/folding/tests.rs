@@ -293,3 +293,38 @@ fn the_default_folds_indentation_brackets_and_comments() {
         [fold(0, 1), fold(3, 4), fold(6, 7)]
     );
 }
+
+/// QA 20: a closed fold's chip told a hidden problem only by its colour;
+/// its label and title name the most serious one.
+#[test]
+fn a_fold_chip_names_the_most_serious_problem_it_hides() {
+    use super::texts::chip_label;
+    use crate::{EditorStrings, Severity};
+    let strings = EditorStrings::default();
+    let cases = [
+        (None, "Unfold lines 3–7"),
+        (
+            Some(Severity::Error),
+            "Unfold lines 3–7, hides a problem: Error",
+        ),
+        (
+            Some(Severity::Warning),
+            "Unfold lines 3–7, hides a problem: Warning",
+        ),
+        (
+            Some(Severity::Info),
+            "Unfold lines 3–7, hides a problem: Info",
+        ),
+        (
+            Some(Severity::Hint),
+            "Unfold lines 3–7, hides a problem: Hint",
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .map(|(hidden, expected)| (chip_label(&strings, 2, 6, hidden), expected))
+        .filter(|(found, expected)| found != expected)
+        .map(|(found, expected)| format!("expected {expected:?}, found {found:?}"))
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

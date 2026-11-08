@@ -25,6 +25,10 @@ pub(super) fn chord(state: EditorState, event: &KeyboardEvent) -> bool {
         if super::super::folding::chord_key(state, event) {
             return true;
         }
+        // Any other key ends the chord and does nothing else, as in VS
+        // Code ("not a command"): `Ctrl+K X` types no `x`.
+        event.prevent_default();
+        return true;
     }
     let settings = &state.config().settings;
     let finishable = settings.hover_docs.get_untracked() || settings.folding.get_untracked();

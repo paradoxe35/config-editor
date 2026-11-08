@@ -2,10 +2,10 @@
 //! pointer (or the focus) is on an underline, or where F8 or a tap went.
 //! Each problem gets its own lines (its severity, message, who reported it
 //! and its code, its docs link), the most serious first. It stays inside
-//! the editor and the window: above its line when it fits there, else
-//! below, else on the roomier side, no taller than the room there and
-//! scrolled (F8 scrolls to the problem it went to), so every message can
-//! be reached.
+//! the editor (in an editor too short for it, the window): above its
+//! line when it fits there, else below, else on the roomier side, no
+//! taller than the room there and scrolled (F8 scrolls to the problem it
+//! went to), so every message can be reached.
 
 use leptos::html::Div;
 use leptos::prelude::*;
@@ -57,25 +57,38 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
     let tip_ref = NodeRef::<Div>::new();
     let content = Memo::new(move |_| tip_content(state));
     // The tip's full height, measured once its entries are drawn; it
-    // decides the side and the height (see `place`).
+    // decides the side and the height (see `place`). Zero until the
+    // current entries are measured.
     let natural = RwSignal::new(0.0_f64);
     let placement = Memo::new(move |_| {
         let anchor = content.with(|content| content.as_ref().map(|content| content.anchor))?;
         placement(state, anchor, natural.get())
     });
     let visible = Memo::new(move |_| placement.with(Option::is_some));
-    Effect::new(move |_| {
-        content.track();
+    Effect::new(move |seen: Option<Option<TipContent>>| {
+        let now = content.get();
+        if seen.is_some_and(|seen| seen != now) && natural.get_untracked() != 0.0 {
+            // New entries: measured again before they are shown.
+            natural.set(0.0);
+        }
         if visible.get() {
             // Once its entries and its showing are on the page (before it
             // is painted).
             later::next_frame(state, move |_| measure(tip_ref, natural, true));
         }
+        now
     });
+    // Until measured, its place is a guess that may cover its own line:
+    // it stays unseen and lets the pointer through, so a click (or a tap,
+    // whose mouse events follow at once) on the underline reaches it.
+    let measured = move || natural.get() > 0.0;
     // It takes the pointer only to be reached: with a docs link, or taller
     // than its room (to scroll). Otherwise clicks go through to the text
     // under it, as when there is no tip.
     let interactive = move || {
+        if !measured() {
+            return false;
+        }
         let docs = content.with(|content| {
             content
                 .as_ref()
@@ -89,6 +102,7 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
         <div
             class="config-editor__problem-tip"
             class:config-editor__problem-tip--interactive=interactive
+            class:config-editor__problem-tip--unmeasured=move || !measured()
             role="tooltip"
             node_ref=tip_ref
             hidden=move || placement.with(Option::is_none)
@@ -323,22 +337,48 @@ fn placement(state: EditorState, anchor: TipAnchor, natural: f64) -> Option<Plac
         return None;
     }
     let x = rect.left() + metrics.padding_left + anchor.column * metrics.char_width - scroll_x;
-    Some(place(area, line_top, metrics.line_height, x, natural))
+    Some(place(
+        area,
+        (0.0, viewport_height),
+        line_top,
+        metrics.line_height,
+        x,
+        natural,
+    ))
 }
 
 /// The tip for a line at `line_top` (`line_height` tall), starting at `x`,
 /// `natural` pixels tall in full: above the line when it fits there, else
 /// below when it fits there, else on the roomier side, at most as tall as
-/// that side's room (it scrolls); shifted left to stay inside `area`.
-fn place(area: Area, line_top: f64, line_height: f64, x: f64, natural: f64) -> Placement {
+/// that side's room (it scrolls); shifted left to stay inside `area`. An
+/// editor too short for it on either side lends it the window's height
+/// (`window`: its top and bottom) when it fits there whole; else it stays
+/// inside the editor and scrolls.
+fn place(
+    area: Area,
+    window: (f64, f64),
+    line_top: f64,
+    line_height: f64,
+    x: f64,
+    natural: f64,
+) -> Placement {
     let width = TIP_MAX_WIDTH
         .min(area.right - area.left - 2.0 * TIP_MARGIN)
         .max(TIP_MIN_WIDTH);
     let left = x
         .min(area.right - TIP_MARGIN - width)
         .max(area.left + TIP_MARGIN);
-    let room_above = line_top - TIP_GAP - (area.top + TIP_MARGIN);
-    let room_below = area.bottom - TIP_MARGIN - (line_top + line_height + TIP_GAP);
+    let rooms = |top: f64, bottom: f64| {
+        (
+            line_top - TIP_GAP - (top + TIP_MARGIN),
+            bottom - TIP_MARGIN - (line_top + line_height + TIP_GAP),
+        )
+    };
+    let (mut room_above, mut room_below) = rooms(area.top, area.bottom);
+    let in_window = rooms(window.0, window.1);
+    if natural > room_above.max(room_below) && natural <= in_window.0.max(in_window.1) {
+        (room_above, room_below) = in_window;
+    }
     let above = natural <= room_above || (natural > room_below && room_above > room_below);
     let room = if above { room_above } else { room_below }.max(TIP_MIN_HEIGHT);
     let top = if above {
@@ -379,24 +419,58 @@ mod tests {
     #[test]
     fn the_tip_stays_inside_the_editor_above_below_or_scrolled() {
         // A short tip above its line, as before.
-        let placed = place(AREA, 300.0, 20.0, 50.0, 60.0);
+        let placed = place(AREA, (AREA.top, AREA.bottom), 300.0, 20.0, 50.0, 60.0);
         assert!(placed.above);
         assert_eq!(placed.top, 300.0 - 4.0 - 60.0);
         fits(placed, 60.0);
         // Near the top: below.
-        let placed = place(AREA, 110.0, 20.0, 50.0, 60.0);
+        let placed = place(AREA, (AREA.top, AREA.bottom), 110.0, 20.0, 50.0, 60.0);
         assert!(!placed.above);
         fits(placed, 60.0);
         // Taller than either side: on the roomier one, capped to its room.
         for line_top in [130.0, 300.0, 470.0] {
-            let placed = place(AREA, line_top, 20.0, 50.0, 2000.0);
+            let placed = place(AREA, (AREA.top, AREA.bottom), line_top, 20.0, 50.0, 2000.0);
             fits(placed, 2000.0);
             assert!(placed.max_height < 2000.0);
             assert_eq!(placed.above, line_top > 300.0 - 10.0, "{line_top}");
         }
         // Near the right edge: shifted left to stay inside.
-        let placed = place(AREA, 300.0, 20.0, 780.0, 60.0);
+        let placed = place(AREA, (AREA.top, AREA.bottom), 300.0, 20.0, 780.0, 60.0);
         assert!(placed.left + placed.width <= AREA.right);
+    }
+
+    /// QA 20: in an editor too short for a one-message tip on either side
+    /// of its line, the tip used the roomier side and scrolled. It takes
+    /// the window's room instead, whole.
+    #[test]
+    fn a_short_editor_lends_the_tip_the_windows_room() {
+        let short = Area {
+            top: 100.0,
+            bottom: 200.0,
+            ..AREA
+        };
+        for line_top in [110.0, 140.0, 175.0] {
+            let placed = place(short, (0.0, 600.0), line_top, 20.0, 50.0, 68.0);
+            assert!(placed.max_height >= 68.0, "{line_top}: {placed:?}");
+            assert!(
+                placed.top >= 0.0 && placed.top + 68.0 <= 600.0,
+                "{placed:?}"
+            );
+            // Beside its line, never over it.
+            assert!(
+                placed.top + 68.0 <= line_top || placed.top >= line_top + 20.0,
+                "{placed:?}"
+            );
+        }
+        // An editor with room keeps the tip inside.
+        let placed = place(AREA, (0.0, 600.0), 300.0, 20.0, 50.0, 68.0);
+        assert!(placed.top >= AREA.top);
+        // Too tall for the window too: inside the editor, scrolled.
+        let placed = place(short, (0.0, 600.0), 140.0, 20.0, 50.0, 2000.0);
+        assert!(
+            placed.top >= short.top && placed.max_height < 2000.0,
+            "{placed:?}"
+        );
     }
 
     /// QA 19: several problems at one place each keep their own source,
