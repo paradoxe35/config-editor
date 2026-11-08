@@ -209,7 +209,7 @@ test.describe('documents as tabs', () => {
     await expect(tab(page, 'main')).toBeFocused();
     await page.keyboard.press('Enter');
     await expect.poll(() => focusedDocument(page)).toBe('main');
-    expect(await focusedRole(page)).toBe('TEXTAREA');
+    expect(await focusedRole(page)).toBe('textbox');
 
     // From inside an editor: the next document's editor takes the focus,
     // with its caret where it was.
