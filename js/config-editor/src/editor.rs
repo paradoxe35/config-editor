@@ -489,7 +489,8 @@ impl ConfigEditor {
         };
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {
             // Called from a callback: the editor's handler is still running,
-            // so it unmounts once that returns.
+            // so it unmounts once that returns, calling nothing more.
+            self.state.silence();
             self.final_value = Some(self.latest_text());
             let deferred = Closure::once_into_js(unmount);
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {

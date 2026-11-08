@@ -388,5 +388,26 @@ export function frameworkCases(name) {
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
       await expect(input(browserPage)).toHaveValue(/listen: 7835/, { timeout: 10000 });
     });
+
+    test('unmounted right after an edit, it calls nothing more', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      await browserPage.evaluate(() => {
+        window.after = [];
+        // A callback arriving once the editor has left the page.
+        const late = (name) => () => !document.querySelector('.config-editor__input') && window.after.push(name);
+        window.setExtraProps({
+          onChangeSummary: late('onChangeSummary'),
+          onDirtyChange: late('onDirtyChange'),
+          onPathChange: late('onPathChange'),
+        });
+      });
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('xy');
+      await browserPage.evaluate(() => window.setShown(false));
+      await expect(input(browserPage)).toHaveCount(0);
+      await browserPage.waitForTimeout(800);
+      expect(await browserPage.evaluate(() => window.after)).toEqual([]);
+    });
   });
 }

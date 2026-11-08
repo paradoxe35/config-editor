@@ -520,7 +520,8 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
 - Whitespace, comments and punctuation around a locked field stay free
   (also whitespace inside it, such as a space after `:`); in YAML a locked
   line's indent cannot change (it is structure). A syntax error anywhere
-  keeps every lock until it is repaired.
+  keeps every lock until it is repaired, also in a `value` that does not
+  parse and for `readOnlyPaths` given while the text does not parse.
 - Suggestions leave read-only keys out (inside a read-only block they are
   listed with the reason).
 - With `editAs`, the same fields are locked in the other language, and a
@@ -874,7 +875,10 @@ text on screen.
 
 Line endings are kept: when the host's text ends its lines with CRLF,
 `onChange` and `onSave` receive CRLF too (the editor works on LF text inside,
-and dirty state and the diff compare line endings as LF).
+and dirty state and the diff compare line endings as LF). The endings are the
+text's majority, on every line: a text mixing CRLF and LF is sent with CRLF
+when most of its lines end so, else with LF, and old Mac CR endings become
+LF.
 
 ```js
 const editor = new ConfigEditor(element, {
