@@ -166,8 +166,8 @@ test.describe('the npm package', () => {
     expect(said.join('\n')).toContain('restart needed');
     // Hovering the place shows both messages, the error first.
     await page.keyboard.press('Escape');
-    const message = await markers(page).first().getAttribute('data-message');
-    expect(message).toBe('port taken\nsecond on listen');
+    await page.locator('.config-editor__diagnostic-marker:not(.config-editor__diagnostic-marker-covered)').first().hover();
+    await expect(page.locator('.config-editor__problem-tip-message')).toHaveText(['Error port taken', 'Warning second on listen']);
     expect(errors).toEqual([]);
   });
 
@@ -176,7 +176,7 @@ test.describe('the npm package', () => {
     const value = Array.from({ length: 30 }, (_, index) => `k${index}: bad`).join('\n') + '\n';
     const errors = await open(page, { value, schema });
     await setHost(page, [{ severity: 'warning', message: 'restart needed' }]);
-    await expect(footer(page)).toHaveText('20+ errors, 1 warning · restart needed · only the first 21 are shown');
+    await expect(footer(page)).toHaveText("20+ errors, 1 warning · restart needed · only the editor's first 20 are shown");
     await input(page).click();
     await page.keyboard.press('Control+End');
     await page.keyboard.press('F8');
@@ -193,8 +193,9 @@ test.describe('the npm package', () => {
     await setHost(page, [{ path: '/listen', message: 'a long message '.repeat(12) }]);
     await expect(markers(page)).toHaveCount(1);
     await page.locator('#editor').evaluate((element) => (element.style.width = '900px'));
+    await markers(page).hover();
     await expect
-      .poll(() => markers(page).evaluate((element) => parseFloat(element.style.getPropertyValue('--config-editor-diagnostic-tooltip-width'))))
+      .poll(() => page.locator('.config-editor__problem-tip').evaluate((element) => element.getBoundingClientRect().width))
       .toBe(360);
     expect(errors).toEqual([]);
   });

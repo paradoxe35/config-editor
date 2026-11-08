@@ -1,6 +1,7 @@
 //! How keyboard and screen-reader access words problems, from the
 //! `strings` setting.
 
+use super::super::completion::{ChoiceHover, KeyHover};
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -100,4 +101,56 @@ pub(in crate::editor) fn problem_marker(
             ("message", &problem.message),
         ],
     )
+}
+
+/// The hover card's docs as one text, for screen readers when the card is
+/// shown from the keyboard or a tap: the value's, then the key's name, type
+/// and marks, its description, its `oneOf` option, default and examples.
+pub(in crate::editor) fn hover_text(strings: &EditorStrings, hover: &KeyHover) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(value) = &hover.value {
+        parts.extend(
+            [
+                Some(&value.label),
+                value.doc.title.as_ref(),
+                value.doc.description.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .cloned(),
+        );
+    }
+    let mut key = format!("{} ({})", hover.key, hover.type_label);
+    for (on, mark) in [
+        (hover.required, &strings.required),
+        (hover.deprecated, &strings.deprecated),
+    ] {
+        if on {
+            key = format!("{key}, {mark}");
+        }
+    }
+    parts.push(key);
+    parts.extend(hover.deprecation.clone());
+    parts.extend(hover.description.clone());
+    match &hover.choice {
+        Some(ChoiceHover::Matched(doc)) => {
+            parts.extend(doc.title.clone());
+            parts.extend(doc.description.clone());
+        }
+        Some(ChoiceHover::OneOf(titles)) => {
+            parts.push(format!("{}: {}", strings.one_of, titles.join(", ")));
+        }
+        None => {}
+    }
+    if let Some(default) = &hover.default {
+        parts.push(format!("{}: {default}", strings.default_value));
+    }
+    if !hover.examples.is_empty() {
+        parts.push(format!(
+            "{}: {}",
+            strings.examples,
+            hover.examples.join(", ")
+        ));
+    }
+    parts.join(". ")
 }

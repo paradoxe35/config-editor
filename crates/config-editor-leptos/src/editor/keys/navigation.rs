@@ -148,7 +148,7 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     let stops = problems.walk.get_untracked();
     // Where the last press left off, if the caret is still there.
     let last = problems.diagnostics.with_untracked(|found| {
-        problems.walked.with_value(|walked| {
+        problems.walked.with_untracked(|walked| {
             let (problem, _) = walked.as_ref().filter(|(_, caret)| *caret == here)?;
             stops
                 .iter()
@@ -163,17 +163,17 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     let caret = state.doc().caret.get_untracked();
     // "Error 2 of 5: …" for screen readers, which do not see the message
     // the marker shows (an unplaced problem has none).
+    let walked = problems
+        .diagnostics
+        .with_untracked(|found| found.get(index).cloned());
+    let Some(problem) = walked else {
+        return true;
+    };
     let said = state.strings_untracked(|strings| {
-        problems.diagnostics.with_untracked(|found| {
-            found.get(index).map(|problem| {
-                problems.walked.set_value(Some((problem.clone(), caret)));
-                problem_announcement(strings, problem, position + 1, stops.len())
-            })
-        })
+        problem_announcement(strings, &problem, position + 1, stops.len())
     });
-    if let Some(said) = said {
-        state.a11y().announce(said);
-    }
+    problems.walked.set(Some((problem, caret)));
+    state.a11y().announce(said);
     true
 }
 

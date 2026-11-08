@@ -49,6 +49,10 @@ pub(super) fn shortcuts(_state: EditorState, _event: &KeyboardEvent) -> bool {
     false
 }
 
+pub(super) fn chord_key(_state: EditorState, _event: &KeyboardEvent) -> bool {
+    false
+}
+
 pub(super) fn unfold_before_edit(_state: EditorState, _event: &KeyboardEvent) {}
 
 pub(super) fn follow_settings(_state: EditorState) {}

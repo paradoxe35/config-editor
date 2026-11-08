@@ -6,6 +6,37 @@ use super::super::super::diagnostics::Diagnostic;
 /// would otherwise draw thousands of underlines).
 pub(super) const MAX_LINES: usize = 200;
 
+/// Most underlines drawn in all, every problem's lines counted: past them
+/// problems are still counted, listed and reached with F8 (200 ranges of
+/// 200 lines each drew 40,000 underlines and hung the page).
+pub(super) const MAX_DRAWN: usize = 200;
+
+/// The underlines to draw for `problems`, each with its problem's index:
+/// the problems' in the order they are listed (the editor's own, then the
+/// host's), each over at most [`MAX_LINES`] lines, until [`MAX_DRAWN`]
+/// underlines in all. The first ones in that order, not those nearest the
+/// view, so scrolling never redraws them.
+pub(super) fn plan(
+    problems: &[Diagnostic],
+    lines: &[&str],
+    hidden: impl Fn(usize) -> bool,
+) -> Vec<(usize, Segment)> {
+    let mut drawn = Vec::new();
+    for (index, problem) in problems.iter().enumerate() {
+        let left = MAX_DRAWN - drawn.len();
+        if left == 0 {
+            break;
+        }
+        drawn.extend(
+            segments(problem, lines, &hidden)
+                .into_iter()
+                .take(left)
+                .map(|segment| (index, segment)),
+        );
+    }
+    drawn
+}
+
 /// The underline of a problem on one line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Segment {
@@ -74,7 +105,7 @@ pub(super) fn segments(
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_LINES, Segment, segments};
+    use super::{MAX_DRAWN, MAX_LINES, Segment, plan, segments};
     use crate::Diagnostic;
 
     const TEXT: &str = "listen: 7835\nweb:\n\n  http: 80\n  hosts: []\n";
@@ -142,5 +173,36 @@ mod tests {
         let lines: Vec<&str> = text.split('\n').collect();
         let found = segments(&over(1, 1, Some(900), 2), &lines, |_| false);
         assert_eq!(found.len(), MAX_LINES);
+    }
+
+    /// QA 19: the cap counts every line drawn, not every problem: 200
+    /// ranges of 200 lines draw 200 underlines, not 40,000, quickly.
+    #[test]
+    fn the_cap_counts_every_underlined_line_of_every_problem() {
+        let text = "key: value\n".repeat(3000);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let problems: Vec<Diagnostic> = (0..200)
+            .map(|index| over(1 + index * 7, 1, Some(1 + index * 7 + 200), 2))
+            .collect();
+        let (took, drawn) =
+            crate::editor::test_timing::best_of(3, || plan(&problems, &lines, |_| false));
+        assert_eq!(drawn.len(), MAX_DRAWN);
+        // The first problem gets its 200 lines (all the budget), in order.
+        assert!(drawn.iter().all(|(index, _)| *index == 0));
+        assert!(took.as_millis() < 50, "planning took {took:?}");
+        // One-line problems: the first 200 of them.
+        let short: Vec<Diagnostic> = (0..300).map(|index| over(1 + index, 1, None, 3)).collect();
+        let drawn = plan(&short, &lines, |_| false);
+        assert_eq!(drawn.len(), MAX_DRAWN);
+        assert_eq!(drawn.last().map(|(index, _)| *index), Some(199));
+        // Mixed: a long range takes what is left after the short ones.
+        let mut mixed: Vec<Diagnostic> =
+            (0..150).map(|index| over(1 + index, 1, None, 3)).collect();
+        mixed.push(over(1, 1, Some(500), 2));
+        mixed.push(over(2, 1, None, 3));
+        let drawn = plan(&mixed, &lines, |_| false);
+        assert_eq!(drawn.len(), MAX_DRAWN);
+        assert_eq!(drawn.iter().filter(|(index, _)| *index == 150).count(), 50);
+        assert!(drawn.iter().all(|(index, _)| *index <= 150));
     }
 }

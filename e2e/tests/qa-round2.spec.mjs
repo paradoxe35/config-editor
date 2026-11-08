@@ -225,11 +225,11 @@ test.describe('tooltips on a phone', () => {
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveCount(1);
     await marker.hover();
-    const overflow = await marker.evaluate((element) => {
-      const tip = getComputedStyle(element, '::after');
-      const right = element.getBoundingClientRect().left + parseFloat(tip.left) + parseFloat(tip.width);
-      return right - document.querySelector('.config-editor__input').getBoundingClientRect().right;
-    });
+    const tip = page.locator('.config-editor__problem-tip');
+    await expect(tip).toBeVisible();
+    const overflow = await tip.evaluate(
+      (element) => element.getBoundingClientRect().right - document.querySelector('.config-editor__input').getBoundingClientRect().right,
+    );
     expect(overflow).toBeLessThanOrEqual(0);
   });
 });

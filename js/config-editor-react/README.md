@@ -514,7 +514,8 @@ shown in the footer as "Tab moves focus" until `Ctrl+M` again), and right
 after an `Escape` that had nothing to close one `Tab` or `Shift+Tab` leaves.
 The textarea's `aria-describedby` holds what is at the caret (each problem's
 message, host ones with their source, a read-only value's reason, a secret
-placeholder's hint), and `F8` announces "Error 2 of 5: …". Nothing to set:
+placeholder's hint), `F8` announces "Error 2 of 5: …", and `Ctrl+K Ctrl+I`
+shows and reads the schema docs of the key at the caret. Nothing to set:
 
 ```tsx
 <label htmlFor="after">Next field</label>

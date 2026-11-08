@@ -114,6 +114,8 @@
 
       const themeSelect = document.getElementById("theme");
       for (const { name } of themes()) themeSelect.append(new Option(name, name));
+      // A theme given in `?options` shows as chosen.
+      if (typeof extra.theme === "string") themeSelect.value = extra.theme;
       themeSelect.onchange = () => editor.update({ theme: themeSelect.value });
       document.getElementById("edit-as").onchange = (event) => editor.update({ editAs: event.target.value || null });
       document.getElementById("read-only").onchange = (event) => editor.update({ readOnly: event.target.checked });

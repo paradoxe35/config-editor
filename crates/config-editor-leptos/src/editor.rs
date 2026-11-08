@@ -103,7 +103,7 @@ use crate::EditorSettings;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
-    HoverCardView, SourceInput, StatusBar, Toolbar,
+    HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar,
 };
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
@@ -351,6 +351,7 @@ pub fn ConfigEditor(
                         <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />
                         <SourceInput state=state />
                         <HoverCardView state=state />
+                        <ProblemTip state=state />
                         <ProtectTipView state=state />
                         <CompletionList state=state />
                         <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />

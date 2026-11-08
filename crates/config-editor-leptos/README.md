@@ -568,7 +568,7 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   ignored.
 - **Problems:** at most 20 of each source (the schema's, the secret
   placeholders') are listed and underlined, and the footer says how many
-  were cut ("20+ errors · only the first 20 are shown"); a problem with no
+  were cut ("20+ errors · only the editor's first 20 are shown"); a problem with no
   place (the whole document's) stays in the footer and `F8` reaches it.
 
 ```rust
@@ -978,6 +978,7 @@ schema whose regex it cannot compile.
 | `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`          | Undo, redo                                                                        |
 | `F8` / `Shift+F8`                            | Next / previous problem                                                           |
 | `Alt+Enter` on a problem with a docs link    | Open its documentation in a new tab                                               |
+| `Ctrl+K Ctrl+I`                              | Show the schema docs of the key at the caret, read to screen readers (`Escape`)   |
 | `Alt+F5` / `Shift+Alt+F5`                    | Next / previous change against the baseline                                       |
 | `Alt+F3` / `Shift+Alt+F3`                    | Next / previous change, opening its preview with the focus on Revert              |
 | `Enter` or `R` in a change preview           | Revert this change (`Escape` closes the preview and returns to the text)          |

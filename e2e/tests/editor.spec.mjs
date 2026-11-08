@@ -323,11 +323,11 @@ test.describe('diagnostics follow edits', () => {
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveCount(1);
     await marker.hover();
-    const overflow = await marker.evaluate((element) => {
+    const tip = page.locator('.config-editor__problem-tip');
+    await expect(tip).toBeVisible();
+    const overflow = await tip.evaluate((element) => {
       const editorBox = document.querySelector('.config-editor__input').getBoundingClientRect();
-      const tip = getComputedStyle(element, '::after');
-      const left = element.getBoundingClientRect().left + parseFloat(tip.left);
-      return left + parseFloat(tip.width) - editorBox.right;
+      return element.getBoundingClientRect().right - editorBox.right;
     });
     expect(overflow).toBeLessThanOrEqual(0);
   });

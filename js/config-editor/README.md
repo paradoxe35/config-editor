@@ -500,7 +500,7 @@ editor.update({
   before it starts, or a pointer without its leading `/` throws.
 - The editor lists and underlines at most 20 problems of each source (the
   schema's, the secret placeholders'), and the footer says how many were
-  cut ("20+ errors · only the first 20 are shown"); a problem with no place
+  cut ("20+ errors · only the editor's first 20 are shown"); a problem with no place
   (the whole document's) stays in the footer and `F8` reaches it.
 - Where the host marks the same text as one of the editor's own problems,
   only the host's shows. A new list replaces the previous one (`null` or
@@ -781,6 +781,9 @@ ConfigEditor` and `update()`.
 
 - `Ctrl+Shift+[` / `Ctrl+Shift+]`: fold / unfold at the caret
 - `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`: fold / unfold everything
+- `Ctrl+K Ctrl+I`: show the schema docs of the key at the caret (read to
+  screen readers; `Escape` closes them); on a touch screen, a tap on a key
+  shows them
 
 **Documents** (a `ConfigDocuments` view)
 
