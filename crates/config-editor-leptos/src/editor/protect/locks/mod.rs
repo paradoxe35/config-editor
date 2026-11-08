@@ -24,13 +24,12 @@
 //!    the reference text with its breaking lines blanked), equal;
 //! 2. else, when the reference text parses, its value there, equal (both
 //!    absent included);
-//! 3. else, when the reference text writes the field (a lock found in it,
-//!    its key, or a line of it the edits removed), the field in the new
-//!    text made of the reference text's own lines, kept, with only closers
-//!    added (`}`, `]`, `)`, end tags, a comma moved past them), none of
-//!    its lines removed;
-//! 4. else (a path the reference text never wrote) nothing: there is no
-//!    value to keep, as in a text that parses.
+//! 3. else, when the new text has the field: made there of the reference
+//!    text's own lines, kept, with only closers added (`}`, `]`, `)`, end
+//!    tags, a comma moved past them), none of its lines removed;
+//! 4. else, absent from the new text, absent from the reference text too
+//!    (no lock found there, no line of it removed, no key): a path the
+//!    text never had keeps nothing, as in a text that parses.
 //!
 //! The fields checked are every lock, held field and pinned value of the
 //! text before, the host's paths, and the fields the schema marks in the

@@ -66,23 +66,25 @@ pub(super) fn repair_keeps_locks(edit: &Edited<'_>, edited: &Value) -> Result<()
             }
             continue;
         }
-        let written = protected
-            .locks
-            .iter()
-            .any(|lock| lock.pointer.as_deref() == Some(&pointer))
-            || protected
-                .unplaced
-                .iter()
-                .any(|(known, _)| *known == pointer)
-            || removed
-                .iter()
-                .any(|line| within(behavior, &line.pointer, &pointer))
-            || key_range(behavior, origin, &pointer).is_some();
-        if !written {
-            continue;
-        }
+        // Not in the edited text: refused when the reference text wrote it
+        // (a lock found in it, a line of it removed, its key).
         let Some(value) = now else {
-            return Err(refuse(Why::Changed));
+            let written = protected
+                .locks
+                .iter()
+                .any(|lock| lock.pointer.as_deref() == Some(&pointer))
+                || protected
+                    .unplaced
+                    .iter()
+                    .any(|(known, _)| *known == pointer)
+                || removed
+                    .iter()
+                    .any(|line| within(behavior, &line.pointer, &pointer))
+                || key_range(behavior, origin, &pointer).is_some();
+            if written {
+                return Err(refuse(Why::Changed));
+            }
+            continue;
         };
         let Some(found) = extent(
             behavior,
