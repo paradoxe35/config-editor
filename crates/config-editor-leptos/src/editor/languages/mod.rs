@@ -345,8 +345,11 @@ impl Language {
     /// Where the field at `path` is written in `source`: its key and value
     /// when they share a line (`listen: 7835`), the key alone when the value
     /// is a block below it (an object or list over several lines), the value
-    /// alone for an array item; the root is the whole text. `None` when the
-    /// document has no such field.
+    /// alone for an array item, and for an item holding a block its dash
+    /// (`- name: web`) or header (a repeated HCL block, a TOML `[[array]]`
+    /// entry). A list written as repeated items (XML elements, HCL blocks,
+    /// `[[array]]` headers) is found at its first one. The root is the
+    /// whole text. `None` when the document has no such field.
     ///
     /// ```
     /// # #[cfg(all(feature = "yaml", feature = "toml"))] {
@@ -386,12 +389,7 @@ impl Language {
             .map(|path| path.into().to_pointer())
             .collect();
         let source = &*line_breaks::as_lf(source);
-        // A list written as repeated elements is found by its first item.
-        let wanted: Vec<String> = pointers
-            .iter()
-            .flat_map(|pointer| [pointer.clone(), format!("{pointer}/0")])
-            .collect();
-        paths::with_spans(self.0, source, &wanted, || {
+        paths::with_spans(self.0, source, &pointers, || {
             pointers
                 .iter()
                 .map(|pointer| paths::field_range(self.0, source, pointer))

@@ -30,7 +30,8 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         }
         _ => trimmed,
     };
-    if body.starts_with('#') {
+    // A comment, or a flow collection (`{n: 1}`) whose keys are inline.
+    if body.starts_with(['#', '{', '[']) {
         return None;
     }
     let colon = mapping_colon_anywhere(body)?;

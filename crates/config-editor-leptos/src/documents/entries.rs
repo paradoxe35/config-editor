@@ -5,6 +5,7 @@
 use leptos::html::Div;
 use leptos::prelude::*;
 
+use super::adding::Adding;
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use crate::EditorStrings;
@@ -205,8 +206,9 @@ pub(super) struct Documents {
     /// about once, until the list stops repeating it.
     repeated: StoredValue<Vec<String>>,
     /// The user asked for a new document (`on_add`) and the host has not
-    /// added one yet: the next one added is selected, its editor focused.
-    adding: StoredValue<bool>,
+    /// added one yet: the next one added in answer is selected, its editor
+    /// focused (see `adding`).
+    pub(super) adding: Adding,
 }
 
 thread_local! {
@@ -265,7 +267,7 @@ impl Documents {
             next_serial: StoredValue::new(0),
             schemas: StoredValue::new_local(SchemaCache::default()),
             repeated: StoredValue::new(Vec::new()),
-            adding: StoredValue::new(false),
+            adding: Adding::new(),
         }
     }
 
@@ -382,8 +384,7 @@ impl Documents {
             self.report_dirty(&entry.id, entry.dirty.get_untracked());
         }
         // The document the host added for the user's "+": shown and edited.
-        if let Some(entry) = added.first().filter(|_| self.adding.get_value()) {
-            self.adding.set_value(false);
+        if let Some(entry) = added.first().filter(|_| self.adding.take()) {
             self.select(&entry.id, Focus::Editor);
             return;
         }
@@ -428,7 +429,7 @@ impl Documents {
     /// Selects `id` for the user (a tab, a key): a "+" still waiting for
     /// its document no longer takes the focus when that comes.
     pub(super) fn pick(&self, id: &str, focus: Focus) -> bool {
-        let _ = self.adding.try_set_value(false);
+        self.adding.stop();
         self.select(id, focus)
     }
 
@@ -466,13 +467,13 @@ impl Documents {
         });
     }
 
-    /// Asks the host for a new document (the "+" button): the next one it
-    /// adds is selected and its editor focused.
+    /// Asks the host for a new document (the "+" button): the one it adds
+    /// in answer is selected and its editor focused (see `adding`).
     pub(super) fn request_add(&self) {
         let Some(callback) = self.callbacks.on_add else {
             return;
         };
-        let _ = self.adding.try_set_value(true);
+        self.adding.start(*self);
         callback.run(());
     }
 

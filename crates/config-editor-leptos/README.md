@@ -463,10 +463,10 @@ they come.
 | `reference_type`                | `"reference"`                                                                                                                        | The type column of a reference suggestion.                                                                                                                                                                                                     |
 | `closes_tag`                    | `"Closes <{name}>"`                                                                                                                  | The detail of the end tag XML suggests.                                                                                                                                                                                                        |
 | `end_tag`                       | `"end tag"`                                                                                                                          | Its type column.                                                                                                                                                                                                                               |
-| `key_not_allowed`               | `"'{key}' is not allowed here"`                                                                                                      | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
+| `key_not_allowed`               | `"\"{key}\" is not allowed here"`                                                                                                    | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
 | `text_not_allowed`              | `"text is not allowed here, only elements"`                                                                                          | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                   |
-| `key_deprecated`                | `"{pointer}: '{key}' is deprecated"`                                                                                                 | A deprecated key.                                                                                                                                                                                                                              |
-| `key_deprecated_instead`        | `"{pointer}: '{key}' is deprecated. {message}"`                                                                                      | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
+| `key_deprecated`                | `"{pointer}: \"{key}\" is deprecated"`                                                                                               | A deprecated key.                                                                                                                                                                                                                              |
+| `key_deprecated_instead`        | `"{pointer}: \"{key}\" is deprecated. {message}"`                                                                                    | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
 | `not_one_of`                    | `"{value} is not one of {allowed}"`                                                                                                  | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrong_type`                    | `"{value} is not of type {types}"`                                                                                                   | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `invalid_schema`                | `"Invalid JSON Schema: {error}"`                                                                                                     | A schema that does not compile.                                                                                                                                                                                                                |
@@ -637,6 +637,15 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   default). Without it the props compile, do nothing, and log a console
   warning; the schema's `readOnly`, `writeOnly` and `x-secret` marks are
   ignored.
+- **Size:** the editor sizes itself, not by its parent's height: its text
+  area grows with the text from `--config-editor-min-height` (240px, less
+  in a window too short for it) to `--config-editor-max-height` (80% of the
+  window, less in a short one), then scrolls; the toolbar, tab bar and
+  footer come on top. `--config-editor-height` (a length, such as `400px`)
+  fixes the text area's height. To fill a container of a set height, give
+  the editor `height: 100%` (`.config-editor { height: 100%; }`): the text
+  area takes what the toolbar and footer leave. The custom properties go
+  on `.config-editor` or any element above it.
 - **Problems:** at most 20 of each source (the schema's, the secret
   placeholders') are listed and underlined, and the footer says how many
   were cut ("20+ errors · only the editor's first 20 are shown"); a problem with no
@@ -715,8 +724,12 @@ view! {
 - **Adding is the host's too.** With `on_add`, a "+" button follows the last
   tab (outside the tab list, after it in the `Tab` order; named and titled
   by the `add_document` text, "New file"). It only calls `on_add`: the host
-  decides what a new document is and lists it, and the next document it adds
-  is selected, its editor focused without scrolling the page. When the tabs
+  decides what a new document is and lists it, and the document it adds in
+  answer is selected, its editor focused without scrolling the page. In
+  answer: the first one added within 5 seconds of the click, before the
+  focus moves to something outside the view (a dialog of the host's: select
+  the document with `DocumentsHandle::select` then) and before another tab
+  is picked. One added later (a server's) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip, visible while they
   scroll. No key adds a document (`Ctrl+T` and `Ctrl+N` belong to the
   browser). Leave `on_add` unset for a view that only shows files.
@@ -797,16 +810,16 @@ view! {
 }
 ```
 
-| `EditorHandle` method         | Description                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `range_of(path)`              | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item. |
-| `path_at(position)`           | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                        |
-| `current_path()`              | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                        |
-| `reveal(path)`                | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                     |
-| `fold(path)` / `unfold(path)` | Fold the block the field's key opens / open the folds around the field; `false` when there was nothing to do.                                                                                   |
-| `fold_all()` / `unfold_all()` | Fold every block / open every fold.                                                                                                                                                             |
-| `folded_lines()`              | The closed folds as one-based `(first, last)` line pairs. Reactive.                                                                                                                             |
-| `focus()`, `text()`           | Focus the editor; the text on screen.                                                                                                                                                           |
+| `EditorHandle` method         | Description                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `range_of(path)`              | `Option<TextRange>`: the key and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`), the key alone when the value is a block below it, the value alone for a list item, the dash or header of an item holding a block (`- name: web`, a repeated HCL block, a TOML `[[array]]` entry). |
+| `path_at(position)`           | `Option<FieldPath>` of what a `TextPosition` is on: the key under or just before it, else the value or container holding it (the root at the top level).                                                                                                                                                       |
+| `current_path()`              | The caret's path. Reactive: read it in a closure to follow the caret (as `on_path_change` does). Computed only while something reads it.                                                                                                                                                                       |
+| `reveal(path)`                | Scrolls to the field, selects `range_of(path)` and focuses the editor; `false` when there is no such field.                                                                                                                                                                                                    |
+| `fold(path)` / `unfold(path)` | Fold the block the field's key opens / open the folds around the field; `false` when there was nothing to do.                                                                                                                                                                                                  |
+| `fold_all()` / `unfold_all()` | Fold every block / open every fold.                                                                                                                                                                                                                                                                            |
+| `folded_lines()`              | The closed folds as one-based `(first, last)` line pairs. Reactive.                                                                                                                                                                                                                                            |
+| `focus()`, `text()`           | Focus the editor; the text on screen.                                                                                                                                                                                                                                                                          |
 
 Positions (`TextPosition`: one-based `line` and character `column`) refer to
 the text on screen, which is the `edit_as` language while editing as another

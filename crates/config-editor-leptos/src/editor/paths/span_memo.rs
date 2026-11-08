@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::super::language::{ConfigLanguage, Span};
+use super::super::language::{ConfigLanguage, Repetition, Span};
 use super::super::work_count::{Work, note};
 
 /// A text by address and length: it is borrowed for the whole batch.
@@ -91,10 +91,15 @@ pub(crate) fn batch_cached_as<T: 'static>(
 }
 
 /// Each of `pointers` with its ancestors and the spellings a language
-/// writing lone items without `/0` finds it by, sorted, once each.
-fn wanted(pointers: &[String]) -> Vec<String> {
+/// writing lone items without `/0` finds it by (and, when it `repeats`,
+/// the first item a list of repeated elements is found by), sorted, once
+/// each.
+fn wanted(pointers: &[String], repeats: bool) -> Vec<String> {
     let mut wanted: Vec<String> = Vec::new();
     for pointer in pointers {
+        if repeats {
+            wanted.push(format!("{pointer}/0"));
+        }
         let lone = pointer.replace("/0/", "/");
         let lone = lone.strip_suffix("/0").unwrap_or(&lone).to_string();
         for spelling in [pointer.as_str(), lone.as_str()] {
@@ -120,7 +125,7 @@ pub(crate) fn with_spans<T>(
     pointers: &[String],
     work: impl FnOnce() -> T,
 ) -> T {
-    let wanted = wanted(pointers);
+    let wanted = wanted(pointers, behavior.repetition() != Repetition::None);
     let text = text_key(source);
     let label = behavior.info().label;
     BATCHES.with(|batches| {

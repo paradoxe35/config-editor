@@ -253,27 +253,7 @@ impl ConfigLanguage for HclBehavior {
         line_index: usize,
         column: usize,
     ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-        // A block type (`services` in `services "web" {`) names a key of the
-        // enclosing body.
-        let line = source.split('\n').nth(line_index)?;
-        let code = code_before_comment(line).unwrap_or(line);
-        let trimmed = code.trim_start();
-        let indent = code.len() - trimmed.len();
-        let name_end = trimmed
-            .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '-')))
-            .unwrap_or(trimmed.len());
-        let rest = trimmed[name_end..].trim_start();
-        let is_block = name_end > 0 && (rest.starts_with('"') || rest.starts_with('{')) && code.trim_end().ends_with('{');
-        if !is_block || column < indent || column >= indent + name_end {
-            return None;
-        }
-        let name = trimmed[..name_end].to_string();
-        let line_start: usize = source.split('\n').take(line_index).map(|line| line.len() + 1).sum();
-        let mut path = self
-            .completion_context(source, source[..line_start].encode_utf16().count())
-            .path;
-        path.push(SchemaPathSegment::Key(name.clone()));
-        Some((path, name, indent))
+        header_path(source, line_index, column)
     }
 
     fn hover_cursor(&self, line: &str, column: usize) -> usize {

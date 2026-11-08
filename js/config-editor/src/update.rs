@@ -5,10 +5,10 @@
 //! refused.
 
 use config_editor_leptos::EditorSettings;
-use js_sys::{Array, Function, Object, Reflect};
+use js_sys::{Array, Function, Reflect};
 use wasm_bindgen::prelude::*;
 
-use crate::settings::{setting_keys, settings_from, settings_to_js};
+use crate::settings::{is_record, merged_texts, setting_keys, settings_from, settings_to_js};
 use crate::values::field;
 
 /// `options` is a plain object, else `usage` is the error.
@@ -91,26 +91,4 @@ pub(crate) fn settings_change(
         return Ok(None);
     }
     settings_from(&merged).map(Some)
-}
-
-fn is_record(value: &JsValue) -> bool {
-    value.is_object() && !value.is_function() && !Array::is_array(value)
-}
-
-/// `texts` over `current` (both `strings` or both `colors` objects); a
-/// text set to `null` is dropped, so it takes its default.
-fn merged_texts(current: &JsValue, texts: &JsValue) -> JsValue {
-    let merged = if is_record(current) {
-        Object::assign(&Object::new(), current.unchecked_ref())
-    } else {
-        Object::new()
-    };
-    let merged = Object::assign(&merged, texts.unchecked_ref());
-    for key in Object::keys(&merged).iter() {
-        let value = Reflect::get(&merged, &key).unwrap_or(JsValue::UNDEFINED);
-        if value.is_null() || value.is_undefined() {
-            let _ = Reflect::delete_property(&merged, &key);
-        }
-    }
-    merged.into()
 }

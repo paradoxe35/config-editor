@@ -64,7 +64,7 @@ test.describe('yaml: every problem in an optional object', () => {
     const messages = page.locator('.config-editor__diagnostic-marker');
     await expect(messages).toHaveCount(2);
     const all = await messages.evaluateAll((markers) => markers.map((marker) => marker.dataset.message).join('\n'));
-    expect(all).toContain("'bogus' is not allowed");
+    expect(all).toContain('"bogus" is not allowed');
     expect(all).toContain('minimum');
   });
 });

@@ -64,10 +64,6 @@ pub(crate) struct Timeout {
 
 impl Timeout {
     /// Drops the timer's work if it has not run yet.
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the protect tip cancels its timer")
-    )]
     pub(crate) fn cancel(self) {
         if self.id == 0 {
             return;
@@ -237,10 +233,6 @@ mod platform {
         })
     }
 
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the protect tip cancels its timer")
-    )]
     pub(super) fn clear_timeout(handle: i32) {
         if let Some(window) = web_sys::window() {
             window.clear_timeout_with_handle(handle);
@@ -277,10 +269,6 @@ mod platform {
         Some(0)
     }
 
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the protect tip cancels its timer")
-    )]
     pub(super) fn clear_timeout(_handle: i32) {}
 
     pub(super) fn request_frame() {}

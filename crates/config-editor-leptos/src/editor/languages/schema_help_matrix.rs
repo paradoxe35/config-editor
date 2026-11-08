@@ -224,7 +224,7 @@ fn deprecated_keys_in_the_document_get_a_warning_on_the_key() {
                     && warning.column.is_some_and(|start| start <= expected_column)
                     && marked(source, warning).as_deref() == Some(expected_key)
                     && warning.message
-                        == "/timeout: 'timeout' is deprecated. Use deadline instead." => {}
+                        == r#"/timeout: "timeout" is deprecated. Use deadline instead."# => {}
             other => failures.push(format!(
                 "{language:?}: {other:?} marks {:?}",
                 other.first().and_then(|warning| marked(source, warning))

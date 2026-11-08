@@ -1069,7 +1069,7 @@ mod message_tests {
     fn a_typo_in_an_optional_object_names_the_typo() {
         assert_eq!(
             messages("web: {listen: 443}\n"),
-            ["/web: 'listen' is not allowed here"]
+            [r#"/web: "listen" is not allowed here"#]
         );
     }
 
@@ -1089,7 +1089,7 @@ mod message_tests {
         assert!(
             found
                 .iter()
-                .any(|message| message.contains("'bogus' is not allowed")),
+                .any(|message| message.contains(r#""bogus" is not allowed"#)),
             "{found:?}"
         );
         assert!(

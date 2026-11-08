@@ -72,9 +72,16 @@ execFileSync(
     .replace(/export interface InitOutput \{[\s\S]*?\n\}/, 'export interface InitOutput {\n    readonly memory: WebAssembly.Memory;\n}');
   writeFileSync(types, cleaned);
 }
-// Optional: shrink further with binaryen's wasm-opt when it is installed. Its
-// features are listed, without SIMD (the wasm loads in browsers without it);
-// a wasm-opt that is installed but fails fails the build.
+// Optional: shrink what is transferred with binaryen's wasm-opt when it is
+// installed. Its features are listed, without SIMD (the wasm loads in
+// browsers without it); a wasm-opt that is installed but fails fails the
+// build. -O1, because the size passes shrink the raw file but not the
+// compressed one a browser downloads. Measured with Binaryen 123 on this
+// wasm (7.34 MB raw, 2.30 MB gzip -9, 1.53 MB brotli): -O1 saves 1.7% of
+// the gzipped size and 1.0% of the brotli one; -Os, -Oz, -O2 and -O3 make
+// them 5 to 7% larger (the raw file 8 to 11% smaller), with or without
+// --strip-debug --strip-producers (which change nothing: the release build
+// already strips) or --converge.
 let hasWasmOpt = true;
 try {
   execFileSync('wasm-opt', ['--version'], { stdio: 'ignore' });
@@ -87,7 +94,7 @@ if (hasWasmOpt) {
   // The features Rust's wasm32 target turns on by default (multivalue
   // included), and no others: without SIMD the wasm loads in every browser.
   // CI and the release use the same pinned wasm-opt (scripts/install-binaryen.sh).
-  execFileSync('wasm-opt', ['-Os', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
+  execFileSync('wasm-opt', ['-O1', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
     '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', '--enable-multivalue',
     wasm, '-o', wasm], { stdio: 'inherit' });
 }

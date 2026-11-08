@@ -75,7 +75,7 @@ test.describe('schema help', () => {
     // The underlined key's hover is the warning, which says it all.
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveClass(/config-editor__diagnostic-marker-warning/);
-    await expect(marker).toHaveAttribute('data-message', "/timeout: 'timeout' is deprecated. Use deadline instead.");
+    await expect(marker).toHaveAttribute('data-message', '/timeout: "timeout" is deprecated. Use deadline instead.');
   });
 
   test('a required block takes examples and Tab selects each written value', async ({ page }) => {

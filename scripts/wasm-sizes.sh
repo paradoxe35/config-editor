@@ -2,7 +2,7 @@
 # The wasm size of a host using the editor, per Cargo feature set: builds the
 # crate's `wasm_size` example (a small host mounting one editor, so code a
 # host does not use is dropped as in a real app) for wasm32 in release, runs
-# wasm-bindgen as a bundler would, then wasm-opt -Os when it is installed
+# wasm-bindgen as a bundler would, then wasm-opt -O1 when it is installed
 # (as js/config-editor/build.mjs does), and gzips it (-9).
 #
 #   scripts/wasm-sizes.sh           # print the table
@@ -29,7 +29,7 @@ if [[ ! -x "$bindgen" ]]; then
   fi
 fi
 optimized="without wasm-opt (not installed)"
-if command -v wasm-opt >/dev/null; then optimized="after wasm-opt -Os"; fi
+if command -v wasm-opt >/dev/null; then optimized="after wasm-opt -O1"; fi
 
 # Optional features (all on by default), each priced by building without it.
 optional=(search folding diff protect)
@@ -45,8 +45,8 @@ size_of() {
     "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/examples/wasm_size.wasm"
   local wasm="$work/out/wasm_size_bg.wasm"
   if command -v wasm-opt >/dev/null; then
-    wasm-opt -Os --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
-      --enable-mutable-globals --enable-reference-types "$wasm" -o "$wasm"
+    wasm-opt -O1 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+      --enable-mutable-globals --enable-reference-types --enable-multivalue "$wasm" -o "$wasm"
   fi
   gzip -9 -c "$wasm" | wc -c
 }

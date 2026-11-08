@@ -138,6 +138,14 @@ fn indexed(source: &str) -> std::rc::Rc<Indexed> {
                 prefix.extend(header.labels[..=level].iter().cloned());
                 headers.entry(prefix).or_insert(*span);
             }
+            // A repeated block is an item of a list (`/b/1`): its header
+            // names it, at its last label or its type.
+            if scan.repeats(header) {
+                let mut item = base.clone();
+                item.extend(header.labels.iter().cloned());
+                item.push(header.ordinal.to_string());
+                headers.entry(item).or_insert(*header.label_spans.last().unwrap_or(&header.type_span));
+            }
             headers.entry(base).or_insert(header.type_span);
         }
         Indexed { scan, attributes, headers }

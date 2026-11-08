@@ -71,6 +71,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         // sequence (`- - a`).
         let mut array_item_path = None;
         let mut item_indent = indent;
+        let mut dash_column = 0;
         while rest == "-" || rest.starts_with("- ") {
             if let Some(path) = array_item_path.take() {
                 // An outer item of a compact sequence: on this line.
@@ -93,6 +94,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             let mut item_path = parent;
             item_path.push(count.to_string());
             *count += 1;
+            dash_column = line[..item_indent].chars().count() + 1;
             let after_dash = rest.strip_prefix('-').unwrap_or_default();
             let content = after_dash.trim_start();
             content_indent = item_indent + 1 + after_dash.len() - content.len();
@@ -107,6 +109,8 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         }
 
         if rest.is_empty() {
+            // An empty item, or one whose value is below its dash: just
+            // after the dash, where its value is typed.
             if let Some(path) = array_item_path {
                 let column = line[..content_indent].chars().count() + 1;
                 entries.push((path, index + 1, column, column + 1));
@@ -126,6 +130,10 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
         if key_raw.trim().is_empty() {
             continue;
+        }
+        // An item holding a mapping (`- name: web`) is written at its dash.
+        if let Some(path) = array_item_path {
+            entries.push((path, index + 1, dash_column, dash_column + 1));
         }
         while stack
             .last()
@@ -431,6 +439,12 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     // mapping keys resolve through `yaml_span_for_path`, which points at the key.
     let (line_number, key_column, _) = path_line(source, &wanted)?;
     let line = crate::editor::paths::text_line(source, line_number.saturating_sub(1))?;
+    // An item written at its dash holds a block (`- name: web`): no value
+    // on the line of its own.
+    let at_dash = line.chars().skip(key_column - 1).collect::<String>();
+    if wanted.last().is_some_and(|last| last.parse::<usize>().is_ok()) && (at_dash == "-" || at_dash.starts_with("- ")) {
+        return None;
+    }
     // The key starts after the line's indentation and dashes (ASCII), so its
     // column is its byte offset; the value ends before a trailing comment.
     let key_start = line.char_indices().nth(key_column - 1)?.0;

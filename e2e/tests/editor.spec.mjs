@@ -349,7 +349,7 @@ test.describe('yaml: tabs and choices', () => {
     await e.paste('web: {listen: 443}\n');
     await expect(page.locator('.config-editor__diagnostic-marker')).toHaveAttribute(
       'data-message',
-      /'listen' is not allowed here/,
+      /"listen" is not allowed here/,
     );
   });
 });

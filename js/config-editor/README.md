@@ -50,6 +50,7 @@ which build on this package.
   - [Edit-as with a custom language](#edit-as-with-a-custom-language)
 - [Themes](#themes)
 - [Styling](#styling)
+  - [Size](#size)
   - [Strict Content-Security-Policy](#strict-content-security-policy)
 - [License](#license)
 <!-- /toc -->
@@ -60,8 +61,8 @@ which build on this package.
 npm install @pngwasi/config-editor
 ```
 
-Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2 MB
-gzipped and loads once per page. It is built with every Cargo feature of
+Browsers only (ES modules + WebAssembly). The `.wasm` file is about 2.3 MB
+gzipped (1.5 MB with brotli) and loads once per page. It is built with every Cargo feature of
 the Rust crate (all five languages, schema validation, find and replace,
 the diff, folding, read-only fields and secrets); a Rust app can leave out
 what it does not use ([Cargo features](https://crates.io/crates/config-editor-leptos#cargo-features)).
@@ -387,10 +388,10 @@ with that reason.
 | `referenceType`             | `"reference"`                                                                                                                        | The type column of a reference suggestion.                                                                                                                                                                                                     |
 | `closesTag`                 | `"Closes <{name}>"`                                                                                                                  | The detail of the end tag XML suggests.                                                                                                                                                                                                        |
 | `endTag`                    | `"end tag"`                                                                                                                          | Its type column.                                                                                                                                                                                                                               |
-| `keyNotAllowed`             | `"'{key}' is not allowed here"`                                                                                                      | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
+| `keyNotAllowed`             | `"\"{key}\" is not allowed here"`                                                                                                    | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                     |
 | `textNotAllowed`            | `"text is not allowed here, only elements"`                                                                                          | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                   |
-| `keyDeprecated`             | `"{pointer}: '{key}' is deprecated"`                                                                                                 | A deprecated key.                                                                                                                                                                                                                              |
-| `keyDeprecatedInstead`      | `"{pointer}: '{key}' is deprecated. {message}"`                                                                                      | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
+| `keyDeprecated`             | `"{pointer}: \"{key}\" is deprecated"`                                                                                               | A deprecated key.                                                                                                                                                                                                                              |
+| `keyDeprecatedInstead`      | `"{pointer}: \"{key}\" is deprecated. {message}"`                                                                                    | A deprecated key whose schema says what to use instead.                                                                                                                                                                                        |
 | `notOneOf`                  | `"{value} is not one of {allowed}"`                                                                                                  | A value not among the allowed ones.                                                                                                                                                                                                            |
 | `wrongType`                 | `"{value} is not of type {types}"`                                                                                                   | A value of none of the accepted types.                                                                                                                                                                                                         |
 | `invalidSchema`             | `"Invalid JSON Schema: {error}"`                                                                                                     | A schema that does not compile.                                                                                                                                                                                                                |
@@ -437,8 +438,8 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   browser), clears `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`,
   turns `editAs` and `readOnly` off, and returns a setting to its default.
 - Settings merge key by key, `strings` text by text and `colors` token by
-  token (a text or token set to `null` returns to its default; `colors: null`
-  clears them all).
+  token, as the settings do: a text or token set to `undefined` stays, one
+  set to `null` returns to its default (`colors: null` clears them all).
 - A new `value` replaces the document as a host update: the caret stays on
   the same text when possible. `readOnlyRanges` and host `range`s given with
   it are in the new document.
@@ -659,8 +660,9 @@ new ConfigEditor(element, {
 (the `editAs` language while editing as another one), as `selectionStart`
 counts; lines and columns are one-based. `reveal` and `rangeOf` cover the key
 and its value when they share a line (`listen: 7835`, `<listen>7835</listen>`),
-the key alone when the value is a block below it, and the value alone for a
-list item. `pathAt` gives the key under or just before the index, else the
+the key alone when the value is a block below it, the value alone for a list
+item, and the dash or header of an item holding a block (`- name: web`, a
+repeated HCL block, a TOML `[[array]]` entry). `pathAt` gives the key under or just before the index, else the
 value or container holding it (`""` at the top level).
 
 ## Languages and themes
@@ -1039,8 +1041,12 @@ view.isDirty("main");
 - Adding is yours too: with `onAdd`, a "+" button follows the last tab
   (outside the tab list, after it in the `Tab` order; named and titled by
   the `addDocument` text, "New file"). It only calls `onAdd()`: you decide
-  what a new document is and list it, and the next document you add is
-  selected, its editor focused without scrolling the page. When the tabs
+  what a new document is and list it, and the document you add in answer is
+  selected, its editor focused without scrolling the page. In answer: the
+  first one added within 5 seconds of the click, before the focus moves to
+  something outside the view (a dialog of yours: select the document with
+  `select(id)` then) and before another tab is picked. One added later (a
+  server's) is listed, not selected. When the tabs
   overflow, the "+" stays at the end of the strip. No key adds a document
   (`Ctrl+T` and `Ctrl+N` belong to the browser). `onClose` and `onAdd`
   cannot be added by `update` to a view mounted without them.
@@ -1357,6 +1363,29 @@ With `styled: false` the editor injects nothing, and its markup
 (`config-editor__*` classes) is yours to style; the package ships the preset
 as `@pngwasi/config-editor/preset.css` to serve or adapt (`presetCss()`
 returns the same text).
+
+### Size
+
+The editor sizes itself, not by its element's height: its text area grows
+with the text from `--config-editor-min-height` (240px, less in a window too
+short for it) to `--config-editor-max-height` (80% of the window, less in a
+short one), then scrolls; the toolbar, tab bar and footer come on top.
+`--config-editor-height` (a length, such as `400px`) fixes the text area's
+height. To fill an element of a set height, give the editor `height: 100%`:
+the text area takes what the toolbar and footer leave.
+
+```css
+#config {
+  height: 60vh;
+}
+#config .config-editor {
+  height: 100%;
+}
+/* Or a fixed text area: */
+.config-editor {
+  --config-editor-height: 400px;
+}
+```
 
 ### Strict Content-Security-Policy
 

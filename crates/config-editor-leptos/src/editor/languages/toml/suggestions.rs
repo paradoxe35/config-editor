@@ -731,25 +731,40 @@ pub(super) fn dotted_hover_path(
         None
     };
     if let Some((segments, is_array)) = parse_header(code) {
-        let indent = line.len() - line.trim_start().len();
-        let text_start = indent + if is_array { 2 } else { 1 };
-        let (index, start) = segment_at(text_start, &segments)?;
-        // Arrays of tables declared before this line address their entries.
-        let before = &source[..source.split('\n').take(line_index).map(|line| line.len() + 1).sum::<usize>()];
-        let arrays: HashSet<String> = before
-            .lines()
-            .filter_map(|line| parse_header(split_toml_comment(line).0))
-            .filter(|(_, array)| *array)
-            .map(|(segments, _)| segments.join("."))
-            .collect();
-        let mut path = Vec::new();
-        for depth in 0..=index {
-            path.push(SchemaPathSegment::Key(segments[depth].clone()));
-            if depth < index && arrays.contains(&segments[..=depth].join(".")) {
-                path.push(SchemaPathSegment::ArrayItem(0));
-            }
+        // The header's own path, arrays of tables above it at their latest
+        // entry and its own `[[array]]` entry included.
+        let lines: Vec<&str> = source.split('\n').take(line_index + 1).collect();
+        let full = table_paths(&lines).pop().unwrap_or_default();
+        let open = line.find('[')?;
+        let inner_start = open + if is_array { 2 } else { 1 };
+        let closing = if is_array { "]]" } else { "]" };
+        let inner = code.trim_end().strip_suffix(closing).and_then(|code| code.get(inner_start..)).unwrap_or("");
+        let byte = byte_at_column(line, column);
+        // The segment under the column; on the brackets, the table itself.
+        let on_segment = (0..segments.len()).find_map(|index| {
+            let (from, to) = segment_range(inner, index)?;
+            (byte >= inner_start + from && byte < inner_start + to).then_some((index, inner_start + from))
+        });
+        if on_segment.is_none() && (byte < open || byte >= code.trim_end().len()) {
+            return None;
         }
-        return Some((path, segments[index].clone(), start));
+        let (index, start) = on_segment.unwrap_or((segments.len() - 1, open));
+        let mut path = Vec::new();
+        let mut keys = 0;
+        for segment in full {
+            if keys == index + 1 {
+                // The last segment of `[[array]]`: its entry.
+                if is_array && index + 1 == segments.len() {
+                    path.push(segment);
+                }
+                break;
+            }
+            if matches!(segment, SchemaPathSegment::Key(_)) {
+                keys += 1;
+            }
+            path.push(segment);
+        }
+        return Some((path, segments[index].clone(), line[..start].chars().count()));
     }
     let (key, start, _) = key_assignment(code)?;
     let segments = split_key_path(&key)?;

@@ -580,13 +580,40 @@ pub(super) fn toml_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usiz
                 }
             }
         }
-        // A `[table]` header's last segment names the table itself.
-        if let Some((segments, _)) = parse_header(code)
+        if let Some((segments, is_array)) = parse_header(code)
             && !segments.is_empty()
-            && let Some(at) = wanted.exact.get(&path_strings(&tables[index + 1]))
         {
             let header_start = line.find('[').unwrap_or(0);
-            found.set(at, || Some(span_between(source, line_offset + header_start, line_offset + line.len())));
+            let header = || Some(span_between(source, line_offset + header_start, line_offset + line.len()));
+            let full = &tables[index + 1];
+            // A `[table]` header names the table itself.
+            if let Some(at) = wanted.exact.get(&path_strings(full)) {
+                found.set(at, header);
+            }
+            // And what it is below: the array of an `[[array]]` header, by
+            // the header; a table it opens implicitly (`a` and `a.b` of
+            // `[a.b.c]`), by its segment.
+            let inner_start = header_start + if is_array { 2 } else { 1 };
+            let closing = if is_array { "]]" } else { "]" };
+            let inner = code.trim_end().strip_suffix(closing).and_then(|code| code.get(inner_start..)).unwrap_or("");
+            let mut keys = 0;
+            for cut in 1..full.len() {
+                let SchemaPathSegment::Key(_) = full[cut - 1] else {
+                    continue;
+                };
+                keys += 1;
+                let Some(at) = wanted.exact.get(&path_strings(&full[..cut])) else {
+                    continue;
+                };
+                if is_array && cut + 1 == full.len() {
+                    found.set(at, header);
+                } else {
+                    found.set(at, || {
+                        let (from, to) = segment_range(inner, keys - 1)?;
+                        Some(span_between(source, line_offset + inner_start + from, line_offset + inner_start + to))
+                    });
+                }
+            }
         }
     }
     found.spans

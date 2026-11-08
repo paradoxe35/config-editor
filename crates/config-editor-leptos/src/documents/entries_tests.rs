@@ -9,6 +9,7 @@ use leptos::prelude::*;
 use super::{Callbacks, Documents, Focus, focus_place};
 use crate::EditorSettings;
 use crate::documents::model::{CloseRequest, Document};
+use crate::reactive::later::testing::{hold, run_held, waiting_timers};
 
 /// What the host was asked.
 #[derive(Default)]
@@ -118,54 +119,83 @@ fn closable_switches_live() {
 fn the_plus_only_asks_and_the_document_the_host_adds_is_selected_and_focused() {
     let owner = Owner::new();
     owner.set();
-    let mut list = files();
-    let (documents, asked) = view(&list, true, true);
-    assert_eq!(documents.active_id().as_deref(), Some("main"));
-    documents.request_add();
-    assert_eq!(lock(&asked).adds, 1);
-    // The view creates nothing itself.
-    assert_eq!(documents.ids(), ["main", "tls"]);
-    // A list that adds nothing (an edit) leaves the request waiting.
-    list[0].value = "listen: 7836\n".into();
-    documents.sync(&list);
-    assert_eq!(documents.active_id().as_deref(), Some("main"));
-    list.push(Document::new("new", "untitled.yaml", ""));
-    documents.sync(&list);
-    assert_eq!(documents.active_id().as_deref(), Some("new"));
-    assert_eq!(
-        documents.focus_editor.get_untracked().as_deref(),
-        Some("new")
-    );
-    assert!(
-        documents
-            .entry("new")
-            .expect("listed")
-            .visited
-            .get_untracked()
-    );
-    assert_eq!(lock(&asked).selects, ["new"]);
-    // Taken: the next document added is not selected.
-    list.push(Document::new("later", "later.yaml", ""));
-    documents.sync(&list);
-    assert_eq!(documents.active_id().as_deref(), Some("new"));
+    hold(|| {
+        let mut list = files();
+        let (documents, asked) = view(&list, true, true);
+        assert_eq!(documents.active_id().as_deref(), Some("main"));
+        documents.request_add();
+        // Asked again: one window, from the last click.
+        documents.request_add();
+        assert_eq!(waiting_timers(), 1);
+        assert_eq!(lock(&asked).adds, 2);
+        // The view creates nothing itself.
+        assert_eq!(documents.ids(), ["main", "tls"]);
+        // A list that adds nothing (an edit) leaves the request waiting.
+        list[0].value = "listen: 7836\n".into();
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("main"));
+        list.push(Document::new("new", "untitled.yaml", ""));
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("new"));
+        assert_eq!(
+            documents.focus_editor.get_untracked().as_deref(),
+            Some("new")
+        );
+        assert!(
+            documents
+                .entry("new")
+                .expect("listed")
+                .visited
+                .get_untracked()
+        );
+        assert_eq!(lock(&asked).selects, ["new"]);
+        // Taken, its timer with it: the next document added is not selected.
+        assert_eq!(waiting_timers(), 0);
+        list.push(Document::new("later", "later.yaml", ""));
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("new"));
+    });
+}
+
+/// QA 23: a "+" the host did not answer stayed armed, and a document a
+/// server pushed much later took the selection and the focus.
+#[test]
+fn a_plus_the_host_does_not_answer_in_time_selects_nothing_added_later() {
+    let owner = Owner::new();
+    owner.set();
+    hold(|| {
+        let mut list = files();
+        let (documents, asked) = view(&list, true, true);
+        documents.request_add();
+        // The host adds nothing, and the window passes.
+        run_held();
+        list.push(Document::new("pushed", "pushed.yaml", ""));
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("main"));
+        assert_eq!(documents.focus_editor.get_untracked(), None);
+        assert!(lock(&asked).selects.is_empty());
+    });
 }
 
 #[test]
 fn without_a_request_or_after_picking_a_tab_an_added_document_is_not_selected() {
     let owner = Owner::new();
     owner.set();
-    let mut list = files();
-    let (documents, asked) = view(&list, true, true);
-    list.push(Document::new("host", "host.yaml", ""));
-    documents.sync(&list);
-    assert_eq!(documents.active_id().as_deref(), Some("main"));
-    // The user asked, then picked another tab before the host added one.
-    documents.request_add();
-    documents.pick("tls", Focus::Keep);
-    list.push(Document::new("late", "late.yaml", ""));
-    documents.sync(&list);
-    assert_eq!(documents.active_id().as_deref(), Some("tls"));
-    assert_eq!(lock(&asked).selects, ["tls"]);
+    hold(|| {
+        let mut list = files();
+        let (documents, asked) = view(&list, true, true);
+        list.push(Document::new("host", "host.yaml", ""));
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("main"));
+        // The user asked, then picked another tab before the host added one.
+        documents.request_add();
+        documents.pick("tls", Focus::Keep);
+        assert_eq!(waiting_timers(), 0);
+        list.push(Document::new("late", "late.yaml", ""));
+        documents.sync(&list);
+        assert_eq!(documents.active_id().as_deref(), Some("tls"));
+        assert_eq!(lock(&asked).selects, ["tls"]);
+    });
 }
 
 #[test]

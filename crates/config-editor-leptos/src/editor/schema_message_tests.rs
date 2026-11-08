@@ -23,12 +23,15 @@ fn problems_at_the_root_have_no_pointer_and_false_schemas_read_plainly() {
         (
             "a: 1\nb: 2\n",
             r#"{"properties":{"a":{"type":"integer"}},"additionalProperties":false,"required":["q"]}"#,
-            &[r#""q" is a required property"#, "'b' is not allowed here"],
+            &[
+                r#""b" is not allowed here"#,
+                r#""q" is a required property"#,
+            ],
         ),
         (
             "x:\n  b: 1\n",
             r#"{"properties":{"x":{"additionalProperties":false}}}"#,
-            &["/x: 'b' is not allowed here"],
+            &[r#"/x: "b" is not allowed here"#],
         ),
         (
             "a: 1\nb: 2\n",
@@ -38,7 +41,7 @@ fn problems_at_the_root_have_no_pointer_and_false_schemas_read_plainly() {
         (
             "a: 1\nb: 2\n",
             r#"{"additionalProperties":false,"properties":{"a":true}}"#,
-            &["'b' is not allowed here"],
+            &[r#""b" is not allowed here"#],
         ),
     ];
     let mut failures = Vec::new();
@@ -63,6 +66,6 @@ fn the_empty_key_is_named_by_its_pointer() {
     let schema = r#"{"properties":{"":{"additionalProperties":false}}}"#;
     assert_eq!(
         messages(Language::YAML, "\"\": {b: 1}\n", schema),
-        ["/: 'b' is not allowed here"]
+        [r#"/: "b" is not allowed here"#]
     );
 }

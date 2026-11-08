@@ -954,7 +954,7 @@ export interface EditorStrings {
   /**
    * A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.
    *
-   * @default "'{key}' is not allowed here"
+   * @default "\"{key}\" is not allowed here"
    */
   keyNotAllowed?: string;
   /**
@@ -966,13 +966,13 @@ export interface EditorStrings {
   /**
    * A deprecated key.
    *
-   * @default "{pointer}: '{key}' is deprecated"
+   * @default "{pointer}: \"{key}\" is deprecated"
    */
   keyDeprecated?: string;
   /**
    * A deprecated key whose schema says what to use instead.
    *
-   * @default "{pointer}: '{key}' is deprecated. {message}"
+   * @default "{pointer}: \"{key}\" is deprecated. {message}"
    */
   keyDeprecatedInstead?: string;
   /**

@@ -8,7 +8,7 @@ use super::super::Language;
 use super::path_matrix::documents;
 
 /// Every path of `value` (the root first), as pointers.
-fn pointers(value: &Value, at: &str, out: &mut Vec<String>) {
+pub(super) fn pointers(value: &Value, at: &str, out: &mut Vec<String>) {
     out.push(at.to_string());
     let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
     match value {
@@ -28,7 +28,7 @@ fn pointers(value: &Value, at: &str, out: &mut Vec<String>) {
 
 /// Documents written by each language's serializer, and the hand-written
 /// ones of the path matrix.
-fn cases() -> Vec<(Language, String)> {
+pub(super) fn cases() -> Vec<(Language, String)> {
     let values = [
         json!({
             "web": {"hosts": ["a", "b", {"x": 1, "we/ird~k": 2}], "listen": 80, "k é😀": "v😀"},

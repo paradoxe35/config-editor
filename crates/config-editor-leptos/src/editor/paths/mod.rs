@@ -63,7 +63,8 @@ fn range(span: Span) -> TextRange {
 
 /// Where the field at `pointer` is written: its key and value when they
 /// share a line (`listen: 7835`), the key alone when the value is a block
-/// below it, the value alone for an array item. The root is the whole text.
+/// below it, the value alone for an array item, the dash or header of an
+/// item holding a block. The root is the whole text.
 pub(crate) fn field_range(
     behavior: &dyn ConfigLanguage,
     source: &str,
@@ -80,14 +81,17 @@ pub(crate) fn field_range(
     let found = spellings(behavior, pointer)
         .iter()
         .find_map(|pointer| field_span(behavior, source, pointer));
-    // A list written as repeated elements or blocks (`<hosts>` twice) has no
-    // key of its own: its first item's stands for it.
-    let found = found.or_else(|| {
-        (behavior.repetition() != Repetition::None)
-            .then(|| key_span(behavior, source, &format!("{pointer}/0")))
-            .flatten()
-    });
-    found.map(range)
+    found
+        .or_else(|| first_repeated(behavior, source, pointer))
+        .map(range)
+}
+
+/// A list written as repeated elements or blocks (`<hosts>` twice) has no
+/// key of its own: its first item's stands for it.
+fn first_repeated(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
+    (behavior.repetition() != Repetition::None)
+        .then(|| key_span(behavior, source, &format!("{pointer}/0")))
+        .flatten()
 }
 
 /// Where the key of the field at `pointer` is written, in any spelling of
@@ -185,6 +189,7 @@ pub(crate) fn problem_span(
     spellings(behavior, pointer)
         .iter()
         .find_map(|pointer| locate(pointer))
+        .or_else(|| first_repeated(behavior, source, pointer))
 }
 
 #[cfg(any(feature = "protect", feature = "schema-validation"))]
@@ -275,3 +280,14 @@ mod path_matrix;
     feature = "xml"
 ))]
 mod ranges_matrix;
+
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod addressable_matrix;

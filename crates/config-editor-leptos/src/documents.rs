@@ -12,6 +12,7 @@
 
 use leptos::prelude::*;
 
+mod adding;
 mod components;
 mod entries;
 mod handle;
@@ -103,8 +104,12 @@ pub fn ConfigDocuments(
     on_close: Option<Callback<CloseRequest>>,
     /// Called when the user asks for a new document: the "+" button after
     /// the last tab, shown only when this is set. It only asks: the host
-    /// decides what a new document is and adds it to `documents`; the next
-    /// one it adds is selected and its editor focused. The button stays at
+    /// decides what a new document is and adds it to `documents`; the one
+    /// it adds in answer is selected and its editor focused. In answer: the
+    /// first added within 5 seconds of the click, before the focus moves
+    /// out of the view (into a dialog of the host's: select the document
+    /// with [`DocumentsHandle::select`]) and before another tab is picked;
+    /// one added later is listed, not selected. The button stays at
     /// the strip's end when the tabs overflow. No key adds one (`Ctrl+T`
     /// and `Ctrl+N` are the browser's). Leave it unset for a view that only
     /// shows documents.
@@ -171,6 +176,8 @@ pub fn ConfigDocuments(
     let root_class = format!("config-editor-documents {}", class.unwrap_or_default());
     let keydown =
         move |event: web_sys::KeyboardEvent| keys::on_root_keydown(documents_view, &event);
+    let focusout =
+        move |event: web_sys::FocusEvent| adding::on_root_focusout(documents_view, &event);
     let panels = move || documents_view.entries.get();
     let panel =
         move |entry: Entry| view! { <DocumentPanel documents=documents_view entry=entry /> };
@@ -190,6 +197,7 @@ pub fn ConfigDocuments(
             style=cssom(style)
             node_ref=documents_view.root
             on:keydown=keydown
+            on:focusout=focusout
         >
             {move || styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
             <TabStrip documents=documents_view label=label />

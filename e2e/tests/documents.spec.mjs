@@ -471,6 +471,43 @@ const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
 const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
 
+test.describe('JS example documents.html: the "+" and documents added later', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  // QA 23: a "+" the host did not answer stayed armed, and a document a
+  // server pushed later took the selection and the focus from a field of
+  // the page.
+  test('only the document added in answer to the "+" is selected; one pushed after the focus left is not', async ({ page }) => {
+    await page.goto(example('documents.html'));
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await page.locator('.config-editor__input').waitFor();
+    await page.evaluate(() => {
+      window.documentsView.update({ onAdd: () => {} });
+      document.body.insertAdjacentHTML('beforeend', '<input id="other" aria-label="other">');
+    });
+    const other = page.locator('#other');
+    await plus(page).click();
+    await other.click();
+    await page.keyboard.type('hel');
+    await page.evaluate(() => window.addFile({ id: 'pushed', fileName: 'pushed.yaml', value: 'x: 1\n' }));
+    await expect(tab(page, 'pushed')).toHaveCount(1);
+    await page.keyboard.type('lo');
+    await expect(tab(page, 'main')).toHaveAttribute('aria-selected', 'true');
+    await expect(other).toBeFocused();
+    await expect(other).toHaveValue('hello');
+
+    // An answer a moment later, the focus still on the "+": selected and focused.
+    await page.evaluate(() => {
+      window.documentsView.update({
+        onAdd: () => setTimeout(() => window.addFile({ id: 'answer', fileName: 'answer.yaml', value: '' }), 300),
+      });
+    });
+    await plus(page).click();
+    await expect(tab(page, 'answer')).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => focusedDocument(page)).toBe('answer');
+  });
+});
+
 for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
   test.describe(`JS example ${name}`, () => {
     test.skip(!built, 'js packages not built: run `npm run build` in js/');

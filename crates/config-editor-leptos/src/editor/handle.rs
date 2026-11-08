@@ -118,7 +118,8 @@ impl EditorHandle {
 
     /// Where the field at `path` is written: its key and value when they share
     /// a line, the key alone when the value is a block below it, the value
-    /// alone for an array item (see [`Language::range_of`](crate::Language::range_of)).
+    /// alone for an array item, the dash or header of an item holding a
+    /// block (see [`Language::range_of`](crate::Language::range_of)).
     pub fn range_of(&self, path: impl Into<FieldPath>) -> Option<TextRange> {
         let state = self.editor()?;
         let pointer = path.into().to_pointer();

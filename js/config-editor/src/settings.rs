@@ -132,15 +132,38 @@ pub(crate) fn settings_over(
         }
         let base_texts = field(&merged, &key);
         let merges = key == "strings" || key == "colors";
-        let value = if merges && value.is_object() && base_texts.is_object() {
-            let texts = Object::assign(&Object::new(), base_texts.unchecked_ref());
-            Object::assign(&texts, value.unchecked_ref()).into()
+        let value = if merges && is_record(&value) {
+            merged_texts(&base_texts, &value)
         } else {
             value
         };
         let _ = Reflect::set(&merged, &JsValue::from_str(&key), &value);
     }
     settings_from(&merged)
+}
+
+pub(crate) fn is_record(value: &JsValue) -> bool {
+    value.is_object() && !value.is_function() && !js_sys::Array::is_array(value)
+}
+
+/// `texts` over `current` (both `strings` or both `colors` objects), as
+/// the settings themselves merge: a text set to `null` is dropped, so it
+/// takes its default; one set to `undefined` is left as it was.
+pub(crate) fn merged_texts(current: &JsValue, texts: &JsValue) -> JsValue {
+    let merged = if is_record(current) {
+        Object::assign(&Object::new(), current.unchecked_ref())
+    } else {
+        Object::new()
+    };
+    for key in Object::keys(texts.unchecked_ref::<Object>()).iter() {
+        let value = Reflect::get(texts, &key).unwrap_or(JsValue::UNDEFINED);
+        if value.is_null() {
+            let _ = Reflect::delete_property(&merged, &key);
+        } else if !value.is_undefined() {
+            let _ = Reflect::set(&merged, &key, &value);
+        }
+    }
+    merged.into()
 }
 
 /// Every color as the browser reads colors (`var(--x)` included): a typo
