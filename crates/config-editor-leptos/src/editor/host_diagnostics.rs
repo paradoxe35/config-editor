@@ -122,7 +122,8 @@ mod fields_tests;
     feature = "json",
     feature = "toml",
     feature = "hcl",
-    feature = "xml"
+    feature = "xml",
+    feature = "schema-validation"
 ))]
 mod merge_tests;
 #[cfg(all(
