@@ -15,6 +15,14 @@ export E2E_WORKERS
 export CI_LANES := $(LANES)
 export CI_MEMORY_LIMIT
 
+# sccache, when installed, caches compiled crates across checkouts and builds
+# (RUSTC_WRAPPER left alone when already set).
+ifeq ($(origin RUSTC_WRAPPER),undefined)
+ifneq ($(shell command -v sccache 2>/dev/null),)
+export RUSTC_WRAPPER := sccache
+endif
+endif
+
 .DEFAULT_GOAL := help
 .PHONY: help install dev build demo demo-release packages examples \
 	check ci rust fmt fmt-check clippy test languages minimal optional docs \

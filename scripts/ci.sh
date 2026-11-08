@@ -10,10 +10,11 @@
 # binaries under `prlimit --as`, and CARGO_BUILD_JOBS to limit the build.
 #
 # CI_LANES=N (default 1) runs the heavy steps in N lanes at once, each with
-# its own target directory (target/lane-2, … beside the usual one), so their
-# builds don't wait on one Cargo lock: faster on a machine with idle cores,
-# at the cost of disk (several GB per extra lane). Each lane's output is
-# printed, prefixed, when it ends; the run fails if any lane fails.
+# its own target directory (target/lane-2, …, or under CARGO_TARGET_DIR when
+# set), so their builds don't wait on one Cargo lock: faster on a machine
+# with idle cores, at the cost of disk (several GB per extra lane). Each
+# lane's output is printed, prefixed, when it ends; the run fails if any lane
+# fails.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -126,7 +127,7 @@ run_lane() {
   local lane=$1
   shift
   if [[ "$lane" -gt 1 ]]; then
-    export CARGO_TARGET_DIR="$ROOT/target/lane-$lane"
+    export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}/lane-$lane"
   fi
   for step in "$@"; do
     echo "### $step"
