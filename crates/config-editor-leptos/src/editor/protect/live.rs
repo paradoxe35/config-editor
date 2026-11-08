@@ -128,15 +128,7 @@ impl ProtectState {
                     let host_ranges = ranges.get();
                     if !host_ranges.is_empty() {
                         let host = host_text.get_value();
-                        let behavior = host_language.behavior();
-                        if let Ok(document) = codec::read(behavior, &host, reading) {
-                            let covered = offsets(&host, &host_ranges);
-                            fields.extend(
-                                range_pointers(behavior, &host, &document, &covered)
-                                    .into_iter()
-                                    .map(FieldPath::from),
-                            );
-                        }
+                        fields.extend(covered_fields(host_language, &host, &host_ranges, reading));
                     }
                     Vec::new()
                 };
@@ -156,17 +148,7 @@ impl ProtectState {
                     Arc::new(protected)
                 })
             },
-            |old, new| match (old, new) {
-                (Some(old), Some(new)) => {
-                    old.locks != new.locks
-                        || old.secret != new.secret
-                        || old.pins != new.pins
-                        || old.marked != new.marked
-                        || old.unplaced != new.unplaced
-                        || old.epoch != new.epoch
-                }
-                _ => true,
-            },
+            locks_changed,
         );
         ProtectState {
             host_paths: paths,
@@ -221,6 +203,42 @@ impl ProtectState {
             self.tip.set(None);
             self.cancel_tip_timer();
         }
+    }
+}
+
+/// The fields the host's `ranges` cover in its own `host` text, written in
+/// `language` (none when it does not parse): what they lock while editing
+/// as another language.
+fn covered_fields(
+    language: Language,
+    host: &str,
+    ranges: &[TextRange],
+    reading: Option<&serde_json::Value>,
+) -> Vec<FieldPath> {
+    let behavior = language.behavior();
+    let Ok(document) = codec::read(behavior, host, reading) else {
+        return Vec::new();
+    };
+    let covered = offsets(host, ranges);
+    range_pointers(behavior, host, &document, &covered)
+        .into_iter()
+        .map(FieldPath::from)
+        .collect()
+}
+
+/// Whether the locks memo has news for its readers: the text it was read
+/// from and the documents alone do not count.
+fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> bool {
+    match (old, new) {
+        (Some(old), Some(new)) => {
+            old.locks != new.locks
+                || old.secret != new.secret
+                || old.pins != new.pins
+                || old.marked != new.marked
+                || old.unplaced != new.unplaced
+                || old.epoch != new.epoch
+        }
+        _ => true,
     }
 }
 
