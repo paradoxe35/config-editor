@@ -4,8 +4,13 @@ name: Release
 # @pngwasi/config-editor and its React, Vue and Svelte packages to npm. The tag
 # must match the version in every manifest.
 #
-# Repository secrets: CARGO_REGISTRY_TOKEN (crates.io) and NPM_TOKEN (an npm
-# automation token with publish rights to the @pngwasi scope).
+# Each registry is published to only when its token is set as a repository
+# secret; without it, that job does a dry run and says so:
+#   CARGO_REGISTRY_TOKEN  crates.io
+#   NPM_TOKEN             npm (an automation token with publish rights to the
+#                         @pngwasi scope)
+# A version already on a registry is skipped, so a release that failed
+# halfway is finished by running the workflow again on the same tag.
 
 on:
   push:
@@ -59,25 +64,45 @@ jobs:
 
   crate:
     name: Publish config-editor-leptos
-    needs: ci
+    needs: [versions, ci]
     runs-on: ubuntu-latest
+    env:
+      # Secrets cannot appear in `if:`; whether one is set can.
+      HAS_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+      VERSION: ${{ needs.versions.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Already on crates.io?
+        id: published
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' -A 'config-editor release (github actions)' \
+            "https://crates.io/api/v1/crates/config-editor-leptos/$VERSION")
+          echo "exists=$([ "$status" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Publish
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && env.HAS_TOKEN == 'true' && steps.published.outputs.exists != 'true'
         run: cargo publish -p config-editor-leptos
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - name: Dry run
-        if: github.event_name != 'push'
-        run: cargo publish -p config-editor-leptos --dry-run
+      - name: Already published
+        if: steps.published.outputs.exists == 'true'
+        run: echo "::notice::config-editor-leptos $VERSION is already on crates.io; skipped"
+      - name: Dry run (manual run, or no CARGO_REGISTRY_TOKEN)
+        if: (github.event_name != 'push' || env.HAS_TOKEN != 'true') && steps.published.outputs.exists != 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "::notice::CARGO_REGISTRY_TOKEN is not set: crates.io publish skipped (dry run only)"
+          fi
+          cargo publish -p config-editor-leptos --dry-run
 
   npm:
     name: Publish npm packages
-    needs: ci
+    needs: [versions, ci]
     runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+      VERSION: ${{ needs.versions.outputs.version }}
     permissions:
       contents: read
       id-token: write # npm provenance
@@ -106,14 +131,21 @@ jobs:
         working-directory: js
         run: |
           flags="--access public"
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "$HAS_TOKEN" = "true" ]; then
             flags="$flags --provenance"
           else
+            if [ "${{ github.event_name }}" = "push" ]; then
+              echo "::notice::NPM_TOKEN is not set: npm publish skipped (dry run only)"
+            fi
             flags="$flags --dry-run"
           fi
-          npm publish --workspace @pngwasi/config-editor $flags
-          npm publish --workspace @pngwasi/config-editor-react $flags
-          npm publish --workspace @pngwasi/config-editor-vue $flags
-          npm publish --workspace @pngwasi/config-editor-svelte $flags
+          # The core first: the framework packages peer-depend on it.
+          for package in config-editor config-editor-react config-editor-vue config-editor-svelte; do
+            if npm view "@pngwasi/$package@$VERSION" version >/dev/null 2>&1; then
+              echo "::notice::@pngwasi/$package $VERSION is already on npm; skipped"
+            else
+              npm publish --workspace "@pngwasi/$package" $flags
+            fi
+          done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
