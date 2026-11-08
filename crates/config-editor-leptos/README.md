@@ -262,7 +262,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (154 texts)</summary>
+<summary>Every text and its default (155 texts)</summary>
 
 | Field                           | Default                                                                                                    |                                                                                                                                       |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -364,6 +364,7 @@ they come.
 | `deprecated`                    | `"deprecated"`                                                                                             | The hover card's mark of a deprecated key.                                                                                            |
 | `default_value`                 | `"Default"`                                                                                                | The hover card's default row.                                                                                                         |
 | `examples`                      | `"Examples"`                                                                                               | The hover card's examples row.                                                                                                        |
+| `one_of`                        | `"One of"`                                                                                                 | The hover card's row listing the titles of the options (`oneOf`, `anyOf`) a field's object may take, while none matches it yet.       |
 | `documentation`                 | `"Documentation"`                                                                                          | The hover card's link to the schema's documentation.                                                                                  |
 | `open_docs`                     | `"Open docs ↗ (Alt+Enter)"`                                                                                | The link under a host problem's message.                                                                                              |
 | `error`                         | `"Error"`                                                                                                  | An error, as a screen reader hears it.                                                                                                |
@@ -893,14 +894,15 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
 Completions and hover read these keywords, with or without the
 `schema-validation` feature:
 
-| Keyword                                      | Shown                                                                                                                                                                 |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                     |
-| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`). |
-| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                    |
-| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                                                                 |
-| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                               |
-| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                           |
+| Keyword                                      | Shown                                                                                                                                                                                        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description`, `type`, `default`, `examples` | Suggestion detail and hover. A key is marked `required` when its parent lists it.                                                                                                            |
+| `deprecated: true`                           | The key is struck through and listed last, its hover says so, and a key written in the document gets a warning on the key, struck through (`Diagnostic::deprecated`).                        |
+| `deprecationMessage`                         | What to use instead, in the hover and the warning.                                                                                                                                           |
+| `x-docs-url`                                 | A "Documentation" link in the hover, opening in a new tab (`http(s)` addresses only).                                                                                                        |
+| `x-enum-descriptions` (and `x-enum-titles`)  | Arrays parallel to `enum`: each value's own line in the suggestion list and in the hover of that value in the document.                                                                      |
+| `title` / `description` of a `const` branch  | The same for `oneOf`/`anyOf` lists of documented constants.                                                                                                                                  |
+| `title` / `description` of an object branch  | Which `oneOf`/`anyOf` option the object is in, in the hover of its key ("One of" all titles until one matches); each key suggested inside names its option, the matched option's keys first. |
 
 ```json
 {
@@ -923,6 +925,11 @@ Completions and hover read these keywords, with or without the
   }
 }
 ```
+
+An object option is matched cheaply and exactly, never by validating:
+the one whose `required` keys are all present (`dns: {cloudflare: …}`),
+else the one whose `const` properties the object has
+(`provider: static`), else none.
 
 Accepting an object key writes its required children. The caret goes to
 the first one (left empty unless it has a `default`); each other takes its

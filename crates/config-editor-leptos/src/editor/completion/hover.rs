@@ -16,6 +16,9 @@ pub(crate) struct KeyHover {
     pub(crate) deprecation: Option<String>,
     /// The property's `x-docs-url`, a web address.
     pub(crate) docs_url: Option<String>,
+    /// The `oneOf`/`anyOf` option the field's object is in, or all of
+    /// them while none matches (see `choices`).
+    pub(crate) choice: Option<ChoiceHover>,
     /// Set when the pointer is over one of the key's documented values
     /// rather than the key.
     pub(crate) value: Option<HoverValue>,
@@ -41,7 +44,7 @@ pub(crate) fn key_hover(
 ) -> Option<KeyHover> {
     let bundle = schema?;
     if let Some((path, key, start_column)) = hovered_key(source, line_index, column, behavior) {
-        return property_hover(&path, key, start_column, bundle, behavior);
+        return property_hover(source, &path, key, start_column, bundle, behavior);
     }
     // No key under the pointer: maybe a value the schema documents.
     let line_start: usize = source
@@ -151,6 +154,7 @@ fn value_hover(
         property_path.pop();
     }
     let mut hover = property_hover(
+        source,
         &property_path,
         key,
         line[..start].chars().count(),
@@ -183,8 +187,10 @@ fn value_token(line: &str, column: usize) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
-/// The docs of the property at `path`, named `key`, shown at `start_column`.
+/// The docs of the property at `path` in `source`, named `key`, shown at
+/// `start_column`.
 fn property_hover(
+    source: &str,
     path: &[SchemaPathSegment],
     key: String,
     start_column: usize,
@@ -236,6 +242,18 @@ fn property_hover(
                 .and_then(Value::as_array)
                 .is_some_and(|required| required.iter().any(|name| name.as_str() == Some(&key)))
         });
+    let choice = ChoicesAt::in_object(&schemas, root, || object_at(source, path, behavior))
+        .hover()
+        // The option's description when it is not the property's own.
+        .and_then(|choice| match choice {
+            ChoiceHover::Matched(mut doc) => {
+                if doc.description == description {
+                    doc.description = None;
+                }
+                (doc != ValueDoc::default()).then_some(ChoiceHover::Matched(doc))
+            }
+            other => Some(other),
+        });
     Some(KeyHover {
         key,
         start_column,
@@ -249,6 +267,7 @@ fn property_hover(
             .iter()
             .find_map(|schema| deprecation_message(schema, root)),
         docs_url: schemas.iter().find_map(|schema| docs_url(schema, root)),
+        choice,
         value: None,
     })
 }

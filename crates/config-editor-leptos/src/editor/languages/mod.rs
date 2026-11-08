@@ -33,6 +33,15 @@ mod accept_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod choices_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod completion_matrix;
 #[cfg(all(
     test,
