@@ -121,6 +121,11 @@ pub(crate) fn match_ranges(label: &str, typed: &str) -> Vec<(usize, usize)> {
 /// Lifts required keys within a match tier, never above the next tier.
 pub(super) const REQUIRED_BONUS: i64 = 40;
 
+/// Lifts the keys of the `oneOf`/`anyOf` option the object is in (see
+/// `choices`) above the others' within a match tier, required or not: with
+/// [`REQUIRED_BONUS`] it stays below the next tier.
+pub(super) const MATCHED_CHOICE_BONUS: i64 = 50;
+
 /// Best match first, deprecated keys after all others. Ties keep schema
 /// order for values (enum order, so a default listed first stays first) and
 /// sort alphabetically for properties.

@@ -12,11 +12,12 @@ export const GALLERY = [
       { title: 'Hover docs', caption: "A key's description, type, default and examples, from the schema.", images: [['hover.png', 'Hover docs for a key']] },
       {
         title: 'Schema help',
-        caption: 'Deprecated keys are struck through and listed last, and a key written in the document gets a warning with what to use instead. Documented values (`x-enum-descriptions`, `oneOf` constants) show their own description, and `x-docs-url` adds a documentation link.',
+        caption: 'Deprecated keys are struck through and listed last, and a key written in the document gets a warning with what to use instead. Documented values (`x-enum-descriptions`, `oneOf` constants) show their own description, an object with `oneOf`/`anyOf` options names the one it is in, and `x-docs-url` adds a documentation link.',
         images: [
           ['schema-help.png', 'A deprecated key in the suggestions'],
           ['deprecated.png', 'The warning on a deprecated key'],
           ['schema-docs.png', 'A documented value with a docs link'],
+          ['schema-choices.png', 'The oneOf option an object is in'],
         ],
       },
     ],

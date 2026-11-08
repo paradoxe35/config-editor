@@ -399,6 +399,11 @@ fn from_touch(event: &web_sys::MouseEvent) -> bool {
 /// The selection changed without a key or a click: a phone's long press
 /// or selection handles, or a script. The caret follows it (the line
 /// highlight, the caret's note, `on_path_change`).
+///
+/// It also comes between an arrow key's keydown (which moved the caret)
+/// and its keyup, or between the keydowns of a held key: a list asked for
+/// by typing that matched nothing ends there, before the new caret
+/// position could open it (the key would then move through that list).
 fn selection_change(state: EditorState) {
     if state.typing().input_burst.with_value(Option::is_some) {
         return;
@@ -408,6 +413,12 @@ fn selection_change(state: EditorState) {
     };
     let (start, _) = textarea_selection(&element);
     if start != state.doc().caret.get_untracked() {
+        if state.completion().requested.get_untracked()
+            && state.completion().suggestions.with_untracked(Vec::is_empty)
+        {
+            state.close_suggestions();
+            state.completion().explicit.set(false);
+        }
         state.note_caret(start);
     }
 }

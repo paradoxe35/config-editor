@@ -3,7 +3,56 @@
   "title": "Schema help",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "cloudflare": {
+      "title": "Cloudflare",
+      "description": "Records in a Cloudflare zone.",
+      "type": "object",
+      "required": ["cloudflare"],
+      "properties": {
+        "cloudflare": {
+          "type": "object",
+          "description": "The zone and its token.",
+          "properties": { "api_token": { "type": "string" }, "zone": { "type": "string" } }
+        },
+        "ttl": { "type": "integer", "description": "Seconds records are cached." }
+      }
+    }
+  },
   "properties": {
+    "dns": {
+      "description": "Where the DNS records are managed.",
+      "oneOf": [
+        { "$ref": "#/$defs/cloudflare" },
+        {
+          "title": "Route 53",
+          "description": "Records in an AWS hosted zone.",
+          "type": "object",
+          "required": ["route53"],
+          "properties": {
+            "route53": { "type": "object", "properties": { "zone_id": { "type": "string" } } },
+            "ttl": { "type": "integer", "description": "Seconds records are cached." }
+          }
+        },
+        {
+          "title": "Manual",
+          "description": "Records kept by hand.",
+          "type": "object",
+          "required": ["provider"],
+          "properties": {
+            "provider": { "const": "manual" },
+            "records": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "title": "Static file",
+          "description": "Records read from a file.",
+          "type": "object",
+          "required": ["provider"],
+          "properties": { "provider": { "const": "static" }, "path": { "type": "string" } }
+        }
+      ]
+    },
     "mode": {
       "description": "How requests are routed.",
       "x-docs-url": "https://example.com/docs/mode",

@@ -97,6 +97,39 @@ test.describe('schema help', () => {
       .toBe('server:\n  host: a.example\n  port: 9090\n  scheme: http\n');
   });
 
+  test('hovering an object with oneOf options names the one it is in', async ({ page }) => {
+    const ed = editor(page);
+    await ed.paste('dns:\n  cloudflare:\n    zone: example.com\n');
+    let card = await hover(page, 0, 'dns');
+    await expect(card.locator('.config-editor__hover-choice-title')).toHaveText('Cloudflare');
+    await expect(card.locator('.config-editor__hover-choice')).toContainText('Records in a Cloudflare zone.');
+    await expect(card.locator('.config-editor__hover-description').first()).toHaveText(
+      'Where the DNS records are managed.',
+    );
+    // Two options require `provider`: its value decides.
+    await page.mouse.move(0, 0);
+    await expect(card).toHaveCount(0);
+    await ed.paste('dns:\n  provider: static\n');
+    card = await hover(page, 0, 'dns');
+    await expect(card.locator('.config-editor__hover-choice-title')).toHaveText('Static file');
+    // (Before one decides the object is invalid, and its problem takes
+    // the hover: the "One of" row is covered by the unit matrix.)
+  });
+
+  test('keys inside a oneOf object name their option, the matched one first', async ({ page }) => {
+    const ed = editor(page);
+    await ed.paste('dns:\n  provider: static\n  ');
+    await page.keyboard.press('Control+Space');
+    await expect.poll(ed.keys).toContain('path');
+    expect((await ed.keys())[0]).toBe('path');
+    await expect(ed.options.filter({ hasText: 'path' }).locator('.config-editor__completion-detail')).toHaveText(
+      'Static file',
+    );
+    await expect(ed.options.filter({ hasText: 'route53' }).locator('.config-editor__completion-detail')).toHaveText(
+      'Route 53',
+    );
+  });
+
   test('a pattern the regex engine cannot read reaches the host once', async ({ page }) => {
     const warnings = page.locator('.demo__schema-warnings li');
     await expect(warnings).toHaveCount(1);

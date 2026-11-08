@@ -1180,6 +1180,18 @@
   font-size: 11px;
 }
 
+.config-editor__hover-choice {
+  display: grid;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--config-editor-raised-border);
+}
+
+.config-editor__hover-choice-title {
+  color: var(--config-editor-raised-text);
+  font-size: 12px;
+}
+
 .config-editor__hover-description {
   margin: 0;
   color: var(--config-editor-raised-text);
