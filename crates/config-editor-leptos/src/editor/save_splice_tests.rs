@@ -677,6 +677,92 @@ fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a 
     (!quoted).then_some((written, in_flow))
 }
 
+/// A string written over several lines (a YAML quoted or plain scalar
+/// folded over lines, a TOML multi-line string, a heredoc, XML text) edited
+/// a little from another view keeps its lines: a character typed at its
+/// start, its end, or in the middle of one of its lines changes that line
+/// only, and the value reads back (round 20: YAML joined `"l1\n  l2"` into
+/// `"l1 l2Q"`).
+#[test]
+fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
+    let mut failures = Vec::new();
+    let mut tried = 0;
+    for (host, text) in hosts() {
+        let old = host.parse(text).expect("parses");
+        let mut pointers = Vec::new();
+        strings(&old, String::new(), &mut pointers);
+        let behavior = host.behavior();
+        for pointer in &pointers {
+            let Some(span) = behavior.value_span(text, pointer) else {
+                continue;
+            };
+            let Some(value) = old.pointer(pointer).and_then(Value::as_str) else {
+                continue;
+            };
+            // Written over lines, its first line holding some of it.
+            let first = text.lines().nth(span.line - 1).unwrap_or("");
+            let opener = first
+                .chars()
+                .skip(span.start_column - 1)
+                .collect::<String>();
+            let over_lines = span.end_column - 1 > first.chars().count()
+                && !opener.trim_start().starts_with(['|', '>']);
+            if !over_lines || host != Language::YAML {
+                continue;
+            }
+            // The middle of its last word.
+            let middle = value.trim_end().rfind(' ').map_or(1, |at| at + 2);
+            let edits = [
+                format!("{value}Q"),
+                format!("Q{value}"),
+                format!("{}Q{}", &value[..middle], &value[middle..]),
+            ];
+            for edited in &edits {
+                for edit in ALL.into_iter().filter(|edit| *edit != host) {
+                    let set = |document: &mut Value| {
+                        if let Some(slot) = find_slot(document, pointer) {
+                            *slot = edited.as_str().into();
+                        }
+                    };
+                    tried += 1;
+                    let case = format!("{host} host, {pointer} = {edited:?} via {edit}");
+                    let saved = match save_conversion(host, edit, text, &set) {
+                        Ok(saved) => saved.text,
+                        Err(error) => {
+                            failures.push(format!("{case}: {error}"));
+                            continue;
+                        }
+                    };
+                    let read = host
+                        .parse(&saved)
+                        .ok()
+                        .and_then(|read| read.pointer(pointer).cloned());
+                    let changed = text
+                        .lines()
+                        .zip(saved.lines())
+                        .filter(|(before, after)| before != after)
+                        .count();
+                    if read != Some(Value::from(edited.as_str()))
+                        || changed != 1
+                        || text.lines().count() != saved.lines().count()
+                    {
+                        failures.push(format!(
+                            "{case}: {changed} lines changed, reads {read:?}\n--- host\n{text}--- saved\n{saved}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(tried > 20, "only {tried} cases");
+    assert!(
+        failures.is_empty(),
+        "{} failing:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
 /// A document written whole follows the same plain-scalar rule as a
 /// spliced value: every string reads back the same, and none is written
 /// bare where a YAML 1.1 reader would take it for another type.

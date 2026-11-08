@@ -1505,3 +1505,48 @@ fn an_error_inside_an_inline_mapping_points_at_its_key() {
     assert_eq!(diagnostics[0].column, Some(11));
 }
 
+/// A lone carriage return is a YAML line break (YAML 1.2, PyYAML): a file
+/// written with them reads its data in every headless entry (`parse`,
+/// `convert`, `validate`), wherever the break falls: after a comment, a
+/// document marker, a value, inside a block scalar.
+#[test]
+fn a_lone_cr_breaks_lines_in_every_headless_entry() {
+    use crate::Language;
+    use serde_json::json;
+    let cases = [
+        ("# top\rname: edge\rn: 1\n", json!({"name": "edge", "n": 1})),
+        ("\r# top\rname: x\n", json!({"name": "x"})),
+        ("---\r# c\rname: x\n", json!({"name": "x"})),
+        ("# a\n# b\rname: x\n", json!({"name": "x"})),
+        ("x: 1\r# top\rname: x\n", json!({"x": 1, "name": "x"})),
+        ("name: edge\r", json!({"name": "edge"})),
+        ("l:\r  - a # c\r  - b\r", json!({"l": ["a", "b"]})),
+        ("s: |\r  a\r  b\rn: 1\r", json!({"s": "a\nb\n", "n": 1})),
+        ("# a\r\n# b\rname: x\r\n", json!({"name": "x"})),
+    ];
+    // A schema that refuses the data: validation sees it.
+    let schema = build_schema(
+        r#"{"properties":{"name":{"type":"integer"},"l":{"type":"integer"},"s":{"type":"integer"}}}"#,
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    for (text, expected) in cases {
+        let parsed = Language::YAML.parse(text).ok();
+        if parsed.as_ref() != Some(&expected) {
+            failures.push(format!("parse {text:?}: {parsed:?}"));
+        }
+        let converted = Language::YAML
+            .convert(text, Language::YAML)
+            .ok()
+            .and_then(|done| Language::YAML.parse(&done.text).ok());
+        if converted.as_ref() != Some(&expected) {
+            failures.push(format!("convert {text:?}: {converted:?}"));
+        }
+        let problems = validate_yaml(text, Some(&schema), None, true);
+        if cfg!(feature = "schema-validation") && problems.is_empty() {
+            failures.push(format!("validate {text:?}: no problem"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+

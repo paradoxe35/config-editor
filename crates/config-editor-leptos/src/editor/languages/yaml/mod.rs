@@ -13,6 +13,7 @@ mod hover;
 mod editing;
 mod style;
 mod block_scalar;
+mod folded;
 mod plain;
 mod constructs;
 use style::{comparable_yaml_line, node_properties_len};
@@ -64,6 +65,17 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        // A lone carriage return breaks a line, as CRLF does (YAML 1.2's
+        // line breaks): read as LF, as the editor holds the text, so a file
+        // with them reads the same headless (a comment line ending in one
+        // would otherwise run on over the data after it).
+        let normalized;
+        let source = if source.contains('\r') {
+            normalized = source.replace("\r\n", "\n").replace('\r', "\n");
+            normalized.as_str()
+        } else {
+            source
+        };
         if let Some(error) = tab_indentation(source) {
             return Err(error);
         }

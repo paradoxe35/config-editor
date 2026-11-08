@@ -176,7 +176,15 @@ fn scalar_continuation(source: &str, line_start: usize, caret: usize, unit: &str
     // A plain value with text on both sides of the caret.
     let column = caret - line_start;
     let rest = code_before_comment(&line[column..]);
-    if rest.trim().is_empty() {
+    // At the end of a plain value whose next line continues it (deeper,
+    // `ml: l1` then `  l2`): the new line continues it at that line's indent.
+    let next = source.get(line_end + 1..).and_then(|after| after.split('\n').next());
+    let continued_below = line[column..].trim().is_empty()
+        && next.is_some_and(|next| {
+            let next_indent = next.len() - next.trim_start_matches([' ', '\t']).len();
+            next_indent > indent && !next.trim().is_empty() && !next.trim_start().starts_with('#')
+        });
+    if rest.trim().is_empty() && !continued_below {
         return None;
     }
     let content_column = item_content_column(line);
@@ -191,7 +199,10 @@ fn scalar_continuation(source: &str, line_start: usize, caret: usize, unit: &str
         return None;
     }
     let plain = !line[value_start..].starts_with(['"', '\'', '[', '{', '|', '>', '&', '!', '*', '#']);
-    plain.then(|| " ".repeat(continuation_column(line, unit)))
+    let below = next.filter(|_| rest.trim().is_empty()).map(|next| {
+        next[..next.len() - next.trim_start_matches([' ', '\t']).len()].to_string()
+    });
+    plain.then(|| below.unwrap_or_else(|| " ".repeat(continuation_column(line, unit))))
 }
 
 /// The byte column of a line's content past its indentation and any item

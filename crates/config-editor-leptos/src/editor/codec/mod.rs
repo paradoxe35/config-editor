@@ -276,13 +276,15 @@ pub(super) fn patch_scalars(
             .map_or(previous.len(), |offset| range.start + offset);
         if range.end > line_end && !text.contains('\n') {
             let line = &previous[line_start..line_end];
-            if let Some(comment) = language
-                .comment_start(line)
-                .map(|start| line[start..].trim_end())
-                && line_start + line.len() - comment.len() > range.start
-                && !comment.is_empty()
-            {
-                text = format!("{text} {comment}");
+            // With the spacing written before it.
+            let comment = compare::spaced_trailing_comment(language, line);
+            if line_start + line.len() - comment.len() > range.start && !comment.is_empty() {
+                let gap = if comment.starts_with([' ', '\t']) {
+                    ""
+                } else {
+                    " "
+                };
+                text = format!("{text}{gap}{comment}");
             }
         }
         // An emptied value takes the space before it along (`key:`).

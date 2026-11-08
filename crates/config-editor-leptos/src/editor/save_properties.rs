@@ -233,6 +233,25 @@ fn hosts() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "# top\nl:\n- k: >-\n    x\n  j: 2\n- - a\n  - b\nm: \"l1\n  l2\" # m\np: plain\n  continued\nlisten: 1 # l\n",
         ),
+        // Round 20 shapes: lists inside list items, comment lines above
+        // each item (the first one's too), XML repeated elements with
+        // comments, a TOML list with a comment line above its first item.
+        (
+            Language::YAML,
+            "# top\nl:\n  - name: a\n    sub:\n      # about 1\n      - 1  # one\n      - 2  # two\n  - name: b\n    sub:\n      - k: x  # kx\n      - k: y\nallow:\n  # about a\n  - a\n  # about b\n  - b  # tb\nlisten: 1 # l\n",
+        ),
+        (
+            Language::XML,
+            "<!-- top -->\n<r>\n  <!-- about a -->\n  <allow>a</allow>  <!-- ta -->\n  <allow>b</allow>\n  <!-- about c -->\n  <allow>c</allow>\n  <listen>1</listen>\n</r>\n",
+        ),
+        (
+            Language::TOML,
+            "# top\nallow = [\n  # about a\n  \"a\",  # ta\n  # about b\n  \"b\",\n]\nlisten = 1 # l\n",
+        ),
+        (
+            Language::HCL,
+            "# top\nallow = [\n  # about a\n  \"a\",\n  \"b\",  # tb\n  # about c\n  \"c\",\n]\nlisten = 1 # l\n",
+        ),
     ]
 }
 
@@ -569,28 +588,9 @@ fn check(
             problems.push(format!("loses comments {lost:?}"));
         }
     }
-    // Moved items take their comments along: a comment after a line's code
-    // stays after that code (not left on the item now in its place).
+    // Moved items take their comments along.
     if op == Op::ReorderItems {
-        let trailing = |text: &str| -> Vec<(String, String)> {
-            let marker = if host.label() == "XML" { "<!--" } else { "#" };
-            text.lines()
-                .filter_map(|line| {
-                    let at = line.find(marker)?;
-                    let code = line[..at].trim();
-                    (!code.is_empty() && !code.contains(['[', '{', '"', '\'']))
-                        .then(|| (code.to_string(), line[at..].trim().to_string()))
-                })
-                .collect()
-        };
-        let kept = trailing(&saved);
-        let moved: Vec<(String, String)> = trailing(host_text)
-            .into_iter()
-            .filter(|pair| !kept.contains(pair))
-            .collect();
-        if !moved.is_empty() {
-            problems.push(format!("leaves comments on other items: {moved:?}"));
-        }
+        problems.extend(comments_left_behind(host, host_text, &saved));
     }
     // Forms consumers tell apart stay as the host wrote them: an XML
     // attribute is not turned into an element, an HCL block not into an
@@ -636,6 +636,136 @@ fn check(
             problems.join("; ")
         )
     })
+}
+
+/// Each comment of a text with the code it belongs to.
+type Pairs<'a> = dyn Fn(&str) -> Vec<(String, String)> + 'a;
+
+/// The comments `saved` left on other items than in `host_text`: a comment
+/// after a line's code stays after that code, and comment lines right above
+/// a line at its indent (`# about b` then `- b`) stay above that line.
+fn comments_left_behind(host: Language, host_text: &str, saved: &str) -> Vec<String> {
+    let marker = if host.label() == "XML" { "<!--" } else { "#" };
+    let trailing = |text: &str| -> Vec<(String, String)> {
+        text.lines()
+            .filter_map(|line| {
+                let at = line.find(marker)?;
+                let code = line[..at].trim();
+                (!code.is_empty() && !code.contains(['[', '{', '"', '\'']))
+                    .then(|| (code.to_string(), line[at..].trim().to_string()))
+            })
+            .collect()
+    };
+    let above = |text: &str| -> Vec<(String, String)> {
+        let lines: Vec<&str> = text.lines().collect();
+        let indent = |line: &str| line.len() - line.trim_start().len();
+        let comment = |line: &str| line.trim().starts_with(marker);
+        (0..lines.len())
+            .filter(|index| comment(lines[*index]))
+            .filter_map(|index| {
+                let next = lines[index + 1..].iter().find(|line| !comment(line))?;
+                if next.trim().is_empty() || indent(next) != indent(lines[index]) {
+                    return None;
+                }
+                let code = next.find(marker).map_or(*next, |at| &next[..at]);
+                Some((
+                    lines[index].trim().to_string(),
+                    code.trim().trim_end_matches(',').to_string(),
+                ))
+            })
+            .collect()
+    };
+    let mut problems = Vec::new();
+    let kinds: [(&str, &Pairs<'_>); 2] = [("after", &trailing), ("above", &above)];
+    for (kind, pairs) in kinds {
+        let kept = pairs(saved);
+        let left: Vec<(String, String)> = pairs(host_text)
+            .into_iter()
+            .filter(|pair| !kept.contains(pair))
+            .collect();
+        if !left.is_empty() {
+            problems.push(format!("leaves comments {kind} other items: {left:?}"));
+        }
+    }
+    problems
+}
+
+/// Every list of every host reversed from every view: each saved host shows
+/// the reversed list again and keeps each comment with its item (or the
+/// save waits, saying why).
+#[test]
+fn every_list_reversed_from_every_view_keeps_its_comments_with_its_items() {
+    let schema = schema();
+    let shape = Some(&schema.schema);
+    let mut failures = Vec::new();
+    let (mut tried, mut saved_count) = (0, 0);
+    for (host, host_text) in hosts() {
+        for edit in ALL.into_iter().filter(|edit| edit.label() != host.label()) {
+            let Some(bridge) = Bridge::new(host, edit, Some(schema.clone())) else {
+                continue;
+            };
+            let Ok(shown) = bridge.to_edit(host_text) else {
+                continue;
+            };
+            let Ok(value) = codec::read(edit.behavior(), &shown.text, shape) else {
+                continue;
+            };
+            let mut all = Vec::new();
+            pointers(&value, String::new(), &mut all);
+            for (pointer, item) in all {
+                let Some(items) = item.as_array() else {
+                    continue;
+                };
+                if items.iter().all(|other| *other == items[0]) {
+                    continue;
+                }
+                let mut edited = value.clone();
+                if let Some(Value::Array(items)) = edited.pointer_mut(&pointer) {
+                    items.reverse();
+                }
+                let Ok(edited_text) = codec::serialize(edit.behavior(), &edited, Some(&shown.text))
+                else {
+                    continue;
+                };
+                tried += 1;
+                let case = format!(
+                    "{} host via {}: {pointer} reversed",
+                    host.label(),
+                    edit.label()
+                );
+                let Ok(saved) = bridge.to_host(&edited_text, host_text) else {
+                    continue;
+                };
+                saved_count += 1;
+                let mut problems = comments_left_behind(host, host_text, &saved.text);
+                let seen = bridge
+                    .to_edit(&saved.text)
+                    .ok()
+                    .and_then(|shown| codec::read(edit.behavior(), &shown.text, shape).ok());
+                let expected = codec::read(edit.behavior(), &edited_text, shape).ok();
+                if seen != expected {
+                    problems.push("does not show the edit when shown again".to_string());
+                }
+                if !problems.is_empty() {
+                    failures.push(format!(
+                        "{case}: {}\n--- host\n{host_text}--- saved\n{}",
+                        problems.join("; "),
+                        saved.text
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        saved_count * 2 > tried,
+        "only {saved_count} of {tried} saved"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} of {tried} failed:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }
 
 /// The text a one-based line/character-column span covers.

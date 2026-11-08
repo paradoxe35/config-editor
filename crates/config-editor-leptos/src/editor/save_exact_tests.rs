@@ -562,6 +562,279 @@ fn untouched_numbers_stay_as_written_through_any_view() {
     report(failures);
 }
 
+/// A view that reads a whole float as an integer (HCL shows `1.0` as `1`,
+/// `3.0e2` as `300`) cannot tell it from one: a number typed over it keeps
+/// the host's float type (round 20: the HCL view saved an integer), and
+/// only that line changes.
+#[test]
+fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
+    fn whole_floats(value: &Value, pointer: String, out: &mut Vec<String>) {
+        match value {
+            Value::Number(number) if number.is_f64() => {
+                if number.as_f64().is_some_and(|float| float.fract() == 0.0) {
+                    out.push(pointer);
+                }
+            }
+            Value::Object(map) => {
+                for (key, child) in map {
+                    whole_floats(child, format!("{pointer}/{key}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut failures = Vec::new();
+    let mut tried = 0;
+    for (host, text) in number_hosts() {
+        let old = host.parse(&text).expect("parses");
+        let mut pointers = Vec::new();
+        whole_floats(&old, String::new(), &mut pointers);
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            let bridge = super::bridge::Bridge::new(host, edit, None).expect("two languages");
+            let Ok(shown) = bridge.to_edit(&text) else {
+                continue;
+            };
+            let Ok(mut seen) = edit.parse(&shown.text) else {
+                continue;
+            };
+            for pointer in &pointers {
+                // Only where the view shows an integer.
+                if !super::save_matrix::find_slot(&mut seen, pointer)
+                    .is_some_and(|shown| shown.is_u64() || shown.is_i64())
+                {
+                    continue;
+                }
+                tried += 1;
+                let case = format!("{host} host, {pointer} = 7 via {edit}");
+                match save_value(host, edit, &text, &|value| {
+                    *slot(value, pointer) = json!(7);
+                }) {
+                    Ok(saved) => {
+                        let read = host.parse(&saved).ok();
+                        let held = read.as_ref().and_then(|read| read.pointer(pointer));
+                        if !held.is_some_and(|held| held.is_f64() && held.as_f64() == Some(7.0)) {
+                            failures.push(format!("{case}: reads {held:?}\n{saved}"));
+                        }
+                        let changed = text
+                            .lines()
+                            .zip(saved.lines())
+                            .filter(|(before, after)| before != after)
+                            .count();
+                        if changed != 1 || text.lines().count() != saved.lines().count() {
+                            failures.push(format!("{case}: other lines changed\n{saved}"));
+                        }
+                    }
+                    Err(error) => failures.push(format!("{case}: {error}")),
+                }
+            }
+        }
+    }
+    assert!(tried > 10, "only {tried} cases");
+    report(failures);
+}
+
+/// Items moved in another view take their comments along at any depth: a
+/// list inside a list item, maps as items, own-line comments above each
+/// item (the first one's too), in YAML, TOML and HCL lists over lines and
+/// XML repeated elements (round 20: they stayed where they were).
+#[test]
+fn moved_items_take_their_comments_at_any_depth_from_every_view() {
+    let cases: &[(Language, &str, &str, &str)] = &[
+        (
+            Language::YAML,
+            "/l/0/sub",
+            "l:\n  - name: a\n    sub:\n      - 1  # one\n      - 2  # two\nn: 1\n",
+            "l:\n  - name: a\n    sub:\n      - 2  # two\n      - 1  # one\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/l/0/sub",
+            "l:\n  - name: a\n    sub:\n      - x  # one\n      - y  # two\n  - name: b\nn: 1\n",
+            "l:\n  - name: a\n    sub:\n      - y  # two\n      - x  # one\n  - name: b\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/l/0/sub",
+            "l:\n  - name: a\n    sub:\n      - k: 1  # one\n      - k: 2  # two\nn: 1\n",
+            "l:\n  - name: a\n    sub:\n      - k: 2  # two\n      - k: 1  # one\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/l",
+            "l:\n  # about a\n  - a\n  # about b\n  - b\nn: 1\n",
+            "l:\n  # about b\n  - b\n  # about a\n  - a\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/l",
+            "# top\nl:\n  # about a\n  - a  # ta\n  # about b\n  # more b\n  - b\n  - c  # tc\nn: 1\n",
+            "# top\nl:\n  - c  # tc\n  # about b\n  # more b\n  - b\n  # about a\n  - a  # ta\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/m/l",
+            "m:\n  l:\n  # about a\n  - a\n  # about b\n  - b\nn: 1\n",
+            "m:\n  l:\n  # about b\n  - b\n  # about a\n  - a\nn: 1\n",
+        ),
+        (
+            Language::YAML,
+            "/l/1/sub",
+            "l:\n  - x\n  - sub:\n      # about 1\n      - 1\n      # about 2\n      - 2\nn: 1\n",
+            "l:\n  - x\n  - sub:\n      # about 2\n      - 2\n      # about 1\n      - 1\nn: 1\n",
+        ),
+        (
+            Language::TOML,
+            "/l",
+            "# top\nl = [\n  # about a\n  \"a\",\n  # about b\n  \"b\",\n]\nn = 1\n",
+            "# top\nl = [\n  # about b\n  \"b\",\n  # about a\n  \"a\",\n]\nn = 1\n",
+        ),
+        (
+            Language::HCL,
+            "/l",
+            "# top\nl = [\n  # about a\n  \"a\",\n  # about b\n  \"b\",\n]\nn = 1\n",
+            "# top\nl = [\n  # about b\n  \"b\",\n  # about a\n  \"a\",\n]\nn = 1\n",
+        ),
+        (
+            Language::TOML,
+            "/l",
+            "# top\nl = [\n  1,  # one\n  2,  # two\n]\nn = 1\n",
+            "# top\nl = [\n  2,  # two\n  1,  # one\n]\nn = 1\n",
+        ),
+        (
+            Language::XML,
+            "/r/l",
+            "<r>\n  <l>1</l>  <!-- one -->\n  <l>2</l>  <!-- two -->\n  <n>1</n>\n</r>\n",
+            "<r>\n  <l>2</l>  <!-- two -->\n  <l>1</l>  <!-- one -->\n  <n>1</n>\n</r>\n",
+        ),
+        (
+            Language::XML,
+            "/r/l",
+            "<r>\n  <!-- about a -->\n  <l>a</l>\n  <!-- about b -->\n  <l>b</l>\n</r>\n",
+            "<r>\n  <!-- about b -->\n  <l>b</l>\n  <!-- about a -->\n  <l>a</l>\n</r>\n",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (host, pointer, text, expected) in cases {
+        from_every_view(
+            &mut failures,
+            &format!("{pointer} reversed"),
+            *host,
+            text,
+            &|value| {
+                if let Some(Value::Array(items)) = super::save_matrix::find_slot(value, pointer) {
+                    items.reverse();
+                }
+            },
+            expected,
+        );
+    }
+    report(failures);
+}
+
+/// A plain YAML string cleared and then typed again in another view is
+/// written as typing over it writes it: plain where every reader takes it as text,
+/// quoted where one would not (a date, `yes`), not quoted because the empty
+/// string in between was (round 20: the XML view gave `name: "abc"`).
+#[test]
+fn a_yaml_string_cleared_then_typed_is_written_as_typed_over() {
+    let host = "# top\nname: edge  # nc\nq: \"edge\"\nn: 1\n";
+    let mut failures = Vec::new();
+    for edit in ALL.into_iter().filter(|edit| *edit != Language::YAML) {
+        // (A string the host quoted is typed in plain after it was cleared:
+        // `""` says nothing of how its text was written.)
+        for key in ["name"] {
+            for typed in ["abc", "a b", "2024-01-01", "yes", "x: y", "12"] {
+                let pointer = format!("/{key}");
+                let set = |to: &str| {
+                    let to = to.to_string();
+                    let pointer = pointer.clone();
+                    move |value: &mut Value| *slot(value, &pointer) = Value::from(to.as_str())
+                };
+                let over = save_value(Language::YAML, edit, host, &set(typed));
+                let cleared = save_value(Language::YAML, edit, host, &set(""));
+                let again = cleared
+                    .as_ref()
+                    .map_err(Clone::clone)
+                    .and_then(|cleared| save_value(Language::YAML, edit, cleared, &set(typed)));
+                if over != again {
+                    failures.push(format!(
+                        "{key} = {typed:?} via {edit}:\n--- typed over\n{over:?}\n--- cleared then typed\n{again:?}"
+                    ));
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A YAML list or map emptied from another view (`ports: []`), and filled
+/// again, keeps the spacing before its key line's comment as written
+/// (round 20: `ports:    # pc` became `ports: [] # pc`, then `ports: # pc`),
+/// with any gap, nested or at the top.
+#[test]
+fn a_yaml_container_emptied_and_refilled_keeps_the_gap_before_its_comment() {
+    let mut failures = Vec::new();
+    for gap in [" ", "    ", "  \t"] {
+        for (pointer, block, empty, filled) in [
+            (
+                "/ports",
+                format!("# top\nports:{gap}# pc\n  - 80\n  - 443\nn: 1\n"),
+                format!("# top\nports: []{gap}# pc\nn: 1\n"),
+                format!("# top\nports:{gap}# pc\n  - 8\nn: 1\n"),
+            ),
+            (
+                "/m",
+                format!("# top\nm:{gap}# mc\n  a: 1\n  b: 2\nn: 1\n"),
+                format!("# top\nm: {{}}{gap}# mc\nn: 1\n"),
+                format!("# top\nm:{gap}# mc\n  k: 8\nn: 1\n"),
+            ),
+            (
+                "/s/ports",
+                format!("# top\ns:\n  ports:{gap}# pc\n    - 80\n  x: 1\nn: 1\n"),
+                format!("# top\ns:\n  ports: []{gap}# pc\n  x: 1\nn: 1\n"),
+                format!("# top\ns:\n  ports:{gap}# pc\n    - 8\n  x: 1\nn: 1\n"),
+            ),
+        ] {
+            let emptied = if pointer.ends_with("ports") {
+                json!([])
+            } else {
+                json!({})
+            };
+            let refill = if pointer.ends_with("ports") {
+                json!([8])
+            } else {
+                json!({"k": 8})
+            };
+            for edit in ALL.into_iter().filter(|edit| *edit != Language::YAML) {
+                for (label, host, value, expected) in [
+                    ("emptied", &block, &emptied, &empty),
+                    ("refilled", &empty, &refill, &filled),
+                ] {
+                    // XML shows no empty container.
+                    let shown = std::cell::Cell::new(edit != Language::XML || label == "refilled");
+                    let saved = save_value(Language::YAML, edit, host, &|document| {
+                        match super::save_matrix::find_slot(document, pointer) {
+                            Some(slot) => *slot = value.clone(),
+                            None => shown.set(false),
+                        }
+                    });
+                    match saved {
+                        _ if !shown.get() => {}
+                        Ok(saved) if saved == *expected => {}
+                        Ok(saved) => failures.push(format!(
+                            "{pointer} {label}, gap {gap:?}, via {edit}:\n--- expected\n{expected}--- saved\n{saved}"
+                        )),
+                        Err(error) => failures.push(format!(
+                            "{pointer} {label}, gap {gap:?}, via {edit}: {error}"
+                        )),
+                    }
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
 /// The XML view writes every scalar as text and guesses its type on
 /// reading, so a value edited there keeps the host's type: a string stays a
 /// string whatever is typed (`"1"` made `12` is `"12"`), an emptied element
@@ -602,6 +875,13 @@ fn a_scalar_edited_in_the_xml_view_keeps_the_hosts_type() {
         ("port", json!(81), Some(json!(81))),
         ("port", json!(1.5), Some(json!(1.5))),
         ("port", json!("abc"), Some(json!("abc"))),
+        // A hexadecimal, octal or binary integer is that number (round 20:
+        // the text `0x50`).
+        ("port", json!("0x50"), Some(json!(80))),
+        ("port", json!("0o17"), Some(json!(15))),
+        ("port", json!("0b11"), Some(json!(3))),
+        ("port", json!("-0x10"), Some(json!(-16))),
+        ("ver", json!("0x50"), Some(json!("0x50"))),
         ("ok", json!(""), None),
         ("ok", json!(false), Some(json!(false))),
     ];
@@ -778,7 +1058,8 @@ fn yaml_list_items_moved_through_any_view_take_their_comments() {
             "l:  # lc\n  # first\n  - k: 1\n    j: x  # jx\n  # second\n  - k: 2\n\n  - k: 3  # three\n    j: z\nn: 1\n",
             "/l",
             &[2, 0, 1][..],
-            "l:  # lc\n  # first\n  - k: 3  # three\n    j: z\n  - k: 1\n    j: x  # jx\n\n  # second\n  - k: 2\nn: 1\n",
+            // The comment line above the first item is that item's too.
+            "l:  # lc\n  - k: 3  # three\n    j: z\n  # first\n  - k: 1\n    j: x  # jx\n\n  # second\n  - k: 2\nn: 1\n",
         ),
         (
             "l:\n- name: a # ac\n  v: 1\n- name: b\n  v: 2 # bv\nn: 1\n",

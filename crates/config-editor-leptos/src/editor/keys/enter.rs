@@ -83,9 +83,13 @@ pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
             .rsplit('\n')
             .next()
             .is_some_and(|tail| !tail.is_empty() && tail.trim().is_empty());
+    // The spacing before a comment stays (`l2|  # mc`): in YAML it is what
+    // makes the comment one once text is typed before it.
     let following = if ends_indented {
         let rest = &text[replaced_byte..];
-        rest.len() - rest.trim_start_matches([' ', '\t']).len()
+        let spacing = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        let before_comment = spacing > 0 && behavior.comment_start(rest) == Some(spacing);
+        if before_comment { 0 } else { spacing }
     } else {
         0
     };

@@ -65,8 +65,35 @@ fn in_host_types_at(
                 }),
             }
         }
+        // A hexadecimal, octal or binary integer typed where the host holds
+        // an integer is that number (the view reads it as text).
+        (Value::Number(number), Value::String(text))
+            if !number.is_f64()
+                && let Some(integer) = radix_integer(&text) =>
+        {
+            Ok(Value::from(integer))
+        }
         (Value::String(_), Value::Number(number)) => Ok(Value::String(number.to_string())),
         (Value::String(_), Value::Bool(flag)) => Ok(Value::String(flag.to_string())),
         (_, value) => Ok(value),
     }
+}
+
+/// The integer `text` writes in base 16, 8 or 2 (`0x50`, `-0o17`, `0b11`).
+fn radix_integer(text: &str) -> Option<i64> {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let (radix, digits) = match digits.get(..2)? {
+        "0x" | "0X" => (16, &digits[2..]),
+        "0o" | "0O" => (8, &digits[2..]),
+        "0b" | "0B" => (2, &digits[2..]),
+        _ => return None,
+    };
+    if digits.is_empty() || digits.starts_with(['+', '-']) {
+        return None;
+    }
+    let magnitude = i64::from_str_radix(digits, radix).ok()?;
+    Some(if negative { -magnitude } else { magnitude })
 }

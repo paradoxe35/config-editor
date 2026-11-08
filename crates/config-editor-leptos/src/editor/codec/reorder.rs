@@ -2,7 +2,7 @@
 //! with its comments and the comment lines above it, instead of every value
 //! being rewritten in place under the comments of others.
 
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, Repetition};
 use super::{byte_range, comment_start, escape, inline_location, read};
 use serde_json::Value;
 use std::ops::Range;
@@ -24,10 +24,9 @@ pub(in super::super) fn patch_reorder(
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();
-    let line_of = |byte: usize| previous[..byte].matches('\n').count();
-    // Each slot: its first host line (comments above the item), the item's
-    // first line, and its last line.
-    let mut moves: Vec<(std::ops::Range<usize>, Vec<String>)> = Vec::new();
+    // Each list's old items in their new places: the host lines each new
+    // place covers, and the lines it takes.
+    let mut moves: Vec<(Range<usize>, Vec<String>)> = Vec::new();
     for (pointer, before, after) in lists {
         // A block list's items (`- name: a` and the lines under it) move
         // with all their lines.
@@ -36,43 +35,7 @@ pub(in super::super) fn patch_reorder(
         let whole_items = block.is_some();
         let slots = match block {
             Some(slots) => slots,
-            None => {
-                let mut slots: Vec<(usize, usize, usize)> = Vec::new();
-                for (index, item) in before.iter().enumerate() {
-                    let item_pointer = format!("{pointer}/{index}");
-                    let span = language
-                        .value_span(previous, &item_pointer)
-                        .or_else(|| inline_location(language, previous, &item_pointer, false))?;
-                    let range = byte_range(previous, span)?;
-                    let line = line_of(range.start);
-                    if line != line_of(range.end) || slots.iter().any(|(_, at, _)| *at == line) {
-                        return None;
-                    }
-                    // The line holds this item alone: a list dash before it,
-                    // a comma and a comment after it.
-                    let line_start = previous[..range.start].rfind('\n').map_or(0, |at| at + 1);
-                    let text = lines[line];
-                    let before_value = previous[line_start..range.start].trim();
-                    let after_value = &text[range.end - line_start..];
-                    let after_code = after_value[..comment_start(language, after_value)].trim();
-                    if !matches!(before_value, "" | "-")
-                        || !matches!(after_code, "" | ",")
-                        || item.is_object()
-                        || item.is_array()
-                    {
-                        return None;
-                    }
-                    // Own-line comments right above it go with it.
-                    let mut top = line;
-                    while top > 0 && comment_only(language, lines[top - 1]) {
-                        top -= 1;
-                    }
-                    // Not above the list's first item: those comments are the
-                    // list's.
-                    slots.push((if index == 0 { line } else { top }, line, line));
-                }
-                slots
-            }
+            None => line_items(language, previous, &lines, &pointer, before)?,
         };
         // Each new position takes the block of the old item it holds.
         let mut used = vec![false; before.len()];
@@ -92,13 +55,80 @@ pub(in super::super) fn patch_reorder(
             moves.push((slots[slot].0..slots[slot].2 + 1, block));
         }
     }
+    // Lists apart from each other: no two moves cover the same line.
     moves.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    if moves.windows(2).any(|pair| pair[1].0.end > pair[0].0.start) {
+        return None;
+    }
     let mut patched: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
     for (range, block) in moves {
         patched.splice(range, block);
     }
     let patched = patched.join("\n");
     (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
+}
+
+/// The items of the list at `pointer`, each a scalar on a line of its own
+/// (a list dash before it, a comma or an XML end tag after it, a comment
+/// after that), as its first line (the comment lines right above it), its
+/// line, and its line again; `None` when an item shares a line or is a
+/// container.
+fn line_items(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    lines: &[&str],
+    pointer: &str,
+    before: &[Value],
+) -> Option<Vec<(usize, usize, usize)>> {
+    let line_of = |byte: usize| previous[..byte].matches('\n').count();
+    let mut slots: Vec<(usize, usize, usize)> = Vec::new();
+    for (index, item) in before.iter().enumerate() {
+        if item.is_object() || item.is_array() {
+            return None;
+        }
+        let item_pointer = format!("{pointer}/{index}");
+        let span = language
+            .value_span(previous, &item_pointer)
+            .or_else(|| inline_location(language, previous, &item_pointer, false))?;
+        let range = byte_range(previous, span)?;
+        let line = line_of(range.start);
+        if line != line_of(range.end) || slots.iter().any(|(_, at, _)| *at == line) {
+            return None;
+        }
+        let line_start = previous[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        let text = lines[line];
+        let before_value = previous[line_start..range.start].trim();
+        let after_value = &text[range.end - line_start..];
+        let after_code = after_value[..comment_start(language, after_value)].trim();
+        let alone = matches!(before_value, "" | "-") && matches!(after_code, "" | ",");
+        if !alone && !in_own_element(language, before_value, after_code) {
+            return None;
+        }
+        // Own-line comments right above it go with it, but a file's header
+        // comment (nothing but comments above it) stays.
+        let mut top = line;
+        while top > 0 && comment_only(language, lines[top - 1]) {
+            top -= 1;
+        }
+        slots.push((if top == 0 { line } else { top }, line, line));
+    }
+    Some(slots)
+}
+
+/// Whether a repeated element's value is alone in its element on its line
+/// (`<l>` before it, `</l>` after it).
+fn in_own_element(language: &dyn ConfigLanguage, before: &str, after: &str) -> bool {
+    if language.repetition() != Repetition::Elements {
+        return false;
+    }
+    let Some(tag) = before
+        .strip_prefix('<')
+        .and_then(|tag| tag.strip_suffix('>'))
+    else {
+        return false;
+    };
+    let name = tag.split_whitespace().next().unwrap_or("");
+    !name.is_empty() && !tag.contains(['<', '>']) && after == format!("</{name}>")
 }
 
 /// The item line `moved`, with a comma after its value exactly when the
@@ -145,11 +175,21 @@ fn permuted_lists<'a>(
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
             let mut rest: Vec<&Value> = right.iter().collect();
-            for item in left {
-                let at = rest.iter().position(|other| *other == item)?;
-                rest.swap_remove(at);
+            let permuted = left.iter().all(|item| {
+                rest.iter()
+                    .position(|other| *other == item)
+                    .map(|at| rest.swap_remove(at))
+                    .is_some()
+            });
+            if permuted {
+                out.push((pointer, left, right));
+                return Some(());
             }
-            out.push((pointer, left, right));
+            // Not moved itself: lists inside its items may be (`sub` of a
+            // list item reordered).
+            for (index, (item, other)) in left.iter().zip(right).enumerate() {
+                permuted_lists(item, other, format!("{pointer}/{index}"), out)?;
+            }
             Some(())
         }
         _ => None,
@@ -167,9 +207,10 @@ fn indent_of(line: &str) -> usize {
 
 /// The items of the block list at `pointer` (a key's value written `key:`
 /// then one `- ` line per item, in a language whose indentation is
-/// structure), each as its first line (the comment lines above it at its
-/// dash's indent, but above the first item: those are the list's), its
-/// dash line, and its last line (deeper comment lines end the item before).
+/// structure), each as its first line (the comment lines right above it at
+/// its dash's indent or further out, at exactly its indent above the first
+/// item), its dash line, and its last line (deeper comment lines end the
+/// item before).
 fn block_items(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -219,13 +260,19 @@ fn block_items(
     }
     let column = dash?;
     for (index, item) in items.iter_mut().enumerate() {
-        if index > 0 {
-            while item.0 > 0
-                && comment_only(language, lines[item.0 - 1])
-                && indent_of(lines[item.0 - 1]) <= column
-            {
-                item.0 -= 1;
+        // Above the first item, only comments at its dash's column are its
+        // own (the key's line stops the walk); ones further out are the
+        // list's.
+        let owned = |line: &str| {
+            let indent = indent_of(line);
+            if index == 0 {
+                indent == column
+            } else {
+                indent <= column
             }
+        };
+        while item.0 > 0 && comment_only(language, lines[item.0 - 1]) && owned(lines[item.0 - 1]) {
+            item.0 -= 1;
         }
     }
     Some(items)
@@ -246,9 +293,24 @@ pub(in super::super) fn unmoved_comments(
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();
-    lists.into_iter().find_map(|(pointer, _, _)| {
-        let items = block_items(language, previous, &lines, &pointer)?;
-        let span: Range<usize> = items.first()?.1..items.last()?.2 + 1;
+    let line_of = |byte: usize| previous[..byte].matches('\n').count();
+    lists.into_iter().find_map(|(pointer, before, _)| {
+        // The lines from the first item to the end of the last.
+        let span: Range<usize> = match block_items(language, previous, &lines, &pointer) {
+            Some(items) => items.first()?.1..items.last()?.2 + 1,
+            None => {
+                let range = |index: usize| {
+                    let item = format!("{pointer}/{index}");
+                    let span = language
+                        .value_span(previous, &item)
+                        .or_else(|| inline_location(language, previous, &item, false))?;
+                    byte_range(previous, span)
+                };
+                let first = range(0)?;
+                let last = range(before.len().checked_sub(1)?)?;
+                line_of(first.start)..line_of(last.end.max(first.start)) + 1
+            }
+        };
         lines[span]
             .iter()
             .any(|line| comment_start(language, line) < line.len())

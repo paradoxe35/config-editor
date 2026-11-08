@@ -96,7 +96,13 @@
         showToolbar: true,
         showFooter: true,
         onChange: (text) => (saved.textContent = text),
-        onEditAsChange: (language) => (document.body.dataset.editing = language),
+        // The select follows the language on screen, also when undo steps
+        // back across a switch (the host's own language is "Same").
+        onEditAsChange: (language) => {
+          document.body.dataset.editing = language;
+          const select = document.getElementById("edit-as");
+          select.value = [...select.options].some((option) => option.value === language) ? language : "";
+        },
         onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
         secrets: { hint: "Keeps the stored secret" },
         // Explicit saves only: the saved text becomes the new baseline.

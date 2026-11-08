@@ -1534,6 +1534,20 @@ fn enter_inside_a_yaml_scalar_continues_it() {
             "hel lo",
         ),
         ("- - a|b\n", "- - a\n    |b\n", "/0/0", "a b"),
+        // At the end of a plain value's line when the next line continues
+        // it: at that line's indent (round 20: at column 0).
+        (
+            "ml: l1|\n  l2  # mc\nn: 1\n",
+            "ml: l1\n  |\n  l2  # mc\nn: 1\n",
+            "/ml",
+            "l1\nl2",
+        ),
+        (
+            "m:\n  ml: l1|\n      l2\n",
+            "m:\n  ml: l1\n      |\n      l2\n",
+            "/m/ml",
+            "l1\nl2",
+        ),
     ];
     let mut failures = Vec::new();
     for (marked, expected, pointer, value) in cases {

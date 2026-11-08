@@ -2,7 +2,7 @@
 //! line by line on the host's text, so its comments and formatting stay.
 
 use super::super::language::ConfigLanguage;
-use super::compare::{comment_start, comparable, trailing_comment};
+use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
 use super::{empty_containers, kept_inline, read, serialize};
 use serde_json::Value;
 
@@ -277,14 +277,18 @@ fn patch_lines(
         if !removed[index] {
             continue;
         }
-        let comment = trailing_comment(language, host[index]);
+        // With the spacing the host wrote before it.
+        let comment = spaced_trailing_comment(language, host[index]);
         let indent = |line: &str| line.len() - line.trim_start().len();
         if let Some(first) = inserted[index].first_mut()
             && !comment.is_empty()
             && indent(first) == indent(host[index])
             && trailing_comment(language, first).is_empty()
         {
-            first.push(' ');
+            first.truncate(first.trim_end().len());
+            if !comment.starts_with([' ', '\t']) {
+                first.push(' ');
+            }
             first.push_str(comment);
         }
     }

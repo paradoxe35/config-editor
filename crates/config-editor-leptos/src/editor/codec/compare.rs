@@ -144,6 +144,22 @@ pub(super) fn trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str)
     line[comment_start(language, line)..].trim_end()
 }
 
+/// The trailing comment of `line` with the spacing written before it
+/// (`    # pc`), for a line that takes it over; `""` without a comment.
+pub(super) fn spaced_trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
+    let start = comment_start(language, line);
+    if line[start..].trim_end().is_empty() {
+        return "";
+    }
+    let code_end = line[..start].trim_end().len();
+    let spaced = line[code_end..].trim_end();
+    if spaced.starts_with([' ', '\t']) {
+        spaced
+    } else {
+        &line[start..]
+    }
+}
+
 /// Where the trailing comment of `line` starts, or its length.
 pub(super) fn comment_start(language: &dyn ConfigLanguage, line: &str) -> usize {
     language

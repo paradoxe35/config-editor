@@ -25,6 +25,14 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
     // carries one more mark in the model).
     let text = non_finite::written(text);
     let written = written.trim_start();
+    // A quoted or plain scalar over lines keeps its lines: only the one the
+    // edit falls on is rewritten.
+    if written.contains('\n')
+        && !in_flow
+        && let Some(kept) = super::folded::kept_lines(language, written, text)
+    {
+        return kept;
+    }
     let reads_back = |candidate: &str| {
         // As a block value, and inside a flow collection where it is in one.
         language.parse(&format!("k: {candidate}\n")).ok() == Some(serde_json::json!({ "k": value }))
@@ -33,8 +41,13 @@ pub(super) fn yaml_value_like(language: &YamlBehavior, value: &Value, written: &
     // Line separators and what YAML takes only escaped are written in
     // double quotes.
     let breaks = text.chars().any(super::suggestions::needs_yaml_escape);
+    // An empty string's quotes are no style the text chose (a value cleared
+    // and typed again): written as a new value is, plain where safe.
+    let fresh = matches!(written.trim_end(), "\"\"" | "''");
     match written.chars().next() {
         _ if breaks && !written.starts_with('"') => yaml_value(value),
+        Some(_) if fresh && super::plain::can_be_plain(text) && reads_back(text) => text.to_string(),
+        Some(_) if fresh => yaml_value(value),
         Some('\'') if !text.contains('\n') => format!("'{}'", text.replace('\'', "''")),
         Some('"') => super::super::escapes::like_written(
             super::suggestions::yaml_quoted(text),

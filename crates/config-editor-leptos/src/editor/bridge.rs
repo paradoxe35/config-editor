@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 mod merge;
 mod text_scalars;
+mod whole_floats;
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
@@ -147,6 +148,12 @@ impl Bridge {
                 })?
             }
             _ => value,
+        };
+        // A view that reads a whole float as an integer (HCL) only shows it
+        // so: a number typed over it stays a float.
+        let value = match &seen {
+            Some(seen) => whole_floats::kept(&old, seen, value),
+            None => value,
         };
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.

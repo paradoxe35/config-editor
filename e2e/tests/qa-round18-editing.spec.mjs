@@ -42,7 +42,7 @@ test.describe('YAML edited as JSON', () => {
     await caretAfter(e, 'l2', 2);
     await page.keyboard.type('Y');
     await expect.poll(() => saved(page)).toBe(
-      host.replace('    x\n', '    xQ\n').replace('  - b\n', '  - bZ\n').replace('ml: "l1\n  l2"', 'ml: "l1 l2Y"'),
+      host.replace('    x\n', '    xQ\n').replace('  - b\n', '  - bZ\n').replace('ml: "l1\n  l2"', 'ml: "l1\n  l2Y"'),
     );
   });
 
