@@ -61,6 +61,8 @@ mod metrics;
 mod parse_cache;
 mod paths;
 mod positioning;
+#[cfg(all(test, feature = "yaml", feature = "protect"))]
+mod problem_cap_tests;
 mod problems;
 mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]

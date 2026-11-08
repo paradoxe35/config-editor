@@ -42,6 +42,9 @@ body { margin: 0; }
    documents demo), so the page keeps its height. */
 .demo__settings {
   position: relative;
+  /* Above the editor's gutter, which an unstyled editor (`styled` off)
+     draws over the toolbar. */
+  z-index: 21;
   align-self: center;
 }
 /* Chevrons drawn with borders: a font's arrows vary from one system to

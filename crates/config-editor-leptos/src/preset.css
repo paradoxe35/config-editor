@@ -138,7 +138,19 @@
   min-width: 0;
 }
 
-.config-editor__file { border-bottom: 1px solid var(--config-editor-accent); }
+.config-editor__file {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  border-bottom: 1px solid var(--config-editor-accent);
+}
+/* A long name ends in an ellipsis (its title tells it whole). */
+.config-editor__file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-editor__file-icon { flex: none; }
 .config-editor__file-icon {
   width: 17px;
   height: 17px;
@@ -504,6 +516,14 @@
 
 .config-editor__diff-peek-header button:hover,
 .config-editor__diff-peek-header button:focus-visible { background: var(--config-editor-raised-hover); }
+
+/* On one line however narrow the screen (its title tells it whole). */
+.config-editor__diff-peek-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .config-editor__diff-peek-actions { display: flex; flex: none; align-items: center; gap: 4px; }
 
@@ -1588,5 +1608,31 @@
     position: absolute;
     inset: calc((var(--config-editor-line-height) - max(24px, var(--config-editor-line-height))) / 2) 0;
     content: "";
+  }
+}
+
+/* Forced colors (Windows high contrast) drop backgrounds: the gutter's
+   problem dots and change bars are drawn in system colors instead. */
+@media (forced-colors: active) {
+  .config-editor__line-number-error::before,
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified,
+  .config-editor__diff-deleted::before {
+    forced-color-adjust: none;
+  }
+  .config-editor__line-number-error::before { background: CanvasText; }
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified { background: Highlight; }
+  .config-editor__diff-deleted::before { background: CanvasText; }
+}
+
+/* No sliding or fading for those who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .config-editor__fold-toggle,
+  .config-editor__find-expand,
+  .config-editor__diff-marker-added,
+  .config-editor__diff-marker-modified,
+  .config-editor__diff-deleted::before {
+    transition: none;
   }
 }

@@ -369,11 +369,18 @@ pub(super) fn toggle_xml_comments(
     Some((updated, updated_selection_start, updated_selection_end))
 }
 
-/// One `<!-- -->` pair around the raw selection, used when it already holds
-/// commented lines that per-line wrapping would corrupt. Their markers are
-/// escaped (see [`escape_comment_text`]), so the result is valid XML and
-/// toggling again restores them.
+/// One `<!-- -->` pair around the selected lines (from the first one's
+/// indentation to the last one's end), used when they already hold
+/// commented lines that per-line wrapping would corrupt. Whole lines, so the
+/// comment never starts or ends inside an element (`<c>3 --></c>`); their
+/// markers are escaped (see [`escape_comment_text`]), so the result is valid
+/// XML and toggling again restores them.
 pub(super) fn wrap_xml_selection(source: &str, start: usize, end: usize) -> Option<(String, usize, usize)> {
+    let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+    let start = line_start + (source[line_start..].len() - source[line_start..].trim_start_matches([' ', '\t']).len());
+    let end = if end > start && source[..end].ends_with('\n') { end - 1 } else { end };
+    let line_end = source[end..].find('\n').map_or(source.len(), |at| end + at);
+    let end = start.max(source[..line_end].trim_end().len());
     let inner = escape_comment_text(&source[start..end]);
     let mut updated = String::with_capacity(source.len() + inner.len() + 9);
     updated.push_str(&source[..start]);

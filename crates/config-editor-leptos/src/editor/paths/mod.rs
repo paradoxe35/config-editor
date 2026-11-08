@@ -4,8 +4,12 @@
 //! (`key_span`, `value_span`, `hover_path`, `completion_context`), so a
 //! language gets them by implementing those.
 
+mod span_memo;
 mod types;
 
+pub(crate) use span_memo::value_span as memo_value_span;
+#[cfg(feature = "schema-validation")]
+pub(crate) use span_memo::with_value_spans;
 pub use types::{FieldPath, TextPosition, TextRange};
 
 use super::codec::inline_location;
@@ -33,7 +37,7 @@ fn key_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Optio
 /// The value written for `pointer`, inside an inline container or not.
 fn value_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
     inline_location(behavior, source, pointer, false)
-        .or_else(|| behavior.value_span(source, pointer))
+        .or_else(|| memo_value_span(behavior, source, pointer))
 }
 
 /// Characters of line `line` (one-based) up to its last non-blank one.
@@ -162,16 +166,16 @@ pub(crate) fn problem_span(
         if required {
             inline_location(behavior, source, path, true)
                 .or_else(|| behavior.key_span(source, path))
-                .or_else(|| behavior.value_span(source, path))
+                .or_else(|| memo_value_span(behavior, source, path))
         } else {
             inline_location(behavior, source, path, false)
                 .or_else(|| {
-                    behavior.value_span(source, path).filter(|span| {
+                    memo_value_span(behavior, source, path).filter(|span| {
                         !written_as_block || span.start_column <= trimmed_width(source, span.line)
                     })
                 })
                 .or_else(|| behavior.key_span(source, path))
-                .or_else(|| behavior.value_span(source, path))
+                .or_else(|| memo_value_span(behavior, source, path))
         }
     };
     spellings(behavior, pointer)

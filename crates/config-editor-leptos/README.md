@@ -851,9 +851,11 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   tokens pasted into another field, or left under a renamed key, is flagged
   (it stands for the secret of the field it came from), and so is a token
   the host did not give in a secret field (it stands for no current
-  secret). Put back into its own field (cut and pasted back, the key's name
-  restored), it is real again, since the field then holds what the host
-  gave. The schema check accepts a placeholder only in its own field.
+  secret). Like the schema's problems, at most 20 are flagged; past that, a
+  note says more follow (the footer counts "20+ warnings"). Put back into
+  its own field (cut and pasted back, the key's name restored), it is real
+  again, since the field then holds what the host gave. The schema check
+  accepts a placeholder only in its own field.
 - A placeholder is atomic: the caret never lands inside it (clicks, arrows,
   `Home`/`End` and selections snap to its edges; `←`/`→` step over it),
   `Backspace` or `Delete` next to it removes it whole, an edit or a

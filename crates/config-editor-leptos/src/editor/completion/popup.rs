@@ -30,17 +30,42 @@ pub(crate) fn scroll_completion_into_view(list: &web_sys::HtmlDivElement, index:
 /// measuring text; close enough for the short keys suggested.
 pub(crate) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
 
-/// The rendered column after `text`, with tabs at their tab stops.
+/// The rendered column after `text`, with tabs at their tab stops and
+/// marks drawn over the character before them (`e` + U+0301 is one `é`)
+/// taking no column.
 pub(crate) fn visual_column(text: &str) -> f64 {
     let mut column = 0.0;
     for character in text.chars() {
         if character == '\t' {
             column += COMPLETION_TAB_STOP_WIDTH - (column % COMPLETION_TAB_STOP_WIDTH);
-        } else {
+        } else if !zero_width(character) {
             column += 1.0;
         }
     }
     column
+}
+
+/// Whether `character` is drawn without a width of its own: a combining
+/// mark, a variation selector, or a zero-width joiner or space.
+fn zero_width(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x0300..=0x036F
+            | 0x0483..=0x0489
+            | 0x0591..=0x05BD
+            | 0x0610..=0x061A
+            | 0x064B..=0x065F
+            | 0x0E31
+            | 0x0E34..=0x0E3A
+            | 0x0E47..=0x0E4E
+            | 0x1AB0..=0x1AFF
+            | 0x1DC0..=0x1DFF
+            | 0x200B..=0x200F
+            | 0x20D0..=0x20FF
+            | 0xFE00..=0xFE0F
+            | 0xFE20..=0xFE2F
+            | 0xE0100..=0xE01EF
+    )
 }
 
 /// Completion popup width, in pixels: room for key, type and detail.
@@ -134,4 +159,31 @@ pub(crate) fn completion_popup_style(
         metrics.line_height,
         option_count,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visual_column;
+
+    /// QA 17: an underline after `é` written as `e` + U+0301 sat one column
+    /// to the right: the mark takes no column of its own, in every overlay
+    /// that places itself by column (problems, matches, locks, fold chips).
+    #[test]
+    fn marks_over_a_character_take_no_column() {
+        let cases = [
+            ("e\u{301}x", 2.0),
+            ("caf\u{e9}", 4.0),
+            ("cafe\u{301}", 4.0),
+            ("a\u{20dd}b", 2.0),
+            ("\u{2764}\u{fe0f}", 1.0),
+            ("a\u{200d}b", 2.0),
+            ("\tx", 3.0),
+        ];
+        let failures: Vec<String> = cases
+            .iter()
+            .filter(|(text, expected)| visual_column(text) != *expected)
+            .map(|(text, expected)| format!("{text:?}: {} not {expected}", visual_column(text)))
+            .collect();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 }

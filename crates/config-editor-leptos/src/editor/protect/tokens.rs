@@ -225,7 +225,7 @@ impl SecretMatcher {
             .as_ref()
             .as_ref()
             .map(|document| self.holders(document))
-            .unwrap_or_default();
+            .ok();
         let mut fields: std::collections::HashMap<&str, Vec<(&str, usize)>> =
             std::collections::HashMap::new();
         for known in known {
@@ -246,8 +246,14 @@ impl SecretMatcher {
         let mut found: Vec<Range<usize>> = Vec::new();
         for (token, left) in &mut fields {
             let written = written.remove(*token).unwrap_or_default();
-            let placed = holders
-                .get(*token)
+            // A document whose strings hold the token nowhere (each written
+            // in a comment: a document commented out) has none in a field.
+            let held = holders.as_ref().map(|holders| holders.get(*token));
+            if held == Some(None) {
+                continue;
+            }
+            let placed = held
+                .flatten()
                 .filter(|pointers| pointers.len() == written.len());
             for (nth, byte) in written.into_iter().enumerate() {
                 let pointer = match placed {
