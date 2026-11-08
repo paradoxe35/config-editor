@@ -468,8 +468,10 @@ shown.
 Line endings are kept: the editor works on LF text, and when the host's text
 ends its lines with CRLF (`value`, `initial_value`, or a new `value` later),
 `on_change` and `on_save` receive the text with CRLF line endings, in every
-language and while editing as another one. Dirty state and the diff compare
-line endings as LF.
+language and while editing as another one. The endings are the text's
+majority, on every line: a text mixing CRLF and LF is sent with CRLF when
+most of its lines end so, else with LF, and old Mac CR endings become LF.
+Dirty state and the diff compare line endings as LF.
 
 The text is dirty while it differs from `baseline` as shown (the document at
 mount when no `baseline` is given). `on_dirty_change` reports it once on
@@ -797,7 +799,13 @@ view! {
   A host's read-only range is text: nothing in it changes.
 - A syntax error anywhere keeps every lock: while the document does not
   parse, locked text stays exactly as it was, and the edit that repairs
-  the syntax goes through.
+  the syntax goes through. This holds whatever order the text and the locks
+  come in: a `value` that does not parse (at mount or later) is locked as
+  the same text reads with the line breaking it left out, and paths named
+  while the text does not parse lock at once. A locked field that cannot be
+  found in such a text at all keeps the text from parsing again until the
+  host gives one where it is found (a read-only value is never sent
+  unchecked).
 - Suggestions leave read-only keys and values out. Inside a read-only
   region (browsing it with `Ctrl+Space`) they are listed, with the reason as
   their detail.

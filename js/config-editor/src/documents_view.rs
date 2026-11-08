@@ -224,9 +224,32 @@ pub(crate) struct State {
 pub(crate) struct Texts {
     pub(crate) value: String,
     pub(crate) baseline: String,
+    /// Which listing of the id this is: a document removed and listed again
+    /// with the same id is a new one, which an `EditorView` of the old one
+    /// does not read.
+    pub(crate) listing: u64,
+}
+
+thread_local! {
+    /// The last [`Texts::listing`] given.
+    static LISTINGS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 impl State {
+    /// Stops the callbacks once `destroy` is called (from inside one, the
+    /// view unmounts a moment later): none fires again, but `onChange` with
+    /// an edit still waiting to be saved as the view unmounts.
+    fn silence(&self) {
+        for callback in [
+            self.on_select,
+            self.on_close,
+            self.on_save,
+            self.on_dirty_change,
+        ] {
+            let _ = callback.try_set_value(None);
+        }
+    }
+
     /// The document `id`'s text and baseline, while it is listed.
     pub(crate) fn texts_of(&self, id: &str) -> Option<Texts> {
         self.texts
@@ -276,11 +299,21 @@ fn remember_texts(
                 .clone()
                 .or_else(|| texts.get(&document.id).map(|known| known.baseline.clone()))
                 .unwrap_or_else(|| document.value.clone());
+            let listing = texts.get(&document.id).map_or_else(
+                || {
+                    LISTINGS.with(|last| {
+                        last.set(last.get() + 1);
+                        last.get()
+                    })
+                },
+                |known| known.listing,
+            );
             texts.insert(
                 document.id.clone(),
                 Texts {
                     value: document.value.clone(),
                     baseline,
+                    listing,
                 },
             );
         }
@@ -537,17 +570,16 @@ impl ConfigDocuments {
     /// The editor of the document `id`: paths, folds, focus and saving for
     /// that document (`null` when no document has that id). Its
     /// queries answer `null` (or `false`) until the document has been shown
-    /// once, which mounts its editor.
+    /// once, which mounts its editor, and again once the document is
+    /// removed (one listed again with the same id is another document).
     pub fn editor(
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<DocumentEditorResult, JsError> {
         let id = text_arg(&id, "id")?;
-        let listed = self.state.texts_of(&id).is_some();
-        Ok(if listed {
-            JsValue::from(DocumentEditorView::new(self.state, id))
-        } else {
-            JsValue::NULL
+        Ok(match self.state.texts_of(&id) {
+            Some(texts) => JsValue::from(DocumentEditorView::new(self.state, id, texts.listing)),
+            None => JsValue::NULL,
         }
         .unchecked_into())
     }
@@ -561,7 +593,7 @@ impl ConfigDocuments {
     /// while its `id` stays listed, its text, baseline, file name and
     /// read-only state update in place, and a new `language` or `schema`
     /// mounts a new editor. `activeId` shows that document, leaving the
-    /// focus where it is. `className` and `label`, and an `onClose` for a
+    /// focus where it is (an id not listed throws). `className` and `label`, and an `onClose` for a
     /// view mounted without one (its tabs have no close buttons), throw:
     /// create a new view instead. Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
@@ -613,6 +645,24 @@ impl ConfigDocuments {
         if listed.is_none() && settings.is_some() {
             for (id, given) in &self.state.overrides.try_get_value().unwrap_or_default() {
                 own.push((id.clone(), settings_over(&view, given)?));
+            }
+        }
+        // `activeId` names a document of the list (the new one, if given).
+        if let Some(id) = &active {
+            let listed_ids =
+                |documents: &[Document]| documents.iter().any(|document| document.id == *id);
+            let known = match &listed {
+                Some(listed) => listed_ids(&listed.documents),
+                None => self
+                    .state
+                    .documents
+                    .try_with_untracked(|documents| listed_ids(documents))
+                    .unwrap_or(false),
+            };
+            if !known {
+                return Err(JsError::new(&format!(
+                    "activeId: no document has the id {id:?}"
+                )));
             }
         }
 
@@ -672,7 +722,9 @@ impl ConfigDocuments {
             owner.cleanup();
         };
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {
-            // Called from a callback: the view's handler is still running.
+            // Called from a callback: the view's handler is still running,
+            // and calls nothing more.
+            self.state.silence();
             let deferred = Closure::once_into_js(unmount);
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);

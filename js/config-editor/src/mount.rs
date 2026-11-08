@@ -69,6 +69,25 @@ pub(crate) struct State {
     pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
 }
 
+impl State {
+    /// Stops the callbacks once `destroy` is called (from inside one, the
+    /// editor unmounts a moment later): none fires again, but `onChange`
+    /// with an edit still waiting to be saved as the editor unmounts.
+    pub(crate) fn silence(&self) {
+        for callback in [
+            self.on_edit_as_change,
+            self.on_change_summary,
+            self.on_path_change,
+            self.on_save,
+            self.on_dirty_change,
+            self.on_baseline_conflict,
+            self.on_schema_warning,
+        ] {
+            let _ = callback.try_set_value(None);
+        }
+    }
+}
+
 /// The latest document, outside the reactive arena: an edit saved while the
 /// editor unmounts arrives after its signals are gone.
 pub(crate) type Latest = std::sync::Arc<std::sync::Mutex<String>>;

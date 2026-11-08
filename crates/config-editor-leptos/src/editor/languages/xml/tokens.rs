@@ -166,7 +166,12 @@ pub(super) fn end_tag_token(source: &str, tag_start: usize, after_slash: usize) 
         }
         name_end += next.len_utf8();
     }
-    let end = find_markup_end(source, name_end);
+    // A tag still being typed (`</nam` then a new line with `<id>`) ends
+    // before the next `<`, as a start tag does.
+    let end = match source[name_end..].find(['>', '<']) {
+        Some(relative) if source.as_bytes()[name_end + relative] == b'<' => name_end + relative,
+        _ => find_markup_end(source, name_end),
+    };
     Token {
         start: tag_start,
         end,

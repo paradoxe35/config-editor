@@ -31,7 +31,8 @@ use serde_json::Value;
 use super::super::codec;
 use super::super::language::ConfigLanguage;
 use super::super::paths::path_at;
-use super::locate::{LineIndex, within};
+use super::carry::Moves;
+use super::locate::{LineIndex, extent, lookup, within};
 use super::locks::{Lock, Protected};
 use super::texts::Reason;
 use crate::EditorStrings;
@@ -102,8 +103,9 @@ pub(crate) fn check(
             })
     };
     // Without a parse to compare, a character typed next to a YAML plain
-    // value joins it, punctuation included (`abc<`, `2[x]`).
-    let strict = || behavior.plain_scalars() && parsed().is_none();
+    // value joins it, punctuation included (`abc<`, `2[x]`); so it does in
+    // any language next to a lock with no pinned value (`2/ 3` in HCL).
+    let strict = || (behavior.plain_scalars() && parsed().is_none()) || !all_pinned(protected);
     let kept = |range: &Range<usize>| {
         kept(range, &old, &new, prefix, suffix, &strict) || lines_kept(range)
     };
@@ -114,6 +116,7 @@ pub(crate) fn check(
         *reformat.get_or_init(|| {
             without_whitespace(&old[region.clone()]) == without_whitespace(&new[new_region.clone()])
                 && parsed().is_some_and(|document| pins_hold(document, protected).is_none())
+                && all_pinned(protected)
                 && (!behavior.indent_is_structure()
                     || indents(behavior, before) == indents(behavior, after))
         })
@@ -133,7 +136,18 @@ pub(crate) fn check(
             });
         }
     }
-    let pointed: Vec<&Lock> = protected
+    // A locked field not found in a text that does not parse: its value
+    // cannot be compared, so the text stays unparsed until the host gives
+    // one where it is found.
+    if let Some((_, reason)) = protected.unplaced.first()
+        && parsed().is_some()
+    {
+        return Err(Blocked {
+            reason: reason.clone(),
+            holds: false,
+        });
+    }
+    let mut pointed: Vec<&Lock> = protected
         .locks
         .iter()
         .filter(|lock| lock.pointer.is_some())
@@ -145,24 +159,40 @@ pub(crate) fn check(
         // The edited text parses: every locked value must read as it was
         // pinned, wherever the edit was (a TOML `[web.sub]` table added at
         // the end changes `web`).
-        return match pins_hold(edited, protected) {
-            None => Ok(()),
-            Some(pointer) => {
-                let lock = pointed
-                    .iter()
-                    .find(|lock| lock.pointer.as_deref() == Some(pointer));
-                Err(Blocked {
-                    reason: lock.map_or(Reason::Field, |lock| lock.reason.clone()),
+        if let Some(pointer) = pins_hold(edited, protected) {
+            let lock = pointed
+                .iter()
+                .find(|lock| lock.pointer.as_deref() == Some(pointer));
+            return Err(Blocked {
+                reason: lock.map_or(Reason::Field, |lock| lock.reason.clone()),
+                holds: false,
+            });
+        }
+        // A lock found in a text that never parsed has no value to compare
+        // with: the field must read from the lock's own text, moved through
+        // the edit and kept, and nothing else; and it is held as every lock
+        // is while the text does not parse.
+        pointed.retain(|lock| !is_pinned(protected, lock));
+        if pointed.is_empty() {
+            return Ok(());
+        }
+        let moves = Moves::new(before, after);
+        let after_lines = LineIndex::new(after);
+        for lock in &pointed {
+            if !reads_from_lock(behavior, after, &after_lines, edited, &moves, lock) {
+                return Err(Blocked {
+                    reason: lock.reason.clone(),
                     holds: false,
-                })
+                });
             }
-        };
+        }
     }
-    // The edited text does not parse, so its values cannot be compared.
-    // Nothing may be written where it would join a locked field once it
-    // parses (a key half typed inside a locked block, a duplicate of a
-    // locked key or of a key holding one): the edit may not add a line
-    // whose path is inside a locked field, or which names a key holding it.
+    // The values cannot be compared (the edited text does not parse, or the
+    // lock has no pinned value). Nothing may be written where it would join
+    // a locked field once it parses (a key half typed inside a locked
+    // block, a duplicate of a locked key or of a key holding one): the edit
+    // may not add a line whose path is inside a locked field, or which
+    // names a key holding it.
     let new_lines = LineIndex::new(after);
     for lock in &pointed {
         let pointer = lock.pointer.as_deref().unwrap_or_default();
@@ -185,8 +215,8 @@ pub(crate) fn check(
             });
         }
     }
-    // Without a parse to compare, a locked line keeps its indent: in YAML
-    // it is structure.
+    // Without a value to compare, a locked line keeps its indent (in YAML
+    // it is structure) and whatever starts its line.
     for lock in pointed {
         if is_near(lock, &region, &lines)
             && !lock
@@ -345,6 +375,55 @@ fn pins_hold<'a>(document: &Value, protected: &'a Protected) -> Option<&'a str> 
         .iter()
         .find(|(pointer, value)| document.pointer(pointer) != Some(value))
         .map(|(pointer, _)| pointer.as_str())
+}
+
+/// Whether the field of `lock` (found in a text with no value to pin) is
+/// written in `after` (which reads as `document`) only within the lock's
+/// own stretches, moved through the edit with their text kept: then it
+/// reads as it did.
+fn reads_from_lock(
+    behavior: &dyn ConfigLanguage,
+    after: &str,
+    lines: &LineIndex<'_>,
+    document: &Value,
+    moves: &Moves<'_>,
+    lock: &Lock,
+) -> bool {
+    let Some(pointer) = lock.pointer.as_deref() else {
+        return true;
+    };
+    let Some(value) = lookup(document, pointer) else {
+        return false;
+    };
+    let (Some(moved), Some(found)) = (
+        moves.lock(lock),
+        extent(behavior, after, lines, Some(value), None, pointer),
+    ) else {
+        return false;
+    };
+    found.ranges.iter().all(|range| {
+        moved
+            .ranges
+            .iter()
+            .any(|kept| kept.start <= range.start && range.end <= kept.end)
+    })
+}
+
+/// Whether every locked field has a pinned value to compare with (one
+/// found in a text that never parsed has none: whitespace inside it is not
+/// known to be free there).
+fn all_pinned(protected: &Protected) -> bool {
+    protected
+        .locks
+        .iter()
+        .all(|lock| lock.pointer.is_none() || is_pinned(protected, lock))
+}
+
+fn is_pinned(protected: &Protected, lock: &Lock) -> bool {
+    protected
+        .pins
+        .iter()
+        .any(|(pinned, _)| Some(pinned) == lock.pointer.as_ref())
 }
 
 fn without_whitespace(units: &[u16]) -> Vec<u16> {

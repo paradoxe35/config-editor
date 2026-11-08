@@ -14,7 +14,7 @@ use super::tests::{documents, edits, schema};
 
 /// Ways to break each document outside its locks: an unclosed quote above
 /// the locked fields, and a bracket left open below them.
-fn breaks(language: Language) -> Vec<(&'static str, &'static str)> {
+pub(super) fn breaks(language: Language) -> Vec<(&'static str, &'static str)> {
     match language.label() {
         "YAML" => vec![("name: x", "name: \"x"), ("port: 80", "port: [80")],
         "JSON" => vec![("\"name\": \"x\"", "\"name\": \"x"), ("}\n", "}\n}\n")],

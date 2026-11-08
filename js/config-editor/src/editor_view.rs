@@ -9,7 +9,7 @@ use config_editor_leptos::EditorHandle;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::documents_view::State;
+use crate::documents_view::{State, Texts};
 use crate::handle_calls;
 use crate::settings::settings_result;
 use crate::typings::{LineRanges, PathResult, RangeResult, SettingsResult};
@@ -26,15 +26,25 @@ use crate::values::context_arg;
 pub struct DocumentEditorView {
     state: State,
     id: String,
+    /// The listing of the document it was made for (see `Texts::listing`).
+    listing: u64,
 }
 
 impl DocumentEditorView {
-    pub(crate) fn new(state: State, id: String) -> Self {
-        Self { state, id }
+    pub(crate) fn new(state: State, id: String, listing: u64) -> Self {
+        Self { state, id, listing }
     }
 
-    /// The document's editor, once it has mounted.
+    /// The document's text and baseline, while it is the one listed.
+    fn texts(&self) -> Option<Texts> {
+        self.state
+            .texts_of(&self.id)
+            .filter(|texts| texts.listing == self.listing)
+    }
+
+    /// The document's editor, once it has mounted (and while it is listed).
     fn handle(&self) -> Option<EditorHandle> {
+        self.texts()?;
         untrack(|| self.state.handle.editor(&self.id))
     }
 }
@@ -45,16 +55,14 @@ impl DocumentEditorView {
     #[wasm_bindgen(getter)]
     pub fn value(&self) -> String {
         config_editor_leptos::flush_pending_edits();
-        self.state
-            .texts_of(&self.id)
-            .map(|texts| texts.value)
-            .unwrap_or_default()
+        self.texts().map(|texts| texts.value).unwrap_or_default()
     }
 
     /// The settings of the document's editor: its own over the view's.
     #[wasm_bindgen(getter)]
     pub fn settings(&self) -> SettingsResult {
-        settings_result(&self.state.settings_of(&self.id).unwrap_or_default())
+        let settings = self.texts().and_then(|_| self.state.settings_of(&self.id));
+        settings_result(&settings.unwrap_or_default())
     }
 
     /// The unified diff (`diff -u`) of the document's baseline against it,
@@ -67,8 +75,7 @@ impl DocumentEditorView {
         let context = context_arg(&context)?;
         let current = self.value();
         let baseline = self
-            .state
-            .texts_of(&self.id)
+            .texts()
             .map_or_else(|| current.clone(), |texts| texts.baseline);
         Ok(config_editor_leptos::unified_diff(
             &baseline, &current, context,
@@ -104,7 +111,7 @@ impl DocumentEditorView {
     #[wasm_bindgen(getter)]
     pub fn text(&self) -> String {
         handle_calls::text(self.handle())
-            .or_else(|| self.state.texts_of(&self.id).map(|texts| texts.value))
+            .or_else(|| self.texts().map(|texts| texts.value))
             .unwrap_or_default()
     }
 
@@ -163,7 +170,7 @@ impl DocumentEditorView {
     /// `onSave`); `false` when nothing was sent.
     pub fn save(&self) -> bool {
         config_editor_leptos::js_support::flush_pending_input();
-        if self.state.saves.try_get_untracked() != Some(true) {
+        if self.state.saves.try_get_untracked() != Some(true) || self.texts().is_none() {
             return false;
         }
         untrack(|| self.state.handle.save(&self.id))
@@ -173,6 +180,6 @@ impl DocumentEditorView {
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
         config_editor_leptos::js_support::flush_pending_input();
-        untrack(|| self.state.handle.is_dirty(&self.id))
+        self.texts().is_some() && untrack(|| self.state.handle.is_dirty(&self.id))
     }
 }
