@@ -1166,7 +1166,7 @@ const ENV: Language = Language::new(&DOTENV);
 | `key_span`, `value_span`                                                        | Positions for schema diagnostics                         |
 | `completion_context`, `property_insert`, …                                      | Schema completion                                        |
 | `hover_key`                                                                     | Hover docs                                               |
-| `highlight`                                                                     | Syntax colors                                            |
+| `highlight`, `comments`                                                         | Syntax colors, comments over several lines included      |
 | `newline`, `toggle_comments`, `auto_close`, `reindent_on_type`, `lexical_state` | Editing behavior                                         |
 
 ### Describing syntax as data
