@@ -127,6 +127,8 @@ const SCHEMA = {
   warnings: { tool: 'schemaWarnings' },
   validate: { tool: 'validate' },
   convert: { tool: 'convert' },
+  suggestions: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s completion; in JS the editor lists suggestions itself' },
+  hover: { exempt: 'a headless check of a Rust `ConfigLanguage`\'s hover docs; in JS the editor shows the hover card itself' },
 };
 
 const THEME = {
@@ -205,6 +207,7 @@ const CRATE_EXPORTS = {
   EditorTheme: { type: 'ThemeName' },
   FieldPath: { type: 'FieldPath' },
   HostDiagnostic: { type: 'HostDiagnostic' },
+  HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
   Language: { type: 'LanguageName' },
   PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
@@ -215,6 +218,7 @@ const CRATE_EXPORTS = {
   SecretOptions: { type: 'SecretOptions' },
   StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
   Severity: { type: 'Severity' },
+  Suggestion: { exempt: 'what `Schema::suggestions` returns, a Rust-only check' },
   TextPosition: { type: 'EditorRange' },
   TextRange: { type: 'EditorRange' },
   ThemeColor: { type: 'ThemeColorToken' },

@@ -10,6 +10,9 @@ use config_editor_leptos::language::{
 };
 use serde_json::{Map, Value};
 
+mod ini;
+use ini::Ini;
+
 struct DotEnv;
 
 impl DotEnv {
@@ -200,42 +203,6 @@ fn highlighting_is_plain_data() {
         kinds,
         [TokenKind::Key, TokenKind::Punctuation, TokenKind::Value]
     );
-}
-
-/// A language described only by data: `info`, `parse` and `config`.
-struct Ini;
-
-impl ConfigLanguage for Ini {
-    fn info(&self) -> LanguageInfo {
-        LanguageInfo {
-            label: "INI",
-            icon: "I",
-            extensions: &["ini"],
-        }
-    }
-
-    fn config(&self) -> config_editor_leptos::language::LanguageConfig {
-        config_editor_leptos::language::LanguageConfig {
-            line_comments: &[";", "#"],
-            block_comment: None,
-            brackets: &[('[', ']')],
-            separators: &["="],
-            quotes: &["\""],
-        }
-    }
-
-    fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        let mut map = Map::new();
-        for line in source.lines() {
-            if let Some((key, value)) = line.split_once('=') {
-                map.insert(
-                    key.trim().to_string(),
-                    Value::String(value.trim().to_string()),
-                );
-            }
-        }
-        Ok(Value::Object(map))
-    }
 }
 
 #[test]

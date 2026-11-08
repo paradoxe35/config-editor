@@ -109,10 +109,10 @@ pub use editor::unified_diff;
 pub use editor::{
     BaselineConflict, ChangeSummary, ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar,
     Conversion, ConvertError, Diagnostic, DiagnosticOrigin, DiagnosticTarget, EditorHandle,
-    EditorTheme, FieldPath, HostDiagnostic, Language, PRESET_CSS, ParseError, SaveRequest, Schema,
-    SchemaError, SchemaSource, SecretOptions, Severity, TextPosition, TextRange, ThemeColor,
-    ThemeColors, UnknownLanguage, UnknownTheme, check_syntax, float_of, float_value,
-    flush_pending_edits, string_of, string_value,
+    EditorTheme, FieldPath, HostDiagnostic, HoverDocs, Language, PRESET_CSS, ParseError,
+    SaveRequest, Schema, SchemaError, SchemaSource, SecretOptions, Severity, Suggestion,
+    TextPosition, TextRange, ThemeColor, ThemeColors, UnknownLanguage, UnknownTheme, check_syntax,
+    float_of, float_value, flush_pending_edits, string_of, string_value,
 };
 
 /// What the browser bindings (`config-editor-js`, published to npm as
