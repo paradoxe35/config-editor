@@ -829,14 +829,18 @@ view! {
   never changes in anything sent to you (`on_change`, a save, `value()`),
   and an edit that leaves every read-only value as it was is never
   refused. While the document does not parse, the locks found in it keep
-  their text exactly. The edit that makes it parse again is the one that
+  their text, but for whitespace between its tokens (the formatting above;
+  a space inside a string or a YAML plain value, or a YAML locked line's
+  indent, is refused). The edit that makes it parse again is the one that
   decides: each read-only field must read as in your text (the value it
   had there, or, when your text never parsed, the same lines with only
-  closers such as `}`, `]` or an end tag added). Closing a block left open,
-  removing a stray line or fixing a quote goes through; so does a repair
-  when a read-only path is not in the document at all, and in a text of
-  any size. A repair that would change a read-only value is refused with a
-  message naming the field (the `read_only_changed` text). This holds
+  closers such as `}`, `]` or an end tag added, or the quote, `>` or `:`
+  its own line left out). Closing a block left open, removing a stray
+  line, fixing a quote, or closing the read-only line itself goes through;
+  so does a repair when a read-only path is not in the document at all,
+  and in a text of any size. A repair that would change a read-only value
+  (deleting its line included) is refused with a message naming the field
+  (the `read_only_changed` text). This holds
   whatever order the text and the locks come in (a `value` that does not
   parse, at mount or later; paths named while the text does not parse).
 - Suggestions leave read-only keys and values out. Inside a read-only

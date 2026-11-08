@@ -63,6 +63,15 @@ mod arrival_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod broken_spacing_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod broken_tests;
 #[cfg(all(
     test,
@@ -92,6 +101,15 @@ mod extend_tests;
     feature = "xml"
 ))]
 mod large_broken_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod line_repair_tests;
 #[cfg(all(
     test,
     feature = "yaml",

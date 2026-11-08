@@ -26,7 +26,9 @@
 //!    absent included);
 //! 3. else, when the new text has the field: made there of the reference
 //!    text's own lines, kept, with only closers added (`}`, `]`, `)`, end
-//!    tags, a comma moved past them), none of its lines removed;
+//!    tags, a comma moved past them, and once the quote, `>` or `:`/`=`
+//!    the line itself left out, its strings then all written there), none
+//!    of its lines removed;
 //! 4. else, absent from the new text, absent from the reference text too
 //!    (no lock found there, no line of it removed, no key): a path the
 //!    text never had keeps nothing, as in a text that parses.

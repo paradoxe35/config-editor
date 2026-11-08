@@ -22,13 +22,17 @@
 //! after `:` or `=`, re-indenting where indentation carries no structure:
 //! JSON, TOML, HCL, XML) while the text parses and every locked value reads
 //! as pinned. In YAML a locked line's indent cannot change. While the text
-//! does not parse, a locked stretch keeps its text exactly, and a YAML
-//! plain value takes nothing glued onto it (`abc<`).
+//! does not parse, a locked stretch keeps its text exactly but for
+//! whitespace between its tokens (`spacing`: the same formatting, a space
+//! inside a string or a YAML plain value excepted), and a YAML plain value
+//! takes nothing glued onto it (`abc<`).
 
+mod closers;
 mod edit;
 mod joining;
 mod pins;
 mod repair;
+mod spacing;
 mod stretch;
 
 use std::ops::Range;
@@ -94,7 +98,10 @@ pub(crate) fn check(
         return Ok(());
     }
     let edit = Edited::new(behavior, reading_schema, protected, before, after);
-    stretches_kept(&edit)?;
+    // The edit making the text parse is decided by the repair rule alone,
+    // which names the field: a closer added to a locked line completes it.
+    let repairing = protected.document.is_none() && edit.parsed().is_some();
+    stretches_kept(&edit, repairing)?;
     let mut pointed: Vec<&Lock> = protected
         .locks
         .iter()
@@ -107,7 +114,7 @@ pub(crate) fn check(
         pins_still_hold(edited, protected, &pointed)?;
         pointed.retain(|lock| !is_pinned(protected, lock));
     }
-    if pointed.is_empty() {
+    if pointed.is_empty() || edit.spacing_only() {
         return Ok(());
     }
     nothing_joins(&edit, &pointed)?;
@@ -116,10 +123,13 @@ pub(crate) fn check(
 
 /// Every lock's stretches, and the keys holding it, survive the edit;
 /// whitespace changed inside a locked field is free when every locked
-/// value still reads as pinned.
-fn stretches_kept(edit: &Edited<'_>) -> Result<(), Blocked> {
+/// value still reads as pinned. A repair checks the fields itself.
+fn stretches_kept(edit: &Edited<'_>, repairing: bool) -> Result<(), Blocked> {
     for lock in &edit.protected.locks {
-        let free = || lock.pointer.is_some() && edit.reformat_only();
+        if repairing && lock.pointer.is_some() {
+            continue;
+        }
+        let free = || lock.pointer.is_some() && (edit.reformat_only() || edit.spacing_only());
         if !lock.ranges.iter().all(|range| edit.kept(range)) && !free() {
             return Err(refused(&lock.reason));
         }

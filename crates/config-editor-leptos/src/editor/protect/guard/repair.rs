@@ -18,6 +18,7 @@ use super::super::locate::{LineIndex, extent, within};
 use super::super::marks::schema_marks;
 use super::super::scan::{self, Written};
 use super::super::texts::Reason;
+use super::closers::{Part, compact};
 use super::edit::Edited;
 use super::{Blocked, Why};
 
@@ -97,7 +98,14 @@ pub(super) fn repair_keeps_locks(edit: &Edited<'_>, edited: &Value) -> Result<()
             return Err(refuse(Why::Changed));
         };
         let held = |line: &Written| within(behavior, &line.pointer, &pointer);
-        if !diff.kept_with_closers(behavior, &after_lines, &found.ranges, &removed, &held) {
+        if !diff.kept_with_closers(
+            behavior,
+            &after_lines,
+            &found.ranges,
+            value,
+            &removed,
+            &held,
+        ) {
             return Err(refuse(Why::Changed));
         }
     }
@@ -222,7 +230,9 @@ impl<'a> LineDiff<'a> {
 
     /// Whether the field covering `ranges` of the edited text is made of
     /// the reference text's lines, kept, with only closers added (a line
-    /// changed by adding `}`, a new line holding only `]`), and none of the
+    /// changed by adding `}`, a new line holding only `]`, a line completed
+    /// by the quote, `>` or separator it lacked, the strings of `value` then
+    /// all written in the reference lines), and none of the
     /// reference text's lines inside it removed: those between its lines,
     /// and those `held` by it just around it.
     fn kept_with_closers(
@@ -230,6 +240,7 @@ impl<'a> LineDiff<'a> {
         behavior: &dyn ConfigLanguage,
         lines: &LineIndex<'_>,
         ranges: &[Range<usize>],
+        value: &Value,
         removed: &[Written],
         held: &dyn Fn(&Written) -> bool,
     ) -> bool {
@@ -238,7 +249,7 @@ impl<'a> LineDiff<'a> {
         };
         let first_line = lines.line_of(first.start);
         let last_line = lines.line_of(last.end.saturating_sub(1).max(last.start));
-        let mut changed: Vec<String> = Vec::new();
+        let mut changed: Vec<Part> = Vec::new();
         for range in ranges {
             let (start, end) = (lines.line_of(range.start), lines.line_of(range.end));
             for line in start..=end {
@@ -248,12 +259,18 @@ impl<'a> LineDiff<'a> {
                 let bounds = lines.line_bounds(line);
                 let from = range.start.max(bounds.start);
                 let to = range.end.min(bounds.end).max(from);
-                let units: Vec<u16> = lines.line_text(line).encode_utf16().collect();
-                let part = String::from_utf16_lossy(
-                    &units[(from - bounds.start).min(units.len())
-                        ..(to - bounds.start).min(units.len())],
-                );
-                changed.push(part);
+                let text = lines.line_text(line);
+                let chars = |units: usize| {
+                    let units = units - bounds.start;
+                    let mut seen = 0;
+                    text.chars()
+                        .take_while(|character| {
+                            seen += character.len_utf16();
+                            seen <= units
+                        })
+                        .count()
+                };
+                changed.push(Part::new(text, chars(from), chars(to)));
             }
         }
         // The reference text's lines removed inside the field or just around
@@ -275,25 +292,29 @@ impl<'a> LineDiff<'a> {
             })
             .collect();
         let mut matched = vec![false; candidates.len()];
+        let mut completed = false;
         for part in &changed {
-            let part = compact(part);
-            if without_closers(&part).is_empty() {
+            if part.only_closes() {
                 continue;
             }
-            let found: Vec<usize> = candidates
-                .iter()
-                .enumerate()
-                .filter(|(_, (line, _))| {
-                    closers_added(&compact(self.origin.line_text(*line)), &part)
-                })
-                .map(|(index, _)| index)
-                .collect();
-            if found.is_empty() {
+            let mut found = false;
+            for (index, (line, _)) in candidates.iter().enumerate() {
+                if let Some(completes) = part.closes(&compact(self.origin.line_text(*line))) {
+                    found = true;
+                    completed |= completes;
+                    matched[index] = true;
+                }
+            }
+            if !found {
                 return false;
             }
-            for index in found {
-                matched[index] = true;
-            }
+        }
+        let origin_lines: Vec<&str> = candidates
+            .iter()
+            .map(|(line, _)| self.origin.line_text(*line))
+            .collect();
+        if completed && !strings_written(value, &origin_lines) {
+            return false;
         }
         candidates
             .iter()
@@ -308,88 +329,14 @@ fn holds_code(behavior: &dyn ConfigLanguage, line: &str) -> bool {
     !line.trim().is_empty() && behavior.comment_start(line) != Some(indent)
 }
 
-/// `text` without whitespace and without a comma ending it (a separator
-/// that moves to a closer added after it: `"b": 2,` → `"b": 2` + `},`).
-fn compact(text: &str) -> Vec<char> {
-    let mut chars: Vec<char> = text
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect();
-    while chars.last() == Some(&',') {
-        chars.pop();
+/// Whether every string in `value` is written in `lines` as it reads.
+fn strings_written(value: &Value, lines: &[&str]) -> bool {
+    match value {
+        Value::String(text) => lines.iter().any(|line| line.contains(text.as_str())),
+        Value::Array(items) => items.iter().all(|item| strings_written(item, lines)),
+        Value::Object(fields) => fields.iter().all(|(key, item)| {
+            strings_written(&Value::String(key.clone()), lines) && strings_written(item, lines)
+        }),
+        _ => true,
     }
-    chars
-}
-
-/// Whether `character` only closes: adding it adds no data.
-fn is_closer(character: char) -> bool {
-    matches!(character, '}' | ']' | ')')
-}
-
-/// `compacted` without closers and markup end tags (`</web>`).
-fn without_closers(compacted: &[char]) -> Vec<char> {
-    let mut kept = Vec::new();
-    let mut at = 0;
-    while at < compacted.len() {
-        if let Some(length) = end_tag(&compacted[at..]) {
-            at += length;
-            continue;
-        }
-        if !is_closer(compacted[at]) {
-            kept.push(compacted[at]);
-        }
-        at += 1;
-    }
-    kept
-}
-
-/// The length of the markup end tag `</name>` starting `chars`, if one does.
-fn end_tag(chars: &[char]) -> Option<usize> {
-    if chars.first() != Some(&'<') || chars.get(1) != Some(&'/') {
-        return None;
-    }
-    let close = chars.iter().position(|character| *character == '>')?;
-    chars[2..close]
-        .iter()
-        .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'))
-        .then_some(close + 1)
-}
-
-/// Whether `part` (of the edited text) is a stretch of `line` (of the
-/// reference text) with only closers added: its data is a contiguous
-/// stretch of the line's, and the line's closers in that stretch are all
-/// still there, in order (none removed or moved).
-fn closers_added(line: &[char], part: &[char]) -> bool {
-    let core = without_closers(part);
-    for start in 0..line.len() {
-        // The stretch of `line` from `start` whose data is `core`.
-        let mut data = 0;
-        let mut end = start;
-        while end < line.len() && data < core.len() {
-            if let Some(length) = end_tag(&line[end..]) {
-                end += length;
-                continue;
-            }
-            if is_closer(line[end]) {
-                end += 1;
-                continue;
-            }
-            if line[end] != core[data] {
-                break;
-            }
-            data += 1;
-            end += 1;
-        }
-        if data == core.len() && is_subsequence(&line[start..end], part) {
-            return true;
-        }
-    }
-    false
-}
-
-fn is_subsequence(short: &[char], long: &[char]) -> bool {
-    let mut rest = long.iter();
-    short
-        .iter()
-        .all(|character| rest.any(|other| other == character))
 }
