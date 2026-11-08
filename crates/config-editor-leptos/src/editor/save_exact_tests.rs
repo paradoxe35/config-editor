@@ -325,3 +325,175 @@ fn xml_processing_instructions_count_as_comments_the_view_does_not_show() {
     assert!(xml.has_comments("<r><!-- c --><a>1</a></r>\n"));
     assert!(!xml.has_comments("<?xml version=\"1.0\"?>\n<r><a>1</a></r>\n"));
 }
+
+/// Number forms each host writes its own way (`1.0`, `-0.0`, `1e3`, `0x1F`,
+/// `1_000`), which a view shows as plain numbers it may write otherwise.
+fn number_hosts() -> Vec<(Language, String)> {
+    let xml_values = [
+        "1.0",
+        "2.0",
+        "10.0",
+        "0.0",
+        "-0.0",
+        "-0",
+        "1.10",
+        "  1 ",
+        "1e3",
+        "1.5E3",
+        "0.1",
+        "3.0e0",
+        "+1",
+        "9007199254740993",
+        "12345678901234567890",
+    ];
+    let elements: String = xml_values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("  <k{index}>{value}</k{index}>\n"))
+        .collect();
+    let attributes: String = xml_values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!(" a{index}=\"{value}\""))
+        .collect();
+    let lines = |values: &[&str], separator: &str| -> String {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| format!("k{index}{separator}{value}\n"))
+            .collect()
+    };
+    let toml = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "1_000",
+        "0x1F",
+        "0o17",
+        "0b11",
+        "+1",
+        "inf",
+        "-inf",
+        "nan",
+        "9007199254740993",
+        "1.0e+3",
+        "-0",
+    ];
+    let yaml = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "0x1F",
+        "0o17",
+        "+1",
+        ".inf",
+        "-.inf",
+        "9007199254740993",
+        "1.0e+3",
+        "12345678901234567890",
+        "-0",
+    ];
+    let hcl = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "9007199254740993",
+        "1.0e+3",
+    ];
+    let json = [
+        "1.0",
+        "-0.0",
+        "1e3",
+        "1.5E3",
+        "100.0",
+        "0.10",
+        "9007199254740993",
+        "1.0e+3",
+        "12345678901234567890",
+        "-0",
+    ];
+    let json_entries: Vec<String> = json
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("  \"k{index}\": {value}"))
+        .collect();
+    vec![
+        (
+            Language::XML,
+            format!("<!-- top -->\n<r>\n  <name>edge</name>\n{elements}</r>\n"),
+        ),
+        (
+            Language::XML,
+            format!("<!-- top -->\n<r{attributes}>\n  <name>edge</name>\n</r>\n"),
+        ),
+        (
+            Language::TOML,
+            format!("# top\nname = \"edge\"\n{}", lines(&toml, " = ")),
+        ),
+        (
+            Language::YAML,
+            format!("# top\nname: edge\n{}", lines(&yaml, ": ")),
+        ),
+        (
+            Language::HCL,
+            format!("# top\nname = \"edge\"\n{}", lines(&hcl, " = ")),
+        ),
+        (
+            Language::JSON,
+            format!(
+                "{{\n  \"name\": \"edge\",\n{}\n}}\n",
+                json_entries.join(",\n")
+            ),
+        ),
+    ]
+}
+
+/// An edit elsewhere leaves every value it did not touch as the host wrote
+/// it: a number the view shows (and would write) otherwise is only shown
+/// that way (round 19: XML `1.0` saved as `1`).
+#[test]
+fn untouched_numbers_stay_as_written_through_any_view() {
+    let mut failures = Vec::new();
+    for (host, text) in number_hosts() {
+        let expected = text.replace("edge", "edgeQ");
+        let name = if host == Language::XML {
+            "/r/name"
+        } else {
+            "/name"
+        };
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            // A view that cannot hold a value (TOML integers end at 2^63)
+            // does not open.
+            let bridge = super::bridge::Bridge::new(host, edit, None).expect("two languages");
+            if bridge.to_edit(&text).is_err() {
+                continue;
+            }
+            let saved = save_value(host, edit, &text, &|value| {
+                *slot(value, name) = "edgeQ".into();
+            });
+            match saved {
+                Ok(saved) if saved == expected => {}
+                Ok(saved) => failures.push(format!(
+                    "{host} via {edit}:\n--- expected\n{expected}--- saved\n{saved}"
+                )),
+                Err(error) => failures.push(format!("{host} via {edit}: {error}")),
+            }
+        }
+    }
+    // XML writes a float as JSON does, so it reads back as that float.
+    let floats = r#"{"a": 1.0, "b": -0.0, "c": 10.0, "d": {"e": 2.0, "f": [0.0, 1.5]}}"#;
+    match Language::JSON.convert(floats, Language::XML) {
+        Ok(converted) if converted.losses.is_empty() => {}
+        other => failures.push(format!("floats to XML: {other:?}")),
+    }
+    report(failures);
+}

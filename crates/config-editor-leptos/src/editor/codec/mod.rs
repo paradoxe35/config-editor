@@ -661,7 +661,12 @@ fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
 
 /// JSON pointers where `expected` and `actual` differ, at the deepest level
 /// where both still have the same shape.
-fn differences(expected: &Value, actual: &Value, pointer: String, out: &mut Vec<String>) {
+pub(super) fn differences(
+    expected: &Value,
+    actual: &Value,
+    pointer: String,
+    out: &mut Vec<String>,
+) {
     match (expected, actual) {
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in left {

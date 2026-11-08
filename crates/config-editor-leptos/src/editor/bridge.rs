@@ -155,6 +155,12 @@ impl Bridge {
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
+        // A value the edit left as it was that the host would write
+        // otherwise (a number the view showed in its own form) keeps the
+        // host's text: the patches leave it, and it is no loss.
+        let (target, kept) = with_untouched_kept(target, &value, &old);
+        let mut losses = rendered.losses.clone();
+        losses.retain(|pointer| !kept.contains(pointer));
         let shape = self.shape();
         // What the host writes once and reads in several places (a YAML
         // alias) is written out where the edit parts it from the rest.
@@ -197,10 +203,7 @@ impl Bridge {
             })
             .or_else(|| structure(previous_host, &old, &target));
         Ok(match patched {
-            Some(text) => Conversion {
-                text,
-                losses: rendered.losses,
-            },
+            Some(text) => Conversion { text, losses },
             None => {
                 #[cfg(test)]
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
@@ -303,6 +306,33 @@ fn host_scalars(
         }
     }
     Ok(value)
+}
+
+/// `target` (what the host reads back from writing `value`) with the host's
+/// own `old` value wherever `value` keeps it but the host would write it
+/// otherwise, and those pointers.
+fn with_untouched_kept(
+    mut target: serde_json::Value,
+    value: &serde_json::Value,
+    old: &serde_json::Value,
+) -> (serde_json::Value, Vec<String>) {
+    let mut differing = Vec::new();
+    codec::differences(value, &target, String::new(), &mut differing);
+    let mut kept = Vec::new();
+    for pointer in differing {
+        let at = if pointer == "/" { "" } else { pointer.as_str() };
+        let Some(own) = old
+            .pointer(at)
+            .filter(|own| value.pointer(at) == Some(*own))
+        else {
+            continue;
+        };
+        if let Some(slot) = target.pointer_mut(at) {
+            *slot = own.clone();
+            kept.push(pointer);
+        }
+    }
+    (target, kept)
 }
 
 /// The pointers of the scalars `new` changes where `old` holds one too.
