@@ -205,3 +205,116 @@ fn key_suggestions_carry_their_option_and_list_the_matched_one_first() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// The empty `dns` object with the caret in it, in each language.
+const UNDECIDED: &[(Language, &str)] = &[
+    (Language::YAML, "dns:\n  |\n"),
+    (Language::JSON, "{\n  \"dns\": {\n    |\n  }\n}\n"),
+    (Language::TOML, "[dns]\n|\n"),
+    (Language::HCL, "dns {\n  |\n}\n"),
+    (Language::XML, "<dns>\n  <|\n</dns>\n"),
+];
+
+#[test]
+fn a_key_of_several_options_names_each_and_a_const_key_shows_its_values() {
+    let mut failures = Vec::new();
+    for &(language, marked) in UNDECIDED {
+        let at = marked.find('|').unwrap();
+        let source = marked.replacen('|', "", 1);
+        let options = completions(
+            &source,
+            source[..at].encode_utf16().count(),
+            true,
+            Some(&help()),
+            true,
+            language.behavior(),
+        );
+        for (key, detail, type_label) in [
+            ("provider", "Manual, Static file", "\"manual\" | \"static\""),
+            (
+                "ttl",
+                "Cloudflare, Route 53 — Seconds records are cached.",
+                "integer",
+            ),
+            ("path", "Static file", "string"),
+        ] {
+            let found = options.iter().find(|option| option.label == key);
+            let seen = found.map(|option| (option.detail.as_str(), option.type_label.as_str()));
+            if seen != Some((detail, type_label)) {
+                failures.push(format!("{language:?} {key}: {seen:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The hover of `key` (its first occurrence after `dns`) in `source`: its
+/// type, and what it says about the options.
+fn key_choice(
+    language: Language,
+    source: &str,
+    key: &str,
+) -> Option<(String, Option<ChoiceHover>)> {
+    let dns = source.find("dns").unwrap();
+    let at = dns + source[dns..].find(key).expect("the key");
+    let line = source[..at].matches('\n').count();
+    let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
+    let column = source[line_start..at].chars().count() + 1;
+    key_hover(source, line, column, Some(&help()), language.behavior())
+        .map(|hover| (hover.type_label, hover.choice))
+}
+
+#[test]
+fn hover_on_a_key_of_an_option_names_the_option_and_a_const_its_value() {
+    let file = matched("Static file", "Records read from a file.");
+    let documents: &[(Language, &str)] = &[
+        (Language::YAML, "dns:\n  provider: static\n  path: /x\n"),
+        (
+            Language::JSON,
+            "{\n  \"dns\": {\n    \"provider\": \"static\",\n    \"path\": \"/x\"\n  }\n}\n",
+        ),
+        (
+            Language::TOML,
+            "[dns]\nprovider = \"static\"\npath = \"/x\"\n",
+        ),
+        (
+            Language::HCL,
+            "dns {\n  provider = \"static\"\n  path = \"/x\"\n}\n",
+        ),
+        (
+            Language::XML,
+            "<dns>\n  <provider>static</provider>\n  <path>/x</path>\n</dns>\n",
+        ),
+    ];
+    let undecided: &[(Language, &str)] = &[
+        (Language::YAML, "dns:\n  ttl: 60\n"),
+        (Language::JSON, "{\n  \"dns\": {\n    \"ttl\": 60\n  }\n}\n"),
+        (Language::TOML, "[dns]\nttl = 60\n"),
+        (Language::HCL, "dns {\n  ttl = 60\n}\n"),
+        (Language::XML, "<dns>\n  <ttl>60</ttl>\n</dns>\n"),
+    ];
+    let both = Some(ChoiceHover::OneOf(vec![
+        "Cloudflare".into(),
+        "Route 53".into(),
+    ]));
+    let mut failures = Vec::new();
+    let mut check =
+        |language: Language, source: &str, key: &str, want: (&str, &Option<ChoiceHover>)| {
+            let seen = key_choice(language, source, key);
+            if seen
+                .as_ref()
+                .map(|(label, choice)| (label.as_str(), choice))
+                != Some(want)
+            {
+                failures.push(format!("{language:?} {key} in {source:?}: {seen:?}"));
+            }
+        };
+    for &(language, source) in documents {
+        check(language, source, "provider", ("\"static\"", &file));
+        check(language, source, "path", ("string", &file));
+    }
+    for &(language, source) in undecided {
+        check(language, source, "ttl", ("integer", &both));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

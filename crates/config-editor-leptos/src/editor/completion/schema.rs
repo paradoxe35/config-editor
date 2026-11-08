@@ -7,6 +7,17 @@ pub(super) fn schema_type_label(schema: &Value, root: &Value, fallback: &str) ->
     let mut labels: Vec<String> = resolve_branches(schema, root, 0)
         .into_iter()
         .filter_map(|branch| {
+            // A const is its one value (`"static"`), unless that is long.
+            if branch.get("type").is_none()
+                && let Some(value) = branch.get("const")
+            {
+                let written = value.to_string();
+                return Some(if written.chars().count() <= CONST_LABEL_LIMIT {
+                    written
+                } else {
+                    json_type_name(value).to_string()
+                });
+            }
             // An enum is a constraint, not a type: show its values' type.
             if branch.get("type").is_none()
                 && let Some(values) = branch.get("enum").and_then(Value::as_array)
@@ -32,6 +43,27 @@ pub(super) fn schema_type_label(schema: &Value, root: &Value, fallback: &str) ->
         .collect();
     labels.sort();
     labels.dedup();
+    if labels.is_empty() {
+        fallback.to_string()
+    } else {
+        labels.join(" | ")
+    }
+}
+
+/// The longest `const` value a type label shows as written; a longer one
+/// shows its type.
+const CONST_LABEL_LIMIT: usize = 24;
+
+/// The type labels of `schemas` (the same key in several `oneOf` options)
+/// in one: `"manual" | "static"`.
+pub(super) fn type_label_of_all(schemas: &[&Value], root: &Value, fallback: &str) -> String {
+    let mut labels: Vec<String> = Vec::new();
+    for schema in schemas {
+        let label = schema_type_label(schema, root, "");
+        if !label.is_empty() && !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
     if labels.is_empty() {
         fallback.to_string()
     } else {
