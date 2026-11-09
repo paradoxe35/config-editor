@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use super::super::changes::ChangeMarkers;
 use super::super::commands::line_range;
 use super::super::diff::DiffKind;
+use super::super::input;
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::state::{EditorState, line_count};
 use super::{RowSpacer, row_state_for};
@@ -16,6 +17,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
         <div
             class="config-editor__gutter"
             class:config-editor__gutter-folding=state.config().settings.folding
+            on:mousemove=move |event| input::gutter_move(state, &event)
             // As wide as the longest line number (at least three digits);
             // the stylesheet adds the marker column and the padding.
             style:--config-editor-gutter-digits=move || {

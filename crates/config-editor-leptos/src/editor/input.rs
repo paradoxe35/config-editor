@@ -319,6 +319,14 @@ pub(super) fn mouse_leave(state: EditorState, event: &web_sys::MouseEvent) {
     }
 }
 
+/// The pointer moved over the gutter: as off the text, for the way to the
+/// popup it can enter (see `hover_path`).
+pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
+    if event.buttons() == 0 {
+        state.pointer_off_text(f64::from(event.client_x()), f64::from(event.client_y()));
+    }
+}
+
 /// Hovering a problem shows its tip (see `problem_hit`); hovering a key
 /// shows its schema docs after a short pause; hovering a
 /// read-only value says why it is read-only.

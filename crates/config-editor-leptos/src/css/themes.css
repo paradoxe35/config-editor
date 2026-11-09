@@ -75,7 +75,7 @@
   --config-editor-string: #a6c08f;
   --config-editor-literal: #ccafc7;
   --config-editor-value: #a6c08f;
-  --config-editor-reference: #9fcbca;
+  --config-editor-reference: #eab08f;
   --config-editor-interpolation: #b9c7dc;
   --config-editor-active-line: rgb(255 255 255 / 5%);
   --config-editor-error-line: rgb(191 97 106 / 8%);
@@ -281,7 +281,7 @@
   --config-editor-string: #c9ad86;
   --config-editor-literal: #b39acb;
   --config-editor-value: #b8c99a;
-  --config-editor-reference: #8cc8bf;
+  --config-editor-reference: #ff8b7b;
   --config-editor-interpolation: #c8a6dc;
   --config-editor-active-line: rgb(207 221 239 / 5%);
   --config-editor-error-line: rgb(210 118 118 / 7%);

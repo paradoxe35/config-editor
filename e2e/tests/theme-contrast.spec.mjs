@@ -176,4 +176,72 @@ test.describe('theme contrast', () => {
     }
     expect(failures, failures.join('\n')).toEqual([]);
   });
+
+  // QA 29 (L29-T1): a YAML alias or an HCL `${…}` reference was hard to
+  // tell from a key in Nord (ΔE 7) and Vira (ΔE 15), and from a plain value
+  // in VS Code Light (ΔE 5). A reference stands apart from every token it
+  // sits among: keys, strings, plain values and literals.
+  test('every theme keeps references apart from keys, strings and values', async ({ page }) => {
+    const all = await themeColors(page, ['reference', ...APART_FROM]);
+    expect(Object.keys(all).length).toBeGreaterThan(10);
+    const failures = [];
+    for (const [theme, colors] of Object.entries(all)) {
+      for (const other of APART_FROM) {
+        const difference = deltaE2000(colors.reference, colors[other]);
+        if (!(difference >= APART)) failures.push(`${theme}: reference vs ${other} ΔE ${difference.toFixed(1)} < ${APART}`);
+      }
+    }
+    expect(failures, failures.join('\n')).toEqual([]);
+  });
 });
+
+// How far apart (CIEDE2000) a reference stays from the tokens around it:
+// clearly another colour at a glance (the closest pair judged distinct in
+// QA 29 was 16).
+const APART = 15;
+const APART_FROM = ['key', 'string', 'value', 'literal'];
+
+/** CIE Lab of an sRGB color (D65). */
+function lab([r, g, b]) {
+  const linear = [r, g, b].map((part) => part / 255).map((part) => (part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4));
+  const [x, y, z] = [
+    (linear[0] * 0.4124 + linear[1] * 0.3576 + linear[2] * 0.1805) / 0.95047,
+    linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722,
+    (linear[0] * 0.0193 + linear[1] * 0.1192 + linear[2] * 0.9505) / 1.08883,
+  ];
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+/** The CIEDE2000 color difference of two sRGB colors. */
+function deltaE2000(first, second) {
+  const [l1, a1, b1] = lab(first);
+  const [l2, a2, b2] = lab(second);
+  const rad = Math.PI / 180;
+  const chroma = (Math.hypot(a1, b1) + Math.hypot(a2, b2)) / 2;
+  const g = 0.5 * (1 - Math.sqrt(chroma ** 7 / (chroma ** 7 + 25 ** 7)));
+  const [ap1, ap2] = [a1 * (1 + g), a2 * (1 + g)];
+  const [c1, c2] = [Math.hypot(ap1, b1), Math.hypot(ap2, b2)];
+  const hue = (a, b) => ((Math.atan2(b, a) / rad) + 360) % 360;
+  const [h1, h2] = [hue(ap1, b1), hue(ap2, b2)];
+  let dh = h2 - h1;
+  if (c1 * c2 === 0) dh = 0;
+  else if (dh > 180) dh -= 360;
+  else if (dh < -180) dh += 360;
+  const dHue = 2 * Math.sqrt(c1 * c2) * Math.sin((dh / 2) * rad);
+  const lMean = (l1 + l2) / 2;
+  const cMean = (c1 + c2) / 2;
+  let hMean = h1 + h2;
+  if (c1 * c2 !== 0) {
+    if (Math.abs(h1 - h2) > 180) hMean += hMean < 360 ? 360 : -360;
+    hMean /= 2;
+  }
+  const t =
+    1 - 0.17 * Math.cos((hMean - 30) * rad) + 0.24 * Math.cos(2 * hMean * rad) + 0.32 * Math.cos((3 * hMean + 6) * rad) - 0.2 * Math.cos((4 * hMean - 63) * rad);
+  const sl = 1 + (0.015 * (lMean - 50) ** 2) / Math.sqrt(20 + (lMean - 50) ** 2);
+  const sc = 1 + 0.045 * cMean;
+  const sh = 1 + 0.015 * cMean * t;
+  const rt = -2 * Math.sqrt(cMean ** 7 / (cMean ** 7 + 25 ** 7)) * Math.sin(60 * Math.exp(-(((hMean - 275) / 25) ** 2)) * rad);
+  const [dl, dc, dhs] = [(l2 - l1) / sl, (c2 - c1) / sc, dHue / sh];
+  return Math.sqrt(dl ** 2 + dc ** 2 + dhs ** 2 + rt * dc * dhs);
+}

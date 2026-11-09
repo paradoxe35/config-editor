@@ -46,6 +46,12 @@ pub(super) struct HoverState {
     /// Where the way to the popup started: the pointer's last place on
     /// what the popup is for, or in its gap (see `hover_path`).
     pub(super) way_start: StoredValue<Option<(f64, f64)>>,
+    /// The line (zero-based) the pointer came onto a popup that lets it
+    /// through along, while it stays under it (see `popup_under`).
+    pub(super) under_line: StoredValue<Option<usize>>,
+    /// Bumped on each move under such a popup: where the pointer stops
+    /// decides (see `popup_under`).
+    pub(super) under_token: StoredValue<u64>,
     /// The card's element while it shows: the keyboard reaches its links
     /// (see [`EditorState::keep_card_for`]).
     pub(super) card_ref: NodeRef<leptos::html::Div>,
@@ -66,6 +72,8 @@ impl HoverState {
             on_way: StoredValue::new(false),
             anchor_x: StoredValue::new(None),
             way_start: StoredValue::new(None),
+            under_line: StoredValue::new(None),
+            under_token: StoredValue::new(0),
             card_ref: NodeRef::new(),
             card_focused: RwSignal::new(false),
         }

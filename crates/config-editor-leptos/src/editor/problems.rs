@@ -299,7 +299,19 @@ impl EditorState {
     /// tip shows the problems covering the character there, or closes (a
     /// moment later) where none does.
     pub(super) fn point_at_problems(&self, line: usize, cell: usize) {
-        let place = self.doc().text.with_untracked(|text| {
+        match self.problem_place_at(line, cell) {
+            Some(place) => self.hover_problem(place),
+            None if self.problems().hovered.with_untracked(Option::is_some) => {
+                self.leave_problem();
+            }
+            None => {}
+        }
+    }
+
+    /// The place (one-based line, column) of rendered cell `cell` of
+    /// zero-based `line` when problems cover the character there.
+    pub(super) fn problem_place_at(&self, line: usize, cell: usize) -> Option<(usize, usize)> {
+        self.doc().text.with_untracked(|text| {
             let line_text = text.split('\n').nth(line).unwrap_or("");
             let place = (line + 1, column_at_cell(line_text, cell));
             self.problems().diagnostics.with_untracked(|problems| {
@@ -308,14 +320,7 @@ impl EditorState {
                     .is_some()
                     .then_some(place)
             })
-        });
-        match place {
-            Some(place) => self.hover_problem(place),
-            None if self.problems().hovered.with_untracked(Option::is_some) => {
-                self.leave_problem();
-            }
-            None => {}
-        }
+        })
     }
 
     /// The pointer left an underline: its tip closes a moment later, unless

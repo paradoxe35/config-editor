@@ -59,6 +59,7 @@ mod line_rows;
 mod live_settings;
 mod outside_press;
 mod popup_pointer;
+mod popup_under;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(
     test,

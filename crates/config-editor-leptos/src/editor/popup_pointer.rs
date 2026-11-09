@@ -2,9 +2,10 @@
 //! with a link or that scrolls), as in VS Code. The popup takes a pointer
 //! that comes from what it is for (see `hover_path`), so its text can be
 //! selected and copied and its links followed; one that comes onto it
-//! another way (a card below its line covers the next lines) goes through
-//! to the text under it, whose docs and problems show and where a click
-//! places the caret. A wheel over the popup scrolls it while it can
+//! another way (from beside it, on the lines it covers) goes through to
+//! the text under it, where a click places the caret, until where it goes
+//! on to says whether it heads for the popup or for that text (see
+//! `popup_under`). A wheel over the popup scrolls it while it can
 //! scroll that way, else the text (the page at the text's ends), and the
 //! popup closes, as when the wheel scrolls the text.
 
@@ -63,13 +64,17 @@ pub(super) fn take_pointer_again(popup: &Element) {
 
 /// The pointer came onto `popup`: whether it enters it (on its way from
 /// what the popup is for, or to a popup shown at the caret). Otherwise
-/// the popup lets it through, and the text under it answers at once.
+/// the popup lets it through, and stays while where it goes on to decides
+/// (see `popup_under`).
 pub(super) fn enter_popup(state: EditorState, popup: &HtmlElement, event: &MouseEvent) -> bool {
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    if state.popup_at_caret() || state.entered_on_the_way() {
+    if state.popup_at_caret() || (state.entered_on_the_way() && !state.comes_from_beside(popup)) {
         return true;
     }
     let _ = popup.set_attribute(PASSING, "");
+    state.leave_under();
+    // Through the popup, the pointer is over the text.
+    state.hover().on_text.set_value(true);
     if let Some(element) = state.textarea() {
         super::input::pointer_at(state, &element, x, y, event.buttons() == 0);
     }
