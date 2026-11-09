@@ -48,6 +48,9 @@ pub(super) struct ViewState {
     pub(super) projection: RwSignal<Arc<Projection>>,
     /// The document lines (0-based) on the textarea rows in view.
     pub(super) visible_lines: Memo<Vec<usize>>,
+    /// Where the last page key left the caret, and the column it keeps
+    /// going for (see `keys::page_keys`).
+    pub(super) page_goal: StoredValue<Option<(usize, usize)>>,
 }
 
 impl ViewState {
@@ -104,6 +107,7 @@ impl ViewState {
             spanning,
             projection,
             visible_lines,
+            page_goal: StoredValue::new(None),
         }
     }
 }

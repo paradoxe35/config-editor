@@ -9,6 +9,7 @@ use super::super::line_rows::row_state;
 use super::super::state::{EditorState, textarea_selection};
 use super::line_diff::{DiffPeek, LineDiff, diff_lines};
 use super::{adjacent_change, change_line, hunk_for_peek, revert_hunk};
+use crate::strings::fill;
 
 /// The changes part of the editor state.
 #[derive(Clone, Copy)]
@@ -98,7 +99,7 @@ impl EditorState {
     pub(in crate::editor) fn go_to_change(&self, forward: bool, preview: bool) {
         let line_count = self.view().lines.with_untracked(Vec::len);
         let here = self.doc().current_line.get_untracked().saturating_sub(1);
-        let Some((line, peek)) = self.changes().diff.with_untracked(|line_diff| {
+        let Some((line, peek, position, total)) = self.changes().diff.with_untracked(|line_diff| {
             let hunk = adjacent_change(line_diff, line_count, here, forward)?;
             let line = change_line(hunk, line_count);
             let row = self.view().lines.with_untracked(|lines| {
@@ -112,11 +113,31 @@ impl EditorState {
             } else {
                 peeks.deleted
             };
-            Some((line, peek))
+            let position = line_diff
+                .hunks
+                .iter()
+                .position(|other| std::ptr::eq(other, hunk))
+                .map_or(1, |index| index + 1);
+            Some((line, peek, position, line_diff.hunks.len()))
         }) else {
             return;
         };
         self.focus_at(line + 1, 1);
+        // Said as F8 says a problem: which change, and where.
+        if let Some(peek) = &peek {
+            let said = self.strings_untracked(|strings| {
+                fill(
+                    &strings.change_position,
+                    &[
+                        ("title", &peek.title(strings)),
+                        ("line", &(line + 1)),
+                        ("position", &position),
+                        ("total", &total),
+                    ],
+                )
+            });
+            self.a11y().announce(said);
+        }
         if preview {
             self.changes()
                 .focus_preview

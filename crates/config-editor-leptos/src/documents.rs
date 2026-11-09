@@ -178,6 +178,9 @@ pub fn ConfigDocuments(
     let keydown = move |event: web_sys::KeyboardEvent| {
         adding::on_root_input(documents_view, &event);
         keys::on_root_keydown(documents_view, &event);
+        if let Some(root) = documents_view.root.get_untracked() {
+            crate::page_scroll::keep_inside(&root, &event);
+        }
     };
     let mousedown = move |event: web_sys::MouseEvent| adding::on_root_input(documents_view, &event);
     let focusout =

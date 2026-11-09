@@ -49,7 +49,8 @@ struct Anchor {
 
 #[component]
 pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
-    let tip_ref = NodeRef::<Div>::new();
+    let tip_ref = state.problems().tip_ref;
+    let focused = state.problems().tip_focused;
     let content = Memo::new(move |_| tip_content(state));
     // The tip's full height, measured once its entries are drawn; it
     // decides the side and the height (see `place`). Zero until the
@@ -98,8 +99,15 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             class="config-editor__problem-tip"
             class:config-editor__problem-tip--interactive=interactive
             class:config-editor__problem-tip--unmeasured=move || !measured()
-            role="tooltip"
+            // A dialog while it has the focus (a second Ctrl+K Ctrl+I, or
+            // Tab to its links), to scroll it; a tooltip otherwise.
+            role=move || if focused.get() { "dialog" } else { "tooltip" }
+            aria-label=move || focused.get().then(|| state.config().settings.strings.with(|strings| strings.problem_tip_label.clone()))
+            tabindex="-1"
             node_ref=tip_ref
+            on:keydown=move |event| tip_key(state, &event)
+            on:focusin=move |_| focused.set(true)
+            on:focusout=move |event| leave_tip_focus(state, &event)
             hidden=move || placement.with(Option::is_none)
             style=cssom(move || placement.get().map(Placement::style))
             on:mouseenter=move |_| state.problems().tip_entered.set_value(true)
@@ -137,6 +145,31 @@ fn measure(tip_ref: NodeRef<Div>, natural: RwSignal<f64>, again: bool) {
         if top < tip.scroll_top() || bottom > tip.scroll_top() + tip.client_height() {
             tip.set_scroll_top(top - 4);
         }
+    }
+}
+
+/// A key with the focus in the tip: `Enter` on it or `Alt+Enter` opens
+/// the docs of the problem at the caret; the scroll keys scroll it.
+fn tip_key(state: EditorState, event: &web_sys::KeyboardEvent) {
+    let Some(tip) = state.problems().tip_ref.get_untracked() else {
+        return;
+    };
+    if super::super::super::hover_focus::opens_docs_from(state, &tip, event) {
+        return;
+    }
+    super::super::super::hover_focus::card_keys(&tip, event);
+}
+
+/// The focus left the tip, or moved inside it.
+fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
+    let inside = state.problems().tip_ref.get_untracked().is_some_and(|tip| {
+        event
+            .related_target()
+            .and_then(|to| to.dyn_into::<web_sys::Node>().ok())
+            .is_some_and(|to| tip.contains(Some(&to)))
+    });
+    if !inside {
+        state.problems().tip_focused.set(false);
     }
 }
 

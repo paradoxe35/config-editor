@@ -40,6 +40,8 @@ pub(super) struct HoverState {
     /// The card is taller than its room (it scrolls), measured once
     /// drawn: the pointer can enter it to scroll it, as one with a link.
     pub(super) scrolls: StoredValue<bool>,
+    /// The focus is in the card: it is a dialog then, not a tooltip.
+    pub(super) card_focused: RwSignal<bool>,
 }
 
 impl HoverState {
@@ -54,6 +56,7 @@ impl HoverState {
             heading: StoredValue::new(false),
             card_ref: NodeRef::new(),
             scrolls: StoredValue::new(false),
+            card_focused: RwSignal::new(false),
         }
     }
 }
@@ -169,6 +172,7 @@ impl EditorState {
         self.hover().card_entered.set_value(false);
         self.hover().at_caret.set_value(false);
         self.hover().scrolls.set_value(false);
+        self.note_card_focus(false);
         if self.hover().card.with_untracked(Option::is_some) {
             // The card or a link in it had the focus (Tab, in `Ctrl+M`
             // mode; a second `Ctrl+K Ctrl+I`): the text takes it back
@@ -178,6 +182,14 @@ impl EditorState {
             if focused && let Some(element) = self.textarea() {
                 let _ = element.focus_in_place();
             }
+        }
+    }
+
+    /// Records whether the focus is in the card (see
+    /// [`HoverState::card_focused`]).
+    pub(super) fn note_card_focus(&self, focused: bool) {
+        if self.hover().card_focused.get_untracked() != focused {
+            self.hover().card_focused.set(focused);
         }
     }
 

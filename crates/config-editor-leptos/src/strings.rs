@@ -261,6 +261,9 @@ pub struct EditorStrings {
     pub preview_heading: String,
     /// The change preview's accessible name.
     pub preview_label: String,
+    /// Announced on `Alt+F5` / `Shift+Alt+F5`: the change's `{title}` (as
+    /// the preview's), its `{line}`, and its `{position}` of `{total}`.
+    pub change_position: String,
     /// The preview's revert button.
     pub revert: String,
     /// Its tooltip, for a one-line change.
@@ -289,6 +292,14 @@ pub struct EditorStrings {
     /// After a closed fold's chip label when it hides `{count}` problems;
     /// `{severity}` names the most serious of them.
     pub folded_problem_other: String,
+    /// Announced when the range of lines `{first}` to `{last}` folds.
+    pub folded_lines: String,
+    /// Announced when the fold of lines `{first}` to `{last}` opens.
+    pub unfolded_lines: String,
+    /// Announced when `{count}` ranges (two or more) fold at once.
+    pub folded_ranges: String,
+    /// Announced when `{count}` folds (two or more) open at once.
+    pub unfolded_ranges: String,
 
     // Hover and problems.
     /// The hover card's mark of a required key.
@@ -307,6 +318,11 @@ pub struct EditorStrings {
     /// Announced when a second `Ctrl+K Ctrl+I` moves the focus into the
     /// hover card, to scroll it.
     pub hover_focused: String,
+    /// The focused hover card's accessible name: the `{key}` it documents.
+    pub hover_label: String,
+    /// The problem tip's accessible name while it has the focus (a second
+    /// `Ctrl+K Ctrl+I`).
+    pub problem_tip_label: String,
     /// The link under a host problem's message.
     pub open_docs: String,
     /// An error, as a screen reader hears it.
@@ -347,6 +363,8 @@ pub struct EditorStrings {
     pub editor_label: String,
 
     // Read-only fields and secrets.
+    /// Said, and shown at the caret, when typing in a read-only editor.
+    pub read_only_editor: String,
     /// Why a field is read-only when neither the schema nor the host says.
     pub read_only_field: String,
     /// Why text in a read-only range the host gave cannot change.
@@ -568,6 +586,7 @@ impl Default for EditorStrings {
             show_removed_at_end: text("Show removed lines at end of document"),
             preview_heading: text("{title} · line {line}"),
             preview_label: text("{title}, line {line}"),
+            change_position: text("{title}, line {line}: change {position} of {total}"),
             revert: text("Revert"),
             revert_title: text("Revert this change (R)"),
             revert_lines_title: text("Revert this change (lines {first}–{last}) (R)"),
@@ -582,6 +601,10 @@ impl Default for EditorStrings {
             folded_changes: text("Folded lines have changes"),
             folded_problem_one: text("hides a problem: {severity}"),
             folded_problem_other: text("hides {count} problems, the most serious: {severity}"),
+            folded_lines: text("Folded lines {first}–{last}"),
+            unfolded_lines: text("Unfolded lines {first}–{last}"),
+            folded_ranges: text("Folded {count} ranges"),
+            unfolded_ranges: text("Unfolded {count} ranges"),
             required: text("required"),
             deprecated: text("deprecated"),
             default_value: text("Default"),
@@ -591,6 +614,8 @@ impl Default for EditorStrings {
             hover_focused: text(
                 "In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text.",
             ),
+            hover_label: text("About {key}"),
+            problem_tip_label: text("Problems here"),
             open_docs: text("Open docs ↗ (Alt+Enter)"),
             error: text("Error"),
             warning: text("Warning"),
@@ -607,6 +632,7 @@ impl Default for EditorStrings {
             suggestions_label: text("{language} suggestions"),
             problems_label: text("Inline {language} diagnostics"),
             editor_label: text("{language} editor"),
+            read_only_editor: text("Cannot edit in a read-only editor"),
             read_only_field: text("This field is read-only"),
             read_only_text: text("This text is read-only"),
             holds_read_only: text("Holds a read-only field: {reason}"),

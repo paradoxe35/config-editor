@@ -22,12 +22,12 @@ pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) ->
     match event.code().as_str() {
         "BracketLeft" => {
             event.prevent_default();
-            state.fold_at_caret();
+            state.fold_command(|| state.fold_at_caret());
             true
         }
         "BracketRight" => {
             event.prevent_default();
-            state.unfold_at_caret();
+            state.fold_command(|| state.unfold_at_caret());
             true
         }
         _ => false,
@@ -43,12 +43,12 @@ pub(in crate::editor) fn chord_key(state: EditorState, event: &KeyboardEvent) ->
     let key = event.key().to_ascii_lowercase();
     if key == "0" || event.code() == "Digit0" {
         event.prevent_default();
-        state.fold_all();
+        state.fold_command(|| state.fold_all());
         return true;
     }
     if key == "j" {
         event.prevent_default();
-        state.unfold_all();
+        state.fold_command(|| state.unfold_all());
         return true;
     }
     false

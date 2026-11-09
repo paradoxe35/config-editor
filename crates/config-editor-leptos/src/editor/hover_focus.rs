@@ -24,13 +24,59 @@ impl EditorState {
         let Some(card) = hover.card_ref.get_untracked() else {
             return false;
         };
+        // A dialog by the time the focus lands, so that is what is said.
+        let _ = card.set_attribute("role", "dialog");
+        self.note_card_focus(true);
         if crate::focus::in_place(&card).is_err() {
+            self.note_card_focus(false);
             return false;
         }
         let said = self.strings_untracked(|strings| strings.hover_focused.clone());
         self.a11y().announce(said);
         true
     }
+
+    /// Moves the focus into the problem tip F8 or `Ctrl+K Ctrl+I` showed
+    /// at the caret (one without docs, so no card), as into the card.
+    /// Returns whether it did.
+    pub(super) fn focus_problem_tip(&self) -> bool {
+        let problems = self.problems();
+        if problems.current.with_untracked(Option::is_none) {
+            return false;
+        }
+        let Some(tip) = problems.tip_ref.get_untracked() else {
+            return false;
+        };
+        if tip.hidden() {
+            return false;
+        }
+        let _ = tip.set_attribute("role", "dialog");
+        problems.tip_focused.set(true);
+        if crate::focus::in_place(&tip).is_err() {
+            problems.tip_focused.set(false);
+            return false;
+        }
+        let said = self.strings_untracked(|strings| strings.hover_focused.clone());
+        self.a11y().announce(said);
+        true
+    }
+}
+
+/// `Enter` on the focused `popup` (the card, the problem tip) itself (a
+/// link in it opens itself), or `Alt+Enter` anywhere in it: opens the
+/// docs `Alt+Enter` opens from the text, as the announcement says.
+/// Returns whether it did.
+pub(super) fn opens_docs_from(
+    state: EditorState,
+    popup: &HtmlElement,
+    event: &KeyboardEvent,
+) -> bool {
+    if event.key() != "Enter" || event.ctrl_key() || event.meta_key() || event.shift_key() {
+        return false;
+    }
+    let popup: &web_sys::EventTarget = popup.as_ref();
+    let on_popup = event.target().as_ref() == Some(popup);
+    (event.alt_key() || on_popup) && super::a11y::open_docs(state, event)
 }
 
 /// Where a scroll key takes the card's `scroll_top`, from `top` in a card

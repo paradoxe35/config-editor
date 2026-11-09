@@ -19,8 +19,8 @@ mod suggestions;
 mod texts;
 
 pub(super) use caret_note::{
-    caret_position, caret_problem_docs, caret_problems_said, connect_caret_note, open_docs_key,
-    problems_at_caret, show_at_caret,
+    caret_position, caret_problem_docs, caret_problems_said, connect_caret_note, open_docs,
+    open_docs_key, problems_at_caret, show_at_caret,
 };
 pub(super) use focus::{focus_keys, toggle_tab_focus};
 pub(super) use suggestions::connect_suggestions;
@@ -44,6 +44,10 @@ pub(super) struct A11yState {
     pub(super) note_token: StoredValue<u64>,
     /// Distinguishes this editor's elements from other editors'.
     pub(super) id: usize,
+    /// Where the read-only editor's notice shows (see `note_read_only`).
+    pub(super) read_only_notice: RwSignal<Option<usize>>,
+    /// The timer that puts the notice away.
+    pub(super) notice_timer: StoredValue<crate::reactive::later::Timeout>,
 }
 
 static NEXT_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -57,6 +61,8 @@ impl A11yState {
             caret_note: RwSignal::new(String::new()),
             note_token: StoredValue::new(0),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            read_only_notice: RwSignal::new(None),
+            notice_timer: StoredValue::new(Default::default()),
         }
     }
 

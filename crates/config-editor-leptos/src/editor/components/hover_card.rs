@@ -8,7 +8,9 @@ use super::super::completion::{ChoiceHover, HoverValue, KeyHover};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
 use crate::cssom::cssom;
-use crate::reactive::later;
+use crate::reactive::{Relay, later};
+use crate::strings::fill;
+use wasm_bindgen::JsCast;
 
 /// A hover card being shown: what it documents and where.
 #[derive(Clone, PartialEq)]
@@ -30,6 +32,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .unwrap_or_default()
     });
     let card_ref = state.hover().card_ref;
+    let focused = Relay::new(move || state.hover().card_focused.get());
     // Taller than its room (it scrolls): measured once drawn.
     let scrolls = RwSignal::new(false);
     Effect::new(move |_| {
@@ -53,17 +56,24 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 let links = info.docs_url.is_some()
                     || problems.iter().any(|entry| entry.docs_url.is_some());
                 let interactive = move || links || scrolls.get();
+                let focused = focused.read();
+                // A dialog while it has the focus (to scroll it, or on its
+                // links), named after its key; a tooltip otherwise.
+                let role = move || if focused.get() { "dialog" } else { "tooltip" };
+                let label = card_label(state, info.key.clone());
                 view! {
                     <div
                         class="config-editor__hover"
                         class:config-editor__hover--interactive=interactive
                         class:config-editor__hover--scrolls=move || scrolls.get()
-                        role="tooltip"
+                        role=role
+                        aria-label=label
                         // Focused by a second Ctrl+K Ctrl+I, to scroll it.
                         tabindex="-1"
                         node_ref=state.hover().card_ref
                         style=cssom(card.style)
                         on:keydown=move |event| card_key(state, &event)
+                        on:focusin=move |_| state.note_card_focus(true)
                         on:focusout=move |event| leave_card_focus(state, &event)
                         on:mouseenter=move |_| enter_card(state)
                         on:mouseleave=move |_| leave_card(state)
@@ -151,9 +161,20 @@ fn leave_card(state: EditorState) {
     state.hide_problem_tip();
 }
 
-/// A key with the focus in the card: the scroll keys scroll it.
+/// The card's accessible name, after the key it documents.
+fn card_label(state: EditorState, key: String) -> impl Fn() -> String + Send + Sync + 'static {
+    let strings = state.strings_signal();
+    move || strings.with(|strings| fill(&strings.hover_label, &[("key", &key)]))
+}
+
+/// A key with the focus in the card: `Enter` on the card itself, or
+/// `Alt+Enter` anywhere in it, opens its docs (as `Alt+Enter` does from
+/// the text); the scroll keys scroll it.
 fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
     if let Some(card) = state.hover().card_ref.get_untracked() {
+        if super::super::hover_focus::opens_docs_from(state, &card, event) {
+            return;
+        }
         super::super::hover_focus::card_keys(&card, event);
     }
 }
@@ -161,7 +182,16 @@ fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
 /// The focus left the card or a link in it: it closes, unless the focus
 /// went to another of its links or back to the text.
 fn leave_card_focus(state: EditorState, event: &web_sys::FocusEvent) {
-    if !state.keep_card_for(event.related_target().as_ref()) {
+    let to = event.related_target();
+    let in_card = state.hover().card_ref.get_untracked().is_some_and(|card| {
+        to.as_ref()
+            .and_then(|to| to.dyn_ref::<web_sys::Node>())
+            .is_some_and(|to| card.contains(Some(to)))
+    });
+    if !in_card {
+        state.note_card_focus(false);
+    }
+    if !state.keep_card_for(to.as_ref()) {
         state.hide_hover();
     }
 }

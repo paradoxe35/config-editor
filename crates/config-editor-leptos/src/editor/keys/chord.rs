@@ -21,10 +21,11 @@ pub(super) fn keeps_card(state: EditorState, event: &KeyboardEvent) -> bool {
     } else {
         "k"
     };
-    command
-        && key.eq_ignore_ascii_case(wanted)
-        && state.hover().at_caret.get_value()
-        && state.hover().card.with_untracked(Option::is_some)
+    let card =
+        state.hover().at_caret.get_value() && state.hover().card.with_untracked(Option::is_some);
+    // The problem tip F8 or the chord showed at the caret too.
+    let tip = state.problems().current.with_untracked(Option::is_some);
+    command && key.eq_ignore_ascii_case(wanted) && (card || tip)
 }
 
 /// The chord keys: `Ctrl+K` arms a chord (with something to finish it: hover
@@ -39,7 +40,7 @@ pub(super) fn chord(state: EditorState, event: &KeyboardEvent) -> bool {
         if command && !event.shift_key() && key.eq_ignore_ascii_case("i") {
             event.prevent_default();
             // Again while its card shows: into the card, to scroll it.
-            if !state.focus_card() {
+            if !state.focus_card() && !state.focus_problem_tip() {
                 super::super::a11y::show_at_caret(state);
             }
             return true;

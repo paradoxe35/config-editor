@@ -14,6 +14,7 @@ use crate::reactive::{Kept, size_observer, window_listener};
 mod a11y;
 mod bridge;
 mod byte_order_mark;
+mod caret_tip;
 mod change_summary;
 #[cfg_attr(not(feature = "diff"), path = "editor/off/changes.rs")]
 mod changes;
@@ -114,7 +115,7 @@ use crate::cssom::cssom;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
-    HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar,
+    HoverCardView, ProblemTip, ReadOnlyNotice, SourceInput, StatusBar, Toolbar,
 };
 use positioning::frame_probe_style;
 use protect::ProtectTipView;
@@ -382,6 +383,7 @@ pub fn ConfigEditor(
                         <HoverCardView state=state />
                         <ProblemTip state=state />
                         <ProtectTipView state=state />
+                        <ReadOnlyNotice state=state />
                         <CompletionList state=state />
                         <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />
                         <Kept when=shown.go_to_line view=move || view! { <GoToLineWidget state=state /> } />

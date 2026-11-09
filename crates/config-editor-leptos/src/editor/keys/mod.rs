@@ -32,6 +32,9 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         state.hide_hover();
     }
     state.protect().hide_tip(false);
+    if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") {
+        state.hide_read_only_notice();
+    }
     // Typing refused at a read-only field ends with any key that is not
     // more of it (see `note_refused`).
     if matches!(
@@ -51,7 +54,6 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.forget_refusal();
     }
-    page_keys::keep_page_still(state, event);
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"
@@ -77,6 +79,8 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
             navigation::escape(state, event);
         } else if event.ctrl_key() && event.code() == "Space" {
             event.prevent_default();
+        } else {
+            page_keys::page(state, event);
         }
         return;
     }
@@ -102,14 +106,20 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         "Escape" => navigation::escape(state, event),
         "Tab" => tab::tab(state, event),
         "Enter" => enter::enter(state, event),
+        "PageDown" | "PageUp" => {
+            page_keys::page(state, event);
+        }
         _ => {}
     }
 }
 
-/// Keys on the editor root, from the text or a widget: find and replace
-/// shortcuts, saving, `F6` to the baseline notice and back; Escape closes
-/// every popup.
+/// Keys on the editor root, from the text or a widget: page keys move
+/// nothing outside the editor, find and replace shortcuts, saving, `F6` to
+/// the baseline notice and back; Escape closes every popup.
 pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
+    if let Some(root) = state.view().root_ref.get_untracked() {
+        crate::page_scroll::keep_inside(&root, event);
+    }
     if super::search::shortcuts(state, event)
         || save_key(state, event)
         || state.notice_shortcut(event)

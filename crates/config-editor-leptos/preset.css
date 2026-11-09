@@ -791,7 +791,6 @@
   overflow: auto;
   height: var(--config-editor-height, var(--config-editor-content-height, auto));
   max-height: var(--config-editor-max-height, min(80vh, 100vh - 80px));
-  overscroll-behavior: contain;
 }
 
 .config-editor__input::selection { background: var(--config-editor-selection); color: transparent; }
@@ -1188,7 +1187,8 @@
     var(--config-editor-raised);
 }
 
-.config-editor__protect-tip {
+.config-editor__protect-tip,
+.config-editor__read-only-notice {
   position: fixed;
   z-index: 61;
   width: max-content;
@@ -1203,7 +1203,8 @@
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
 }
 
-.config-editor__protect-tip--refused {
+.config-editor__protect-tip--refused,
+.config-editor__read-only-notice {
   border-color: var(--config-editor-locked);
 }
 

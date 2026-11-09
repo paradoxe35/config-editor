@@ -640,6 +640,12 @@ export interface EditorStrings {
    */
   previewLabel?: string;
   /**
+   * Announced on `Alt+F5` / `Shift+Alt+F5`: the change's `{title}` (as the preview's), its `{line}`, and its `{position}` of `{total}`.
+   *
+   * @default "{title}, line {line}: change {position} of {total}"
+   */
+  changePosition?: string;
+  /**
    * The preview's revert button.
    *
    * @default "Revert"
@@ -712,6 +718,30 @@ export interface EditorStrings {
    */
   foldedProblemOther?: string;
   /**
+   * Announced when the range of lines `{first}` to `{last}` folds.
+   *
+   * @default "Folded lines {first}–{last}"
+   */
+  foldedLines?: string;
+  /**
+   * Announced when the fold of lines `{first}` to `{last}` opens.
+   *
+   * @default "Unfolded lines {first}–{last}"
+   */
+  unfoldedLines?: string;
+  /**
+   * Announced when `{count}` ranges (two or more) fold at once.
+   *
+   * @default "Folded {count} ranges"
+   */
+  foldedRanges?: string;
+  /**
+   * Announced when `{count}` folds (two or more) open at once.
+   *
+   * @default "Unfolded {count} ranges"
+   */
+  unfoldedRanges?: string;
+  /**
    * The hover card's mark of a required key.
    *
    * @default "required"
@@ -753,6 +783,18 @@ export interface EditorStrings {
    * @default "In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text."
    */
   hoverFocused?: string;
+  /**
+   * The focused hover card's accessible name: the `{key}` it documents.
+   *
+   * @default "About {key}"
+   */
+  hoverLabel?: string;
+  /**
+   * The problem tip's accessible name while it has the focus (a second `Ctrl+K Ctrl+I`).
+   *
+   * @default "Problems here"
+   */
+  problemTipLabel?: string;
   /**
    * The link under a host problem's message.
    *
@@ -849,6 +891,12 @@ export interface EditorStrings {
    * @default "{language} editor"
    */
   editorLabel?: string;
+  /**
+   * Said, and shown at the caret, when typing in a read-only editor.
+   *
+   * @default "Cannot edit in a read-only editor"
+   */
+  readOnlyEditor?: string;
   /**
    * Why a field is read-only when neither the schema nor the host says.
    *

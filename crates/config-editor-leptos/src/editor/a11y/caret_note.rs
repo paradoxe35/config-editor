@@ -139,9 +139,12 @@ pub(in crate::editor) fn caret_problem_docs(state: EditorState) -> Option<String
 /// keyboard's way to the links the pointer clicks.
 pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
     let plain_alt = event.alt_key() && !event.ctrl_key() && !event.meta_key() && !event.shift_key();
-    if event.key() != "Enter" || !plain_alt {
-        return false;
-    }
+    event.key() == "Enter" && plain_alt && open_docs(state, event)
+}
+
+/// Opens the docs link `Alt+Enter` opens (see [`open_docs_key`]), taking
+/// `event`; false when there is none.
+pub(in crate::editor) fn open_docs(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
     let card_docs = || {
         state.hover().card.with_untracked(|card| {
             card.as_ref()

@@ -97,6 +97,7 @@ mod cssom;
 mod documents;
 mod editor;
 mod focus;
+mod page_scroll;
 mod reactive;
 mod settings;
 mod strings;

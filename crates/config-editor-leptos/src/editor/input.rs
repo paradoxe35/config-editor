@@ -37,6 +37,7 @@ fn target_textarea(state: EditorState, event: &web_sys::Event) -> Option<SourceA
 pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
     if state.config().read_only.get_untracked() {
         event.prevent_default();
+        state.note_read_only();
         return;
     }
     if let Some(element) = target_textarea(state, event) {

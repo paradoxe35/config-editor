@@ -56,6 +56,10 @@ pub(super) struct ProblemsState {
     /// The underline cap left some problems' lines without an underline
     /// (set by the underlines, said in the footer).
     pub(super) underlines_cut: RwSignal<bool>,
+    /// The problem tip's element (a second `Ctrl+K Ctrl+I` focuses it).
+    pub(super) tip_ref: NodeRef<leptos::html::Div>,
+    /// The focus is in the problem tip: it is a dialog then.
+    pub(super) tip_focused: RwSignal<bool>,
 }
 
 /// What the problems are found from.
@@ -211,6 +215,8 @@ impl ProblemsState {
             tip_token: StoredValue::new(0),
             tip_leaving: StoredValue::new(false),
             underlines_cut: RwSignal::new(false),
+            tip_ref: NodeRef::new(),
+            tip_focused: RwSignal::new(false),
         }
     }
 }
@@ -232,7 +238,12 @@ impl EditorState {
     /// Hides the message F8 showed, and the one under the pointer.
     pub(super) fn hide_shown_problem(&self) {
         if self.problems().current.get_untracked().is_some() {
+            // The tip had the focus: the text takes it back, not the page.
+            let focused = self.problems().tip_focused.get_untracked();
             self.problems().current.set(None);
+            if focused && let Some(element) = self.textarea() {
+                let _ = element.focus_in_place();
+            }
         }
         self.hide_problem_tip();
     }
