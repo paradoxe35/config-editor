@@ -61,10 +61,6 @@ jobs:
     name: CI
     needs: versions
     uses: ./.github/workflows/ci.yml
-    # CI deletes its working artifacts when its tests are done.
-    permissions:
-      contents: read
-      actions: write
 
   crate:
     name: Publish config-editor-leptos

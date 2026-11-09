@@ -211,16 +211,10 @@ jobs:
     needs: [e2e, e2e-timed, e2e-report]
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
     steps:
-      - name: Delete the shared build and the machines' reports
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq '.artifacts[] | select(.name == "browser-build" or (.name | startswith("blob-report-"))) | "\(.id) \(.name)"' |
-            while read -r id name; do
-              echo "deleting $name"
-              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
-            done
+      # Through the run's own artifact service: no token permission needed.
+      - uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: |
+            browser-build
+            blob-report-*
