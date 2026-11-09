@@ -528,9 +528,10 @@ call `replaceValue(text)`: it always applies, and the echoes on their way
 are still told apart. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
-remembered until its echo comes or a text of your own replaces the
-document, however many wait: a few bytes each), so set those with
-`replaceValue` too.
+remembered until its echo comes, a text of your own replaces the
+document, or 5 seconds after a text sent later came back: an echo
+handed back out of order more than 5 seconds after a later one is taken
+for your own text), so set those with `replaceValue` too.
 
 ### Instance members
 

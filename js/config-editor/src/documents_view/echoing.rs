@@ -2,6 +2,8 @@
 //! a listed text its editor sent and moved past keeps what the editor
 //! holds, and a host left on such a text hears the document again.
 
+use std::collections::HashSet;
+
 use config_editor_leptos::Document;
 use config_editor_leptos::js_support::flush_pending_input;
 use leptos::prelude::{GetValue, UpdateValue, WithValue};
@@ -47,7 +49,16 @@ impl State {
             return (resend, settles);
         }
         let _ = self.echoes.try_update_value(|echoes| {
-            echoes.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
+            {
+                // The documents no longer listed: one lookup each.
+                let ids: HashSet<&str> = listed
+                    .documents
+                    .iter()
+                    .map(|document| document.id.as_str())
+                    .collect();
+                echoes.retain(|id, _| ids.contains(id.as_str()));
+            }
+            let now = js_sys::Date::now();
             // Each document's text read where it is kept, not copied.
             self.texts.try_with_value(|texts| {
                 for document in &mut listed.documents {
@@ -59,6 +70,7 @@ impl State {
                         echo.given(&document.value);
                         continue;
                     };
+                    echo.at(now);
                     let echo = echo.listed(&document.value, current, flushed);
                     if echo == Echo::Apply {
                         continue;

@@ -388,7 +388,10 @@ impl ConfigEditor {
             let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
             state
                 .echoes
-                .try_update_value(|echoes| echoes.received(value, &latest, flushed))
+                .try_update_value(|echoes| {
+                    echoes.at(js_sys::Date::now());
+                    echoes.received(value, &latest, flushed)
+                })
                 .unwrap_or(Echo::Apply)
         });
         let shown = value.as_ref().filter(|_| echo == Some(Echo::Apply));

@@ -49,6 +49,10 @@
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+/// How long after a text came back the copies sent before it are
+/// forgotten (see [`Echoes`]).
+pub(crate) const FORGET_MS: f64 = 5000.0;
+
 /// How long after an echo that left the host on an older text the editor
 /// checks the host came back to the document (see [`Echoes::settle`]).
 pub(crate) const SETTLE_MS: i32 = 250;
@@ -124,9 +128,13 @@ pub(crate) enum Echo {
 ///
 /// Every one is kept, however many wait (a busy page, a slow host):
 /// forgetting one would take its echo for the host's own text and roll the
-/// document back. A copy is forgotten when its echo comes, or when the
-/// host's own text replaces the document (the copies sent before belong to
-/// the text it replaced). An echo costs one read of the text handed back
+/// document back. A copy is forgotten when its echo comes, when the host's
+/// own text replaces the document (the copies sent before belong to the
+/// text it replaced), or [`FORGET_MS`] after a text sent later came back:
+/// a host handing back only the latest of several never hands back the
+/// others, and one handing them back out of order does so long before
+/// (its delays differ by less). So what is kept is bounded by what is sent
+/// in that time. An echo costs one read of the text handed back
 /// (for its print) and a lookup by it: never a pass over the copies
 /// waiting, nor another over the document.
 #[derive(Default, Debug)]
@@ -142,6 +150,11 @@ pub(crate) struct Echoes {
     /// before it may still come (out of order) or never (a host handing
     /// back only the latest of several), so it is not counted on to come.
     came_back: Option<u64>,
+    /// When (ms, see [`Echoes::at`]) each text that came back, newer than
+    /// any before it, came, and when it was sent: oldest first.
+    returns: VecDeque<(f64, u64)>,
+    /// The time now (see [`Echoes::at`]).
+    now: f64,
     /// The text the host gave last.
     last_given: Option<Print>,
     /// The document's print, while known (the text sent, given or shown
@@ -155,6 +168,20 @@ impl Echoes {
         Self {
             on,
             ..Self::default()
+        }
+    }
+
+    /// The time is `now` (ms, any clock that never goes back): the copies
+    /// sent before a text that came back [`FORGET_MS`] ago or more are
+    /// forgotten.
+    pub(crate) fn at(&mut self, now: f64) {
+        self.now = now;
+        while let Some(&(came, serial)) = self.returns.front() {
+            if came + FORGET_MS > now {
+                break;
+            }
+            self.returns.pop_front();
+            self.forget_before(serial);
         }
     }
 
@@ -249,7 +276,10 @@ impl Echoes {
             self.copies.remove(&print);
         }
         self.order.remove(&sent.serial);
-        self.came_back = self.came_back.max(Some(sent.serial));
+        if self.came_back.is_none_or(|back| sent.serial > back) {
+            self.came_back = Some(sent.serial);
+            self.returns.push_back((self.now, sent.serial));
+        }
     }
 
     /// The host gave `value` in an update (`update({ value })`), the
@@ -811,6 +841,67 @@ mod tests {
         assert_eq!(waiting(&echoes), 0);
     }
 
+    /// A host handing back only the latest text every 200 ms while 5000
+    /// keys are typed, 30 ms a key: the copies it skipped are forgotten
+    /// [`super::FORGET_MS`] after a later one came back, so what is kept
+    /// stays bounded by what is sent in that time, however long the
+    /// session; none of its echoes rolls back.
+    #[test]
+    fn a_host_handing_back_only_the_latest_leaves_a_bounded_number_kept() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let mut document = String::new();
+        let mut most = 0;
+        for key in 0..5000u32 {
+            let now = f64::from(key * 30);
+            echoes.at(now);
+            document.push(char::from(b'a' + (key % 26) as u8));
+            echoes.sent(&document);
+            if key % 7 == 6 {
+                assert_eq!(echoes.received(&document, &document, NONE), Echo::Apply);
+            }
+            most = most.max(waiting(&echoes));
+        }
+        let window = (super::FORGET_MS / 30.0) as usize + 10;
+        assert!(
+            most <= window,
+            "{most} copies kept at most (bound {window})"
+        );
+    }
+
+    /// Echoes handed back out of order, up to a second after a later one,
+    /// over a long run: each is still told apart (the copies sent before a
+    /// text that came back are kept long enough), and once all are back
+    /// none waits.
+    #[test]
+    fn echoes_out_of_order_within_the_pause_are_told_apart() {
+        let mut next = rng(0x9e37_79b9_7f4a_7c15);
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let mut document = String::new();
+        // (when it comes back, text)
+        let mut on_their_way: Vec<(u64, String)> = Vec::new();
+        for time in 0..20_000u64 {
+            echoes.at(time as f64);
+            if time % 10 == 0 && time < 15_000 {
+                document.push('x');
+                echoes.sent(&document);
+                on_their_way.push((time + next(1000), document.clone()));
+            }
+            on_their_way.sort();
+            while on_their_way.first().is_some_and(|(at, _)| *at <= time) {
+                let (_, text) = on_their_way.remove(0);
+                match echoes.received(&text, &document, NONE) {
+                    Echo::Apply => assert_eq!(text, document, "a rollback at {time}"),
+                    Echo::Resend => on_their_way.push((time + next(1000), document.clone())),
+                    Echo::Skip | Echo::Settle => {}
+                }
+            }
+        }
+        assert!(on_their_way.is_empty());
+        assert_eq!(waiting(&echoes), 0);
+    }
+
     /// An echo costs one read of the text handed back and a look at a copy
     /// or two of it, however many copies wait: never a pass over them, nor
     /// another read of the document (QA 29: typing slowed with echoes
@@ -942,6 +1033,7 @@ mod tests {
                 return true;
             }
             self.render_due = false;
+            self.echoes.at(at as f64);
             match self.echoes.listed(&self.host, &self.document, NONE) {
                 Echo::Apply => assert_eq!(self.host, self.document, "a rollback"),
                 Echo::Skip => {}

@@ -36,6 +36,9 @@
 
 /** How long after an echo left the host on an older value to check it came back to the document. */
 export const SETTLE_MS = 250;
+
+/** How long after a value came back the values sent before it are forgotten (see `ValueSync`). */
+export const FORGET_MS = 5000;
 /** A short stand-in for a document: its length and two 32-bit FNV-1a hashes (one pass). */
 function fingerprint(text) {
   let hash = 0x811c9dc5;
@@ -50,7 +53,12 @@ function fingerprint(text) {
 
 // Every value sent is kept until its echo comes, however many wait (a busy
 // page, a slow parent): forgetting one would take its echo for the host's
-// own value and roll the document back. A value passed back costs one read
+// own value and roll the document back. It is forgotten when its echo
+// comes, when the host's own value replaces the document, or `FORGET_MS`
+// after a value sent later came back: a parent applying only the latest of
+// several never passes the others back, and one passing them back out of
+// order does so long before. So what is kept is bounded by what is sent in
+// that time. A value passed back costs one read
 // of it (for its fingerprint) and a lookup by it, never a pass over the
 // values waiting nor another over the document.
 export class ValueSync {
@@ -66,6 +74,10 @@ export class ValueSync {
   // before it may still come (out of order) or never (a parent applying
   // only the latest), so it is not counted on to come.
   #cameBack = -1;
+  // When each value that came back, newer than any before it, came, and
+  // when it was sent: `[time, serial]`, oldest first.
+  #returns = [];
+  #now;
   // The value the host passed last, and the document, while known (the
   // value sent, given or applied last): prints.
   #lastGiven = null;
@@ -75,6 +87,24 @@ export class ValueSync {
   // The last value read, and its print (a value passed again is read once).
   #read = null;
   #readPrint = null;
+
+  /**
+   * @param {{ now?: () => number }} [options] the clock, in ms (default
+   * `performance.now`).
+   */
+  constructor({ now = () => performance.now() } = {}) {
+    this.#now = now;
+  }
+
+  /** Forgets the values sent before one that came back `FORGET_MS` ago or more. */
+  #at(now) {
+    let done = 0;
+    while (done < this.#returns.length && this.#returns[done][0] + FORGET_MS <= now) {
+      this.#forgetBefore(this.#returns[done][1]);
+      done += 1;
+    }
+    if (done) this.#returns.splice(0, done);
+  }
 
   /** How many values sent wait for their echo. */
   get waiting() {
@@ -171,6 +201,8 @@ export class ValueSync {
    */
   received(value, current, flushed = this.#serial) {
     const none = { apply: null, report: null, settle: false };
+    const now = this.#now();
+    this.#at(now);
     const print = this.#print(value);
     const copies = this.#copies.get(print);
     let news;
@@ -200,7 +232,10 @@ export class ValueSync {
       const sent = copies.pop();
       if (copies.length === 0) this.#copies.delete(print);
       this.#order.delete(sent.serial);
-      this.#cameBack = Math.max(this.#cameBack, sent.serial);
+      if (sent.serial > this.#cameBack) {
+        this.#cameBack = sent.serial;
+        this.#returns.push([now, sent.serial]);
+      }
       news = true;
     }
     if (value === current) {

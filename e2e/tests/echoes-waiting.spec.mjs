@@ -162,3 +162,60 @@ test.describe('Echoes: however many wait, each is told apart', () => {
     }
   }
 });
+
+// A parent applying only the latest of several values never passes the
+// others back: they are forgotten `FORGET_MS` after a later one came back,
+// so what `ValueSync` keeps stays bounded however long the session; values
+// passed back out of order within that time are still told apart.
+test.describe('ValueSync: what is kept stays bounded', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  test('a parent passing back only the latest while 5000 keys are typed, and one out of order', async ({ page }) => {
+    listen(page);
+    await page.goto(example('vanilla.html'));
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const result = await page.evaluate(async () => {
+      const { ValueSync, FORGET_MS } = await import('../config-editor/sync.js');
+      let time = 0;
+      // Latest only: every seventh key (30 ms a key) the parent passes back the newest value.
+      const latest = new ValueSync({ now: () => time });
+      latest.received('', '');
+      let document = '';
+      let most = 0;
+      const rollbacks = [];
+      for (let key = 0; key < 5000; key += 1) {
+        time = key * 30;
+        document += 'abcdefghij'[key % 10];
+        latest.sent(document);
+        if (key % 7 === 6 && latest.received(document, document).apply !== null) rollbacks.push(key);
+        most = Math.max(most, latest.waiting);
+      }
+      // Out of order: each value passed back up to a second late.
+      const shuffled = new ValueSync({ now: () => time });
+      shuffled.received('', '');
+      document = '';
+      let seed = 11;
+      const random = (bound) => (seed = (seed * 1103515245 + 12345) % 2147483648) % bound;
+      const onTheirWay = [];
+      for (time = 0; time < 20000; time += 1) {
+        if (time % 10 === 0 && time < 15000) {
+          document += 'x';
+          shuffled.sent(document);
+          onTheirWay.push([time + random(1000), document]);
+        }
+        onTheirWay.sort((left, right) => left[0] - right[0]);
+        while (onTheirWay.length && onTheirWay[0][0] <= time) {
+          const [, value] = onTheirWay.shift();
+          const { apply, report } = shuffled.received(value, document);
+          if (apply !== null && apply !== document) rollbacks.push(value.length);
+          if (report !== null) onTheirWay.push([time + random(1000), report]);
+        }
+      }
+      return { most, bound: FORGET_MS / 30 + 10, rollbacks, left: shuffled.waiting };
+    });
+    expect(result.most).toBeLessThanOrEqual(result.bound);
+    expect(result.rollbacks).toEqual([]);
+    expect(result.left).toBe(0);
+    expect(page.errors).toEqual([]);
+  });
+});
