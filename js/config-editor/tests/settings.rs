@@ -257,6 +257,30 @@ fn camel_case(name: &str) -> String {
     out
 }
 
+/// `text` with the Rust names in code spans (`read_only_reason`,
+/// `Document::read_only_reason`, `on_add`) as JavaScript names them
+/// (`readOnlyReason`, `onAdd`): a JavaScript table names no Rust field.
+fn js_names(text: &str) -> String {
+    let mut out = String::new();
+    let mut parts = text.split('`');
+    out.push_str(parts.next().unwrap_or(""));
+    for (index, part) in parts.enumerate() {
+        out.push('`');
+        let name = part.rsplit("::").next().unwrap_or(part);
+        let rust_name = index % 2 == 0
+            && name.contains('_')
+            && name
+                .chars()
+                .all(|character| character.is_ascii_lowercase() || character == '_');
+        out.push_str(&if rust_name {
+            camel_case(name)
+        } else {
+            part.to_string()
+        });
+    }
+    out
+}
+
 fn header(described: &Described) -> String {
     format!(
         "Generated from {} by js/config-editor/tests/settings.rs; do not edit. Regenerate with \
@@ -348,7 +372,10 @@ fn table(described: &Described, rust: bool) -> String {
         } else {
             (key, js_default(&field.rust_type, &default))
         };
-        let text = field.docs.join(" ").replace('|', "\\|");
+        let mut text = field.docs.join(" ").replace('|', "\\|");
+        if !rust {
+            text = js_names(&text);
+        }
         out.push_str(&format!("| `{name}` | {default} | {text} |\n"));
     }
     // Aligned as Prettier writes Markdown tables, so formatting a README
@@ -500,5 +527,9 @@ fn links_unwrap_to_code() {
     assert_eq!(
         camel_case("auto_trigger_completions"),
         "autoTriggerCompletions"
+    );
+    assert_eq!(
+        js_names("with `on_add` (`Document::read_only_reason`), `{reason}`, `Ctrl+S`"),
+        "with `onAdd` (`readOnlyReason`), `{reason}`, `Ctrl+S`"
     );
 }

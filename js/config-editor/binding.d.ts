@@ -106,6 +106,13 @@ export interface ConfigEditorHandle {
   focus(): void;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, not mounted, or an `editAs` edit that cannot convert back yet). */
   save(): boolean;
+  /**
+   * Edits as `language` (`language` itself to go back), also when the
+   * `editAs` prop already says so: a prop that did not change is not sent
+   * again, so after an undo stepped back across the switch this asks for it
+   * again. Give the prop the same language. `false` before the editor mounts.
+   */
+  editAs(language: LanguageName): boolean;
   /** Whether the document differs from `baseline`. */
   readonly isDirty: boolean;
 }

@@ -95,6 +95,12 @@ impl ConfigLanguage for HclBehavior {
         hcl_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
+    /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
+    /// block type with labels (an object keyed by them).
+    fn lone_item(&self, source: &str, pointer: &str) -> bool {
+        hcl_lone_block(source.strip_prefix('\u{FEFF}').unwrap_or(source), pointer)
+    }
+
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         super::super::byte_order_mark::span(source, |text| hcl_key_span(text, pointer).map(Span::from))
     }

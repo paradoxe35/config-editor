@@ -37,12 +37,13 @@ impl EditorState {
     pub(in crate::editor) fn commit(&self, mut edit: Edit) -> bool {
         let changed = edit.before != edit.text;
         // A switch, or an undo or redo back across one: another language's
-        // text, whole (see `Origin::Switch`).
+        // text, whole (see `Origin::Switch`). A host value shown in the
+        // host's language stays a host value.
         let language_before = self.sync().edit_language.get_untracked();
         let switching = edit
             .language
             .filter(|language| *language != language_before);
-        let origin = if switching.is_some() {
+        let origin = if switching.is_some() && edit.origin != Origin::HostValue {
             Origin::Switch
         } else {
             edit.origin.clone()
@@ -78,6 +79,10 @@ impl EditorState {
         }
 
         trace(Stage::Apply);
+        // Undone or redone back into the host's language with its own text:
+        // nothing new to tell it.
+        let hosts_own = switching == Some(self.config().host_language)
+            && self.sync().host_text.with_value(|host| *host == edit.text);
         if let Some(language) = switching {
             self.show_language(language, &edit);
         }
@@ -113,7 +118,7 @@ impl EditorState {
         }
 
         trace(Stage::Notify);
-        if edit.origin.notifies() {
+        if edit.origin.notifies() && !hosts_own {
             self.notify_change();
         }
         if let Some(language) = switching {
@@ -255,8 +260,12 @@ impl EditorState {
                 }),
                 _ => history.update(|history| history.record_action(before(), after)),
             },
-            // Not a step: the steps before it take the host's change.
-            Origin::HostValue => history.update(|history| history.rebase(&edit.before, &edit.text)),
+            // Not a step: the steps before it take the host's change; ones
+            // in the language it left are another language's texts.
+            Origin::HostValue => history.update(|history| match edit.language {
+                Some(next) if next != language => history.clear(),
+                _ => history.rebase(&edit.before, &edit.text),
+            }),
         }
     }
 }

@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import type { EditorPath, EditorRange, FieldPath, LineRange } from "@pngwasi/config-editor";
+  import type { EditorPath, EditorRange, FieldPath, LanguageName, LineRange } from "@pngwasi/config-editor";
   import { type EditorBindingProps, EditorBinding } from "@pngwasi/config-editor/binding";
   import type { ConfigEditorProps } from "./types.js";
   import { readAll } from "./track.js";
@@ -127,6 +127,10 @@
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent. */
   export function save(): boolean {
     return handle.save();
+  }
+  /** Edits as `language`, also when the `editAs` prop already says so (after an undo stepped back across the switch); `false` before the editor mounts. */
+  export function editAs(language: LanguageName): boolean {
+    return handle.editAs(language);
   }
   /** Whether the document differs from `baseline`. */
   export function isDirty(): boolean {

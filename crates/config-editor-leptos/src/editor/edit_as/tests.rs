@@ -321,8 +321,8 @@ fn a_mounted_editor_shows_dismisses_and_reshows_the_notice() {
 }
 
 /// L22 L9, L7: a host text Edit as cannot read (a second YAML document, a
-/// syntax error) is shown as it is, and the problem saying why sits where
-/// the error is, as its message says, not at 1:1.
+/// syntax error) is shown as it is, and the switch waiting on it says why
+/// where the error is, as its message says, not at 1:1.
 #[test]
 fn a_refused_edit_as_is_placed_at_the_hosts_error() {
     let broken = [
@@ -341,23 +341,18 @@ fn a_refused_edit_as_is_placed_at_the_hosts_error() {
                 failures.push(format!("{host} via {edit}: converts"));
                 continue;
             };
-            // So is a switch waiting on it (a view's text that does not
-            // parse), beside the syntax problem rather than at 1:1.
-            let waiting = super::super::bridge::locate_error(
+            // The switch waits on it, beside the syntax problem rather
+            // than at 1:1.
+            let at = super::super::bridge::locate_error(
                 host.behavior(),
                 text,
                 &SaveError::Convert(convert.clone()),
             );
-            for (what, at) in [
-                ("load", bridge.load_problem(&convert).at),
-                ("switch", waiting),
-            ] {
-                if (at.line, at.column) != (error.line, error.column) || error.line == Some(1) {
-                    failures.push(format!(
-                        "{host} via {edit}, {what}: at {:?}:{:?}, the error at {:?}:{:?}",
-                        at.line, at.column, error.line, error.column
-                    ));
-                }
+            if (at.line, at.column) != (error.line, error.column) || error.line == Some(1) {
+                failures.push(format!(
+                    "{host} via {edit}: at {:?}:{:?}, the error at {:?}:{:?}",
+                    at.line, at.column, error.line, error.column
+                ));
             }
         }
     }

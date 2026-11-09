@@ -1400,6 +1400,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Repetition::None
     }
 
+    /// Whether the field at `pointer` is written as one of what a list of
+    /// it repeats, written once (an XML element, an HCL block): it is then
+    /// also that list's only item, so `pointer/0` finds it. Never for an
+    /// index, an attribute, an object of labelled blocks or the document.
+    /// Only a language with [`Self::repetition`] has any.
+    fn lone_item(&self, source: &str, pointer: &str) -> bool {
+        let _ = (source, pointer);
+        false
+    }
+
     /// Whether the caret has just begun an entry (a JSON key's opening
     /// quote), so suggestions open before anything is typed.
     fn entry_started(&self, source: &str, cursor: usize) -> bool {

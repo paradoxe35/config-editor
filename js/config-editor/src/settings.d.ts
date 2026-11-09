@@ -1126,12 +1126,6 @@ export interface EditorStrings {
    */
   noNonFinite?: string;
   /**
-   * A host document that does not convert for editing.
-   *
-   * @default "Cannot edit this {host} as {edit}: {error}"
-   */
-  cannotEditAs?: string;
-  /**
    * An Edit-as switch waiting until the document converts.
    *
    * @default "Cannot switch to {edit} yet: {error}"

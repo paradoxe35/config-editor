@@ -39,6 +39,7 @@ mod options;
 mod protect;
 mod settings;
 mod text_lines;
+mod told;
 mod typings;
 mod update;
 mod values;

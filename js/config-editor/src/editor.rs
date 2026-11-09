@@ -12,13 +12,14 @@ use wasm_bindgen::prelude::*;
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{self, IN_CALLBACK, Latest, Setup, State};
+use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
 use crate::settings::{settings_from, settings_result};
+use crate::told::{self, Told};
 use crate::typings::{
     EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, SettingsResult,
 };
@@ -157,7 +158,7 @@ impl ConfigEditor {
         let latest: Latest = std::sync::Arc::new(std::sync::Mutex::new(value.clone()));
         let latest_for_view = latest.clone();
         let owner = Owner::new();
-        let secrets = owner.with(|| secrets_from(&field(&options, "secrets")))?;
+        let secrets = owner.with(|| secrets_from(&field(&options, "secrets"), "secrets"))?;
         let state = owner.with(|| State {
             language,
             value: RwSignal::new(value.clone()),
@@ -182,6 +183,7 @@ impl ConfigEditor {
             host_diagnostics: RwSignal::new(host_diagnostics),
             read_only_paths: RwSignal::new(read_only_paths),
             read_only_ranges: RwSignal::new(read_only_ranges),
+            told: StoredValue::new_local(Told::default()),
         });
         let setup = Setup {
             language,
@@ -330,7 +332,7 @@ impl ConfigEditor {
             ("onBaselineConflict", state.on_baseline_conflict),
             ("onSchemaWarning", state.on_schema_warning),
         ] {
-            callbacks.push((callback_change(&options, name)?, slot));
+            callbacks.push((name, callback_change(&options, name)?, slot));
         }
         let on_path_change = callback_change(&options, "onPathChange")?;
         let on_save = callback_change(&options, "onSave")?;
@@ -372,7 +374,14 @@ impl ConfigEditor {
         if let Some(ranges) = read_only_ranges {
             let _ = state.read_only_ranges.try_set(ranges);
         }
-        for (change, slot) in callbacks {
+        let added = told::added(callbacks.iter().map(|(name, change, slot)| {
+            (
+                *name,
+                change.as_ref(),
+                slot.try_with_value(Option::is_some) == Some(true),
+            )
+        }));
+        for (_, change, slot) in callbacks {
             if let Some(callback) = change {
                 let _ = slot.try_set_value(callback);
             }
@@ -384,6 +393,13 @@ impl ConfigEditor {
         if let Some(callback) = on_path_change {
             let _ = state.follows_path.try_set(callback.is_some());
             let _ = state.on_path_change.try_set_value(callback);
+        }
+        // A state callback added now hears the state at once.
+        let told = state.told.try_get_value().unwrap_or_default();
+        for (name, callback) in added {
+            if let Some(argument) = told.argument(name) {
+                call_host(&callback, &argument);
+            }
         }
         Ok(())
     }

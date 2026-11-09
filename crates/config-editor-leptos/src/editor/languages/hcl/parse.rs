@@ -119,6 +119,8 @@ struct Indexed {
     scan: std::rc::Rc<Scan>,
     attributes: HashMap<Vec<String>, usize>,
     headers: HashMap<Vec<String>, (usize, usize)>,
+    /// The path of each block written once (its type, and its labels).
+    lone_blocks: HashSet<Vec<String>>,
 }
 
 /// [`Indexed`] of `source`, read once for all the spans a batch of
@@ -131,9 +133,15 @@ fn indexed(source: &str) -> std::rc::Rc<Indexed> {
             attributes.entry(attribute_path(&scan, attribute)).or_insert(at);
         }
         let mut headers = HashMap::new();
+        let mut lone_blocks = HashSet::new();
         for header in &scan.headers {
             let mut base = body_path(&scan, header.parent);
             base.push(header.block_type.clone());
+            if !scan.repeats(header) {
+                let mut block = base.clone();
+                block.extend(header.labels.iter().cloned());
+                lone_blocks.insert(block);
+            }
             for (level, span) in header.label_spans.iter().enumerate() {
                 let mut prefix = base.clone();
                 prefix.extend(header.labels[..=level].iter().cloned());
@@ -149,8 +157,14 @@ fn indexed(source: &str) -> std::rc::Rc<Indexed> {
             }
             headers.entry(base).or_insert(header.type_span);
         }
-        Indexed { scan, attributes, headers }
+        Indexed { scan, attributes, headers, lone_blocks }
     })
+}
+
+/// Whether `path` names a block written once (see
+/// `ConfigLanguage::lone_item`).
+pub(super) fn hcl_lone_block(source: &str, path: &str) -> bool {
+    indexed(source).lone_blocks.contains(&pointer_segments(path))
 }
 
 pub(super) fn hcl_key_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {

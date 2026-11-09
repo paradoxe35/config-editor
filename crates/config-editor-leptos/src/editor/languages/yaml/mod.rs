@@ -434,3 +434,6 @@ impl ConfigLanguage for YamlBehavior {
     allow(unused_imports, dead_code, reason = "the completion tests need schema validation")
 )]
 mod tests;
+
+#[cfg(test)]
+mod block_key_tests;

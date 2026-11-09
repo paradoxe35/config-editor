@@ -200,9 +200,9 @@ pub fn ConfigEditor(
     /// Called with the document, in `language`, after every edit.
     #[prop(optional, into)]
     on_change: Option<Callback<String>>,
-    /// Called with the language on screen each time an `edit_as` switch
-    /// completes, and when undo or redo steps back across one (a switch is
-    /// an undo step). A switch waits while the document cannot be converted
+    /// Called with the language on screen: once on mount, then each time
+    /// an `edit_as` switch completes, and when undo or redo steps back
+    /// across one (a switch is an undo step). A switch waits while the document cannot be converted
     /// yet (TOML has no `null`): the host's language stays on screen until
     /// then, so this, not `edit_as`, is what is shown.
     #[prop(optional, into)]

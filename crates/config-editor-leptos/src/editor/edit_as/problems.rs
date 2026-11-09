@@ -86,12 +86,6 @@ pub(in crate::editor) enum EditAsText {
     EditCannotShow { pointer: String, edit: Language },
     /// The edit is not saved.
     NotSaved { host: Language, error: SaveError },
-    /// The host's document does not convert for editing.
-    CannotEditAs {
-        host: Language,
-        edit: Language,
-        error: ConvertError,
-    },
     /// A switch to `edit` waits until the document converts.
     CannotSwitch {
         edit: Language,
@@ -119,14 +113,6 @@ impl EditAsText {
                 &[
                     ("host", &host.label()),
                     ("error", &error.text(strings, *host)),
-                ],
-            ),
-            EditAsText::CannotEditAs { host, edit, error } => fill(
-                &strings.cannot_edit_as,
-                &[
-                    ("host", &host.label()),
-                    ("edit", &edit.label()),
-                    ("error", &convert_text(error, strings)),
                 ],
             ),
             EditAsText::CannotSwitch { edit, host, error } => fill(

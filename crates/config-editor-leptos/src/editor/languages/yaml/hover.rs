@@ -20,6 +20,10 @@ pub(super) fn explicit_key_path(source: &str, line_index: usize, column: usize) 
         let key_line = explicit_key_above(&lines, line_index, start)?;
         let (path, _, key_column, _) = entries().rfind(|(_, line, _, _)| *line == key_line + 1)?;
         (path, key_column)
+    } else if let Some(key_line) = (!text.is_empty()).then(|| explicit_block_key_above(&lines, line_index)).flatten() {
+        // A line of the text of a key written as a block scalar (`? |`).
+        let (path, _, key_column, _) = entries().rfind(|(_, line, _, _)| *line == key_line + 1)?;
+        (path, key_column)
     } else if !text.is_empty() && !text.starts_with('#') && under_explicit_value(&lines, line_index, start) {
         let (path, _, key_column, _) = entries().rfind(|(_, line, at, _)| *line == line_index + 1 && *at <= column + 1)?;
         (path, key_column)
@@ -44,6 +48,30 @@ fn explicit_key_above(lines: &[&str], line_index: usize, start: usize) -> Option
     })?;
     let (at, text) = entry_body(lines[above]);
     (at == start && text.starts_with("? ")).then_some(above)
+}
+
+/// The line of the explicit key written as a block scalar (`? |`, `- ? >-`)
+/// whose text line `line_index` is: up through the lines indented less (the
+/// text's own lines indented more than its first), the key whose `?` every
+/// one of them is indented past.
+fn explicit_block_key_above(lines: &[&str], line_index: usize) -> Option<usize> {
+    let indent = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    let mut least = indent(lines[line_index]);
+    for above in (0..line_index).rev() {
+        let line = lines[above];
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (at, text) = entry_body(line);
+        if at < least && explicit_block_key(text).is_some() {
+            return Some(above);
+        }
+        least = least.min(indent(line));
+        if least == 0 {
+            return None;
+        }
+    }
+    None
 }
 
 /// Whether line `line_index` (its body at byte `start`) is inside the block

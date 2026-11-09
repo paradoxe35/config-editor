@@ -24,7 +24,8 @@ use crate::values::{field, json_from_js, string_field, to_js};
 /// callbacks, each one in place of its part of the flat default that its
 /// `separators` give (one `KEY=value` entry per line; see
 /// [`LanguageConfig::flat_completion_context`]). A flat language without
-/// `keySpan` / `valueSpan` has its fields found on their lines; any other
+/// `keySpan` / `valueSpan` (or where they return `null` or `undefined`)
+/// has its fields found on their lines; any other
 /// has its read-only fields checked by value alone. Constructs written over
 /// lines come from `multilineRanges`.
 pub(super) struct JsLanguage {
@@ -115,30 +116,42 @@ impl JsLanguage {
         ranges
     }
 
-    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Span> {
-        let span = self.call(
-            name,
-            &[JsValue::from_str(source), JsValue::from_str(pointer)],
-        )?;
-        let number = |key: &str| {
-            field(&span, key)
-                .as_f64()
-                .filter(|value| value.is_finite() && *value >= 1.0)
-                .map(|value| value as usize)
-        };
-        // A position outside the text is no position (the problem is shown
-        // unplaced); columns are clamped onto their line.
-        let line = number("line")?;
-        let text = source.split('\n').nth(line - 1)?;
-        let width = text.chars().count() + 1;
-        let start = number("startColumn")?.min(width);
-        let end = number("endColumn")?.min(width).max(start);
-        Some(Span {
-            line,
-            start_column: start,
-            end_column: end,
-        })
+    /// What `name` (`keySpan`, `valueSpan`) says of `pointer`: `None` when
+    /// it says nothing (absent, threw, or gave `null` or `undefined`, as a
+    /// stub does), so the flat default answers; else the span it gives, if
+    /// it is in the text.
+    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Option<Span>> {
+        let span = self
+            .call(
+                name,
+                &[JsValue::from_str(source), JsValue::from_str(pointer)],
+            )
+            .filter(|span| !span.is_null() && !span.is_undefined())?;
+        Some(given_span(&span, source))
     }
+}
+
+/// `span` (`{ line, startColumn, endColumn }`) in `source`, columns clamped
+/// onto its line; `None` for a position outside the text.
+fn given_span(span: &JsValue, source: &str) -> Option<Span> {
+    let number = |key: &str| {
+        field(span, key)
+            .as_f64()
+            .filter(|value| value.is_finite() && *value >= 1.0)
+            .map(|value| value as usize)
+    };
+    // A position outside the text is no position (the problem is shown
+    // unplaced).
+    let line = number("line")?;
+    let text = source.split('\n').nth(line - 1)?;
+    let width = text.chars().count() + 1;
+    let start = number("startColumn")?.min(width);
+    let end = number("endColumn")?.min(width).max(start);
+    Some(Span {
+        line,
+        start_column: start,
+        end_column: end,
+    })
 }
 
 #[cfg(not(target_feature = "atomics"))]
@@ -205,23 +218,19 @@ impl ConfigLanguage for JsLanguage {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        if self.has("keySpan") {
-            self.span("keySpan", source, pointer)
-        } else if self.is_flat() {
-            self.config.flat_key_span(source, pointer)
-        } else {
-            None
-        }
+        self.span("keySpan", source, pointer).unwrap_or_else(|| {
+            self.is_flat()
+                .then(|| self.config.flat_key_span(source, pointer))
+                .flatten()
+        })
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        if self.has("valueSpan") {
-            self.span("valueSpan", source, pointer)
-        } else if self.is_flat() {
-            self.config.flat_value_span(source, pointer)
-        } else {
-            None
-        }
+        self.span("valueSpan", source, pointer).unwrap_or_else(|| {
+            self.is_flat()
+                .then(|| self.config.flat_value_span(source, pointer))
+                .flatten()
+        })
     }
 
     fn highlight(&self, line: &str) -> Vec<Token> {

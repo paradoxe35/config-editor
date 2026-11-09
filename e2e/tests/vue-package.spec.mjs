@@ -170,7 +170,7 @@ test.describe('vue.html: Vue idioms', () => {
         dirty: handle.isDirty,
         folded: handle.foldedLines,
         editor: handle.editor !== null,
-        functions: ['setValue', 'unifiedDiff', 'rangeOf', 'pathAt', 'reveal', 'fold', 'unfold', 'foldAll', 'unfoldAll', 'focus', 'save']
+        functions: ['setValue', 'unifiedDiff', 'rangeOf', 'pathAt', 'reveal', 'fold', 'unfold', 'foldAll', 'unfoldAll', 'focus', 'save', 'editAs']
           .filter((name) => typeof handle[name] !== 'function'),
       };
     });

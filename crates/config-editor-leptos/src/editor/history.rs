@@ -158,6 +158,12 @@ impl EditHistory {
         self.undo.drain(..dropped);
     }
 
+    /// Forgets every step (a host text shown in another language: the
+    /// steps' texts are in the one it left).
+    pub(super) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
     /// The host replaced the text `current` with `new` (a new controlled
     /// `value`): the change is no step of its own, and the steps before it
     /// take it too, so undo takes back only the user's edits and keeps the

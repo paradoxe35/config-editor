@@ -1,4 +1,4 @@
-import type { EditorPath, EditorRange, FieldPath, LineRange } from "@pngwasi/config-editor";
+import type { EditorPath, EditorRange, FieldPath, LanguageName, LineRange } from "@pngwasi/config-editor";
 import type { ConfigEditorProps } from "./types.js";
 /**
  * A schema-aware config editor for YAML, JSON, TOML, HCL and XML.
@@ -31,6 +31,7 @@ declare const ConfigEditor: import("svelte").Component<ConfigEditorProps, {
     unfoldAll: () => void;
     focus: () => void;
     save: () => boolean;
+    editAs: (language: LanguageName) => boolean;
     isDirty: () => boolean;
 }, "value">;
 type ConfigEditor = ReturnType<typeof ConfigEditor>;

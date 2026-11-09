@@ -122,6 +122,13 @@ impl ConfigLanguage for XmlBehavior {
         spelling::spelled_like(source, read, like)
     }
 
+    /// An element written once, at any depth (several top-level elements
+    /// are a list too): never an attribute, its text or an item of
+    /// repeated elements.
+    fn lone_item(&self, source: &str, pointer: &str) -> bool {
+        xml_lone_element(source.strip_prefix('\u{FEFF}').unwrap_or(source), pointer)
+    }
+
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         super::super::byte_order_mark::span(source, |text| xml_name_span(text, pointer).map(Span::from))
     }

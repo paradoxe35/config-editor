@@ -58,31 +58,37 @@ pub(crate) fn ranges_from(
         .collect()
 }
 
-/// The `secrets` option (absent: the defaults). Call inside the editor's
-/// owner: a host check is kept there.
-pub(crate) fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
+/// The `secrets` option (absent: the defaults), named `name` in errors
+/// (`secrets`, `documents[1].secrets`). Call inside the editor's owner: a
+/// host check is kept there.
+pub(crate) fn secrets_from(value: &JsValue, name: &str) -> Result<SecretOptions, JsError> {
     let mut options = SecretOptions::default();
     if value.is_undefined() || value.is_null() {
         return Ok(options);
     }
     if !value.is_object() || Array::is_array(value) {
-        return Err(JsError::new(
-            "secrets must be an object: { placeholder?, isPlaceholder?, hint?, referencePrefixes? }",
-        ));
+        return Err(JsError::new(&format!(
+            "{name} must be an object: {{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }}"
+        )));
     }
     warn_unknown_keys(value, SECRET_KEYS, "secrets key");
-    if let Some(pattern) = optional_text(&field(value, "placeholder"), "secrets.placeholder")? {
+    if let Some(pattern) =
+        optional_text(&field(value, "placeholder"), &format!("{name}.placeholder"))?
+    {
         options = options.with_placeholder(pattern);
         config_editor_leptos::js_support::check_placeholder(&options)
-            .map_err(|error| JsError::new(&format!("secrets.placeholder: {error}")))?;
+            .map_err(|error| JsError::new(&format!("{name}.placeholder: {error}")))?;
     }
-    if let Some(hint) = optional_text(&field(value, "hint"), "secrets.hint")? {
+    if let Some(hint) = optional_text(&field(value, "hint"), &format!("{name}.hint"))? {
         options = options.with_hint(hint);
     }
     let prefixes = field(value, "referencePrefixes");
     if !prefixes.is_undefined() && !prefixes.is_null() {
-        let invalid =
-            || JsError::new("secrets.referencePrefixes must be an array of non-empty strings");
+        let invalid = || {
+            JsError::new(&format!(
+                "{name}.referencePrefixes must be an array of non-empty strings"
+            ))
+        };
         let list = Array::is_array(&prefixes)
             .then(|| Array::from(&prefixes))
             .ok_or_else(invalid)?;
@@ -92,7 +98,9 @@ pub(crate) fn secrets_from(value: &JsValue) -> Result<SecretOptions, JsError> {
             .collect();
         options = options.with_reference_prefixes(prefixes.ok_or_else(invalid)?);
     }
-    if let Some(check) = function_option(value, "isPlaceholder")? {
+    if let Some(check) = function_option(value, "isPlaceholder")
+        .map_err(|_| JsError::new(&format!("{name}.isPlaceholder must be a function")))?
+    {
         let check = StoredValue::new_local(Some(check));
         options = options.with_matcher(move |token: String| {
             check

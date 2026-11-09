@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::super::super::language::ConfigLanguage;
+use super::super::super::paths::lone_spelling;
 use super::super::locate::{lookup, plain};
 use super::super::scan;
 use super::super::texts::Reason;
@@ -68,7 +69,7 @@ pub(super) fn outermost(
     let mut fields = marked.to_vec();
     let mut known: HashSet<String> = fields.iter().map(|(pointer, _)| pointer.clone()).collect();
     for path in reading.sources.paths {
-        let pointer = path.to_pointer();
+        let pointer = written_spelling(reading, path.to_pointer());
         let written = reading
             .document
             .as_ref()
@@ -79,6 +80,20 @@ pub(super) fn outermost(
     }
     fields.sort();
     outer_only(reading.behavior, &fields)
+}
+
+/// A host's path as the parsed text has it: an index on a lone XML element
+/// or HCL block (`…/0`, a one-item list) is the field written without it,
+/// where the paths' places find it (`paths::lone_spelling`).
+fn written_spelling(reading: &Reading<'_>, pointer: String) -> String {
+    match &reading.document {
+        Some(document) if lookup(document, &pointer).is_none() => {
+            lone_spelling(reading.behavior, reading.text, &pointer)
+                .filter(|lone| lookup(document, lone).is_some())
+                .unwrap_or(pointer)
+        }
+        _ => pointer,
+    }
 }
 
 /// `fields` without those inside another one (`locate::within`): each

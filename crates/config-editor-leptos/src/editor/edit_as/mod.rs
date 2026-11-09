@@ -19,6 +19,15 @@ mod screen_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod host_value_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod switch_tests;
 #[cfg(all(
     test,

@@ -421,6 +421,11 @@ export class EditorBinding extends Binding {
       unfoldAll: () => binding.guard((editor) => editor.unfoldAll()),
       focus: () => binding.guard((editor) => editor.focus()),
       save: () => binding.ask((editor) => editor.save(), false),
+      editAs: (language) =>
+        binding.ask((editor) => {
+          editor.update({ editAs: language });
+          return true;
+        }, false),
       setValue: (value) => binding.#setValue(value),
       unifiedDiff: (context) => binding.#unifiedDiff(context),
     };

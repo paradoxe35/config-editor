@@ -27,39 +27,57 @@ pub(crate) use walk::Checkpoints;
 use super::codec::{inline_location, written_inline};
 use super::completion::{hovered_key, path_with_key};
 use super::keyboard::utf16_to_byte_index;
-use super::language::{ConfigLanguage, Repetition, Span};
+use super::language::{ConfigLanguage, Repetition, Span, pointer_index};
 use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
-/// without its `/0` steps: a lone XML element or HCL block read as a one-item
-/// list is addressed `…/0/…` but written without the index. A list written
-/// as one (`ea = []`) has no lone item: its `/0` is only its first item.
+/// written: without the `/0` after each field the language writes as a lone
+/// item (`ConfigLanguage::lone_item`: an XML element or HCL block written
+/// once, read as a one-item list too). An index anywhere else (on a scalar,
+/// an attribute, an object of labelled blocks, another index, the document)
+/// is only an index. A list written as one (`ea = []`) has no lone item: its
+/// `/0` is only its first item.
 fn spellings(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<String> {
     let mut spellings = vec![pointer.to_string()];
-    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
-        return spellings;
-    }
-    let segments: Vec<&str> = pointer.split('/').skip(1).collect();
-    let mut lone = String::new();
-    for (index, segment) in segments.iter().enumerate() {
-        if *segment == "0" {
-            let list = segments[..index]
-                .iter()
-                .fold(String::new(), |at, segment| format!("{at}/{segment}"));
-            if memo_value_span(behavior, source, &list)
-                .is_some_and(|span| written_inline(behavior, source, span))
-            {
-                return spellings;
-            }
-            continue;
-        }
-        lone.push('/');
-        lone.push_str(segment);
-    }
-    if lone != pointer {
+    if let Some(lone) = lone_spelling(behavior, source, pointer) {
         spellings.push(lone);
     }
     spellings
+}
+
+/// [`spellings`]' second one, when it differs from `pointer`.
+pub(crate) fn lone_spelling(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<String> {
+    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
+        return None;
+    }
+    let mut lone = String::new();
+    // The item just left out: an index on it names nothing (an element or
+    // block is no list).
+    let mut left_out = false;
+    for segment in pointer.split('/').skip(1) {
+        if left_out && pointer_index(segment).is_some() {
+            return None;
+        }
+        if segment == "0" && !lone.is_empty() {
+            if memo_value_span(behavior, source, &lone)
+                .is_some_and(|span| written_inline(behavior, source, span))
+            {
+                return None;
+            }
+            if behavior.lone_item(source, &lone) {
+                left_out = true;
+                continue;
+            }
+        }
+        left_out = false;
+        lone.push('/');
+        lone.push_str(segment);
+    }
+    (lone != pointer).then_some(lone)
 }
 
 /// The key written for `pointer`, inside an inline container or not.
@@ -540,3 +558,14 @@ mod pointer_matrix;
     feature = "xml"
 ))]
 mod missing_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect"
+))]
+mod index_matrix;

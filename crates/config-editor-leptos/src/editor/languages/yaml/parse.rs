@@ -424,7 +424,7 @@ pub(super) fn opens_block(after_colon: &str) -> bool {
 
 /// The indicator of a block scalar written as an explicit key (`? |`,
 /// `? &k >-`).
-fn explicit_block_key(rest: &str) -> Option<&str> {
+pub(super) fn explicit_block_key(rest: &str) -> Option<&str> {
     let key = without_node_properties(code_before_comment(rest.strip_prefix("? ")?).trim());
     is_block_scalar(key).then_some(key)
 }

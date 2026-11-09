@@ -11,6 +11,7 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
+use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
 
 thread_local! {
@@ -72,6 +73,8 @@ pub(crate) struct State {
     pub(crate) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
     pub(crate) read_only_paths: RwSignal<Vec<FieldPath>>,
     pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
+    /// What the state callbacks last reported (see `told`).
+    pub(crate) told: StoredValue<Told, LocalStorage>,
 }
 
 impl State {
@@ -123,11 +126,17 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         }
     };
     let switched = move |language: Language| {
+        let _ = state
+            .told
+            .try_update_value(|told| told.language = Some(language));
         if let Some(callback) = state.on_edit_as_change.try_get_value().flatten() {
             call_host(&callback, &JsValue::from_str(&language_name(language)));
         }
     };
     let sync_changed = move |in_sync: bool| {
+        let _ = state
+            .told
+            .try_update_value(|told| told.in_sync = Some(in_sync));
         if let Some(callback) = state.on_sync_change.try_get_value().flatten() {
             call_host(&callback, &JsValue::from_bool(in_sync));
         }
@@ -138,6 +147,9 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         }
     };
     let problems_changed = move |problems: Vec<Diagnostic>| {
+        let _ = state
+            .told
+            .try_update_value(|told| told.problems = Some(problems.clone()));
         if let Some(callback) = state.on_problems.try_get_value().flatten() {
             call_host(&callback, &diagnostics_to_js(problems));
         }

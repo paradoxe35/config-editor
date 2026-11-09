@@ -178,6 +178,7 @@ const CONFIG_LANGUAGE = {
   complete_on_type: { exempt: RUST_ONLY_REFINEMENT },
   reindent_on_type: { exempt: RUST_ONLY_REFINEMENT },
   repetition: { exempt: RUST_ONLY_REFINEMENT },
+  lone_item: { exempt: RUST_ONLY_REFINEMENT },
   entry_started: { exempt: RUST_ONLY_REFINEMENT },
   lexical_state: { custom: 'multilineRanges' },
   saved_string_lines: { custom: 'multilineRanges' },
@@ -358,6 +359,7 @@ const DOCUMENTS_JS_ONLY = {
 const EDITOR_MEMBERS_JS_ONLY = {
   editor: 'a component\'s way to the `ConfigEditor` instance it mounted (Rust: the `handle` prop is that instance)',
   setValue: 'a component\'s controlled value: the `value` prop in Rust, which a signal sets',
+  editAs: 'a component\'s `editAs` prop asked for again (a prop that did not change is not sent): the `edit_as` prop in Rust, a signal set again',
 };
 const DOCUMENTS_MEMBERS_JS_ONLY = {
   instance: 'a component\'s way to the `ConfigDocuments` instance it mounted (Rust: the `handle` prop is that instance)',

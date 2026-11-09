@@ -452,27 +452,6 @@ impl Bridge {
             })
             .collect()
     }
-
-    /// The error shown when the host's text cannot be converted for editing.
-    pub(super) fn load_problem(&self, error: &ConvertError) -> EditAsProblem {
-        // The host's text is shown as it is: a syntax error is placed where
-        // its message says (a second YAML document's `---`).
-        let (line, column) = syntax_error_place(error).unwrap_or((1, 1));
-        EditAsProblem {
-            at: Diagnostic {
-                line: Some(line),
-                column: Some(column),
-                end_column: Some(column + 1),
-                severity: Severity::Error,
-                ..Diagnostic::default()
-            },
-            text: EditAsText::CannotEditAs {
-                host: self.host,
-                edit: self.edit,
-                error: error.clone(),
-            },
-        }
-    }
 }
 
 /// `value` with each scalar changed from `old` as the host saves it there

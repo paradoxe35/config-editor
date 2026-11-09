@@ -516,54 +516,76 @@ struct SpansByPath {
 }
 
 /// The spans recorded at `wanted` (names, or values): from the batch's
-/// index of them while one runs, else read from the list.
+/// index of them while one runs, else read from the list. A lone element
+/// read as a one-item array is addressed as `/dns/0` but recorded as
+/// `/dns`: the `0` right after an element written once is left out too.
 fn recorded(source: &str, names: bool, wanted: &[String]) -> Option<(usize, usize)> {
     let spans = document_spans(source);
-    let list = if names { &spans.0 } else { &spans.1 };
-    if !crate::editor::paths::in_batch(source) {
-        return span_at(list, wanted);
-    }
-    let index = crate::editor::paths::batch_cached(source, || {
-        let by_path = |list: &[(Vec<String>, usize, usize)]| {
-            let mut found = std::collections::HashMap::with_capacity(list.len());
-            for (at, (path, _, _)) in list.iter().enumerate() {
-                found.entry(path.clone()).or_insert(at);
-            }
-            found
-        };
-        SpansByPath { names: by_path(&spans.0), values: by_path(&spans.1) }
+    let index = crate::editor::paths::in_batch(source).then(|| {
+        crate::editor::paths::batch_cached(source, || {
+            let by_path = |list: &[(Vec<String>, usize, usize)]| {
+                let mut found = std::collections::HashMap::with_capacity(list.len());
+                for (at, (path, _, _)) in list.iter().enumerate() {
+                    found.entry(path.clone()).or_insert(at);
+                }
+                found
+            };
+            SpansByPath { names: by_path(&spans.0), values: by_path(&spans.1) }
+        })
     });
-    let index = if names { &index.names } else { &index.values };
-    let found = index.get(wanted).copied().or_else(|| lone_item(index, list, wanted))?;
+    let find = |names: bool, path: &[String]| -> Option<usize> {
+        match &index {
+            Some(index) => if names { &index.names } else { &index.values }.get(path).copied(),
+            None => if names { &spans.0 } else { &spans.1 }.iter().position(|(segments, _, _)| segments == path),
+        }
+    };
+    let list = if names { &spans.0 } else { &spans.1 };
+    let lone = || lone_spelling(wanted, |path| lone_element(source, &spans.0, path, |path| find(true, path)));
+    let found = find(names, wanted).or_else(|| find(names, &lone()?))?;
     let (_, start, end) = &list[found];
     Some((*start, *end))
 }
 
-/// The first span [`span_at`] takes for `wanted` recorded without some of
-/// its `0` steps (a lone element read as a one-item array): each spelling
-/// with `0` steps left out looked up (with many `0` steps, the list read).
-fn lone_item(
-    index: &std::collections::HashMap<Vec<String>, usize>,
-    list: &[(Vec<String>, usize, usize)],
-    wanted: &[String],
-) -> Option<usize> {
-    let zeros: Vec<usize> = (0..wanted.len()).filter(|at| wanted[*at] == "0").collect();
-    if zeros.is_empty() {
-        return None;
+/// `wanted` without the `0` after each element written once (the rest as
+/// they are); `None` when it has none.
+fn lone_spelling(wanted: &[String], is_lone: impl Fn(&[String]) -> bool) -> Option<Vec<String>> {
+    let mut spelling: Vec<String> = Vec::with_capacity(wanted.len());
+    let mut left_out = false;
+    for segment in wanted {
+        // An index on an element left out: an element is no list.
+        if left_out && crate::editor::language::pointer_index(segment).is_some() {
+            return None;
+        }
+        if segment == "0" && !spelling.is_empty() && is_lone(&spelling) {
+            left_out = true;
+            continue;
+        }
+        left_out = false;
+        spelling.push(segment.clone());
     }
-    if zeros.len() > 8 {
-        let (start, end) = span_at(list, wanted)?;
-        return list.iter().position(|(_, from, to)| (*from, *to) == (start, end));
+    (spelling.len() < wanted.len()).then_some(spelling)
+}
+
+/// Whether `path` is an element written once: its name recorded there (not
+/// an attribute's, not an item of repeated ones), and no second one.
+fn lone_element(source: &str, names: &[(Vec<String>, usize, usize)], path: &[String], find: impl Fn(&[String]) -> Option<usize>) -> bool {
+    if path.last().is_none_or(|last| crate::editor::language::pointer_index(last).is_some()) {
+        return false;
     }
-    (1..1usize << zeros.len())
-        .filter_map(|left_out| {
-            let spelling: Vec<String> = (0..wanted.len())
-                .filter(|at| zeros.iter().position(|zero| zero == at).is_none_or(|bit| left_out & (1 << bit) == 0))
-                .map(|at| wanted[at].clone())
-                .collect();
-            index.get(&spelling).copied()
-        })
-        .min()
+    let element = find(path).is_some_and(|at| source[..names[at].1].ends_with('<'));
+    element && {
+        let mut second = path.to_vec();
+        second.push("1".to_string());
+        find(&second).is_none()
+    }
+}
+
+/// Whether `path` names an element written once (see
+/// `ConfigLanguage::lone_item`).
+pub(super) fn xml_lone_element(source: &str, path: &str) -> bool {
+    let spans = document_spans(source);
+    let names = &spans.0;
+    lone_element(source, names, &pointer_segments(path), |path| names.iter().position(|(segments, _, _)| segments == path))
 }
 
 pub(super) fn xml_name_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
@@ -580,28 +602,6 @@ pub(super) fn xml_value_span(source: &str, path: &str) -> Option<(usize, usize, 
     }
     let (start, end) = recorded(source, false, &segments)?;
     Some(span_between(source, start, end))
-}
-
-/// The span recorded for `wanted`. A lone element read as a one-item array
-/// is addressed as `/dns/0` but recorded as `/dns`, so a `0` the recorded
-/// path lacks also matches.
-pub(super) fn span_at(spans: &[(Vec<String>, usize, usize)], wanted: &[String]) -> Option<(usize, usize)> {
-    let lone_items = |segments: &[String]| {
-        let mut recorded = segments.iter().peekable();
-        for segment in wanted {
-            if recorded.peek() == Some(&segment) {
-                recorded.next();
-            } else if segment != "0" {
-                return false;
-            }
-        }
-        recorded.next().is_none()
-    };
-    spans
-        .iter()
-        .find(|(segments, _, _)| segments == wanted)
-        .or_else(|| spans.iter().find(|(segments, _, _)| lone_items(segments)))
-        .map(|(_, start, end)| (*start, *end))
 }
 
 pub(super) fn first_content_span(source: &str) -> Option<(usize, usize, usize)> {

@@ -61,6 +61,17 @@ impl Kept {
     }
 }
 
+/// `message` as a console warning, once: a host hands its list to `update`
+/// after every keystroke.
+fn warn_once(message: &str) {
+    thread_local! {
+        static WARNED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    }
+    if WARNED.with(|warned| warned.borrow_mut().insert(message.to_string())) {
+        web_sys::console::warn_1(&JsValue::from_str(message));
+    }
+}
+
 /// A console warning, once per file name, that no language claims
 /// `file_name`'s extension, so the document opens in `fallback`.
 fn warn_unclaimed(file_name: &str, fallback: Language) {
@@ -112,7 +123,7 @@ pub(crate) fn documents_from(
             return Err(JsError::new(&format!("{} must not be empty", name("id"))));
         }
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
-        let value = text_of(kept, &id, &item, "value", &name("value"))?.unwrap_or_default();
+        let value = value_of(kept, &id, &item, &name("value"))?;
         let baseline = text_of(kept, &id, &item, "baseline", &name("baseline"))?;
         let schema = schema_of(kept, &id, &field(&item, "schema"), &name("schema"))?;
         let mut document = Document::new(id, file_name, value);
@@ -147,8 +158,15 @@ pub(crate) fn documents_from(
                 document = document.edit_as(edit_as);
             }
         }
-        document.edit_as_text = optional_text(&field(&item, "editAsText"), &name("editAsText"))?
-            .filter(|_| document.edit_as.is_some());
+        document.edit_as_text = optional_text(&field(&item, "editAsText"), &name("editAsText"))?;
+        if document.edit_as_text.is_some() && document.edit_as.is_none() {
+            warn_once(&format!(
+                "config-editor: {} is ignored: it is a text in the `editAs` language, and the document {:?} is not edited as another language",
+                name("editAsText"),
+                document.id
+            ));
+            document.edit_as_text = None;
+        }
         document = with_protection(document, &item, index, &mut kept.secrets)?;
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
@@ -206,7 +224,7 @@ fn with_protection(
         let options = match secrets.get(&document.id) {
             Some(options) => options.clone(),
             None => {
-                let options = secrets_from(&given)?;
+                let options = secrets_from(&given, &name("secrets"))?;
                 secrets.insert(document.id.clone(), options.clone());
                 options
             }
@@ -214,6 +232,19 @@ fn with_protection(
         document = document.secrets(options);
     }
     Ok(document)
+}
+
+/// Document `id`'s `value` (`name` in errors): a string, as a
+/// `ConfigEditor`'s (`null` throws); left out, the text the last list gave
+/// it or the view handed the host (empty in the first list), as an update
+/// without `value` leaves a `ConfigEditor`'s document.
+fn value_of(kept: &mut Kept, id: &str, item: &JsValue, name: &str) -> Result<String, JsError> {
+    let given = field(item, "value");
+    if given.is_undefined() {
+        return Ok(kept.texts.carry(id, "value").unwrap_or_default());
+    }
+    kept.texts
+        .get(id, "value", &given, |_| text_arg(&given, name))
 }
 
 /// Document `id`'s text `key` of `item` (`name` in errors), if given.

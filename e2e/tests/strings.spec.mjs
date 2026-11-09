@@ -110,7 +110,6 @@ const ELSEWHERE = {
   notSaved: 'edit_as and bridge tests',
   noNull: 'edit_as tests',
   noNonFinite: 'non_finite_matrix tests',
-  cannotEditAs: 'bridge tests',
   cannotSwitch: 'edit_as tests',
   switchRefused: 'edit_as switch_tests',
   mixedContent: 'save_xml_tests (XML mixed content refuses to convert)',

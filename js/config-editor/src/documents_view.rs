@@ -21,6 +21,7 @@ use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
 use crate::options::{function_option, string_option, warn_unknown_options};
 use crate::settings::{settings_from, settings_over, settings_result};
+use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
 use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
@@ -80,6 +81,8 @@ pub(crate) struct State {
     adds: bool,
     /// Each document's text and baseline as the host last saw them.
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
+    /// What the state callbacks last reported of each document (see `told`).
+    told: StoredValue<HashMap<String, Told>, LocalStorage>,
     pub(crate) handle: DocumentsHandle,
 }
 
@@ -174,6 +177,17 @@ impl State {
     }
 }
 
+/// Records what a state callback reports of the document `id`; the
+/// documents no longer listed are forgotten.
+fn note(state: State, id: &str, change: impl FnOnce(&mut Told)) {
+    let _ = state.told.try_update_value(|told| {
+        if !told.contains_key(id) {
+            told.retain(|known, _| state.texts_of(known).is_some());
+        }
+        change(told.entry(id.to_string()).or_default());
+    });
+}
+
 /// Keeps each listed document's text and baseline (see [`Texts`]).
 fn remember_texts(
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
@@ -255,6 +269,7 @@ fn view(state: State, setup: Setup) -> AnyView {
         }
     };
     let problems_changed = move |(id, problems): (String, Vec<Diagnostic>)| {
+        note(state, &id, |told| told.problems = Some(problems.clone()));
         if let Some(callback) = host(state.on_problems) {
             call_host_with(
                 &callback,
@@ -271,6 +286,7 @@ fn view(state: State, setup: Setup) -> AnyView {
         }
     };
     let language_changed = move |(id, language): (String, Language)| {
+        note(state, &id, |told| told.language = Some(language));
         if let Some(callback) = host(state.on_edit_as_change) {
             call_host_with(
                 &callback,
@@ -282,6 +298,7 @@ fn view(state: State, setup: Setup) -> AnyView {
         }
     };
     let sync_changed = move |(id, in_sync): (String, bool)| {
+        note(state, &id, |told| told.in_sync = Some(in_sync));
         if let Some(callback) = host(state.on_sync_change) {
             call_host_with(
                 &callback,
@@ -400,6 +417,14 @@ impl ConfigDocuments {
             closes: on_close.is_some(),
             adds: on_add.is_some(),
         };
+        // `activeId` names a document of the list, as `update` checks.
+        if let Some(id) = &setup.active
+            && !listed.documents.iter().any(|document| document.id == *id)
+        {
+            return Err(JsError::new(&format!(
+                "activeId: no document has the id {id:?}"
+            )));
+        }
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         replace_editors_in(&element);
         element.set_text_content(None);
@@ -422,6 +447,7 @@ impl ConfigDocuments {
             closes: setup.closes,
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
+            told: StoredValue::new_local(HashMap::new()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
@@ -587,15 +613,15 @@ impl ConfigDocuments {
             ("onEditAsChange", self.state.on_edit_as_change),
             ("onSyncChange", self.state.on_sync_change),
         ] {
-            callbacks.push((callback_change(&options, name)?, slot));
+            callbacks.push((name, callback_change(&options, name)?, slot));
         }
-        if !self.state.closes && matches!(callbacks[1].0, Some(Some(_))) {
+        if !self.state.closes && matches!(callbacks[1].1, Some(Some(_))) {
             return Err(JsError::new(
                 "onClose cannot be added to a ConfigDocuments mounted without one: its tabs are \
                  built without close buttons. Create a new ConfigDocuments with onClose",
             ));
         }
-        if !self.state.adds && matches!(callbacks[2].0, Some(Some(_))) {
+        if !self.state.adds && matches!(callbacks[2].1, Some(Some(_))) {
             return Err(JsError::new(
                 "onAdd cannot be added to a ConfigDocuments mounted without one: its tab strip is \
                  built without the \"+\" button. Create a new ConfigDocuments with onAdd",
@@ -666,7 +692,14 @@ impl ConfigDocuments {
                 }
             });
         }
-        for (change, slot) in callbacks {
+        let added = told::added(callbacks.iter().map(|(name, change, slot)| {
+            (
+                *name,
+                change.as_ref(),
+                slot.try_with_value(Option::is_some) == Some(true),
+            )
+        }));
+        for (_, change, slot) in callbacks {
             if let Some(callback) = change {
                 let _ = slot.try_set_value(callback);
             }
@@ -678,7 +711,34 @@ impl ConfigDocuments {
         if let Some(id) = active {
             self.state.handle.show(&id);
         }
+        self.tell_added(added);
         Ok(())
+    }
+
+    /// A state callback added by an update hears each listed document's
+    /// state at once (in the list's order).
+    fn tell_added(&self, added: Vec<(&'static str, Function)>) {
+        if added.is_empty() {
+            return;
+        }
+        let ids: Vec<String> = self
+            .state
+            .documents
+            .try_with_untracked(|documents| {
+                documents
+                    .iter()
+                    .map(|document| document.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let told = self.state.told.try_get_value().unwrap_or_default();
+        for (name, callback) in added {
+            for id in &ids {
+                if let Some(argument) = told.get(id).and_then(|told| told.argument(name)) {
+                    call_host_with(&callback, &[JsValue::from_str(id), argument]);
+                }
+            }
+        }
     }
 
     /// Unmounts the view and its editors. The instance cannot be used

@@ -29,7 +29,7 @@ export interface ConfigEditorProps extends EditorSettings {
   language?: LanguageName;
   /** Edit in another language; switches live. */
   editAs?: LanguageName | null;
-  /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one. */
+  /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one. */
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new value); read after each pause in typing. Always `true` while editing in `language`. */
   onSyncChange?: (inSync: boolean) => void;

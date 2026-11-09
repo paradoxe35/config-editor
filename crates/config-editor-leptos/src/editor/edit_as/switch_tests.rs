@@ -190,3 +190,65 @@ fn a_switch_from_or_into_a_language_that_cannot_write_is_refused_at_once() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Undoing a switch back to the host's own text tells the host nothing
+/// (round 26 sent the unchanged value again); after an edit the host
+/// heard, undoing back to its first text does tell it. Every pair.
+#[test]
+fn undoing_a_switch_back_to_the_hosts_text_sends_nothing() {
+    let mut failures = Vec::new();
+    for &host in Language::ALL {
+        for &edit in Language::ALL.iter().filter(|edit| **edit != host) {
+            let text = sample(host);
+            let heard = RwSignal::new(Vec::<String>::new());
+            let mut editor = TestEditor::new(host, text);
+            editor.on_change = Some(Callback::new(move |text| {
+                heard.update(|heard| heard.push(text));
+            }));
+            let (_owner, state) = editor.mount();
+            switch_to(state, edit);
+            let undo = state.history_edit(false).expect("the switch is a step");
+            state.commit(undo);
+            let redo = state.history_edit(true).expect("the switch to redo");
+            state.commit(redo);
+            let undo = state.history_edit(false).expect("the switch again");
+            state.commit(undo);
+            if !heard.get_untracked().is_empty() {
+                failures.push(format!(
+                    "{host} host, switched to {edit}: heard {:?}",
+                    heard.get_untracked()
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// What an undo back across a switch brings that the host does not have
+/// (an edit it heard, undone with the switch before the pause): it hears
+/// its first text again.
+#[test]
+fn undoing_a_heard_edit_and_the_switch_sends_the_hosts_first_text() {
+    let heard = RwSignal::new(Vec::<String>::new());
+    let mut editor = TestEditor::new(Language::YAML, "a: 1\n");
+    editor.on_change = Some(Callback::new(move |text| {
+        heard.update(|heard| heard.push(text));
+    }));
+    let (_owner, state) = editor.mount();
+    switch_to(state, Language::TOML);
+    let before = state.doc().text.get_untracked();
+    let end = before.encode_utf16().count();
+    state.commit(super::super::edit::Edit::new(
+        before,
+        (0, end),
+        "a = 2\n".to_string(),
+        6,
+    ));
+    super::super::sync::convert_now(state, "a = 2\n".to_string(), Language::TOML);
+    for _ in 0..2 {
+        let undo = state.history_edit(false).expect("a step");
+        state.commit(undo);
+    }
+    assert_eq!(state.sync().edit_language.get_untracked(), Language::YAML);
+    assert_eq!(heard.get_untracked(), vec!["a: 2\n", "a: 1\n"]);
+}

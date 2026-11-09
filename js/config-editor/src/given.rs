@@ -60,6 +60,16 @@ impl<T: Clone> Given<T> {
         self.last.insert((id.to_string(), key), (value, read));
     }
 
+    /// Document `id`'s `key` as the last list read it (or the view handed
+    /// it), kept for this one: a key this list leaves out.
+    pub(crate) fn carry(&mut self, id: &str, key: &'static str) -> Option<T> {
+        let at = (id.to_string(), key);
+        let last = self.last.get(&at)?.clone();
+        let read = last.1.clone();
+        self.read.insert(at, last);
+        Some(read)
+    }
+
     /// Every value read, from this list and the last.
     pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
         self.read

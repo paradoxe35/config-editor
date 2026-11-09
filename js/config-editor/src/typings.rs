@@ -33,7 +33,7 @@ export interface EditorOptions extends EditorSettings {
   className?: string;
   /** Called with the document, in `language`, after every edit. */
   onChange?: (value: string) => void;
-  /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
+  /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
   /** Called with whether the text on screen is written back to the document (`value`): once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value()` is `null`, `onChange` waits), from whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each pause in typing. Always `true` while editing in `language`. */
   onSyncChange?: (inSync: boolean) => void;
@@ -294,7 +294,7 @@ export interface CustomLanguage {
   /** Text for a JSON value (the document model, usually an object). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   serialize?(value: any): string;
-  /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer. */
+  /** `{ line, startColumn, endColumn }` (one-based) of the key at a JSON pointer; `null` or `undefined` leaves it to the default (a flat language finds keys on their lines). */
   keySpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   valueSpan?(text: string, pointer: string): { line: number; startColumn: number; endColumn: number } | null | undefined | void;
   /** Ranges of one line as JavaScript string indices (as `indexOf` gives): kind is "key" | "string" | "value" | "literal" | "comment" | "punctuation". */
