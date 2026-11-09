@@ -12,7 +12,8 @@
 //! - `guard`: one check every edit passes, whatever made it;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
-//!   edits; `problems`: placeholders the host did not give;
+//!   edits; `problems`: placeholders the host did not give; `glued`: text
+//!   beside a placeholder given as a field's whole value;
 //! - `suggest`: what suggestions leave out, and reference forms in secrets;
 //! - `live`: the editor's signals, the check wired in, the tooltip;
 //! - `view`: the gutter lock and muted values of each line;
@@ -20,6 +21,8 @@
 
 mod carry;
 mod components;
+mod follow_items;
+mod glued;
 mod guard;
 mod hooks;
 mod live;
@@ -36,6 +39,7 @@ mod tokens;
 mod view;
 
 pub(super) use components::ProtectTipView;
+pub(crate) use glued::glued_message;
 #[cfg(feature = "schema-validation")]
 pub(crate) use hooks::secret_pointers;
 pub(crate) use live::{Inputs, ProtectInit, ProtectState};
@@ -130,6 +134,24 @@ mod exact_change_tests;
     feature = "xml"
 ))]
 mod extend_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod follow_items_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod glued_tests;
 #[cfg(all(
     test,
     feature = "yaml",

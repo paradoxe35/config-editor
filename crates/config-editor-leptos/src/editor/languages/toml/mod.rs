@@ -248,6 +248,13 @@ impl ConfigLanguage for TomlBehavior {
         self.parse(&format!("k = {}\n", written.trim())).ok().and_then(|document| document.get("k").cloned()).as_ref() == Some(value)
     }
 
+    /// Hexadecimal, octal and binary integers, `_` between digits.
+    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
+        const SYNTAX: super::number_forms::NumberSyntax =
+            super::number_forms::NumberSyntax { radixes: &[("0x", 16), ("0o", 8), ("0b", 2)], separator: Some('_') };
+        super::number_forms::checked(written, value, &SYNTAX, |text, value| self.scalar_reads_as(text, value))
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         key_at_column(line, column)
     }

@@ -14,14 +14,13 @@ struct Shared {
     merge: bool,
 }
 
-pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<String> {
-    if !previous.contains('*') {
-        return None;
-    }
+/// The anchors of `source` by name, with the pointer each marks, and its
+/// aliases and merges.
+fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) {
     let mut anchors: HashMap<String, String> = HashMap::new();
     let mut aliases: Vec<Shared> = Vec::new();
     let mut offset = 0;
-    for line in previous.split_inclusive('\n') {
+    for line in source.split_inclusive('\n') {
         let code = code_before_comment(line.trim_end_matches('\n'));
         for (at, sigil) in code.char_indices().filter(|(_, character)| matches!(character, '&' | '*')) {
             let before = code[..at].chars().next_back();
@@ -36,7 +35,7 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                 continue;
             }
             let start = offset + at;
-            let context = completion_context(previous, previous[..start].encode_utf16().count());
+            let context = completion_context(source, source[..start].encode_utf16().count());
             let merge = context.value_key.as_deref() == Some("<<");
             let mut segments = context.path.clone();
             if let Some(key) = context.value_key.filter(|_| !merge) {
@@ -57,6 +56,55 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         }
         offset += line.len();
     }
+    (anchors, aliases)
+}
+
+/// The pointer under an anchor where `pointer` is written when it reads
+/// through an alias (`c: *x` reads `/c/b` from `/a/b` of `a: &x`) or a
+/// merge (`<<: *x`), through several in turn; `None` when it reads through
+/// none.
+pub(super) fn written_at(source: &str, pointer: &str) -> Option<String> {
+    if !source.contains('*') {
+        return None;
+    }
+    let (anchors, aliases) = shared_of(source);
+    let value = YamlBehavior.parse(source).ok()?;
+    let mut at = pointer.to_string();
+    let mut moved = false;
+    // Each alias or merge passed on the way, at most once; of several
+    // merges, the one whose anchor holds the field.
+    for _ in 0..aliases.len() {
+        let next = aliases.iter().find_map(|alias| {
+            // One of a list of merges (`<<: [*a, *b]`, read as an item of
+            // a list) merges into the map.
+            let line_start = source[..alias.start].rfind('\n').map_or(0, |at| at + 1);
+            let before = source[line_start..alias.start].trim_start().trim_start_matches(['-', ' ']);
+            let listed = before.starts_with("<<") && before.contains('[');
+            let (pointer, merge) = match alias.pointer.rsplit_once('/') {
+                Some((map, _)) if listed => (map, true),
+                _ => (alias.pointer.as_str(), alias.merge),
+            };
+            let rest = at.strip_prefix(pointer)?;
+            if !(rest.starts_with('/') || (rest.is_empty() && !merge)) {
+                return None;
+            }
+            let target = format!("{}{rest}", anchors.get(&alias.name)?);
+            value.pointer(&target).is_some().then_some(target)
+        });
+        let Some(next) = next else {
+            break;
+        };
+        at = next;
+        moved = true;
+    }
+    moved.then_some(at)
+}
+
+pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<String> {
+    if !previous.contains('*') {
+        return None;
+    }
+    let (anchors, aliases) = shared_of(previous);
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
     for alias in aliases {
         let Some(anchor) = anchors.get(&alias.name) else {
@@ -96,7 +144,9 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                 let (before, after) = (lines(&before)?, lines(&after)?);
                 let indent = " ".repeat(column);
                 if !before.is_empty() {
-                    let at = line_start + prefix.len();
+                    // Above the comment lines the merge line has: they stay
+                    // on it.
+                    let at = comments_above(previous, line_start, &prefix).unwrap_or(line_start) + prefix.len();
                     let text: String = before.iter().map(|line| format!("{line}\n{indent}")).collect();
                     edits.push((at, at, text));
                 }
@@ -233,6 +283,28 @@ fn written_value(previous: &str, pointer: &str, value: &Value) -> String {
         return yaml_value(value);
     }
     written().unwrap_or_else(|| yaml_value(value))
+}
+
+/// The start of the first of the comment lines right above the line at
+/// `line_start` written at its indentation `prefix` (none when the line
+/// opens a list item: those comments are the item's).
+fn comments_above(source: &str, line_start: usize, prefix: &str) -> Option<usize> {
+    if !prefix.trim().is_empty() {
+        return None;
+    }
+    let mut top = None;
+    let mut end = line_start;
+    while end > 0 {
+        let start = source[..end - 1].rfind('\n').map_or(0, |at| at + 1);
+        let line = &source[start..end - 1];
+        let is_comment = line.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('#'));
+        if !is_comment {
+            break;
+        }
+        top = Some(start);
+        end = start;
+    }
+    top
 }
 
 /// What comes before `<<` on the line at `line_start` (its indentation and

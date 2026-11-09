@@ -123,7 +123,6 @@ fn paired_quotes_and_brackets_wrap_selected_text_and_keep_it_selected() {
     for (opening, expected) in [
         ('"', "\"value\""),
         ('\'', "'value'"),
-        ('(', "(value)"),
         ('[', "[value]"),
         ('{', "{value}"),
     ] {
@@ -161,8 +160,8 @@ fn a_quote_after_a_word_character_does_not_pair() {
 
 #[test]
 fn an_opening_bracket_pairs_even_before_an_outer_closer() {
-    let (updated, selection_start, selection_end) = paired_edit(")", 0, 0, '(').unwrap();
-    assert_eq!(updated, "())");
+    let (updated, selection_start, selection_end) = paired_edit("]", 0, 0, '[').unwrap();
+    assert_eq!(updated, "[]]");
     assert_eq!((selection_start, selection_end), (1, 1));
 }
 

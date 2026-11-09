@@ -907,8 +907,9 @@ pub struct LanguageConfig {
     /// The markers around a block comment (`("/*", "*/")`), if the language
     /// has them: `Ctrl+/` on lines each wrapped in one unwraps them.
     pub block_comment: Option<(&'static str, &'static str)>,
-    /// Bracket pairs: Enter between them opens an indented line, and a closer
-    /// typed on its own line aligns with its opener.
+    /// Bracket pairs: they auto-close as typed (only these do), Enter
+    /// between them opens an indented line, and a closer typed on its own
+    /// line aligns with its opener.
     pub brackets: &'static [(char, char)],
     /// What separates a key from its value (`":"`, `"="`): completing a key
     /// that already has a value renames only the key, a space after a complete
@@ -916,7 +917,8 @@ pub struct LanguageConfig {
     pub separators: &'static [&'static str],
     /// String delimiters, longest first (`"\"\"\""` before `"\""`): `Ctrl+/`
     /// takes a string written over lines whole, never commenting part of it.
-    /// Comment markers and brackets inside them are text.
+    /// Comment markers and brackets inside them are text. The ones of one
+    /// character auto-close as typed (only these quotes do).
     pub quotes: &'static [&'static str],
     /// The quotes inside which a backslash is text, not an escape (TOML's
     /// and YAML's `'`); in the others it escapes the next character.
@@ -1248,6 +1250,15 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// Why the data model reads `source` with keys merged that it writes
+    /// apart (XML elements of one parent with the same local name in
+    /// different namespaces), ending with `(at /pointer)`: parsing refuses
+    /// such a document, as converting it does. Default: `None`.
+    fn merged_keys(&self, source: &str) -> Option<String> {
+        let _ = source;
+        None
+    }
+
     /// The property a schema's `required` entry `name` names, as the
     /// language spells it (XML lists a required attribute `a` as `@a`).
     /// Default: `name` itself.
@@ -1297,6 +1308,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// Where the field at `pointer` is written when `source` writes it once
+    /// and reads it in several places: the pointer under a YAML anchor
+    /// that an alias (`c: *x` reads `/c/b` from `/a/b` of `a: &x`) or a
+    /// merge (`<<: *x`) reads it from. `None` (the default) where it reads
+    /// through nothing so written. `rangeOf` finds such a field there.
+    fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
+        let _ = (source, pointer);
+        None
+    }
+
     /// `code` (a line without its comment, trimmed) as an Edit-as save
     /// compares it with the serializer's line for the same entry: written
     /// forms that read the same are made equal (YAML's `-   a` and `- a`,
@@ -1336,6 +1357,17 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// `value` written in the form of `written`, the number it replaces
+    /// (its radix, digit separators, exponent and fraction digits:
+    /// `0x1F90` edited to 8083 is `0x1F93`), when the language has that
+    /// form, `value` fits it and the text reads back as `value`. A save
+    /// from another view writes a changed number so. Default: `None`, the
+    /// writer's own form.
+    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
+        let _ = (written, value);
+        None
+    }
+
     /// The bytes of `source` a scalar's written form occupies, from the
     /// byte `range` of its span: XML element text runs from its start tag to
     /// its end tag, since the whitespace around it is part of the value.
@@ -1368,7 +1400,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// Text to insert after the caret when `typed` is typed at `cursor`
     /// (UTF-16): the end tag XML writes when `>` finishes `<bob>`, or the
     /// closing `"""` of a TOML multi-line string. Checked before the shared
-    /// bracket and quote pairing.
+    /// bracket and quote pairing; `Some("")` writes `typed` alone, unpaired
+    /// (a quote in XML element text is an apostrophe).
     fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         let _ = (source, cursor, typed);
         None

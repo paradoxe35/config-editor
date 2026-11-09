@@ -372,3 +372,90 @@ export const SCHEMA = JSON.stringify({
     },
   },
 });
+
+// DOT: `key: value` lines, `#` comments, one-line maps `<a: 1; b: 'x'>` and
+// lists `(1; 2)`, `'…'` literal strings, `*` before each list item on a line
+// of its own, and no `keySpan` / `valueSpan`: what a save keeps comes from
+// what it declares.
+export const DOT = `(() => {
+  function code(line) {
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === "'") quoted = !quoted;
+      else if (line[i] === "#" && !quoted) return line.slice(0, i);
+    }
+    return line;
+  }
+  function split(text) {
+    const out = [];
+    let depth = 0, quoted = false, current = "";
+    for (const c of text) {
+      if (quoted) { current += c; if (c === "'") quoted = false; continue; }
+      if (c === "'") quoted = true;
+      if (c === "<" || c === "(") depth++;
+      if (c === ">" || c === ")") depth--;
+      if (c === ";" && depth === 0) { out.push(current); current = ""; continue; }
+      current += c;
+    }
+    if (current.trim()) out.push(current);
+    return out;
+  }
+  function value(text) {
+    text = text.trim();
+    if (text.startsWith("<")) {
+      const out = {};
+      for (const part of split(text.slice(1, -1))) { const at = part.indexOf(":"); out[part.slice(0, at).trim()] = value(part.slice(at + 1)); }
+      return out;
+    }
+    if (text.startsWith("(")) return split(text.slice(1, -1)).map(value);
+    if (text.startsWith("'")) return text.slice(1, text.indexOf("'", 1));
+    if (text === "true" || text === "false") return text === "true";
+    if (/^-?[0-9]+$/.test(text)) return Number(text);
+    return text;
+  }
+  function write(v) {
+    if (Array.isArray(v)) return "(" + v.map(write).join("; ") + ")";
+    if (v && typeof v === "object") return "<" + Object.entries(v).map(([k, x]) => k + ": " + write(x)).join("; ") + ">";
+    if (typeof v === "string") return "'" + v + "'";
+    return String(v);
+  }
+  return {
+    label: "Dot",
+    extensions: ["dot"],
+    comments: { lineComment: "#" },
+    brackets: [["<", ">"], ["(", ")"]],
+    separators: [":"],
+    writtenSeparator: ": ",
+    mapBrackets: ["<", ">"],
+    listBrackets: ["(", ")"],
+    itemSeparator: ";",
+    itemMarker: "*",
+    literalQuotes: ["'"],
+    parse(text) {
+      const out = {};
+      let list = null;
+      text.split("\\n").forEach((raw, index) => {
+        const line = code(raw);
+        if (!line.trim()) return;
+        if (/^\\s+\\*( |$)/.test(line)) {
+          if (!list) throw { message: "an item outside a list", line: index + 1 };
+          out[list].push(value(line.replace(/^\\s+\\*/, "")));
+          return;
+        }
+        const at = line.indexOf(":");
+        if (at < 0) throw { message: "expected key: value", line: index + 1, column: 1 };
+        const key = line.slice(0, at).trim();
+        const rest = line.slice(at + 1);
+        if (!rest.trim()) { out[key] = []; list = key; return; }
+        list = null;
+        out[key] = value(rest);
+      });
+      return out;
+    },
+    serialize(value) {
+      return Object.entries(value).map(([k, v]) => Array.isArray(v) && v.some((x) => x && typeof x === "object")
+        ? k + ":\\n" + v.map((x) => "  * " + write(x)).join("\\n")
+        : k + ": " + write(v)).join("\\n") + "\\n";
+    },
+  };
+})()`;

@@ -29,9 +29,9 @@ fn a_yaml_key_that_is_a_list_or_a_map_is_said_plainly() {
     report(failures);
 }
 
-/// A YAML integer past 64 bits is the same error negative as positive
-/// (it used to read as the string `-99999999999999999999`); quoted, it is
-/// a string.
+/// A YAML integer past 64 bits is an error negative as positive, each
+/// naming its bound (it used to read as the string
+/// `-99999999999999999999`); quoted, it is a string.
 #[test]
 fn a_wide_negative_yaml_integer_is_the_error_a_wide_positive_one_is() {
     let mut failures = Vec::new();
@@ -44,7 +44,9 @@ fn a_wide_negative_yaml_integer_is_the_error_a_wide_positive_one_is() {
             Language::YAML.parse(&text.replace("-99999999999999999999", "99999999999999999999"));
         match (Language::YAML.parse(text), positive) {
             (Err(error), Err(expected))
-                if error.message == expected.message.replace("integer 9", "integer -9")
+                if error.message
+                    == "the integer -99999999999999999999 is below -9223372036854775808, the smallest 64-bit integer"
+                    && expected.message.contains("is above 18446744073709551615")
                     && error.line == expected.line =>
             {
                 if error.column.is_none() {

@@ -81,11 +81,10 @@ fn every_token_stays_whole_and_in_place_through_edits_and_moves() {
 }
 
 /// A list's items swapped on screen: each token goes with its item, as
-/// written; each now stands in the other item's field, so each is plain
-/// text there and said so (a host restoring by field would give each item
-/// the other's secret).
+/// written, and its field follows the item (see `follow_items`): both stay
+/// real, nothing is flagged, and swapped back they are where they were.
 #[test]
-fn reordered_list_items_keep_their_tokens_and_are_flagged_in_the_other_item() {
+fn reordered_list_items_keep_their_tokens_real() {
     let mut failures = Vec::new();
     for tokens in &HOSTS {
         for language in ALL {
@@ -115,25 +114,23 @@ fn reordered_list_items_keep_their_tokens_and_are_flagged_in_the_other_item() {
                 continue;
             }
             let real = real_texts(state);
-            if real
-                .iter()
-                .any(|token| token == tokens.first || token == tokens.second)
-            {
+            let both = |real: &[String]| {
+                [tokens.first, tokens.second]
+                    .iter()
+                    .all(|token| real.iter().any(|real| real == token))
+            };
+            if !both(&real) {
                 failures.push(format!("{case}: real after the swap {real:?}"));
             }
             let found = problems(state, language, None);
-            let moved = found
-                .iter()
-                .filter(|problem| problem.contains("stands for the secret of /l/"))
-                .count();
-            if moved != 2 || found.len() != 2 {
+            if !found.is_empty() {
                 failures.push(format!("{case}: problems {found:?}"));
             }
-            // Swapped back: real again, nothing flagged.
+            // Swapped back: real still, nothing flagged.
             let back = nth(&swapped, tokens.second, 0).start..nth(&swapped, tokens.first, 0).end;
             replace(state, back.clone(), &text[first.start..second.end]);
             if state.doc().text.get_untracked() != text
-                || real_texts(state).len() != real.len() + 2
+                || real_texts(state).len() != real.len()
                 || !problems(state, language, None).is_empty()
             {
                 failures.push(format!(

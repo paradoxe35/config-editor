@@ -124,6 +124,15 @@ mod nested_tests;
 mod non_finite_matrix;
 #[cfg(all(
     test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod pairs_matrix;
+#[cfg(all(
+    test,
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",
@@ -181,6 +190,9 @@ mod aligned;
 // Keys and values written inline (`{ a = 1 }`, `[a, b]`), the building
 // blocks a language with such containers reads its lines with.
 pub(crate) mod inline;
+// A changed number written in the form of the one it replaces.
+#[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
+mod number_forms;
 // Integers past 64 bits a parser reads as floats: a syntax error.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
@@ -291,7 +303,9 @@ impl Language {
     /// # Errors
     ///
     /// The first syntax error, with its position when the language reports
-    /// one.
+    /// one; or, for a document the data model reads otherwise than it is
+    /// written, why (XML elements of one parent in different namespaces
+    /// read as one key), as [`convert`](Self::convert) refuses it.
     ///
     /// ```
     /// # #[cfg(feature = "toml")] {
@@ -301,6 +315,19 @@ impl Language {
     /// # }
     /// ```
     pub fn parse(self, source: &str) -> Result<Value, ParseError> {
+        let value = self.parse_syntax(source)?;
+        match self.0.merged_keys(&line_breaks::as_lf(source)) {
+            Some(message) => Err(ParseError {
+                message,
+                line: None,
+                column: None,
+            }),
+            None => Ok(value),
+        }
+    }
+
+    /// [`parse`](Self::parse) as far as syntax goes.
+    fn parse_syntax(self, source: &str) -> Result<Value, ParseError> {
         // CRLF line endings read as LF, inside multi-line strings and block
         // scalars too: what the editor reads (it holds LF text), and what
         // TOML and YAML readers do with a file's own line breaks. A lone

@@ -413,6 +413,13 @@ fn yaml_items_and_keys_written_apart_have_their_range() {
         ("l:\n  - ? k\n    : v\n", "/l/0/k", "k"),
         ("? k\n: v\n", "/k", "k"),
         ("? k\n: v\nz: 1\n", "/z", "z: 1"),
+        // Round 26: a block scalar key is all of its lines, not its `|`.
+        ("? |\n  multi\n: v\n", "/multi\n", "|\n  multi"),
+        (
+            "? >-\n  two\n  words\n\n: v\nz: 1\n",
+            "/two words",
+            ">-\n  two\n  words",
+        ),
     ];
     let mut failures = Vec::new();
     for (text, pointer, expected) in cases {
@@ -427,6 +434,40 @@ fn yaml_items_and_keys_written_apart_have_their_range() {
         if back.as_deref() != Some(pointer) {
             failures.push(format!("{pointer} in {text:?}: path_at gives {back:?}"));
         }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Round 26: a field read through an alias (`c: *x`) or a merge
+/// (`<<: *x`) had no range; it is where its anchor writes it.
+#[test]
+fn a_field_read_through_an_alias_is_found_where_its_anchor_writes_it() {
+    let cases = [
+        ("a: &x\n  b: 1\nc: *x\n", "/c/b", "b: 1"),
+        ("a: &x\n  b: 1\nc: *x\n", "/c", "c: *x"),
+        ("a: &x\n  b: 1\nc:\n  <<: *x\n  d: 2\n", "/c/b", "b: 1"),
+        ("a: &x\n  b: 1\nc:\n  <<: *x\n  b: 2\n", "/c/b", "b: 2"),
+        (
+            "p: &p\n  n: 1\nq: &q\n  m: 2\nl:\n  <<: [*p, *q]\n",
+            "/l/m",
+            "m: 2",
+        ),
+        (
+            "a: &x\n  i: &y\n    k: 1\nc: *x\nd:\n  e: *y\n",
+            "/d/e/k",
+            "k: 1",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (text, pointer, expected) in cases {
+        let found = Language::YAML.range_of(text, pointer);
+        if found.map(|range| range.slice(text).to_string()).as_deref() != Some(expected) {
+            failures.push(format!("{pointer} in {text:?}: {found:?}"));
+        }
+    }
+    // A field that is nowhere stays none.
+    if let Some(found) = Language::YAML.range_of("a: &x\n  b: 1\nc: *x\n", "/c/z") {
+        failures.push(format!("/c/z: {found:?}"));
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }

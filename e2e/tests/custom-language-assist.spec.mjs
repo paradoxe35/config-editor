@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ENV, HJSON, ODD, SCHEMA } from './custom-languages.mjs';
+import { DOT, ENV, HJSON, ODD, SCHEMA } from './custom-languages.mjs';
 import { editor, pointAt } from './helpers.mjs';
 
 // Languages registered from JavaScript get schema completion and hover from
@@ -369,6 +369,51 @@ test.describe('Edit-as with a custom host language', () => {
       await expect.poll(() => lastSave(page)).toBe(saved);
     });
   }
+
+  // A language with no spans that declares its list items (`itemMarker`)
+  // and its literal quotes; without the marker its items cannot be told
+  // apart, and a reorder waits rather than lose their comments.
+  const DOT_HOST = "name: web  # the name\nobj: <x: 1; y: 'two'>  # a map\nitems:\n  # first item\n  * <n: 1>\n  # second item\n  * <n: 2>  # two\nlast: true\n";
+  const DOT_BARE = DOT.replace('itemMarker: "*",', '').replace('label: "Dot"', 'label: "DotBare"').replace('extensions: ["dot"]', 'extensions: ["dotbare"]');
+  const ITEMS = '"items": [\n    {\n      "n": 1\n    },\n    {\n      "n": 2\n    }\n  ]';
+  const SWAPPED = '"items": [\n    {\n      "n": 2\n    },\n    {\n      "n": 1\n    }\n  ]';
+  const dot = (line, by) => DOT_HOST.replace(line, by);
+  const DOT_SAVES = [
+    ['list items reordered keep their comments', ITEMS, SWAPPED, dot('  # first item\n  * <n: 1>\n  # second item\n  * <n: 2>  # two\n', '  # second item\n  * <n: 2>  # two\n  # first item\n  * <n: 1>\n')],
+    ['a string in a one-line map keeps its quotes', '"y": "two"', '"y": "three"', dot("y: 'two'", "y: 'three'")],
+    ['a value keeps the comment after it', '"name": "web"', '"name": "api"', dot('name: web  #', 'name: api  #')],
+  ];
+  async function paste(page, from, to) {
+    await editor(page).input.evaluate((element, [from, to]) => {
+      const at = element.value.indexOf(from);
+      element.focus();
+      element.setRangeText(to, at, at + from.length, 'end');
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: to }));
+    }, [from, to]);
+  }
+  for (const [name, from, to, saved] of DOT_SAVES) {
+    test(`a language declared without spans, edited as JSON: ${name}`, async ({ page }) => {
+      await open(page, 'vanilla.html');
+      await mount(page, DOT, DOT_HOST, "{ editAs: 'json' }");
+      await expect.poll(() => editor(page).input.inputValue()).toContain(from);
+      await paste(page, from, to);
+      await expect.poll(() => lastSave(page)).toBe(saved);
+    });
+  }
+  test('a language declaring no item marker: a reorder waits, its comments kept', async ({ page }) => {
+    await open(page, 'vanilla.html');
+    await mount(page, DOT_BARE, DOT_HOST, "{ editAs: 'json' }");
+    await expect(editor(page).input).toHaveValue(/"n": 2/);
+    await paste(page, ITEMS, SWAPPED);
+    await expect
+      .poll(() =>
+        page
+          .locator('.config-editor__diagnostic-marker')
+          .evaluateAll((markers) => markers.map((marker) => marker.dataset.message).join('\n')),
+      )
+      .toContain('cannot be moved with their comments');
+    expect(await page.evaluate(() => window.changes.filter((text) => !text.includes('# first item')))).toEqual([]);
+  });
 
   for (const [name, language, host, [from, to], saved] of SAVES) {
     test(`edited as YAML, ${name} changes only its lines`, async ({ page }) => {

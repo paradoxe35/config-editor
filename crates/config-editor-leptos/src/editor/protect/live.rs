@@ -10,6 +10,7 @@ use leptos::prelude::*;
 use super::super::codec;
 use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
+use super::super::edit_as::SaveError;
 use super::super::input::edit_range;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
@@ -17,6 +18,7 @@ use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
+use super::glued::{glued_by_edit, glued_in_save, glued_message};
 use super::guard::{Blocked, check};
 use super::locate::LineIndex;
 use super::locks::{Protected, Sources, protect};
@@ -348,7 +350,26 @@ impl EditorState {
                     )
                 })
             })
-            .map_err(|blocked: Blocked| self.strings_untracked(|strings| blocked.message(strings)))
+            .map_err(|blocked: Blocked| {
+                self.strings_untracked(|strings| blocked.message(strings))
+            })?;
+        match self.glued_by(&edit.before, &edit.text) {
+            Some(pointer) => {
+                Err(self.strings_untracked(|strings| glued_message(strings, &pointer)))
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// The field of a placeholder given whole that the edit from `before`
+    /// to `after` writes text beside (see `glued`).
+    fn glued_by(&self, before: &str, after: &str) -> Option<String> {
+        let secrets = self.protect().secrets;
+        secrets.known.with_untracked(|known| {
+            secrets.tokens.with_untracked(|tokens| {
+                glued_by_edit(self.behavior(), known, tokens, before, after)
+            })
+        })
     }
 
     /// After typing was refused at a read-only field with `message`: what
@@ -408,7 +429,7 @@ impl EditorState {
                 )
                 .is_ok()
             })
-        })
+        }) && self.glued_by(&edit.before, &without).is_none()
     }
 
     /// After an edit was made: typing goes on from where it ended, and a
@@ -517,8 +538,27 @@ impl EditorState {
     }
 
     /// Refuses an Edit-as save from the host's `old` text to `new` that would
-    /// change a read-only value.
-    pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), ReadOnlyChange> {
+    /// change a read-only value, or write text beside a placeholder the
+    /// host gave as a field's whole value.
+    pub(crate) fn check_host_save(&self, old: &str, new: &str) -> Result<(), SaveError> {
+        self.check_read_only_save(old, new)
+            .map_err(SaveError::ReadOnly)?;
+        let behavior = self.config().host_language.behavior();
+        let secrets = self.protect().secrets;
+        let glued = self.config().schema.with_value(|schema| {
+            let reading = schema.as_deref().map(|bundle| &bundle.schema);
+            secrets
+                .known
+                .with_untracked(|known| glued_in_save(behavior, known, old, new, reading))
+        });
+        match glued {
+            Some(pointer) => Err(SaveError::GluedPlaceholder { pointer }),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Self::check_host_save`]'s read-only values.
+    fn check_read_only_save(&self, old: &str, new: &str) -> Result<(), ReadOnlyChange> {
         self.config().schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
             let marking = schema

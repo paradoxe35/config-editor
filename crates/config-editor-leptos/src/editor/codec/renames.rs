@@ -71,6 +71,57 @@ fn rename_at_key_span(
     Some(renamed)
 }
 
+/// `new` with each key it renames from `old` (in the same place, holding
+/// the same value) spelled as `old` spells it, whatever else differs: what
+/// a save compares where the place of a value matters and a rename does
+/// not move it (an alias inside a renamed key still reads its anchor).
+pub(in super::super) fn with_renames_undone(old: &Value, new: &Value) -> Value {
+    match (old, new) {
+        (Value::Object(left), Value::Object(right)) if left.len() == right.len() => Value::Object(
+            left.iter()
+                .zip(right)
+                .map(|((old_key, old_value), (new_key, new_value))| {
+                    let renamed = old_key != new_key
+                        && old_value == new_value
+                        && !left.contains_key(new_key)
+                        && !right.contains_key(old_key);
+                    if renamed {
+                        (old_key.clone(), new_value.clone())
+                    } else {
+                        (
+                            new_key.clone(),
+                            with_renames_undone(
+                                old.get(new_key).unwrap_or(&Value::Null),
+                                new_value,
+                            ),
+                        )
+                    }
+                })
+                .collect(),
+        ),
+        (Value::Object(left), Value::Object(right)) => Value::Object(
+            right
+                .iter()
+                .map(|(key, value)| match left.get(key) {
+                    Some(was) => (key.clone(), with_renames_undone(was, value)),
+                    None => (key.clone(), value.clone()),
+                })
+                .collect(),
+        ),
+        (Value::Array(left), Value::Array(right)) => Value::Array(
+            right
+                .iter()
+                .enumerate()
+                .map(|(index, item)| match left.get(index) {
+                    Some(was) => with_renames_undone(was, item),
+                    None => item.clone(),
+                })
+                .collect(),
+        ),
+        _ => new.clone(),
+    }
+}
+
 /// Collects `(old pointer, old key, new key)` for each key `new` renames;
 /// `None` when anything else differs.
 fn renamed_keys(

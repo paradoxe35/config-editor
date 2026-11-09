@@ -1677,8 +1677,14 @@ fn numbers_out_of_range_are_said_plainly_in_every_language() {
     ] {
         let expected = if number.contains('e') {
             format!("the number {number} is past the largest float")
+        } else if number.starts_with('-') {
+            format!(
+                "the integer {number} is below -9223372036854775808, the smallest 64-bit integer"
+            )
         } else {
-            format!("the integer {number} does not fit in 64 bits")
+            format!(
+                "the integer {number} is above 18446744073709551615, the largest 64-bit integer"
+            )
         };
         match language.parse(text) {
             Err(error) if error.message == expected && error.line == Some(1) => {}
@@ -1691,8 +1697,58 @@ fn numbers_out_of_range_are_said_plainly_in_every_language() {
         (Language::JSON, "{\"a\": 12 3}\n"),
     ] {
         match language.parse(text) {
-            Err(error) if !error.message.contains("64 bits") => {}
+            Err(error) if !error.message.contains("64-bit") => {}
             other => failures.push(format!("{language} {text:?}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Round 26: `-12345678901234567890` was an error while
+/// `18446744073709551615` parsed, with the same "does not fit" message.
+/// Each language reads the 64-bit integers its parser holds, and the error
+/// past them names the bound.
+#[test]
+fn integers_read_to_their_64_bit_bounds_and_the_error_names_the_bound() {
+    let below = "the integer -9223372036854775809 is below -9223372036854775808, the smallest 64-bit integer";
+    let above = "the integer 18446744073709551616 is above 18446744073709551615, the largest 64-bit integer";
+    let signed = "the integer 9223372036854775808 is above 9223372036854775807, the largest signed 64-bit integer";
+    let json = |n: &str| format!("{{\"a\": {n}}}\n");
+    let yaml = |n: &str| format!("a: {n}\n");
+    let assigned = |n: &str| format!("a = {n}\n");
+    type Written<'a> = &'a dyn Fn(&str) -> String;
+    let languages: [(Language, Written<'_>); 4] = [
+        (Language::JSON, &json),
+        (Language::YAML, &yaml),
+        (Language::TOML, &assigned),
+        (Language::HCL, &assigned),
+    ];
+    let mut failures = Vec::new();
+    for (language, write) in languages {
+        let unsigned = language != Language::TOML;
+        let reads = [
+            ("-9223372036854775808", true),
+            ("9223372036854775807", true),
+            ("18446744073709551615", unsigned),
+        ];
+        for (number, ok) in reads {
+            let read = language.parse(&write(number));
+            if read.is_ok() != ok {
+                failures.push(format!("{language} {number}: {read:?}"));
+            }
+        }
+        let mut errors = vec![
+            ("-9223372036854775809", below),
+            ("18446744073709551616", above),
+        ];
+        if !unsigned {
+            errors.push(("9223372036854775808", signed));
+        }
+        for (number, expected) in errors {
+            match language.parse(&write(number)) {
+                Err(error) if error.message == expected => {}
+                other => failures.push(format!("{language} {number}: {other:?}")),
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

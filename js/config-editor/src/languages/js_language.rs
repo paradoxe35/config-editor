@@ -366,6 +366,13 @@ impl ConfigLanguage for JsLanguage {
         }
     }
 
+    /// A string edited where the host wrote one in quotes keeps them.
+    fn format_value_like(&self, value: &Value, written: &str) -> String {
+        self.config
+            .get()
+            .quoted_like(value, written, self.format_value(value))
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         if self.has("keyAt") {
             return None;

@@ -77,6 +77,8 @@ test('an XML child removed and added back is a child, its attribute kept', async
   expect(errors).toEqual([]);
 });
 
+// The override goes above the merge line's comment, which stays on it
+// (round 26).
 test('a YAML merge stays when a merged value is edited from another view', async ({ page }) => {
   const value = 'defaults: &D\n  a: 1 # da\n  b: 2\nsvc:\n  # merged\n  <<: *D\n  b: 20 # own\n';
   const errors = await open(page, { language: 'yaml', value, editAs: 'json' });
@@ -84,6 +86,6 @@ test('a YAML merge stays when a merged value is edited from another view', async
   await page.keyboard.insertText('"a": 9');
   await expect
     .poll(() => host(page))
-    .toBe('defaults: &D\n  a: 1 # da\n  b: 2\nsvc:\n  # merged\n  a: 9\n  <<: *D\n  b: 20 # own\n');
+    .toBe('defaults: &D\n  a: 1 # da\n  b: 2\nsvc:\n  a: 9\n  # merged\n  <<: *D\n  b: 20 # own\n');
   expect(errors).toEqual([]);
 });

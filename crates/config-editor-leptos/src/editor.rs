@@ -515,6 +515,15 @@ fn moves_editor(state: EditorState, event: &web_sys::Event) -> bool {
     feature = "xml"
 ))]
 mod convert_messages_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod declared_syntax;
 #[cfg(all(test, feature = "yaml"))]
 mod handle_tests;
 #[cfg(all(
@@ -636,6 +645,15 @@ mod save_hcl_templates_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_key_order_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_matrix;
 #[cfg(all(
     test,
@@ -681,7 +699,25 @@ mod save_newline_strings_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_number_forms_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_properties;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_renamed_aliases_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -727,6 +763,15 @@ mod save_tests;
     feature = "xml"
 ))]
 mod save_typed_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_at_keys_tests;
 #[cfg(all(
     test,
     feature = "yaml",

@@ -1,7 +1,8 @@
 //! YAML merge keys (`<<: *defaults`) through saves from other views: the
 //! merge stays, and a merged value the edit sets apart from its anchor's
 //! becomes the map's own key; only a merged key the edit removes writes
-//! the merge out.
+//! the merge out. A changed number keeps the form of the one it replaces
+//! (the anchor's `0x3`).
 
 use super::Language;
 use super::save_matrix::{from_every_view, report, slot};
@@ -14,10 +15,11 @@ const HOST: &str = "# defaults\ndefaults: &D\n  a: 1 # da\n  b: 2\n  c: 0x3\nsvc
 #[test]
 fn a_merge_stays_through_edits_of_merged_values_and_of_its_anchor() {
     let cases: [(&str, Change, String); 7] = [
+        // Above the merge line's own comment, which stays on it.
         (
             "a merged value edited",
             |value| value["svc"]["a"] = json!(9),
-            HOST.replace("  <<: *D\n", "  a: 9\n  <<: *D\n"),
+            HOST.replace("  # merged\n", "  a: 9\n  # merged\n"),
         ),
         (
             "two merged values edited",
@@ -25,12 +27,12 @@ fn a_merge_stays_through_edits_of_merged_values_and_of_its_anchor() {
                 value["svc"]["a"] = json!(9);
                 value["svc"]["c"] = json!(8);
             },
-            HOST.replace("  <<: *D\n", "  a: 9\n  c: 8\n  <<: *D\n"),
+            HOST.replace("  # merged\n", "  a: 9\n  c: 0x8\n  # merged\n"),
         ),
         (
             "the anchor's value edited: the map keeps it, as written",
             |value| value["defaults"]["c"] = json!(30),
-            HOST.replace("  c: 0x3\n", "  c: 30\n")
+            HOST.replace("  c: 0x3\n", "  c: 0x1e\n")
                 .replace("  <<: *D\n", "  <<: *D\n  c: 0x3\n"),
         ),
         (
@@ -39,7 +41,7 @@ fn a_merge_stays_through_edits_of_merged_values_and_of_its_anchor() {
                 value["defaults"]["c"] = json!(30);
                 value["svc"]["c"] = json!(30);
             },
-            HOST.replace("  c: 0x3\n", "  c: 30\n"),
+            HOST.replace("  c: 0x3\n", "  c: 0x1e\n"),
         ),
         (
             "a key added to the anchor and the map alike: the map writes it too",

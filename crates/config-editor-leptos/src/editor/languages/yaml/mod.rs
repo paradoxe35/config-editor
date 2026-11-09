@@ -267,12 +267,23 @@ impl ConfigLanguage for YamlBehavior {
         aliases::detach_shared(previous, old, new)
     }
 
+    fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
+        aliases::written_at(source, pointer)
+    }
+
     fn tags(&self, source: &str) -> Vec<(String, String)> {
         tags::yaml_tags(source)
     }
 
     fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
         self.parse(&format!("k: [{}]\n", written.trim())).ok().and_then(|document| document.get("k")?.get(0).cloned()).as_ref() == Some(value)
+    }
+
+    /// Hexadecimal, octal and binary integers (`1_000` is a string).
+    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
+        const SYNTAX: super::number_forms::NumberSyntax =
+            super::number_forms::NumberSyntax { radixes: &[("0x", 16), ("0o", 8), ("0b", 2)], separator: None };
+        super::number_forms::checked(written, value, &SYNTAX, |text, value| self.scalar_reads_as(text, value))
     }
 
     fn format_value_like(&self, value: &Value, written: &str) -> String {

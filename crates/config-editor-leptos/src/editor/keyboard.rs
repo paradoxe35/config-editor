@@ -37,6 +37,26 @@ pub(super) fn replace_selection(
 /// `autoCloseBefore` default), besides whitespace and the end of the text.
 const AUTO_CLOSE_BEFORE: &str = ";:.,=}])>\"'`";
 
+/// The closer `opening` pairs with in `behavior`: one of its brackets, or
+/// one of its one-character quotes, with whether it is a quote. Only what
+/// the language writes as a bracket or a quote pairs (no `(` in JSON, no
+/// `'` in HCL).
+pub(super) fn pair_of(behavior: &dyn ConfigLanguage, opening: char) -> Option<(char, bool)> {
+    let config = behavior.config();
+    if let Some((_, closing)) = config.brackets.iter().find(|(open, _)| *open == opening) {
+        return Some((*closing, false));
+    }
+    is_quote(behavior, opening).then_some((opening, true))
+}
+
+/// Whether `character` is one of `behavior`'s one-character quotes.
+pub(super) fn is_quote(behavior: &dyn ConfigLanguage, character: char) -> bool {
+    behavior.config().quotes.iter().any(|quote| {
+        let mut characters = quote.chars();
+        characters.next() == Some(character) && characters.next().is_none()
+    })
+}
+
 /// Auto-closing and selection wrapping for a typed bracket or quote; the
 /// language's `lexical_state` blocks pairing inside strings and comments.
 pub(super) fn paired_edit(
@@ -46,14 +66,7 @@ pub(super) fn paired_edit(
     opening: char,
     behavior: &dyn ConfigLanguage,
 ) -> Option<(String, usize, usize)> {
-    let closing = match opening {
-        '"' => '"',
-        '\'' => '\'',
-        '(' => ')',
-        '[' => ']',
-        '{' => '}',
-        _ => return None,
-    };
+    let (closing, quote) = pair_of(behavior, opening)?;
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
     let selected = &source[start_byte..end_byte];
@@ -61,7 +74,7 @@ pub(super) fn paired_edit(
     if lexical.in_comment || lexical.quote.is_some() {
         return None;
     }
-    if matches!(opening, '"' | '\'')
+    if quote
         && source[..start_byte]
             .chars()
             .rev()
@@ -78,7 +91,7 @@ pub(super) fn paired_edit(
         let next = source[start_byte..].chars().next();
         let closes_here =
             next.is_none_or(|next| next.is_whitespace() || AUTO_CLOSE_BEFORE.contains(next));
-        let after_word = matches!(opening, '"' | '\'')
+        let after_word = quote
             && source[..start_byte]
                 .chars()
                 .next_back()
@@ -110,18 +123,17 @@ pub(super) fn skip_closing_pair(source: &str, cursor: usize, closing: char) -> O
     (!escaped && source[byte_index..].starts_with(closing)).then_some(cursor + closing.len_utf16())
 }
 
-pub(super) fn delete_empty_pair(source: &str, cursor: usize) -> Option<(String, usize)> {
+/// Both characters of the empty pair around `cursor`, when `behavior`
+/// pairs them.
+pub(super) fn delete_empty_pair(
+    source: &str,
+    cursor: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<(String, usize)> {
     let byte_index = utf16_to_byte_index(source, cursor);
     let previous = source[..byte_index].chars().next_back()?;
     let next = source[byte_index..].chars().next()?;
-    let expected = match previous {
-        '"' => '"',
-        '\'' => '\'',
-        '(' => ')',
-        '[' => ']',
-        '{' => '}',
-        _ => return None,
-    };
+    let (expected, _) = pair_of(behavior, previous)?;
     if next != expected {
         return None;
     }
@@ -129,4 +141,19 @@ pub(super) fn delete_empty_pair(source: &str, cursor: usize) -> Option<(String, 
     let start = cursor - previous.len_utf16();
     let end = cursor + next.len_utf16();
     Some(replace_selection(source, start, end, ""))
+}
+
+/// Whether `character` closes what `behavior` pairs: one of its closing
+/// brackets or one-character quotes.
+pub(super) fn is_closer(behavior: &dyn ConfigLanguage, character: char) -> bool {
+    is_closing_bracket(behavior, character) || is_quote(behavior, character)
+}
+
+/// Whether `character` is one of `behavior`'s closing brackets.
+pub(super) fn is_closing_bracket(behavior: &dyn ConfigLanguage, character: char) -> bool {
+    behavior
+        .config()
+        .brackets
+        .iter()
+        .any(|(_, close)| *close == character)
 }

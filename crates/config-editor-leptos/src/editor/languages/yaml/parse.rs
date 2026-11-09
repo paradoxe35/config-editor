@@ -170,7 +170,13 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             path.push(name);
             let offset = key_raw.as_ptr() as usize - rest.as_ptr() as usize;
             let column = line[..content_indent].chars().count() + rest[..offset].chars().count() + 1;
-            entries.push((path.clone(), index + 1, column, column + key_raw.chars().count()));
+            let mut end = column + key_raw.chars().count();
+            if is_block_key {
+                // Through its text's last line, counted on from this line
+                // as a value over lines is.
+                end = block_key_end(line, &all_lines[index + 1..], content_indent).unwrap_or(end);
+            }
+            entries.push((path.clone(), index + 1, column, end));
             explicit = Some((content_indent, path));
             continue;
         }
@@ -427,6 +433,21 @@ pub(super) fn opens_block(after_colon: &str) -> bool {
 pub(super) fn explicit_block_key(rest: &str) -> Option<&str> {
     let key = without_node_properties(code_before_comment(rest.strip_prefix("? ")?).trim());
     is_block_scalar(key).then_some(key)
+}
+
+/// The end column of a block scalar key on `line` whose text is the
+/// first lines of `below` indented past `owner`, counted on from `line`'s
+/// start through each line break (as a span over lines is); `None` when
+/// it has no text.
+fn block_key_end(line: &str, below: &[&str], owner: usize) -> Option<usize> {
+    let body: Vec<&str> = below
+        .iter()
+        .map(|line| line.trim_end_matches('\r'))
+        .take_while(|line| line.trim().is_empty() || line.len() - line.trim_start().len() > owner)
+        .collect();
+    let last = body.iter().rposition(|line| !line.trim().is_empty())?;
+    let through: usize = body[..last].iter().map(|line| line.chars().count() + 1).sum();
+    Some(line.chars().count() + 1 + through + body[last].chars().count() + 1)
 }
 
 /// The text of the block scalar opened by `indicator` (`|`, `>-`): the

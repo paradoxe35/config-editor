@@ -1,8 +1,9 @@
 //! The host value with the user's edits applied, from what the edit
 //! language showed of it.
 
-use super::super::language::Repetition;
-use serde_json::Value;
+use super::super::codec::same_order;
+use super::super::language::{ConfigLanguage, Repetition};
+use serde_json::{Map, Value};
 
 /// The host value with the user's edits applied: where the edit equals what
 /// the edit language showed, the host's original value is kept; elsewhere
@@ -29,6 +30,63 @@ pub(super) struct View<'a> {
     /// How it repeats items for a list (XML elements, HCL blocks), so a
     /// list cut down to one item shows as that item.
     pub(super) repetition: Repetition,
+    /// Whether keys the edit holds in another order than it showed them
+    /// were moved by the user, not by the edit language's writer.
+    pub(super) moves: bool,
+}
+
+/// Whether the keys `edited` holds in another order than `seen` were moved
+/// by the user: the edit language could write them in `seen`'s order (TOML
+/// writes a key turned into a table after the plain keys, whatever was
+/// typed where).
+pub(super) fn moved_by_user(edit: &dyn ConfigLanguage, seen: &Value, edited: &Value) -> bool {
+    if same_order(seen, edited) {
+        return false;
+    }
+    let in_seen_order = ordered_like(edited, seen);
+    let written = super::super::codec::serialize(edit, &in_seen_order, None)
+        .ok()
+        .and_then(|text| super::super::codec::read(edit, &text, None).ok());
+    written.is_some_and(|written| !same_order(&written, edited))
+}
+
+/// `value` with each map's keys that `like` holds in `like`'s order, the
+/// others after them.
+fn ordered_like(value: &Value, like: &Value) -> Value {
+    match (value, like) {
+        (Value::Object(map), Value::Object(like)) => {
+            let places: std::collections::HashMap<&String, usize> = like
+                .keys()
+                .enumerate()
+                .map(|(index, key)| (key, index))
+                .collect();
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_by_key(|(key, _)| places.get(key).copied().unwrap_or(usize::MAX));
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, child)| {
+                        let child = match like.get(key) {
+                            Some(like) => ordered_like(child, like),
+                            None => child.clone(),
+                        };
+                        (key.clone(), child)
+                    })
+                    .collect(),
+            )
+        }
+        (Value::Array(items), Value::Array(like)) => Value::Array(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| match like.get(index) {
+                    Some(like) => ordered_like(item, like),
+                    None => item.clone(),
+                })
+                .collect(),
+        ),
+        (value, _) => value.clone(),
+    }
 }
 
 fn merge_at(
@@ -39,7 +97,8 @@ fn merge_at(
     view: &View<'_>,
 ) -> Result<Value, String> {
     let unshown = view.unshown;
-    if seen == edited {
+    // Keys only put in another order are a change too.
+    if seen == edited && (!view.moves || same_order(seen, edited)) {
         return Ok(host.clone());
     }
     let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
@@ -114,6 +173,9 @@ fn merge_at(
                     entries.insert(at, (key.clone(), value.clone()));
                 }
                 previous = Some(key);
+            }
+            if view.moves {
+                moved_as_edited(&mut entries, seen, edited);
             }
             Ok(Value::Object(entries.into_iter().collect()))
         }
@@ -196,4 +258,125 @@ fn array_leaves<'a>(items: &'a [Value], prefix: &mut String, out: &mut Vec<(Stri
         }
         prefix.truncate(length);
     }
+}
+
+/// `value` with the keys of each map that `like` holds in another order
+/// moved into `like`'s, each after the key before it there; keys `like`
+/// does not hold stay where they are.
+pub(super) fn keys_ordered_like(value: Value, like: &Value) -> Value {
+    match (value, like) {
+        (Value::Object(map), Value::Object(like_map)) => {
+            let mut entries: Vec<(String, Value)> = map
+                .into_iter()
+                .map(|(key, child)| {
+                    let child = match like_map.get(&key) {
+                        Some(like) => keys_ordered_like(child, like),
+                        None => child,
+                    };
+                    (key, child)
+                })
+                .collect();
+            let shown: Map<String, Value> = entries
+                .iter()
+                .map(|(key, _)| (key.clone(), Value::Null))
+                .collect();
+            moved_as_edited(&mut entries, &shown, like_map);
+            Value::Object(entries.into_iter().collect())
+        }
+        (Value::Array(items), Value::Array(like)) => Value::Array(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| match like.get(index) {
+                    Some(like) => keys_ordered_like(item, like),
+                    None => item,
+                })
+                .collect(),
+        ),
+        (value, _) => value,
+    }
+}
+
+/// The most keys of one map whose moves in a view are followed.
+const MOVED_KEYS_LIMIT: usize = 400;
+
+/// `entries` (in the host's order) with the keys the edit moved among the
+/// ones it showed (`seen` and `edited` hold them in other orders) each put
+/// after the key before it in the edit: the keys that kept their order
+/// stay where the host has them.
+fn moved_as_edited(
+    entries: &mut Vec<(String, Value)>,
+    seen: &Map<String, Value>,
+    edited: &Map<String, Value>,
+) {
+    let shown: Vec<&String> = seen
+        .keys()
+        .filter(|key| edited.contains_key(*key))
+        .collect();
+    let typed: Vec<&String> = edited
+        .keys()
+        .filter(|key| seen.contains_key(*key))
+        .collect();
+    // The common keys' table grows with their square: a map past a few
+    // hundred keys keeps the host's order.
+    if shown == typed || shown.len() > MOVED_KEYS_LIMIT {
+        return;
+    }
+    let kept = longest_common(&shown, &typed);
+    let moved: Vec<&String> = typed
+        .iter()
+        .copied()
+        .filter(|key| !kept.contains(key))
+        .collect();
+    let mut taken: Vec<(String, Value)> = Vec::new();
+    entries.retain(|(key, value)| {
+        let is_moved = moved.contains(&key);
+        if is_moved {
+            taken.push((key.clone(), value.clone()));
+        }
+        !is_moved
+    });
+    for key in moved {
+        let Some(at) = taken.iter().position(|(name, _)| name == key) else {
+            continue;
+        };
+        let entry = taken.swap_remove(at);
+        let before = edited
+            .keys()
+            .take_while(|other| *other != key)
+            .filter(|other| entries.iter().any(|(name, _)| name == *other))
+            .last();
+        let place = before
+            .and_then(|before| entries.iter().position(|(name, _)| name == before))
+            .map_or(0, |index| index + 1);
+        entries.insert(place, entry);
+    }
+}
+
+/// The longest run of `left`'s keys that `right` holds in the same order.
+fn longest_common<'a>(left: &[&'a String], right: &[&'a String]) -> Vec<&'a String> {
+    let (rows, columns) = (left.len(), right.len());
+    let mut table = vec![vec![0usize; columns + 1]; rows + 1];
+    for row in (0..rows).rev() {
+        for column in (0..columns).rev() {
+            table[row][column] = if left[row] == right[column] {
+                table[row + 1][column + 1] + 1
+            } else {
+                table[row + 1][column].max(table[row][column + 1])
+            };
+        }
+    }
+    let (mut row, mut column, mut common) = (0, 0, Vec::new());
+    while row < rows && column < columns {
+        if left[row] == right[column] {
+            common.push(left[row]);
+            row += 1;
+            column += 1;
+        } else if table[row + 1][column] >= table[row][column + 1] {
+            row += 1;
+        } else {
+            column += 1;
+        }
+    }
+    common
 }

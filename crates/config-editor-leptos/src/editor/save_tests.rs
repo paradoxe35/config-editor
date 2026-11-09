@@ -665,8 +665,9 @@ fn round_10_saves_change_only_the_edit() {
         "H4 block delete",
         Language::YAML,
         yaml,
+        // `shift_remove`: `remove` puts the last key in its place, a move.
         &|v| {
-            v.as_object_mut().unwrap().remove("secret");
+            v.as_object_mut().unwrap().shift_remove("secret");
         },
         &yaml.replace("secret: >-\n  s1\n", ""),
     );

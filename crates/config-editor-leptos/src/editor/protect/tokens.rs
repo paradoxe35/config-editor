@@ -32,6 +32,13 @@ pub(crate) struct Known {
     /// written in the text's comments.
     pub(crate) field: Option<String>,
     pub(crate) count: usize,
+    /// The host's field holds the token alone, as its whole value: there
+    /// it stands for the whole secret, and nothing may be written beside
+    /// it (see `glued`).
+    pub(crate) whole: bool,
+    /// The prints of the list items on the way to the field (see
+    /// `follow_items`): the field follows its item when items shift.
+    pub(crate) items: Vec<u64>,
 }
 
 /// Whether a known token's place (`field`, `None` for the comments) is
@@ -134,7 +141,7 @@ impl SecretMatcher {
         // over all of them (thousands of placeholders).
         let mut by_token: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
-        let mut add = |token: &str, field: Option<String>| {
+        let mut add = |token: &str, field: Option<String>, whole: bool, items: Vec<u64>| {
             let seen = by_token.entry(token.to_string()).or_default();
             match seen
                 .iter()
@@ -147,6 +154,8 @@ impl SecretMatcher {
                         token: token.to_string(),
                         field,
                         count: 1,
+                        whole,
+                        items,
                     });
                 }
             }
@@ -160,18 +169,23 @@ impl SecretMatcher {
         };
         let commented = |start: usize| in_comment(&comments, start);
         match behavior.parse(text) {
-            Ok(document) => self.each_held(&document, |token, pointer| {
-                add(token, Some(pointer.to_string()));
-            }),
+            Ok(document) => {
+                let mut printed = std::collections::HashMap::new();
+                self.each_held(&document, |token, pointer, whole| {
+                    let items =
+                        super::follow_items::item_prints_in(&document, pointer, &mut printed);
+                    add(token, Some(pointer.to_string()), whole, items);
+                });
+            }
             Err(_) => {
                 for range in found.iter().filter(|range| !commented(range.start)) {
                     let pointer = field_at(behavior, text, range.start);
-                    add(&text[range.clone()], Some(pointer));
+                    add(&text[range.clone()], Some(pointer), false, Vec::new());
                 }
             }
         }
         for range in found.iter().filter(|range| commented(range.start)) {
-            add(&text[range.clone()], None);
+            add(&text[range.clone()], None, false, Vec::new());
         }
         known
     }
@@ -184,7 +198,7 @@ impl SecretMatcher {
     ) -> std::collections::HashMap<String, Vec<String>> {
         let mut holders: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        self.each_held(document, |token, pointer| {
+        self.each_held(document, |token, pointer, _| {
             holders
                 .entry(token.to_string())
                 .or_default()
@@ -193,15 +207,17 @@ impl SecretMatcher {
         holders
     }
 
-    /// Calls `found` with each token the strings of `document` hold and the
-    /// pointer of the field holding it, in document order.
-    fn each_held(&self, document: &serde_json::Value, mut found: impl FnMut(&str, &str)) {
+    /// Calls `found` with each token the strings of `document` hold, the
+    /// pointer of the field holding it and whether it is that field's whole
+    /// value, in document order.
+    fn each_held(&self, document: &serde_json::Value, mut found: impl FnMut(&str, &str, bool)) {
         let mut stack = vec![(String::new(), document)];
         while let Some((pointer, value)) = stack.pop() {
             match value {
                 serde_json::Value::String(written) => {
                     for range in self.find_in(written) {
-                        found(&written[range], &pointer);
+                        let whole = range.len() == written.len();
+                        found(&written[range], &pointer, whole);
                     }
                 }
                 serde_json::Value::Array(items) => stack.extend(
@@ -260,6 +276,18 @@ pub(crate) fn written_counts(known: &[Known]) -> std::collections::HashMap<&str,
     counts
 }
 
+/// The value of the host's `field` in `document`, also where the document
+/// reads a lone item of a repeated field as the item (`/l/0` read `/l`).
+pub(crate) fn field_value<'a>(
+    document: &'a serde_json::Value,
+    field: &str,
+) -> Option<&'a serde_json::Value> {
+    document.pointer(field).or_else(|| {
+        let lone = format!("{field}/").replace("/0/", "/");
+        document.pointer(lone.trim_end_matches('/'))
+    })
+}
+
 /// How many times the parsed `document` holds each known token in the
 /// fields the host gave it in, at most as often as there.
 pub(crate) fn held_in_fields<'a>(
@@ -271,11 +299,7 @@ pub(crate) fn held_in_fields<'a>(
         let Some(field) = &known.field else {
             continue;
         };
-        let value = document.pointer(field).or_else(|| {
-            let lone = format!("{field}/").replace("/0/", "/");
-            document.pointer(lone.trim_end_matches('/'))
-        });
-        let count = value
+        let count = field_value(document, field)
             .and_then(serde_json::Value::as_str)
             .map_or(0, |value| {
                 value.matches(known.token.as_str()).count().min(known.count)
@@ -528,7 +552,9 @@ mod tests {
             vec![Known {
                 token: TOKEN.to_string(),
                 field: Some("/a".to_string()),
-                count: 1
+                count: 1,
+                whole: true,
+                items: Vec::new(),
             }]
         );
         // Shown as JSON: real in `a`, plain in `c`.

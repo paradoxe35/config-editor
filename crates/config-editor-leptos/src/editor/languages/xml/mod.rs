@@ -223,6 +223,10 @@ impl ConfigLanguage for XmlBehavior {
         namespace_clash(source).or_else(|| entities::declared_entity(source))
     }
 
+    fn merged_keys(&self, source: &str) -> Option<String> {
+        namespace_clash(source)
+    }
+
     fn format_value(&self, value: &Value) -> String {
         xml_text(value)
     }

@@ -31,9 +31,19 @@ pub(super) fn first_past_64_bits(
     })
 }
 
-/// The message of the syntax error.
+/// The message of the syntax error, with the bound `written` is past: the
+/// 64-bit integers run from `i64::MIN` to `u64::MAX`, and to `i64::MAX`
+/// where the parser takes no unsigned ones (TOML's).
 pub(super) fn message(written: &str) -> String {
-    format!("the integer {written} does not fit in 64 bits")
+    let plain = written.replace('_', "");
+    let bound = if plain.starts_with('-') {
+        format!("below {}, the smallest 64-bit integer", i64::MIN)
+    } else if plain.trim_start_matches('+').parse::<u64>().is_ok() {
+        format!("above {}, the largest signed 64-bit integer", i64::MAX)
+    } else {
+        format!("above {}, the largest 64-bit integer", u64::MAX)
+    };
+    format!("the integer {written} is {bound}")
 }
 
 fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) {

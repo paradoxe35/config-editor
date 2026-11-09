@@ -469,7 +469,6 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             state
                 .check_host_save(&previous, &conversion.text)
                 .map(|()| conversion)
-                .map_err(SaveError::ReadOnly)
         });
         state
             .sync()
@@ -680,7 +679,6 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                     state
                         .check_host_save(&host_text, &conversion.text)
                         .map(|()| conversion.text)
-                        .map_err(SaveError::ReadOnly)
                 }),
             None => state.config().schema.with_value(|schema| {
                 codec::convert(

@@ -15,6 +15,7 @@ use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::follow_items;
 use super::tokens::{
     Known, SecretMatcher, follow, held_in_fields, in_comment, locate_written, snap, snap_selection,
     widen,
@@ -322,19 +323,49 @@ impl EditorState {
             return;
         }
         let behavior = self.behavior();
-        let found = secrets.known.with_untracked(|known| {
-            let kept = secrets
+        let in_place = |known: &[Known]| {
+            secrets
                 .tokens
-                .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens));
-            (!kept).then(|| {
+                .with_untracked(|tokens| in_their_fields(behavior, text, known, tokens))
+        };
+        // All real where they are: nothing to look for.
+        let all_real = || {
+            let written: usize = secrets.known.with_untracked(|known| {
+                known
+                    .iter()
+                    .filter(|known| known.field.is_some())
+                    .map(|known| known.count)
+                    .sum()
+            });
+            secrets.tokens.with_untracked(Vec::len) >= written
+        };
+        let placed = secrets.known.with_untracked(|known| in_place(known));
+        if placed && all_real() {
+            return;
+        }
+        // Items shifted around a placeholder's (one deleted or inserted
+        // before it, it moved, cut and pasted): its field follows its item.
+        let followed = parse_cache::parsed(behavior, text)
+            .as_ref()
+            .as_ref()
+            .ok()
+            .and_then(|document| {
                 secrets
-                    .matcher
-                    .with_value(|matcher| matcher.locate(behavior, text, known))
-            })
+                    .known
+                    .with_untracked(|known| follow_items::followed(document, known))
+            });
+        match followed {
+            Some(followed) => secrets.known.set(followed),
+            // A placeholder removed or plain where it is, as before.
+            None if placed => return,
+            None => {}
+        }
+        let tokens = secrets.known.with_untracked(|known| {
+            secrets
+                .matcher
+                .with_value(|matcher| matcher.locate(behavior, text, known))
         });
-        if let Some(tokens) = found
-            && secrets.tokens.with_untracked(|current| *current != tokens)
-        {
+        if secrets.tokens.with_untracked(|current| *current != tokens) {
             secrets.tokens.set(tokens);
         }
     }

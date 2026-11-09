@@ -1,7 +1,7 @@
 use super::EditorTheme;
 use super::commands::{cycle_offset, indent_lines, indent_unit, offset_at};
 use super::completion::should_auto_trigger;
-use super::keyboard::{delete_empty_pair, replace_selection, skip_closing_pair};
+use super::keyboard::{replace_selection, skip_closing_pair};
 
 #[test]
 fn theme_names_and_layout_families_are_stable() {
@@ -40,15 +40,6 @@ fn closing_pair_typing_moves_over_the_existing_character() {
     // An escaped quote is text, not the string's end.
     assert_eq!(skip_closing_pair("\"a\\\"", 3, '"'), None);
     assert_eq!(skip_closing_pair("\"a\\\\\"", 4, '"'), Some(5));
-}
-
-#[test]
-fn backspace_removes_an_empty_pair() {
-    assert_eq!(
-        delete_empty_pair("value: []", 8),
-        Some(("value: ".to_string(), 7))
-    );
-    assert_eq!(delete_empty_pair("value: [x]", 8), None);
 }
 
 #[cfg(feature = "schema-validation")]

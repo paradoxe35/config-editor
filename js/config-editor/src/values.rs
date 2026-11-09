@@ -70,7 +70,13 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
             .parse::<i64>()
             .map(Value::from)
             .or_else(|_| text.parse::<u64>().map(Value::from))
-            .map_err(|_| format!("it holds the integer {text}, which does not fit in 64 bits"));
+            .map_err(|_| {
+                format!(
+                    "it holds the integer {text}, past the 64-bit integers ({} to {})",
+                    i64::MIN,
+                    u64::MAX
+                )
+            });
     }
     if Array::is_array(value) {
         return Array::from(value)

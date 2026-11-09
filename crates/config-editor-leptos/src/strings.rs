@@ -411,6 +411,9 @@ pub struct EditorStrings {
     pub placeholder_in_comment: String,
     /// A placeholder the host wrote in a comment, in a field.
     pub comment_placeholder: String,
+    /// Text written beside a placeholder the host gave as a field's whole
+    /// value: the edit refused, the field flagged, an Edit-as save waiting.
+    pub glued_placeholder: String,
     /// The detail of the `${…}` reference suggestion.
     pub env_reference: String,
     /// The detail of the `file:` reference suggestion.
@@ -678,6 +681,9 @@ impl Default for EditorStrings {
             ),
             comment_placeholder: text(
                 "{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text",
+            ),
+            glued_placeholder: text(
+                "{pointer}: a secret placeholder stands for the whole secret, so nothing can be written beside it: replace it whole to write a new value",
             ),
             env_reference: text("Read the secret from an environment variable"),
             file_reference: text("Read the secret from a file"),

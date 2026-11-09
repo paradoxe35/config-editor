@@ -42,11 +42,15 @@ fn place(before: &str) -> Place {
 
 /// The closing quote for `quote` typed after `=` in a start tag, where the
 /// shared pairing does not close it: before the tag's `/>` (`<r a=|/>`).
+/// Outside a tag a quote is text (`don't`), written alone: `Some("")`.
 pub(super) fn attribute_quote(source: &str, cursor: usize, quote: char) -> Option<String> {
     let byte = utf16_to_byte_index(source, cursor);
     let before = &source[..byte];
     let at = place(before);
-    let tag = &before[at.tag_start?..];
+    let Some(tag_start) = at.tag_start else {
+        return Some(String::new());
+    };
+    let tag = &before[tag_start..];
     let after_equals = tag.trim_end_matches([' ', '\t']).ends_with('=');
     let next = source[byte..].chars().next();
     (!at.in_text && !tag.starts_with(['/', '?', '!']) && after_equals && next == Some('/'))
@@ -117,8 +121,9 @@ mod tests {
             ("<r a = |/>", Some("\"")),
             ("<r b=\"1\" a=|/>", Some("\"")),
             ("<r a|/>", None),
-            ("<r>a=|/</r>", None),
-            ("<!-- a=|/ -->", None),
+            // Outside a tag a quote is text, written alone.
+            ("<r>a=|/</r>", Some("")),
+            ("<!-- a=|/ -->", Some("")),
         ] {
             let (source, cursor) = at(marked);
             assert_eq!(

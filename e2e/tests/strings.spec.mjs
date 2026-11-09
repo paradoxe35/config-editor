@@ -93,6 +93,7 @@ const ELSEWHERE = {
   movedPlaceholder: 'protect tests (moved_token_tests) and the qa-round15 spec',
   placeholderInComment: 'a field placeholder in a comment: protect tests (bound_tests)',
   commentPlaceholder: 'a comment placeholder in a field: protect tests (bound_tests)',
+  gluedPlaceholder: 'text beside a whole placeholder: protect tests (glued_tests) and the secret-guarantees spec',
   envReference: 'reference suggestions: secret tests',
   fileReference: 'as envReference',
   otherReference: 'as envReference',

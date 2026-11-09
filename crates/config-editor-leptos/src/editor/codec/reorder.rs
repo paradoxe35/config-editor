@@ -160,7 +160,7 @@ fn in_own_element(language: &dyn ConfigLanguage, before: &str, whole: &str) -> b
 
 /// The item line `moved`, with a comma after its value exactly when the
 /// line of the place it moves to (`slot`) has one.
-fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
+pub(super) fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
     let Some(separator) = Flow::of(language).separator() else {
         return moved.to_string();
     };
@@ -232,17 +232,17 @@ fn permuted_lists<'a>(
 }
 
 /// Whether `line` holds only a comment.
-fn comment_only(language: &dyn ConfigLanguage, line: &str) -> bool {
+pub(super) fn comment_only(language: &dyn ConfigLanguage, line: &str) -> bool {
     !line.trim().is_empty() && line[..comment_start(language, line)].trim().is_empty()
 }
 
-fn indent_of(line: &str) -> usize {
+pub(super) fn indent_of(line: &str) -> usize {
     line.len() - line.trim_start_matches([' ', '\t']).len()
 }
 
 /// The items of the block list at `pointer` (a key's value written `key:`
-/// then one `- ` line per item, in a language whose indentation is
-/// structure), each as its first line (the comment lines right above it at
+/// then one line per item opened by the language's item marker, YAML's
+/// `- `, the lines under an item indented deeper), each as its first line (the comment lines right above it at
 /// its dash's indent or further out, at exactly its indent above the first
 /// item), its dash line, and its last line (deeper comment lines end the
 /// item before).
@@ -253,9 +253,7 @@ pub(super) fn block_items(
     pointer: &str,
 ) -> Option<Vec<(usize, usize, usize)>> {
     let flow = Flow::of(language);
-    if !language.indent_is_structure() || flow.item_marker().is_none() {
-        return None;
-    }
+    flow.item_marker()?;
     let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
     // Where the list starts: after its key's line, which ends at its `:`;
     // the document's own list after the document's start (`---`, a
@@ -356,9 +354,14 @@ pub(in super::super) fn unmoved_comments(
                         .or_else(|| inline_location(language, previous, &item, false))?;
                     byte_range(previous, span)
                 };
-                let first = range(0)?;
-                let last = range(before.len().checked_sub(1)?)?;
-                line_of(first.start)..line_of(last.end.max(first.start)) + 1
+                match (range(0), range(before.len().checked_sub(1)?)) {
+                    (Some(first), Some(last)) => {
+                        line_of(first.start)..line_of(last.end.max(first.start)) + 1
+                    }
+                    // Items the language cannot place (it declares no item
+                    // marker): the lines under the list's key.
+                    _ => lines_under_key(language, previous, &lines, &pointer)?,
+                }
             }
         };
         // A list on one line: a comment after it is the list's, not an
@@ -371,4 +374,37 @@ pub(in super::super) fn unmoved_comments(
             .any(|line| comment_start(language, line) < line.len())
             .then_some(pointer)
     })
+}
+
+/// The lines under the key of the list at `pointer` when the key's line
+/// ends at its separator: those indented deeper than the key, and the
+/// comment and blank lines between them.
+fn lines_under_key(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    lines: &[&str],
+    pointer: &str,
+) -> Option<Range<usize>> {
+    let key_line = language.key_span(previous, pointer)?.line.checked_sub(1)?;
+    let key = lines.get(key_line)?;
+    let code = key[..comment_start(language, key)].trim_end();
+    if !language
+        .config()
+        .separators
+        .iter()
+        .any(|separator| code.ends_with(separator))
+    {
+        return None;
+    }
+    let mut end = key_line + 1;
+    for (at, line) in lines.iter().enumerate().skip(key_line + 1) {
+        if line.trim().is_empty() || comment_only(language, line) {
+            continue;
+        }
+        if indent_of(line) <= indent_of(key) {
+            break;
+        }
+        end = at + 1;
+    }
+    (end > key_line + 1).then_some(key_line + 1..end)
 }

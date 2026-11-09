@@ -323,6 +323,70 @@ fn xml_keys_in_two_namespaces_refuse_to_be_edited_as_another_language() {
     report(failures);
 }
 
+/// Round 26: parsing merged the two namespaces' keys (`a: [1, 2]`)
+/// silently where converting refused, and the attributes' clash was
+/// placed at the attribute (`/k`), not at its element. Both refuse, with
+/// one message, at the element holding the two.
+#[test]
+fn keys_in_two_namespaces_are_refused_alike_by_parsing_and_converting() {
+    let mut failures = Vec::new();
+    for (host, at) in [
+        (
+            "<r xmlns:a=\"urn:a\" xmlns:b=\"urn:b\">\n  <a:x>1</a:x>\n  <b:x>2</b:x>\n</r>\n",
+            "(at /r)",
+        ),
+        ("<r xmlns:a=\"urn:a\" a:k=\"1\" k=\"2\"/>\n", "(at /r)"),
+        (
+            "<r xmlns:a=\"urn:a\">\n  <x a:k=\"1\" k=\"2\"/>\n</r>\n",
+            "(at /r/x)",
+        ),
+    ] {
+        let converted = Language::XML
+            .convert(host, Language::JSON)
+            .map(|done| done.text);
+        let parsed = Language::XML.parse(host);
+        match (&converted, &parsed) {
+            (Err(converted), Err(parsed))
+                if converted.to_string() == parsed.message && parsed.message.ends_with(at) => {}
+            _ => failures.push(format!("{host:?}: convert {converted:?}, parse {parsed:?}")),
+        }
+    }
+    report(failures);
+}
+
+/// Round 26: a key no XML name can be (`a b`, `1x`) was refused in the
+/// writer's own terms (`unsupported value: character ` ` is not allowed in
+/// an XML name`); it is said plainly, at the key.
+#[test]
+fn a_key_that_cannot_be_an_xml_name_is_refused_plainly_at_the_key() {
+    let mut failures = Vec::new();
+    for (json, expected) in [
+        (
+            "{\"r\": {\"a b\": 1}}",
+            "`a b` is not an XML name, so it cannot name an element or an attribute (at /r/a b)",
+        ),
+        (
+            "{\"r\": [{\"1x\": 1}]}",
+            "`1x` is not an XML name, so it cannot name an element or an attribute (at /r/0/1x)",
+        ),
+        (
+            "{\"r\": {\"@a=b\": 1}}",
+            "`@a=b` is not an XML name, so it cannot name an element or an attribute (at /r/@a=b)",
+        ),
+    ] {
+        match Language::JSON.convert(json, Language::XML) {
+            Err(error) if error.to_string() == expected => {}
+            other => failures.push(format!("{json}: {other:?}")),
+        }
+    }
+    // Names XML holds still convert (`x:a`, `é`, `a-b.c`).
+    let named = "{\"r\": {\"x:a\": 1, \"é\": 2, \"a-b.c\": 3, \"_\": 4}}";
+    if let Err(error) = Language::JSON.convert(named, Language::XML) {
+        failures.push(format!("{named}: {error}"));
+    }
+    report(failures);
+}
+
 /// A character XML 1.0 cannot hold (a control character, U+FFFE) is
 /// refused by the reader, raw or as a character reference's text, and by
 /// the writer: never written into a file XML readers reject.

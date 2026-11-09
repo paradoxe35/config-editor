@@ -16,6 +16,7 @@ use std::sync::Arc;
 mod emptied_quotes;
 mod host_strings;
 mod merge;
+mod shared;
 mod tags;
 mod text_scalars;
 mod typed_spellings;
@@ -145,11 +146,16 @@ impl Bridge {
         // Keys the host reads two ways are compared as the edit spells them
         // (an XML attribute the view showed `@a` beside a child `a` a save
         // removed is still `@a`, so a child `a` added back is the child).
+        // So are keys the edit language reads two ways, as the host spells
+        // them (a host's `@a`, which an XML view shows as the attribute
+        // `a`, stays `@a`).
+        let edited = self.edit.behavior().spelled_like(edit_text, edited, &old);
         let old = host.spelled_like(previous_host, old, &edited);
         let shown = self.to_edit(previous_host).ok();
         let seen = shown.as_ref().and_then(|shown| {
             codec::read(self.edit.behavior(), &shown.text, self.shape())
                 .ok()
+                .map(|seen| self.edit.behavior().spelled_like(&shown.text, seen, &old))
                 .map(|seen| host.spelled_like(previous_host, seen, &edited))
         });
         let unshown = shown.map(|shown| shown.losses).unwrap_or_default();
@@ -164,6 +170,7 @@ impl Bridge {
                 &View {
                     unshown: &unshown,
                     repetition: self.edit.behavior().repetition(),
+                    moves: merge::moved_by_user(self.edit.behavior(), seen, &edited),
                 },
             )
             .map_err(|pointer| {
@@ -254,14 +261,21 @@ impl Bridge {
         // otherwise (a number the view showed in its own form) keeps the
         // host's text: the patches leave it, and it is no loss.
         let (target, kept) = with_untouched_kept(target, &value, &old);
+        // Keys the edit put in another order are moved once the rest is
+        // saved, with their lines and comments (`in_order`): the patches
+        // write them in the host's order.
+        let moved_to = (!codec::same_order(&target, &old)).then(|| target.clone());
+        let target = match &moved_to {
+            Some(_) => merge::keys_ordered_like(target, &old),
+            None => target,
+        };
         let mut losses = rendered.losses.clone();
         losses.retain(|pointer| !kept.contains(pointer));
         let shape = self.shape();
         // What the host writes once and reads in several places (a YAML
-        // alias) is written out where the edit parts it from the rest.
-        let detached = host
-            .detach_shared(previous_host, &old, &target)
-            .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(&old));
+        // alias) is written out where the edit parts it from the rest; a
+        // renamed key holding it parts nothing.
+        let detached = shared::detached(host, previous_host, (&old, &target), shape);
         let previous_host = detached.as_deref().unwrap_or(previous_host);
         let restored =
             emptied_quotes::restored(host, previous_host, origin, (&old, &target), shape);
@@ -293,9 +307,7 @@ impl Bridge {
          -> Result<Option<String>, SaveError> {
             // A shared value this step parts from the rest written out (a
             // stage may part what the whole edit does not).
-            let detached = host
-                .detach_shared(previous, old, target)
-                .filter(|text| codec::read(host, text, shape).ok().as_ref() == Some(old));
+            let detached = shared::detached(host, previous, (old, target), shape);
             let previous = detached.as_deref().unwrap_or(previous);
             if let Some(pointer) = codec::unmoved_comments(host, previous, old, target) {
                 return Err(ConvertError::Unsupported(format!(
@@ -351,11 +363,16 @@ impl Bridge {
             Some(text) => Some(text),
             None => save(previous_host, &old, &target)?,
         };
+        // Keys the edit put in another order, besides what else it changed.
+        let patched = patched.map(|text| match &moved_to {
+            Some(order) => in_order(host, text, order, shape),
+            None => text,
+        });
         let conversion = match patched {
             Some(text) => Conversion {
                 text: typed_spellings::kept(
                     (host, self.edit.behavior()),
-                    edit_text,
+                    (previous_host, edit_text),
                     (&old, &target),
                     text,
                     shape,
@@ -462,6 +479,27 @@ impl Bridge {
             })
             .collect()
     }
+}
+
+/// `text` (the host's saved text) with its maps' keys moved into
+/// `target`'s order where it reads them in another; `text` itself when
+/// they are in it or cannot move there.
+fn in_order(
+    host: &dyn ConfigLanguage,
+    text: String,
+    target: &serde_json::Value,
+    shape: Option<&serde_json::Value>,
+) -> String {
+    let Ok(current) = codec::read(host, &text, shape) else {
+        return text;
+    };
+    let current = host.spelled_like(&text, current, target);
+    if current != *target || codec::same_order(&current, target) {
+        return text;
+    }
+    codec::patch_key_order(host, &text, &current, target, shape)
+        .filter(|moved| host.changed_form(&text, moved).is_none())
+        .unwrap_or(text)
 }
 
 /// `value` with each scalar changed from `old` as the host saves it there

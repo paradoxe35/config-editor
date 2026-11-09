@@ -21,7 +21,18 @@ pub(in crate::editor) enum SaveError {
     /// for (JSON, HCL and XML would write it as text).
     NoNonFinite { pointer: String },
     /// The save would change a read-only value.
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "nothing is protected without the feature")
+    )]
     ReadOnly(ReadOnlyChange),
+    /// The save would write text beside the placeholder the host gave as
+    /// the whole value at `pointer`.
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "nothing is protected without the feature")
+    )]
+    GluedPlaceholder { pointer: String },
 }
 
 impl From<ConvertError> for SaveError {
@@ -43,7 +54,9 @@ impl SaveError {
                     .unwrap_or("")
                     .to_string()
             }
-            SaveError::NoNull { pointer } | SaveError::NoNonFinite { pointer } => pointer.clone(),
+            SaveError::NoNull { pointer }
+            | SaveError::NoNonFinite { pointer }
+            | SaveError::GluedPlaceholder { pointer } => pointer.clone(),
             SaveError::ReadOnly(change) => change.pointer.clone(),
         }
     }
@@ -62,6 +75,9 @@ impl SaveError {
             ),
             SaveError::ReadOnly(change) => {
                 super::super::protect::save_refused(strings, &change.pointer)
+            }
+            SaveError::GluedPlaceholder { pointer } => {
+                super::super::protect::glued_message(strings, pointer)
             }
         }
     }

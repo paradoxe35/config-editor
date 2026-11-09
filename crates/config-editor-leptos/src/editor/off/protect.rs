@@ -164,7 +164,11 @@ impl EditorState {
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
-    pub(super) fn check_host_save(&self, _old: &str, _new: &str) -> Result<(), ReadOnlyChange> {
+    pub(super) fn check_host_save(
+        &self,
+        _old: &str,
+        _new: &str,
+    ) -> Result<(), super::edit_as::SaveError> {
         Ok(())
     }
 
@@ -211,6 +215,13 @@ pub(super) struct ReadOnlyChange {
 pub(super) fn save_refused(strings: &EditorStrings, pointer: &str) -> String {
     let place = if pointer.is_empty() { "/" } else { pointer };
     crate::strings::fill(&strings.save_refused, &[("pointer", &place)])
+}
+
+/// What a save waiting on a placeholder glued to other text says: never
+/// one without the feature.
+pub(super) fn glued_message(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    crate::strings::fill(&strings.glued_placeholder, &[("pointer", &place)])
 }
 
 /// No schema marks are read.

@@ -224,6 +224,56 @@ impl LanguageConfig {
         }
     }
 
+    /// [`ConfigLanguage::format_value_like`](super::language::ConfigLanguage::format_value_like)
+    /// for a language known by its syntax alone: `formatted` (the value as
+    /// the language writes it), or a string in the quotes `written` is in
+    /// (`'two'`) when `formatted` is not and those quotes hold it as it is
+    /// (no such quote, control character or line separator inside, and no
+    /// backslash unless it is one of the
+    /// [`literal_quotes`](Self::literal_quotes)).
+    ///
+    /// ```
+    /// use config_editor_leptos::language::LanguageConfig;
+    /// use serde_json::json;
+    /// let dot = LanguageConfig { quotes: &["\"", "'"], literal_quotes: &["'"], ..LanguageConfig::default() };
+    /// assert_eq!(dot.quoted_like(&json!("three"), "'two'", "three".into()), "'three'");
+    /// assert_eq!(dot.quoted_like(&json!("a\\b"), "'two'", "a\\b".into()), "'a\\b'");
+    /// assert_eq!(dot.quoted_like(&json!("it's"), "'two'", "\"it's\"".into()), "\"it's\"");
+    /// assert_eq!(dot.quoted_like(&json!("three"), "two", "three".into()), "three");
+    /// assert_eq!(dot.quoted_like(&json!(3), "'two'", "3".into()), "3");
+    /// ```
+    pub fn quoted_like(&self, value: &Value, written: &str, formatted: String) -> String {
+        let Value::String(text) = value else {
+            return formatted;
+        };
+        let written = written.trim();
+        let Some(quote) = self
+            .quotes
+            .iter()
+            .find(|quote| written.len() >= 2 * quote.len() && written.starts_with(**quote))
+        else {
+            return formatted;
+        };
+        let long = self
+            .quotes
+            .iter()
+            .any(|other| other.len() > quote.len() && written.starts_with(*other));
+        let literal = self.literal_quotes.contains(quote);
+        let fits = written.ends_with(quote)
+            && !long
+            && !formatted.starts_with(quote)
+            && !text.contains(quote)
+            && !text.chars().any(|character| {
+                character.is_control() || matches!(character, '\u{2028}' | '\u{2029}')
+            })
+            && (literal || !text.contains('\\'));
+        if fits {
+            format!("{quote}{text}{quote}")
+        } else {
+            formatted
+        }
+    }
+
     /// [`ConfigLanguage::key_span`](super::language::ConfigLanguage::key_span)
     /// for a flat language: the key of a top-level `pointer` on the last
     /// line naming it (a later entry wins). `None` for a nested pointer or
@@ -247,15 +297,23 @@ impl LanguageConfig {
     /// [`ConfigLanguage::value_span`](super::language::ConfigLanguage::value_span)
     /// for a flat language: the value of a top-level `pointer` on the last
     /// line naming it, from the first character after the separator's
-    /// spaces to the line's last one that is not blank. `None` for a nested
-    /// pointer, an empty value, or without separators.
+    /// spaces to the last one that is not blank before a line comment (a
+    /// declared marker after whitespace, outside quotes). `None` for a
+    /// nested pointer, an empty value, or without separators.
     ///
     /// ```
     /// use config_editor_leptos::language::{LanguageConfig, Span};
-    /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
+    /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], quotes: &["\""], ..LanguageConfig::default() };
     /// let span = env.flat_value_span("PORT = 80 \n", "/PORT").unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (1, 8, 10));
+    /// let span = env.flat_value_span("PORT = 80  # c\n", "/PORT").unwrap();
+    /// assert_eq!((span.start_column, span.end_column), (8, 10));
+    /// let span = env.flat_value_span("TAG=a#b # c\n", "/TAG").unwrap();
+    /// assert_eq!((span.start_column, span.end_column), (5, 8));
+    /// let span = env.flat_value_span("S = \"a # b\" # c\n", "/S").unwrap();
+    /// assert_eq!((span.start_column, span.end_column), (5, 12));
     /// assert_eq!(env.flat_value_span("PORT=\n", "/PORT"), None);
+    /// assert_eq!(env.flat_value_span("PORT= # c\n", "/PORT"), None);
     /// ```
     pub fn flat_value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         let (line, entry) = self.flat_entry(source, pointer)?;
@@ -300,7 +358,7 @@ impl LanguageConfig {
         let column = |byte: usize| line[..byte].chars().count() + 1;
         let key_start = indent + written.len() - name.len();
         let after = indent + at + separator.len();
-        let rest = &line[after..];
+        let rest = &line[after..self.value_code_end(line, after)];
         let value_start = after + rest.len() - rest.trim_start().len();
         let value_end = after + rest.trim_end().len();
         Some(FlatEntry {
@@ -308,6 +366,54 @@ impl LanguageConfig {
             key: (column(key_start), column(key_start + name.len())),
             value: (value_start < value_end).then(|| (column(value_start), column(value_end))),
         })
+    }
+
+    /// Where the value from byte `start` of `line` ends: at a line comment
+    /// marker after whitespace, outside a string in the language's quotes
+    /// (a marker right after a character is data, as in `.env`'s
+    /// `KEY=a#b`); else the line's end.
+    fn value_code_end(&self, line: &str, start: usize) -> usize {
+        let mut quote: Option<&str> = None;
+        let mut after_blank = true;
+        let mut at = start;
+        while let Some(character) = line[at..].chars().next() {
+            let rest = &line[at..];
+            let mut step = character.len_utf8();
+            match quote {
+                Some(open) if character == '\\' && !self.literal_quotes.contains(&open) => {
+                    step += rest[step..].chars().next().map_or(0, char::len_utf8);
+                }
+                Some(open) if rest.starts_with(open) => {
+                    quote = None;
+                    step = open.len();
+                }
+                Some(_) => {}
+                None => {
+                    if after_blank
+                        && self
+                            .line_comments
+                            .iter()
+                            .any(|marker| rest.starts_with(marker))
+                    {
+                        return at;
+                    }
+                    // A quote opens a string where a token starts (`it's` is
+                    // a word).
+                    let opened = self
+                        .quotes
+                        .iter()
+                        .copied()
+                        .find(|open| rest.starts_with(open));
+                    if let Some(open) = opened.filter(|_| after_blank) {
+                        quote = Some(open);
+                        step = open.len();
+                    }
+                }
+            }
+            after_blank = character.is_whitespace();
+            at += step;
+        }
+        line.len()
     }
 
     fn is_comment_line(&self, code: &str) -> bool {

@@ -7,6 +7,7 @@ mod emptied_items;
 mod empty_containers;
 mod flow;
 mod kept_inline;
+mod key_order;
 mod lines;
 mod lists;
 mod moves;
@@ -20,11 +21,12 @@ use compare::{canonical_number, comment_start, comparable};
 #[cfg(test)]
 #[allow(unused_imports, reason = "the save property tests read through it")]
 pub(super) use emptied_items::without_emptied;
+pub(super) use key_order::{patch_key_order, same_order};
 pub(super) use lines::patch_structure;
 pub(super) use moves::stages as move_stages;
 pub use non_finite::{float_of, float_value, string_of, string_value};
 pub(super) use removed_items::patch_removed_items;
-pub(super) use renames::{patch_renames, patch_scalar_to_container};
+pub(super) use renames::{patch_renames, patch_scalar_to_container, with_renames_undone};
 pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
@@ -195,7 +197,11 @@ pub(super) fn convert(
 ) -> Result<Conversion, ConvertError> {
     let value = read(from, source, schema).map_err(ConvertError::Parse)?;
     convertible(from, source)?;
-    render(&value, to, previous, schema)
+    let conversion = render(&value, to, previous, schema)?;
+    // Nor is a document converted to what would not convert back (text
+    // beside child elements written from a `#text` key).
+    convertible(to, &conversion.text)?;
+    Ok(conversion)
 }
 
 /// [`convert`] for a caller who keeps the result (the headless
@@ -210,6 +216,21 @@ pub(super) fn convert_away(
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     let mut conversion = convert(source, from, to, None, schema)?;
+    // The document is read alone, with no value to spell its keys like: a
+    // key it reads back spelled otherwise (an `@a` the XML attribute `a`
+    // stands for) is a loss.
+    if let Ok(alone) = read(to, &conversion.text, schema) {
+        let value = read(from, source, schema).map_err(ConvertError::Parse)?;
+        let mut respelled = Vec::new();
+        differences(&value, &alone, String::new(), &mut respelled);
+        // Listed where the source has them (`/r/@a`, not the `/r/a` read).
+        respelled.retain(|pointer| pointer == "/" || value.pointer(pointer).is_some());
+        for pointer in respelled {
+            if !conversion.losses.contains(&pointer) {
+                conversion.losses.push(pointer);
+            }
+        }
+    }
     let tagged = from.tags(source).into_iter().map(|(pointer, _)| pointer);
     for pointer in tagged.chain(from.expressions(source)) {
         if !conversion.losses.contains(&pointer) {

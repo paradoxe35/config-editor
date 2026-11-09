@@ -661,6 +661,7 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             ));
         }
         siblings.insert(local.clone(), qualified);
+        let element_local = local.clone();
         // Its attributes, beside its children (namespace declarations aside).
         let mut attributes: HashMap<String, String> = HashMap::new();
         for attribute in element.attributes().flatten() {
@@ -670,8 +671,10 @@ pub(super) fn namespace_clash(source: &str) -> Option<String> {
             }
             let local = text(attribute.key.local_name().as_ref());
             if let Some(other) = attributes.get(&local).filter(|other| **other != qualified) {
+                // At the element holding them.
+                let element = element_local.replace('~', "~0").replace('/', "~1");
                 return Some(format!(
-                    "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{local})"
+                    "the attributes {other} and {qualified} are in different namespaces but read as the same key {local}, which another language cannot tell apart (at {pointer}/{element})"
                 ));
             }
             attributes.insert(local, qualified);

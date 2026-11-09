@@ -8,7 +8,8 @@ use web_sys::KeyboardEvent;
 use super::super::commands::{backspace_indent, toggled_selection, typed_closer};
 use super::super::edit::Edit;
 use super::super::keyboard::{
-    delete_empty_pair, paired_edit, replace_selection, skip_closing_pair, utf16_to_byte_index,
+    delete_empty_pair, is_closer, is_closing_bracket, is_quote, paired_edit, replace_selection,
+    skip_closing_pair, utf16_to_byte_index,
 };
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
 use super::super::typing::Closer;
@@ -149,13 +150,11 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     let ours = state.closer_at(start);
     // Any character of a completion the editor wrote (`</|tcp>`) is typed
     // over; otherwise only closing brackets and quotes are.
-    if !ours.is_some_and(|closer| closer.completion)
-        && !matches!(typed, ')' | ']' | '}' | '"' | '\'')
-    {
+    if !ours.is_some_and(|closer| closer.completion) && !is_closer(state.behavior(), typed) {
         return false;
     }
     let ours = ours.is_some();
-    let ends_string = matches!(typed, '"' | '\'')
+    let ends_string = is_quote(state.behavior(), typed)
         && state.behavior().lexical_state(&source, start).quote == Some(typed);
     if !(ours || ends_string) {
         return false;
@@ -206,7 +205,9 @@ fn closer_already_there(
     let indent_of = |text: &str| text.len() - text.trim_start().len();
     // What the typed character finishes on this line: a bracket alone, or
     // markup the language closes elements with (`</tcp` + `>`).
-    let (closer, typed_from) = if matches!(typed, '}' | ']' | ')') && before.trim().is_empty() {
+    let (closer, typed_from) = if is_closing_bracket(state.behavior(), typed)
+        && before.trim().is_empty()
+    {
         (typed.to_string(), byte)
     } else {
         // Markup the language closes elements with, ending with the typed
@@ -305,7 +306,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
     if closer.len > 1 && start > 0 {
         let byte = utf16_to_byte_index(&before, start);
         let after = before[byte..].chars().next();
-        if after.is_some_and(|quote| matches!(quote, '"' | '\''))
+        if after.is_some_and(|quote| is_quote(state.behavior(), quote))
             && before[..byte].ends_with(after.unwrap_or_default())
         {
             event.prevent_default();
@@ -318,7 +319,7 @@ fn delete_pair(state: EditorState, event: &KeyboardEvent, start: usize) -> bool 
             return true;
         }
     }
-    let Some((updated, caret)) = delete_empty_pair(&before, start) else {
+    let Some((updated, caret)) = delete_empty_pair(&before, start, state.behavior()) else {
         return false;
     };
     event.prevent_default();
@@ -345,11 +346,19 @@ fn auto_close(state: EditorState, event: &KeyboardEvent, start: usize, typed: ch
             closing[..len].encode_utf16().count(),
             Some(typed),
         );
-    } else if matches!(closing.as_str(), ")" | "]" | "}") {
+    } else if closing.chars().count() == 1
+        && closing
+            .chars()
+            .all(|closer| is_closing_bracket(state.behavior(), closer))
+    {
         // A bracket the language closes (HCL's `${` in a string): typed
         // over, deleted with its opener.
         state.remember_closer(&updated, caret, 1, Some(typed));
-    } else if !closing.is_empty() && closing.chars().all(|quote| matches!(quote, '"' | '\'')) {
+    } else if !closing.is_empty()
+        && closing
+            .chars()
+            .all(|quote| is_quote(state.behavior(), quote))
+    {
         // A closing quote run (TOML's `"""`) is typed over and deleted with
         // its opener; Enter inside it is a line break of the string.
         state.remember_closer(&updated, caret, closing.encode_utf16().count(), None);
@@ -382,7 +391,7 @@ fn open_pair(
         && state.behavior().entry_started(&updated, selection_start);
     // A quote ends a string value; Enter opens a bracket pair instead of
     // stepping out of it.
-    let opener = matches!(opening, '"' | '\'').then_some(opening);
+    let opener = is_quote(state.behavior(), opening).then_some(opening);
     state.remember_closer(&updated, selection_end, 1, opener);
     let wrapped_backward = backward && selection_start != selection_end;
     let (anchor, caret) = if wrapped_backward {

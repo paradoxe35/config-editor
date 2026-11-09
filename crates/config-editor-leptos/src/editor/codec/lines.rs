@@ -164,9 +164,21 @@ fn patch_lines(
                 // A rendered line with no host line (a blank line the
                 // serializer writes between tables) has nothing to remove;
                 // a real mismatch is caught by the read-back below.
-                if let Some(at) = place[old_index] {
-                    removed[at] = true;
-                    replacing.get_or_insert(at);
+                // A line of code with no host line is written there in a
+                // form the host does not show: its host line would stay
+                // beside its replacement (a key written twice, which a
+                // parse where the last wins accepts), so the patch fails.
+                match place[old_index] {
+                    Some(at) => {
+                        removed[at] = true;
+                        replacing.get_or_insert(at);
+                    }
+                    None => {
+                        let code = comparable(language, rendered_old[old_index]);
+                        if !code.is_empty() && !punctuation(&code) {
+                            return None;
+                        }
+                    }
                 }
                 old_index += 1;
             }

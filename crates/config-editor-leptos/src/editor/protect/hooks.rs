@@ -11,6 +11,7 @@ use super::super::completion::{Completion, SuggestionPlace};
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::line_rows::LineMarks;
+use super::glued::glued_placeholders;
 use super::live::ProtectState;
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
@@ -115,7 +116,11 @@ impl ProtectState {
                 } else {
                     Vec::new()
                 };
-                unknown_placeholders(behavior, text, matcher, known, &followed, schema, strings)
+                let mut problems = unknown_placeholders(
+                    behavior, text, matcher, known, &followed, schema, strings,
+                );
+                problems.extend(glued_placeholders(behavior, text, known, strings));
+                problems
             })
         })
     }

@@ -138,6 +138,12 @@ impl ConfigLanguage for JsonBehavior {
         serde_json::from_str::<Value>(written.trim()).ok().as_ref() == Some(value)
     }
 
+    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
+        super::number_forms::checked(written, value, &super::number_forms::DECIMAL, |text, value| {
+            self.scalar_reads_as(text, value)
+        })
+    }
+
     fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
         key_at_column(line, column).map(|(_, key, start_column)| (key, start_column))
     }

@@ -250,5 +250,46 @@ for (const host of HOSTS) {
       await browserPage.keyboard.type('y');
       await expect.poll(() => browserPage.evaluate(() => window.changes.at(-1))).toBe(text.replace('name: x', 'name: xy'));
     });
+
+    // A placeholder the host gave as a field's whole value stands for the
+    // whole secret: keys typed beside it are refused, in the host's language
+    // and in an Edit-as view, and the host never hears it glued to text.
+    for (const view of [null, 'json', 'toml']) {
+      test(`typing beside a whole placeholder is refused${view ? ` editing as ${view}` : ''}`, async ({ page: browserPage }) => {
+        await open(browserPage, host);
+        if (view) {
+          await browserPage.evaluate((editAs) => window.editor.update({ editAs }), view);
+          await expect(input(browserPage)).toHaveValue(new RegExp(view === 'json' ? '^\\{' : 'name = '));
+        }
+        const shown = await input(browserPage).inputValue();
+        for (const [where, keys] of [
+          ['after', 'Z'],
+          ['before', 'Z'],
+          ['after', ' x'],
+        ]) {
+          await input(browserPage).evaluate(
+            (element, [token, after]) => {
+              const at = element.value.indexOf(token) + (after ? token.length : 0);
+              element.focus();
+              element.setSelectionRange(at, at);
+              element.dispatchEvent(new Event('select', { bubbles: true }));
+            },
+            [host.same, where === 'after'],
+          );
+          await browserPage.keyboard.type(keys);
+          await expect(browserPage.locator('.config-editor__protect-tip')).toContainText(
+            '/a: a secret placeholder stands for the whole secret',
+          );
+          const value = await input(browserPage).inputValue();
+          expect(value.includes(`${host.same}Z`) || value.includes(`Z${host.same}`) || value.includes(`${host.same} x`)).toBe(false);
+        }
+        await browserPage.waitForTimeout(600);
+        // Only a space a YAML plain value ends before may stay.
+        const trimmed = (text) => text.replace(/ +\n/g, '\n');
+        expect(trimmed(await input(browserPage).inputValue())).toBe(trimmed(shown));
+        const changes = await browserPage.evaluate(() => window.changes);
+        expect(changes.filter((change) => /Z«|»Z|» x|Z\{\{|\}\}Z|\}\} x/.test(change))).toEqual([]);
+      });
+    }
   });
 }

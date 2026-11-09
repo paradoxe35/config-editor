@@ -125,6 +125,11 @@ pub(crate) fn field_range(
         .iter()
         .find_map(|pointer| field_span(behavior, source, pointer))
         .or_else(|| first_repeated(behavior, source, pointer).map(range))
+        // Read through a shared value (a YAML alias): where that is written.
+        .or_else(|| {
+            let written = behavior.written_at(source, pointer)?;
+            (written != pointer).then(|| field_range(behavior, source, &written))?
+        })
 }
 
 /// A list written as repeated elements or blocks (`<hosts>` twice) has no
@@ -163,7 +168,9 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
             && value.start_column >= key.start_column
             && value.start_column <= width
     }) else {
-        return Some(range(key));
+        // A key over lines (a YAML block scalar key, `? |`) ends where it
+        // ends.
+        return Some(spanning(source, key));
     };
     let line: Vec<char> = split_line(source, key.line - 1)
         .unwrap_or("")
