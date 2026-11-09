@@ -13,6 +13,11 @@ pub(crate) fn Announcer(state: EditorState) -> impl IntoView {
         <div class="config-editor__sr-only" id=a11y.caret_note_id()>
             {move || a11y.caret_note.get()}
         </div>
+        // Why the editor is read-only, which the textarea's description
+        // also holds.
+        <div class="config-editor__sr-only" id=a11y.reason_id()>
+            {move || state.read_only_reason()}
+        </div>
         <div
             class="config-editor__sr-only config-editor__announcement"
             role="status"

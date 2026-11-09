@@ -66,6 +66,8 @@ pub(super) struct Config {
     pub(super) schema: StoredValue<Option<Arc<SchemaBundle>>>,
     /// The `read_only` prop, which may switch live.
     pub(super) read_only: Signal<bool>,
+    /// The `read_only_reason` prop.
+    pub(super) read_only_reason: Signal<Option<String>>,
     /// The `settings` prop, one memo per setting (see `live_settings`).
     pub(super) settings: LiveSettings,
 }
@@ -82,7 +84,12 @@ pub(super) struct Init {
     /// The host's diff baseline at mount, in the host language (see
     /// `host_editing` for later ones).
     pub(super) baseline: String,
+    /// A text in `edit_language` to show instead of the host's text
+    /// converted (see `SyncState::load`).
+    pub(super) opening: Option<String>,
     pub(super) read_only: Signal<bool>,
+    /// Why the editor is read-only, said when an edit is refused.
+    pub(super) read_only_reason: Signal<Option<String>>,
     pub(super) settings: Signal<EditorSettings>,
     /// The host's `on_change`; edits reach it directly or through the
     /// Edit-as conversion (see `sync`).
@@ -206,7 +213,9 @@ impl EditorState {
             schema_error,
             host_text,
             baseline,
+            opening,
             read_only,
+            read_only_reason,
             settings,
             host_on_change,
             host_diagnostics,
@@ -219,6 +228,7 @@ impl EditorState {
             host_language,
             schema: StoredValue::new(schema.clone()),
             read_only,
+            read_only_reason,
             settings,
         };
         // What reaches the host is remembered: a baseline equal to it is the
@@ -235,6 +245,7 @@ impl EditorState {
             edit_language,
             config.schema,
             host_text,
+            opening,
             host_on_change,
             line_endings,
         );

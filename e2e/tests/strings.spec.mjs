@@ -68,6 +68,8 @@ const ELSEWHERE = {
   foldedRanges: 'as foldedLines',
   unfoldedRanges: 'as foldedLines',
   readOnlyEditor: 'typing in a read-only editor: the qa-round25-a11y spec',
+  readOnlyEditorReason: 'typing in a read-only editor with a `readOnlyReason`: the documents-screen spec, framework-cases and a11y tests',
+  readOnlyTabTitle: 'the tooltip of a read-only document with a `readOnlyReason`: the documents-screen spec',
   revertLineAndRemovedTitle: 'as revertTitle',
   defaultValue: 'the hovered key has no default: schema help tests',
   warning: 'severity names: a11y tests',

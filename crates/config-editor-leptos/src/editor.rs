@@ -202,6 +202,17 @@ pub fn ConfigEditor(
     /// then, so this, not `edit_as`, is what is shown.
     #[prop(optional, into)]
     on_edit_as_change: Option<Callback<Language>>,
+    /// Called with whether the text on screen is written back to the host's
+    /// document: once on mount, then each time that changes. It is `false`
+    /// while an `edit_as` edit cannot convert back (invalid text, a value
+    /// the host's language cannot hold, a read-only value changed), when
+    /// [`EditorHandle::value`] is `None` and `on_change` waits; `true` again
+    /// once the text converts, from whatever brought it there (typing,
+    /// paste, cut, drop, undo, a switch, a reload or a new `value`). Read
+    /// after each pause in typing, as the conversion is. Always `true`
+    /// while editing in `language`.
+    #[prop(optional, into)]
+    on_sync_change: Option<Callback<bool>>,
     /// Called with how the document differs from `baseline` (lines added,
     /// removed and modified, and the number of separate changes): once on
     /// mount and after each edit or baseline update that changes it. Counts
@@ -220,6 +231,12 @@ pub fn ConfigEditor(
     /// hover docs.
     #[prop(default = Signal::from(false), into)]
     read_only: Signal<bool>,
+    /// Why the editor is read-only (a file the host manages, a missing
+    /// permission), while `read_only` is on: shown with the
+    /// "Cannot edit in a read-only editor" notice when the user tries to
+    /// edit, and in the text area's accessible description. May be a signal.
+    #[prop(optional, into)]
+    read_only_reason: MaybeProp<String>,
     /// A handle the host keeps to find fields, follow the caret and jump to
     /// a field; see [`EditorHandle`].
     #[prop(optional)]
@@ -296,7 +313,9 @@ pub fn ConfigEditor(
         schema_error,
         host_text,
         baseline: baseline.get_untracked(),
+        opening: handle.and_then(EditorHandle::take_opening),
         read_only,
+        read_only_reason: Signal::derive(move || read_only_reason.get()),
         settings,
         host_on_change: on_change,
         host_diagnostics: host_diagnostics.unwrap_or_default(),
@@ -322,6 +341,7 @@ pub fn ConfigEditor(
             edit_as,
             on_edit_as_change,
             initial_pending,
+            on_sync_change,
         },
     );
     host_editing::connect(

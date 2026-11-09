@@ -1,4 +1,4 @@
-import type { EditorView } from "@pngwasi/config-editor";
+import type { EditorView, LanguageName } from "@pngwasi/config-editor";
 import type { ConfigDocumentsProps } from "./types.js";
 /**
  * Several documents as tabs, one editor per document (each keeps its caret,
@@ -18,6 +18,7 @@ declare const ConfigDocuments: import("svelte").Component<ConfigDocumentsProps, 
     isDirty: (id: string) => boolean;
     save: (id: string) => boolean;
     saveAll: () => string[];
+    editAs: (id: string, language: LanguageName) => boolean;
     focus: () => void;
     editor: (id: string) => EditorView | null;
 }, "">;

@@ -27,12 +27,16 @@ export interface EditorOptions extends EditorSettings {
   fileName?: string;
   /** View mode; switches live (`update`). */
   readOnly?: boolean;
+  /** Why the editor is read-only (a file the host manages, a missing permission), while `readOnly` is on: shown with the "Cannot edit in a read-only editor" notice when the user tries to edit, and in the text area's accessible description. Updates live. */
+  readOnlyReason?: string;
   /** Extra class on the editor root. */
   className?: string;
   /** Called with the document, in `language`, after every edit. */
   onChange?: (value: string) => void;
   /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
   onEditAsChange?: (language: LanguageName) => void;
+  /** Called with whether the text on screen is written back to the document (`value`): once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value()` is `null`, `onChange` waits), from whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each pause in typing. Always `true` while editing in `language`. */
+  onSyncChange?: (inSync: boolean) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
@@ -126,6 +130,8 @@ export interface EditorUpdate extends SettingsUpdate {
   editAs?: LanguageName | null;
   /** View mode; `null` is `false`. */
   readOnly?: boolean | null;
+  /** Why the editor is read-only; `null` says no reason. */
+  readOnlyReason?: string | null;
   /** Replaces the host's problems; `null` or `[]` clears them. */
   hostDiagnostics?: HostDiagnostic[] | null;
   /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
@@ -134,6 +140,7 @@ export interface EditorUpdate extends SettingsUpdate {
   readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
+  onSyncChange?: ((inSync: boolean) => void) | null;
   onChangeSummary?: ((summary: ChangeSummary) => void) | null;
   onPathChange?: ((path: EditorPath) => void) | null;
   onSchemaWarning?: ((message: string) => void) | null;
@@ -329,12 +336,16 @@ export interface DocumentSpec {
   baseline?: string;
   /** View mode for this document; switches live. */
   readOnly?: boolean;
+  /** Why the document is read-only, while `readOnly` is on: its tab's tooltip and accessible description say it, and so does the "Cannot edit in a read-only editor" notice. Updates live. */
+  readOnlyReason?: string;
   /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
   closable?: boolean;
   /** JSON Schema as JSON text; documents with the same text share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
   schema?: string;
-  /** Edit in another language than `language`; switches live. */
+  /** Edit in another language than `language`; switches live. A list with the same `editAs` changes nothing: to ask for it again (after an undo stepped back across the switch), call `editAs(id, language)`. */
   editAs?: LanguageName;
+  /** The text on screen when the document's editor opens, in the `editAs` language, in place of `value` converted: what the user had on screen before the view went away (`editor(id).text()`). `value` and `baseline` stay yours; it converts back like an edit, so `onChange` hears it once it converts, and until then `onSyncChange` says `false`. Undo starts at it. Read when the editor mounts (the first time the document is shown); ignored without `editAs`. */
+  editAsText?: string;
   /** Settings for this document's editor, over the view's: the keys given replace the view's (which still apply to the rest, and follow its `update`). Switch live. The view's `styled` applies to every editor. */
   settings?: EditorSettings;
   /** Problems the host found in this document (see `HostDiagnostic`); a new list replaces the markers. */
@@ -376,6 +387,10 @@ export interface DocumentsOptions extends EditorSettings {
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
   onDirtyChange?: (id: string, dirty: boolean) => void;
+  /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
+  onEditAsChange?: (id: string, language: LanguageName) => void;
+  /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes (see `ConfigEditor`'s `onSyncChange`). */
+  onSyncChange?: (id: string, inSync: boolean) => void;
 }
 
 /**
@@ -398,6 +413,8 @@ export interface DocumentsUpdate extends SettingsUpdate {
   /** `null` gives `Ctrl+S` back to the browser. */
   onSave?: ((id: string, value: string, language: LanguageName) => void) | null;
   onDirtyChange?: ((id: string, dirty: boolean) => void) | null;
+  onEditAsChange?: ((id: string, language: LanguageName) => void) | null;
+  onSyncChange?: ((id: string, inSync: boolean) => void) | null;
   /** The view is built from it: create a new one to change it. */
   className?: never;
   /** The view is built from it: create a new one to change it. */

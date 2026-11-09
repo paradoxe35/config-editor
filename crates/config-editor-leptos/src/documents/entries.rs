@@ -30,9 +30,15 @@ pub(super) struct Entry {
     pub(super) value: RwSignal<String>,
     pub(super) baseline: RwSignal<String>,
     pub(super) read_only: RwSignal<bool>,
+    pub(super) read_only_reason: RwSignal<Option<String>>,
     /// The user may close it (with `on_close` set).
     pub(super) closable: RwSignal<bool>,
     pub(super) edit_as: RwSignal<Option<Language>>,
+    /// The text its editor opens with (see `Document::edit_as_text`).
+    pub(super) edit_as_text: StoredValue<Option<String>>,
+    /// What the host was last told: the language on screen, and whether
+    /// the text is written back to its value (see `Documents::note_language`, `note_sync`).
+    pub(super) told: StoredValue<Told>,
     /// The document's own settings, else the view's.
     pub(super) settings: RwSignal<Option<EditorSettings>>,
     pub(super) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
@@ -71,8 +77,11 @@ impl Entry {
             value: RwSignal::new(document.value.clone()),
             baseline: RwSignal::new(baseline),
             read_only: RwSignal::new(document.read_only),
+            read_only_reason: RwSignal::new(document.read_only_reason.clone()),
             closable: RwSignal::new(document.closable),
             edit_as: RwSignal::new(document.edit_as),
+            edit_as_text: StoredValue::new(document.edit_as_text.clone()),
+            told: StoredValue::new(Told::default()),
             settings: RwSignal::new(document.settings.clone()),
             host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
             read_only_paths: RwSignal::new(document.read_only_paths.clone()),
@@ -114,11 +123,15 @@ impl Entry {
         if self.read_only.get_untracked() != document.read_only {
             self.read_only.set(document.read_only);
         }
+        set_if_changed(self.read_only_reason, &document.read_only_reason);
         if self.closable.get_untracked() != document.closable {
             self.closable.set(document.closable);
         }
         if self.edit_as.get_untracked() != document.edit_as {
             self.edit_as.set(document.edit_as);
+        }
+        if !untrack(|| self.handle.is_mounted()) {
+            self.edit_as_text.set_value(document.edit_as_text.clone());
         }
         set_if_changed(self.settings, &document.settings);
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
@@ -169,6 +182,13 @@ where
     }
 }
 
+/// What the host was last told of a document's editor.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub(super) struct Told {
+    pub(super) language: Option<Language>,
+    pub(super) in_sync: Option<bool>,
+}
+
 /// The host's callbacks.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Callbacks {
@@ -178,6 +198,8 @@ pub(super) struct Callbacks {
     pub(super) on_change: Option<Callback<(String, String)>>,
     pub(super) on_save: Option<Callback<(String, SaveRequest)>>,
     pub(super) on_dirty_change: Option<Callback<(String, bool)>>,
+    pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
+    pub(super) on_sync_change: Option<Callback<(String, bool)>>,
 }
 
 /// The view's state that each document's tab, panel and editor follow.
@@ -520,6 +542,54 @@ impl Documents {
         }
         entry.dirty.set(dirty);
         self.report_dirty(&entry.id, dirty);
+    }
+
+    /// Tells the host the language on screen in `entry`'s editor, when it
+    /// is not what it was told last.
+    pub(super) fn note_language(&self, entry: &Entry, language: Language) {
+        let told = Some(language);
+        if entry.told.try_with_value(|known| known.language) == Some(told) {
+            return;
+        }
+        entry.told.update_value(|known| known.language = told);
+        if let Some(callback) = self.callbacks.on_edit_as_change {
+            callback.run((entry.id.clone(), language));
+        }
+    }
+
+    /// Tells the host whether `entry`'s text on screen is written back to
+    /// its value, when that is not what it was told last.
+    pub(super) fn note_sync(&self, entry: &Entry, in_sync: bool) {
+        // The language on screen is told first, when the editor's own
+        // report of its sync state comes before the view's of its mount.
+        if entry.told.try_with_value(|known| known.language.is_none()) == Some(true)
+            && let Some(language) = untrack(|| entry.handle.language_on_screen())
+        {
+            self.note_language(entry, language);
+        }
+        let told = Some(in_sync);
+        if entry.told.try_with_value(|known| known.in_sync) == Some(told) {
+            return;
+        }
+        entry.told.update_value(|known| known.in_sync = told);
+        if let Some(callback) = self.callbacks.on_sync_change {
+            callback.run((entry.id.clone(), in_sync));
+        }
+    }
+
+    /// Asks for `language` on screen in the document `id`, as a new
+    /// `edit_as` does, and again when it is the one asked for last (see
+    /// [`crate::DocumentsHandle::edit_as`]). Returns whether `id` is open.
+    pub(super) fn edit_as(&self, id: &str, language: Language) -> bool {
+        let Some(entry) = self.entry(id) else {
+            return false;
+        };
+        let wanted = (language != entry.setup.language).then_some(language);
+        if entry.edit_as.get_untracked() != wanted {
+            entry.edit_as.set(wanted);
+        }
+        entry.handle.ask_edit_as(language);
+        true
     }
 
     fn report_dirty(&self, id: &str, dirty: bool) {

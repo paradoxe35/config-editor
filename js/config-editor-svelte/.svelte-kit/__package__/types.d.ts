@@ -17,6 +17,8 @@ export interface ConfigEditorProps extends EditorSettings {
     editAs?: LanguageName | null;
     /** Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one. */
     onEditAsChange?: (language: LanguageName) => void;
+    /** Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new value); read after each pause in typing. Always `true` while editing in `language`. */
+    onSyncChange?: (inSync: boolean) => void;
     /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
     onChangeSummary?: (summary: ChangeSummary) => void;
     /** Called with the path of what the caret is on each time it changes (and once on mount). The path is computed only while set. */
@@ -45,6 +47,8 @@ export interface ConfigEditorProps extends EditorSettings {
     fileName?: string;
     /** View mode; switches live. */
     readOnly?: boolean;
+    /** Why the editor is read-only, while `readOnly` is on: shown with the "Cannot edit in a read-only editor" notice and in the text area's accessible description. Updates live. */
+    readOnlyReason?: string | null;
     /** Class on the editor root (inside the container). Changing it re-mounts. */
     editorClass?: string;
     /** Class of the container element. */
@@ -76,6 +80,10 @@ export interface ConfigDocumentsProps extends EditorSettings {
     onSave?: (id: string, value: string, language: LanguageName) => void;
     /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */
     onDirtyChange?: (id: string, dirty: boolean) => void;
+    /** Called with a document's id and the language on screen in its editor: once when the editor mounts (the first time the document is shown), then each time that changes (a switch made, one that waited until the text converted, undo or redo across a switch). */
+    onEditAsChange?: (id: string, language: LanguageName) => void;
+    /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */
+    onSyncChange?: (id: string, inSync: boolean) => void;
     /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
     label?: string;
     /** Class on the view's root (inside the container). Changing it re-mounts. */

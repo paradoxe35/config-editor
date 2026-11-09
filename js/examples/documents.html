@@ -53,6 +53,8 @@
           update(id, { baseline: value });
         },
         onSelect: (id) => log(`select ${id}`),
+        onEditAsChange: (id, language) => log(`language ${id} ${language}`),
+        onSyncChange: (id, inSync) => log(`sync ${id} ${inSync}`),
         onAdd: add,
         onClose: ({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;

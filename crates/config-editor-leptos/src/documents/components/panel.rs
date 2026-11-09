@@ -59,9 +59,10 @@ fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html
             let Some(element) = panel.get_untracked() else {
                 return;
             };
-            let entry = entry.clone();
-            let view = untrack(|| mount_detached(element.into(), move || editor(documents, entry)));
+            let shown = entry.clone();
+            let view = untrack(|| mount_detached(element.into(), move || editor(documents, shown)));
             mounted.set_value(Some(view));
+            report_language_once_mounted(documents, entry.clone());
         }
     };
     let mount = Callback::new(mount);
@@ -78,6 +79,18 @@ fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html
         let _ = mounted.try_update_value(|view| *view = None);
     });
     panel
+}
+
+/// Tells the host the language on screen of the editor just mounted, a
+/// moment later, so its callback can already reach the editor (see
+/// `Documents::note_language`: the editor's own report of an `edit_as`
+/// it mounted with is not repeated).
+fn report_language_once_mounted(documents: Documents, entry: Entry) {
+    later::soon(documents, move |documents| {
+        if let Some(language) = entry.handle.language_on_screen() {
+            documents.note_language(&entry, language);
+        }
+    });
 }
 
 /// Focuses the document's editor once it is mounted and shown, when a
@@ -118,6 +131,20 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
     });
     let dirty_entry = entry.clone();
     let dirty_changed = move |dirty: bool| documents.note_dirty(&dirty_entry, dirty);
+    let language_entry = entry.clone();
+    let language_changed =
+        move |language: Language| documents.note_language(&language_entry, language);
+    let sync_entry = entry.clone();
+    let sync_changed = move |in_sync: bool| documents.note_sync(&sync_entry, in_sync);
+    // A text kept from an earlier session opens in the `edit_as` language.
+    let opening = entry
+        .edit_as_text
+        .try_update_value(std::mem::take)
+        .flatten();
+    entry
+        .handle
+        .open_with(opening.filter(|_| entry.edit_as.get_untracked().is_some()));
+    let read_only_reason = entry.read_only_reason;
     let edit_as = entry.edit_as;
     let edit_as = Signal::derive(move || edit_as.get());
     let schema = entry.setup.schema.clone();
@@ -137,6 +164,7 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             value=entry.value
             baseline=entry.baseline
             read_only=entry.read_only
+            read_only_reason=read_only_reason
             nostrip:schema=schema
             file_name=entry.file_name.get_untracked()
             settings=settings
@@ -147,6 +175,8 @@ fn editor(documents: Documents, entry: Entry) -> impl IntoView {
             on_change=changed
             nostrip:on_save=saved
             on_dirty_change=dirty_changed
+            on_edit_as_change=language_changed
+            on_sync_change=sync_changed
             handle=entry.handle
         />
     }

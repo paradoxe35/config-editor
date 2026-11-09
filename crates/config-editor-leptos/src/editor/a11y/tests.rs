@@ -553,3 +553,42 @@ fn the_same_announcement_twice_is_said_twice() {
         ["one", "one", "one", "two"]
     );
 }
+
+#[cfg(feature = "yaml")]
+#[test]
+fn a_read_only_editor_says_why_when_an_edit_is_refused() {
+    use crate::editor::languages::Language as Lang;
+    use crate::editor::test_state::TestEditor;
+    use leptos::prelude::*;
+    let mut editor = TestEditor::new(Lang::YAML, "a: 1\n");
+    editor.read_only = true;
+    editor.read_only_reason = Some("Managed by the operator".into());
+    let (_owner, state) = editor.mount();
+    state.note_read_only();
+    assert_eq!(
+        state.a11y().announcement.get_untracked(),
+        "Cannot edit in a read-only editor: Managed by the operator"
+    );
+    assert_eq!(
+        untrack(|| state.read_only_reason()).as_deref(),
+        Some("Managed by the operator")
+    );
+    // Without a reason (or an empty one), the plain notice.
+    for reason in [None, Some("  ".to_string())] {
+        let mut editor = TestEditor::new(Lang::YAML, "a: 1\n");
+        editor.read_only = true;
+        editor.read_only_reason = reason;
+        let (_owner, state) = editor.mount();
+        state.note_read_only();
+        assert_eq!(
+            state.a11y().announcement.get_untracked(),
+            "Cannot edit in a read-only editor"
+        );
+        assert_eq!(untrack(|| state.read_only_reason()), None);
+    }
+    // Editable, a reason says nothing.
+    let mut editor = TestEditor::new(Lang::YAML, "a: 1\n");
+    editor.read_only_reason = Some("Managed by the operator".into());
+    let (_owner, state) = editor.mount();
+    assert_eq!(untrack(|| state.read_only_reason()), None);
+}

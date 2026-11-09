@@ -233,6 +233,7 @@ export class EditorBinding extends Binding {
       baseline,
       fileName: props.fileName,
       readOnly: props.readOnly,
+      readOnlyReason: props.readOnlyReason ?? undefined,
       className: props.editorClassName,
       onChange: (text) => {
         if (this.#carried) this.#carried.value = text;
@@ -240,6 +241,7 @@ export class EditorBinding extends Binding {
         this.props.onChange?.(text);
       },
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
+      onSyncChange: (inSync) => this.props.onSyncChange?.(inSync),
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
       hostDiagnostics: props.hostDiagnostics,
@@ -331,6 +333,7 @@ export class EditorBinding extends Binding {
     }
     if (changed("editAs", props.editAs ?? null)) update.editAs = props.editAs ?? null;
     if (changed("readOnly", props.readOnly ?? false)) update.readOnly = props.readOnly ?? false;
+    if (changed("readOnlyReason", props.readOnlyReason ?? null)) update.readOnlyReason = props.readOnlyReason ?? null;
     for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
       const list = JSON.stringify(props[name] ?? []);
       if (changed(name, list)) update[name] = JSON.parse(list);
@@ -499,6 +502,8 @@ export class DocumentsBinding extends Binding {
       },
       onSave: this.#save,
       onDirtyChange: (id, dirty) => this.props.onDirtyChange?.(id, dirty),
+      onEditAsChange: (id, language) => this.props.onEditAsChange?.(id, language),
+      onSyncChange: (id, inSync) => this.props.onSyncChange?.(id, inSync),
     });
   }
 
@@ -549,6 +554,7 @@ export class DocumentsBinding extends Binding {
       isDirty: (id) => binding.ask((view) => view.isDirty(id), false),
       save: (id) => binding.ask((view) => view.save(id), false),
       saveAll: () => binding.ask((view) => view.saveAll(), []),
+      editAs: (id, language) => binding.ask((view) => view.editAs(id, language), false),
       focus: () => binding.guard((view) => view.focus()),
       editor: (id) => binding.ask((view) => view.editor(id) ?? null, null),
     };

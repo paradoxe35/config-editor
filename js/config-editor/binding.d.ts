@@ -39,6 +39,7 @@ export interface EditorBindingProps extends EditorSettings {
   language?: LanguageName;
   editAs?: LanguageName | null;
   onEditAsChange?: (language: LanguageName) => void;
+  onSyncChange?: (inSync: boolean) => void;
   onChangeSummary?: (summary: ChangeSummary) => void;
   onPathChange?: (path: EditorPath) => void;
   hostDiagnostics?: HostDiagnostic[];
@@ -53,6 +54,7 @@ export interface EditorBindingProps extends EditorSettings {
   onBaselineConflict?: (event: BaselineConflict) => void;
   fileName?: string;
   readOnly?: boolean;
+  readOnlyReason?: string | null;
   editorClassName?: string;
   onError?: (error: unknown) => void;
 }
@@ -116,6 +118,8 @@ export interface DocumentsBindingProps extends EditorSettings {
   onChange?: (id: string, value: string) => void;
   onSave?: (id: string, value: string, language: LanguageName) => void;
   onDirtyChange?: (id: string, dirty: boolean) => void;
+  onEditAsChange?: (id: string, language: LanguageName) => void;
+  onSyncChange?: (id: string, inSync: boolean) => void;
   label?: string;
   viewClassName?: string;
   onError?: (error: unknown) => void;
@@ -135,6 +139,14 @@ export interface ConfigDocumentsHandle {
   save(id: string): boolean;
   /** Saves every document with unsaved edits; returns the ids sent. */
   saveAll(): string[];
+  /**
+   * Edits the document `id` as `language` (its own language to go back), also
+   * when its `editAs` already says so: a prop that did not change is not
+   * sent again, so after an undo stepped back across the switch this asks
+   * for it again. Give the document the same `editAs`. `false` when there is
+   * no such document.
+   */
+  editAs(id: string, language: LanguageName): boolean;
   /** Focuses the active document's editor. */
   focus(): void;
   /**

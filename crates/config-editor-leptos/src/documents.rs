@@ -19,6 +19,8 @@ mod handle;
 mod keys;
 mod model;
 mod plan;
+#[cfg(all(test, feature = "yaml", feature = "toml"))]
+mod screen_tests;
 mod tab_names;
 
 pub use handle::DocumentsHandle;
@@ -26,7 +28,7 @@ pub use model::{CloseRequest, Document};
 
 use crate::cssom::cssom;
 use crate::reactive::KeyedList;
-use crate::{EditorSettings, PRESET_CSS, SaveRequest};
+use crate::{EditorSettings, Language, PRESET_CSS, SaveRequest};
 use components::{DocumentPanel, TabStrip};
 use entries::{Callbacks, Documents, Entry};
 
@@ -130,6 +132,22 @@ pub fn ConfigDocuments(
     /// baseline: once when it is added, then each time that changes.
     #[prop(optional, into)]
     on_dirty_change: Option<Callback<(String, bool)>>,
+    /// Called with a document's id and the language on screen in its
+    /// editor: once when the editor mounts (the first time the document is
+    /// shown), then each time that changes: an `edit_as` switch made, one
+    /// that waited until the text could convert, undo or redo stepping back
+    /// across a switch. A switch still waiting changes nothing on screen, so
+    /// it is not reported; neither is a list that changes nothing.
+    #[prop(optional, into)]
+    on_edit_as_change: Option<Callback<(String, Language)>>,
+    /// Called with a document's id and whether the text on screen is
+    /// written back to its `value`: once when its editor mounts, then each
+    /// time that changes (see `ConfigEditor`'s `on_sync_change`). `false`
+    /// while an `edit_as` edit cannot convert back, from whatever brought
+    /// it there (typing, paste, cut, drop, undo, a switch, a reload, a new
+    /// `value`, a [`Document::edit_as_text`] that does not convert).
+    #[prop(optional, into)]
+    on_sync_change: Option<Callback<(String, bool)>>,
     /// The settings of every editor, and the theme and colors of the tabs
     /// (the `Tab*` tokens of [`ThemeColor`](crate::ThemeColor) included); a
     /// document's own [`Document::settings`] replace them for its editor.
@@ -157,6 +175,8 @@ pub fn ConfigDocuments(
             on_change,
             on_save,
             on_dirty_change,
+            on_edit_as_change,
+            on_sync_change,
         },
         settings,
     );

@@ -25,6 +25,7 @@
 mod alloc_stats;
 mod catalog;
 mod documents;
+mod documents_list;
 mod documents_view;
 mod editor;
 mod editor_view;

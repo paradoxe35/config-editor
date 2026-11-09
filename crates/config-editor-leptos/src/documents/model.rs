@@ -41,6 +41,12 @@ pub struct Document {
     pub baseline: Option<String>,
     /// View mode for this document; switches live.
     pub read_only: bool,
+    /// Why the document is read-only (a file the host manages, a missing
+    /// permission), while `read_only` is on: its tab's tooltip and
+    /// accessible description say it, and so does the
+    /// "Cannot edit in a read-only editor" notice when the user tries to
+    /// edit (and the text area's accessible description). Updates live.
+    pub read_only_reason: Option<String>,
     /// Whether the user may close it: its close button, a middle click and
     /// `Delete` on its tab ask `on_close`. Default `true`; a document that
     /// must stay open (the main config) sets `false`, and its tab has no
@@ -50,8 +56,22 @@ pub struct Document {
     /// one compiled schema; a [`Schema`](crate::Schema) passed as
     /// `Compiled` is shared as it is.
     pub schema: Option<SchemaSource>,
-    /// Edit in another language than `language`; switches live.
+    /// Edit in another language than `language`; switches live. Asking
+    /// for the same language again (after an undo stepped back across the
+    /// switch) is [`DocumentsHandle::edit_as`](crate::DocumentsHandle::edit_as):
+    /// a list with an unchanged `edit_as` changes nothing.
     pub edit_as: Option<Language>,
+    /// The text on screen when the document's editor opens, in the
+    /// `edit_as` language, in place of `value` converted: what the user had
+    /// on screen in an earlier session (the host kept it from
+    /// [`EditorHandle::text`](crate::EditorHandle::text) before the view
+    /// unmounted). `value` and `baseline` stay the host's; the text converts
+    /// back like an edit, so `on_change` hears it once it converts and,
+    /// until then, the document is out of sync (`on_sync_change` says
+    /// `false`, [`EditorHandle::value`](crate::EditorHandle::value) is
+    /// `None`). Undo starts at it. Read when the editor mounts (the first
+    /// time the document is shown); ignored without `edit_as`.
+    pub edit_as_text: Option<String>,
     /// Settings for this document's editor, in place of the view's; switch
     /// live. Unset, it follows the view's `settings`. The view's `styled`
     /// applies to every editor.
@@ -86,9 +106,11 @@ impl Document {
             value: value.into(),
             baseline: None,
             read_only: false,
+            read_only_reason: None,
             closable: true,
             schema: None,
             edit_as: None,
+            edit_as_text: None,
             settings: None,
             host_diagnostics: Vec::new(),
             read_only_paths: Vec::new(),
@@ -118,6 +140,15 @@ impl Document {
         self
     }
 
+    /// Sets view mode, saying why (see
+    /// [`read_only_reason`](Self::read_only_reason)).
+    #[must_use]
+    pub fn read_only_reason(mut self, reason: impl Into<String>) -> Self {
+        self.read_only = true;
+        self.read_only_reason = Some(reason.into());
+        self
+    }
+
     /// Sets whether the user may close the document (default `true`).
     #[must_use]
     pub fn closable(mut self, closable: bool) -> Self {
@@ -136,6 +167,15 @@ impl Document {
     #[must_use]
     pub fn edit_as(mut self, language: Language) -> Self {
         self.edit_as = Some(language);
+        self
+    }
+
+    /// Edits the document as `language`, opening with `text` on screen
+    /// (see [`edit_as_text`](Self::edit_as_text)).
+    #[must_use]
+    pub fn edit_as_text(mut self, language: Language, text: impl Into<String>) -> Self {
+        self.edit_as = Some(language);
+        self.edit_as_text = Some(text.into());
         self
     }
 

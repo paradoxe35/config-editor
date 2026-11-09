@@ -57,6 +57,8 @@ const App = defineComponent({
         update(id, { baseline: value });
       },
       onSelect: (id: string) => note(`select ${id}`),
+      onEditAsChange: (id: string, language: LanguageName) => note(`language ${id} ${language}`),
+      onSyncChange: (id: string, inSync: boolean) => note(`sync ${id} ${inSync}`),
       onAdd: () => {
         added += 1;
         note(`add new${added}`);
@@ -80,6 +82,8 @@ const App = defineComponent({
       @change="onChange"
       @save="onSave"
       @select="onSelect"
+      @edit-as-change="onEditAsChange"
+      @sync-change="onSyncChange"
       @add="onAdd"
       @close="onClose"
     />

@@ -34,6 +34,9 @@ pub struct EditorHandle {
     /// Shows the editor when it is hidden (a `ConfigDocuments` panel not
     /// selected) before it takes the focus.
     show: StoredValue<Option<Callback<()>>>,
+    /// The text the editor opens with in place of the host's (a
+    /// `ConfigDocuments` document's `edit_as_text`), taken when it mounts.
+    opening: StoredValue<Option<String>>,
 }
 
 impl Default for EditorHandle {
@@ -57,6 +60,7 @@ impl EditorHandle {
         EditorHandle {
             state: RwSignal::new(None),
             show: StoredValue::new(None),
+            opening: StoredValue::new(None),
         }
     }
 
@@ -72,6 +76,30 @@ impl EditorHandle {
     /// `reveal_range`, `focus`): the documents view selects its document.
     pub(crate) fn show_with(self, show: Callback<()>) {
         let _ = self.show.try_set_value(Some(show));
+    }
+
+    /// The editor mounting next with this handle opens with `text`, in its
+    /// `edit_as` language, in place of the host's text converted.
+    pub(crate) fn open_with(self, text: Option<String>) {
+        let _ = self.opening.try_set_value(text);
+    }
+
+    /// The text to open with, once.
+    pub(super) fn take_opening(self) -> Option<String> {
+        self.opening.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The language on screen.
+    pub(crate) fn language_on_screen(self) -> Option<crate::Language> {
+        self.editor()?.sync().edit_language.try_get_untracked()
+    }
+
+    /// Asks for `language` on screen, as a new `edit_as` does, also when it
+    /// is the one asked for last (see `EditorState::ask_edit_as`).
+    pub(crate) fn ask_edit_as(self, language: crate::Language) {
+        if let Some(state) = self.editor() {
+            untrack(|| state.ask_edit_as(language));
+        }
     }
 
     /// Shows the editor where it is hidden, before it takes the focus.

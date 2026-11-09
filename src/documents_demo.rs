@@ -22,6 +22,9 @@ const LIMITS: &str =
     "# Drop-in: connection limits\n[limits]\nmax_handshakes = 2048\nmax_pending = 512\n";
 const CLIENTS: &str = "{\n  \"clients\": {\n    \"acme\": {\n      \"secret\": \"c2VjcmV0LWZvci1hY21l\"\n    }\n  }\n}\n";
 
+/// Why the clients drop-in is read-only.
+const CLIENTS_REASON: &str = "Managed by the cluster operator";
+
 fn initial_documents(many: bool) -> Vec<Document> {
     if many {
         return many_documents();
@@ -31,7 +34,7 @@ fn initial_documents(many: bool) -> Vec<Document> {
         Document::new("limits", "conf.d/limits.toml", LIMITS).schema(SCHEMA),
         Document::new("clients", "conf.d/clients.json", CLIENTS)
             .schema(SCHEMA)
-            .read_only(true),
+            .read_only_reason(CLIENTS_REASON),
     ]
 }
 
@@ -101,6 +104,11 @@ pub fn view(many: bool) -> impl IntoView {
     let saves = RwSignal::new(Vec::<String>::new());
     let selects = RwSignal::new(Vec::<String>::new());
     let dirty = RwSignal::new(Vec::<String>::new());
+    // What `on_edit_as_change` and `on_sync_change` said, in order
+    // (`id:language`, `id:true`), and each document's language on screen.
+    let languages = RwSignal::new(Vec::<String>::new());
+    let syncs = RwSignal::new(Vec::<String>::new());
+    let on_screen = RwSignal::new(Vec::<(String, Language)>::new());
     // A dirty document the user asked to close, waiting for "Discard".
     let asking = RwSignal::new(None::<String>);
     let added = RwSignal::new(0usize);
@@ -121,6 +129,45 @@ pub fn view(many: bool) -> impl IntoView {
             if now {
                 all.push(id);
             }
+        });
+    };
+    let language_changed = move |(id, language): (String, Language)| {
+        languages.update(|all| all.push(format!("{id}:{}", language.label())));
+        on_screen.update(|all| {
+            all.retain(|(known, _)| *known != id);
+            all.push((id, language));
+        });
+    };
+    let sync_changed = move |(id, in_sync): (String, bool)| {
+        syncs.update(|all| all.push(format!("{id}:{in_sync}")));
+    };
+    let set_edit_as = move |language: Option<Language>| {
+        with_document(documents, "main", |document| document.edit_as = language);
+    };
+    let main_as_toml = move |_| set_edit_as(Some(Language::TOML));
+    let main_as_yaml = move |_| set_edit_as(None);
+    let ask_toml = move |_| {
+        tabs.edit_as("main", Language::TOML);
+    };
+    // The view goes and comes back (a page left and opened again): the
+    // host keeps what main had on screen and opens it with that text.
+    let reopen = move |_| {
+        let text = tabs.editor("main").and_then(|editor| editor.text());
+        let language = on_screen.with(|all| {
+            all.iter()
+                .find(|(id, _)| id == "main")
+                .map(|(_, language)| *language)
+        });
+        documents.update(|list| {
+            let Some(at) = list.iter().position(|document| document.id == "main") else {
+                return;
+            };
+            let mut kept = list[at].clone();
+            kept.id = "main-reopened".to_string();
+            if let (Some(text), Some(language)) = (text, language) {
+                kept = kept.edit_as_text(language, text);
+            }
+            list[at] = kept;
         });
     };
     let close = move |id: &str| documents.update(|list| list.retain(|document| document.id != id));
@@ -204,6 +251,10 @@ pub fn view(many: bool) -> impl IntoView {
                 <button class="demo__button demo__server-change" type="button" on:click=server_change>"Server change (main)"</button>
                 <button class="demo__button demo__toggle-read-only" type="button" on:click=toggle_read_only>"Toggle read-only (limits)"</button>
                 <button class="demo__button demo__edit-as" type="button" on:click=toggle_edit_as>"Edit main as JSON"</button>
+                <button class="demo__button demo__edit-as-toml" type="button" on:click=main_as_toml>"Edit main as TOML"</button>
+                <button class="demo__button demo__edit-as-yaml" type="button" on:click=main_as_yaml>"Edit main as YAML"</button>
+                <button class="demo__button demo__ask-toml" type="button" on:click=ask_toml>"Ask main as TOML again"</button>
+                <button class="demo__button demo__reopen" type="button" on:click=reopen>"Reopen main"</button>
                 <button class="demo__button demo__rename" type="button" on:click=rename>"Rename limits"</button>
                 <button class="demo__button demo__toggle-closable" type="button" on:click=toggle_closable>"Toggle closable (main)"</button>
             </div>
@@ -220,6 +271,8 @@ pub fn view(many: bool) -> impl IntoView {
                 on_change=changed
                 on_save=saved
                 on_dirty_change=dirty_changed
+                on_edit_as_change=language_changed
+                on_sync_change=sync_changed
                 on_close=close_requested
                 on_add=add_requested
                 on_select=selected
@@ -230,6 +283,8 @@ pub fn view(many: bool) -> impl IntoView {
                 data-saves=move || saves.get().join(",")
                 data-selects=move || selects.get().join(",")
                 data-dirty=move || dirty.get().join(",")
+                data-languages=move || languages.get().join(",")
+                data-syncs=move || syncs.get().join(",")
                 data-open=move || documents.with(|list| list.iter().map(|document| document.id.clone()).collect::<Vec<_>>().join(","))
                 data-active=move || tabs.active().unwrap_or_default()
             >

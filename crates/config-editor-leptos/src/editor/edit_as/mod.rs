@@ -8,6 +8,8 @@
 
 mod notice;
 mod problems;
+#[cfg(all(test, feature = "yaml", feature = "toml"))]
+mod screen_tests;
 // The matrix pairs languages, so it needs every built-in one.
 #[cfg(all(
     test,

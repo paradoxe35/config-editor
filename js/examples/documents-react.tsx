@@ -66,6 +66,8 @@ function App() {
           update(id, { baseline: value });
         }}
         onSelect={(id) => note(`select ${id}`)}
+        onEditAsChange={(id, language) => note(`language ${id} ${language}`)}
+        onSyncChange={(id, inSync) => note(`sync ${id} ${inSync}`)}
         onAdd={add}
         onClose={({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;

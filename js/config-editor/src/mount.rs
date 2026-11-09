@@ -52,8 +52,10 @@ pub(crate) struct State {
     pub(crate) edit_as: RwSignal<Option<Language>>,
     pub(crate) settings: RwSignal<EditorSettings>,
     pub(crate) read_only: RwSignal<bool>,
+    pub(crate) read_only_reason: RwSignal<Option<String>>,
     pub(crate) on_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
+    pub(crate) on_sync_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_change_summary: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_path_change: StoredValue<Option<Function>, LocalStorage>,
     pub(crate) on_save: StoredValue<Option<Function>, LocalStorage>,
@@ -78,6 +80,7 @@ impl State {
     pub(crate) fn silence(&self) {
         for callback in [
             self.on_edit_as_change,
+            self.on_sync_change,
             self.on_change_summary,
             self.on_path_change,
             self.on_save,
@@ -122,6 +125,11 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             call_host(&callback, &JsValue::from_str(&language_name(language)));
         }
     };
+    let sync_changed = move |in_sync: bool| {
+        if let Some(callback) = state.on_sync_change.try_get_value().flatten() {
+            call_host(&callback, &JsValue::from_bool(in_sync));
+        }
+    };
     let summarized = move |summary: ChangeSummary| {
         if let Some(callback) = state.on_change_summary.try_get_value().flatten() {
             call_host(&callback, &to_js(&ChangeSummaryOut::from(summary)));
@@ -162,6 +170,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     let baseline = Signal::derive(move || state.baseline.get());
     let settings = saving_settings(state.settings, state.saves);
     let read_only = Signal::derive(move || state.read_only.get());
+    let read_only_reason = Signal::derive(move || state.read_only_reason.get());
     view! {
         <Editor
             language=setup.language
@@ -174,8 +183,10 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             class=setup.class
             settings=settings
             read_only=read_only
+            read_only_reason=read_only_reason
             on_change=changed
             on_edit_as_change=switched
+            on_sync_change=sync_changed
             on_change_summary=summarized
             on_save=saved
             on_dirty_change=dirty_changed

@@ -123,10 +123,12 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `schema`             | `string`                                    | —                | JSON Schema as JSON text: completion, hover docs and validation.                                                                                                                                                                                                                                                                                                                                                 |
 | `baseline`           | `string`                                    | `value`          | Text the diff gutter compares against: the version last saved or loaded. See [Saving](#saving-and-unsaved-edits).                                                                                                                                                                                                                                                                                                |
 | `readOnly`           | `boolean`                                   | `false`          | View mode: navigation, selection, diagnostics and hover keep working.                                                                                                                                                                                                                                                                                                                                            |
+| `readOnlyReason`     | `string`                                    | —                | Why the editor is read-only, while `readOnly` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit, and so does the text area's accessible description. `update` changes it (`null`: no reason).                                                                                                                                                                            |
 | `fileName`           | `string`                                    | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                            |
 | `className`          | `string`                                    | —                | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `onChange`           | `(value: string) => void`                   | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                           |
 | `onEditAsChange`     | `(language: string) => void`                | —                | Called with the language on screen when an `editAs` switch completes, and when undo or redo steps back across one (a switch is an undo step). A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `onChange` as it is, with the reason on the value in the way. Label the language shown from this, not from `editAs`. |
+| `onSyncChange`       | `(inSync: boolean) => void`                 | —                | Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` is `null`, `onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`.                                                     |
 | `onChangeSummary`    | `(summary: ChangeSummary) => void`          | —                | Called with `{ added, removed, modified, hunks }`: the lines changed against `baseline` and the number of separate changes, on mount and whenever it changes.                                                                                                                                                                                                                                                    |
 | `hostDiagnostics`    | `HostDiagnostic[]`                          | —                | Problems the host found (a server's validation), shown with the editor's own; see [Host diagnostics](#host-diagnostics).                                                                                                                                                                                                                                                                                         |
 | `onPathChange`       | `(path: EditorPath) => void`                | —                | Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb; see [Paths](#paths). The path is computed only while this is set.                                                                                                                                                                                                                                       |
@@ -245,7 +247,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (175 texts)</summary>
+<summary>Every text and its default (177 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -380,6 +382,7 @@ with that reason.
 | `problemsLabel`             | `"Inline {language} diagnostics"`                                                                                                    | The layer of underlined problems.                                                                                                                                                                                                              |
 | `editorLabel`               | `"{language} editor"`                                                                                                                | The editor's frame.                                                                                                                                                                                                                            |
 | `readOnlyEditor`            | `"Cannot edit in a read-only editor"`                                                                                                | Said, and shown at the caret, when typing in a read-only editor.                                                                                                                                                                               |
+| `readOnlyEditorReason`      | `"Cannot edit in a read-only editor: {reason}"`                                                                                      | The same, for an editor the host said why it is read-only (`read_only_reason`): `{reason}`.                                                                                                                                                    |
 | `readOnlyField`             | `"This field is read-only"`                                                                                                          | Why a field is read-only when neither the schema nor the host says.                                                                                                                                                                            |
 | `readOnlyText`              | `"This text is read-only"`                                                                                                           | Why text in a read-only range the host gave cannot change.                                                                                                                                                                                     |
 | `holdsReadOnly`             | `"Holds a read-only field: {reason}"`                                                                                                | Why renaming or moving the key above a read-only field is refused.                                                                                                                                                                             |
@@ -424,6 +427,7 @@ with that reason.
 | `addDocument`               | `"New file"`                                                                                                                         | The "+" button after the tabs (with `on_add`): its accessible name and tooltip.                                                                                                                                                                |
 | `unsaved`                   | `"unsaved changes"`                                                                                                                  | The dirty dot's tooltip, and what a tab's accessible name adds for it.                                                                                                                                                                         |
 | `readOnlyTab`               | `"read-only"`                                                                                                                        | What a read-only document's tab adds to its accessible name.                                                                                                                                                                                   |
+| `readOnlyTabTitle`          | `"{name}\nRead-only: {reason}"`                                                                                                      | The tooltip of a read-only document's tab with a reason (`Document::read_only_reason`): its file `{name}` and the `{reason}`.                                                                                                                  |
 
 </details>
 
@@ -1100,6 +1104,57 @@ view.isDirty("main");
 - Per document, as on `ConfigEditor`: `hostDiagnostics`, `readOnlyPaths`,
   `readOnlyRanges` (updated in place by `update({ documents })`) and `secrets` (read
   when its editor mounts).
+- What each document shows: `onEditAsChange(id, language)` says the
+  language on screen, once when its editor mounts, then each time it changes
+  (a switch made, also one that waited until the text could convert; undo
+  or redo across a switch). A switch still waiting changes nothing on screen
+  and is not reported. `onSyncChange(id, inSync)` says whether the text on
+  screen is written back to the document's `value` (as `ConfigEditor`'s
+  `onSyncChange`): once when its editor mounts, then on each change. Neither
+  repeats what it said last.
+- Asking for a language again: a list with the same `editAs` changes
+  nothing (and frameworks do not send an unchanged prop), so after the user
+  undid a switch, `view.editAs(id, language)` asks for it again (the
+  document's own language goes back; a switch the text cannot make yet
+  waits). Keep the document's `editAs` the same in your list, or the next
+  `update({ documents })` switches back.
+- Opening from the text the user had: `editAsText` (with `editAs`) opens the
+  document's editor with that text on screen in the `editAs` language, in
+  place of `value` converted: what you kept from `view.editor(id).text`
+  before the view went away. `value` and `baseline` stay yours; the text
+  converts back like an edit, so `onChange` hears it once it converts
+  (comments of `value` kept), and until then `onSyncChange` says `false`.
+  Undo starts at it. Read when the editor mounts.
+- A reason for a read-only document: `readOnlyReason` (with `readOnly`,
+  updates live) shows in the tab's tooltip and accessible description, in
+  the "Cannot edit in a read-only editor" notice when the user tries to type
+  and in the text area's accessible description.
+
+```js
+const view = new ConfigDocuments(element, {
+  documents: [
+    // Back on the page: the TOML the user had, not valid yet.
+    {
+      id: "main",
+      fileName: "burrow.yaml",
+      value: saved,
+      editAs: "toml",
+      editAsText: kept,
+    },
+    {
+      id: "clients",
+      fileName: "conf.d/clients.json",
+      value: clients,
+      readOnly: true,
+      readOnlyReason: "Managed by the cluster operator",
+    },
+  ],
+  onEditAsChange: (id, language) => showLanguage(id, language),
+  onSyncChange: (id, inSync) => (saveButton.disabled = !inSync),
+});
+view.editAs("main", "toml"); // after an undo across the switch: ask again
+```
+
 - `editor(id)` returns that document's editor, an
   [`EditorView`](#instance-members) like a `ConfigEditor` (`null` for an id
   not listed): its `value` (the host's, then each edit), `settings` (its

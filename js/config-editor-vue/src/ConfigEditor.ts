@@ -42,6 +42,8 @@ const editorProps = {
   editAs: optional(String as PropType<LanguageName | null>),
   /** `@edit-as-change`: the language on screen, when an `editAs` switch completes and when undo or redo steps back across one. */
   onEditAsChange: listener<(language: LanguageName) => void>(),
+  /** `@sync-change`: called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new value); read after each pause in typing. Always `true` while editing in `language`. */
+  onSyncChange: listener<(inSync: boolean) => void>(),
   /** `@change-summary`: how the document differs from `baseline`, on mount and whenever that changes. */
   onChangeSummary: listener<(summary: ChangeSummary) => void>(),
   /** `@path-change`: the path of what the caret is on, each time it changes (and once on mount). The path is computed only while a listener is set. */
@@ -70,6 +72,8 @@ const editorProps = {
   fileName: optional(String),
   /** View mode; switches live. */
   readOnly: optional(Boolean),
+  /** Why the editor is read-only, while `readOnly` is on: shown with the "Cannot edit in a read-only editor" notice and in the text area's accessible description. Updates live. */
+  readOnlyReason: optional(String as PropType<string | null>),
   /** Class on the editor root (inside the component's `<div>`, which takes `class` and `style`). Changing it re-mounts. */
   editorClass: optional(String),
   /** `@error`: an error from loading, mounting or a prop the editor rejects. Without a listener, logged. */

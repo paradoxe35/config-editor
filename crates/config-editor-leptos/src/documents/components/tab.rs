@@ -24,6 +24,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
         file_name,
         dirty,
         read_only,
+        read_only_reason,
         ..
     } = entry;
     let icon = entry.setup.language.file_icon();
@@ -46,6 +47,31 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
             }
         });
         name
+    };
+    // Why it is read-only, while it is and the host said why.
+    let reason = move || {
+        read_only
+            .get()
+            .then(|| read_only_reason.get())
+            .flatten()
+            .filter(|reason| !reason.trim().is_empty())
+    };
+    let title = move || {
+        let name = file_name.get();
+        match reason() {
+            Some(reason) => strings.with(|strings| {
+                fill(
+                    &strings.read_only_tab_title,
+                    &[("name", &name), ("reason", &reason)],
+                )
+            }),
+            None => name,
+        }
+    };
+    let reason_id = format!("{}-reason", entry.tab_id(documents));
+    let described_by = {
+        let reason_id = reason_id.clone();
+        move || reason().is_some().then(|| reason_id.clone())
     };
     let close_label =
         move || strings.with(|strings| fill(&strings.close_tab, &[("name", &file_name.get())]));
@@ -126,7 +152,8 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
             aria-selected=move || selected.get().to_string()
             aria-label=accessible_name
             tabindex=move || if selected.get() { "0" } else { "-1" }
-            title=move || file_name.get()
+            title=title
+            aria-describedby=described_by
             data-document-id=entry.id.clone()
             data-dirty=move || dirty.get().to_string()
             on:click=select
@@ -138,6 +165,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
                 {icon}
             </span>
             <span class="config-editor-documents__name">{move || name_view(name())}</span>
+            <span class="config-editor__sr-only" id=reason_id>{reason}</span>
             {marker}
         </div>
     }

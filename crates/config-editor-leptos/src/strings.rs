@@ -367,6 +367,9 @@ pub struct EditorStrings {
     // Read-only fields and secrets.
     /// Said, and shown at the caret, when typing in a read-only editor.
     pub read_only_editor: String,
+    /// The same, for an editor the host said why it is read-only
+    /// (`read_only_reason`): `{reason}`.
+    pub read_only_editor_reason: String,
     /// Why a field is read-only when neither the schema nor the host says.
     pub read_only_field: String,
     /// Why text in a read-only range the host gave cannot change.
@@ -477,6 +480,9 @@ pub struct EditorStrings {
     pub unsaved: String,
     /// What a read-only document's tab adds to its accessible name.
     pub read_only_tab: String,
+    /// The tooltip of a read-only document's tab with a reason
+    /// (`Document::read_only_reason`): its file `{name}` and the `{reason}`.
+    pub read_only_tab_title: String,
 }
 
 impl Default for EditorStrings {
@@ -636,6 +642,7 @@ impl Default for EditorStrings {
             problems_label: text("Inline {language} diagnostics"),
             editor_label: text("{language} editor"),
             read_only_editor: text("Cannot edit in a read-only editor"),
+            read_only_editor_reason: text("Cannot edit in a read-only editor: {reason}"),
             read_only_field: text("This field is read-only"),
             read_only_text: text("This text is read-only"),
             holds_read_only: text("Holds a read-only field: {reason}"),
@@ -696,6 +703,7 @@ impl Default for EditorStrings {
             add_document: text("New file"),
             unsaved: text("unsaved changes"),
             read_only_tab: text("read-only"),
+            read_only_tab_title: text("{name}\nRead-only: {reason}"),
         }
     }
 }

@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import type { EditorView } from "@pngwasi/config-editor";
+  import type { EditorView, LanguageName } from "@pngwasi/config-editor";
   import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
   import type { ConfigDocumentsProps } from "./types.js";
   import { readAll } from "./track.js";
@@ -62,6 +62,10 @@
   /** Saves every document with unsaved edits; returns the ids sent. */
   export function saveAll(): string[] {
     return handle.saveAll();
+  }
+  /** Edits the document `id` as `language`, also when its `editAs` already says so (after an undo stepped back across the switch); `false` when there is no such document. */
+  export function editAs(id: string, language: LanguageName): boolean {
+    return handle.editAs(id, language);
   }
   /** Focuses the active document's editor. */
   export function focus(): void {

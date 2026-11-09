@@ -48,6 +48,16 @@ WebAssembly.
   after the tabs (`on_add` / `onAdd`) asks the host for a new file, which
   opens selected with the focus in it, and documents can be kept open
   (`closable: false`: no close button, middle click or `Delete`).
+- Each document tells the host what it shows: the language on screen
+  (`on_edit_as_change` / `onEditAsChange`, also for a switch that waited and
+  for undo across a switch) and whether the text on screen is written back
+  to its value (`on_sync_change` / `onSyncChange`, also on `ConfigEditor`),
+  each exactly when it changes. `DocumentsHandle::edit_as` /
+  `editAs(id, language)` asks for a language again after an undo; a
+  document can open from the text the user had on screen
+  (`Document::edit_as_text` / `editAsText`), and say why it is read-only
+  (`read_only_reason` / `readOnlyReason`, also on `ConfigEditor`: on the
+  tab, in the read-only notice and in the accessible descriptions).
 - A path API to jump to a field and follow the caret for a breadcrumb, and
   `reveal_range` / `revealRange` to jump to any stretch of text (a comment, a
   line); jumps and the editor's own focus never scroll the host page.

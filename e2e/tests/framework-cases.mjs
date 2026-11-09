@@ -41,6 +41,38 @@ export function frameworkCases(name) {
       expect(style).toContain('--config-editor-key: #ffcc66');
     });
 
+    test('readOnlyReason says why an edit is refused; onSyncChange tells whether the text is written back', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      const extra = (props) => browserPage.evaluate((props) => window.setExtraProps(props), props);
+      await extra({ readOnly: true, readOnlyReason: 'Managed by the cluster operator' });
+      await input(browserPage).click();
+      await browserPage.keyboard.type('x');
+      await expect(browserPage.locator('.config-editor__read-only-notice')).toHaveText(
+        'Cannot edit in a read-only editor: Managed by the cluster operator',
+      );
+      await extra({ readOnly: true });
+      await input(browserPage).click();
+      await browserPage.keyboard.type('x');
+      await expect(browserPage.locator('.config-editor__read-only-notice')).toHaveText('Cannot edit in a read-only editor');
+
+      await browserPage.evaluate(() => {
+        window.syncs = [];
+        window.setExtraProps({ editAs: 'toml', onSyncChange: (inSync) => window.syncs.push(inSync) });
+      });
+      await expect(browserPage.locator('.config-editor__frame')).toHaveAttribute('aria-label', 'TOML editor');
+      await input(browserPage).focus();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('broken = ');
+      await expect.poll(() => browserPage.evaluate(() => window.syncs)).toEqual([false]);
+      await browserPage.keyboard.type('x');
+      await browserPage.keyboard.press('Backspace');
+      await browserPage.keyboard.type('1');
+      await expect.poll(() => browserPage.evaluate(() => window.syncs)).toEqual([false, true]);
+      await browserPage.waitForTimeout(700);
+      expect(await browserPage.evaluate(() => window.syncs)).toEqual([false, true]);
+      await expect(saved(browserPage)).toContainText('broken: 1');
+    });
+
     test('a setting prop taken away returns to its default, a text taken out of strings too', async ({ page: browserPage }) => {
       // The binding hands the editor's `update` only what changed: `null`
       // for a prop no longer passed, each text of `strings` on its own.

@@ -71,6 +71,11 @@ impl A11yState {
         format!("config-editor-{}-caret-note", self.id)
     }
 
+    /// The id of the element holding why the editor is read-only.
+    pub(super) fn reason_id(&self) -> String {
+        format!("config-editor-{}-read-only-reason", self.id)
+    }
+
     /// Says `message` through the live region; the same message again is
     /// said again (a no-break space tells the two apart).
     pub(super) fn announce(&self, message: String) {

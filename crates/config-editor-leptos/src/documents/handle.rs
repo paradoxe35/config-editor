@@ -4,7 +4,7 @@
 use leptos::prelude::*;
 
 use super::entries::{Documents, Focus};
-use crate::EditorHandle;
+use crate::{EditorHandle, Language};
 
 /// A handle on a mounted [`ConfigDocuments`](crate::ConfigDocuments): the
 /// active document, switching, saving, and each document's
@@ -143,6 +143,20 @@ impl DocumentsHandle {
         self.view()
             .map(|documents| documents.save_all())
             .unwrap_or_default()
+    }
+
+    /// Edits the document `id` as `language` (its own language to go back),
+    /// as a new [`Document::edit_as`](crate::Document::edit_as) does, and
+    /// also when `language` is what `edit_as` already says: a list with an
+    /// unchanged `edit_as` changes nothing, so after an undo stepped back
+    /// across the switch this is how to ask for it again. A switch the text
+    /// cannot make yet waits, as one from the list does; asking for the
+    /// language on screen ends one waiting. Give your list's document the
+    /// same `edit_as`, or the next list switches back to it. Returns
+    /// whether the document is open.
+    pub fn edit_as(&self, id: &str, language: Language) -> bool {
+        self.view()
+            .is_some_and(|documents| documents.edit_as(id, language))
     }
 
     /// Focuses the active document's editor, keeping its selection.

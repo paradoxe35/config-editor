@@ -27,6 +27,11 @@ pub(super) struct TestEditor {
     pub(super) host_diagnostics: Signal<Vec<super::host_diagnostics::HostDiagnostic>>,
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
+    /// A text in the `edit_as` language to open with, as a documents
+    /// view's `Document::edit_as_text`.
+    pub(super) opening: Option<String>,
+    /// The `read_only_reason` prop.
+    pub(super) read_only_reason: Option<String>,
 }
 
 impl TestEditor {
@@ -43,6 +48,8 @@ impl TestEditor {
             secrets: None,
             host_diagnostics: Signal::default(),
             settings: Signal::default(),
+            opening: None,
+            read_only_reason: None,
         }
     }
 
@@ -58,7 +65,9 @@ impl TestEditor {
             schema_error: None,
             host_text: self.text.clone(),
             baseline: self.text,
+            opening: self.opening,
             read_only: Signal::from(self.read_only),
+            read_only_reason: Signal::stored(self.read_only_reason),
             settings: self.settings,
             host_on_change: self.on_change,
             host_diagnostics: self.host_diagnostics,

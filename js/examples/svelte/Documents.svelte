@@ -39,6 +39,7 @@
       isDirty: instance.isDirty,
       save: instance.save,
       saveAll: instance.saveAll,
+      editAs: instance.editAs,
       focus: instance.focus,
       editor: instance.editor,
     };
@@ -82,6 +83,8 @@
   {onChange}
   {onSave}
   onSelect={(id) => note(`select ${id}`)}
+  onEditAsChange={(id, language) => note(`language ${id} ${language}`)}
+  onSyncChange={(id, inSync) => note(`sync ${id} ${inSync}`)}
   {onAdd}
   {onClose}
 />

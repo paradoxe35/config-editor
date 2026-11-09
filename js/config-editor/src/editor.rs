@@ -131,8 +131,10 @@ impl ConfigEditor {
         let file_name = string_option(&options, "fileName")?;
         let class = string_option(&options, "className")?;
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
+        let read_only_reason = string_option(&options, "readOnlyReason")?;
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
+        let on_sync_change = function_option(&options, "onSyncChange")?;
         let on_change_summary = function_option(&options, "onChangeSummary")?;
         let on_path_change = function_option(&options, "onPathChange")?;
         let on_save = function_option(&options, "onSave")?;
@@ -162,9 +164,11 @@ impl ConfigEditor {
             edit_as: RwSignal::new(edit_as),
             settings: RwSignal::new(settings),
             read_only: RwSignal::new(read_only),
+            read_only_reason: RwSignal::new(read_only_reason),
             on_change: StoredValue::new_local(on_change),
             follows_path: RwSignal::new(on_path_change.is_some()),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
+            on_sync_change: StoredValue::new_local(on_sync_change),
             on_change_summary: StoredValue::new_local(on_change_summary),
             on_path_change: StoredValue::new_local(on_path_change),
             saves: RwSignal::new(on_save.is_some()),
@@ -284,6 +288,15 @@ impl ConfigEditor {
             })
             .transpose()?;
         let read_only = flag_change(&options, "readOnly")?;
+        let read_only_reason = given(&options, "readOnlyReason")
+            .map(|reason| {
+                if reason.is_null() {
+                    Ok(None)
+                } else {
+                    text_arg(&reason, "readOnlyReason").map(Some)
+                }
+            })
+            .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
         // Ranges are in the document as it will be.
@@ -308,6 +321,7 @@ impl ConfigEditor {
         for (name, slot) in [
             ("onChange", state.on_change),
             ("onEditAsChange", state.on_edit_as_change),
+            ("onSyncChange", state.on_sync_change),
             ("onChangeSummary", state.on_change_summary),
             ("onDirtyChange", state.on_dirty_change),
             ("onBaselineConflict", state.on_baseline_conflict),
@@ -334,6 +348,9 @@ impl ConfigEditor {
         }
         if let Some(read_only) = read_only {
             let _ = state.read_only.try_set(read_only);
+        }
+        if let Some(reason) = read_only_reason {
+            let _ = state.read_only_reason.try_set(reason);
         }
         if let Some(settings) = settings
             && state

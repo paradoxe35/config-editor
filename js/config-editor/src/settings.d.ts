@@ -904,6 +904,12 @@ export interface EditorStrings {
    */
   readOnlyEditor?: string;
   /**
+   * The same, for an editor the host said why it is read-only (`read_only_reason`): `{reason}`.
+   *
+   * @default "Cannot edit in a read-only editor: {reason}"
+   */
+  readOnlyEditorReason?: string;
+  /**
    * Why a field is read-only when neither the schema nor the host says.
    *
    * @default "This field is read-only"
@@ -1167,6 +1173,12 @@ export interface EditorStrings {
    * @default "read-only"
    */
   readOnlyTab?: string;
+  /**
+   * The tooltip of a read-only document's tab with a reason (`Document::read_only_reason`): its file `{name}` and the `{reason}`.
+   *
+   * @default "{name}\nRead-only: {reason}"
+   */
+  readOnlyTabTitle?: string;
 }
 
 /** A token `colors` accepts: one of the theme's colors (from `ThemeColor` in the crate). */
