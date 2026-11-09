@@ -41,7 +41,7 @@ use convert::*;
 use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
-use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
+use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
 use super::super::completion::{
     array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };

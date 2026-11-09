@@ -76,8 +76,10 @@ pub(super) struct OpenValue {
     /// The `key =` just read inside the map, awaiting its `{`.
     pub(super) pending_key: Option<String>,
     /// The nested attribute whose value is still being read, so its span can
-    /// grow until the next key or closing brace.
-    pub(super) nested_value: Option<usize>,
+    /// grow until the next key or the brace closing its map, with the depth
+    /// its entry is at (brackets inside its value, `merge(a, { b = 1 })`,
+    /// close inside it).
+    pub(super) nested_value: Option<(usize, usize)>,
 }
 
 impl Scan {
@@ -366,7 +368,9 @@ impl Walk {
                 Kind::Punct('}' | ']' | ')') if value.depth > 0 => {
                     value.depth -= 1;
                     value.pending_key = None;
-                    value.nested_value = None;
+                    if value.nested_value.is_some_and(|(_, depth)| value.depth < depth) {
+                        value.nested_value = None;
+                    }
                     match token.kind {
                         Kind::Punct('}') if value.braces > 0 => {
                             value.braces -= 1;
@@ -411,7 +415,7 @@ impl Walk {
                         });
                     }
                     self.attributes += 1;
-                    value.nested_value = Some(self.attributes - 1);
+                    value.nested_value = Some((self.attributes - 1, value.depth));
                     value.pending_key = Some(name);
                     self.index = equals + 1;
                     return;
@@ -423,7 +427,7 @@ impl Walk {
                     self.index += 1;
                     return;
                 }
-                if let Some(nested) = value.nested_value {
+                if let Some((nested, _)) = value.nested_value {
                     if let Some(record) = record.as_deref_mut() {
                         record.attributes[nested].value_span.1 = token.end;
                     }

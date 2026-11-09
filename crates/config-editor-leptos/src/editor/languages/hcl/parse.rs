@@ -54,10 +54,13 @@ pub(super) fn written_at(source: &str, (line, start, end): (usize, usize, usize)
 }
 
 /// A name one body writes in two forms the parser cannot both keep (an
-/// attribute and a block, or blocks with and without labels): it keeps one
-/// and drops the other silently, so the second one is reported instead.
+/// attribute and a block, blocks with and without labels, or blocks whose
+/// labels begin with all of another's: `r "t"` and `r "t" "n"`): it keeps
+/// one and drops the other silently, so the second one is reported
+/// instead.
 pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
     let scan = analyze(source, 0);
+    let labels = shadowed_labels(&scan);
     // Each name a body writes: (body, name) -> (first form, its offset).
     let mut seen: HashMap<(usize, String), (&'static str, usize)> = HashMap::new();
     let mut found: Option<(usize, String)> = None;
@@ -87,7 +90,48 @@ pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
             }
         }
     }
-    found
+    match (found, labels) {
+        (Some(found), Some(labels)) => Some(if labels.0 < found.0 { labels } else { found }),
+        (found, labels) => found.or(labels),
+    }
+}
+
+/// The first block whose labels begin with all of an earlier block's of
+/// its type and body, or that an earlier one's begin with (`r "t" "n"`
+/// after `r "t"`): the two cannot both be read.
+fn shadowed_labels(scan: &Scan) -> Option<(usize, String)> {
+    // Each (body, type, labels) written, and each proper start of them.
+    type Key<'a> = (usize, &'a str, &'a [String]);
+    let mut whole: HashMap<Key<'_>, &HeaderInfo> = HashMap::new();
+    let mut starts: HashMap<Key<'_>, &HeaderInfo> = HashMap::new();
+    let mut headers: Vec<&HeaderInfo> = scan.headers.iter().filter(|header| !header.labels.is_empty()).collect();
+    headers.sort_by_key(|header| header.type_span.0);
+    for header in headers {
+        let key = |labels| (header.parent, header.block_type.as_str(), labels);
+        let labels = header.labels.as_slice();
+        let earlier = starts
+            .get(&key(labels))
+            .or_else(|| (1..labels.len()).find_map(|count| whole.get(&key(&labels[..count]))));
+        if let Some(earlier) = earlier {
+            let written = |header: &HeaderInfo| {
+                let labels: Vec<String> = header.labels.iter().map(|label| format!("\"{label}\"")).collect();
+                format!("{} {}", header.block_type, labels.join(" "))
+            };
+            return Some((
+                header.type_span.0,
+                format!(
+                    "`{}` and `{}` are blocks of one type with different numbers of labels; only one of them would be read. Give them the same number of labels.",
+                    written(earlier),
+                    written(header)
+                ),
+            ));
+        }
+        whole.entry(key(labels)).or_insert(header);
+        for count in 1..labels.len() {
+            starts.entry(key(&labels[..count])).or_insert(header);
+        }
+    }
+    None
 }
 
 /// The parser's sentence without its ASCII-art source frame (`--> …`, `|`,
@@ -293,7 +337,7 @@ fn span_in_scan(
             let (line, column) = line_column(source, start);
             return Some((line, column, column + 1));
         }
-        let end = start + inline_value_len(&source[start..]);
+        let end = start + entry_value_len(&source[start..]);
         // Up to a comment after the value (`3 # three` in an object).
         let end = start + source[start..end].find([' ', '\t']).filter(|at| line_comment_start(source[start + at..end].trim_start()) == Some(0)).unwrap_or(end - start);
         return (end > start).then(|| span_between(source, start, end));
@@ -313,6 +357,38 @@ fn span_in_scan(
 
 /// Whether `text` starts with a `for` expression (`[for s in l : s]`,
 /// `{ for k, v in m : k => v }`).
+/// The length of the value an object entry's `text` starts with: up to the
+/// comma, line break, comment or closing bracket that ends the entry,
+/// outside the brackets, strings and heredocs it holds (`merge(a, { b = 1 })`
+/// is one value, its lines included).
+fn entry_value_len(text: &str) -> usize {
+    let (mut depth, mut end, mut index) = (0usize, 0, 0);
+    while index < text.len() {
+        let character = text[index..].chars().next().unwrap_or(' ');
+        if character.is_whitespace() {
+            if character == '\n' && depth == 0 {
+                break;
+            }
+            index += character.len_utf8();
+            continue;
+        }
+        let (next, kind, _) = scan_token(text, index);
+        match kind {
+            Kind::Comment if depth == 0 => break,
+            Kind::Punct(',') if depth == 0 => break,
+            Kind::Punct('(' | '[' | '{') => depth += 1,
+            Kind::Punct(')' | ']' | '}') => match depth.checked_sub(1) {
+                Some(outer) => depth = outer,
+                None => break,
+            },
+            _ => {}
+        }
+        end = next;
+        index = next;
+    }
+    end
+}
+
 fn opens_for_expression(text: &str) -> bool {
     let inner = text[1..].trim_start();
     inner.strip_prefix("for").is_some_and(|rest| rest.starts_with(char::is_whitespace))

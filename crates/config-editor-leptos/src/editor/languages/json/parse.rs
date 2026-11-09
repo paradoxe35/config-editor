@@ -22,17 +22,19 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
             .rsplit_once(" at line ")
             .map_or(full.as_str(), |(text, _)| text)
             .to_string();
+        let at = byte_at(source, line, column);
+        // A comment (`// …`, `/* … */`, as some tools write in JSON files)
+        // is reported as what it is, not as the token it stands in for.
+        let message = if source[at..].starts_with("//") || source[at..].starts_with("/*") {
+            "JSON has no comments: remove this one".to_string()
+        } else {
+            message
+        };
         // A trailing comma is reported at the closer; point at the comma.
-        if message.starts_with("trailing comma") {
-            let line_start: usize = source.split_inclusive('\n').take(line - 1).map(str::len).sum();
-            let at = line_start
-                + source[line_start..]
-                    .char_indices()
-                    .nth(column - 1)
-                    .map_or(source.len() - line_start, |(index, _)| index);
-            if let Some(comma) = source[..at.min(source.len())].rfind(',') {
-                (line, column) = line_column(source, comma);
-            }
+        if message.starts_with("trailing comma")
+            && let Some(comma) = source[..at].rfind(',')
+        {
+            (line, column) = line_column(source, comma);
         }
         ParseError {
             message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or(message),
@@ -65,6 +67,16 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         }
     }
     Ok(document)
+}
+
+/// The byte of `source` at 1-based `line` and character `column`.
+fn byte_at(source: &str, line: usize, column: usize) -> usize {
+    let line_start: usize = source.split_inclusive('\n').take(line - 1).map(str::len).sum();
+    line_start
+        + source[line_start..]
+            .char_indices()
+            .nth(column - 1)
+            .map_or(source.len() - line_start, |(index, _)| index)
 }
 
 pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {

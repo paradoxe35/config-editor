@@ -31,8 +31,18 @@ fn mount(
     view: Language,
     tokens: &Tokens,
 ) -> (Owner, EditorState, RwSignal<Vec<String>>) {
+    mount_on(host, view, tokens, &document(tokens.same))
+}
+
+/// [`mount`] on `document`.
+fn mount_on(
+    host: Language,
+    view: Language,
+    tokens: &Tokens,
+    document: &Value,
+) -> (Owner, EditorState, RwSignal<Vec<String>>) {
     let heard = RwSignal::new(Vec::<String>::new());
-    let text = host.serialize(&document(tokens.same)).unwrap();
+    let text = host.serialize(document).unwrap();
     let mut editor = TestEditor::new(host, &text);
     if view != host {
         editor.edit_as = Some(view);
@@ -182,6 +192,77 @@ fn a_placeholder_copied_into_another_item_is_plain_text_there() {
             }
             if problems(state, host, None).len() != 1 {
                 failures.push(format!("{case}: flagged {:?}", problems(state, host, None)));
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A key above the placeholder renamed (`db` made `database`), at the top
+/// or deeper: the placeholder follows its field, real, unflagged, and
+/// saved in the renamed place; its own key renamed, it is another field's
+/// plain text (see `moved_token_tests`).
+#[test]
+fn a_placeholder_follows_its_field_through_a_renamed_key_above_it() {
+    let mut failures = Vec::new();
+    let renames: [(&str, Change, &str); 2] = [
+        (
+            "its map renamed",
+            |value| {
+                let map = value.as_object_mut().unwrap();
+                let db = map.shift_remove("db").unwrap();
+                map.insert("database".into(), db);
+            },
+            "/database/password",
+        ),
+        (
+            "a map above its map renamed",
+            |value| {
+                let map = value["services"].as_object_mut().unwrap();
+                let api = map.shift_remove("api").unwrap();
+                map.insert("gateway".into(), api);
+            },
+            "/services/gateway/db/password",
+        ),
+    ];
+    for tokens in &HOSTS {
+        let document = json!({
+            "db": {"host": "h", "password": tokens.same},
+            "services": {"api": {"db": {"password": tokens.other}}, "web": {"port": 80}},
+            "n": 1,
+        });
+        for host in ALL {
+            for view in ALL {
+                for (step, change, at) in &renames {
+                    let case = format!("{host} host as {view} ({}), {step}", tokens.pattern);
+                    let (_owner, state, heard) = mount_on(host, view, tokens, &document);
+                    if let Err(error) = edit_value(state, view, change) {
+                        failures.push(format!("{case}: {error}"));
+                        continue;
+                    }
+                    let mut real = real_texts(state);
+                    real.sort();
+                    let mut expected = vec![tokens.same, tokens.other];
+                    expected.sort();
+                    if real != expected {
+                        failures.push(format!("{case}: real {real:?}"));
+                    }
+                    let flagged = problems(state, view, None);
+                    if !flagged.is_empty() {
+                        failures.push(format!("{case}: flagged {flagged:?}"));
+                    }
+                    if view != host {
+                        let saved = heard.get_untracked().last().cloned().unwrap_or_default();
+                        let read = host.parse(&saved).ok();
+                        let holds = read
+                            .as_ref()
+                            .and_then(|read| read.pointer(at))
+                            .and_then(Value::as_str);
+                        if !holds.is_some_and(|text| text == tokens.same || text == tokens.other) {
+                            failures.push(format!("{case}: host heard {saved:?}"));
+                        }
+                    }
+                }
             }
         }
     }

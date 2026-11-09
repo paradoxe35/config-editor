@@ -158,7 +158,19 @@ impl Bridge {
                 .map(|seen| self.edit.behavior().spelled_like(&shown.text, seen, &old))
                 .map(|seen| host.spelled_like(previous_host, seen, &edited))
         });
-        let unshown = shown.map(|shown| shown.losses).unwrap_or_default();
+        let unshown = shown
+            .as_ref()
+            .map(|shown| shown.losses.clone())
+            .unwrap_or_default();
+        // Numbers the edit kept but typed in another spelling (`4.80`).
+        let respelled = match (&shown, &seen) {
+            (Some(shown), Some(seen)) => typed_spellings::respelled(
+                self.edit.behavior(),
+                (&shown.text, edit_text),
+                (seen, &edited),
+            ),
+            _ => Vec::new(),
+        };
         let value = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
@@ -374,7 +386,7 @@ impl Bridge {
                     (host, self.edit.behavior()),
                     (previous_host, edit_text),
                     (&old, &target),
-                    text,
+                    (text, respelled),
                     shape,
                 ),
                 losses,

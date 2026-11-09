@@ -16,11 +16,14 @@ use serde_json::Value;
 /// the same value, else each number in the form `previous` wrote it in
 /// ([`ConfigLanguage::number_in_form`]); `saved` itself when nothing
 /// applies or the result would read back otherwise.
+///
+/// `respelled` adds the numbers the edit kept but typed in another
+/// spelling (`4.80` over `4.8`, see [`respelled`]).
 pub(super) fn kept(
     (host, edit): (&dyn ConfigLanguage, &dyn ConfigLanguage),
     (previous, edit_text): (&str, &str),
     (old, target): (&Value, &Value),
-    saved: String,
+    (saved, respelled): (String, Vec<String>),
     shape: Option<&Value>,
 ) -> String {
     let mut changed = Vec::new();
@@ -30,6 +33,8 @@ pub(super) fn kept(
             .pointer(pointer)
             .is_some_and(|value| value.is_number() || value.is_string())
     });
+    // (Disjoint: these hold the value they held.)
+    changed.extend(respelled);
     if changed.is_empty() {
         return saved;
     }
@@ -37,6 +42,9 @@ pub(super) fn kept(
     let written = host.value_spans(&saved, &changed);
     let was = host.value_spans(previous, &changed);
     let mut edits = Vec::new();
+    // The values a host whose values are all text holds as typed, where
+    // the edit read a number (`4.10` is the text `4.10` there).
+    let mut as_text = Vec::new();
     for (((pointer, typed), written), was) in changed.iter().zip(typed).zip(written).zip(was) {
         let Some(range) = written.and_then(|written| codec::byte_range(&saved, written)) else {
             continue;
@@ -45,6 +53,12 @@ pub(super) fn kept(
             continue;
         };
         let range = trimmed(&saved, range);
+        // A number the host writes in quotes (an XML attribute's value)
+        // is spelled inside them.
+        let range = match value.is_number() {
+            true => inside_quotes(host, &saved, range),
+            false => range,
+        };
         let written = &saved[range.clone()];
         // An anchor or tag before it (`&x 2`, `!!float 2`), or an alias
         // (`*x`), stays the host's.
@@ -65,6 +79,9 @@ pub(super) fn kept(
                 .filter(|text| text != written)
         };
         if let Some(text) = typed.or_else(in_form) {
+            if host.scalars_are_text() && value.is_number() {
+                as_text.push((pointer.clone(), text.clone()));
+            }
             edits.push((range, text));
         }
     }
@@ -77,10 +94,126 @@ pub(super) fn kept(
         spelled.replace_range(range, &text);
     }
     let reads = |text: &str| codec::read(host, text, shape).ok();
-    if reads(&spelled).is_some() && reads(&spelled) == reads(&saved) {
-        spelled
-    } else {
-        saved
+    let (Some(mut read), Some(before)) = (reads(&spelled), reads(&saved)) else {
+        return saved;
+    };
+    // Each number kept as typed text reads as that text: else the same.
+    for (pointer, text) in &as_text {
+        if let (Some(slot), Some(was)) = (read.pointer_mut(pointer), before.pointer(pointer))
+            && slot.as_str() == Some(text.as_str())
+        {
+            *slot = was.clone();
+        }
+    }
+    if read == before { spelled } else { saved }
+}
+
+/// The numbers of `edited` (the edit's value of `edit_text`) the edit left
+/// as `seen` (its value of `shown`, the view of the host before the edit)
+/// held them but spelled otherwise there: `4.80` typed over `4.8`. Only
+/// numbers in the part of the text the edit changed are looked at.
+pub(super) fn respelled(
+    edit: &dyn ConfigLanguage,
+    (shown, edit_text): (&str, &str),
+    (seen, edited): (&Value, &Value),
+) -> Vec<String> {
+    let prefix = shown
+        .bytes()
+        .zip(edit_text.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let room = shown.len().min(edit_text.len()) - prefix;
+    let suffix = shown
+        .bytes()
+        .rev()
+        .zip(edit_text.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count()
+        .min(room);
+    // Only an edit that typed or removed a digit can spell a number anew.
+    let (start, end) = (prefix, edit_text.len() - suffix);
+    // (Bytes: the ends may part a character the two texts begin alike.)
+    let digit = |text: &[u8]| text.iter().any(u8::is_ascii_digit);
+    if !digit(&edit_text.as_bytes()[start..end])
+        && !digit(&shown.as_bytes()[start..shown.len() - suffix])
+    {
+        return Vec::new();
+    }
+    let mut numbers = Vec::new();
+    same_numbers(seen, edited, String::new(), &mut numbers);
+    if numbers.is_empty() {
+        return Vec::new();
+    }
+    // The numbers touching the changed bytes.
+    let typed = edit.value_spans(edit_text, &numbers);
+    let touched: Vec<(String, std::ops::Range<usize>)> = numbers
+        .into_iter()
+        .zip(typed)
+        .filter_map(|(pointer, span)| {
+            let range = trimmed(edit_text, codec::byte_range(edit_text, span?)?);
+            (range.start <= end && start <= range.end).then_some((pointer, range))
+        })
+        .collect();
+    if touched.is_empty() {
+        return Vec::new();
+    }
+    let pointers: Vec<String> = touched.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let was = edit.value_spans(shown, &pointers);
+    touched
+        .into_iter()
+        .zip(was)
+        .filter_map(|((pointer, range), was)| {
+            let was = trimmed(shown, codec::byte_range(shown, was?)?);
+            (shown[was] != edit_text[range]).then_some(pointer)
+        })
+        .collect()
+}
+
+/// The pointers of the numbers `new` holds where `old` holds the same.
+fn same_numbers(old: &Value, new: &Value, pointer: String, out: &mut Vec<String>) {
+    match (old, new) {
+        (Value::Object(left), Value::Object(right)) => {
+            for (key, value) in right {
+                if let Some(before) = left.get(key) {
+                    let child = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    same_numbers(before, value, child, out);
+                }
+            }
+        }
+        (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
+            for (index, (before, value)) in left.iter().zip(right).enumerate() {
+                same_numbers(before, value, format!("{pointer}/{index}"), out);
+            }
+        }
+        (Value::Number(_), Value::Number(_)) if old == new => out.push(pointer),
+        // A view whose values are all text reads the number it showed as
+        // text when typed otherwise (`4.80`).
+        (Value::Number(number), Value::String(text))
+            if text.trim().parse::<f64>().ok() == number.as_f64() =>
+        {
+            out.push(pointer)
+        }
+        _ => {}
+    }
+}
+
+/// `range` of `text` inside the quotes of `language` around it, if any.
+fn inside_quotes(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    range: std::ops::Range<usize>,
+) -> std::ops::Range<usize> {
+    let written = &text[range.clone()];
+    let flow = super::super::flow_syntax::Flow::of(language);
+    match written.chars().next() {
+        Some(quote)
+            if written.len() >= 2 * quote.len_utf8()
+                && written.ends_with(quote)
+                && flow.quote(quote).is_some() =>
+        {
+            range.start + quote.len_utf8()..range.end - quote.len_utf8()
+        }
+        _ => range,
     }
 }
 
@@ -111,8 +244,9 @@ fn spelled(
     } else {
         typed
     };
-    (!typed.is_empty() && written != typed && host.scalar_reads_as(typed, value))
-        .then(|| typed.to_string())
+    // A host whose values are all text holds a number as typed.
+    let reads = host.scalar_reads_as(typed, value) || host.scalars_are_text() && value.is_number();
+    (!typed.is_empty() && written != typed && reads).then(|| typed.to_string())
 }
 
 /// `typed` (as `edit` writes it) without the quotes around it, when it

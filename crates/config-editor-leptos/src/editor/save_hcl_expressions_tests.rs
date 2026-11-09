@@ -91,3 +91,107 @@ fn a_save_that_would_turn_an_expression_into_a_literal_waits() {
     }
     report(failures);
 }
+
+/// A Terraform module: a `jsonencode({ … })` policy over eight lines, a
+/// heredoc, `for` expressions.
+const MODULE: &str = include_str!("../../tests/fixtures/real/module.tf");
+
+/// An edit inside an expression written over several lines (a
+/// `jsonencode({ … })` policy) changes only that line: the view shows
+/// the expression on one line, and the host keeps its own layout.
+#[test]
+fn an_edit_inside_a_multi_line_expression_changes_only_its_line() {
+    let mut failures = Vec::new();
+    for (word, with) in [
+        ("s3:GetObject", "s3:GetObjectX"),
+        ("2012-10-17", "2012-10-18"),
+        ("\"*\"", "\"arn:x\""),
+        ("[\"s3:GetObject\"]", "[\"s3:GetObject\", \"s3:PutObject\"]"),
+    ] {
+        from_every_view(
+            &mut failures,
+            &format!("policy: {word} -> {with}"),
+            Language::HCL,
+            MODULE,
+            &replace("/output/policy/value", word, with),
+            &MODULE.replacen(word, with, 1),
+        );
+    }
+    report(failures);
+}
+
+/// An expression that is an entry of an object (`m = { k2 = merge(…) }`)
+/// edited in a view is saved as one at the top is, beside entries of
+/// every form (literals, templates, references, a heredoc), in small and
+/// large objects; a save that waits names the edited entry.
+#[test]
+fn an_expression_in_an_object_entry_is_saved_like_one_at_the_top() {
+    let object = |count: usize, heredoc: bool| -> String {
+        let entries: Vec<String> = (0..count)
+            .map(|index| match index % 4 {
+                _ if heredoc && index == 5 => {
+                    "    k5 = <<-EOT\n      multi ${var.q}\n      line\n    EOT".to_string()
+                }
+                0 => format!("    k{index} = var.a{index}"),
+                1 => format!("    k{index} = \"${{var.x}}-{index}\""),
+                2 => {
+                    format!("    k{index} = merge(local.t, {{ Name = \"${{local.n}}-{index}\" }})")
+                }
+                _ => format!("    k{index} = \"lit{index}\""),
+            })
+            .collect();
+        format!(
+            "locals {{\n  m = {{\n{}\n  }}\n  after = 1\n}}\n",
+            entries.join("\n")
+        )
+    };
+    let mut failures = Vec::new();
+    for (count, heredoc) in [(8, false), (20, true), (200, false), (200, true)] {
+        let host = object(count, heredoc);
+        for (key, word, with) in [
+            ("k2", "-2\"", "-2X\""),
+            ("k6", "local.t", "local.u"),
+            ("k3", "lit3", "lit3X"),
+            ("k1", "-1", "-1X"),
+            ("k4", "var.a4", "var.b4"),
+        ] {
+            let pointer: &'static str = Box::leak(format!("/locals/m/{key}").into_boxed_str());
+            let line = host
+                .lines()
+                .find(|line| line.starts_with(&format!("    {key} = ")))
+                .unwrap();
+            from_every_view(
+                &mut failures,
+                &format!("{count} entries, heredoc {heredoc}: {key}: {word} -> {with}"),
+                Language::HCL,
+                &host,
+                &replace(pointer, word, with),
+                &host.replacen(line, &line.replacen(word, with, 1), 1),
+            );
+        }
+        for edit in ALL.into_iter().filter(|edit| *edit != Language::HCL) {
+            match save_value(
+                Language::HCL,
+                edit,
+                &host,
+                &replace("/locals/m/k2", "-2\" })", "-2\""),
+            ) {
+                Err(error) if error.contains("/locals/m/k2") => {}
+                other => failures.push(format!(
+                    "{count} entries, k2 unclosed via {edit}: {other:?}"
+                )),
+            }
+        }
+    }
+    // In an object in a list, beside another entry on its line.
+    let host = "locals {\n  l = [\n    { k = merge(local.t, { Name = \"${local.n}-1\" }), j = 1 },\n    { k = \"x\", j = 2 },\n  ]\n}\n";
+    from_every_view(
+        &mut failures,
+        "an object in a list",
+        Language::HCL,
+        host,
+        &replace("/locals/l/0/k", "-1", "-1X"),
+        &host.replacen("-1", "-1X", 1),
+    );
+    report(failures);
+}

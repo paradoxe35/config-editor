@@ -103,6 +103,27 @@ fn duplicate_keys_are_a_parse_error_on_the_repeated_line() {
     assert!(error.message.contains("duplicate"), "{}", error.message);
 }
 
+/// A comment (a tsconfig.json as `tsc --init` writes it) is reported as a
+/// comment JSON has no room for, at the comment, wherever it stands.
+#[test]
+fn a_comment_is_reported_as_one_json_does_not_have() {
+    let cases = [
+        ("{\n  // Visit the docs\n  \"a\": 1\n}\n", 2, 3),
+        ("{\n  \"a\": 1, // trailing\n  \"b\": 2\n}\n", 2, 11),
+        ("{\n  \"a\": 1 // no comma\n}\n", 2, 10),
+        ("{\n  \"a\": [1, /* two */ 2]\n}\n", 2, 12),
+        ("// first line\n{}\n", 1, 1),
+        ("\u{FEFF}/* bom */ {}\n", 1, 2),
+    ];
+    for (text, line, column) in cases {
+        let error = JsonBehavior.parse(text).unwrap_err();
+        assert_eq!(error.message, "JSON has no comments: remove this one", "{text:?}");
+        assert_eq!((error.line, error.column), (Some(line), Some(column)), "{text:?}");
+    }
+    // A slash in a string is no comment.
+    assert!(JsonBehavior.parse("{\"u\": \"http://x/*y\"}").is_ok());
+}
+
 #[test]
 fn same_key_in_different_objects_is_not_a_duplicate() {
     let source = r#"{"clients": {"a": {"secret": "x"}}, "auth": {"secret": "y"}}"#;

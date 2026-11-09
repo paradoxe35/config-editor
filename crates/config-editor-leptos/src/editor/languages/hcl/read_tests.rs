@@ -234,3 +234,30 @@ fn reading_grows_with_the_length_of_the_text() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Blocks of one type whose labels begin with all of another's (`r "t"`
+/// and `r "t" "n"`) cannot both be read: one would be dropped, so the
+/// parse reports the second one, at its header, naming both.
+#[test]
+fn blocks_whose_labels_begin_with_anothers_are_reported_at_the_second() {
+    let cases = [
+        ("r \"t\" {\n  y = 1\n}\nr \"t\" \"n\" {\n  y = 2\n}\n", 4, "`r \"t\"` and `r \"t\" \"n\"`"),
+        ("r \"t\" \"n\" {\n  y = 1\n}\nr \"t\" {\n  y = 2\n}\n", 4, "`r \"t\" \"n\"` and `r \"t\"`"),
+        ("r \"t\" \"n\" \"m\" {}\nx = 1\nr \"t\" {}\n", 3, "`r \"t\" \"n\" \"m\"` and `r \"t\"`"),
+        ("o {\n  r \"t\" {}\n  r \"t\" \"n\" {}\n}\n", 3, "`r \"t\"` and `r \"t\" \"n\"`"),
+    ];
+    for (text, line, named) in cases {
+        let error = HclBehavior.parse(text).expect_err(text);
+        assert_eq!(error.line, Some(line), "{text}: {error:?}");
+        assert!(error.message.contains(named), "{text}: {}", error.message);
+    }
+    // Labels that part before either ends are read (`r "t" "n"` and
+    // `r "u"`), and so are blocks in other bodies and repeated blocks.
+    for text in [
+        "r \"t\" \"n\" {}\nr \"u\" {}\nr \"t\" \"m\" {}\n",
+        "r \"t\" {}\no {\n  r \"t\" \"n\" {}\n}\n",
+        "r \"t\" \"n\" {}\nr \"t\" \"n\" {}\n",
+    ] {
+        assert!(HclBehavior.parse(text).is_ok(), "{text}: {:?}", HclBehavior.parse(text));
+    }
+}

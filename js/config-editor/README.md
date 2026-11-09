@@ -690,9 +690,11 @@ const editor = new ConfigEditor(element, {
 - A placeholder is real only in the field of the host's own `value` it
   was given in (and accepted by `isPlaceholder`). Anywhere else it is plain
   text, so it never stands for another field's secret: one of the host's
-  tokens pasted into another field, or under a renamed key, is flagged, and
-  so is a token the host did not give in a secret field. Put back into its
-  own field it is real again. A token the host wrote in a comment is real
+  tokens pasted into another field, or its field's own key renamed, is
+  flagged, and so is a token the host did not give in a secret field. Put
+  back into its own field it is real again. It follows its field when the
+  path to it changes but not the field: a list item deleted, inserted or
+  moved before it, or a key above it renamed (`db` made `database`). A token the host wrote in a comment is real
   in that text's comments only: pasted into a field it is flagged, as a
   field's token is in a comment, each where it is written.
 - A token is opaque: whatever `placeholder` matches, kept whole as written;

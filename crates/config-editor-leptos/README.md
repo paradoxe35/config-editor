@@ -1113,7 +1113,7 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   the pattern (and of the host's check) found in that field of the host's
   own `value`, at most as often as there. Anywhere else it is plain text,
   so it can never stand for another field's secret: one of the host's
-  tokens pasted into another field, or left under a renamed key, is flagged
+  tokens pasted into another field, or left under its own key renamed, is flagged
   (it stands for the secret of the field it came from), and so is a token
   the host did not give in a secret field (it stands for no current
   secret). Like the schema's problems, at most 20 are flagged; past that, a
@@ -1122,7 +1122,9 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   again, since the field then holds what the host gave. In a list item it
   follows its item: an item deleted or inserted before it, or the item
   moved, leaves it real in the item's new place (an item is told by its
-  whole value, so pasted into another item it is still plain text there).
+  whole value, so pasted into another item it is still plain text there);
+  under a key above it renamed (`db` made `database`), it follows the
+  renamed map.
   The schema check accepts a placeholder only in its own field.
 - A token the host wrote in a comment is real in that text's comments
   only (moved to another comment, it stays real): pasted into a field it

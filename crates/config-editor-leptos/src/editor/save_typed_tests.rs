@@ -149,6 +149,88 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
     report(failures);
 }
 
+/// A host whose values are all text (XML) keeps a number exactly as it was
+/// typed in a view (`4.10` over `4.8` is `4.10`, not `4.1`): the view only
+/// reads it as a number. The other hosts keep the spelling where they read
+/// it as the typed number. Every host, every view, attributes and element
+/// text.
+#[test]
+fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text() {
+    const WEB_CONFIG: &str = include_str!("../../tests/fixtures/real/web.config");
+    let hosts: [(Language, &str, &[&str]); 5] = [
+        (
+            Language::XML,
+            WEB_CONFIG,
+            &[
+                "/configuration/system.web/compilation/targetFramework",
+                "/configuration/system.web/httpRuntime/targetFramework",
+            ],
+        ),
+        (Language::XML, "<c>\n  <v>4.8</v>\n</c>\n", &["/c/v"]),
+        (Language::YAML, "v: 4.8 # v\n", &["/v"]),
+        (Language::TOML, "v = 4.8 # v\n", &["/v"]),
+        (Language::HCL, "v = 4.8 # v\n", &["/v"]),
+    ];
+    let mut failures = Vec::new();
+    for (host, host_text, pointers) in hosts {
+        for edit in ALL.into_iter().filter(|edit| *edit != host) {
+            let bridge = Bridge::new(host, edit, None).unwrap();
+            let shown = bridge.to_edit(host_text).unwrap().text;
+            for pointer in pointers {
+                for typed in ["4.10", "4.80", "4.85"] {
+                    let case = format!("{host} host via {edit}: {pointer} typed {typed}");
+                    let Some(edited) = typed_over(edit, &shown, pointer, typed) else {
+                        failures.push(format!("{case}: not in\n{shown}"));
+                        continue;
+                    };
+                    let saved = match bridge.to_host(&edited, host_text) {
+                        Ok(saved) => saved.text,
+                        Err(error) => {
+                            failures.push(format!("{case}: waits: {error:?}"));
+                            continue;
+                        }
+                    };
+                    let written = host
+                        .behavior()
+                        .value_span(&saved, pointer)
+                        .and_then(|span| codec::byte_range(&saved, span))
+                        .map(|range| saved[range].trim().trim_matches('"').to_string());
+                    if written.as_deref() != Some(typed) {
+                        failures.push(format!("{case}: written {written:?}:\n{saved}"));
+                    }
+                    let rest = saved.replacen(typed, "4.8", 1);
+                    if rest != host_text {
+                        failures.push(format!("{case}: more changed:\n{saved}"));
+                    }
+                }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// Text edited in a character that begins like the one it replaces (`é`
+/// made `è`), beside a number, saves as edited.
+#[test]
+fn an_edit_of_a_character_beside_a_number_saves_from_every_view() {
+    let mut failures = Vec::new();
+    for (host, text) in [
+        (Language::XML, "<c>\n  <s>é4</s>\n  <v>4.8</v>\n</c>\n"),
+        (Language::YAML, "s: é4\nv: 4.8\n"),
+    ] {
+        let pointer = if host == Language::XML { "/c/s" } else { "/s" };
+        from_every_view(
+            &mut failures,
+            "é made è",
+            host,
+            text,
+            &|value| *value.pointer_mut(pointer).unwrap() = "è4".into(),
+            &text.replace('é', "è"),
+        );
+    }
+    report(failures);
+}
+
 /// A YAML string tagged `!!str` stays plain when edited to text that would
 /// otherwise read as a number or boolean, in a block and a flow list.
 #[test]

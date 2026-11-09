@@ -636,6 +636,15 @@ mod save_hcl_labels_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_hcl_repeated_labels_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_hcl_templates_tests;
 #[cfg(all(
     test,

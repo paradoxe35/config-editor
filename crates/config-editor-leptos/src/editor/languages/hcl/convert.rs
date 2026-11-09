@@ -163,6 +163,11 @@ pub(super) fn labelled_blocks(source: &str) -> LabelledBlocks {
     found
 }
 
+/// The JSON pointer of `path`.
+fn pointer_of(path: &[String]) -> String {
+    path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect()
+}
+
 pub(super) fn hcl_body(
     map: &serde_json::Map<String, Value>,
     forms: &HostForms,
@@ -170,9 +175,6 @@ pub(super) fn hcl_body(
 ) -> Result<hcl::Body, String> {
     let labelled = &forms.labelled;
     let mut body = hcl::Body::builder();
-    let pointer_of = |path: &[String]| -> String {
-        path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect()
-    };
     for (key, value) in map {
         let mut child_path = path.to_vec();
         child_path.push(key.clone());
@@ -337,8 +339,28 @@ fn labelled_level(
     forms: &HostForms,
     blocks: &mut Vec<hcl::Block>,
 ) -> Result<(), String> {
+    // Blocks written more than once with these labels (`provider "aws"`
+    // twice): one block each, as `hcl-rs` reads them back to the list.
+    if let Value::Array(items) = value
+        && !labels.is_empty()
+        && !items.is_empty()
+        && items.iter().all(Value::is_object)
+    {
+        for item in items {
+            let Value::Object(inner) = item else { continue };
+            blocks.push(hcl::Block {
+                identifier: identifier.clone(),
+                labels: labels.clone(),
+                body: hcl_body(inner, forms, body_path)?,
+            });
+        }
+        return Ok(());
+    }
     let Value::Object(inner) = value else {
-        return Err(format!("{}: a labelled block needs an object", body_path.join(".")));
+        return Err(format!(
+            "a labelled block holds a map of its attributes and blocks, or a list of them for blocks written more than once (at {})",
+            pointer_of(body_path)
+        ));
     };
     let deeper = labels.len() < depth && !inner.is_empty() && inner.values().all(Value::is_object);
     if !deeper {

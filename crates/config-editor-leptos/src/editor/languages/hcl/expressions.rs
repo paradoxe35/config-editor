@@ -96,16 +96,20 @@ pub(super) fn rewritten(written: &str, text: &str) -> Option<String> {
 }
 
 /// `written` with the change from `old` to `new` made in it, where `written`
-/// and `old` differ only in their spaces.
+/// and `old` differ only in their spaces and the commas between entries
+/// (the reader writes an object over several lines, `jsonencode({` and
+/// an entry a line, on one line with commas): the host's lines stay, only
+/// the changed text is written anew.
 fn spliced(written: &str, old: &str, new: &str) -> Option<String> {
-    let solid = |text: &str| text.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+    let loose = |character: char| character.is_whitespace() || character == ',';
+    let solid = |text: &str| text.chars().filter(|character| !loose(*character)).collect::<String>();
     if solid(written) != solid(old) {
         return None;
     }
     // The common start and end of `old` and `new`, each ending (starting)
-    // at a character that is no space.
+    // at a character that is no space or comma.
     let prefix = old.chars().zip(new.chars()).take_while(|(a, b)| a == b).map(|(a, _)| a.len_utf8()).sum::<usize>();
-    let prefix = old[..prefix].trim_end().len();
+    let prefix = old[..prefix].trim_end_matches(loose).len();
     let room = old.len().min(new.len()) - prefix;
     let suffix = old[prefix..]
         .chars()
@@ -115,13 +119,13 @@ fn spliced(written: &str, old: &str, new: &str) -> Option<String> {
         .map(|(a, _)| a.len_utf8())
         .sum::<usize>()
         .min(room);
-    let suffix = old[old.len() - suffix..].trim_start().len();
-    // The same characters in `written`, counted without spaces.
+    let suffix = old[old.len() - suffix..].trim_start_matches(loose).len();
+    // The same characters in `written`, counted without spaces and commas.
     let (before, after) = (solid(&old[..prefix]).chars().count(), solid(&old[old.len() - suffix..]).chars().count());
     let solid_at = |count: usize| -> usize {
         written
             .char_indices()
-            .filter(|(_, character)| !character.is_whitespace())
+            .filter(|(_, character)| !loose(*character))
             .nth(count)
             .map_or(written.len(), |(at, _)| at)
     };
