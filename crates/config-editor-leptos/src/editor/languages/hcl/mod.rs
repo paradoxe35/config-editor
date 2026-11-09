@@ -117,9 +117,10 @@ impl ConfigLanguage for HclBehavior {
         super::super::byte_order_mark::spans(source, |text| hcl_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
     }
 
-    /// A one-line block holds a single attribute; more open it over lines.
-    fn keeps_forms(&self, previous: &str, patched: &str) -> bool {
-        keeps_forms(previous, patched)
+    /// A block stays a block and an object attribute an attribute; an
+    /// expression stays an expression and a literal string a literal.
+    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
+        changed_form(previous, patched).or_else(|| expressions::changed_expression(previous, patched))
     }
 
     fn one_line_body(&self, value: &Value, indent: &str, unit: &str) -> Option<String> {
@@ -262,14 +263,11 @@ impl ConfigLanguage for HclBehavior {
                 .collect();
             return format!("{header}\n{text}{terminator}");
         }
-        // A bare expression the host wrote (`var.azs`, read as `${var.azs}`)
-        // stays one.
-        if let Some(text) = value.as_str()
-            && is_bare_expression(written)
-            && let Some(expression) = expression_of(text)
-            && let Ok(written) = hcl::format::to_string(&expression)
-        {
-            return written.trim().to_string();
+        // An expression the host wrote (`var.azs`, read as `${var.azs}`;
+        // `file("${var.dir}/x")`, `[for s in l : upper(s)]`) stays one,
+        // as the view spells it.
+        if let Some(expression) = value.as_str().and_then(|text| expressions::rewritten(written, text)) {
+            return expression;
         }
         // A template the host wrote (`"${var.port}"`) stays one: its `${`
         // is not escaped into text.
@@ -355,7 +353,10 @@ impl ConfigLanguage for HclBehavior {
         };
         // Maps are written in the host's forms again: labelled blocks,
         // attributes, blocks on one line.
-        let forms = previous.map(host_forms).unwrap_or_default();
+        let mut forms = previous.map(host_forms).unwrap_or_default();
+        if let Some(previous) = previous {
+            renamed_labelled_types(&mut forms, previous, map);
+        }
         let rendered = hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string())?;
         let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
         // List items have no span of their own: the shared scanner finds them.

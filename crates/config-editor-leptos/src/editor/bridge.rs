@@ -275,7 +275,7 @@ impl Bridge {
                      target: &serde_json::Value| {
             patches.iter().find_map(|patch| {
                 patch(host, previous, old, target, shape)
-                    .filter(|patched| host.keeps_forms(previous, patched))
+                    .filter(|patched| host.changed_form(previous, patched).is_none())
             })
         };
         let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
@@ -369,6 +369,16 @@ impl Bridge {
             }
         };
         self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
+        // The read-back check cannot tell forms that read the same (an HCL
+        // expression and the literal text it reads as): the host can.
+        if let Some(pointer) = host.changed_form(previous_host, &conversion.text) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would write the value at {pointer} in another form than {} writes it, though it reads the same: make it editing as {} (at {pointer})",
+                self.host.label(),
+                self.host.label()
+            ))
+            .into());
+        }
         Ok(conversion)
     }
 

@@ -212,7 +212,7 @@ const CONFIG_LANGUAGE = {
   rename_key: { custom: 'keySpan' },
   written_key: { exempt: RUST_ONLY_REFINEMENT },
   scalar_edit: { exempt: SAVE_FORMS },
-  keeps_forms: { exempt: SAVE_FORMS },
+  changed_form: { exempt: SAVE_FORMS },
   one_line_body: { exempt: SAVE_FORMS },
 };
 

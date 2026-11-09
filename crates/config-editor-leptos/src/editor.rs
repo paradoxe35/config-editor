@@ -609,6 +609,24 @@ mod save_forms_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_hcl_expressions_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_hcl_labels_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_hcl_templates_tests;
 #[cfg(all(
     test,
@@ -727,6 +745,15 @@ mod save_xml_attribute_values_tests;
     feature = "xml"
 ))]
 mod save_xml_attributes_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_comments_tests;
 #[cfg(all(
     test,
     feature = "yaml",

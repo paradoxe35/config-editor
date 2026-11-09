@@ -289,7 +289,7 @@ fn span_in_scan(
     let Some(value_span) = value_span else {
         let (_, _, value_start) = inline?;
         let start = value_start + (source[value_start..].len() - source[value_start..].trim_start().len());
-        if source[start..].starts_with(['{', '[']) {
+        if source[start..].starts_with(['{', '[']) && !opens_for_expression(&source[start..]) {
             let (line, column) = line_column(source, start);
             return Some((line, column, column + 1));
         }
@@ -302,12 +302,20 @@ fn span_in_scan(
     if end <= start {
         return None;
     }
-    if source[start..].starts_with(['{', '[']) {
-        // A container is marked at its opening bracket, not its whole body.
+    if source[start..].starts_with(['{', '[']) && !opens_for_expression(&source[start..end]) {
+        // A container is marked at its opening bracket, not its whole body
+        // (a `for` expression in brackets is one value, read as its text).
         let (line, column) = line_column(source, start);
         return Some((line, column, column + 1));
     }
     Some(span_between(source, start, end))
+}
+
+/// Whether `text` starts with a `for` expression (`[for s in l : s]`,
+/// `{ for k, v in m : k => v }`).
+fn opens_for_expression(text: &str) -> bool {
+    let inner = text[1..].trim_start();
+    inner.strip_prefix("for").is_some_and(|rest| rest.starts_with(char::is_whitespace))
 }
 
 pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {

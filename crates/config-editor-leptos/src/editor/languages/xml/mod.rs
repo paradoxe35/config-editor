@@ -27,6 +27,8 @@ mod text;
 mod one_line;
 mod text_bodies;
 mod spelling;
+mod tag_spelling;
+mod names;
 mod attribute_values;
 mod entities;
 mod markup;
@@ -307,6 +309,10 @@ impl ConfigLanguage for XmlBehavior {
         if let Some((pointer, character)) = first_non_xml_char(value, "") {
             return Err(format!("{} (at {pointer})", not_xml_char_message(character)));
         }
+        // A character XML holds, in a key that is no name (`/*`).
+        if let Some(reason) = names::first_non_name(value) {
+            return Err(reason);
+        }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let attributes = previous.map(attribute_paths).unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
@@ -336,9 +342,13 @@ impl ConfigLanguage for XmlBehavior {
             }
         }
         // Empty elements the host closes with an end tag (`<x a="1"></x>`)
-        // are written that way again, not as `<x a="1"/>`.
+        // are written that way again, not as `<x a="1"/>`, and each tag is
+        // spelled as the host spells it (`<x a='1' />`).
         Ok(match previous {
-            Some(previous) => one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+            Some(previous) => tag_spelling::with_tag_spelling_of(
+                &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
+                previous,
+            ),
             None => out,
         })
     }

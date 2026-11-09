@@ -27,8 +27,11 @@ pub(super) struct HostForms {
     pub(super) blocks: std::collections::HashSet<Vec<String>>,
 }
 
-pub(super) fn host_forms(source: &str) -> HostForms {
-    let scan = analyze(source, 0);
+/// The maps `source` writes as object attributes (`udp = { … }`) and as
+/// unlabelled blocks.
+type MapForms = (std::collections::HashSet<Vec<String>>, std::collections::HashSet<Vec<String>>);
+
+fn map_forms(source: &str, scan: &Scan) -> MapForms {
     let attributes = scan
         .attributes
         .iter()
@@ -36,8 +39,25 @@ pub(super) fn host_forms(source: &str) -> HostForms {
             attribute.prefix.is_empty()
                 && source.get(attribute.value_span.0..attribute.value_span.1).is_some_and(|value| value.starts_with('{'))
         })
-        .map(|attribute| attribute_path(&scan, attribute))
+        .map(|attribute| attribute_path(scan, attribute))
         .collect();
+    let blocks = scan
+        .headers
+        .iter()
+        .filter(|header| header.labels.is_empty())
+        .map(|header| {
+            let mut path: Vec<String> =
+                body_path(scan, header.parent).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect();
+            path.push(header.block_type.clone());
+            path
+        })
+        .collect();
+    (attributes, blocks)
+}
+
+pub(super) fn host_forms(source: &str) -> HostForms {
+    let scan = analyze(source, 0);
+    let (attributes, blocks) = map_forms(source, &scan);
     HostForms {
         labelled: labelled_blocks(source),
         attributes,
@@ -50,36 +70,25 @@ pub(super) fn host_forms(source: &str) -> HostForms {
             .filter_map(|written| hcl::from_str::<serde_json::Value>(&format!("v = {written}")).ok())
             .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
             .collect(),
-        expressions: scan
-            .attributes
-            .iter()
-            .filter_map(|attribute| source.get(attribute.value_span.0..attribute.value_span.1))
-            .filter(|written| is_bare_expression(written))
-            .filter_map(|written| hcl::from_str::<serde_json::Value>(&format!("v = {written}")).ok())
-            .filter_map(|value| value.get("v").and_then(serde_json::Value::as_str).map(str::to_string))
-            .collect(),
-        blocks: scan
-            .headers
-            .iter()
-            .filter(|header| header.labels.is_empty())
-            .map(|header| {
-                let mut path: Vec<String> =
-                    body_path(&scan, header.parent).into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect();
-                path.push(header.block_type.clone());
-                path
-            })
-            .collect(),
+        expressions: written_expressions(source),
+        blocks,
     }
 }
 
-/// Whether `patched` writes as a block no map `previous` writes as an
-/// attribute (`name = { … }`), and the other way round.
-pub(super) fn keeps_forms(previous: &str, patched: &str) -> bool {
-    let (before, after) = (host_forms(previous), host_forms(patched));
-    let unnumbered = |path: &Vec<String>| -> Vec<String> { path.iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).cloned().collect() };
-    let attributes = |forms: &HostForms| -> std::collections::HashSet<Vec<String>> { forms.attributes.iter().map(unnumbered).collect() };
-    let (attributes_before, attributes_after) = (attributes(&before), attributes(&after));
-    !attributes_before.iter().any(|path| after.blocks.contains(path)) && !before.blocks.iter().any(|path| attributes_after.contains(path))
+/// The first map `patched` writes as a block that `previous` writes as an
+/// attribute (`name = { … }`), or the other way round.
+pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
+    let forms = |source: &str| map_forms(source, &analyze(source, 0));
+    let ((attributes_before, blocks_before), (attributes_after, blocks_after)) = (forms(previous), forms(patched));
+    let unnumbered = |paths: std::collections::HashSet<Vec<String>>| -> std::collections::HashSet<Vec<String>> {
+        paths.into_iter().map(|path| path.into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()).collect()
+    };
+    let (attributes_before, attributes_after) = (unnumbered(attributes_before), unnumbered(attributes_after));
+    let switched = attributes_before
+        .iter()
+        .find(|path| blocks_after.contains(*path))
+        .or_else(|| blocks_before.iter().find(|path| attributes_after.contains(*path)))?;
+    Some(switched.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect())
 }
 
 /// The blocks of `source` opened and closed on their header's line, with
@@ -182,6 +191,14 @@ pub(super) fn hcl_body(
                     body = body.add_block(block);
                 }
             }
+            // A new top-level block type in a host writing labelled blocks:
+            // nothing tells which of its keys are labels, so the save waits.
+            Value::Object(children) if path.is_empty() && new_labelled_type(key, children, forms) => {
+                return Err(format!(
+                    "this document writes its blocks with labels, and HCL cannot tell from here which keys of the new `{key}` block are its labels: add it in the HCL text (at {})",
+                    pointer_of(&child_path)
+                ));
+            }
             // A list the host writes as repeated blocks.
             Value::Array(items)
                 if forms.blocks.contains(&child_path)
@@ -244,9 +261,51 @@ pub(super) fn hcl_body(
     Ok(body.build())
 }
 
+/// Whether `key` (holding `children`) is a top-level block type the host
+/// does not write, in a host writing its top-level blocks with labels,
+/// whose entries could be labels (each a map): written as nested blocks,
+/// that host's readers would likely reject it.
+fn new_labelled_type(key: &str, children: &serde_json::Map<String, Value>, forms: &HostForms) -> bool {
+    let path = vec![key.to_string()];
+    !forms.labelled.contains_key(&path)
+        && !forms.blocks.contains(&path)
+        && !forms.attributes.contains(&path)
+        && forms.labelled.keys().any(|labelled| labelled.len() == 1)
+        && !children.is_empty()
+        && children.values().all(Value::is_object)
+}
+
+/// Each top-level block type of `map` the host does not write that holds
+/// what a labelled type of the host (gone from `map`) held: the type
+/// renamed, written with that type's labels.
+pub(super) fn renamed_labelled_types(forms: &mut HostForms, previous: &str, map: &serde_json::Map<String, Value>) {
+    let gone: Vec<(String, usize)> = forms
+        .labelled
+        .iter()
+        .filter(|(path, _)| path.len() == 1 && !map.contains_key(&path[0]))
+        .map(|(path, depth)| (path[0].clone(), *depth))
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    let Ok(old) = hcl_parse(previous) else {
+        return;
+    };
+    for (key, value) in map {
+        let path = vec![key.clone()];
+        if forms.labelled.contains_key(&path) {
+            continue;
+        }
+        if let Some((_, depth)) = gone.iter().find(|(type_name, _)| old.get(type_name) == Some(value)) {
+            forms.labelled.insert(path, *depth);
+        }
+    }
+}
+
 /// The blocks `identifier "label" … { body }` for a map written with `depth`
-/// label levels; an entry that is not an object at a level ends the labels
-/// there.
+/// label levels: each entry at each level a block of its own
+/// (`service "http" "web"` and `… "api"`); an entry whose value is
+/// not a map of maps ends the labels there.
 fn labelled_entries(
     identifier: &hcl::Identifier,
     map: &serde_json::Map<String, Value>,
@@ -255,31 +314,47 @@ fn labelled_entries(
     forms: &HostForms,
 ) -> Result<Vec<hcl::Block>, String> {
     let mut blocks = Vec::new();
+    let mut labels = Vec::new();
+    let mut body_path = path.to_vec();
     for (label, value) in map {
-        let mut labels = vec![hcl::BlockLabel::String(label.clone())];
-        let mut current = value;
-        let mut body_path = path.to_vec();
+        labels.push(hcl::BlockLabel::String(label.clone()));
         body_path.push(label.clone());
-        while labels.len() < depth
-            && let Value::Object(inner) = current
-            && inner.len() == 1
-            && let Some((next, inner_value)) = inner.iter().next()
-            && inner_value.is_object()
-        {
-            labels.push(hcl::BlockLabel::String(next.clone()));
-            body_path.push(next.clone());
-            current = inner_value;
-        }
-        let Value::Object(body) = current else {
-            return Err(format!("{}: a labelled block needs an object", body_path.join(".")));
-        };
-        blocks.push(hcl::Block {
-            identifier: identifier.clone(),
-            labels,
-            body: hcl_body(body, forms, &body_path)?,
-        });
+        labelled_level(identifier, value, depth, (&mut labels, &mut body_path), forms, &mut blocks)?;
+        labels.pop();
+        body_path.pop();
     }
     Ok(blocks)
+}
+
+/// The blocks under `labels` (at `body_path`) whose value is `value`.
+fn labelled_level(
+    identifier: &hcl::Identifier,
+    value: &Value,
+    depth: usize,
+    (labels, body_path): (&mut Vec<hcl::BlockLabel>, &mut Vec<String>),
+    forms: &HostForms,
+    blocks: &mut Vec<hcl::Block>,
+) -> Result<(), String> {
+    let Value::Object(inner) = value else {
+        return Err(format!("{}: a labelled block needs an object", body_path.join(".")));
+    };
+    let deeper = labels.len() < depth && !inner.is_empty() && inner.values().all(Value::is_object);
+    if !deeper {
+        blocks.push(hcl::Block {
+            identifier: identifier.clone(),
+            labels: labels.clone(),
+            body: hcl_body(inner, forms, body_path)?,
+        });
+        return Ok(());
+    }
+    for (label, child) in inner {
+        labels.push(hcl::BlockLabel::String(label.clone()));
+        body_path.push(label.clone());
+        labelled_level(identifier, child, depth, (labels, body_path), forms, blocks)?;
+        labels.pop();
+        body_path.pop();
+    }
+    Ok(())
 }
 
 /// Whether `written` (a value as the host writes it) is a quoted string
@@ -288,39 +363,50 @@ pub(super) fn is_template(written: &str) -> bool {
     written.starts_with('"') && super::heredoc::has_sequence(written)
 }
 
-/// Whether `written` (a value as the host writes it) is a bare expression:
-/// a reference, call or operation, not a literal (`var.azs`, `number`).
-pub(super) fn is_bare_expression(written: &str) -> bool {
-    let written = written.trim();
-    !written.is_empty()
-        && !written.starts_with(['"', '[', '{', '<', '-', '+'])
-        && !written.starts_with(|character: char| character.is_ascii_digit())
-        && !matches!(written, "true" | "false" | "null")
+/// The text each value `source` writes as an expression or template reads
+/// as, at any depth (in lists and objects too: `{ Env = var.env }`).
+fn written_expressions(source: &str) -> std::collections::HashSet<String> {
+    let pointers = super::expressions::expression_pointers(source);
+    if pointers.is_empty() {
+        return Default::default();
+    }
+    let Ok(value) = hcl_parse(source) else {
+        return Default::default();
+    };
+    pointers.iter().filter_map(|pointer| value.pointer(pointer)?.as_str().map(str::to_string)).collect()
 }
 
 /// The expression a `${…}` string stands for (`${var.azs}` is `var.azs`).
 pub(super) fn expression_of(text: &str) -> Option<hcl::Expression> {
-    let inner = text.strip_prefix("${")?.strip_suffix('}')?;
-    if inner.contains("${") {
-        return None;
-    }
-    inner.trim().parse::<hcl::Expression>().ok()
+    super::expressions::expression_text(text)?.parse::<hcl::Expression>().ok()
 }
 
 /// [`hcl_expression`], writing the strings the host writes as templates or
 /// bare expressions that way again.
 pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expression {
+    let template = |text: &str| {
+        hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(
+            super::super::super::codec::non_finite::written(text).to_string(),
+        )))
+    };
     match value {
+        Value::String(text) if forms.templates.contains(text) => template(text),
         Value::String(text) if forms.expressions.contains(text) => {
             expression_of(text).unwrap_or_else(|| hcl_expression(value))
         }
-        Value::String(text) if forms.templates.contains(text) => {
-            hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(
-                super::super::super::codec::non_finite::written(text).to_string(),
-            )))
-        }
         Value::Array(items) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
             hcl::Expression::Array(items.iter().map(|item| hcl_expression_in(item, forms)).collect())
+        }
+        Value::Object(map) if !forms.templates.is_empty() || !forms.expressions.is_empty() => {
+            let hcl::Expression::Object(keys) = hcl_expression(value) else {
+                return hcl_expression(value);
+            };
+            hcl::Expression::Object(
+                keys.into_iter()
+                    .zip(map.values())
+                    .map(|((key, _), child)| (key, hcl_expression_in(child, forms)))
+                    .collect(),
+            )
         }
         _ => hcl_expression(value),
     }

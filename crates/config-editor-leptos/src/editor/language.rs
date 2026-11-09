@@ -1773,14 +1773,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         Ok(None)
     }
 
-    /// Whether `patched` (a save's patch of `previous`) writes every map
-    /// both still hold in the same form: an HCL block stays a block and an
-    /// object attribute (`name = { … }`) an attribute, which read the same
-    /// but are different things to HCL's readers. A patch that switches one
-    /// is not taken.
-    fn keeps_forms(&self, previous: &str, patched: &str) -> bool {
+    /// The pointer of the first value `patched` (a save's text for
+    /// `previous`) writes in another form than `previous` does, where the
+    /// two read the same but are different things to the language's
+    /// readers: an HCL block and an object attribute (`name = { … }`), an
+    /// expression (`var.x`, read as `${var.x}`) and a literal string. A
+    /// patch that switches one is not taken, and a save that would write
+    /// one waits.
+    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
         let _ = (previous, patched);
-        true
+        None
     }
 
     /// The text for the `value` range of a [`OneLine`] now holding `value`
