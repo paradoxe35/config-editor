@@ -50,6 +50,11 @@ impl EditorState {
     }
 }
 
+/// Whether `popup` lets the pointer through to the text under it.
+pub(super) fn lets_through(popup: &HtmlElement) -> bool {
+    popup.has_attribute(PASSING)
+}
+
 /// `popup` takes the pointer again (it shows something else, or the
 /// pointer is back on what it is for).
 pub(super) fn take_pointer_again(popup: &Element) {
@@ -61,7 +66,7 @@ pub(super) fn take_pointer_again(popup: &Element) {
 /// the popup lets it through, and the text under it answers at once.
 pub(super) fn enter_popup(state: EditorState, popup: &HtmlElement, event: &MouseEvent) -> bool {
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    if state.popup_at_caret() || state.entered_on_the_way((x, y)) {
+    if state.popup_at_caret() || state.entered_on_the_way() {
         return true;
     }
     let _ = popup.set_attribute(PASSING, "");
@@ -69,6 +74,26 @@ pub(super) fn enter_popup(state: EditorState, popup: &HtmlElement, event: &Mouse
         super::input::pointer_at(state, &element, x, y, event.buttons() == 0);
     }
     false
+}
+
+/// The pointer left a popup it had entered for the text (`event`, its
+/// `mouseleave`): whether it went there. Then what is under it answers at
+/// once, as if it had moved there (the page sends the text no move when
+/// it comes back to the pixel it last had there): back on what the popup
+/// is for, the popup stays, without closing to open again.
+pub(super) fn back_on_text(state: EditorState, event: &MouseEvent) -> bool {
+    let Some(element) = state.textarea() else {
+        return false;
+    };
+    let onto_text = event.related_target().is_some_and(|to| {
+        let text: &web_sys::EventTarget = element.element().unchecked_ref();
+        &to == text
+    });
+    if onto_text {
+        let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
+        super::input::pointer_at(state, &element, x, y, event.buttons() == 0);
+    }
+    onto_text
 }
 
 /// A wheel over `popup`: it scrolls the popup while it can scroll that

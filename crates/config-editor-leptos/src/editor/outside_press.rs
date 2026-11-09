@@ -1,8 +1,9 @@
 //! A press outside the editor (a tap on the page, a click beside it)
 //! closes the hover card and the problem tip a tap or F8 opened, as a
 //! click in the text does: on a phone the next tap could land on its link
-//! otherwise. Escape with the pointer on one of them and the focus
-//! nowhere (the page's body) closes it too, as Escape in the text does.
+//! otherwise. Escape with the pointer on one of them or on the text it
+//! shows for, and the focus nowhere (the page's body), closes it too, as
+//! Escape in the text does.
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -23,16 +24,20 @@ pub(super) fn close_popups_on_outside_press(state: EditorState) {
     });
 }
 
-/// Closes the hover card or the problem tip under the pointer on Escape
-/// while nothing has the focus (the editor's own keys close them when it
-/// has it; another field on the page keeps its Escape).
+/// Closes the hover card or the problem tip on Escape with the pointer on
+/// it or on the text it shows for, while nothing has the focus (the
+/// editor's own keys close them when it has it; another field on the page
+/// keeps its Escape).
 pub(super) fn close_popups_on_escape_over_them(state: EditorState) {
     window_listener(&["keydown"], move |event| {
         let escape = event
             .dyn_ref::<web_sys::KeyboardEvent>()
             .is_some_and(|event| event.key() == "Escape");
-        let over =
-            state.hover().card_entered.get_value() || state.problems().tip_entered.get_value();
+        // On the popup, or on the text (the key or underline it shows for,
+        // or on the way to it).
+        let over = state.hover().card_entered.get_value()
+            || state.problems().tip_entered.get_value()
+            || state.hover().pointer.get_value().is_some();
         if escape && over && super::popup_pointer::nothing_focused() {
             state.hide_hover();
             state.hide_problem_tip();

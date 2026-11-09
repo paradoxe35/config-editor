@@ -2276,9 +2276,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  /* Wider by the letters that tell a shared file's name apart (set on the
-     tab), so the rest of the name keeps its room. */
-  max-width: calc(220px + var(--config-editor-tab-kept, 0px));
   height: 35px;
   padding: 0 6px 0 10px;
   border-right: 1px solid var(--config-editor-tab-border);
@@ -2310,9 +2307,14 @@
 
 .config-editor-documents__icon { flex: none; }
 
+/* The name's room, whatever the tab's other parts take (a touch screen's
+   wider close button, none on a tab that cannot be closed); more by the
+   letters that tell a shared file's name apart (set on the tab), so the
+   rest of the name keeps its room. */
 .config-editor-documents__name {
   display: flex;
   min-width: 0;
+  max-width: calc(154px + var(--config-editor-tab-kept, 0px));
   overflow: hidden;
 }
 
@@ -2334,6 +2336,12 @@
 .config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
 
 .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+
+/* A tab that cannot be closed keeps no room for the button: only its
+   unsaved dot, while it has one. */
+.config-editor-documents__tab:not(.config-editor-documents__tab-dirty) .config-editor-documents__marker {
+  display: none;
+}
 
 .config-editor-documents__close,
 .config-editor-documents__marker {
@@ -2431,10 +2439,9 @@
 }
 
 @media (max-width: 600px) {
-  .config-editor-documents__tab {
-    max-width: calc(160px + var(--config-editor-tab-kept, 0px));
-    padding-left: 8px;
-  }
+  .config-editor-documents__tab { padding-left: 8px; }
+  /* Room for a short folder before a shared file's name (prod/). */
+  .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
   /* A tab's folder (`conf.d/`) is left out, so the names that tell the
      tabs apart show; the title keeps the whole name. */
   .config-editor-documents__name-folder { display: none; }

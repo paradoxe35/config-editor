@@ -5,7 +5,7 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
-use super::super::popup_pointer::{enter_popup, popup_wheel};
+use super::super::popup_pointer::{back_on_text, enter_popup, popup_wheel};
 use super::super::positioning::{CardAnchor, hover_card_geometry};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
@@ -100,7 +100,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         on:focusin=move |_| state.note_card_focus(true)
                         on:focusout=move |event| leave_card_focus(state, &event)
                         on:mouseenter=move |event| enter_card(state, &event)
-                        on:mouseleave=move |_| leave_card(state)
+                        on:mouseleave=move |event| leave_card(state, &event)
                         on:mousedown=move |event| press_card(&event)
                         on:wheel=move |event| wheel_card(state, &event)
                     >
@@ -214,10 +214,12 @@ fn wheel_card(state: EditorState, event: &web_sys::WheelEvent) {
     }
 }
 
-/// The pointer left the card it entered: it closes, as when it leaves a
-/// key, and so do the problems it listed (not on to the problem tip: the
-/// pointer back on them shows them again).
-fn leave_card(state: EditorState) {
+/// The pointer left the card it entered: it closes, and so do the
+/// problems it listed (not on to the problem tip: the pointer back on them
+/// shows them again). Back onto the text, as when it leaves a key: after
+/// its moment, unless the pointer is on the card's key again (it stays,
+/// without closing to open again).
+fn leave_card(state: EditorState, event: &web_sys::MouseEvent) {
     if !state.hover().card_entered.get_value() {
         return;
     }
@@ -226,8 +228,14 @@ fn leave_card(state: EditorState) {
     if state.card_has_focus() {
         return;
     }
-    state.hide_hover();
-    state.hide_problem_tip();
+    state.leave_hover();
+    if state.problems().hovered.with_untracked(Option::is_some) {
+        state.leave_problem();
+    }
+    if !back_on_text(state, event) {
+        state.hide_hover();
+        state.hide_problem_tip();
+    }
 }
 
 /// The card's accessible name, after the key it documents.

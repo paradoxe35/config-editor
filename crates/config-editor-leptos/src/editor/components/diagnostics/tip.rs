@@ -11,7 +11,9 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::super::metrics::read_editor_metrics;
-use super::super::super::popup_pointer::{enter_popup, popup_wheel, take_pointer_again};
+use super::super::super::popup_pointer::{
+    back_on_text, enter_popup, popup_wheel, take_pointer_again,
+};
 use super::super::super::positioning::PopupFrame;
 use super::super::super::problem_hit::tip_column;
 use super::super::super::state::EditorState;
@@ -117,7 +119,7 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             hidden=move || placement.with(Option::is_none)
             style=cssom(move || placement.get().map(Placement::style))
             on:mouseenter=move |event| enter_tip(state, &event)
-            on:mouseleave=move |_| leave_tip(state)
+            on:mouseleave=move |event| leave_tip(state, &event)
             on:wheel=move |event| wheel_tip(state, &event)
             // Scrolling it or clicking a link keeps the caret.
             on:mousedown=move |event| event.prevent_default()
@@ -207,13 +209,14 @@ fn wheel_tip(state: EditorState, event: &web_sys::WheelEvent) {
 }
 
 /// The pointer left the tip it entered: it closes a moment later, as when
-/// it leaves an underline.
-fn leave_tip(state: EditorState) {
+/// it leaves an underline; back on the underline, it stays.
+fn leave_tip(state: EditorState, event: &web_sys::MouseEvent) {
     if !state.problems().tip_entered.get_value() {
         return;
     }
     state.problems().tip_entered.set_value(false);
     state.leave_problem();
+    back_on_text(state, event);
 }
 
 /// What the tip shows now: the problems at the hovered place, else at
