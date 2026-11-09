@@ -98,7 +98,7 @@ impl EditorState {
                 let near = [
                     Some(column),
                     column.checked_sub(1),
-                    past_tag_open(text, line, column),
+                    past_tag_open(self.behavior(), text, line, column),
                 ];
                 let before = (0..column.saturating_sub(1)).rev().take(LOOK_BACK);
                 near.into_iter()
@@ -234,16 +234,19 @@ fn word_starts(chars: &[char], column: usize) -> impl Iterator<Item = usize> + '
     })
 }
 
-/// The column of the tag name after a `<` at character `column` of
-/// zero-based `line` in `text` (an XML start tag), if one is there.
-fn past_tag_open(text: &str, line: usize, column: usize) -> Option<usize> {
-    let mut rest = text.split('\n').nth(line)?.chars().skip(column);
-    if rest.next()? != '<' {
-        return None;
-    }
-    rest.next()
-        .filter(|next| next.is_alphabetic() || *next == '_')?;
-    Some(column + 1)
+/// The column of the key after the markup opening it at character
+/// `column` of zero-based `line` in `text` (an XML start tag's `<`), if
+/// the language writes one there.
+fn past_tag_open(
+    behavior: &dyn super::language::ConfigLanguage,
+    text: &str,
+    line: usize,
+    column: usize,
+) -> Option<usize> {
+    let line = text.split('\n').nth(line)?;
+    let start = line.char_indices().nth(column)?.0;
+    let length = behavior.key_markup_len(&line[start..])?;
+    Some(column + line[start..start + length].chars().count())
 }
 
 #[cfg(all(test, feature = "xml"))]
@@ -259,14 +262,14 @@ mod tests {
         let text = "<config>\n  <listen>7835</listen>\n</config>\n";
         let behavior = Language::XML.behavior();
         for (line, column) in [(1, 2), (0, 0)] {
-            let at = past_tag_open(text, line, column);
+            let at = past_tag_open(behavior, text, line, column);
             let found = at.and_then(|at| hovered_key(text, line, at, behavior));
             let key = found.map(|(_, key, _)| key);
             let expected = if line == 0 { "config" } else { "listen" };
             assert_eq!(key.as_deref(), Some(expected), "{line}:{column}");
         }
-        assert_eq!(past_tag_open(text, 1, 3), None);
-        assert_eq!(past_tag_open(text, 1, 14), None);
-        assert_eq!(past_tag_open("a: <b>", 0, 9), None);
+        assert_eq!(past_tag_open(behavior, text, 1, 3), None);
+        assert_eq!(past_tag_open(behavior, text, 1, 14), None);
+        assert_eq!(past_tag_open(behavior, "a: <b>", 0, 9), None);
     }
 }

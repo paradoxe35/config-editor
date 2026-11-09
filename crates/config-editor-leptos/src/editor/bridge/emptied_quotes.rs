@@ -50,14 +50,23 @@ pub(super) fn restored(
             continue;
         };
         let was_text = &origin[was];
+        let flow = super::super::flow_syntax::Flow::of(host);
         let quoted = was_text
             .chars()
             .next()
-            .filter(|quote| matches!(quote, '"' | '\''))
+            .filter(|quote| flow.quote(*quote).is_some())
             .is_some_and(|quote| {
-                was_text.len() >= 2 && was_text.ends_with(quote) && !was_text.contains('\n')
+                was_text.len() >= 2 * quote.len_utf8()
+                    && was_text.ends_with(quote)
+                    && !was_text.contains('\n')
             });
-        if quoted && matches!(previous[now.clone()].trim(), "\"\"" | "''") {
+        let emptied = previous[now.clone()].trim();
+        let empty_quotes = emptied.chars().count() == 2
+            && emptied
+                .chars()
+                .next()
+                .is_some_and(|quote| flow.quote(quote).is_some() && emptied.ends_with(quote));
+        if quoted && empty_quotes {
             edits.push((now, was_text.to_string()));
         }
     }

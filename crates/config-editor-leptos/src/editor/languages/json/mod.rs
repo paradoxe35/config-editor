@@ -59,6 +59,12 @@ impl ConfigLanguage for JsonBehavior {
             brackets: &[('{', '}'), ('[', ']')],
             separators: &[":"],
             quotes: &["\""],
+            literal_quotes: &[],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: None,
+            written_separator: Some(": "),
         }
     }
 
@@ -99,6 +105,11 @@ impl ConfigLanguage for JsonBehavior {
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
         property_insert(key, property, root, context.base_indent, context.unit)
+    }
+
+    /// A character however it is escaped (`\u00e9` for `é`, `\/` for `/`).
+    fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
+        super::escapes::without_unicode_escapes(code)
     }
 
     fn format_value(&self, value: &Value) -> String {

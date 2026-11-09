@@ -54,6 +54,7 @@ impl ConfigLanguage for Ini {
             brackets: &[('[', ']')],
             separators: &["="],
             quotes: &["\""],
+            ..LanguageConfig::default()
         }
     }
 

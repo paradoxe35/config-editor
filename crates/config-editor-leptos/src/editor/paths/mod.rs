@@ -159,7 +159,14 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
     // A container opened on the key's line (`"web": {`, `hosts = [`) is a
     // block below it.
     let written = text(value.start_column - 1, value.end_column - 1);
-    if matches!(written.trim(), "{" | "[") {
+    let mut opener = written.trim().chars();
+    if let (Some(open), None) = (opener.next(), opener.next())
+        && behavior
+            .config()
+            .brackets
+            .iter()
+            .any(|(bracket, _)| *bracket == open)
+    {
         return Some(range(key));
     }
     let start = key.start_column;
@@ -181,10 +188,15 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
         .collect();
     match behavior.closing_markup_len(&rest) {
         Some(closing) => {
-            let start = if start > 1 && line.get(start - 2) == Some(&'<') {
-                start - 1
-            } else {
-                start
+            // The markup opening the key (`<` of `<listen>`) too.
+            let line_text: String = line.iter().collect();
+            let name = line_text
+                .char_indices()
+                .nth(start - 1)
+                .map_or(line_text.len(), |(byte, _)| byte);
+            let start = match super::flow_syntax::markup_before(behavior, &line_text, name) {
+                Some(open) => start - line_text[open..name].chars().count(),
+                None => start,
             };
             Some(TextRange::new(
                 TextPosition::new(key.line, start),
@@ -264,6 +276,21 @@ pub(crate) fn same_field(one: &str, other: &str) -> bool {
     one == other || plain(one) == plain(other)
 }
 
+/// Where the closing markup (an XML end tag) the caret at byte `at` of
+/// `line` is inside starts, looking back a bounded distance.
+fn closing_markup_around(behavior: &dyn ConfigLanguage, line: &str, at: usize) -> Option<usize> {
+    line[..at]
+        .char_indices()
+        .rev()
+        .take(256)
+        .map(|(start, _)| start)
+        .find(|start| {
+            behavior
+                .closing_markup_len(&line[*start..])
+                .is_some_and(|length| *start + 1 < at && at <= *start + length)
+        })
+}
+
 /// The path of what the caret at UTF-16 `cursor` is on: the key under or just
 /// before it, else the value or container holding it (the root at the top
 /// level). `None` past the end of the text.
@@ -291,11 +318,7 @@ pub(crate) fn path_at(
     let line = source[line_start..].split('\n').next().unwrap_or("");
     // In markup closing a value (`<a>1</a|>`): the value it closes.
     let in_line = byte - line_start;
-    if let Some(open) = line[..in_line].rfind("</")
-        && behavior
-            .closing_markup_len(&line[open..])
-            .is_some_and(|len| in_line <= open + len)
-    {
+    if let Some(open) = closing_markup_around(behavior, line, in_line) {
         let value_end = units_at(source, line_start + open);
         return path_at(behavior, source, value_end);
     }
@@ -307,9 +330,9 @@ pub(crate) fn path_at(
         .iter()
         .rposition(|character| !character.is_whitespace() && !separators.contains(*character))
         .filter(|found| *found + 1 < column);
-    let opening_markup = (line[in_line..].starts_with('<')
-        && behavior.closing_markup_len("</>").is_some())
-    .then_some(column + 1);
+    let opening_markup = behavior
+        .key_markup_len(&line[in_line..])
+        .map(|length| column + line[in_line..in_line + length].chars().count());
     let columns = [
         Some(column),
         column.checked_sub(1),

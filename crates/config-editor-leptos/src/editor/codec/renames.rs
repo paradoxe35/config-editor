@@ -47,11 +47,14 @@ fn rename_at_key_span(
 ) -> Option<String> {
     let range = byte_range(source, language.key_span(source, pointer)?)?;
     let written = &source[range.clone()];
+    let flow = super::super::flow_syntax::Flow::of(language);
     let quote = written.chars().next().filter(|quote| {
-        matches!(quote, '"' | '\'') && written.len() >= 2 && written.ends_with(*quote)
+        flow.quote(*quote).is_some()
+            && written.len() >= 2 * quote.len_utf8()
+            && written.ends_with(*quote)
     });
     let inner = match quote {
-        Some(_) => range.start + 1..range.end - 1,
+        Some(quote) => range.start + quote.len_utf8()..range.end - quote.len_utf8(),
         None => range.clone(),
     };
     if source[inner.clone()] != *old_key {
@@ -60,7 +63,7 @@ fn rename_at_key_span(
     let mut renamed = source.to_string();
     match quote {
         // A bare new key in the host's quotes.
-        Some(quote) if !new_key.starts_with(['"', '\'']) => {
+        Some(quote) if !flow.starts_quoted(new_key) => {
             renamed.replace_range(range, &format!("{quote}{new_key}{quote}"));
         }
         _ => renamed.replace_range(range, new_key),

@@ -85,54 +85,11 @@ pub(super) fn content_areas(
             areas.push(lines.line_bounds(body.start).start..lines.line_bounds(body.end - 1).end);
         }
     }
-    if behavior.closing_markup_len("</x>").is_some() {
-        areas.extend(element_texts(text));
-    }
-    areas
-}
-
-/// The texts of XML elements that hold more than whitespace: from right
-/// after a tag's `>` to right before the next `<`.
-fn element_texts(text: &str) -> Vec<Range<usize>> {
-    let mut areas = Vec::new();
-    let mut units = 0;
-    let mut in_tag = false;
-    let mut start: Option<usize> = None;
-    let mut blank = true;
-    for character in text.chars() {
-        match character {
-            '<' => {
-                if let Some(from) = start.take()
-                    && !blank
-                {
-                    areas.push(from..units);
-                }
-                in_tag = true;
-            }
-            '>' if in_tag => {
-                in_tag = false;
-                start = Some(units + 1);
-                blank = true;
-            }
-            _ if !in_tag && !character.is_whitespace() => blank = false,
-            _ => {}
-        }
-        units += character.len_utf16();
-    }
-    areas
-}
-
-#[cfg(test)]
-mod tests {
-    use super::element_texts;
-
-    #[test]
-    fn element_texts_are_the_texts_holding_more_than_whitespace() {
-        let text = "<a>\n  <b>x y</b>\n  <c> </c>\n<d>l1\nl2</d></a>";
-        let found: Vec<&str> = element_texts(text)
+    areas.extend(
+        behavior
+            .content_texts(text)
             .into_iter()
-            .map(|range| &text[range])
-            .collect();
-        assert_eq!(found, ["x y", "l1\nl2"]);
-    }
+            .map(|range| units(range.start)..units(range.end)),
+    );
+    areas
 }

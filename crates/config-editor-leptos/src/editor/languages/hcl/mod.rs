@@ -21,6 +21,7 @@ mod convert;
 mod floats;
 mod heredoc;
 mod expressions;
+mod list_items;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -37,7 +38,7 @@ use convert::*;
 use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
+use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, inline_value_len, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
 use super::super::completion::{
     array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };
@@ -78,9 +79,15 @@ impl ConfigLanguage for HclBehavior {
         LanguageConfig {
             line_comments: &["#", "//"],
             block_comment: Some(("/*", "*/")),
-            brackets: &[('{', '}'), ('[', ']')],
+            brackets: &[('{', '}'), ('[', ']'), ('(', ')')],
             separators: &["=", ":"],
             quotes: &["\""],
+            literal_quotes: &[],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: None,
+            written_separator: Some(" = "),
         }
     }
 
@@ -132,6 +139,11 @@ impl ConfigLanguage for HclBehavior {
         Some(text)
     }
 
+    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
+        let comment_start = |line: &str| self.comment_start(line).unwrap_or(line.len());
+        list_items::opens_list_item(&comment_start, lines, index)
+    }
+
     fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
         repeated_block_lines(source, pointer)
     }
@@ -150,7 +162,13 @@ impl ConfigLanguage for HclBehavior {
     /// An assignment aligned as `terraform fmt` writes it (`p    = 1`) is
     /// the serializer's `p = 1`.
     fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
-        super::aligned::single_spaced(code)
+        // Aligned as written, a character however it is escaped.
+        match super::aligned::single_spaced(code) {
+            std::borrow::Cow::Borrowed(code) => super::escapes::without_unicode_escapes(code),
+            std::borrow::Cow::Owned(code) => {
+                std::borrow::Cow::Owned(super::escapes::without_unicode_escapes(&code).into_owned())
+            }
+        }
     }
 
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
@@ -295,6 +313,7 @@ impl ConfigLanguage for HclBehavior {
             source,
             cursor,
             &[('{', '}'), ('[', ']'), ('(', ')')],
+            &self.config(),
             // A comment-only line has no code: its braces open nothing.
             |line| code_before_comment(line).unwrap_or(""),
         )
@@ -347,6 +366,10 @@ impl ConfigLanguage for HclBehavior {
     /// An attribute's `=` (or `:` in an object), or a block's body after its
     /// type and labels (`pol| {`, `servi| "ssh" {`).
     fn value_follows_key(&self, rest: &str) -> bool {
+        // The rest of a dotted name (`tcp|.nodelay`).
+        if rest.starts_with('.') {
+            return true;
+        }
         let rest = rest.trim_start();
         // A body over lines (`{` ending the line) or on one (`{ … }`, `{}`),
         // after any labels.

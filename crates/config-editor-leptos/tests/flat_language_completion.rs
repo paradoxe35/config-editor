@@ -15,6 +15,8 @@ use std::collections::HashSet;
 struct Flat {
     label: &'static str,
     separator: &'static [&'static str],
+    /// The separator as a new entry writes it.
+    written: Option<&'static str>,
 }
 
 impl ConfigLanguage for Flat {
@@ -30,6 +32,7 @@ impl ConfigLanguage for Flat {
         LanguageConfig {
             line_comments: &["#"],
             separators: self.separator,
+            written_separator: self.written,
             ..LanguageConfig::default()
         }
     }
@@ -86,10 +89,12 @@ impl ConfigLanguage for Flat {
 static ENV: Flat = Flat {
     label: "FlatEnv",
     separator: &["="],
+    written: None,
 };
 static COLON: Flat = Flat {
     label: "FlatColon",
     separator: &[":"],
+    written: Some(": "),
 };
 
 const SCHEMA: &str = r#"{

@@ -319,7 +319,7 @@ pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
 
 /// The marker of a heredoc opened at the end of `line`, outside strings.
 fn heredoc_marker(line: &str) -> Option<&str> {
-    let code = &line[..crate::editor::language::comment_start_outside_quotes(line, &["#", "//"]).unwrap_or(line.len())];
+    let code = &line[..crate::editor::language::comment_start_outside_quotes(line, &["#", "//"], &["\"", "'"]).unwrap_or(line.len())];
     let at = code.rfind("<<")?;
     if code[..at].matches('"').count() % 2 == 1 {
         return None;

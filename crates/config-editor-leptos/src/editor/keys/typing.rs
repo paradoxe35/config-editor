@@ -1,6 +1,7 @@
 //! Typing aids: comment toggling, auto-closed pairs and language closers, typing
 //! over closers, re-indenting, and indentation-aware Backspace.
 
+use crate::editor::language::ConfigLanguage;
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
@@ -126,9 +127,13 @@ fn type_over_closer(state: EditorState, event: &KeyboardEvent, start: usize, typ
     let source = state.doc().text.get_untracked();
     // A `>` typed before a tag's own `>` (`<tcp|></tcp>`) in a markup
     // language moves over it rather than closing the tag a second time.
-    if typed == '>' && state.behavior().closing_markup_len("</a>").is_some() {
+    if state
+        .behavior()
+        .markup_delimiters()
+        .is_some_and(|(_, close)| typed == close)
+    {
         let byte = utf16_to_byte_index(&source, start);
-        if source[byte..].starts_with('>')
+        if source[byte..].starts_with(typed)
             && state
                 .behavior()
                 .lexical_state(&source, start)
@@ -234,7 +239,7 @@ fn closer_already_there(
         .behavior()
         .reindent_on_type(&source, start, typed)
         .map(|indent| indent.len())
-        .or_else(|| opener_indent(&source[..line_start], typed));
+        .or_else(|| opener_indent(state.behavior(), &source[..line_start], typed));
     let same_place = next_line.trim() == closer && Some(indent_of(next_line)) == target;
     if !(after.trim().is_empty()
         && before[..typed_from - line_start].trim().is_empty()
@@ -254,14 +259,18 @@ fn closer_already_there(
     true
 }
 
-/// The indent of the line holding the opener `closer` would close, the
-/// last one in `before` left unclosed (quotes skipped).
-fn opener_indent(before: &str, closer: char) -> Option<usize> {
-    let opener = match closer {
-        '}' => '{',
-        ']' => '[',
-        ')' => '(',
-        _ => return None,
+/// The indent of the line holding the opener `closer` would close (one of
+/// the language's brackets), the last one in `before` left unclosed
+/// (quotes skipped).
+fn opener_indent(behavior: &dyn ConfigLanguage, before: &str, closer: char) -> Option<usize> {
+    let config = behavior.config();
+    let (opener, _) = config.brackets.iter().find(|(_, close)| *close == closer)?;
+    let opener = *opener;
+    let opens_quote = |character: char| {
+        config
+            .quotes
+            .iter()
+            .any(|quote| quote.starts_with(character))
     };
     let mut depth = 0usize;
     let mut quote: Option<char> = None;
@@ -270,7 +279,7 @@ fn opener_indent(before: &str, closer: char) -> Option<usize> {
         match quote {
             Some(open) if character == open => quote = None,
             Some(_) => {}
-            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if opens_quote(character) => quote = Some(character),
             None if character == closer => depth += 1,
             None if character == opener => {
                 if depth == 0 {
@@ -431,11 +440,12 @@ pub(super) fn indentation(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     let text = state.doc().text.get_untracked();
-    let edit = match event.key().as_str() {
-        "Backspace" => backspace_indent(&text, start, &state.doc().indent.get_value()),
-        "}" => typed_closer(&text, start, '}', state.behavior()),
-        "]" => typed_closer(&text, start, ']', state.behavior()),
-        ")" => typed_closer(&text, start, ')', state.behavior()),
+    let key = event.key();
+    let mut typed = key.chars();
+    let edit = match (key.as_str(), typed.next(), typed.next()) {
+        ("Backspace", _, _) => backspace_indent(&text, start, &state.doc().indent.get_value()),
+        // A closing bracket of the language aligns with its opener.
+        (_, Some(closer), None) => typed_closer(&text, start, closer, state.behavior()),
         _ => None,
     };
     let Some((updated, caret)) = edit else {

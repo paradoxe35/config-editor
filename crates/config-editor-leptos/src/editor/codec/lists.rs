@@ -2,6 +2,7 @@
 //! place: kept items keep their lines (and comments), new ones get a line
 //! of their own in the same style, removed ones lose theirs.
 
+use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::{comment_start, comparable};
 use serde_json::Value;
@@ -19,11 +20,14 @@ pub(super) fn rewrite_list_lines(
     unit: &str,
     empty_trailing: bool,
 ) -> Option<String> {
+    let flow = Flow::of(language);
+    let (open, close) = flow.list()?;
+    let separator = flow.separator()?;
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
     // The opening line may end with a comment (`[  # ports`).
     let first_code = first[..comment_start(language, first)].trim_end();
-    if lines.len() < 2 || !first_code.ends_with('[') || last.trim() != "]" {
+    if lines.len() < 2 || !first_code.ends_with(open) || last.trim() != close.to_string() {
         return None;
     }
     // Each item line: the comment lines right above it (they go where it
@@ -48,10 +52,10 @@ pub(super) fn rewrite_list_lines(
             above.push(line);
             continue;
         }
-        let comma = code.ends_with(',');
-        let code = code.trim_end_matches(',').trim_end();
+        let comma = code.ends_with(separator);
+        let code = code.trim_end_matches(separator).trim_end();
         // Several items on one line, or one spread over lines: not this shape.
-        if top_level_commas(code) > 0 || !balanced(code) {
+        if flow.top_level_separators(code) > 0 || !flow.balanced(code) {
             return None;
         }
         old.push(Line {
@@ -109,7 +113,11 @@ pub(super) fn rewrite_list_lines(
                     let code_end = line.line[..comment_at].trim_end().len();
                     let gap = &line.line[code_end..comment_at];
                     let lead = &line.line[..line.line.len() - line.line.trim_start().len()];
-                    let comma = if wants_comma { "," } else { "" };
+                    let comma = if wants_comma {
+                        separator.to_string()
+                    } else {
+                        String::new()
+                    };
                     let gap = if comment.is_empty() {
                         ""
                     } else if gap.is_empty() {
@@ -125,7 +133,11 @@ pub(super) fn rewrite_list_lines(
                 if written.contains('\n') {
                     return None;
                 }
-                let comma = if wants_comma { "," } else { "" };
+                let comma = if wants_comma {
+                    separator.to_string()
+                } else {
+                    String::new()
+                };
                 out.push(format!("{indent}{written}{comma}"));
             }
         }
@@ -133,39 +145,6 @@ pub(super) fn rewrite_list_lines(
     out.extend(closing_comments.iter().map(|line| line.to_string()));
     out.push(last.to_string());
     Some(out.join("\n"))
-}
-
-/// Commas outside brackets and quotes in `code`.
-fn top_level_commas(code: &str) -> usize {
-    let (mut depth, mut quote, mut commas) = (0i32, None, 0);
-    for character in code.chars() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '{' | '[' | '(') => depth += 1,
-            (None, '}' | ']' | ')') => depth -= 1,
-            (None, ',') if depth == 0 => commas += 1,
-            _ => {}
-        }
-    }
-    commas
-}
-
-/// Whether `code` closes every bracket it opens.
-fn balanced(code: &str) -> bool {
-    let (mut depth, mut quote) = (0i32, None);
-    for character in code.chars() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '{' | '[' | '(') => depth += 1,
-            (None, '}' | ']' | ')') => depth -= 1,
-            _ => {}
-        }
-    }
-    depth == 0
 }
 
 /// `text` (the host's `{` … `}`, one entry per line, as a YAML flow map or
@@ -181,10 +160,13 @@ pub(super) fn rewrite_map_lines(
     entries: &serde_json::Map<String, Value>,
     lone_commas: bool,
 ) -> Option<String> {
+    let flow = Flow::of(language);
+    let (open, close) = flow.map()?;
+    let separator = flow.separator()?;
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
     let first_code = first[..comment_start(language, first)].trim_end();
-    if lines.len() < 2 || !first_code.ends_with('{') || last.trim() != "}" {
+    if lines.len() < 2 || !first_code.ends_with(open) || last.trim() != close.to_string() {
         return None;
     }
     // Each entry line: the comment lines above it, the line, its key, the
@@ -208,21 +190,17 @@ pub(super) fn rewrite_map_lines(
             above.push(*line);
             continue;
         }
-        let comma = code.ends_with(',');
-        let code = code.trim_end_matches(',').trim_end();
-        let separator = code.find([':', '='])?;
-        let key = code[..separator]
-            .trim()
-            .trim_matches(['"', '\''])
-            .to_string();
-        let value_start = separator
-            + 1
-            + (code[separator + 1..].len() - code[separator + 1..].trim_start().len());
-        let value = &code[value_start..];
+        let comma = code.ends_with(separator);
+        let code = code.trim_end_matches(separator).trim_end();
+        let (key, head, value) = flow.entry_parts(code)?;
+        let value_start = head.len();
         // An entry spread over lines, or several on one: not this shape.
         if value.is_empty()
-            || value.ends_with(['{', '['])
-            || value.contains(", ") && !value.starts_with(['"', '\''])
+            || value
+                .chars()
+                .next_back()
+                .is_some_and(|last| flow.closer_of(last).is_some())
+            || value.contains(&format!("{separator} ")) && !flow.starts_quoted(value)
         {
             return None;
         }
@@ -257,7 +235,11 @@ pub(super) fn rewrite_map_lines(
     let mut out = vec![first.to_string()];
     for (index, (key, value)) in entries.iter().enumerate() {
         let wants_comma = commas && (index + 1 < entries.len() || trailing);
-        let comma = if wants_comma { "," } else { "" };
+        let comma = if wants_comma {
+            separator.to_string()
+        } else {
+            String::new()
+        };
         match old.iter().find(|entry| entry.key == *key) {
             Some(entry) => {
                 out.extend(entry.above.iter().map(|line| line.to_string()));
@@ -293,8 +275,7 @@ pub(super) fn rewrite_map_lines(
                 ));
             }
             None => {
-                let separator =
-                    &model.head[model.head.trim_end_matches([' ', '\t', ':', '=']).len()..];
+                let separator = flow.separator_of(model.head);
                 let name = super::key_like(language, key, model.head)?;
                 let written = if value.is_object() || value.is_array() {
                     language.format_value(value)

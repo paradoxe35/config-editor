@@ -15,6 +15,12 @@ const FOLD_SYNTAX: LanguageConfig = LanguageConfig {
     brackets: &[('{', '}'), ('[', ']'), ('(', ')')],
     separators: &[],
     quotes: &["\""],
+    literal_quotes: &[],
+        map_brackets: None,
+    list_brackets: None,
+    item_separator: None,
+    item_marker: None,
+        written_separator: None,
 };
 
 /// `heredocs` are the heredoc bodies, skipped by the bracket scan.

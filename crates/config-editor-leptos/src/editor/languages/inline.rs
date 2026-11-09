@@ -6,7 +6,7 @@
 //! the language's own comment markers applied after (see `codec`). Functions taking
 //! `code` read one statement: a line, or from [`statement_start`] to the caret.
 
-use super::language::{CompletionContext, SchemaPathSegment};
+use super::super::language::{CompletionContext, SchemaPathSegment};
 
 /// A `key <separator>` on one line: the key's byte range and the byte just past
 /// the separator.
@@ -253,6 +253,33 @@ pub fn in_front_of_inline_entry(
     context
 }
 
+/// How many `{` / `[` opened on `line_prefix` are still open, ignoring
+/// brackets inside double-quoted strings.
+pub fn unclosed_brackets(line_prefix: &str) -> usize {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for character in line_prefix.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
+}
+
 /// The byte just past the quoted string starting at `start`, or the end.
 pub fn skip_quoted(code: &str, start: usize) -> usize {
     let quote = code.as_bytes()[start];
@@ -319,6 +346,7 @@ fn closing_quote(text: &str, quote: char) -> Option<usize> {
 
 /// The byte offset of the bracket closing the one `text` starts with, on the
 /// same line, outside strings.
+#[cfg(feature = "hcl")]
 pub fn matching_close(text: &str, close: char) -> Option<usize> {
     let open = text.chars().next()?;
     let mut depth = 0usize;
@@ -379,130 +407,6 @@ enum Event {
     /// A line break outside quotes; inside an object it ends an entry whose
     /// value has begun (HCL separates entries with newlines).
     Newline(usize),
-}
-
-/// The byte range in `code` of what `path` names inside the inline container
-/// `code` starts with (`{…}` or `[…]`, spanning lines if needed): the value,
-/// or with `key` the key. Keys are separated from values by `:` or `=`.
-/// Diagnostics use it to point inside flow collections and inline tables.
-pub fn inline_path_span(
-    code: &str,
-    path: &[SchemaPathSegment],
-    key: bool,
-) -> Option<(usize, usize)> {
-    let start = code.len() - code.trim_start().len();
-    path_span(code, start, path, key)
-}
-
-fn path_span(
-    code: &str,
-    at: usize,
-    path: &[SchemaPathSegment],
-    key: bool,
-) -> Option<(usize, usize)> {
-    let at = skip_space(code, at, true);
-    let Some((segment, rest)) = path.split_first() else {
-        return Some((at, value_end(code, at)));
-    };
-    let bytes = code.as_bytes();
-    match (bytes.get(at)?, segment) {
-        (b'[', SchemaPathSegment::ArrayItem(index)) => {
-            let mut position = at + 1;
-            for _ in 0..*index {
-                position = skip_space(code, position, true);
-                position = value_end(code, position);
-                position = skip_space(code, position, true);
-                if bytes.get(position) != Some(&b',') {
-                    return None;
-                }
-                position += 1;
-            }
-            let position = skip_space(code, position, true);
-            if matches!(bytes.get(position), Some(b']') | None) {
-                return None;
-            }
-            path_span(code, position, rest, key)
-        }
-        (b'{', SchemaPathSegment::Key(wanted)) => {
-            let mut position = at + 1;
-            loop {
-                position = skip_space(code, position, true);
-                while bytes.get(position) == Some(&b',') {
-                    position = skip_space(code, position + 1, true);
-                }
-                let key_start = position;
-                let key_end = match bytes.get(position)? {
-                    b'}' => return None,
-                    b'"' | b'\'' => skip_quoted(code, position),
-                    _ => {
-                        position
-                            + code[position..]
-                                .find(|character: char| {
-                                    character.is_whitespace()
-                                        || matches!(character, ':' | '=' | ',' | '}')
-                                })
-                                .unwrap_or(code.len() - position)
-                    }
-                };
-                let separator = skip_space(code, key_end, false);
-                if !matches!(bytes.get(separator), Some(b':' | b'=')) {
-                    return None;
-                }
-                let value = separator + 1;
-                if unquote(&code[key_start..key_end]) == *wanted {
-                    if rest.is_empty() && key {
-                        return Some((key_start, key_end));
-                    }
-                    return path_span(code, value, rest, key);
-                }
-                position = value_end(code, skip_space(code, value, true));
-            }
-        }
-        _ => None,
-    }
-}
-
-fn skip_space(code: &str, mut at: usize, newlines: bool) -> usize {
-    let bytes = code.as_bytes();
-    while let Some(byte) = bytes.get(at) {
-        match byte {
-            b' ' | b'\t' | b'\r' => at += 1,
-            b'\n' if newlines => at += 1,
-            b'#' => at = line_end(code, at),
-            _ => break,
-        }
-    }
-    at
-}
-
-/// Where the value starting at `at` ends: before the `,`, closer, or line
-/// break that follows it outside brackets and quotes.
-fn value_end(code: &str, at: usize) -> usize {
-    let bytes = code.as_bytes();
-    let mut depth = 0usize;
-    let mut index = at;
-    let mut end = at;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' | b'\'' => {
-                index = skip_quoted(code, index);
-                end = index;
-                continue;
-            }
-            b'{' | b'[' => depth += 1,
-            b'}' | b']' if depth == 0 => break,
-            b'}' | b']' => depth -= 1,
-            b',' | b'\n' if depth == 0 => break,
-            b' ' | b'\t' | b'\r' => {
-                index += 1;
-                continue;
-            }
-            _ => {}
-        }
-        index += 1;
-        end = index;
-    }
-    end
 }
 
 /// Walks `code` once, reporting keys, brackets, and separating commas outside
@@ -690,11 +594,11 @@ pub fn statement_start(before_caret: &str) -> Option<usize> {
 /// the text before `end`, not from the top.
 pub(crate) fn statement_start_at(source: &str, end: usize) -> Option<usize> {
     let before_caret = &source[..end];
-    if !super::paths::in_batch(source) {
+    if !super::super::paths::in_batch(source) {
         return statement_start(before_caret);
     }
-    let kept = super::paths::batch_cached(source, || {
-        super::paths::walked_from_top(source);
+    let kept = super::super::paths::batch_cached(source, || {
+        super::super::paths::walked_from_top(source);
         KeptStatements::walk(source)
     });
     // A state the walk of the whole text reached at or before `end` is the
@@ -1015,54 +919,5 @@ mod tests {
         assert_eq!(inline_value_len("fast, b = 1 }"), 4);
         assert_eq!(inline_value_len("\"a, b\" }"), 6);
         assert_eq!(inline_value_len("12 }"), 2);
-    }
-}
-
-#[cfg(test)]
-mod path_span_tests {
-    use super::super::language::SchemaPathSegment::{ArrayItem, Key};
-    use super::inline_path_span;
-
-    fn text<'a>(code: &'a str, path: &[super::SchemaPathSegment], key: bool) -> &'a str {
-        let (start, end) = inline_path_span(code, path, key).unwrap();
-        &code[start..end]
-    }
-
-    #[test]
-    fn finds_items_and_keys_inside_inline_containers() {
-        assert_eq!(text("[a, 5]", &[ArrayItem(1)], false), "5");
-        assert_eq!(
-            text(
-                "{allow: [a, 5]}",
-                &[Key("allow".into()), ArrayItem(1)],
-                false
-            ),
-            "5"
-        );
-        assert_eq!(
-            text(
-                "{hosts: [a], cert: c, bogus: 1}",
-                &[Key("bogus".into())],
-                true
-            ),
-            "bogus"
-        );
-        assert_eq!(
-            text(
-                "[\n  { hosts = [\"a\"], key = \"k\" },\n]",
-                &[ArrayItem(0), Key("key".into())],
-                false
-            ),
-            "\"k\""
-        );
-        assert_eq!(
-            text(
-                "{ a = { b = [1, \"x, y\", 3] } }",
-                &[Key("a".into()), Key("b".into()), ArrayItem(2)],
-                false
-            ),
-            "3"
-        );
-        assert!(inline_path_span("[1]", &[ArrayItem(3)], false).is_none());
     }
 }

@@ -1,5 +1,5 @@
 use super::keyboard::utf16_to_byte_index;
-use super::language::ConfigLanguage;
+use super::language::{ConfigLanguage, LanguageConfig};
 use super::projection::Projection;
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
@@ -308,12 +308,11 @@ pub(super) fn typed_closer(
     closer: char,
     behavior: &dyn ConfigLanguage,
 ) -> Option<(String, usize)> {
-    let opener = match closer {
-        '}' => '{',
-        ']' => '[',
-        ')' => '(',
-        _ => return None,
-    };
+    let config = behavior.config();
+    let opener = config
+        .brackets
+        .iter()
+        .find_map(|(open, close)| (*close == closer).then_some(*open))?;
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
@@ -333,7 +332,7 @@ pub(super) fn typed_closer(
     let mut open_at = None;
     'lines: for (line_offset, line) in line_offsets(&source[..line_start]).into_iter().rev() {
         let code = &line[..behavior.comment_start(line).unwrap_or(line.len())];
-        for (index, character) in brackets_outside_strings(code).into_iter().rev() {
+        for (index, character) in brackets_outside_strings(&config, code).into_iter().rev() {
             if character == closer {
                 depth += 1;
             } else if character == opener {
@@ -408,7 +407,8 @@ mod tests {
     use super::super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
     use super::{backspace_indent, indent_lines, typed_closer};
 
-    /// A language with `#` comments, for the bracket scan.
+    /// A language with `#` comments and `{}` / `[]` brackets, for the
+    /// bracket scan.
     struct Hash;
 
     impl ConfigLanguage for Hash {
@@ -424,6 +424,7 @@ mod tests {
                 quotes: &["\""],
                 line_comments: &["#"],
                 block_comment: None,
+                brackets: &[('{', '}'), ('[', ']')],
                 ..LanguageConfig::default()
             }
         }
@@ -487,6 +488,8 @@ mod tests {
             closer("a {\n  # TODO: {\n  b = 1\n  |", '}').as_deref(),
             Some("a {\n  # TODO: {\n  b = 1\n}|")
         );
+        // Only the language's own brackets align: `(` is none of Hash's.
+        assert_eq!(closer("f(\n  1,\n  |", ')'), None);
     }
 
     #[test]
@@ -553,7 +556,19 @@ fn line_offsets(text: &str) -> Vec<(usize, &str)> {
 
 /// The brackets of `code` outside `"…"` and `'…'` strings, with their byte
 /// offsets.
-fn brackets_outside_strings(code: &str) -> Vec<(usize, char)> {
+fn brackets_outside_strings(config: &LanguageConfig, code: &str) -> Vec<(usize, char)> {
+    let opens_quote = |character: char| {
+        config
+            .quotes
+            .iter()
+            .any(|quote| quote.starts_with(character))
+    };
+    let bracket = |character: char| {
+        config
+            .brackets
+            .iter()
+            .any(|(open, close)| character == *open || character == *close)
+    };
     let mut found = Vec::new();
     let mut quote: Option<char> = None;
     let mut escaped = false;
@@ -563,10 +578,8 @@ fn brackets_outside_strings(code: &str) -> Vec<(usize, char)> {
             Some(_) if character == '\\' => escaped = true,
             Some(open) if character == open => quote = None,
             Some(_) => {}
-            None if matches!(character, '"' | '\'') => quote = Some(character),
-            None if matches!(character, '{' | '}' | '[' | ']' | '(' | ')') => {
-                found.push((index, character));
-            }
+            None if opens_quote(character) => quote = Some(character),
+            None if bracket(character) => found.push((index, character)),
             None => {}
         }
     }

@@ -67,9 +67,9 @@ pub(crate) fn selection_over(
     (new_start, new_end)
 }
 
-/// The line selection of `start..end` widened over brackets (the
-/// language's and parentheses), quoted strings (`"…"`, `'…'`, `"""…"""`,
-/// `'''…'''`) and multi-line string bodies.
+/// The line selection of `start..end` widened over the language's brackets,
+/// its quoted strings (`"…"`, `'…'`, `"""…"""`, `'''…'''`) and multi-line
+/// string bodies.
 pub(crate) fn over_balanced_lines(
     behavior: &(impl ConfigLanguage + ?Sized),
     source: &str,
@@ -87,10 +87,18 @@ pub(crate) fn over_balanced_lines(
             body[range.start..end].fill(true);
         }
     }
-    let mut brackets: Vec<(char, char)> = behavior.config().brackets.to_vec();
-    if !brackets.contains(&('(', ')')) {
-        brackets.push(('(', ')'));
-    }
+    let config = behavior.config();
+    let brackets = config.brackets;
+    // Where a value starts: a literal one-character quote opens a string
+    // only there (`don't` holds none).
+    let value_starts: Vec<char> = config
+        .separators
+        .iter()
+        .filter_map(|separator| separator.chars().next_back())
+        .chain(config.item_separator)
+        .chain(brackets.iter().map(|(open, _)| *open))
+        .collect();
+    let literal = |delimiter: &str| config.literal_quotes.contains(&delimiter);
     let mut starts = Vec::with_capacity(lines.len() + 1);
     let mut lowest = Vec::with_capacity(lines.len());
     let mut depth = 0usize;
@@ -123,7 +131,7 @@ pub(crate) fn over_balanced_lines(
             if let Some(delimiter) = quote {
                 if escaped {
                     escaped = false;
-                } else if character == '\\' && delimiter.starts_with('"') {
+                } else if character == '\\' && !literal(delimiter) {
                     escaped = true;
                 } else if rest.starts_with(delimiter) {
                     quote = None;
@@ -157,14 +165,13 @@ pub(crate) fn over_balanced_lines(
             let boundary = line[..at]
                 .chars()
                 .next_back()
-                .is_none_or(|before| before.is_whitespace() || "[{(,:=".contains(before));
-            // The language's string delimiters, longest first; a single
-            // quote opens one only where a value starts (`don't` holds none).
-            if let Some(delimiter) = quotes
-                .iter()
-                .copied()
-                .find(|delimiter| rest.starts_with(delimiter) && (*delimiter != "'" || boundary))
-            {
+                .is_none_or(|before| before.is_whitespace() || value_starts.contains(&before));
+            // The language's string delimiters, longest first; a literal
+            // one-character quote opens one only where a value starts.
+            if let Some(delimiter) = quotes.iter().copied().find(|delimiter| {
+                rest.starts_with(delimiter)
+                    && (boundary || !literal(delimiter) || delimiter.chars().count() > 1)
+            }) {
                 quote = Some(delimiter);
                 at += delimiter.len();
                 continue;

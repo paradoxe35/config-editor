@@ -38,23 +38,32 @@ impl Joined {
 pub(super) fn join(language: &dyn ConfigLanguage, previous: &str) -> Option<Joined> {
     let host: Vec<&str> = previous.split('\n').collect();
     let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
+    let brackets = language.config().brackets;
+    let separator = language.config().item_separator;
     let mut out: Vec<String> = Vec::with_capacity(host.len());
     let mut lines = Vec::new();
     let mut index = 0;
     while index < host.len() {
         let opener = code(host[index]);
-        let close = match opener.chars().last() {
-            Some('{') => "}",
-            Some('[') => "]",
-            _ => "",
-        };
+        let close: String = opener
+            .chars()
+            .last()
+            .and_then(|last| {
+                brackets
+                    .iter()
+                    .find_map(|(open, close)| (*open == last).then_some(*close))
+            })
+            .map(String::from)
+            .unwrap_or_default();
         let mut end = index + 1;
         while end < host.len() && host[end].trim().is_empty() {
             end += 1;
         }
         let closer = host.get(end).map(|line| line.trim());
         if close.is_empty()
-            || closer.is_none_or(|closer| closer.trim_end_matches(',') != close)
+            || closer.is_none_or(|closer| {
+                separator.map_or(closer, |separator| closer.trim_end_matches(separator)) != close
+            })
             || opener.len() != host[index].trim_end().len()
         {
             out.push(host[index].to_string());

@@ -6,7 +6,7 @@
 //! hidden behind a marker scalar for the line patch, then written back as it
 //! was; one the edit changed is written out by the serializer instead.
 
-use super::super::inline::matching_close;
+use super::super::flow_syntax::Flow;
 use super::super::language::{ConfigLanguage, OneLine, Span};
 use super::escape;
 use serde_json::Value;
@@ -30,15 +30,42 @@ impl Kept {
     pub fn restore(&self, patched: &str) -> String {
         let mut restored = patched.to_string();
         for (marker, written, text, value) in &self.texts {
-            for quote in ["\"", "'", ""] {
-                if !written.is_empty() {
-                    restored = restored.replace(&format!("{written}{quote}{marker}{quote}"), text);
-                }
-                restored = restored.replace(&format!("{quote}{marker}{quote}"), value);
+            if !written.is_empty() {
+                restored = replace_marker(&restored, written, marker, text);
             }
+            restored = replace_marker(&restored, "", marker, value);
         }
         restored
     }
+}
+
+/// `text` with each `marker` written after `before` replaced by `with`,
+/// together with the quotes the serializer may have put around it (the
+/// same character on both sides, neither a word's nor a space).
+fn replace_marker(text: &str, before: &str, marker: &str, with: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(marker) {
+        let (head, tail) = (&rest[..at], &rest[at + marker.len()..]);
+        let quote = head
+            .chars()
+            .next_back()
+            .filter(|quote| {
+                !quote.is_alphanumeric() && !quote.is_whitespace() && tail.starts_with(*quote)
+            })
+            .map_or(0, char::len_utf8);
+        let head_end = head.len() - quote;
+        if head[..head_end].ends_with(before) {
+            out.push_str(&head[..head_end - before.len()]);
+            out.push_str(with);
+            rest = &tail[quote..];
+        } else {
+            out.push_str(&rest[..at + marker.len()]);
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Text no host contains, ending so one marker is never a prefix of another.
@@ -59,20 +86,25 @@ pub(super) fn hide(
     // Lines holding a whole bracketed or tagged container: only a container
     // whose values all sit on one of them is located (a span lookup parses
     // the host, too slow to do for every container of a large one).
+    let flow = Flow::of(language);
+    let pairs: Vec<(char, char)> = flow.map().into_iter().chain(flow.list()).collect();
     let lines: Vec<&str> = previous
         .lines()
         .filter(|line| {
-            (line.contains('{') && line.contains('}'))
-                || (line.contains('[') && line.contains(']'))
-                || line.matches('<').count() >= 4
+            pairs
+                .iter()
+                .any(|(open, close)| line.contains(*open) && line.contains(*close))
+                || language.writes_container_on_line(line)
         })
         .collect();
     // A list opened at a line's end (`allow = [`) spans lines; the
     // serializer writes it on one.
-    let multi_line_lists = previous.lines().any(|line| {
-        line[..super::comment_start(language, line)]
-            .trim_end()
-            .ends_with('[')
+    let multi_line_lists = flow.list().is_some_and(|(open, _)| {
+        previous.lines().any(|line| {
+            line[..super::comment_start(language, line)]
+                .trim_end()
+                .ends_with(open)
+        })
     });
     // A map written inline over lines (YAML's `tcp: {`), as the language
     // tells: the serializer writes it another way.
@@ -94,14 +126,9 @@ pub(super) fn hide(
         .collect();
     let string_bodies = !bodies.is_empty();
     // Only where a reference stands as a value (`key: *p`, `- *p`).
-    let references = language.reference_len("*r").is_some()
-        && previous.lines().any(|line| {
-            let code = line.trim_start().trim_start_matches("- ");
-            code.starts_with('*') && language.reference_len(code).is_some()
-                || code
-                    .split_once(": ")
-                    .is_some_and(|(_, value)| language.reference_len(value.trim_start()).is_some())
-        });
+    let references = previous
+        .lines()
+        .any(|line| super::reference_on(language, &flow, line));
     if lines.is_empty() && !multi_line_lists && !multi_line_maps && !string_bodies && !references {
         return None;
     }
@@ -447,12 +474,9 @@ fn braced_one_line(
         .map_or(line.len(), |(index, _)| index);
     let start = start + language.value_properties_len(&line[start..]);
     let text = &line[start..];
-    let close = match text.chars().next()? {
-        '{' => '}',
-        '[' => ']',
-        _ => return None,
-    };
-    let end = start + matching_close(text, close)? + 1;
+    let flow = Flow::of(language);
+    let close = flow.closer_of(text.chars().next()?)?;
+    let end = start + flow.matching_close(text)? + close.len_utf8();
     Some(line_start + start..line_start + end)
 }
 
@@ -474,7 +498,12 @@ pub(super) fn multi_line_list(
             .char_indices()
             .nth(span.start_column.saturating_sub(1))
             .map_or(line.len(), |(index, _)| index);
-    if !previous[start..].starts_with(['[', '{']) {
+    let flow = Flow::of(language);
+    if !previous[start..]
+        .chars()
+        .next()
+        .is_some_and(|open| flow.closer_of(open).is_some())
+    {
         return None;
     }
     let mut depth = 0usize;
@@ -482,24 +511,23 @@ pub(super) fn multi_line_list(
     for line in previous[line_start..].split_inclusive('\n') {
         let code_end = offset + super::comment_start(language, line.trim_end_matches('\n'));
         let from = start.max(offset);
-        let mut quote: Option<char> = None;
-        let mut previous_char = ' ';
-        for (index, character) in previous[from..code_end.max(from)].char_indices() {
-            match quote {
-                Some(open) if character == open && previous_char != '\\' => quote = None,
-                Some(_) => {}
-                None if matches!(character, '"' | '\'') => quote = Some(character),
-                None if matches!(character, '[' | '{') => depth += 1,
-                None if matches!(character, ']' | '}') => {
-                    depth = depth.checked_sub(1)?;
-                    if depth == 0 {
-                        let end = from + index + 1;
-                        return previous[start..end].contains('\n').then_some(start..end);
-                    }
-                }
-                None => {}
+        let code = &previous[from..code_end.max(from)];
+        let mut at = 0;
+        while let Some(character) = code[at..].chars().next() {
+            if flow.quote(character).is_some() {
+                at = flow.quote_end(code, at);
+                continue;
             }
-            previous_char = character;
+            if flow.closer_of(character).is_some() {
+                depth += 1;
+            } else if flow.opener_of(character).is_some() {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    let end = from + at + character.len_utf8();
+                    return previous[start..end].contains('\n').then_some(start..end);
+                }
+            }
+            at += character.len_utf8();
         }
         offset += line.len();
     }

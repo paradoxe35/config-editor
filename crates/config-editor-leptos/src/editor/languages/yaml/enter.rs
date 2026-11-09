@@ -20,7 +20,8 @@ pub(super) fn newline(source: &str, cursor: usize) -> Newline {
     if (before.ends_with(['[', '{']) && after.starts_with([']', '}']))
         || flow_open_at_end(code_before_comment(line))
     {
-        return bracket_newline(source, cursor, pairs, code_before_comment);
+        let config = super::super::super::language::ConfigLanguage::config(&super::YamlBehavior);
+        return bracket_newline(source, cursor, pairs, &config, code_before_comment);
     }
     // Enter on an empty `- ` item ends the list: the dash goes, and the
     // caret goes to the column of what holds the list, where its next key

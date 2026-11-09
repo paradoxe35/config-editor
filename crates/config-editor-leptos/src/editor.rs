@@ -32,6 +32,7 @@ mod edit_as;
 mod false_schema;
 mod fill;
 mod flat_keys;
+mod flow_syntax;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
 mod folding;
@@ -44,7 +45,6 @@ mod hover;
 mod hover_focus;
 mod hover_path;
 mod hover_problems;
-mod inline;
 mod input;
 pub use input::flush_pending_input;
 pub use sync::flush_pending_edits;
@@ -525,6 +525,15 @@ mod handle_tests;
     feature = "xml"
 ))]
 mod line_breaks_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod odd_syntax;
 #[cfg(all(test, feature = "yaml"))]
 mod reveal_range_tests;
 #[cfg(all(

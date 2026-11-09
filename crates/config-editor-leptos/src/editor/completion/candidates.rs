@@ -28,7 +28,7 @@ pub(super) fn value_completions(
     open: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Completion> {
-    let query = unquoted(typed);
+    let query = unquoted(behavior, typed);
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
     // A language without null (TOML) is not offered one.
@@ -92,6 +92,7 @@ pub(super) fn default_selection(
     cursor_offset: usize,
     property: &Value,
     root: &Value,
+    behavior: &dyn ConfigLanguage,
 ) -> (usize, usize) {
     let unselected = (cursor_offset, 0);
     let Some(default) = schema_default(property, root)
@@ -113,7 +114,8 @@ pub(super) fn default_selection(
         return (cursor_offset, length);
     }
     // The caret is after the closing quote: select inside the quotes.
-    if let Some(quoted) = before.strip_suffix(['"', '\''])
+    let quotes = quote_starts(behavior);
+    if let Some(quoted) = before.strip_suffix(quotes.as_slice())
         && quoted.ends_with(&text)
     {
         return (cursor_offset - 1, length);
@@ -187,7 +189,7 @@ pub(super) fn property_completions(
                 continue;
             };
             let (cursor_offset, selected) =
-                default_selection(&insert, cursor_offset, property, root);
+                default_selection(&insert, cursor_offset, property, root, behavior);
             let holding = choices.holding(key);
             let (title, type_label) = if holding.is_empty() {
                 (None, schema_type_label(property, root, "property"))
@@ -223,7 +225,7 @@ pub(super) fn property_completions(
                     renames: false,
                     matched: match_ranges(key, typed),
                     deprecated: is_deprecated(property, root),
-                    fills: required_fills(property, root),
+                    fills: required_fills(behavior, property, root),
                     closes_tag: false,
                 },
             ));
@@ -360,7 +362,7 @@ pub(crate) fn completions_in(
     );
     // A dotted head typed in front of an entry of the table it is typed in
     // (`tls.c|path`, `path` a key of that table): the entry is not renamed.
-    let head_segments = context.suffix_head.matches('.').count();
+    let head_segments = context.suffix_head_depth;
     let entry_of_table = head_segments > 0
         && context.path.len() >= head_segments
         && context.entry_after.as_deref().is_some_and(|word| {
@@ -493,10 +495,7 @@ pub(crate) fn completions_in(
         // The key already written, the caret at its end and the key going on
         // (`tcp|.nodelay`, `tcp|: …`, `tcp| {`): accepting changes nothing.
         let rest = &source[cursor_byte..];
-        if !option.is_value
-            && option.label == context.typed
-            && (rest.starts_with('.') || behavior.value_follows_key(rest))
-        {
+        if !option.is_value && option.label == context.typed && behavior.value_follows_key(rest) {
             option.insert = option.label.clone();
             option.end = cursor;
             option.start = cursor - option.label.encode_utf16().count().min(cursor);
@@ -507,11 +506,15 @@ pub(crate) fn completions_in(
         // A key typed after an auto-paired quote (`"pub|"`) whose insert is
         // written without quotes takes the closing quote along.
         let typed_start = utf16_to_byte_index(source, option.start);
+        let quotes = quote_starts(behavior);
         if !option.is_value
             && option.end == cursor
-            && source[typed_start.min(cursor_byte)..cursor_byte].starts_with('"')
-            && !option.insert.starts_with('"')
-            && source[cursor_byte..].starts_with('"')
+            && let Some(quote) = source[typed_start.min(cursor_byte)..cursor_byte]
+                .chars()
+                .next()
+                .filter(|first| quotes.contains(first))
+            && !option.insert.starts_with(quote)
+            && source[cursor_byte..].starts_with(quote)
         {
             option.end += 1;
         }
@@ -522,7 +525,7 @@ pub(crate) fn completions_in(
             let start_byte = utf16_to_byte_index(source, option.start);
             let end_byte = utf16_to_byte_index(source, option.end);
             if let Some(quote) = source[..start_byte].chars().next_back()
-                && matches!(quote, '"' | '\'')
+                && quotes.contains(&quote)
                 && source[end_byte..].starts_with(quote)
                 && !option.insert.contains(quote)
             {
@@ -693,7 +696,11 @@ fn replaces_word_after_caret(
 ) -> bool {
     // At a key's start the user types in front of it.
     let Some(word) = context.entry_after.as_deref().filter(|word| {
-        !word.is_empty() && !context.typed.trim_start_matches(['"', '\'']).is_empty()
+        !word.is_empty()
+            && !context
+                .typed
+                .trim_start_matches(quote_starts(behavior).as_slice())
+                .is_empty()
     }) else {
         return false;
     };
@@ -711,7 +718,12 @@ fn replaces_word_after_caret(
         })
     };
     // A JSON key's typed part starts with its quote.
-    let whole = format!("{}{word}", context.typed.trim_start_matches(['"', '\'']));
+    let whole = format!(
+        "{}{word}",
+        context
+            .typed
+            .trim_start_matches(quote_starts(behavior).as_slice())
+    );
     !(known(word) && !known(&whole))
 }
 
@@ -808,7 +820,7 @@ pub(super) fn completions_for_context(
     if let Some(key) = context.value_key.as_deref() {
         // A number being typed is the user's own value: suggesting a longer
         // one (`1` → `10`) would make Enter replace it. Ctrl+Space still lists them.
-        let typed_value = unquoted(&context.typed);
+        let typed_value = unquoted(behavior, &context.typed);
         if !force && !typed_value.is_empty() && typed_value.parse::<f64>().is_ok() {
             return Vec::new();
         }
@@ -828,7 +840,7 @@ pub(super) fn completions_for_context(
             force || typed_value.is_empty(),
             behavior,
         );
-        if !force && unquoted(&context.typed).is_empty() {
+        if !force && unquoted(behavior, &context.typed).is_empty() {
             options.retain(|option| option.label != "null");
         }
         let object_value = value_schemas
@@ -871,17 +883,25 @@ pub(super) fn completions_for_context(
                 context.replace_end,
                 &bundle.schema,
                 "",
-                force || unquoted(&context.typed).is_empty(),
+                force || unquoted(behavior, &context.typed).is_empty(),
                 behavior,
             );
         }
     }
 
-    let query = unquoted(&context.typed);
+    let query = unquoted(behavior, &context.typed);
     if query.is_empty() && !force && !context.explicit_entry_start {
         return Vec::new();
     }
-    if query.contains([':', '#', '\n']) {
+    // A query holding a separator, a comment or a line break names no key.
+    let config = behavior.config();
+    if query.contains('\n')
+        || config
+            .separators
+            .iter()
+            .chain(config.line_comments)
+            .any(|marker| !marker.is_empty() && query.contains(marker))
+    {
         return Vec::new();
     }
 
@@ -935,4 +955,14 @@ pub(super) fn completions_for_context(
 /// so there is nothing to suggest.
 pub(crate) fn accept_reopens_suggestions(completion: &Completion, auto_trigger: bool) -> bool {
     auto_trigger && !completion.is_value && !completion.renames && completion.selected == 0
+}
+
+/// The first character of each of the language's quotes.
+fn quote_starts(behavior: &dyn ConfigLanguage) -> Vec<char> {
+    behavior
+        .config()
+        .quotes
+        .iter()
+        .filter_map(|quote| quote.chars().next())
+        .collect()
 }

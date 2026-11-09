@@ -56,10 +56,14 @@ pub(super) fn rename_key_with_value(
     let typed = source[utf16_to_byte_index(source, option.start)..caret].to_string();
     // Inside a quoted key (`"pub|lic": 1`, `'pub|lic': 1`) the rest of the
     // key goes too, and its quotes stay as written.
-    let quote = typed
-        .chars()
-        .next()
-        .filter(|first| matches!(first, '"' | '\''));
+    let config = behavior.config();
+    let is_quote = |character: char| {
+        config
+            .quotes
+            .iter()
+            .any(|quote| quote.starts_with(character))
+    };
+    let quote = typed.chars().next().filter(|first| is_quote(*first));
     let word = if quote.is_some() {
         line_rest
             .find(|character: char| {
@@ -74,12 +78,17 @@ pub(super) fn rename_key_with_value(
         .and_then(|quote| line_rest.strip_prefix(quote))
         .unwrap_or(line_rest);
     // A value follows, or the rest of a dotted key (`"web|".path = 1`).
-    if !behavior.value_follows_key(after_quote)
-        && !(quote.is_some() && after_quote.starts_with('.'))
-    {
+    if !behavior.value_follows_key(after_quote) {
         return;
     }
-    let quoted = quote.or_else(|| option.insert.trim_start().starts_with('"').then_some('"'));
+    let quoted = quote.or_else(|| {
+        option
+            .insert
+            .trim_start()
+            .chars()
+            .next()
+            .filter(|first| is_quote(*first))
+    });
     option.insert = match quoted {
         Some(quote) => format!("{quote}{}{quote}", option.label),
         None => option.label.clone(),
@@ -110,7 +119,19 @@ pub(crate) fn next_slot(
     let from = utf16_to_byte_index(source, caret);
     let until = utf16_to_byte_index(source, end).min(source.len());
     let region = source.get(from..until)?;
-    let mut candidates: Vec<usize> = region.match_indices("\"\"").map(|(at, _)| at + 1).collect();
+    // Inside an empty string of one of the language's quotes.
+    let mut candidates: Vec<usize> = behavior
+        .config()
+        .quotes
+        .iter()
+        .filter(|quote| quote.chars().count() == 1)
+        .flat_map(|quote| {
+            region
+                .match_indices(&format!("{quote}{quote}"))
+                .map(|(at, _)| at + quote.len())
+                .collect::<Vec<_>>()
+        })
+        .collect();
     candidates.extend(behavior.empty_value_slots(region));
     candidates
         .into_iter()
@@ -142,16 +163,21 @@ pub(crate) fn inserted_closers(
         let before = value_start.checked_sub(1)?;
         char::decode_utf16([*units.get(before)?]).next()?.ok()
     };
+    let config = behavior.config();
     for (byte, character) in insert.char_indices() {
         if offset >= caret {
-            if matches!(character, ')' | ']' | '}') {
+            if config.brackets.iter().any(|(_, close)| *close == character) {
                 closers.push(Closer {
                     distance: length - offset,
                     len: 1,
                     opener: None,
                     completion: false,
                 });
-            } else if matches!(character, '"' | '\'') {
+            } else if config
+                .quotes
+                .iter()
+                .any(|quote| quote.starts_with(character))
+            {
                 closers.push(Closer {
                     distance: length - offset,
                     len: 1,

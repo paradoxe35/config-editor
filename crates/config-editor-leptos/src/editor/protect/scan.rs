@@ -154,7 +154,7 @@ pub(super) fn written(
         None if count > MAX_LINES => {
             let names_one =
                 |content: &str| names.iter().any(|name| content.contains(name.as_str()));
-            candidates(lines, &names_one, LARGE_READS / count)
+            candidates(behavior, lines, &names_one, LARGE_READS / count)
         }
         None => (0..count).collect(),
     };
@@ -178,15 +178,16 @@ pub(super) fn written(
 
 /// Up to `budget` lines of a large text that may hold a protected field:
 /// each line `names_one` accepts (naming a protected field's key), with the
-/// lines indented under it, or up to the next header after a header line
-/// (`[limits]`): its block.
+/// lines indented under it, or up to the next section after a line that
+/// starts one (TOML's `[limits]`): its block.
 pub(super) fn candidates(
+    behavior: &dyn ConfigLanguage,
     lines: &LineIndex<'_>,
     names_one: &dyn Fn(&str) -> bool,
     budget: usize,
 ) -> Vec<usize> {
     let indent = |text: &str| text.len() - text.trim_start().len();
-    let header = |text: &str| text.starts_with('[');
+    let header = |text: &str| behavior.starts_section(text);
     let mut chosen = Vec::new();
     let mut line = 0;
     while line < lines.line_count() && chosen.len() < budget {

@@ -305,6 +305,18 @@ export interface CustomLanguage {
   brackets?: [string, string][];
   /** What separates a key from its value, e.g. `["="]` or `[":"]`: key renames, `Tab` through empty values. Without the callbacks below they also give a flat language (one `KEY=value` entry per line) schema completion and hover. */
   separators?: string[];
+  /** The brackets around a map written on one line, e.g. `["{", "}"]`: an Edit-as save edits such a map where it is, its entries and the line's comment kept. */
+  mapBrackets?: [string, string];
+  /** The brackets around a list written on one line, e.g. `["[", "]"]`, edited in place as maps are. */
+  listBrackets?: [string, string];
+  /** What separates the items and entries between those brackets, one character, e.g. `","`. */
+  itemSeparator?: string;
+  /** What starts a list item written on lines of its own, followed by a space or the line's end, e.g. `"-"`: a save moves such items with their lines and comments. */
+  itemMarker?: string;
+  /** The quotes (of `"` and `'`) inside which a backslash is text, not an escape, e.g. `["'"]`. */
+  literalQuotes?: string[];
+  /** One of `separators` with the spacing a new entry writes it with, e.g. `": "` (default: the first separator as it is, `KEY=`). */
+  writtenSeparator?: string;
   /** Where the caret at string index `offset` is, for schema completion: typing a key in the object at `path` (`at: "key"`), or in the value of the key that ends `path` (`at: "value"`; a path ending in an index: an array item), with `prefix` typed before it. `null`: nothing to suggest. Replaces the flat default of `separators`. */
   contextAt?(text: string, offset: number): CustomLanguageContext | null | undefined | void;
   /** How a suggested key is written, with the caret's string index in `text`; `kind` is what the schema expects as its value. Lines after the first are indented as the caret's line. `null` leaves the key out. */

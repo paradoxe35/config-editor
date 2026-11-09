@@ -13,25 +13,25 @@ use super::language::{
 };
 
 impl LanguageConfig {
-    /// The separator a flat language writes after a new key: its first
-    /// [`separators`](Self::separators) entry, with `": "` for `:` (as YAML
-    /// and properties files write it) and no spaces otherwise (`KEY=`).
-    /// `None` without separators.
+    /// The separator a flat language writes after a new key: its
+    /// [`written_separator`](Self::written_separator), else its first
+    /// [`separators`](Self::separators) entry as it is (`KEY=`). `None`
+    /// without separators.
     ///
     /// ```
     /// use config_editor_leptos::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// assert_eq!(env.flat_separator().as_deref(), Some("="));
-    /// let colon = LanguageConfig { separators: &[":"], ..LanguageConfig::default() };
+    /// let colon = LanguageConfig {
+    ///     separators: &[":"],
+    ///     written_separator: Some(": "),
+    ///     ..LanguageConfig::default()
+    /// };
     /// assert_eq!(colon.flat_separator().as_deref(), Some(": "));
     /// ```
     pub fn flat_separator(&self) -> Option<String> {
         let separator = self.separators.first()?;
-        Some(if *separator == ":" {
-            ": ".to_string()
-        } else {
-            (*separator).to_string()
-        })
+        Some(self.written_separator.unwrap_or(separator).to_string())
     }
 
     /// [`ConfigLanguage::completion_context`](super::language::ConfigLanguage::completion_context)
@@ -81,7 +81,11 @@ impl LanguageConfig {
                     replace_start: cursor - units(typed),
                     replace_end: cursor,
                     value_key: Some(key.to_string()),
-                    value_needs_space: after.is_empty() && separator == ":",
+                    // A value goes after the spacing a new entry writes.
+                    value_needs_space: after.is_empty()
+                        && self
+                            .flat_separator()
+                            .is_some_and(|written| written.ends_with(' ')),
                     base_indent,
                     ..CompletionContext::default()
                 }
@@ -339,10 +343,17 @@ mod tests {
         brackets: &[],
         separators: &["="],
         quotes: &["\""],
+        literal_quotes: &[],
+        map_brackets: None,
+        list_brackets: None,
+        item_separator: None,
+        item_marker: None,
+        written_separator: None,
     };
 
     const COLON: LanguageConfig = LanguageConfig {
         separators: &[":"],
+        written_separator: Some(": "),
         ..ENV
     };
 

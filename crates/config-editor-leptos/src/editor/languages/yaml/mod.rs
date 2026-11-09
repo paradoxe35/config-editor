@@ -46,7 +46,7 @@ use colors::*;
 use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
-use super::super::inline::{caret_value_end, 
+use super::inline::{caret_value_end, 
     InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
     statement_start_at, entry_follows, in_front_of_inline_entry,
 };
@@ -81,6 +81,12 @@ impl ConfigLanguage for YamlBehavior {
             brackets: &[('{', '}'), ('[', ']')],
             separators: &[":"],
             quotes: &["\"", "'"],
+            literal_quotes: &["'"],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: Some("-"),
+            written_separator: Some(": "),
         }
     }
 
@@ -228,7 +234,18 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
-        comparable_yaml_line(code)
+        // A character however it is escaped (`\u00e9` for `é`).
+        match comparable_yaml_line(code) {
+            std::borrow::Cow::Borrowed(code) => super::escapes::without_unicode_escapes(code),
+            std::borrow::Cow::Owned(code) => {
+                std::borrow::Cow::Owned(super::escapes::without_unicode_escapes(&code).into_owned())
+            }
+        }
+    }
+
+    /// `---` starts a document and `%` a directive.
+    fn document_marker(&self, code: &str) -> bool {
+        code == "---" || code.starts_with('%')
     }
 
     fn reference_len(&self, text: &str) -> Option<usize> {

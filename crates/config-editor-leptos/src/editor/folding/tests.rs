@@ -231,6 +231,12 @@ const BRACES: LanguageConfig = LanguageConfig {
     brackets: &[('{', '}'), ('[', ']')],
     separators: &[],
     quotes: &["\""],
+    literal_quotes: &[],
+    map_brackets: None,
+    list_brackets: None,
+    item_separator: None,
+    item_marker: None,
+    written_separator: None,
 };
 
 #[test]

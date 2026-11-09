@@ -178,6 +178,9 @@ mod escapes;
 // `key   = value` aligned as formatters write it, compared as `key = value`.
 #[cfg(any(feature = "toml", feature = "hcl"))]
 mod aligned;
+// Keys and values written inline (`{ a = 1 }`, `[a, b]`), the building
+// blocks a language with such containers reads its lines with.
+pub(crate) mod inline;
 // Integers past 64 bits a parser reads as floats: a syntax error.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;

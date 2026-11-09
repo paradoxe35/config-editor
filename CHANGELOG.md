@@ -18,6 +18,16 @@ WebAssembly.
   suggestions and hover included, from `separators` alone for flat formats
   such as `.env`, or through callbacks for nested ones).
 - One JSON Schema drives every language: they all parse into the same data.
+- The shared code knows no language's characters: brackets, separators,
+  quotes, item markers, document markers and markup come from the language
+  (`LanguageConfig`'s `map_brackets`, `list_brackets`, `item_separator`,
+  `item_marker`, `literal_quotes`, and hooks such as `opens_list_item`,
+  `key_markup_len` and `element_end`), so a custom language with syntax of
+  its own (`(a | b)` lists, `:=`, `@` items) gets the same exact Edit-as
+  saves, list moves and locks as the built-in ones. A JavaScript language
+  declares them too: `mapBrackets`, `listBrackets`, `itemSeparator`,
+  `itemMarker`, `literalQuotes`, and `writtenSeparator` for how a new entry
+  writes its separator (`": "`).
 
 ### Editing
 

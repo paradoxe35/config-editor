@@ -34,7 +34,6 @@ pub(super) fn between_tokens(
         lines: &lines,
         cache: RefCell::new(vec![None; lines.len()]),
     };
-    let markup = behavior.closing_markup_len("</x>").is_some();
     let (mut at_old, mut at_new) = (0, 0);
     let mut line = 0;
     // The last character before the gap: its line and byte in that line.
@@ -53,19 +52,15 @@ pub(super) fn between_tokens(
         let next = old_bytes
             .get(next_old)
             .map(|byte| (line, byte - starts[line]));
-        // An XML text's own space, at its edges included.
-        let in_text = markup
-            && at_old > 0
-            && next_old < old_chars.len()
-            && (old_chars[at_old - 1] == '>') != (old_chars[next_old] == '<');
-        // Nor may a tag's name move off its `<` or `</`.
-        let opens_tag = markup
-            && at_old > 0
-            && (old_chars[at_old - 1] == '<'
-                || (old_chars[at_old - 1] == '/' && at_old > 1 && old_chars[at_old - 2] == '<'));
+        // Space that is content (an XML text's own, at its edges
+        // included), or that would part a name from its markup.
+        let as_content = || {
+            let before = &old[..old_bytes.get(at_old).copied().unwrap_or(old.len())];
+            let after = &old[old_bytes.get(next_old).copied().unwrap_or(old.len())..];
+            at_old > 0 && behavior.space_is_content(before, after)
+        };
         if run_old != run_new
-            && (in_text
-                || opens_tag
+            && (as_content()
                 || content(at_old, next_old)
                 || !free(behavior, &tokens, previous, next, run_old, run_new))
         {

@@ -8,6 +8,7 @@
 //   their own lines, `#` comments, `'''` strings and `/* */` comments over
 //   lines) with the `contextAt`, `insertKey`, `keyAt` and `multilineRanges`
 //   callbacks.
+// - ODD: below, with the members that describe one-line maps and lists.
 
 export const ENV = `{
   label: "ENV",
@@ -215,6 +216,143 @@ export const HJSON = `(() => {
 })()`;
 
 /** The schema both languages are edited with. */
+// - ODD: `key := value` lines with `;` comments, lists written `(a | b)` and
+//   maps `<k := v | j := w>` on one line, which it declares with
+//   `mapBrackets`, `listBrackets` and `itemSeparator`; its `serialize`
+//   writes them compact (`(a|b)`), so a save that rewrote such a line would
+//   show it.
+export const ODD = `(() => {
+  const skip = (t, i) => { while (i < t.length && (t[i] === " " || t[i] === "\\t")) i++; return i; };
+  function comment(line) {
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quoted) { if (c === "\\\\") i++; else if (c === '"') quoted = false; }
+      else if (c === '"') quoted = true;
+      else if (c === ";" && (i === 0 || line[i - 1] === " ")) return i;
+    }
+    return line.length;
+  }
+  function scalar(word) {
+    if (word === "yes") return true;
+    if (word === "no") return false;
+    if (word === "nil") return null;
+    if (/^-?[0-9]+(\\.[0-9]+)?$/.test(word)) return Number(word);
+    return word;
+  }
+  function value(t, i) {
+    i = skip(t, i);
+    const c = t[i];
+    if (c === "(" || c === "<") {
+      const map = c === "<";
+      const close = map ? ">" : ")";
+      const out = map ? {} : [];
+      i = skip(t, i + 1);
+      if (t[i] === close) return [out, i + 1];
+      for (;;) {
+        if (map) {
+          i = skip(t, i);
+          let j = i;
+          while (j < t.length && /[A-Za-z0-9_-]/.test(t[j])) j++;
+          const key = t.slice(i, j);
+          if (!key) throw { message: "expected a key" };
+          i = skip(t, j);
+          if (t.slice(i, i + 2) !== ":=") throw { message: "expected :=" };
+          const [item, end] = value(t, i + 2);
+          out[key] = item;
+          i = end;
+        } else {
+          const [item, end] = value(t, i);
+          out.push(item);
+          i = end;
+        }
+        i = skip(t, i);
+        if (t[i] === "|") { i++; continue; }
+        if (t[i] === close) return [out, i + 1];
+        throw { message: "expected | or " + close };
+      }
+    }
+    if (c === '"') {
+      let j = i + 1;
+      let s = "";
+      while (j < t.length && t[j] !== '"') { if (t[j] === "\\\\") j++; s += t[j]; j++; }
+      if (j >= t.length) throw { message: "unclosed string" };
+      return [s, j + 1];
+    }
+    let j = i;
+    while (j < t.length && !"|)>".includes(t[j])) j++;
+    const word = t.slice(i, j).trim();
+    if (!word) throw { message: "a value is missing" };
+    return [scalar(word), i + t.slice(i, j).trimEnd().length];
+  }
+  function write(v) {
+    if (v === true) return "yes";
+    if (v === false) return "no";
+    if (v === null) return "nil";
+    if (typeof v === "number") return String(v);
+    if (Array.isArray(v)) return "(" + v.map(write).join("|") + ")";
+    if (typeof v === "object") return "<" + Object.entries(v).map(([k, x]) => k + ":=" + write(x)).join("|") + ">";
+    const bare = /^[A-Za-z_][A-Za-z0-9_./-]*$/.test(v) && scalar(v) === v;
+    return bare ? v : JSON.stringify(v);
+  }
+  // Each entry line: its index, key, where the key starts, where the value starts and ends.
+  function entries(text) {
+    const out = [];
+    text.split("\\n").forEach((line, index) => {
+      const code = line.slice(0, comment(line)).trimEnd();
+      const at = code.indexOf(":=");
+      if (at < 0) return;
+      const key = code.slice(0, at).trim();
+      out.push({ index, key, keyStart: code.indexOf(key), valueStart: skip(code, at + 2), valueEnd: code.length });
+    });
+    return out;
+  }
+  const entry = (text, pointer) => {
+    const key = pointer.slice(1);
+    return key && !key.includes("/") ? entries(text).find((found) => found.key === key) : undefined;
+  };
+  return {
+    label: "Odd",
+    extensions: ["odd"],
+    comments: { lineComment: ";" },
+    brackets: [["(", ")"], ["<", ">"]],
+    separators: [":="],
+    mapBrackets: ["<", ">"],
+    listBrackets: ["(", ")"],
+    itemSeparator: "|",
+    parse(text) {
+      const out = {};
+      text.split("\\n").forEach((line, index) => {
+        const code = line.slice(0, comment(line)).trimEnd();
+        if (!code.trim()) return;
+        const at = code.indexOf(":=");
+        if (at < 0) throw { message: "expected key := value", line: index + 1, column: 1 };
+        try {
+          const [item, end] = value(code, at + 2);
+          if (skip(code, end) < code.length) throw { message: "unexpected text" };
+          const key = code.slice(0, at).trim();
+          if (key in out) throw { message: "a key written twice" };
+          out[key] = item;
+        } catch (problem) {
+          throw { message: problem.message, line: index + 1, column: at + 3 };
+        }
+      });
+      return out;
+    },
+    serialize(value) {
+      return Object.entries(value).map(([key, item]) => key + " := " + write(item)).join("\\n") + "\\n";
+    },
+    keySpan(text, pointer) {
+      const found = entry(text, pointer);
+      return found && { line: found.index + 1, startColumn: found.keyStart + 1, endColumn: found.keyStart + found.key.length + 1 };
+    },
+    valueSpan(text, pointer) {
+      const found = entry(text, pointer);
+      return found && { line: found.index + 1, startColumn: found.valueStart + 1, endColumn: found.valueEnd + 1 };
+    },
+  };
+})()`;
+
 export const SCHEMA = JSON.stringify({
   type: 'object',
   properties: {

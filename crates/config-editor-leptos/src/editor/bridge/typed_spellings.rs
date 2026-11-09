@@ -55,10 +55,12 @@ pub(super) fn kept(
         }
         let typed = if value.is_string() {
             // Only a string the host writes bare, typed without escapes.
-            if written.starts_with(['"', '\'']) || written.contains('\n') {
+            if super::super::flow_syntax::Flow::of(host).starts_quoted(written)
+                || written.contains('\n')
+            {
                 continue;
             }
-            match unquoted(typed) {
+            match unquoted(edit, typed) {
                 Some(text) => text,
                 None => continue,
             }
@@ -88,12 +90,18 @@ pub(super) fn kept(
     }
 }
 
-/// `typed` without the quotes around it, when it holds no escape, quote or
-/// line break.
-fn unquoted(typed: &str) -> Option<&str> {
-    let inner = ['"', '\'']
-        .into_iter()
-        .find_map(|quote| typed.strip_prefix(quote)?.strip_suffix(quote))
+/// `typed` (as `edit` writes it) without the quotes around it, when it
+/// holds no escape, quote or line break.
+fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
+    let flow = super::super::flow_syntax::Flow::of(edit);
+    let inner = typed
+        .chars()
+        .next()
+        .filter(|quote| flow.quote(*quote).is_some())
+        .and_then(|quote| typed.strip_prefix(quote)?.strip_suffix(quote))
         .unwrap_or(typed);
-    (!inner.contains(['\\', '"', '\'', '\n'])).then_some(inner)
+    let plain = !inner
+        .chars()
+        .any(|character| matches!(character, '\\' | '\n') || flow.quote(character).is_some());
+    plain.then_some(inner)
 }

@@ -48,7 +48,7 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
             .schema
             .is_some_and(|schema| marks_at(schema, &path, repeats).1);
         if secret && lock_reason(around, &path).is_none() {
-            let typed = unquoted(&context.typed);
+            let typed = unquoted(behavior, &context.typed);
             if !around.explicit && !typed.is_empty() && !options.is_empty() {
                 return options;
             }
@@ -102,6 +102,26 @@ fn lock_reason(around: &Around<'_>, path: &[SchemaPathSegment]) -> Option<String
         .then(|| around.strings.read_only_field.clone())
 }
 
+/// What closes a reference the configured `prefix` opens: the bracket
+/// pairing the one it ends with (`${` → `}`, `$(` → `)`, `{{` → `}`), or
+/// nothing (`file:`). Reference forms are the host's, not a language's.
+fn closer_of(prefix: &str) -> String {
+    const PAIRS: [(char, char); 6] = [
+        ('(', ')'),
+        ('[', ']'),
+        ('{', '}'),
+        ('<', '>'),
+        ('\u{ab}', '\u{bb}'),
+        ('\u{27e8}', '\u{27e9}'),
+    ];
+    prefix
+        .chars()
+        .next_back()
+        .and_then(|last| PAIRS.iter().find(|(open, _)| *open == last))
+        .map(|(_, close)| close.to_string())
+        .unwrap_or_default()
+}
+
 /// The reference forms, written as the language writes a string value, the
 /// caret just after the prefix (inside `${…}`).
 fn references(
@@ -115,8 +135,8 @@ fn references(
         .iter()
         .filter(|prefix| !prefix.is_empty())
         .filter_map(|prefix| {
-            let closer = if prefix.ends_with('{') { "}" } else { "" };
-            let label = texts::reference_label(prefix, closer);
+            let closer = closer_of(prefix);
+            let label = texts::reference_label(prefix, &closer);
             if !typed.is_empty() && match_score(&label, typed).is_none() {
                 return None;
             }
@@ -149,4 +169,16 @@ fn references(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod closer_tests {
+    #[test]
+    fn a_reference_closes_the_bracket_its_prefix_opens() {
+        let closers: Vec<String> = ["${", "$(", "{{", "%[", "file:", "vault:"]
+            .into_iter()
+            .map(super::closer_of)
+            .collect();
+        assert_eq!(closers, ["}", ")", "}", "]", "", ""]);
+    }
 }

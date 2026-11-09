@@ -66,12 +66,13 @@ pub use super::fold_ranges::{
     indent_fold_ranges, merge_fold_ranges, string_body_fold_ranges,
 };
 pub use super::highlight::{ConstructKind, MultilineConstruct, Token, TokenKind, Tokens};
-pub use super::inline::{
+pub use super::keyboard::utf16_to_byte_index;
+pub use super::languages::inline::{
     InlineCaret, InlineEntry, InlineKey, caret_value_end, entry_follows, in_front_of_inline_entry,
     inline_caret, inline_key_at, inline_key_paths, inline_keys, inline_sibling_keys,
     inline_value_len, skip_quoted, statement_start, statements, string_end_at_caret,
+    unclosed_brackets,
 };
-pub use super::keyboard::utf16_to_byte_index;
 pub use item_start::bracket_item_start;
 pub(crate) use item_start::cursor_at;
 
@@ -165,33 +166,6 @@ pub struct InlineBlock {
     pub after: String,
 }
 
-/// How many `{` / `[` opened on `line_prefix` are still open, ignoring
-/// brackets inside double-quoted strings.
-pub fn unclosed_brackets(line_prefix: &str) -> usize {
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for character in line_prefix.chars() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match character {
-            '"' => in_string = true,
-            '{' | '[' => depth += 1,
-            '}' | ']' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    depth
-}
-
 /// Enter in bracketed syntax, for the `pairs` the language allows to span
 /// lines:
 /// - between a pair (`[|]`) the caret lands on an indented middle line and
@@ -202,13 +176,16 @@ pub fn unclosed_brackets(line_prefix: &str) -> usize {
 /// - otherwise the line's indentation is kept.
 ///
 /// `code` strips a trailing comment from the text before the caret on its
-/// line, so an opener inside a comment does not count.
+/// line, so an opener inside a comment does not count. Brackets in the
+/// strings of `config`'s quotes are text.
 pub fn bracket_newline(
     source: &str,
     cursor: usize,
     pairs: &[(char, char)],
+    config: &LanguageConfig,
     code: impl Fn(&str) -> &str,
 ) -> Newline {
+    let strings = Strings::of(config);
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     // Only indentation before the caret counts: Enter at column 0 of an
@@ -217,7 +194,7 @@ pub fn bracket_newline(
     let before = code(&source[line_start..byte]).trim_end_matches([' ', '\t']);
     let after = source[byte..].trim_start_matches([' ', '\t']);
     // Brackets inside a string literal are text.
-    let in_string = inside_string(before);
+    let in_string = strings.ends_inside(before);
     let opens = before
         .chars()
         .last()
@@ -237,7 +214,7 @@ pub fn bracket_newline(
         }
         newline
     };
-    let open_here = !in_string && opened_on_line(before, pairs);
+    let open_here = !in_string && opened_on_line(&strings, before, pairs);
     match (opens, closes) {
         (Some(_), Some(_)) => trimmed(Newline::with_caret(
             format!("\n{indent}{unit}\n{indent}"),
@@ -247,17 +224,24 @@ pub fn bracket_newline(
         // Before the closer of a bracket opened on this line (`[1, 2, |]`):
         // the entries go on one level deeper, the closer on its own line,
         // as between the brackets.
-        (None, Some(_)) if open_here && before.ends_with(',') => trimmed(Newline::with_caret(
-            format!("\n{indent}{unit}\n{indent}"),
-            1 + indent.len() + unit.len(),
-        )),
+        (None, Some(_))
+            if open_here
+                && config
+                    .item_separator
+                    .is_some_and(|item| before.ends_with(item)) =>
+        {
+            trimmed(Newline::with_caret(
+                format!("\n{indent}{unit}\n{indent}"),
+                1 + indent.len() + unit.len(),
+            ))
+        }
         (None, Some(closer)) => {
             let opener = pairs
                 .iter()
                 .find(|(_, close)| *close == closer)
                 .map(|(open, _)| *open);
             let aligned = opener
-                .and_then(|opener| opener_line(source, byte, opener, closer))
+                .and_then(|opener| opener_line(&strings, source, byte, opener, closer))
                 .map_or(indent, |start| line_indent(&source[start..]));
             trimmed(Newline::new(format!("\n{aligned}")))
         }
@@ -268,51 +252,76 @@ pub fn bracket_newline(
     }
 }
 
-/// Whether a bracket of `pairs` opened in `line` is still open at its end,
-/// skipping quoted text.
-fn opened_on_line(line: &str, pairs: &[(char, char)]) -> bool {
-    let mut depth = 0isize;
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for character in line.chars() {
-        match quote {
-            Some('"') if escaped => escaped = false,
-            Some('"') if character == '\\' => escaped = true,
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if character == '"' => quote = Some('"'),
-            None if pairs.iter().any(|(open, _)| *open == character) => depth += 1,
-            None if pairs.iter().any(|(_, close)| *close == character) => depth -= 1,
-            None => {}
-        }
-    }
-    depth > 0
+/// The strings of a language's quotes, read character by character: a
+/// quote in which a backslash escapes opens anywhere, a literal one (YAML's
+/// and TOML's `'`) only where a value starts, so a word's `'` is text.
+struct Strings {
+    flow: super::flow_syntax::Flow,
+    /// The characters a value starts after: the last of each key
+    /// separator, the item separator and the brackets' openers.
+    value_starts: Vec<char>,
 }
 
-/// Whether the end of `line` (text before the caret) is inside a string: a
-/// `"` string with `\\` escapes, or a `'` string opened where a value starts.
-fn inside_string(line: &str) -> bool {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    let mut previous = ' ';
-    for character in line.chars() {
-        match quote {
-            Some('"') if escaped => escaped = false,
-            Some('"') if character == '\\' => escaped = true,
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if character == '"' => quote = Some('"'),
-            None if character == '\''
-                && (previous.is_whitespace()
-                    || matches!(previous, ':' | '=' | '[' | '{' | ',' | '(')) =>
-            {
-                quote = Some('\'');
-            }
-            None => {}
+impl Strings {
+    fn of(config: &LanguageConfig) -> Self {
+        let value_starts = config
+            .separators
+            .iter()
+            .filter_map(|separator| separator.chars().next_back())
+            .chain(config.item_separator)
+            .chain(config.brackets.iter().map(|(open, _)| *open))
+            .collect();
+        Strings {
+            flow: super::flow_syntax::Flow::from_config(*config),
+            value_starts,
         }
-        previous = character;
     }
-    quote.is_some()
+
+    /// Calls `on` with each character of `text` outside strings (and its
+    /// byte offset); returns whether `text` ends inside one.
+    fn walk(&self, text: &str, mut on: impl FnMut(usize, char)) -> bool {
+        let mut quote: Option<(char, bool)> = None;
+        let mut escaped = false;
+        let mut previous = ' ';
+        for (index, character) in text.char_indices() {
+            match quote {
+                Some(_) if escaped => escaped = false,
+                Some((_, true)) if character == '\\' => escaped = true,
+                Some((open, _)) if character == open => quote = None,
+                Some(_) => {}
+                None => match self.flow.quote(character) {
+                    Some(true) => quote = Some((character, true)),
+                    Some(false)
+                        if previous.is_whitespace() || self.value_starts.contains(&previous) =>
+                    {
+                        quote = Some((character, false));
+                    }
+                    _ => on(index, character),
+                },
+            }
+            previous = character;
+        }
+        quote.is_some()
+    }
+
+    /// Whether the end of `text` (before the caret) is inside a string.
+    fn ends_inside(&self, text: &str) -> bool {
+        self.walk(text, |_, _| {})
+    }
+}
+
+/// Whether a bracket of `pairs` opened in `line` is still open at its end,
+/// skipping quoted text.
+fn opened_on_line(strings: &Strings, line: &str, pairs: &[(char, char)]) -> bool {
+    let mut depth = 0isize;
+    strings.walk(line, |_, character| {
+        if pairs.iter().any(|(open, _)| *open == character) {
+            depth += 1;
+        } else if pairs.iter().any(|(_, close)| *close == character) {
+            depth -= 1;
+        }
+    });
+    depth > 0
 }
 
 fn line_indent(line: &str) -> &str {
@@ -320,27 +329,22 @@ fn line_indent(line: &str) -> &str {
 }
 
 /// The start of the line holding the innermost `opener` still open at
-/// `byte`, skipping double-quoted strings.
-fn opener_line(source: &str, byte: usize, opener: char, closer: char) -> Option<usize> {
+/// `byte`, skipping strings.
+fn opener_line(
+    strings: &Strings,
+    source: &str,
+    byte: usize,
+    opener: char,
+    closer: char,
+) -> Option<usize> {
     let mut open = Vec::new();
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, character) in source[..byte].char_indices() {
-        if in_string {
-            match character {
-                _ if escaped => escaped = false,
-                '\\' => escaped = true,
-                '"' => in_string = false,
-                _ => {}
-            }
-        } else if character == '"' {
-            in_string = true;
-        } else if character == opener {
+    strings.walk(&source[..byte], |index, character| {
+        if character == opener {
             open.push(index);
         } else if character == closer {
             open.pop();
         }
-    }
+    });
     let index = *open.last()?;
     Some(source[..index].rfind('\n').map_or(0, |newline| newline + 1))
 }
@@ -704,6 +708,8 @@ pub struct CompletionContext {
     /// is one under that head (it was `websocket.path`), else it was typed
     /// for the new entry only (`tls.|path` leaves `path` as it was).
     pub suffix_head: String,
+    /// How many keys `suffix_head` names (1 for `websocket.`).
+    pub suffix_head_depth: usize,
 }
 
 /// Splits a JSON pointer into unescaped segments, each verbatim (RFC 6901:
@@ -885,6 +891,12 @@ pub struct Lexical {
 ///     brackets: &[],
 ///     separators: &["="],
 ///     quotes: &["\""],
+///     literal_quotes: &[],
+///     map_brackets: None,
+///     list_brackets: None,
+///     item_separator: None,
+///     item_marker: None,
+///     written_separator: None,
 /// };
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -904,7 +916,29 @@ pub struct LanguageConfig {
     pub separators: &'static [&'static str],
     /// String delimiters, longest first (`"\"\"\""` before `"\""`): `Ctrl+/`
     /// takes a string written over lines whole, never commenting part of it.
+    /// Comment markers and brackets inside them are text.
     pub quotes: &'static [&'static str],
+    /// The quotes inside which a backslash is text, not an escape (TOML's
+    /// and YAML's `'`); in the others it escapes the next character.
+    pub literal_quotes: &'static [&'static str],
+    /// The brackets around a map written as one value (`('{', '}')`), if
+    /// the language writes maps so: an Edit-as save edits such a map where
+    /// it is, its entries kept as written.
+    pub map_brackets: Option<(char, char)>,
+    /// The brackets around a list written as one value (`('[', ']')`), if
+    /// the language writes lists so, edited in place as maps are.
+    pub list_brackets: Option<(char, char)>,
+    /// What separates the items and entries between those brackets
+    /// (`','`).
+    pub item_separator: Option<char>,
+    /// How a new entry writes the separator after its key, with its
+    /// spacing (`": "`, `" = "`). Default: the first of `separators` as it
+    /// is (`KEY=`).
+    pub written_separator: Option<&'static str>,
+    /// What starts a list item written on lines of its own (YAML's `-`),
+    /// followed by a space or the line's end: an Edit-as save moves and
+    /// indents such items with their lines.
+    pub item_marker: Option<&'static str>,
 }
 
 /// A document language for the editor.
@@ -1152,7 +1186,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// What Enter writes at `cursor` (UTF-16). The default keeps the line's
     /// indentation and opens the [`LanguageConfig::brackets`] it is between.
     fn newline(&self, source: &str, cursor: usize) -> Newline {
-        bracket_newline(source, cursor, self.config().brackets, |line| {
+        let config = self.config();
+        bracket_newline(source, cursor, config.brackets, &config, |line| {
             &line[..self.comment_start(line).unwrap_or(line.len())]
         })
     }
@@ -1210,6 +1245,20 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// `(at /pointer)`; `None` when nothing stands in the way.
     fn unconvertible(&self, source: &str) -> Option<String> {
         let _ = source;
+        None
+    }
+
+    /// The property a schema's `required` entry `name` names, as the
+    /// language spells it (XML lists a required attribute `a` as `@a`).
+    /// Default: `name` itself.
+    fn required_property<'a>(&self, name: &'a str) -> &'a str {
+        name
+    }
+
+    /// The key the language reads text written beside child entries under
+    /// (XML's `#text`, for mixed content): a schema that does not allow it
+    /// is told as text not allowed there. Default: none.
+    fn text_key(&self) -> Option<&'static str> {
         None
     }
 
@@ -1459,7 +1508,8 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// strings. Edit-as uses it to match lines that differ only in comments.
     /// See [`comment_start_outside_quotes`].
     fn comment_start(&self, line: &str) -> Option<usize> {
-        comment_start_outside_quotes(line, self.config().line_comments)
+        let config = self.config();
+        comment_start_outside_quotes(line, config.line_comments, config.quotes)
     }
 
     /// Whether `source` holds a processing instruction other than an XML
@@ -1478,18 +1528,21 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// Edit-as notice reads it: the data a conversion carries has none.
     fn has_comments(&self, source: &str) -> bool {
         let bodies = string_bodies(self, source);
+        let quotes = self.config().quotes;
         let block = self.config().block_comment.map(|(open, _)| [open]);
         source.lines().enumerate().any(|(index, line)| {
             !bodies.iter().any(|lines| lines.contains(&index))
                 && (self.comment_start(line).is_some()
-                    || block
-                        .is_some_and(|open| comment_start_outside_quotes(line, &open).is_some()))
+                    || block.is_some_and(|open| {
+                        comment_start_outside_quotes(line, &open, quotes).is_some()
+                    }))
         })
     }
 
     /// Whether `rest`, the text after a key being completed, shows the key
-    /// already has its value (`: 99`, ` = "x"`, an HCL block's `{`), so
-    /// accepting a suggestion renames only the key.
+    /// already has its value (`: 99`, ` = "x"`, an HCL block's `{`) or goes
+    /// on (a dotted key's `.path`), so accepting a suggestion renames only
+    /// the key.
     fn value_follows_key(&self, rest: &str) -> bool {
         let rest = rest.trim_start();
         // `==` is a comparison, not a separator.
@@ -1504,13 +1557,7 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// so a space typed after it ends the entry instead of opening values.
     /// See [`value_after_separator`].
     fn line_has_value(&self, line_before: &str) -> bool {
-        let separators: Vec<char> = self
-            .config()
-            .separators
-            .iter()
-            .filter_map(|separator| separator.chars().next())
-            .collect();
-        !separators.is_empty() && value_after_separator(line_before, &separators)
+        value_after_separator(line_before, &self.config())
     }
 
     /// Byte offsets in `text`, a block a suggestion just wrote, where a value
@@ -1533,6 +1580,107 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn closing_markup_len(&self, text: &str) -> Option<usize> {
         let _ = text;
         None
+    }
+
+    /// The characters the language's markup is written between (XML's `<`
+    /// and `>`), if it has markup: a lock lets an edit that leaves the
+    /// text unparsed add the one that ends markup a line left open.
+    /// Default: no markup.
+    fn markup_delimiters(&self) -> Option<(char, char)> {
+        None
+    }
+
+    /// The length in bytes of markup at the start of `text` that opens an
+    /// element whose name, a key, follows it directly (XML's `<` before a
+    /// start tag's name). The markup belongs to the key's field: a lock
+    /// covers it, and the caret on it is on the key. Default: none.
+    fn key_markup_len(&self, text: &str) -> Option<usize> {
+        let _ = text;
+        None
+    }
+
+    /// The byte just past the element that opens at byte `open` of `text`
+    /// (an XML element from its `<` through its end tag or `/>`), for
+    /// moving a repeated element with all its lines; `None` when nothing
+    /// opens there or it does not end. Default: none.
+    fn element_end(&self, text: &str, open: usize) -> Option<usize> {
+        let _ = (text, open);
+        None
+    }
+
+    /// How many containers `text` opens and leaves open: by default its
+    /// [`LanguageConfig::brackets`] outside its quotes; XML counts the
+    /// elements it starts and does not end.
+    fn unclosed_containers(&self, text: &str) -> usize {
+        super::flow_syntax::Flow::of(self).unclosed(text, self.config().brackets)
+    }
+
+    /// The length of what closes a container at the start of `text` (a
+    /// closing bracket; XML's element text then its end tag), or `None`.
+    fn container_closer_len(&self, text: &str) -> Option<usize> {
+        self.config()
+            .brackets
+            .iter()
+            .find(|(_, close)| text.starts_with(*close))
+            .map(|(_, close)| close.len_utf8())
+    }
+
+    /// Byte ranges of `text` written as a value's content outside strings
+    /// (XML element text holding more than whitespace): its whitespace is
+    /// the value's, never formatting, so a lock keeps it. Default: none.
+    fn content_texts(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let _ = text;
+        Vec::new()
+    }
+
+    /// Whether the whitespace between `before` (the text up to it) and
+    /// `after` (the text from its end) is part of the document's content
+    /// rather than spacing between tokens: XML text's own space at a tag's
+    /// edge, or space that would part a tag's name from its `<`. Default:
+    /// no, whitespace between tokens is free.
+    fn space_is_content(&self, before: &str, after: &str) -> bool {
+        let _ = (before, after);
+        false
+    }
+
+    /// Whether `line` may hold a whole container written on one line in a
+    /// form other than map or list brackets (an XML element with its
+    /// children, `<a><b>1</b></a>`), which [`one_line_container`] then
+    /// locates. A cheap check: a save looks up only the containers on such
+    /// lines. Default: no.
+    ///
+    /// [`one_line_container`]: ConfigLanguage::one_line_container
+    fn writes_container_on_line(&self, line: &str) -> bool {
+        let _ = line;
+        false
+    }
+
+    /// Whether `line` starts a section that runs to the next one, whatever
+    /// its indent (TOML's `[table]` header). Default: no sections.
+    fn starts_section(&self, line: &str) -> bool {
+        let _ = line;
+        false
+    }
+
+    /// Whether `code` (a line without its comment, trimmed) marks the
+    /// document's start or describes the document rather than holding a
+    /// value (YAML's `---` and `%YAML` directives). Default: no such lines.
+    fn document_marker(&self, code: &str) -> bool {
+        let _ = code;
+        false
+    }
+
+    /// Whether line `index` of `lines` starts an item of a list written as
+    /// lines of its own: the comments right above it are the item's, never
+    /// the file's header. Default: a line starting with the
+    /// [`LanguageConfig::item_marker`]; TOML adds `[[array]]` tables, HCL
+    /// labelled and repeated blocks, XML repeated elements.
+    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
+        let line = lines[index];
+        let code = &line[..self.comment_start(line).unwrap_or(line.len())];
+        super::flow_syntax::Flow::of(self)
+            .after_item_marker(code.trim())
+            .is_some()
     }
 
     /// The bytes of the list item at `pointer` when the document writes it
@@ -1590,18 +1738,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// (YAML quotes `on` and `1_000`, which YAML 1.1 reads as other types).
     /// `None` when the language cannot write it there (an HCL block type is
     /// an identifier): a rename then takes the other save paths, which
-    /// refuse what the language cannot hold. By default only keys every
-    /// language writes bare (`[A-Za-z_][A-Za-z0-9_-]*`).
+    /// refuse what the language cannot hold. By default the key as the
+    /// language's own [`serialize`](Self::serialize) writes it, found by
+    /// [`key_span`](Self::key_span) in a document holding only that key
+    /// and read back by [`parse`](Self::parse); `None` without them.
     fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
         let _ = (source, pointer);
-        let mut characters = key.chars();
-        let bare = characters
-            .next()
-            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-            && characters.all(|character| {
-                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
-            });
-        bare.then(|| key.to_string())
+        key_as_written(self, key)
     }
 
     /// The value a save writes at `pointer` of `previous` for `value` (a
@@ -1638,6 +1781,31 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         let _ = (value, indent, unit);
         None
     }
+}
+
+/// `key` as `language` writes it (see [`ConfigLanguage::written_key`]): the
+/// text its serializer writes for it in a document holding only that key,
+/// when that document reads back with the key.
+fn key_as_written(language: &(impl ConfigLanguage + ?Sized), key: &str) -> Option<String> {
+    let pointer = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
+    [Value::from(0), Value::from("")]
+        .into_iter()
+        .find_map(|value| {
+            let document = Value::Object([(key.to_string(), value)].into_iter().collect());
+            let text = language.serialize(&document, None).ok()?;
+            let read = language.parse(&text).ok()?;
+            if read.as_object()?.keys().ne([key]) {
+                return None;
+            }
+            let span = language.key_span(&text, &pointer)?;
+            let line = text.split('\n').nth(span.line.checked_sub(1)?)?;
+            let written: String = line
+                .chars()
+                .skip(span.start_column.checked_sub(1)?)
+                .take(span.end_column.checked_sub(span.start_column)?)
+                .collect();
+            (!written.is_empty()).then_some(written)
+        })
 }
 
 /// A container written on one line (see
@@ -1681,16 +1849,22 @@ pub(crate) fn line_comments(
 }
 
 /// The byte offset of the first of `markers` on `line` that starts a comment:
-/// outside `"…"` and `'…'` strings, at the line start or after whitespace.
-/// A building block for [`ConfigLanguage::comment_start`].
-pub fn comment_start_outside_quotes(line: &str, markers: &[&str]) -> Option<usize> {
+/// outside strings in `quotes` (a backslash before a closing quote escapes
+/// it), at the line start or after whitespace. A building block for
+/// [`ConfigLanguage::comment_start`].
+pub fn comment_start_outside_quotes(
+    line: &str,
+    markers: &[&str],
+    quotes: &[&str],
+) -> Option<usize> {
+    let opens = |character: char| quotes.iter().any(|quote| quote.starts_with(character));
     let mut quote: Option<char> = None;
     let mut previous = ' ';
     for (index, character) in line.char_indices() {
         match quote {
             Some(open) if character == open && previous != '\\' => quote = None,
             Some(_) => {}
-            None if character == '"' || character == '\'' => quote = Some(character),
+            None if opens(character) => quote = Some(character),
             None if previous.is_whitespace()
                 && markers
                     .iter()
@@ -1705,15 +1879,29 @@ pub fn comment_start_outside_quotes(line: &str, markers: &[&str]) -> Option<usiz
     None
 }
 
-/// Whether `line_before` ends with a value after its last `separators`
-/// character (`key = false`, not `key = ` or `key = [`). A building block for
-/// [`ConfigLanguage::line_has_value`].
-pub fn value_after_separator(line_before: &str, separators: &[char]) -> bool {
+/// Whether `line_before` ends with a value after its last key separator
+/// (`key = false`, not `key = `, `key = [` or `key = 1,`), as `config`
+/// describes separators, brackets and the item separator. A building block
+/// for [`ConfigLanguage::line_has_value`].
+pub fn value_after_separator(line_before: &str, config: &LanguageConfig) -> bool {
+    let separators: Vec<char> = config
+        .separators
+        .iter()
+        .filter_map(|separator| separator.chars().next())
+        .collect();
+    if separators.is_empty() {
+        return false;
+    }
     let value = line_before
-        .rsplit_once(separators)
+        .rsplit_once(separators.as_slice())
         .map_or("", |(_, value)| value)
         .trim();
-    !value.is_empty() && !value.ends_with(['[', '{', ',']) && !value.ends_with(separators)
+    let opens = |character: char| {
+        config.item_separator == Some(character)
+            || config.brackets.iter().any(|(open, _)| *open == character)
+            || separators.contains(&character)
+    };
+    !value.is_empty() && !value.chars().next_back().is_some_and(opens)
 }
 
 /// Byte offsets at the ends of lines of `text` that end with one of
@@ -1904,22 +2092,44 @@ mod tests {
 
     #[test]
     fn comments_start_outside_strings_after_whitespace() {
-        use super::comment_start_outside_quotes as start;
+        use super::comment_start_outside_quotes;
+        let start = |line, markers| comment_start_outside_quotes(line, markers, &["\"", "'"]);
         assert_eq!(start("listen = 7835 # port", &["#"]), Some(14));
         assert_eq!(start("# whole line", &["#"]), Some(0));
         assert_eq!(start("color = \"#fff\" # hex", &["#"]), Some(15));
         assert_eq!(start("url = http://x", &["#", "//"]), None);
         assert_eq!(start("a = 1 // note", &["#", "//"]), Some(6));
+        // Only the language's own quotes open a string.
+        assert_eq!(
+            comment_start_outside_quotes("a = don't ; b", &[";"], &["\""]),
+            Some(10)
+        );
     }
 
     #[test]
     fn a_value_after_a_separator_is_complete_unless_it_opens_one() {
-        use super::value_after_separator as has_value;
-        assert!(has_value("insecure = false", &['=']));
-        assert!(!has_value("insecure =", &['=']));
-        assert!(!has_value("hosts = [", &['=']));
-        assert!(!has_value("pool: {a: 1,", &[':']));
-        assert!(!has_value("listen", &[':']));
+        use super::{LanguageConfig, value_after_separator};
+        let config = |separators| LanguageConfig {
+            separators,
+            brackets: &[('{', '}'), ('[', ']')],
+            item_separator: Some(','),
+            ..LanguageConfig::default()
+        };
+        let has_value = |line, separators| value_after_separator(line, &config(separators));
+        assert!(has_value("insecure = false", &["="]));
+        assert!(!has_value("insecure =", &["="]));
+        assert!(!has_value("hosts = [", &["="]));
+        assert!(!has_value("pool: {a: 1,", &[":"]));
+        assert!(!has_value("listen", &[":"]));
+        // Only the language's own brackets open a value.
+        let odd = LanguageConfig {
+            separators: &[":="],
+            brackets: &[('(', ')')],
+            item_separator: Some('|'),
+            ..LanguageConfig::default()
+        };
+        assert!(!value_after_separator("ports := (", &odd));
+        assert!(value_after_separator("tags := [a,", &odd));
     }
 
     #[test]

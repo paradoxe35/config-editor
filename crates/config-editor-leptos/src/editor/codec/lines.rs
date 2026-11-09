@@ -1,9 +1,9 @@
 //! The structural patch: a save adding, removing or renaming entries made
 //! line by line on the host's text, so its comments and formatting stay.
 
+use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
-use super::list_items::opens_list_item;
 use super::{empty_containers, kept_inline, reads_as, serialize};
 use serde_json::Value;
 
@@ -73,6 +73,8 @@ fn patch_lines(
     let rendered_old: Vec<&str> = before.lines().collect();
     let rendered_new: Vec<&str> = after.lines().collect();
     let host: Vec<&str> = previous.lines().collect();
+    let flow = Flow::of(language);
+    let punctuation = |line: &str| punctuation_only(language, &flow, line);
     // Where each line of the old rendering sits in the host's text: a
     // forward match that skips the host's comments and blank lines, and
     // compares lines without quotes or trailing comments.
@@ -92,10 +94,7 @@ fn patch_lines(
         // rest of the document unmatched. A line of only punctuation (`}`,
         // `],`) says nothing about where it is, so it matches only the next
         // line with code, never one further on.
-        let punctuation = wanted
-            .chars()
-            .all(|character| matches!(character, '{' | '}' | '[' | ']' | '(' | ')' | ','));
-        let window = if punctuation {
+        let window = if punctuation(&wanted) {
             (next..host.len())
                 .find(|candidate| !normalized_host[*candidate].is_empty())
                 .map_or(next, |candidate| candidate + 1)
@@ -106,7 +105,7 @@ fn patch_lines(
             normalized_host[*candidate] == wanted
                 || alias_heads[*candidate]
                     .as_deref()
-                    .is_some_and(|head| reads_alias(head, &wanted))
+                    .is_some_and(|head| reads_alias(&flow, head, &wanted))
         }) {
             place[index] = Some(found);
             next = found + 1;
@@ -121,8 +120,8 @@ fn patch_lines(
     // after them replace them (a renamed table) and go in their place.
     let mut replacing: Option<usize> = None;
     let mut edits = myers_edits(&rendered_old, &rendered_new)?;
-    slide_deletions_up(&mut edits, &rendered_old);
-    slide_insertions_up(&mut edits, &rendered_new);
+    slide_deletions_up(&mut edits, &rendered_old, &punctuation);
+    slide_insertions_up(&mut edits, &rendered_new, &punctuation);
     // Each inserted line indented as the host indents (four spaces, a list
     // at its key's column, `-   item`), from the matched lines above it.
     let mut written_new: Vec<String> = rendered_new.iter().map(|line| line.to_string()).collect();
@@ -141,6 +140,7 @@ fn patch_lines(
                 DiffEdit::Delete => old_at += 1,
                 DiffEdit::Insert => {
                     written_new[new_at] = in_host_indentation(
+                        &flow,
                         rendered_new[new_at],
                         &rendered_old[..old_at],
                         &place[..old_at],
@@ -195,7 +195,7 @@ fn patch_lines(
                         }
                         // Above a list item's comment lines: they are its.
                         None => match place.iter().find_map(|at| *at) {
-                            Some(mut first) if opens_list_item(language, &host, first) => {
+                            Some(mut first) if language.opens_list_item(&host, first) => {
                                 while first > 0 && is_comment(host[first - 1]) {
                                     first -= 1;
                                 }
@@ -229,10 +229,8 @@ fn patch_lines(
         // `tcp { … }`); a header of several lines keeps its first one. Above
         // a list's first item they are the item's: there a file's header is
         // the comments a blank line ends.
-        if top == 0 && !opens_list_item(language, &host, index) {
-            let key: String = host[index]
-                .trim_start()
-                .trim_start_matches(['<', '[', '"'])
+        if top == 0 && !language.opens_list_item(&host, index) {
+            let key: String = key_text(language, &flow, host[index])
                 .chars()
                 .take_while(|character| {
                     character.is_alphanumeric() || matches!(character, '_' | '-')
@@ -282,9 +280,13 @@ fn patch_lines(
             }
         }
     }
-    drop_doubled_blank_lines(language, &host, &mut removed, &inserted);
-    follow_sibling_spacing(&host, &mut inserted);
-    no_doubled_blank_after(&host, &removed, &mut inserted);
+    let closes = |line: &str| {
+        closes_body(language, line) || language.closing_markup_len(line.trim()).is_some()
+    };
+    let bracket_closes = |line: &str| closes_body(language, line);
+    drop_doubled_blank_lines(&host, &mut removed, &inserted, &closes);
+    follow_sibling_spacing(&host, &mut inserted, &bracket_closes);
+    no_doubled_blank_after(&host, &removed, &mut inserted, &bracket_closes);
     let mut inserted: Vec<Vec<String>> = inserted
         .into_iter()
         .map(|slot| slot.into_iter().map(str::to_string).collect())
@@ -324,25 +326,70 @@ fn patch_lines(
     Some(patched)
 }
 
+/// Whether `line` (trimmed) is only brackets and item separators (`}`,
+/// `],`): it says nothing about where it is.
+fn punctuation_only(language: &dyn ConfigLanguage, flow: &Flow, line: &str) -> bool {
+    let brackets = language.config().brackets;
+    line.chars().all(|character| {
+        flow.is_separator(character)
+            || brackets
+                .iter()
+                .any(|(open, close)| character == *open || character == *close)
+    })
+}
+
+/// Whether `line` (trimmed) starts with a closing bracket (`}`, `]`).
+fn closes_body(language: &dyn ConfigLanguage, line: &str) -> bool {
+    line.trim().starts_with(|character: char| {
+        language
+            .config()
+            .brackets
+            .iter()
+            .any(|(_, close)| *close == character)
+    })
+}
+
+/// The text a host line's key starts with, past its indent, the markup
+/// opening it and the brackets and quotes around it (`web` of `<web>`,
+/// `[web]` and `"web":`).
+fn key_text<'a>(language: &dyn ConfigLanguage, flow: &Flow, line: &'a str) -> &'a str {
+    let mut text = line.trim_start();
+    text = &text[language.key_markup_len(text).unwrap_or(0)..];
+    let brackets = language.config().brackets;
+    text.trim_start_matches(|character: char| {
+        flow.quote(character).is_some() || brackets.iter().any(|(open, _)| *open == character)
+    })
+}
+
 /// What comes before the alias a host line ends with (`- ` of `- *x`,
 /// `udp:` of `udp: *p`), as the patch compares lines.
 fn alias_head(language: &dyn ConfigLanguage, line: &str) -> Option<String> {
     let code = line[..comment_start(language, line)].trim();
     let (head, token) = code.rsplit_once(' ')?;
-    (language.reference_len(token) == Some(token.len()) && head.ends_with([':', '-']))
+    let config = language.config();
+    let after_key = config
+        .separators
+        .iter()
+        .chain(config.item_marker.iter())
+        .any(|ending| head.ends_with(ending));
+    (language.reference_len(token) == Some(token.len()) && after_key)
         .then(|| comparable(language, head))
 }
 
 /// Whether `wanted` (a rendered line) is `head` then a one-line scalar.
-fn reads_alias(head: &str, wanted: &str) -> bool {
+fn reads_alias(flow: &Flow, head: &str, wanted: &str) -> bool {
     wanted
         .strip_prefix(head)
         .and_then(|rest| rest.strip_prefix(' '))
         .is_some_and(|rest| {
             !rest.is_empty()
-                && !rest.contains(": ")
-                && !rest.ends_with(':')
-                && !rest.starts_with(['{', '['])
+                && !flow.key_separator(rest).is_some_and(|(at, length)| {
+                    rest[at + length..].is_empty() || rest[at + length..].starts_with(' ')
+                })
+                && !rest
+                    .chars()
+                    .next()
+                    .is_some_and(|first| flow.closer_of(first).is_some())
         })
 }
 
@@ -352,6 +399,7 @@ fn reads_alias(head: &str, wanted: &str) -> bool {
 /// the nearest shallower one (its parent); a list item takes the sibling's
 /// spacing after its dash.
 fn in_host_indentation(
+    flow: &Flow,
     line: &str,
     rendered_old: &[&str],
     place: &[Option<usize>],
@@ -373,19 +421,20 @@ fn in_host_indentation(
     };
     let dash_gap = |text: &str| {
         let content = text.trim_start_matches([' ', '\t']);
-        content
-            .strip_prefix('-')
+        flow.after_item_marker(content)
             .filter(|rest| rest.starts_with(' '))
             .map(|rest| rest.len() - rest.trim_start_matches(' ').len())
     };
     let (prefix, content) =
         if let Some((_, sibling)) = placed().find(|(rendered, _)| indent(rendered) == wanted) {
             let mut content = content.to_string();
-            if let (Some(_), Some(gap)) = (dash_gap(line), dash_gap(sibling)) {
+            if let (Some(_), Some(gap), Some(marker)) =
+                (dash_gap(line), dash_gap(sibling), flow.item_marker())
+            {
                 content = format!(
-                    "-{}{}",
+                    "{marker}{}{}",
                     " ".repeat(gap),
-                    content[1..].trim_start_matches(' ')
+                    content[marker.len()..].trim_start_matches(' ')
                 );
             }
             (sibling[..indent(sibling)].to_string(), content)
@@ -412,10 +461,10 @@ fn in_host_indentation(
 /// A removed run of lines between two blank lines (or after a blank line at
 /// the end) would leave the blank lines doubled: the one above goes.
 fn drop_doubled_blank_lines(
-    language: &dyn ConfigLanguage,
     host: &[&str],
     removed: &mut [bool],
     inserted: &[Vec<&str>],
+    closes: &dyn Fn(&str) -> bool,
 ) {
     let blank = |index: usize| host[index].trim().is_empty();
     let mut index = 0;
@@ -431,10 +480,6 @@ fn drop_doubled_blank_lines(
         let untouched = (start..=index).all(|slot| inserted[slot].is_empty());
         // A closer (`}`, `]`, `</a>`) after the run ends the body: no blank
         // line belongs before it either.
-        let closes = |line: &str| {
-            let trimmed = line.trim();
-            trimmed.starts_with(['}', ']', ')']) || language.closing_markup_len(trimmed).is_some()
-        };
         let after_blank = index == host.len() || blank(index) || closes(host[index]);
         if untouched && start > 0 && !removed[start - 1] && blank(start - 1) && after_blank {
             removed[start - 1] = true;
@@ -450,7 +495,11 @@ fn drop_doubled_blank_lines(
 /// blocks) keeps it only where the host separates siblings that way: the
 /// earlier sibling at the slot's indent ending its block is followed by a
 /// blank line there.
-fn follow_sibling_spacing(host: &[&str], inserted: &mut [Vec<&str>]) {
+fn follow_sibling_spacing(
+    host: &[&str],
+    inserted: &mut [Vec<&str>],
+    closes: &dyn Fn(&str) -> bool,
+) {
     let indent = |line: &str| line.len() - line.trim_start().len();
     for slot in 1..inserted.len() {
         let starts_blank = inserted[slot]
@@ -471,7 +520,7 @@ fn follow_sibling_spacing(host: &[&str], inserted: &mut [Vec<&str>]) {
             if indent(line) < level {
                 break;
             }
-            if indent(line) == level && line.trim().starts_with(['}', ']']) {
+            if indent(line) == level && closes(line) {
                 earlier = Some(index);
                 break;
             }
@@ -489,7 +538,12 @@ fn follow_sibling_spacing(host: &[&str], inserted: &mut [Vec<&str>]) {
 /// An inserted entry ending with a blank line (as the serializer separates
 /// a block from what follows) drops it where the host line after it is
 /// blank already or closes the body.
-fn no_doubled_blank_after(host: &[&str], removed: &[bool], inserted: &mut [Vec<&str>]) {
+fn no_doubled_blank_after(
+    host: &[&str],
+    removed: &[bool],
+    inserted: &mut [Vec<&str>],
+    closes: &dyn Fn(&str) -> bool,
+) {
     for slot in 0..inserted.len() {
         let ends_blank = inserted[slot].len() > 1
             && inserted[slot]
@@ -498,7 +552,7 @@ fn no_doubled_blank_after(host: &[&str], removed: &[bool], inserted: &mut [Vec<&
         let next = (slot..host.len()).find(|index| !removed[*index]);
         let blank_after = next.is_none_or(|index| {
             let line = host[index].trim();
-            line.is_empty() || line.starts_with(['}', ']', ')'])
+            line.is_empty() || closes(line)
         });
         if ends_blank && blank_after && inserted.get(slot + 1).is_none_or(Vec::is_empty) {
             inserted[slot].pop();
@@ -510,7 +564,11 @@ fn no_doubled_blank_after(host: &[&str], removed: &[bool], inserted: &mut [Vec<&
 /// its last line, so a repeated block added (`[[s]]` and its keys) goes in
 /// whole before the next item's header, not after it (under that item's
 /// comments). Closers and blank lines stay where the diff put them.
-fn slide_insertions_up(edits: &mut [super::super::diff::DiffEdit], new: &[&str]) {
+fn slide_insertions_up(
+    edits: &mut [super::super::diff::DiffEdit],
+    new: &[&str],
+    punctuation: &dyn Fn(&str) -> bool,
+) {
     use super::super::diff::DiffEdit;
     let mut changed = true;
     while changed {
@@ -524,10 +582,7 @@ fn slide_insertions_up(edits: &mut [super::super::diff::DiffEdit], new: &[&str])
                     .take_while(|edit| **edit == DiffEdit::Insert)
                     .count();
                 let line = new[new_index].trim();
-                let stays = line.is_empty()
-                    || line
-                        .chars()
-                        .all(|character| matches!(character, '}' | ']' | ')' | ','));
+                let stays = line.is_empty() || punctuation(line);
                 // An item added as a copy of the one before it stays after
                 // it: that one keeps its own lines.
                 let copy = new_index + 1 >= run
@@ -550,7 +605,11 @@ fn slide_insertions_up(edits: &mut [super::super::diff::DiffEdit], new: &[&str])
 /// last line, so a repeated block (`[[web.certificates]]` items) is deleted
 /// whole from its first line rather than straddling two items. Closing
 /// brackets stay where the diff put them: they end the block above.
-fn slide_deletions_up(edits: &mut [super::super::diff::DiffEdit], old: &[&str]) {
+fn slide_deletions_up(
+    edits: &mut [super::super::diff::DiffEdit],
+    old: &[&str],
+    punctuation: &dyn Fn(&str) -> bool,
+) {
     use super::super::diff::DiffEdit;
     let mut changed = true;
     while changed {
@@ -565,10 +624,7 @@ fn slide_deletions_up(edits: &mut [super::super::diff::DiffEdit], old: &[&str]) 
                     .count();
                 // A closer (`}`) ends the block above; sliding past it would
                 // delete that block's end and keep the deleted one's.
-                let closer = old[old_index]
-                    .trim()
-                    .chars()
-                    .all(|character| matches!(character, '}' | ']' | ')' | ','));
+                let closer = punctuation(old[old_index].trim());
                 if run > 0 && !closer && old[old_index] == old[old_index + run] {
                     edits[index] = DiffEdit::Delete;
                     edits[index + run] = DiffEdit::Equal;

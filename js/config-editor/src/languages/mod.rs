@@ -16,6 +16,7 @@ use crate::values::{field, string_field};
 mod assist;
 mod js_language;
 mod ranges;
+mod syntax;
 
 use js_language::JsLanguage;
 
@@ -83,6 +84,12 @@ const DEFINITION_KEYS: &[&str] = &[
     "comments",
     "brackets",
     "separators",
+    "mapBrackets",
+    "listBrackets",
+    "itemSeparator",
+    "itemMarker",
+    "literalQuotes",
+    "writtenSeparator",
     "contextAt",
     "insertKey",
     "keyAt",
@@ -161,32 +168,31 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
             ));
         }
         for pair in Array::from(&brackets_value).iter() {
-            let single = |index: u32| {
-                Array::is_array(&pair)
-                    .then(|| Array::from(&pair).get(index).as_string())
-                    .flatten()
-                    .filter(|text| text.chars().count() == 1)
-                    .and_then(|text| text.chars().next())
+            let Some(pair) = syntax::pair(&pair) else {
+                return Err(JsError::new(
+                    "brackets must be [open, close] pairs of single characters",
+                ));
             };
-            match (single(0), single(1)) {
-                (Some(open), Some(close)) => brackets.push((open, close)),
-                _ => {
-                    return Err(JsError::new(
-                        "brackets must be [open, close] pairs of single characters",
-                    ));
-                }
-            }
+            brackets.push(pair);
         }
     }
     let leak_all = |items: Vec<String>| -> &'static [&'static str] {
         Box::leak(items.into_iter().map(leak).collect())
     };
+    const QUOTES: &[&str] = &["\"", "'"];
+    let separators = leak_all(separators);
     Ok(LanguageConfig {
         line_comments: leak_all(line_comments),
         block_comment,
         brackets: Box::leak(brackets.into_boxed_slice()),
-        separators: leak_all(separators),
-        quotes: &["\"", "'"],
+        separators,
+        written_separator: syntax::written_separator(definition, separators)?,
+        quotes: QUOTES,
+        literal_quotes: syntax::literal_quotes(definition, QUOTES)?,
+        map_brackets: syntax::bracket_member(definition, "mapBrackets")?,
+        list_brackets: syntax::bracket_member(definition, "listBrackets")?,
+        item_separator: syntax::item_separator(definition)?,
+        item_marker: syntax::item_marker(definition)?,
     })
 }
 

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ENV, HJSON, SCHEMA } from './custom-languages.mjs';
+import { ENV, HJSON, ODD, SCHEMA } from './custom-languages.mjs';
 import { editor, pointAt } from './helpers.mjs';
 
 // Languages registered from JavaScript get schema completion and hover from
@@ -224,6 +224,32 @@ test.describe('callbacks that return the wrong shape or throw', () => {
     });
     expect(message).toBe('contextAt must be a function');
   });
+
+  test('registerLanguage refuses syntax members of the wrong shape', async ({ page }) => {
+    await open(page, 'vanilla.html');
+    const messages = await page.evaluate(async () => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      const bad = [
+        { mapBrackets: ['{{', '}}'] },
+        { listBrackets: '[]' },
+        { itemSeparator: ', ' },
+        { itemMarker: '- ' },
+        { literalQuotes: ['`'] },
+        { separators: ['='], writtenSeparator: ': ' },
+      ];
+      return bad.map((members) => {
+        try {
+          module.registerLanguage({ label: 'Bad', parse: () => ({}), ...members });
+          return 'no error';
+        } catch (error) {
+          return String(error.message ?? error);
+        }
+      });
+    });
+    expect(messages.map((message) => message.split(' ')[0])).toEqual([
+      'mapBrackets', 'listBrackets', 'itemSeparator', 'itemMarker', 'literalQuotes', 'writtenSeparator',
+    ]);
+  });
 });
 
 const MULTILINE = "about: '''\n  name: not a key\n  # not a comment\n  ''' \nport: 1\n/* listen: 2\n   still: comment */ mode: fast\nhost: x\n";
@@ -317,6 +343,33 @@ test.describe('Edit-as with a custom host language', () => {
     ['a nested key removed', HJSON, NESTED_HOST, ['  mode: fast\n', ''], '# The server\nserver: {\n  host: example.com # public name\n}\nport: 1\n'],
     ['a key renamed', HJSON, NESTED_HOST, ['port:', 'listen:'], '# The server\nserver: {\n  host: example.com # public name\n  mode: fast\n}\nlisten: 1\n'],
   ];
+  // A language that declares its one-line maps and lists (`mapBrackets`,
+  // `listBrackets`, `itemSeparator`): an edit inside one keeps the line as
+  // the host wrote it, its spacing and its comment.
+  const ODD_HOST = '; odd host\nports := (80 | 443) ; public\ntls := <cert := a.pem | days := 30> ; certificates\nname := web\n';
+  const odd = (line, by) => ODD_HOST.replace(line, by);
+  const ONE_LINE_SAVES = [
+    ['an item of a one-line list changed', 'yaml', ['  - 443\n', '  - 8443\n'], odd('(80 | 443)', '(80 | 8443)')],
+    ['an item added to a one-line list', 'yaml', ['  - 443\n', '  - 443\n  - 8080\n'], odd('(80 | 443)', '(80 | 443 | 8080)')],
+    ['an entry added to a one-line map', 'yaml', ['  days: 30\n', '  days: 30\n  key: k.pem\n'], odd('days := 30>', 'days := 30 | key := k.pem>')],
+    ['an item of a one-line list changed as JSON', 'json', ['443', '8443'], odd('(80 | 443)', '(80 | 8443)')],
+  ];
+  for (const [name, view, [from, to], saved] of ONE_LINE_SAVES) {
+    test(`a language declaring its brackets: ${name} keeps the line`, async ({ page }) => {
+      await open(page, 'vanilla.html');
+      await mount(page, ODD, ODD_HOST, `{ editAs: '${view}' }`);
+      const e = editor(page);
+      await expect(e.input).toHaveValue(new RegExp(from.trim()));
+      await e.input.evaluate((element, [from, to]) => {
+        const at = element.value.indexOf(from);
+        element.focus();
+        element.setRangeText(to, at, at + from.length, 'end');
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: to }));
+      }, [from, to]);
+      await expect.poll(() => lastSave(page)).toBe(saved);
+    });
+  }
+
   for (const [name, language, host, [from, to], saved] of SAVES) {
     test(`edited as YAML, ${name} changes only its lines`, async ({ page }) => {
       await open(page, 'vanilla.html');

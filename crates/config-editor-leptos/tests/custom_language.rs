@@ -264,6 +264,7 @@ impl ConfigLanguage for LongStrings {
             brackets: &[],
             separators: &["="],
             quotes: &["\"\"\"", "\""],
+            ..Default::default()
         }
     }
 }

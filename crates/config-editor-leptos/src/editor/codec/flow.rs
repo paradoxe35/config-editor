@@ -3,6 +3,7 @@
 //! text, changed ones keep their quoting, new ones are written like their
 //! sibling, and the spacing inside the brackets stays.
 
+use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::comparable;
 use serde_json::Value;
@@ -14,13 +15,16 @@ pub(super) fn restyle(
     value: &Value,
     written: &str,
 ) -> Option<String> {
-    let (open, close) = match (value, written.chars().next()?) {
-        (Value::Object(_), '{') => ('{', '}'),
-        (Value::Array(_), '[') => ('[', ']'),
-        _ => return None,
-    };
+    let flow = Flow::of(language);
+    let first = written.chars().next()?;
+    let (open, close) = match value {
+        Value::Object(_) => flow.map(),
+        Value::Array(_) => flow.list(),
+        _ => None,
+    }
+    .filter(|(open, _)| *open == first)?;
     let inner = written.strip_prefix(open)?.strip_suffix(close)?;
-    let raw = split_items(inner)?;
+    let raw = flow.split_items(inner)?;
     if raw.is_empty() {
         return None;
     }
@@ -43,7 +47,10 @@ pub(super) fn restyle(
         .collect();
     // The spacing a new item takes: the item before it's, else none in a
     // compact container (`{"a":1}`), else one space.
-    let compact = lead.is_empty() && !items[0].1.contains(": ") && !items[0].1.contains(" =");
+    let compact = lead.is_empty()
+        && !flow
+            .entry_parts(items[0].1)
+            .is_some_and(|(_, head, _)| flow.separator_of(head).contains([' ', '\t']));
     let gap = |position: usize| -> &str {
         match items.get(position.min(last)) {
             Some((before, _, _)) if position > 0 && !before.is_empty() => before,
@@ -67,7 +74,7 @@ pub(super) fn restyle(
         Value::Object(map) => {
             let entries: Vec<(String, &str, &str)> = items
                 .iter()
-                .map(|(_, item, _)| entry_parts(item))
+                .map(|(_, item, _)| flow.entry_parts(item))
                 .collect::<Option<_>>()?;
             let (_, model_head, model_value) = entries.first()?;
             for (key, child) in map {
@@ -83,8 +90,7 @@ pub(super) fn restyle(
                         );
                     }
                     None => {
-                        let separator =
-                            &model_head[model_head.trim_end_matches([' ', '\t', ':', '=']).len()..];
+                        let separator = flow.separator_of(model_head);
                         let key = super::key_like(language, key, model_head)?;
                         let text = fresh_text(language, child, model_value, written);
                         place(&mut out, "", format!("{key}{separator}{text}"), "");
@@ -124,7 +130,24 @@ pub(super) fn restyle(
     if out.is_empty() {
         return Some(format!("{open}{close}"));
     }
-    Some(format!("{open}{lead}{}{trail}{close}", out.join(",")))
+    // An item that now has one after it is spaced before the separator as
+    // the others are (`a | b`): the last one was written without.
+    let after_gap = if last > 0 && items[..last].iter().all(|item| item.2 == items[0].2) {
+        items[0].2
+    } else {
+        ""
+    };
+    let count = out.len();
+    for item in out.iter_mut().take(count - 1) {
+        if !after_gap.is_empty() && item.trim_end().len() == item.len() {
+            item.push_str(after_gap);
+        }
+    }
+    let separator = flow.separator()?.to_string();
+    Some(format!(
+        "{open}{lead}{}{trail}{close}",
+        out.join(&separator)
+    ))
 }
 
 /// `value` where the item `written` was: nested one-line containers are
@@ -155,73 +178,16 @@ fn fresh_text(
     model: &str,
     container: &str,
 ) -> String {
-    if value.is_object() || value.is_array() || model.starts_with(['{', '[']) {
+    let flow = Flow::of(language);
+    let model_is_container = model
+        .chars()
+        .next()
+        .is_some_and(|first| flow.closer_of(first).is_some());
+    if value.is_object() || value.is_array() || model_is_container {
         language.format_value_like(value, container)
     } else {
         language.format_value_like(value, model)
     }
-}
-
-/// An entry `key: value` (or `key = value`): its key, the text up to its
-/// value, and its value.
-fn entry_parts(item: &str) -> Option<(String, &str, &str)> {
-    let mut quote = None;
-    for (index, character) in item.char_indices() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':' | '=') => {
-                let key = item[..index].trim().trim_matches(['"', '\'']).to_string();
-                let value_start =
-                    index + 1 + (item[index + 1..].len() - item[index + 1..].trim_start().len());
-                return Some((key, &item[..value_start], &item[value_start..]));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The items of a container's inside, split at its top-level commas, each
-/// with the spacing before it. `None` when a string or bracket is open.
-fn split_items(inner: &str) -> Option<Vec<&str>> {
-    if inner.trim().is_empty() {
-        return Some(Vec::new());
-    }
-    let mut items = Vec::new();
-    let (mut depth, mut quote, mut start, mut escaped) = (0usize, None, 0, false);
-    for (index, character) in inner.char_indices() {
-        if let Some(open) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' && open == '"' {
-                escaped = true;
-            } else if character == open {
-                quote = None;
-            }
-            continue;
-        }
-        match character {
-            '"' | '\'' => quote = Some(character),
-            '{' | '[' | '(' => depth += 1,
-            '}' | ']' | ')' => depth = depth.checked_sub(1)?,
-            ',' if depth == 0 => {
-                items.push(&inner[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if quote.is_some() || depth != 0 {
-        return None;
-    }
-    let last = &inner[start..];
-    // A trailing comma (`[a, b, ]`) ends the list without another item.
-    if !last.trim().is_empty() {
-        items.push(last);
-    }
-    Some(items)
 }
 
 /// Whether `previous` writes a container closed by `close` with items on
@@ -233,12 +199,8 @@ pub(super) fn writes_filled_on_one_line(
     close: char,
     skip: std::ops::Range<usize>,
 ) -> bool {
-    let Some(open) = language
-        .config()
-        .brackets
-        .iter()
-        .find_map(|(open, closer)| (*closer == close).then_some(*open))
-    else {
+    let flow = Flow::of(language);
+    let Some(open) = flow.opener_of(close) else {
         return false;
     };
     let mut offset = 0;
@@ -248,8 +210,9 @@ pub(super) fn writes_filled_on_one_line(
             let start = offset + at;
             character == open
                 && !skip.contains(&start)
-                && super::super::inline::matching_close(&code[at..], close)
-                    .is_some_and(|end| !code[at + 1..at + end].trim().is_empty())
+                && flow
+                    .matching_close(&code[at..])
+                    .is_some_and(|end| !code[at + open.len_utf8()..at + end].trim().is_empty())
         });
         if filled {
             return true;
@@ -274,13 +237,8 @@ pub(super) fn adds_containers_over_lines(
     if language.indent_is_structure() {
         return false;
     }
-    let closer_of = |open: char| {
-        language
-            .config()
-            .brackets
-            .iter()
-            .find_map(|(opener, close)| (*opener == open).then_some(*close))
-    };
+    let flow = Flow::of(language);
+    let closer_of = |open: char| flow.closer_of(open);
     let lines: Vec<&str> = written.lines().collect();
     let inner = lines
         .get(1..lines.len().saturating_sub(1))
@@ -292,11 +250,11 @@ pub(super) fn adds_containers_over_lines(
     };
     let one_line = inner.iter().map(code).any(|code| {
         code.char_indices().any(|(at, character)| {
-            let Some(close) = closer_of(character) else {
+            if closer_of(character).is_none() {
                 return false;
-            };
-            super::super::inline::matching_close(&code[at..], close)
-                .is_some_and(|end| !code[at + 1..at + end].trim().is_empty())
+            }
+            flow.matching_close(&code[at..])
+                .is_some_and(|end| !code[at + character.len_utf8()..at + end].trim().is_empty())
         })
     });
     let opened = inner.iter().map(code).any(|code| {

@@ -2,7 +2,8 @@
 //! with its comments and the comment lines above it, instead of every value
 //! being rewritten in place under the comments of others.
 
-use super::super::language::{ConfigLanguage, Repetition};
+use super::super::flow_syntax::Flow;
+use super::super::language::ConfigLanguage;
 use super::{byte_range, comment_start, escape, inline_location, reads_as};
 use serde_json::Value;
 use std::ops::Range;
@@ -84,6 +85,7 @@ fn line_items(
     before: &[Value],
 ) -> Option<Vec<(usize, usize, usize)>> {
     let line_of = |byte: usize| previous[..byte].matches('\n').count();
+    let flow = Flow::of(language);
     let mut slots: Vec<(usize, usize, usize)> = Vec::new();
     for (index, item) in before.iter().enumerate() {
         let item_pointer = format!("{pointer}/{index}");
@@ -114,8 +116,14 @@ fn line_items(
         let before_value = previous[line_start..range.start].trim();
         let after_value = &lines[last][range.end - last_start..];
         let after_code = after_value[..comment_start(language, after_value)].trim();
-        let alone = matches!(before_value, "" | "-") && matches!(after_code, "" | ",");
-        if !alone && (own || !in_own_element(language, before_value, after_code)) {
+        let marker_only = before_value.is_empty()
+            || flow
+                .after_item_marker(before_value)
+                .is_some_and(|rest| rest.trim().is_empty());
+        let separator_only = after_code.is_empty() || after_code.chars().eq(flow.separator());
+        let alone = marker_only && separator_only;
+        let whole = format!("{before_value}{}{after_code}", &previous[range.clone()]);
+        if !alone && (own || !in_own_element(language, before_value, &whole)) {
             return None;
         }
         // Own-line comments right above it go with it, at the file's top
@@ -129,53 +137,48 @@ fn line_items(
     Some(slots)
 }
 
-/// The bytes of the repeated element at `pointer`, from its `<` to the end
-/// of its end tag (or `/>`), in a language that repeats elements.
+/// The bytes of the element at `pointer`, from the markup opening its name
+/// (XML's `<`) to where the language says it ends.
 fn element_lines(
     language: &dyn ConfigLanguage,
     previous: &str,
     pointer: &str,
 ) -> Option<Range<usize>> {
-    if language.repetition() != Repetition::Elements {
-        return None;
-    }
     let name = byte_range(previous, language.key_span(previous, pointer)?)?;
-    let open = name.start.checked_sub(1)?;
-    if !previous[open..].starts_with('<') {
-        return None;
-    }
-    Some(open..super::elements::element_end(previous, open)?)
+    let open = super::key_markup_start(language, previous, name.start)?;
+    Some(open..language.element_end(previous, open)?)
 }
 
-/// Whether a repeated element's value is alone in its element on its line
-/// (`<l>` before it, `</l>` after it).
-fn in_own_element(language: &dyn ConfigLanguage, before: &str, after: &str) -> bool {
-    if language.repetition() != Repetition::Elements {
-        return false;
-    }
-    let Some(tag) = before
-        .strip_prefix('<')
-        .and_then(|tag| tag.strip_suffix('>'))
-    else {
-        return false;
-    };
-    let name = tag.split_whitespace().next().unwrap_or("");
-    !name.is_empty() && !tag.contains(['<', '>']) && after == format!("</{name}>")
+/// Whether a value is alone in its element on its line: `whole` (the
+/// line's code from the element's start) is one element, opened by the one
+/// start before the value (`before`, as `<l>` before `1` in `<l>1</l>`).
+fn in_own_element(language: &dyn ConfigLanguage, before: &str, whole: &str) -> bool {
+    language.key_markup_len(before).is_some()
+        && language.unclosed_containers(before) == 1
+        && language.element_end(whole, 0) == Some(whole.len())
 }
 
 /// The item line `moved`, with a comma after its value exactly when the
 /// line of the place it moves to (`slot`) has one.
 fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
+    let Some(separator) = Flow::of(language).separator() else {
+        return moved.to_string();
+    };
     let has_comma = |line: &str| {
         line[..comment_start(language, line)]
             .trim_end()
-            .ends_with(',')
+            .ends_with(separator)
     };
     let code_end = comment_start(language, moved);
     let code = moved[..code_end].trim_end();
     let rest = &moved[code.len()..];
-    let code = code.strip_suffix(',').unwrap_or(code);
-    format!("{code}{}{rest}", if has_comma(slot) { "," } else { "" })
+    let code = code.strip_suffix(separator).unwrap_or(code);
+    let comma = if has_comma(slot) {
+        separator.to_string()
+    } else {
+        String::new()
+    };
+    format!("{code}{comma}{rest}")
 }
 
 /// The lists that differ between `old` and `new` only in order
@@ -249,7 +252,8 @@ pub(super) fn block_items(
     lines: &[&str],
     pointer: &str,
 ) -> Option<Vec<(usize, usize, usize)>> {
-    if !language.indent_is_structure() {
+    let flow = Flow::of(language);
+    if !language.indent_is_structure() || flow.item_marker().is_none() {
         return None;
     }
     let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
@@ -261,7 +265,7 @@ pub(super) fn block_items(
             .iter()
             .position(|line| {
                 let code = code(line);
-                !code.trim().is_empty() && !code.starts_with('%') && code.trim() != "---"
+                !code.trim().is_empty() && !language.document_marker(code.trim())
             })
             .unwrap_or(lines.len());
         (start, 0)
@@ -269,7 +273,13 @@ pub(super) fn block_items(
         let key = language.key_span(previous, pointer)?;
         let key_line = key.line.checked_sub(1)?;
         let key_indent = indent_of(lines.get(key_line)?);
-        if !code(lines[key_line]).ends_with(':') {
+        let key_code = code(lines[key_line]);
+        if !language
+            .config()
+            .separators
+            .iter()
+            .any(|separator| key_code.ends_with(separator))
+        {
             return None;
         }
         (key_line + 1, key_indent)
@@ -283,11 +293,7 @@ pub(super) fn block_items(
             continue;
         }
         let indent = indent_of(line);
-        let starts_item = {
-            let code = code(line);
-            let rest = code.trim_start();
-            rest == "-" || rest.starts_with("- ")
-        };
+        let starts_item = flow.after_item_marker(code(line).trim_start()).is_some();
         match dash {
             None if starts_item && indent >= key_indent => dash = Some(indent),
             None => return None,

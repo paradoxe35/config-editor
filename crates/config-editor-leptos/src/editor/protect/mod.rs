@@ -201,6 +201,15 @@ mod moved_token_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod odd_syntax_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod opaque_tests;
 #[cfg(all(
     test,

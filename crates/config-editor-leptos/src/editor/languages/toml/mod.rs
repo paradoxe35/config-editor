@@ -28,7 +28,7 @@ use suggestions::*;
 use editing::*;
 use colors::*;
 
-use super::super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
+use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
 use super::super::completion::{
     array_branch, object_branch, fill_value, placeholder, schema_const, schema_default,
 };
@@ -62,6 +62,12 @@ impl ConfigLanguage for TomlBehavior {
             brackets: &[('[', ']'), ('{', '}')],
             separators: &["="],
             quotes: &["\"\"\"", "'''", "\"", "'"],
+            literal_quotes: &["'''", "'"],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: None,
+            written_separator: Some(" = "),
         }
     }
 
@@ -77,6 +83,27 @@ impl ConfigLanguage for TomlBehavior {
         super::super::byte_order_mark::span(source, |text| toml_value_span(text, pointer).map(Span::from))
     }
 
+    /// A value follows, or the rest of a dotted key (`tcp|.nodelay`).
+    fn value_follows_key(&self, rest: &str) -> bool {
+        rest.starts_with('.') || {
+            let rest = rest.trim_start();
+            rest.strip_prefix('=').is_some_and(|after| !after.starts_with('='))
+        }
+    }
+
+    /// A `[table]` header starts a section.
+    fn starts_section(&self, line: &str) -> bool {
+        line.starts_with('[')
+    }
+
+    /// An `[[array]]` table's header starts an item.
+    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
+        let line = lines[index];
+        line[..self.comment_start(line).unwrap_or(line.len())]
+            .trim_start()
+            .starts_with("[[")
+    }
+
     fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
         array_table_lines(source, pointer)
     }
@@ -84,7 +111,13 @@ impl ConfigLanguage for TomlBehavior {
     /// An assignment aligned as formatters write it (`p    = 1`) is the
     /// serializer's `p = 1`.
     fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
-        super::aligned::single_spaced(code)
+        // Aligned as written, a character however it is escaped.
+        match super::aligned::single_spaced(code) {
+            std::borrow::Cow::Borrowed(code) => super::escapes::without_unicode_escapes(code),
+            std::borrow::Cow::Owned(code) => {
+                std::borrow::Cow::Owned(super::escapes::without_unicode_escapes(&code).into_owned())
+            }
+        }
     }
 
     fn rename_key(&self, source: &str, pointer: &str, new_key: &str) -> Option<String> {
@@ -238,7 +271,7 @@ impl ConfigLanguage for TomlBehavior {
 
     fn newline(&self, source: &str, cursor: usize) -> Newline {
         inline_table_exit(source, cursor).unwrap_or_else(|| {
-            bracket_newline(source, cursor, &[('[', ']')], |line| split_toml_comment(line).0)
+            bracket_newline(source, cursor, &[('[', ']')], &self.config(), |line| split_toml_comment(line).0)
         })
     }
 

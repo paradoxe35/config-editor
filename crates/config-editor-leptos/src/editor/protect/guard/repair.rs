@@ -18,7 +18,7 @@ use super::super::locate::{LineIndex, extent, within};
 use super::super::marks::{read_only_names, schema_marks};
 use super::super::scan::{self, Written, names_word};
 use super::super::texts::Reason;
-use super::closers::{Part, compact};
+use super::closers::{Part, Syntax};
 use super::edit::Edited;
 use super::{Blocked, Why};
 
@@ -279,7 +279,7 @@ impl<'a> LineDiff<'a> {
         let mut named = vec![false; count];
         if !self.removed.is_empty() {
             let accept = |line: &str| names_word(names, line);
-            for line in scan::candidates(&self.origin, &accept, usize::MAX) {
+            for line in scan::candidates(behavior, &self.origin, &accept, usize::MAX) {
                 named[line] = true;
             }
         }
@@ -335,6 +335,7 @@ impl<'a> LineDiff<'a> {
         };
         let first_line = lines.line_of(first.start);
         let last_line = lines.line_of(last.end.saturating_sub(1).max(last.start));
+        let syntax = Syntax::of(behavior);
         let mut changed: Vec<Part> = Vec::new();
         for range in ranges {
             let (start, end) = (lines.line_of(range.start), lines.line_of(range.end));
@@ -356,7 +357,7 @@ impl<'a> LineDiff<'a> {
                         })
                         .count()
                 };
-                changed.push(Part::new(text, chars(from), chars(to)));
+                changed.push(Part::new(&syntax, text, chars(from), chars(to)));
             }
         }
         // The reference text's lines removed inside the field or just around
@@ -395,12 +396,14 @@ impl<'a> LineDiff<'a> {
         let mut matched = vec![false; candidates.len()];
         let mut completed = false;
         for part in &changed {
-            if part.only_closes() {
+            if part.only_closes(&syntax) {
                 continue;
             }
             let mut found = false;
             for (index, (line, _)) in candidates.iter().enumerate() {
-                if let Some(completes) = part.closes(&compact(self.origin.line_text(*line))) {
+                if let Some(completes) =
+                    part.closes(&syntax, &syntax.compact(self.origin.line_text(*line)))
+                {
                     found = true;
                     completed |= completes;
                     matched[index] = true;

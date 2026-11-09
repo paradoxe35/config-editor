@@ -1355,7 +1355,8 @@ entry per line and no nesting, like the `.env` one above, gets them from its
 - after it, the key's values (an `enum`, `true` / `false`, a `const`), a
   string written bare when it reads back as written (`LOG_LEVEL=debug`);
 - accepting a key writes it and the first separator, the caret after it:
-  `KEY=` for `=` (or any other separator), `key: ` for `:`;
+  `KEY=`, or with the spacing `writtenSeparator` gives (`writtenSeparator:
+": "` writes `key: `);
 - hovering a key shows its schema docs;
 - nothing is suggested on a line comment.
 
@@ -1393,6 +1394,7 @@ registerLanguage({
   label: "HJSON",
   parse: (text) => Hjson.parse(text),
   separators: [":"],
+  writtenSeparator: ": ",
   contextAt(text, offset) {
     const line = scan(text).at(text.slice(0, offset).split("\n").length - 1);
     const before = text.slice(text.lastIndexOf("\n", offset - 1) + 1, offset);
@@ -1456,6 +1458,22 @@ entries left alone stay as written. The whole document comes from
 `serialize` only when the stored text did not parse before the edit, or no
 such patch reads back (through `parse`) as the edited data. Highlighting
 stays per line (`highlight`), with `multilineRanges` for what spans lines.
+The save reads your syntax only from what you declare (`comments`,
+`brackets`, `separators`, strings in `"…"` or `'…'`): no built-in
+language's characters are assumed. Declare how maps and lists are written
+on one line, and a save edits them where they are, keeping the line's
+spacing and comment:
+
+| Member             | Example      | Says                                                                                  |
+| ------------------ | ------------ | ------------------------------------------------------------------------------------- |
+| `mapBrackets`      | `["{", "}"]` | the brackets around a map written on one line                                         |
+| `listBrackets`     | `["[", "]"]` | the brackets around a list written on one line                                        |
+| `itemSeparator`    | `","`        | what separates their items, one character                                             |
+| `itemMarker`       | `"-"`        | what starts a list item on lines of its own: a save moves it with its lines, comments |
+| `literalQuotes`    | `["'"]`      | the quotes (of `"` and `'`) a backslash does not escape in                            |
+| `writtenSeparator` | `": "`       | one of `separators` with the spacing a new entry writes                               |
+
+A member of the wrong shape makes `registerLanguage` throw.
 
 </details>
 

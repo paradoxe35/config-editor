@@ -42,13 +42,23 @@ pub fn fill_value(schema: &Value, root: &Value) -> Value {
 /// language helpers write ([`fill_value`]), as found later by
 /// [`stop_ranges`]. The child the caret goes to is written empty, and so
 /// not found.
-pub(crate) fn required_fills(property: &Value, root: &Value) -> Vec<(String, String)> {
+pub(crate) fn required_fills(
+    behavior: &dyn ConfigLanguage,
+    property: &Value,
+    root: &Value,
+) -> Vec<(String, String)> {
     let mut fills = Vec::new();
-    collect_fills(property, root, &mut fills, 0);
+    collect_fills(behavior, property, root, &mut fills, 0);
     fills
 }
 
-fn collect_fills(property: &Value, root: &Value, fills: &mut Vec<(String, String)>, depth: usize) {
+fn collect_fills(
+    behavior: &dyn ConfigLanguage,
+    property: &Value,
+    root: &Value,
+    fills: &mut Vec<(String, String)>,
+    depth: usize,
+) {
     if depth > 8 {
         return;
     }
@@ -63,12 +73,14 @@ fn collect_fills(property: &Value, root: &Value, fills: &mut Vec<(String, String
     let properties = branch.get("properties").and_then(Value::as_object);
     let required = branch.get("required").and_then(Value::as_array);
     for name in required.into_iter().flatten().filter_map(Value::as_str) {
-        let key = name.strip_prefix('@').unwrap_or(name);
+        let key = behavior.required_property(name);
         let Some(child) = properties.and_then(|properties| properties.get(key)) else {
             continue;
         };
         match fill_value(child, root) {
-            Value::Object(_) | Value::Array(_) => collect_fills(child, root, fills, depth + 1),
+            Value::Object(_) | Value::Array(_) => {
+                collect_fills(behavior, child, root, fills, depth + 1);
+            }
             Value::String(text) if text.is_empty() => {}
             value => fills.push((key.to_string(), value_label(&value))),
         }
@@ -213,12 +225,33 @@ mod tests {
             }
         });
         assert_eq!(
-            required_fills(&property, &root),
+            required_fills(&Plain, &property, &root),
             vec![
                 ("port".to_string(), "8080".to_string()),
                 ("verify".to_string(), "false".to_string()),
                 ("scheme".to_string(), "https".to_string()),
             ]
         );
+        // A required name is the property's own unless the language
+        // spells it otherwise: `@port` names no property here.
+        let mut spelled = property.clone();
+        spelled["required"] = json!(["@port"]);
+        assert_eq!(required_fills(&Plain, &spelled, &root), vec![]);
+    }
+
+    /// A language that spells required properties as they are.
+    struct Plain;
+
+    impl crate::editor::language::ConfigLanguage for Plain {
+        fn info(&self) -> crate::editor::language::LanguageInfo {
+            crate::editor::language::LanguageInfo {
+                label: "Plain",
+                icon: "P",
+                extensions: &[],
+            }
+        }
+        fn parse(&self, _source: &str) -> Result<Value, crate::editor::language::ParseError> {
+            Ok(json!({}))
+        }
     }
 }

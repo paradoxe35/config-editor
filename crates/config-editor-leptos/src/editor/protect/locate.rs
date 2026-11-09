@@ -176,16 +176,15 @@ pub(crate) fn extent(
             add_string_bodies(behavior, text, lines, &mut ranges);
         }
     }
-    let markup = behavior.closing_markup_len("</x>").is_some();
     // Markup opening the field (`<web>`) starts at its `<`.
-    if markup && let Some(first) = ranges.first_mut() {
-        let before = &text[..lines.byte_of(first.start)];
-        if before.ends_with('<') {
-            first.start -= 1;
+    if let Some(first) = ranges.first_mut() {
+        let name = lines.byte_of(first.start);
+        if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
+            first.start -= text[open..name].encode_utf16().count();
         }
     }
     let mut ranges = merge(behavior, text, lines, ranges, pointer);
-    close(behavior, text, lines, &mut ranges, markup);
+    close(behavior, text, lines, &mut ranges);
     Some(Extent { key, ranges })
 }
 
@@ -394,38 +393,17 @@ fn close(
     text: &str,
     lines: &LineIndex<'_>,
     ranges: &mut [Range<usize>],
-    markup: bool,
 ) {
     let (Some(first), Some(last)) = (ranges.first().cloned(), ranges.last_mut()) else {
         return;
     };
     let covered = &text[lines.byte_of(first.start)..lines.byte_of(last.end)];
-    let pairs = behavior.config().brackets;
-    let mut depth = if markup {
-        markup_depth(covered)
-    } else {
-        bracket_depth(covered, pairs)
-    };
+    let mut depth = behavior.unclosed_containers(covered);
     let mut end = lines.byte_of(last.end);
     while depth > 0 {
         let rest = &text[end..];
         let skipped = rest.len() - rest.trim_start().len();
-        let rest = &rest[skipped..];
-        let closer = if markup {
-            // The element's own text before its end tag (over lines too).
-            let text_len = rest.find('<').unwrap_or(rest.len());
-            let tag = &rest[text_len..];
-            tag.starts_with("</")
-                .then(|| behavior.closing_markup_len(tag))
-                .flatten()
-                .map(|length| text_len + length)
-        } else {
-            pairs
-                .iter()
-                .find(|(_, close)| rest.starts_with(*close))
-                .map(|(_, close)| close.len_utf8())
-        };
-        let Some(length) = closer else {
+        let Some(length) = behavior.container_closer_len(&rest[skipped..]) else {
             break;
         };
         end += skipped + length;
@@ -434,69 +412,9 @@ fn close(
     last.end = lines.units_of(end);
 }
 
-/// Brackets opened and not closed in `text`, outside double-quoted strings.
-fn bracket_depth(text: &str, pairs: &[(char, char)]) -> usize {
-    let mut depth = 0usize;
-    let mut quoted = false;
-    let mut escaped = false;
-    for character in text.chars() {
-        if quoted {
-            match character {
-                '\\' if !escaped => {
-                    escaped = true;
-                    continue;
-                }
-                '"' if !escaped => quoted = false,
-                _ => {}
-            }
-            escaped = false;
-            continue;
-        }
-        if character == '"' {
-            quoted = true;
-        } else if pairs.iter().any(|(open, _)| *open == character) {
-            depth += 1;
-        } else if pairs.iter().any(|(_, close)| *close == character) {
-            depth = depth.saturating_sub(1);
-        }
-    }
-    depth
-}
-
-/// Elements started and not ended in `text`.
-fn markup_depth(text: &str) -> usize {
-    let mut depth = 0usize;
-    let mut rest = text;
-    while let Some(at) = rest.find('<') {
-        let tag = &rest[at..];
-        let end = tag.find('>').map_or(tag.len(), |end| end + 1);
-        let body = &tag[..end];
-        if body.starts_with("</") {
-            depth = depth.saturating_sub(1);
-        } else if body.starts_with("<!") || body.starts_with("<?") || body.ends_with("/>") {
-        } else if body[1..]
-            .starts_with(|character: char| character.is_alphabetic() || character == '_')
-        {
-            depth += 1;
-        }
-        rest = &tag[end.max(1)..];
-    }
-    depth
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn depths_count_what_a_range_left_open() {
-        assert_eq!(
-            bracket_depth("\"web\": {\n \"a\": \"{\"", &[('{', '}'), ('[', ']')]),
-            1
-        );
-        assert_eq!(markup_depth("web>\n<a>1</a>\n<b/>"), 0);
-        assert_eq!(markup_depth("<web>\n<a>1</a>\n<!-- c -->"), 1);
-    }
 
     #[test]
     fn line_index_converts_positions() {

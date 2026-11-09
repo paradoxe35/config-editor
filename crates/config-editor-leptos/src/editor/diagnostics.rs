@@ -595,7 +595,14 @@ pub(super) fn validate_with(
                     let text = source.lines().nth(line.checked_sub(1)?)?;
                     // A quoted key (`"min_idle"`) is covered with its quotes.
                     let rest: String = text.chars().skip(column.checked_sub(1)?).collect();
-                    let quoted = usize::from(rest.starts_with('"'));
+                    let quote = rest.chars().next().filter(|first| {
+                        behavior
+                            .config()
+                            .quotes
+                            .iter()
+                            .any(|quote| quote.starts_with(*first))
+                    });
+                    let quoted = usize::from(quote.is_some());
                     let body: String = rest.chars().skip(quoted).collect();
                     let word = body
                         .chars()
@@ -603,7 +610,7 @@ pub(super) fn validate_with(
                             character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
                         })
                         .count();
-                    let closing = usize::from(quoted == 1 && body.chars().nth(word) == Some('"'));
+                    let closing = usize::from(quote.is_some() && body.chars().nth(word) == quote);
                     let width = quoted + word + closing;
                     (width > 1).then_some(column + width)
                 });
@@ -803,12 +810,13 @@ pub(super) fn validate_with(
                                                 behavior, source, &pointer, true,
                                             )
                                             .or_else(|| behavior.key_span(source, &pointer));
-                                            let message = if key == "#text" {
-                                                // XML mixed content: text beside child elements.
-                                                strings.text_not_allowed.clone()
-                                            } else {
-                                                fill(&strings.key_not_allowed, &[("key", key)])
-                                            };
+                                            let message =
+                                                if behavior.text_key() == Some(key.as_str()) {
+                                                    // XML mixed content: text beside child elements.
+                                                    strings.text_not_allowed.clone()
+                                                } else {
+                                                    fill(&strings.key_not_allowed, &[("key", key)])
+                                                };
                                             // At the root, no pointer, as for the others.
                                             let message = if parent.is_empty() {
                                                 message

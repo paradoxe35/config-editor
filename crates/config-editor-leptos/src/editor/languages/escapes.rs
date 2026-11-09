@@ -75,6 +75,69 @@ fn escapes_non_ascii(written: &str) -> bool {
     false
 }
 
+/// `code` with its `\uXXXX` escapes (a surrogate pair as one) and `\/` read.
+pub(super) fn without_unicode_escapes(code: &str) -> std::borrow::Cow<'_, str> {
+    if !code.contains("\\u") && !code.contains("\\/") {
+        return std::borrow::Cow::Borrowed(code);
+    }
+    let mut out = String::with_capacity(code.len());
+    let mut rest = code;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let unit = |text: &str| {
+            text.get(1..5)
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+        };
+        match after.chars().next() {
+            Some('/') => {
+                out.push('/');
+                rest = &after[1..];
+            }
+            Some('u') if unit(after).is_some() => {
+                let high = unit(after).unwrap_or_default();
+                let low = after
+                    .get(5..)
+                    .filter(|next| next.starts_with("\\u"))
+                    .and_then(|next| unit(&next[1..]));
+                let (character, used) = match low {
+                    Some(low)
+                        if (0xd800..0xdc00).contains(&high) && (0xdc00..0xe000).contains(&low) =>
+                    {
+                        (
+                            char::from_u32(0x10000 + ((high - 0xd800) << 10) + (low - 0xdc00)),
+                            11,
+                        )
+                    }
+                    _ => (char::from_u32(high), 5),
+                };
+                match character {
+                    Some(character) => {
+                        out.push(character);
+                        rest = &after[used..];
+                    }
+                    None => {
+                        out.push('\\');
+                        rest = after;
+                    }
+                }
+            }
+            // Any other escape (`\\`, `\"`) is kept whole.
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+                rest = &after[other.len_utf8()..];
+            }
+            None => {
+                out.push('\\');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Astral, like_written};

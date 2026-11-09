@@ -1531,7 +1531,11 @@ assert_eq!(docs.unwrap().description.as_deref(), Some("Port to listen on"));
 
 Simple syntax doesn't need code: describe it with `config`, as VS Code's
 `language-configuration.json` does, and comment toggling, Enter between
-brackets, and the key/value behavior below follow from it.
+brackets, and the key/value behavior below follow from it. Edit-as saves
+read it too: a map or list written on one line between your brackets is
+edited where it is, and items written after your item marker move with
+their lines and comments. The editor's shared code knows no language's
+characters; it asks the language.
 
 <details>
 <summary>The LanguageConfig fields, with an example</summary>
@@ -1546,6 +1550,12 @@ fn config(&self) -> LanguageConfig {
         brackets: &[('[', ']')],        // Enter opens them across lines
         separators: &["="],             // key = value
         quotes: &["\""],                // strings, longest first
+        literal_quotes: &[],            // quotes a backslash does not escape in
+        map_brackets: None,             // e.g. Some(('{', '}')): a map on one line
+        list_brackets: Some(('[', ']')), // a list on one line
+        item_separator: Some(','),      // between their items
+        item_marker: None,              // e.g. Some("-"): a list item on lines of its own
+        written_separator: None,       // e.g. Some(" = "): how a new entry writes it
     }
 }
 ```
@@ -1569,6 +1579,12 @@ all.
 |                                         | `line_has_value`                              | A space typed after a complete value ends the entry                                                         | `value_after_separator`                                                                                            |
 |                                         | `empty_value_slots`                           | `Tab` walks the empty values of an accepted block                                                           | `empty_slots_at_line_ends`                                                                                         |
 | Markup (`<k>…</k>`)                     | `closing_markup_len`                          | Enter after a typed value steps past the end tag the editor wrote                                           | —                                                                                                                  |
+|                                         | `key_markup_len`, `markup_delimiters`         | A lock covers the `<` before a name, and the caret on it is on the key                                      | —                                                                                                                  |
+|                                         | `element_end`, `unclosed_containers`          | Edit-as moves a repeated element with all its lines; a lock carries over the end tags its field opened      | —                                                                                                                  |
+|                                         | `content_texts`, `space_is_content`           | A lock keeps the whitespace of element text                                                                 | —                                                                                                                  |
+| With list items of their own lines      | `opens_list_item`                             | Edit-as keeps the comments above a list's first item with the item; the default reads `item_marker`         | —                                                                                                                  |
+| With document markers (`---`)           | `document_marker`                             | Edit-as finds a top-level list after them                                                                   | —                                                                                                                  |
+| With sections (`[table]`)               | `starts_section`                              | A lock in a large text that does not parse finds the section's lines                                        | —                                                                                                                  |
 | With trailing comments                  | `comment_start`                               | Edit-as keeps a line's comment when the line is renamed or moves                                            | `comment_start_outside_quotes`                                                                                     |
 | With values over lines (`[` … `]`)      | `multiline_constructs`, `highlight_continued` | Each line of an array, a flow collection or a start tag written over several lines is colored as its inside | `MultilineConstruct::structure`, `MultilineConstruct::colored`                                                     |
 | Any                                     | `fold_ranges`                                 | What folds; the default folds by indentation, `config`'s brackets and comments, and multi-line strings      | `indent_fold_ranges`, `bracket_fold_ranges`, `comment_fold_ranges`, `string_body_fold_ranges`, `merge_fold_ranges` |

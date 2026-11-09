@@ -29,6 +29,7 @@ mod text_bodies;
 mod spelling;
 mod attribute_values;
 mod entities;
+mod markup;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -371,11 +372,63 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     /// An end tag, `</name>`.
-    fn closing_markup_len(&self, text: &str) -> Option<usize> {
-        if !text.starts_with("</") {
-            return None;
+    /// Attribute values are quoted; a backslash in them is text.
+    fn config(&self) -> super::super::language::LanguageConfig {
+        super::super::language::LanguageConfig {
+            quotes: &["\"", "'"],
+            literal_quotes: &["\"", "'"],
+            ..Default::default()
         }
-        text.find('>').map(|end| end + 1)
+    }
+
+    /// A required attribute is listed `@a`.
+    fn required_property<'a>(&self, name: &'a str) -> &'a str {
+        name.strip_prefix('@').unwrap_or(name)
+    }
+
+    fn text_key(&self) -> Option<&'static str> {
+        Some("#text")
+    }
+
+    fn markup_delimiters(&self) -> Option<(char, char)> {
+        Some(('<', '>'))
+    }
+
+    fn closing_markup_len(&self, text: &str) -> Option<usize> {
+        markup::end_tag_len(text)
+    }
+
+    fn key_markup_len(&self, text: &str) -> Option<usize> {
+        markup::name_markup_len(text)
+    }
+
+    fn element_end(&self, text: &str, open: usize) -> Option<usize> {
+        markup::element_end(text, open)
+    }
+
+    fn unclosed_containers(&self, text: &str) -> usize {
+        markup::open_elements(text)
+    }
+
+    fn container_closer_len(&self, text: &str) -> Option<usize> {
+        markup::closer_len(text)
+    }
+
+    fn content_texts(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        markup::element_texts(text)
+    }
+
+    fn space_is_content(&self, before: &str, after: &str) -> bool {
+        markup::space_is_content(before, after)
+    }
+
+    fn writes_container_on_line(&self, line: &str) -> bool {
+        line.matches('<').count() >= 4
+    }
+
+    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
+        let comment_start = |line: &str| self.comment_start(line).unwrap_or(line.len());
+        markup::opens_repeated_element(&comment_start, lines, index)
     }
 }
 

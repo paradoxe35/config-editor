@@ -242,6 +242,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         // (`websocket.ho|path` → `websocket.host` and `websocket.path`).
         entry_suffix: if splits || before_header { format!("\n{indent}") } else { String::new() },
         suffix_head: if splits { source[typed_start..query_start].to_string() } else { String::new() },
+        suffix_head_depth: if splits { source[typed_start..query_start].matches('.').count() } else { 0 },
         entry_after: splits.then_some(word_after),
         // After a dotted head (`websocket.t|`) a table is written inline: a
         // `[websocket.tls]` header cannot follow the head on its line.

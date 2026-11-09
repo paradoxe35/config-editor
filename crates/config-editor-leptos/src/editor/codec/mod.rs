@@ -3,13 +3,11 @@
 //! ([`ConfigLanguage::parse`] and [`ConfigLanguage::serialize`]).
 
 mod compare;
-mod elements;
 mod emptied_items;
 mod empty_containers;
 mod flow;
 mod kept_inline;
 mod lines;
-mod list_items;
 mod lists;
 mod moves;
 pub(super) mod non_finite;
@@ -31,7 +29,7 @@ pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
 
 use super::completion::conform_arrays;
-use super::inline::matching_close;
+use super::flow_syntax::Flow;
 use super::language::{ConfigLanguage, ParseError, Repetition, Span};
 use serde_json::Value;
 use std::fmt;
@@ -300,15 +298,16 @@ pub(super) fn patch_scalars(
         // formatted bare, where quotes delimit and do not type it (an XML
         // attribute's `"…"`; a TOML string made a number loses them).
         let written = &previous[range.clone()];
+        let flow = Flow::of(language);
         if language.scalars_are_text()
             && let Some(quote) = written
                 .chars()
                 .next()
-                .filter(|quote| matches!(quote, '"' | '\''))
-            && written.len() >= 2
+                .filter(|quote| flow.quote(*quote).is_some())
+            && written.len() >= 2 * quote.len_utf8()
             && written.ends_with(quote)
             && !written.starts_with(&quote.to_string().repeat(3))
-            && !text.starts_with(['"', '\''])
+            && !flow.starts_quoted(&text)
         {
             text = format!("{quote}{text}{quote}");
         }
@@ -517,13 +516,38 @@ pub(super) fn patch_inline(
 /// writes keys (YAML quotes `on`), in quotes where the model has them.
 fn key_like(language: &dyn ConfigLanguage, key: &str, model_head: &str) -> Option<String> {
     let written = language.written_key("", "", key)?;
-    Some(
-        if model_head.starts_with(['"', '\'']) && !written.starts_with(['"', '\'']) {
-            format!("\"{written}\"")
-        } else {
-            written
-        },
-    )
+    let flow = Flow::of(language);
+    Some(match model_head.chars().next() {
+        Some(quote) if flow.quote(quote).is_some() && !flow.starts_quoted(&written) => {
+            format!("{quote}{written}{quote}")
+        }
+        _ => written,
+    })
+}
+
+/// Where the markup opening the key whose name starts at byte `name` of
+/// `text` starts (XML's `<` of `<web>`), if the language writes one there.
+pub(super) fn key_markup_start(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    name: usize,
+) -> Option<usize> {
+    super::flow_syntax::markup_before(language, text, name)
+}
+
+/// Whether `line` writes a reference as a value (`key: *p`, `- *p`):
+/// after the item markers it starts with, or after a key's separator.
+fn reference_on(language: &dyn ConfigLanguage, flow: &Flow, line: &str) -> bool {
+    let mut code = line.trim_start();
+    while let Some(rest) = flow.after_item_marker(code) {
+        code = rest.trim_start();
+    }
+    language.reference_len(code).is_some()
+        || flow.key_separator(code).is_some_and(|(at, length)| {
+            language
+                .reference_len(code[at + length..].trim_start())
+                .is_some()
+        })
 }
 
 /// The pointer of the deepest value holding every difference between `old`
@@ -581,12 +605,10 @@ fn replace_inline(
     let start = column_byte(span.start_column);
     let start = start + language.value_properties_len(&line[start..]);
     let text = &line[start..];
-    let close = match text.chars().next()? {
-        '{' => '}',
-        '[' => ']',
-        _ => return None,
-    };
-    let end = start + matching_close(text, close)? + 1;
+    let flow = Flow::of(language);
+    let open = text.chars().next()?;
+    let close = flow.closer_of(open)?;
+    let end = start + flow.matching_close(text)? + close.len_utf8();
     let written = &line[start..end];
     // An empty container where the language writes new ones in block
     // style below their key (YAML's `[]`, the only way it writes an empty
@@ -595,7 +617,9 @@ fn replace_inline(
     // kind filled on one line. Elsewhere (a TOML inline table, an HCL
     // object) the block form is another form, written in another place: it
     // stays on one line.
-    let empty = written[1..written.len() - 1].trim().is_empty();
+    let empty = written[open.len_utf8()..written.len() - close.len_utf8()]
+        .trim()
+        .is_empty();
     let filled = match value {
         Value::Array(items) => !items.is_empty(),
         Value::Object(map) => !map.is_empty(),
@@ -608,7 +632,7 @@ fn replace_inline(
         && !flow::writes_filled_on_one_line(language, previous, close, at..at + written.len())
         && language
             .serialize(value, None)
-            .is_ok_and(|fresh| !fresh.trim_start().starts_with(opener_of(close)))
+            .is_ok_and(|fresh| !fresh.trim_start().starts_with(open))
     {
         return None;
     }
@@ -623,11 +647,6 @@ fn replace_inline(
     };
     patched.replace_range(line_start + start..line_start + end, &text);
     Some(patched)
-}
-
-/// The opener of a container closed by `close`.
-fn opener_of(close: char) -> char {
-    if close == '}' { '{' } else { '[' }
 }
 
 /// The span of what `pointer` names when it lies inside an inline container
@@ -666,7 +685,12 @@ fn inline_start(behavior: &dyn ConfigLanguage, source: &str, span: Span) -> Opti
             .nth(span.start_column.saturating_sub(1))
             .map_or(0, |(index, _)| index);
     let start = start + behavior.value_properties_len(&source[start..]);
-    source[start..].starts_with(['{', '[']).then_some(start)
+    let flow = Flow::of(behavior);
+    source[start..]
+        .chars()
+        .next()
+        .is_some_and(|open| flow.closer_of(open).is_some())
+        .then_some(start)
 }
 
 /// Whether the value written at `span` is an inline container (`[]`,
@@ -693,7 +717,7 @@ pub(super) fn in_flow_container(
         .iter()
         .map(|segment| SchemaPathSegment::from_pointer_segment(segment.clone()))
         .collect();
-    let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
+    let (from, to) = Flow::of(behavior).path_span(text, &rest, key)?;
     let (from, to) = (start + from, start + to);
     // A comment after the value (`30 # b` in a flow map over lines) is
     // the language's, not the value's.

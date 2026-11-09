@@ -437,12 +437,15 @@ pub(super) fn value_label(value: &Value) -> String {
     }
 }
 
-pub(crate) fn unquoted(typed: &str) -> &str {
+/// `typed` without the quote it starts with (and the matching one ending
+/// it): the query of a key or value typed in one of the language's quotes.
+pub(crate) fn unquoted<'a>(behavior: &dyn ConfigLanguage, typed: &'a str) -> &'a str {
     let typed = typed.trim_start();
+    let config = behavior.config();
     if let Some(quote) = typed
         .chars()
         .next()
-        .filter(|quote| *quote == '"' || *quote == '\'')
+        .filter(|first| config.quotes.iter().any(|quote| quote.starts_with(*first)))
     {
         let inner = &typed[quote.len_utf8()..];
         return inner.strip_suffix(quote).unwrap_or(inner);
