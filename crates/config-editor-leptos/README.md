@@ -323,7 +323,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (177 texts)</summary>
+<summary>Every text and its default (179 texts)</summary>
 
 | Field                           | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -472,6 +472,8 @@ they come.
 | `secret_value`                  | `"the secret value"`                                                                                                                 | What a schema problem says instead of a secret field's value.                                                                                                                                                                                  |
 | `unknown_placeholder`           | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"`                           | A placeholder the host did not give, in a secret field.                                                                                                                                                                                        |
 | `moved_placeholder`             | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"`                            | One of the host's placeholders outside the field it stands in.                                                                                                                                                                                 |
+| `placeholder_in_comment`        | `"This placeholder stands for the secret of {owner}; in a comment it is plain text"`                                                 | One of the host's field placeholders written in a comment.                                                                                                                                                                                     |
+| `comment_placeholder`           | `"{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text"`                            | A placeholder the host wrote in a comment, in a field.                                                                                                                                                                                         |
 | `env_reference`                 | `"Read the secret from an environment variable"`                                                                                     | The detail of the `${…}` reference suggestion.                                                                                                                                                                                                 |
 | `file_reference`                | `"Read the secret from a file"`                                                                                                      | The detail of the `file:` reference suggestion.                                                                                                                                                                                                |
 | `other_reference`               | `"A reference starting with {prefix}"`                                                                                               | The detail of another reference suggestion.                                                                                                                                                                                                    |
@@ -955,6 +957,12 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   name it once, at its start. While editing as another language it marks
   the field the range starts in (its key when it starts on the key), as a
   path would; a range starting in no field shows in the footer.
+- A problem with no end (`HostDiagnostic::at_position`, a point) is never
+  widened from the text around it: on a secret placeholder (a token the
+  `secrets` pattern matches) it underlines the whole token, from any column
+  inside it; elsewhere one character, at a line's end the place just past
+  it, on an empty line its start. While editing as another language it
+  marks the field it is in, as a range does.
 - At most 200 underlines are drawn in all, the most serious problems
   first (errors, then warnings, info and hints; each problem's start
   before the rest of its lines); the footer says when some were left out,
@@ -1098,6 +1106,16 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   its own field (cut and pasted back, the key's name restored), it is real
   again, since the field then holds what the host gave. The schema check
   accepts a placeholder only in its own field.
+- A token the host wrote in a comment is real in that text's comments
+  only (moved to another comment, it stays real): pasted into a field it
+  is flagged, as one of a field's tokens is in a comment, each where it is
+  written.
+- A token is opaque: whatever the pattern matches, kept whole as written.
+  Nothing is read from inside one: two tokens are told apart by their
+  whole text and their place only, so the same token in two fields stands
+  for each field's own secret. Configure the pattern to match your tokens
+  exactly (`«secret [0-9a-f]{8}»`, not `«.*»`): text the pattern does not
+  match (`«hidden»`) is plain text, however like a token it looks.
 - A placeholder is atomic: the caret never lands inside it (clicks, arrows,
   `Home`/`End` and selections snap to its edges; `←`/`→` step over it),
   `Backspace` or `Delete` next to it removes it whole, an edit or a
@@ -1118,7 +1136,15 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   messages about a secret field never quote what was typed there.
 - Edit-as conversions and saves keep each placeholder byte-for-byte, in
   every language pair and back. Real secret values never reach the editor;
-  it logs nothing about field values.
+  it logs nothing about field values, and nothing it shows, says or hands
+  back (problems, hover, announcements, the diff preview, copies,
+  `on_change`) holds a token the host did not send.
+- Editing in the host's language, `on_change` hands back exactly the text
+  on screen with the host's line endings, byte order mark, final newline,
+  tabs and quoting (placeholders included); a text that did not change is
+  not reported. In Edit-as, the value handed back is the conversion back to
+  the host's language: a host that writes the text out as is must write
+  that value.
 
 </details>
 

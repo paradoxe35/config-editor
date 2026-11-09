@@ -114,6 +114,10 @@ impl ProtectState {
         Vec::new()
     }
 
+    pub(super) fn placeholder_spans(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
+        Vec::new()
+    }
+
     pub(super) fn tip_open(&self) -> bool {
         false
     }

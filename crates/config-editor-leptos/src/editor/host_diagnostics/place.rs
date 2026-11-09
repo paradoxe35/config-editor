@@ -8,12 +8,15 @@
 //! again, took seconds after every edit).
 
 use std::collections::HashSet;
+use std::ops::Range;
 
 use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
 use super::super::language::ConfigLanguage;
-use super::super::paths::{Lines, TextRange, lines, memo_key_span, problem_span, with_spans};
+use super::super::paths::{
+    Lines, TextPosition, TextRange, lines, memo_key_span, problem_span, with_spans,
+};
 use super::targets::{HostTargets, Target, targets};
 use super::{DiagnosticTarget, HostDiagnostic, is_web_url};
 use crate::EditorStrings;
@@ -37,13 +40,17 @@ type Position = (usize, usize, Option<usize>, usize);
 /// a path where the field is written, as schema problems are marked (the
 /// value, or the key of a block); a range over the lines it covers when
 /// the text on screen is the host's, else at the field it starts in (see
-/// [`RangeText`]). What cannot be placed has no position and shows in the
-/// footer, a field's problem with its path in front. Duplicates show once.
+/// [`RangeText`]); a point (a position with no end) on the secret
+/// placeholder it is on (`placeholders`: byte ranges of the tokens of
+/// `source` the host's pattern matches), else on one character. What
+/// cannot be placed has no position and shows in the footer, a field's
+/// problem with its path in front. Duplicates show once.
 pub(in crate::editor) fn place(
     behavior: &dyn ConfigLanguage,
     source: &str,
     problems: &[HostDiagnostic],
     ranges: RangeText<'_>,
+    placeholders: &[Range<usize>],
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     if problems.is_empty() {
@@ -84,6 +91,7 @@ pub(in crate::editor) fn place(
                     position
                 }
                 Target::Covered(range) => covered(source, &lines, range),
+                Target::Point(position) => point(source, &lines, position, placeholders),
                 Target::Nowhere => None,
             };
             let diagnostic = Diagnostic {
@@ -127,6 +135,45 @@ fn at_field(
         .flatten()
         .or_else(|| problem_span(behavior, source, pointer, false, written_as_block))
         .map(|span| (span.line, span.start_column, None, span.end_column))
+}
+
+/// Where a point at `position` of `source` (`split` into its lines) goes:
+/// on the whole of the placeholder it is on (one of `placeholders`, byte
+/// ranges), else on one character: the one there, past a line's end the
+/// place after it (an empty line's start). Nothing is read from what is
+/// written around it. `None` past the last line.
+fn point(
+    source: &str,
+    split: &Lines,
+    position: TextPosition,
+    placeholders: &[Range<usize>],
+) -> Option<Position> {
+    let line = position.line.max(1);
+    if line > split.count() {
+        return None;
+    }
+    let text = split.line(source, line - 1)?;
+    let line_start = text.as_ptr() as usize - source.as_ptr() as usize;
+    let line_end = line_start + text.len();
+    let column = position.column.clamp(1, text.chars().count() + 1);
+    let byte = line_start
+        + text
+            .char_indices()
+            .nth(column - 1)
+            .map_or(text.len(), |(at, _)| at);
+    let column_of = |byte: usize| source[line_start..byte].chars().count() + 1;
+    match placeholders
+        .iter()
+        .find(|token| token.start <= byte && byte < token.end)
+    {
+        Some(token) => Some((
+            line,
+            column_of(token.start.max(line_start)),
+            None,
+            column_of(token.end.min(line_end)),
+        )),
+        None => Some((line, column, None, column + 1)),
+    }
 }
 
 /// Where `range` is in `source` (`split` into its lines), kept inside it: from its start to its

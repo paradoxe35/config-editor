@@ -88,7 +88,7 @@ export type BaselineConflict = "opened" | "reloaded" | "kept-mine" | "settled";
 /** A problem the host found, by `path` (preferred: it follows the field through edits and `editAs`) or `range`; with neither, it is about the whole document. */
 export interface HostDiagnostic {
   path?: FieldPath;
-  /** A stretch of the document in `language`: string indices, or one-based lines and columns. Unplaced while editing as another language. */
+  /** A stretch of the document in `language`: string indices, or one-based lines and columns. With no `endColumn` (and no `endLine` past `startLine`) it is a point: it marks the whole secret placeholder it is on, else one character there (at a line's end, the place just past it). While editing as another language it marks the field it starts in. */
   range?: TextRangeInput;
   /** Default `"error"`. */
   severity?: Severity;

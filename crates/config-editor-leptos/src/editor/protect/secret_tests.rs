@@ -264,7 +264,7 @@ fn an_untouched_placeholder_passes_the_schema_check_in_every_language() {
         let accepted: Vec<(String, String)> = matcher()
             .known(language.behavior(), &text)
             .into_iter()
-            .map(|known| (known.token, known.pointer))
+            .filter_map(|known| Some((known.token, known.field?)))
             .collect();
         let problems = validate_with(
             &text,

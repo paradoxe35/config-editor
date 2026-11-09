@@ -74,6 +74,15 @@ mod bom_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod bound_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod broken_multiline_tests;
 #[cfg(all(
     test,
@@ -111,7 +120,25 @@ mod browse_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod exact_change_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod extend_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod guarantee_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -174,6 +201,15 @@ mod moved_token_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod opaque_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod paste_tests;
 #[cfg(all(
     test,
@@ -184,6 +220,15 @@ mod paste_tests;
     feature = "xml"
 ))]
 mod placeholder_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod point_problem_tests;
 #[cfg(all(
     test,
     feature = "yaml",

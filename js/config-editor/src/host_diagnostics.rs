@@ -66,7 +66,12 @@ pub(crate) fn host_diagnostic_from(
         })?;
         HostDiagnostic::at_path(path, severity, message)
     } else if !range.is_undefined() && !range.is_null() {
-        HostDiagnostic::at_range(range_from_js(&range, host_text)?, severity, message)
+        let read = range_from_js(&range, host_text)?;
+        if is_point(&range) {
+            HostDiagnostic::at_position(read.start, severity, message)
+        } else {
+            HostDiagnostic::at_range(read, severity, message)
+        }
     } else {
         HostDiagnostic::document(severity, message)
     };
@@ -98,6 +103,20 @@ pub(crate) fn host_diagnostic_from(
         ));
     }
     Ok(diagnostic)
+}
+
+/// Whether a host diagnostic's `range` is a point: a line and column with
+/// no end (no `endColumn`, and no `endLine` after the start's). It is
+/// placed as one, never widened from the text around it (see
+/// `DiagnosticTarget::Position`).
+fn is_point(range: &JsValue) -> bool {
+    let absent = |name: &str| {
+        let value = field(range, name);
+        value.is_undefined() || value.is_null()
+    };
+    let same_line =
+        absent("endLine") || field(range, "endLine").as_f64() == field(range, "startLine").as_f64();
+    !absent("startLine") && absent("start") && absent("endColumn") && same_line
 }
 
 /// The severities a host diagnostic takes, written as the typings name them.

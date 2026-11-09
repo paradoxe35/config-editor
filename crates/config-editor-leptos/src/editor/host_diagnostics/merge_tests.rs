@@ -22,6 +22,7 @@ fn placed(language: Language, text: &str, host: &[HostDiagnostic]) -> Vec<Diagno
         text,
         host,
         RangeText::OnScreen,
+        &[],
         default_strings(),
     )
 }

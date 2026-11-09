@@ -99,6 +99,7 @@ fn placed_and_merged(language: Language, items: usize, count: usize) -> (usize, 
             &text,
             &problems,
             RangeText::OnScreen,
+            &[],
             default_strings(),
         );
         merge(&own, &host)

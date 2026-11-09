@@ -170,6 +170,7 @@ fn problems_are_placed_after_a_byte_order_mark() {
                 text,
                 &problems,
                 RangeText::OnScreen,
+                &[],
                 default_strings(),
             )
             .into_iter()

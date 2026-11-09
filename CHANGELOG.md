@@ -53,6 +53,15 @@ WebAssembly.
   into an empty value, over a selection cutting into one, and from an
   `insertFromPaste` input that no `beforeinput` announced (a synthetic
   paste), read off the caret the paste left.
+- Secret placeholders are opaque and bound to their place: a token is
+  whatever the host's pattern matches, kept whole as written (nothing is
+  read from inside it); one the host wrote in a comment is real in that
+  text's comments only, and one moved into another field, a field's into a
+  comment or a comment's into a field, is plain text there and flagged at
+  that spot.
+- A host problem with no end (`HostDiagnostic::at_position`; in JavaScript a
+  `range` with no `endColumn`) is a point: on a secret placeholder it marks
+  the whole token, elsewhere one character.
 - Saving with `Ctrl+S`, an unsaved-edits flag, a diff gutter against a
   baseline with a before/after preview, a change summary and a unified diff,
   and a notice when the file changes outside the editor.

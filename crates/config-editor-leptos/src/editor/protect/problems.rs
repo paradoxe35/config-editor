@@ -1,7 +1,8 @@
 //! Problems with secret placeholders: a token the host did not give, in a
 //! secret field, stands for no secret; one of the host's tokens outside its
-//! own field stands for another field's secret, so it is plain text there.
-//! Both are flagged.
+//! own field stands for another field's secret, so it is plain text there,
+//! as is one of a field's in a comment and one of a comment's in a field.
+//! All are flagged where they are written.
 
 use serde_json::Value;
 
@@ -11,7 +12,7 @@ use super::super::parse_cache;
 use super::super::paths::{FieldPath, path_at, same_field};
 use super::marks::marks_at;
 use super::texts;
-use super::tokens::{Known, SecretMatcher, held_in_fields};
+use super::tokens::{Known, SecretMatcher, held_in_fields, in_comment};
 use crate::EditorStrings;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -63,13 +64,20 @@ pub(crate) fn unknown_placeholders(
         .unwrap_or_default();
     let mut checked: HashMap<&str, bool> = HashMap::new();
     // Each known token's fields, with how often the host wrote it in each
-    // (the first is the one a moved token is said to come from).
+    // (the first is the one a moved token is said to come from), and how
+    // often the host wrote it in comments.
     let mut left: HashMap<&str, Vec<(&str, usize)>> = HashMap::new();
+    let mut in_comments: HashMap<&str, usize> = HashMap::new();
     for known in known {
-        left.entry(known.token.as_str())
-            .or_default()
-            .push((known.pointer.as_str(), known.count));
+        match &known.field {
+            Some(field) => left
+                .entry(known.token.as_str())
+                .or_default()
+                .push((field.as_str(), known.count)),
+            None => *in_comments.entry(known.token.as_str()).or_default() += known.count,
+        }
     }
+    let is_known = |token: &str| left.contains_key(token) || in_comments.contains_key(token);
     // The tokens needing a verdict, with their one-based line, the byte
     // their line starts at and their UTF-16 offset (the tokens come in
     // order: their lines are counted in one pass).
@@ -77,11 +85,7 @@ pub(crate) fn unknown_placeholders(
     let mut open = Vec::new();
     for range in &found {
         let token = &text[range.clone()];
-        let owner = left
-            .get(token)
-            .and_then(|fields| fields.first())
-            .map(|(field, _)| *field);
-        if owner.is_some() {
+        if is_known(token) {
             if *checked.entry(token).or_insert_with(|| settled(token)) {
                 continue;
             }
@@ -89,7 +93,7 @@ pub(crate) fn unknown_placeholders(
             continue;
         }
         let (line, line_start, at) = lines.advance(range.start);
-        if owner.is_some()
+        if is_known(token)
             && document.is_none()
             && followed
                 .binary_search_by_key(&at, |real| real.start)
@@ -97,19 +101,39 @@ pub(crate) fn unknown_placeholders(
         {
             continue;
         }
-        open.push((range, owner, line, line_start, at));
+        open.push((range, line, line_start, at));
+    }
+    if open.is_empty() {
+        return Vec::new();
+    }
+    // Which are written in a comment: there only a token the host wrote in
+    // a comment is real, and no field is looked up.
+    let comments = behavior.comments(text);
+    let commented: Vec<bool> = open
+        .iter()
+        .map(|(range, ..)| in_comment(&comments, range.start))
+        .collect();
+    let mut outside: HashMap<&str, usize> = HashMap::new();
+    for ((range, ..), commented) in open.iter().zip(&commented) {
+        if !commented {
+            *outside.entry(&text[(*range).clone()]).or_default() += 1;
+        }
     }
     // What the parse cannot place (a text that does not parse, mid-typing
-    // or a document pasted twice; a token also written in a comment or a
-    // key) is looked up token by token, each a read of the whole text:
-    // past a few, those verdicts wait until the parse can place them.
+    // or a document pasted twice; a token also written in a key) is looked
+    // up token by token, each a read of the whole text: past a few, those
+    // verdicts wait until the parse can place them.
     let mut placed: HashMap<&str, usize> = HashMap::new();
     let fields: Vec<Option<FieldPath>> = open
         .iter()
-        .map(|(range, ..)| {
+        .zip(&commented)
+        .map(|((range, ..), commented)| {
+            if *commented {
+                return None;
+            }
             let token = &text[(*range).clone()];
             let pointers = holders.get(token)?;
-            if Some(&pointers.len()) != written.get(token) {
+            if Some(&pointers.len()) != outside.get(token) {
                 return None;
             }
             let nth = placed.entry(token).or_default();
@@ -118,33 +142,63 @@ pub(crate) fn unknown_placeholders(
             Some(FieldPath::from_pointer(pointer))
         })
         .collect();
-    let look_up = fields.iter().filter(|field| field.is_none()).count() <= MAX_LOOKUPS;
+    let look_up = fields
+        .iter()
+        .zip(&commented)
+        .filter(|(field, commented)| field.is_none() && !**commented)
+        .count()
+        <= MAX_LOOKUPS;
     let mut problems = Vec::new();
-    for ((range, owner, line, line_start, at), field) in open.into_iter().zip(fields) {
+    for (((range, line, line_start, at), field), commented) in
+        open.into_iter().zip(fields).zip(commented)
+    {
         let token = &text[range.clone()];
-        let Some(path) = field.or_else(|| look_up.then(|| path_at(behavior, text, at)).flatten())
-        else {
-            continue;
-        };
-        let pointer = path.to_pointer();
-        let message = match owner {
-            Some(owner) => {
-                // In its own field (as often as the host wrote it there):
-                // real.
-                if let Some(slot) = left.get_mut(token).and_then(|fields| {
-                    fields
-                        .iter_mut()
-                        .find(|(field, count)| *count > 0 && same_field(field, &pointer))
-                }) {
-                    slot.1 -= 1;
-                    continue;
+        let owner = left
+            .get(token)
+            .and_then(|fields| fields.first())
+            .map(|(field, _)| *field);
+        let message = if commented {
+            // In a comment: real while the host wrote it in a comment as
+            // often; a field's token there stands for that field's secret.
+            if let Some(count) = in_comments.get_mut(token).filter(|count| **count > 0) {
+                *count -= 1;
+                continue;
+            }
+            match owner {
+                Some(owner) => texts::placeholder_in_comment(strings, owner),
+                None => continue,
+            }
+        } else {
+            let Some(path) =
+                field.or_else(|| look_up.then(|| path_at(behavior, text, at)).flatten())
+            else {
+                continue;
+            };
+            let pointer = path.to_pointer();
+            match owner {
+                Some(owner) => {
+                    // In its own field (as often as the host wrote it
+                    // there): real.
+                    if let Some(slot) = left.get_mut(token).and_then(|fields| {
+                        fields
+                            .iter_mut()
+                            .find(|(field, count)| *count > 0 && same_field(field, &pointer))
+                    }) {
+                        slot.1 -= 1;
+                        continue;
+                    }
+                    texts::moved_placeholder(strings, &pointer, owner)
                 }
-                texts::moved_placeholder(strings, &pointer, owner)
+                None if in_comments.contains_key(token) => {
+                    texts::comment_placeholder(strings, &pointer)
+                }
+                None if schema
+                    .is_some_and(|schema| marks_at(schema, path.segments(), repeats).1) =>
+                {
+                    texts::unknown_placeholder(strings, &pointer)
+                }
+                None => continue,
             }
-            None if schema.is_some_and(|schema| marks_at(schema, path.segments(), repeats).1) => {
-                texts::unknown_placeholder(strings, &pointer)
-            }
-            None => continue,
         };
         let column = text[line_start..range.start].chars().count() + 1;
         problems.push(Diagnostic {

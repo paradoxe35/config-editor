@@ -10,7 +10,8 @@ use leptos::prelude::*;
 use super::diagnostics::{Diagnostic, SchemaBundle, capped, shift_diagnostics, validate_with};
 use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{
-    HostDiagnostic, HostTargets, RangeText, merge as merge_host, place as place_host,
+    DiagnosticTarget, HostDiagnostic, HostTargets, RangeText, merge as merge_host,
+    place as place_host,
 };
 use super::languages::Language;
 use super::problem_hit::{column_at_cell, covering};
@@ -178,11 +179,20 @@ impl ProblemsState {
                             if host_targets.with_value(Option::is_some) {
                                 host_targets.set_value(None);
                             }
+                            // The placeholders a point on one marks whole.
+                            let placeholders = if problems.iter().any(|problem| {
+                                matches!(problem.target, DiagnosticTarget::Position(_))
+                            }) {
+                                protect.placeholder_spans(text)
+                            } else {
+                                Vec::new()
+                            };
                             place_host(
                                 edit.behavior(),
                                 text,
                                 problems,
                                 RangeText::OnScreen,
+                                &placeholders,
                                 strings,
                             )
                         } else {
@@ -198,7 +208,7 @@ impl ProblemsState {
                                 )
                             });
                             let ranges = RangeText::Host(&found);
-                            place_host(edit.behavior(), text, problems, ranges, strings)
+                            place_host(edit.behavior(), text, problems, ranges, &[], strings)
                         }
                     })
                 })

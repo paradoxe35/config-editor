@@ -121,13 +121,21 @@ fn placed(
         (Some(edit), Some(shown)) => {
             let found = HostTargets::new(host.behavior(), &host_text, &problems);
             let ranges = RangeText::Host(&found);
-            place(edit.behavior(), shown, &problems, ranges, default_strings())
+            place(
+                edit.behavior(),
+                shown,
+                &problems,
+                ranges,
+                &[],
+                default_strings(),
+            )
         }
         _ => place(
             host.behavior(),
             &host_text,
             &problems,
             RangeText::OnScreen,
+            &[],
             default_strings(),
         ),
     };
@@ -241,6 +249,7 @@ fn replaced_after_an_edit(host: Language, edit: Language, items: usize) -> (usiz
             shown,
             &problems,
             RangeText::Host(&found),
+            &[],
             default_strings(),
         )
     };

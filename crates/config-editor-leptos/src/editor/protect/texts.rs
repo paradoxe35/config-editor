@@ -100,6 +100,16 @@ pub(crate) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &
     )
 }
 
+/// One of the host's field placeholders written in a comment.
+pub(crate) fn placeholder_in_comment(strings: &EditorStrings, owner: &str) -> String {
+    fill(&strings.placeholder_in_comment, &[("owner", &owner)])
+}
+
+/// A placeholder the host wrote in a comment, in a field.
+pub(crate) fn comment_placeholder(strings: &EditorStrings, pointer: &str) -> String {
+    fill(&strings.comment_placeholder, &[("pointer", &pointer)])
+}
+
 /// What a reference suggestion is, in its detail.
 pub(crate) fn reference_detail(strings: &EditorStrings, prefix: &str) -> String {
     match prefix {

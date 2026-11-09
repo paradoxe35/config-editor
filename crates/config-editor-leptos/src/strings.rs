@@ -403,6 +403,10 @@ pub struct EditorStrings {
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
     pub moved_placeholder: String,
+    /// One of the host's field placeholders written in a comment.
+    pub placeholder_in_comment: String,
+    /// A placeholder the host wrote in a comment, in a field.
+    pub comment_placeholder: String,
     /// The detail of the `${…}` reference suggestion.
     pub env_reference: String,
     /// The detail of the `file:` reference suggestion.
@@ -665,6 +669,12 @@ impl Default for EditorStrings {
             ),
             moved_placeholder: text(
                 "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text",
+            ),
+            placeholder_in_comment: text(
+                "This placeholder stands for the secret of {owner}; in a comment it is plain text",
+            ),
+            comment_placeholder: text(
+                "{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text",
             ),
             env_reference: text("Read the secret from an environment variable"),
             file_reference: text("Read the secret from a file"),

@@ -2,7 +2,7 @@
 //! placed in the text by path or range and shown with the editor's own.
 
 use super::diagnostics::Severity;
-use super::paths::{FieldPath, TextRange};
+use super::paths::{FieldPath, TextPosition, TextRange};
 
 mod fields;
 mod merge;
@@ -24,6 +24,12 @@ pub enum DiagnosticTarget {
     /// or several. While editing as another language it marks the field the
     /// range starts in (unplaced when it starts in none).
     Range(TextRange),
+    /// A place in the host's text (in the host's `language`) with no end:
+    /// a point. It marks the whole secret placeholder it is on (a token the
+    /// `secrets` pattern matches), else one character there (at a line's
+    /// end, the place just past it). While editing as another language it
+    /// marks the field it is in, as a range does.
+    Position(TextPosition),
     /// The whole document: shown in the footer.
     Document,
 }
@@ -70,6 +76,16 @@ impl HostDiagnostic {
     /// A problem in `range` of the host's text.
     pub fn at_range(range: TextRange, severity: Severity, message: impl Into<String>) -> Self {
         Self::new(DiagnosticTarget::Range(range), severity, message)
+    }
+
+    /// A problem at `position` of the host's text, with no end: see
+    /// [`DiagnosticTarget::Position`].
+    pub fn at_position(
+        position: TextPosition,
+        severity: Severity,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(DiagnosticTarget::Position(position), severity, message)
     }
 
     /// A problem with the whole document.
@@ -195,6 +211,15 @@ mod batch_tests;
     feature = "xml"
 ))]
 mod paths_at_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod point_tests;
 #[cfg(all(
     test,
     feature = "yaml",

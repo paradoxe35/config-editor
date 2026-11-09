@@ -16,7 +16,8 @@ use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::tokens::{
-    Known, SecretMatcher, follow, held_in_fields, locate_written, snap, snap_selection, widen,
+    Known, SecretMatcher, follow, held_in_fields, in_comment, locate_written, snap, snap_selection,
+    widen,
 };
 
 /// Known tokens one edit may write and still have found by path (a
@@ -57,12 +58,12 @@ impl SecretState {
         }
     }
 
-    /// The host's tokens, each with the field it stands in.
+    /// The host's tokens in fields, each with the field it stands in.
     pub(crate) fn known_tokens(&self) -> Vec<(String, String)> {
         self.known.with(|known| {
             known
                 .iter()
-                .map(|known| (known.token.clone(), known.pointer.clone()))
+                .filter_map(|known| Some((known.token.clone(), known.field.clone()?)))
                 .collect()
         })
     }
@@ -91,11 +92,65 @@ fn in_their_fields(
     };
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut shown: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    // Tokens the host wrote in comments: those followed in comments are
+    // each one of them, as often as the comments hold it (read only when
+    // the host wrote one there).
+    let mut in_comments: std::collections::HashMap<&str, usize> = known
+        .iter()
+        .filter(|known| known.field.is_none())
+        .map(|known| (known.token.as_str(), known.count))
+        .collect();
+    let comments = if in_comments.is_empty() {
+        Vec::new()
+    } else {
+        behavior.comments(text)
+    };
+    // The byte each range starts at, read on in one pass (they are in
+    // order).
+    let (mut unit, mut byte) = (0, 0);
+    let mut byte_at = |offset: usize| {
+        for character in text[byte..].chars() {
+            if unit >= offset {
+                break;
+            }
+            unit += character.len_utf16();
+            byte += character.len_utf8();
+        }
+        byte
+    };
     for range in followed {
         let written = String::from_utf16_lossy(
             &units[range.start.min(units.len())..range.end.min(units.len())],
         );
+        if !comments.is_empty() && in_comment(&comments, byte_at(range.start)) {
+            match in_comments.get_mut(written.as_str()) {
+                Some(left) if *left > 0 => *left -= 1,
+                _ => return false,
+            }
+            continue;
+        }
         *shown.entry(written).or_default() += 1;
+    }
+    // Each comment's token is followed as often as it is in the comments,
+    // up to the host's count.
+    if !in_comments.is_empty() {
+        let in_the_comments = |token: &str| {
+            comments
+                .iter()
+                .map(|comment| text[comment.clone()].matches(token).count())
+                .sum::<usize>()
+        };
+        let all_followed = known
+            .iter()
+            .filter(|known| known.field.is_none())
+            .all(|known| {
+                let left = in_comments.get(known.token.as_str()).copied().unwrap_or(0);
+                let written = in_the_comments(&known.token).min(known.count);
+                known.count - left == written
+            });
+        if !all_followed {
+            return false;
+        }
     }
     let held = held_in_fields(document, known);
     held.iter()

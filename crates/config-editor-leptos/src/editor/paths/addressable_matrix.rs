@@ -326,6 +326,7 @@ fn host_problems_at_any_path_are_marked_on_the_field() {
             &lf,
             &problems,
             RangeText::OnScreen,
+            &[],
             default_strings(),
         );
         for path in paths.iter().skip(1) {

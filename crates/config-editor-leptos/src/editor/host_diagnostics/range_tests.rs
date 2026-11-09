@@ -33,6 +33,7 @@ fn placed_on_screen(language: Language, text: &str, range: TextRange) -> Vec<Dia
         text,
         &problems,
         RangeText::OnScreen,
+        &[],
         default_strings(),
     )
 }
@@ -114,9 +115,16 @@ fn a_range_from_a_lines_indentation_is_placed_at_the_field_on_that_line() {
                 )];
                 let found = HostTargets::new(host.behavior(), host_text, &problems);
                 let ranges = RangeText::Host(&found);
-                place(edit.behavior(), shown, &problems, ranges, default_strings())
-                    .first()
-                    .and_then(|problem| marked(shown, problem))
+                place(
+                    edit.behavior(),
+                    shown,
+                    &problems,
+                    ranges,
+                    &[],
+                    default_strings(),
+                )
+                .first()
+                .and_then(|problem| marked(shown, problem))
             };
             let (from_start, from_text) = (placed_from(1), placed_from(indent + 1));
             if from_start != from_text || from_text.is_none() {
@@ -156,7 +164,14 @@ fn a_range_is_placed_at_its_field_while_editing_as_every_other_language() {
                 let problems = [HostDiagnostic::at_range(range, Severity::Error, "x")];
                 let found = HostTargets::new(host.behavior(), host_text, &problems);
                 let ranges = RangeText::Host(&found);
-                let placed = place(edit.behavior(), shown, &problems, ranges, default_strings());
+                let placed = place(
+                    edit.behavior(),
+                    shown,
+                    &problems,
+                    ranges,
+                    &[],
+                    default_strings(),
+                );
                 let found = placed.first().and_then(|problem| marked(shown, problem));
                 if placed.len() != 1 || found != expected {
                     failures.push(format!(

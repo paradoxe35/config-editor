@@ -5,7 +5,13 @@
 //! flagged, so it can never stand for another field's secret; put back in
 //! its own field it is real again, since the value is then what the host
 //! gave. Each real token is atomic (the caret never lands inside one, and
-//! an edit touching one replaces it whole).
+//! an edit touching one replaces it whole). A token the host wrote in a
+//! comment is real only in that text's comments: in a field it is plain
+//! text and flagged, as a field's token is in a comment.
+//!
+//! A token is opaque: it is whatever the host's pattern matches, matched
+//! and kept whole as written; nothing is read from inside it, and two
+//! tokens are told apart only by their whole text and their place.
 
 use std::ops::Range;
 
@@ -17,14 +23,25 @@ use super::super::parse_cache;
 use super::super::paths::{path_at, same_field};
 use super::marks::escape;
 
-/// A token of the host's text: the field it stands in, and how often that
-/// field's value holds it.
+/// A token of the host's text: the field it stands in (or the text's
+/// comments), and how often that field's value (or the comments) hold it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Known {
     pub(crate) token: String,
-    /// JSON pointer of the field (see [`same_field`]).
-    pub(crate) pointer: String,
+    /// JSON pointer of the field (see [`same_field`]); `None`: the token is
+    /// written in the text's comments.
+    pub(crate) field: Option<String>,
     pub(crate) count: usize,
+}
+
+/// Whether a known token's place (`field`, `None` for the comments) is
+/// `pointer` (`None`: a comment).
+pub(crate) fn same_place(field: Option<&str>, pointer: Option<&str>) -> bool {
+    match (field, pointer) {
+        (Some(field), Some(pointer)) => same_field(field, pointer),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 /// The pointer of the field holding the token at byte `start` of `text`.
@@ -117,33 +134,44 @@ impl SecretMatcher {
         // over all of them (thousands of placeholders).
         let mut by_token: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
-        let mut add = |token: &str, pointer: String| {
+        let mut add = |token: &str, field: Option<String>| {
             let seen = by_token.entry(token.to_string()).or_default();
             match seen
                 .iter()
-                .find(|index| same_field(&known[**index].pointer, &pointer))
+                .find(|index| same_place(known[**index].field.as_deref(), field.as_deref()))
             {
                 Some(index) => known[*index].count += 1,
                 None => {
                     seen.push(known.len());
                     known.push(Known {
                         token: token.to_string(),
-                        pointer,
+                        field,
                         count: 1,
                     });
                 }
             }
         };
+        let found = self.find(text);
+        // The comments, read only when the text holds a token at all.
+        let comments = if found.is_empty() {
+            Vec::new()
+        } else {
+            behavior.comments(text)
+        };
+        let commented = |start: usize| in_comment(&comments, start);
         match behavior.parse(text) {
-            Ok(document) => {
-                self.each_held(&document, |token, pointer| add(token, pointer.to_string()))
-            }
+            Ok(document) => self.each_held(&document, |token, pointer| {
+                add(token, Some(pointer.to_string()));
+            }),
             Err(_) => {
-                for range in self.find(text) {
+                for range in found.iter().filter(|range| !commented(range.start)) {
                     let pointer = field_at(behavior, text, range.start);
-                    add(&text[range], pointer);
+                    add(&text[range.clone()], Some(pointer));
                 }
             }
+        }
+        for range in found.iter().filter(|range| commented(range.start)) {
+            add(&text[range.clone()], None);
         }
         known
     }
@@ -240,8 +268,11 @@ pub(crate) fn held_in_fields<'a>(
 ) -> std::collections::HashMap<&'a str, usize> {
     let mut held = std::collections::HashMap::new();
     for known in known {
-        let value = document.pointer(&known.pointer).or_else(|| {
-            let lone = format!("{}/", known.pointer).replace("/0/", "/");
+        let Some(field) = &known.field else {
+            continue;
+        };
+        let value = document.pointer(field).or_else(|| {
+            let lone = format!("{field}/").replace("/0/", "/");
             document.pointer(lone.trim_end_matches('/'))
         });
         let count = value
@@ -274,13 +305,13 @@ impl SecretMatcher {
             .as_ref()
             .map(|document| self.holders(document))
             .ok();
-        let mut fields: std::collections::HashMap<&str, Vec<(&str, usize)>> =
+        let mut fields: std::collections::HashMap<&str, Vec<(Option<&str>, usize)>> =
             std::collections::HashMap::new();
         for known in known {
             fields
                 .entry(known.token.as_str())
                 .or_default()
-                .push((known.pointer.as_str(), known.count));
+                .push((known.field.as_deref(), known.count));
         }
         // Where each known token is written (one pass of the pattern).
         let mut written: std::collections::HashMap<&str, Vec<usize>> =
@@ -295,7 +326,20 @@ impl SecretMatcher {
         // The text's comments, read once if a token needs them.
         let mut comments: Option<Vec<Range<usize>>> = None;
         for (token, left) in &mut fields {
-            let written = written.remove(*token).unwrap_or_default();
+            let mut written = written.remove(*token).unwrap_or_default();
+            // One the host wrote in a comment: real in the comments, as
+            // often as there, first ones first.
+            if let Some((_, count)) = left.iter_mut().find(|(field, _)| field.is_none()) {
+                let comments = comments.get_or_insert_with(|| behavior.comments(text));
+                let (commented, outside): (Vec<usize>, Vec<usize>) = written
+                    .iter()
+                    .partition(|byte| in_comment(comments, **byte));
+                for byte in commented.into_iter().take(*count) {
+                    found.push(byte..byte + token.len());
+                }
+                *count = 0;
+                written = outside;
+            }
             // A document whose strings hold the token nowhere (each written
             // in a comment: a document commented out) has none in a field.
             let held = holders.as_ref().map(|holders| holders.get(*token));
@@ -305,7 +349,6 @@ impl SecretMatcher {
             let mut placed = held
                 .flatten()
                 .filter(|pointers| pointers.len() == written.len());
-            let mut written = written;
             // Written more often than held: those in comments (the document
             // pasted again commented out) are in no field; the others are
             // placed in order when that leaves as many as held.
@@ -328,10 +371,9 @@ impl SecretMatcher {
                     Some(pointers) => pointers[nth].clone(),
                     None => field_at(behavior, text, byte),
                 };
-                let Some((_, count)) = left
-                    .iter_mut()
-                    .find(|(field, count)| *count > 0 && same_field(field, &pointer))
-                else {
+                let Some((_, count)) = left.iter_mut().find(|(field, count)| {
+                    *count > 0 && field.is_some_and(|field| same_field(field, &pointer))
+                }) else {
                     continue;
                 };
                 *count -= 1;
@@ -356,7 +398,7 @@ impl SecretMatcher {
 }
 
 /// Whether byte `at` is inside one of `comments` (in order, apart).
-fn in_comment(comments: &[Range<usize>], at: usize) -> bool {
+pub(crate) fn in_comment(comments: &[Range<usize>], at: usize) -> bool {
     let next = comments.partition_point(|comment| comment.end <= at);
     comments
         .get(next)
@@ -485,7 +527,7 @@ mod tests {
             known,
             vec![Known {
                 token: TOKEN.to_string(),
-                pointer: "/a".to_string(),
+                field: Some("/a".to_string()),
                 count: 1
             }]
         );

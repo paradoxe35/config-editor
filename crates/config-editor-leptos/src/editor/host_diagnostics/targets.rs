@@ -29,6 +29,8 @@ pub(super) enum Target {
     Field { pointer: String, on_key: bool },
     /// A range of the text on screen.
     Covered(TextRange),
+    /// A place of the text on screen, with no end.
+    Point(TextPosition),
     /// Nothing on screen: the footer.
     Nowhere,
 }
@@ -103,6 +105,7 @@ pub(super) fn targets(problems: &[HostDiagnostic], ranges: RangeText<'_>) -> Vec
             .iter()
             .map(|problem| match &problem.target {
                 DiagnosticTarget::Range(range) => Target::Covered(*range),
+                DiagnosticTarget::Position(position) => Target::Point(*position),
                 _ => of_path(problem),
             })
             .collect(),
@@ -131,7 +134,7 @@ fn resolve(
 ) -> Vec<Target> {
     let has_ranges = problems
         .iter()
-        .any(|problem| matches!(problem.target, DiagnosticTarget::Range(_)));
+        .any(|problem| starting(&problem.target).is_some());
     if !has_ranges {
         return problems.iter().map(of_path).collect();
     }
@@ -147,9 +150,8 @@ fn resolve(
         let written = HostFields::new(host, text, host_fields);
         let starts: Vec<Option<Start>> = problems
             .iter()
-            .map(|problem| match &problem.target {
-                DiagnosticTarget::Range(range) => start_of(text, &written, *range),
-                _ => None,
+            .map(|problem| {
+                starting(&problem.target).and_then(|range| start_of(text, &written, range))
             })
             .collect();
         // The places no field is written at, read in one pass of the text.
@@ -164,30 +166,42 @@ fn resolve(
         problems
             .iter()
             .zip(starts)
-            .map(|(problem, start)| match (&problem.target, start) {
-                (DiagnosticTarget::Range(_), Some(start)) => {
-                    let pointer = match start.written {
-                        Some(pointer) => Some(pointer),
-                        None => read
-                            .next()
-                            .flatten()
-                            .filter(|path| !path.is_root())
-                            .map(|path| path.to_pointer()),
-                    };
-                    pointer.map_or(Target::Nowhere, |pointer| {
-                        let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
-                            key.line == start.position.line
-                                && (key.start_column..key.end_column)
-                                    .contains(&start.position.column)
-                        });
-                        Target::Field { pointer, on_key }
-                    })
-                }
-                (DiagnosticTarget::Range(_), None) => Target::Nowhere,
-                _ => of_path(problem),
-            })
+            .map(
+                |(problem, start)| match (starting(&problem.target), start) {
+                    (Some(_), Some(start)) => {
+                        let pointer = match start.written {
+                            Some(pointer) => Some(pointer),
+                            None => read
+                                .next()
+                                .flatten()
+                                .filter(|path| !path.is_root())
+                                .map(|path| path.to_pointer()),
+                        };
+                        pointer.map_or(Target::Nowhere, |pointer| {
+                            let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
+                                key.line == start.position.line
+                                    && (key.start_column..key.end_column)
+                                        .contains(&start.position.column)
+                            });
+                            Target::Field { pointer, on_key }
+                        })
+                    }
+                    (Some(_), None) => Target::Nowhere,
+                    _ => of_path(problem),
+                },
+            )
             .collect()
     })
+}
+
+/// The range a target in the host's text starts: a range's own, a
+/// point's (empty) at it; `None` for a path or the document.
+fn starting(target: &DiagnosticTarget) -> Option<TextRange> {
+    match target {
+        DiagnosticTarget::Range(range) => Some(*range),
+        DiagnosticTarget::Position(position) => Some(TextRange::new(*position, *position)),
+        _ => None,
+    }
 }
 
 /// Where a range starts in the host's text, and the field written there

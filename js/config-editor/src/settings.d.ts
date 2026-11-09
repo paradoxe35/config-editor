@@ -988,6 +988,18 @@ export interface EditorStrings {
    */
   movedPlaceholder?: string;
   /**
+   * One of the host's field placeholders written in a comment.
+   *
+   * @default "This placeholder stands for the secret of {owner}; in a comment it is plain text"
+   */
+  placeholderInComment?: string;
+  /**
+   * A placeholder the host wrote in a comment, in a field.
+   *
+   * @default "{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text"
+   */
+  commentPlaceholder?: string;
+  /**
    * The detail of the `${…}` reference suggestion.
    *
    * @default "Read the secret from an environment variable"

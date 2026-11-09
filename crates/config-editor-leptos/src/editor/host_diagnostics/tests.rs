@@ -21,7 +21,7 @@ fn place(
     } else {
         RangeText::Host(&found)
     };
-    super::place(behavior, source, problems, ranges, default_strings())
+    super::place(behavior, source, problems, ranges, &[], default_strings())
 }
 
 pub(super) const DOCUMENTS: [(Language, &str); 5] = [

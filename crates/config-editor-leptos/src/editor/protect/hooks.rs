@@ -120,6 +120,15 @@ impl ProtectState {
         })
     }
 
+    /// Byte ranges of the tokens of `text` the host's placeholder pattern
+    /// (and check) match, real or not: what a host problem with no end
+    /// marks whole when it starts on one.
+    pub(crate) fn placeholder_spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        self.secrets
+            .matcher
+            .with_value(|matcher| matcher.find(text))
+    }
+
     /// Whether the tooltip shows.
     pub(crate) fn tip_open(&self) -> bool {
         self.tip.with_untracked(Option::is_some)

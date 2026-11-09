@@ -249,7 +249,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (177 texts)</summary>
+<summary>Every text and its default (179 texts)</summary>
 
 | Key                         | Default                                                                                                                              |                                                                                                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -398,6 +398,8 @@ with that reason.
 | `secretValue`               | `"the secret value"`                                                                                                                 | What a schema problem says instead of a secret field's value.                                                                                                                                                                                  |
 | `unknownPlaceholder`        | `"{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead"`                           | A placeholder the host did not give, in a secret field.                                                                                                                                                                                        |
 | `movedPlaceholder`          | `"{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text"`                            | One of the host's placeholders outside the field it stands in.                                                                                                                                                                                 |
+| `placeholderInComment`      | `"This placeholder stands for the secret of {owner}; in a comment it is plain text"`                                                 | One of the host's field placeholders written in a comment.                                                                                                                                                                                     |
+| `commentPlaceholder`        | `"{pointer}: this placeholder stands for a secret in a comment, not this field's; here it is plain text"`                            | A placeholder the host wrote in a comment, in a field.                                                                                                                                                                                         |
 | `envReference`              | `"Read the secret from an environment variable"`                                                                                     | The detail of the `${…}` reference suggestion.                                                                                                                                                                                                 |
 | `fileReference`             | `"Read the secret from a file"`                                                                                                      | The detail of the `file:` reference suggestion.                                                                                                                                                                                                |
 | `otherReference`            | `"A reference starting with {prefix}"`                                                                                               | The detail of another reference suggestion.                                                                                                                                                                                                    |
@@ -539,6 +541,12 @@ editor.update({
   marks the field it starts in (its key when it starts on the key). With
   neither, or when the field is missing, the problem shows in the footer,
   after the field's path (`/web/listen: port 80 is taken`).
+- A `range` with no end (`{ startLine, startColumn }`, no `endColumn` and
+  no `endLine` past `startLine`) is a point and never widened from the text
+  around it: on a secret placeholder (a token the `secrets` pattern
+  matches) it underlines the whole token, from any column inside it;
+  elsewhere one character, at a line's end the place just past it, on an
+  empty line its start.
 - `severity` is `"error"` (default), `"warning"`, `"info"` or `"hint"`,
   written so (`"ERROR"` throws); colors `error`, `warning`, `info` and
   `hint` in `colors`. `message` is required and not empty.
@@ -642,7 +650,14 @@ const editor = new ConfigEditor(element, {
   text, so it never stands for another field's secret: one of the host's
   tokens pasted into another field, or under a renamed key, is flagged, and
   so is a token the host did not give in a secret field. Put back into its
-  own field it is real again. `placeholder` must be a regular expression
+  own field it is real again. A token the host wrote in a comment is real
+  in that text's comments only: pasted into a field it is flagged, as a
+  field's token is in a comment, each where it is written.
+- A token is opaque: whatever `placeholder` matches, kept whole as written;
+  nothing is read from inside it, so the same token in two fields stands
+  for each field's own secret. Make the pattern match your tokens exactly
+  (`«secret [0-9a-f]{8}»`, not `«.*»`): text it does not match (`«hidden»`)
+  is plain text. `placeholder` must be a regular expression
   that matches no empty text (`.*` throws). An exception `isPlaceholder`
   throws is logged, and the token is not real. `referencePrefixes` must be
   non-empty strings.
@@ -655,7 +670,14 @@ const editor = new ConfigEditor(element, {
 - In a secret field, suggestions offer `${VAR}` and `file:` references.
 - The schema check accepts an untouched placeholder (no `pattern`,
   `format`, length or type problem), and `editAs` and saving keep it
-  byte-for-byte.
+  byte-for-byte. Nothing the editor shows, says or hands back (problems,
+  hover, announcements, the diff preview, copies, `onChange`, console
+  messages) holds a token the host did not send.
+- Editing in `language`, `onChange` hands back exactly the text on screen
+  with the host's line endings, byte order mark, final newline, tabs and
+  quoting (placeholders included); a text that did not change is not
+  reported. In `editAs`, the value handed back is the conversion back to
+  `language`: a host that writes the text out as is must write that value.
 
 </details>
 
