@@ -372,7 +372,10 @@ way and updates it from `onChange`; it cannot roll the document back: a
 whatever its order or delay. Any other value (a revert, a reset, a loaded
 file) is applied. If an echo leaves the parent's value on an older text,
 with nothing still on its way to bring it back, `onChange` reports the
-document again. A parent that applies only some values (a debounce keeping
+document again. Svelte applies several values in one update, so the echo
+that would bring it back may never be seen: if the value is still an older
+text 250 ms after such an echo, `onChange` reports the document again then.
+A parent that applies only some values (a debounce keeping
 the latest) leaves the others counted as echoes: to reset to a text the
 user may have passed through, call `setValue(text)` on the instance, which
 always applies (also before the editor has mounted) and is reported through

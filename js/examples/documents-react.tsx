@@ -7,15 +7,12 @@ import {
   type EditorSettings,
 } from "@pngwasi/config-editor-react";
 import { loadConfigEditor } from "@pngwasi/config-editor";
+import { later } from "./echo-delay";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 const schema = await (await fetch("../../schema.json")).text();
 
-// `?random` lists each edit back 0-200 ms late, in whatever order the delays
-// give (a fetch per edit).
-const random = new URLSearchParams(location.search).has("random");
-const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
 
 const initialFiles: DocumentSpec[] = [
   { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },

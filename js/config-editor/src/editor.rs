@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use config_editor_leptos::js_support::Timer;
 use config_editor_leptos::{EditorHandle, Language, Schema};
 use js_sys::Function;
 use leptos::prelude::*;
@@ -20,6 +21,7 @@ use crate::options::{
 };
 use crate::protect::{paths_from, ranges_from, secrets_from};
 use crate::settings::{settings_from, settings_result};
+use crate::settle;
 use crate::told::{self, Told};
 use crate::typings::{
     EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, SettingsResult,
@@ -202,6 +204,7 @@ impl ConfigEditor {
                 given.given(&value);
                 given
             }),
+            settle: StoredValue::new_local(Timer::default()),
         });
         let setup = Setup {
             language,
@@ -301,17 +304,10 @@ impl ConfigEditor {
         // document (see `echoes`), decided on a copy kept once every key is
         // checked.
         let mut echoes = self.state.echoes.try_get_value().unwrap_or_default();
-        let (value, resend) = match value {
-            Some(value) => {
-                let current = self.latest_text();
-                match echoes.received(&value, &current) {
-                    Echo::Apply => (Some(value), None),
-                    Echo::Skip => (None, None),
-                    Echo::Resend => (None, Some(current)),
-                }
-            }
-            None => (None, None),
-        };
+        let echo = value
+            .as_ref()
+            .map(|value| echoes.received(value, &self.latest_text()));
+        let value = value.filter(|_| echo == Some(Echo::Apply));
         let baseline = given(&options, "baseline")
             .map(|baseline| text_arg(&baseline, "baseline"))
             .transpose()?;
@@ -434,11 +430,25 @@ impl ConfigEditor {
             }
         }
         // The host was left on an echo of a text the user typed past: it
-        // hears the document again.
-        if let Some(text) = resend
-            && let Some(callback) = state.on_change.try_get_value().flatten()
-        {
-            call_host(&callback, &JsValue::from_str(&text));
+        // hears the document again (`Resend`), or once a pause is over if it
+        // is still on it then (`Settle`: the document's echo is on its way,
+        // or was lost in a render of the host's that took a later text too).
+        if matches!(echo, Some(Echo::Resend | Echo::Settle)) {
+            if echo == Some(Echo::Resend) {
+                tell_host(state, &self.latest_text());
+            }
+            let latest = self.latest.clone();
+            settle::arm(state.settle, move || {
+                config_editor_leptos::js_support::flush_pending_input();
+                let current = latest.lock().map(|text| text.clone()).unwrap_or_default();
+                if state
+                    .echoes
+                    .try_update_value(|echoes| echoes.settle(&current))
+                    == Some(true)
+                {
+                    tell_host(state, &current);
+                }
+            });
         }
         Ok(())
     }
@@ -459,6 +469,11 @@ impl ConfigEditor {
         if self.id.get().is_none() {
             return Ok(());
         }
+        // The host's own text: what it holds, no echo to wait for.
+        let _ = self
+            .state
+            .echoes
+            .try_update_value(|echoes| echoes.given(&value));
         self.show(value);
         Ok(())
     }
@@ -606,6 +621,7 @@ impl ConfigEditor {
     pub fn destroy(&self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
         config_editor_leptos::js_support::flush_pending_input();
+        settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id
             .take()
@@ -630,5 +646,12 @@ impl ConfigEditor {
             unmount();
             *self.final_value.borrow_mut() = Some(self.latest_text());
         }
+    }
+}
+
+/// Sends `text` to the host's `onChange`, if it has one.
+fn tell_host(state: State, text: &str) {
+    if let Some(callback) = state.on_change.try_get_value().flatten() {
+        call_host(&callback, &JsValue::from_str(text));
     }
 }

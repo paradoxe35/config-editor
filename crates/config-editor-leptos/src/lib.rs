@@ -125,6 +125,28 @@ pub use editor::{
 pub mod js_support {
     pub use crate::editor::{flush_pending_input, is_web_url};
 
+    /// A timer [`after`] set, to [`cancel`](Self::cancel) it.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Timer(crate::reactive::later::Timeout);
+
+    impl Timer {
+        /// Drops the timer's work if it has not run yet.
+        pub fn cancel(self) {
+            self.0.cancel();
+        }
+    }
+
+    /// Runs `run(target)` after `ms` milliseconds, if `target` (a signal or
+    /// stored value of the bindings') is still alive: the bindings'
+    /// deferred work goes through the editor's one door for it.
+    pub fn after<T: leptos::prelude::IsDisposed + Copy + 'static>(
+        target: T,
+        ms: i32,
+        run: impl FnOnce(T) + 'static,
+    ) -> Timer {
+        Timer(crate::reactive::later::after(target, ms, run))
+    }
+
     /// Whether the secret placeholder pattern of `options` can be used: it
     /// compiles, and it matches no empty text (`.*` would make every value
     /// a placeholder). The error says what is wrong with it.

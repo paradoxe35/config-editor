@@ -8,16 +8,13 @@ import {
   type LanguageName,
 } from "@pngwasi/config-editor-vue";
 import { loadConfigEditor } from "@pngwasi/config-editor";
+import { later } from "./echo-delay";
 
 // The same page as documents-react.html, for the same tests. The documents
 // live in a reactive array the handlers change in place, as Vue apps do.
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 const schema = await (await fetch("../../schema.json")).text();
 
-// `?random` lists each edit back 0-200 ms late, in whatever order the delays
-// give (a fetch per edit).
-const random = new URLSearchParams(location.search).has("random");
-const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
 
 const App = defineComponent({
   components: { ConfigDocuments },

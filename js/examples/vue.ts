@@ -3,6 +3,7 @@ import * as core from "@pngwasi/config-editor";
 import * as tools from "@pngwasi/config-editor/tools";
 import { loadConfigEditor, themes } from "@pngwasi/config-editor";
 import * as api from "@pngwasi/config-editor-vue";
+import { later, manual } from "./echo-delay";
 import {
   type BaselineConflict,
   type ChangeSummary,
@@ -27,6 +28,7 @@ const ready = query.has("late-load")
 // `?uncontrolled`: `default-value` instead of `v-model`. `?late`: edits reach
 // the parent 400 ms late, only the latest. `?slow`: every edit 1.5 s late.
 // `?random`: every edit 0-200 ms late, in whatever order the delays give.
+// `?manual`: when a test says so (see `echo-delay.ts`).
 // `?reset-early`: `setValue` before the editor mounts. `?props={...}`: extra
 // props (`setExtraProps` changes them later).
 const uncontrolled = query.has("uncontrolled");
@@ -101,7 +103,7 @@ const App = defineComponent({
     };
     const onModel = (next: string) => {
       if (slow) return void setTimeout(() => apply(next), 1500);
-      if (random) return void setTimeout(() => apply(next), Math.random() * 200);
+      if (random || manual) return void later(() => apply(next));
       if (!late) return apply(next);
       clearTimeout(lateTimer);
       lateTimer = setTimeout(() => apply(next), 400);

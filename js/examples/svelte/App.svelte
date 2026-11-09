@@ -15,6 +15,7 @@
     type EditorPath,
     type HostDiagnostic,
   } from "@pngwasi/config-editor-svelte";
+  import { later, manual } from "../echo-delay";
 
   let { schema, ready }: { schema: string; ready: Promise<unknown> } = $props();
 
@@ -22,7 +23,8 @@
   // `?uncontrolled`: `defaultValue` instead of `bind:value`. `?late`: edits
   // reach the parent 400 ms late, only the latest. `?slow`: every edit 1.5 s
   // late. `?random`: every edit 0-200 ms late, in whatever order the delays
-  // give. `?reset-early`: `setValue` before the editor mounts.
+  // give. `?manual`: when a test says so (see `echo-delay.ts`).
+  // `?reset-early`: `setValue` before the editor mounts.
   // `?props={...}`: extra props (`setExtraProps` changes them later).
   const uncontrolled = query.has("uncontrolled");
   const late = query.has("late");
@@ -110,7 +112,7 @@
   }
   function onChange(next: string) {
     if (slow) return void setTimeout(() => apply(next), 1500);
-    if (random) return void setTimeout(() => apply(next), Math.random() * 200);
+    if (random || manual) return void later(() => apply(next));
     if (!late) return apply(next);
     clearTimeout(lateTimer);
     lateTimer = setTimeout(() => apply(next), 400);
@@ -205,7 +207,7 @@
   <!-- Unmounted (`setShown(false)`). -->
 {:else if uncontrolled}
   {@render editorView({ defaultValue: initialText, onChange })}
-{:else if late || slow || random}
+{:else if late || slow || random || manual}
   <!-- A parent applying edits late: one-way `value` and `onChange`. -->
   {@render editorView({ value, onChange })}
 {:else}

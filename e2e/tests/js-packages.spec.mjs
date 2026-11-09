@@ -892,6 +892,71 @@ test.describe('ValueSync (internal to the bindings) without a framework', () => 
     expect(result.host).toBe('a: 1\nxyz');
     expect(result.reset).toBe('reset: 1\n');
   });
+
+  // As `every_order_and_grouping_of_echoes_ends_on_the_document` in
+  // `js/config-editor/src/echoes.rs`: typing `a`, `b`, a backspace and `c`,
+  // the parent applying the values in every order, rendering after any of
+  // the steps (only the last value applied since the last render is
+  // passed), then the values sent again and the check after the pause.
+  test('every order and grouping of echoes: never a rollback, and the parent ends on the document', async ({ page: browserPage }) => {
+    await open(browserPage, 'vanilla.html');
+    const failures = await browserPage.evaluate(async () => {
+      const { ValueSync } = await import('../config-editor/sync.js');
+      const texts = ['a', 'ab', 'a', 'ac'];
+      // Every order of the keys (in turn) and their values (each after its key).
+      const orders = [];
+      const grow = (typed, stored, order) => {
+        if (order.length === 2 * texts.length) return void orders.push(order);
+        if (typed < texts.length) grow(typed + 1, stored, [...order, ['type', typed]]);
+        for (let index = 0; index < typed; index += 1) {
+          if (!stored.includes(index)) grow(typed, [...stored, index], [...order, ['store', index]]);
+        }
+      };
+      grow(0, [], []);
+      const failures = [];
+      if (orders.length !== 105) failures.push(`${orders.length} orders`);
+      const steps = 2 * texts.length;
+      for (const order of orders) {
+        for (let renders = 0; renders < 1 << (steps - 1); renders += 1) {
+          const sync = new ValueSync();
+          let document = '';
+          let parent = '';
+          let handled = '';
+          const again = [];
+          let settle = false;
+          // A render: the binding passes the value on when it is new, or may be an echo.
+          const render = () => {
+            if (parent === handled && !sync.mayEcho(parent)) return;
+            handled = parent;
+            const result = sync.received(parent, document);
+            if (result.apply !== null && result.apply !== document) failures.push(`rollback ${JSON.stringify(order)} ${renders}`);
+            if (result.report !== null) again.push(result.report);
+            settle ||= result.settle;
+          };
+          sync.received('', '');
+          order.forEach(([kind, index], at) => {
+            if (kind === 'type') {
+              document = texts[index];
+              sync.sent(document);
+            } else parent = texts[index];
+            if (at + 1 === steps || renders & (1 << at)) render();
+          });
+          for (;;) {
+            if (again.length) {
+              parent = again.shift();
+              render();
+            } else if (settle) {
+              settle = false;
+              if (sync.settle(document)) again.push(document);
+            } else break;
+          }
+          if (parent !== document) failures.push(`${JSON.stringify(order)} ${renders.toString(2)}: ${parent}`);
+        }
+      }
+      return failures.slice(0, 5);
+    });
+    expect(failures).toEqual([]);
+  });
 });
 
 frameworkCases('react.html');

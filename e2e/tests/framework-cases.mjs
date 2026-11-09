@@ -167,9 +167,52 @@ export function frameworkCases(name) {
         await browserPage.keyboard.press('Backspace');
         await browserPage.keyboard.type('XY', { delay: 25 });
         typed += round.slice(0, -2) + 'XY';
-        await browserPage.waitForTimeout(600);
+        // Every echo in (0-200 ms), the check after the pause (250 ms) and
+        // its value applied (0-200 ms).
+        await browserPage.waitForTimeout(800);
         await expect(input(browserPage)).toHaveValue(typed);
         await expect(saved(browserPage)).toHaveText(typed);
+      }
+    });
+
+    // Typing `a`, `b`, a backspace and `c` (the value `…a` sent twice), the
+    // values held (0: …a, 1: …ab, 2: …a, 3: …ac) and applied in these
+    // groups, each in one task (one render for all its values). In
+    // [0], [3, 2], [1] the render applying `…ac` and then the late second
+    // `…a` passes only `…a`: only the check after the pause brings the
+    // parent to `…ac`.
+    test('a parent applying values in one render, in any grouping and order, ends on the document', async ({ page: browserPage }) => {
+      for (const groups of [[[0], [3, 2], [1]], [[3, 2], [1], [0]], [[1, 3], [0, 2]], [[0, 1, 2, 3]], [[2], [1], [0], [3]]]) {
+        await browserPage.goto(page(name) + '?manual');
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        const before = await input(browserPage).inputValue();
+        await input(browserPage).click();
+        await browserPage.keyboard.press('Control+End');
+        await browserPage.keyboard.type('ab', { delay: 30 });
+        await browserPage.keyboard.press('Backspace');
+        await browserPage.keyboard.type('c', { delay: 30 });
+        expect(await browserPage.evaluate(() => window.heldEchoes())).toBe(4);
+        for (const group of groups) {
+          await browserPage.evaluate((group) => window.releaseEchoes(group), group);
+          await browserPage.waitForTimeout(50);
+        }
+        // What the editor sends again (at once, or after the pause) is
+        // applied too, one by one, until nothing more comes.
+        for (let released = 4; ; ) {
+          await browserPage.waitForTimeout(400);
+          const held = await browserPage.evaluate(() => window.heldEchoes());
+          if (held === released) break;
+          expect(held - 4, String(groups)).toBeLessThan(6);
+          for (; released < held; released += 1) {
+            await browserPage.evaluate((index) => window.releaseEchoes([index]), released);
+            await browserPage.waitForTimeout(50);
+          }
+        }
+        expect({ groups, text: await input(browserPage).inputValue(), saved: await saved(browserPage).textContent() }).toEqual({
+          groups,
+          text: before + 'ac',
+          saved: before + 'ac',
+        });
       }
     });
 

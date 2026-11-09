@@ -15,7 +15,7 @@
 import { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
 import { loadConfigEditor, whenLoaded } from "./load.js";
 import { SETTING_TYPES } from "./setting-types.js";
-import { ValueSync } from "./sync.js";
+import { SETTLE_MS, ValueSync } from "./sync.js";
 
 export { SETTING_TYPES };
 
@@ -181,6 +181,9 @@ class Binding {
 /** The props an `EditorBinding` reads (React-shaped; each wrapper maps its own). */
 export class EditorBinding extends Binding {
   #sync = new ValueSync();
+  // The check, a pause after an echo left the host on an older value, that
+  // it came back to the document (see `ValueSync.settle`).
+  #settleTimer = null;
   // The `value` prop as last handled: a re-mount re-runs the value check,
   // and an unchanged prop is not a new value from the host.
   #handledValue = undefined;
@@ -317,17 +320,19 @@ export class EditorBinding extends Binding {
       return true;
     };
     const value = props.value;
-    if (this.instance && value !== undefined && value !== this.#handledValue) {
+    // A value passed again is news only while a copy of it is on its way.
+    if (this.instance && value !== undefined && (value !== this.#handledValue || this.#sync.mayEcho(value))) {
       this.guard((editor) => {
         this.#handledValue = value;
         // First: an Edit-as edit still waiting out the typing pause is sent
         // now (reading `value` does), so its echo is told apart like any.
         const current = editor.value;
-        const { apply, report } = this.#sync.received(value, current);
+        const { apply, report, settle } = this.#sync.received(value, current);
         // Told apart here: the editor, which never sees the echoes this
         // absorbs, takes it as the host's own text whatever it is.
         if (apply !== null) editor.replaceValue(apply);
         if (report !== null) this.props.onChange?.(report);
+        if (settle) this.#settleLater();
       });
     }
     // The live props that changed, each in its own `update`: a bad one
@@ -355,6 +360,24 @@ export class EditorBinding extends Binding {
   /** The document while there is no editor: a pending reset, the carried one, the props'. */
   #document() {
     return this.#reset ?? this.#carried?.value ?? this.props.value ?? this.props.defaultValue ?? "";
+  }
+
+  /** Checks once a pause is over that the host came back to the document; arming it again starts the pause again. */
+  #settleLater() {
+    clearTimeout(this.#settleTimer);
+    this.#settleTimer = setTimeout(() => {
+      this.#settleTimer = null;
+      this.guard((editor) => {
+        const current = editor.value;
+        if (this.#sync.settle(current)) this.props.onChange?.(current);
+      });
+    }, SETTLE_MS);
+  }
+
+  detach() {
+    clearTimeout(this.#settleTimer);
+    this.#settleTimer = null;
+    super.detach();
   }
 
   #setValue(value) {

@@ -506,7 +506,10 @@ whole `documents` list after another document's edit), is no news either. A
 text the editor never gave (a loaded file, a reset) applies; echoes of what
 was typed before it are still skipped when they come. When an echo
 leaves your store holding an older text and nothing still on its way brings
-it back, `onChange` gives it the document again. To go back to a text
+it back, `onChange` gives it the document again. A store that takes
+several texts in one render passes only the last, so the echo that would
+bring it back may never be seen: if the store is still on an older text
+250 ms after such an echo, `onChange` gives it the document again then. To go back to a text
 `onChange` gave that may still be on its way (a discard to what you saved, a
 revert), call `replaceValue(text)`, which always applies. The promise is
 yours to keep: a host that hands back only some texts (the latest of

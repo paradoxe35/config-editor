@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use config_editor_leptos::js_support::Timer;
 use config_editor_leptos::{
     CloseRequest, ConfigDocuments as DocumentsView, Diagnostic, Document, DocumentsHandle,
     EditorSettings, Language, SaveRequest,
@@ -15,7 +16,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
 use crate::documents_list::{Kept, Listed, documents_from};
-use crate::echoes::{Echo, Echoes};
+use crate::echoes::Echoes;
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::languages::{language_named, writable_edit_as};
@@ -26,6 +27,8 @@ use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
 use crate::update::{callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
+
+mod echoing;
 
 /// The options `new ConfigDocuments` takes apart from the settings.
 pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
@@ -90,6 +93,8 @@ pub(crate) struct State {
     /// With `echoing`, each document's texts `onChange` sent that the host
     /// has not listed back yet (see `echoes`).
     echoes: StoredValue<HashMap<String, Echoes>, LocalStorage>,
+    /// The check that the host came back to each document (see `settle`).
+    settle: crate::settle::Slot,
     pub(crate) handle: DocumentsHandle,
 }
 
@@ -175,39 +180,6 @@ impl State {
         }
         let _ = self.kept.try_set_value(kept);
         listed
-    }
-
-    /// With `echoing`, takes echoes out of `listed`: a document whose
-    /// listed text is one its editor sent and has moved past keeps what it
-    /// holds (see `echoes`). Returns the documents whose host was left on
-    /// such an echo, with the text to send it again.
-    fn keep_moved_past(&self, listed: &mut Listed) -> Vec<(String, String)> {
-        let mut resend = Vec::new();
-        if !self.echoing {
-            return resend;
-        }
-        let _ = self.echoes.try_update_value(|echoes| {
-            echoes.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
-            for document in &mut listed.documents {
-                let echo = echoes
-                    .entry(document.id.clone())
-                    .or_insert_with(|| Echoes::new(true));
-                let Some(texts) = self.texts_of(&document.id) else {
-                    // Listed for the first time.
-                    echo.given(&document.value);
-                    continue;
-                };
-                match echo.received(&document.value, &texts.value) {
-                    Echo::Apply => {}
-                    Echo::Skip => document.value = texts.value,
-                    Echo::Resend => {
-                        document.value.clone_from(&texts.value);
-                        resend.push((document.id.clone(), texts.value));
-                    }
-                }
-            }
-        });
-        resend
     }
 
     fn show(&self, listed: Listed) {
@@ -502,6 +474,7 @@ impl ConfigDocuments {
             told: StoredValue::new_local(HashMap::new()),
             echoing,
             echoes: StoredValue::new_local(HashMap::new()),
+            settle: StoredValue::new_local(Timer::default()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
@@ -665,6 +638,7 @@ impl ConfigDocuments {
                 known.value.clone_from(&value);
             }
         });
+        self.state.given(&id, &value);
         let _ = self.state.documents.try_update(|documents| {
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
@@ -777,7 +751,7 @@ impl ConfigDocuments {
         if let Some(settings) = settings {
             let _ = self.state.settings.try_set(settings);
         }
-        let mut resend = Vec::new();
+        let mut resend = (Vec::new(), false);
         if let Some(mut listed) = listed {
             resend = self.state.keep_moved_past(&mut listed);
             self.state.show(listed);
@@ -820,16 +794,12 @@ impl ConfigDocuments {
             self.state.handle.show(&id);
         }
         self.tell_added(added);
-        // A host that took a late echo after its own text hears the
-        // document again.
-        if let Some(callback) = self.state.on_change.try_get_value().flatten() {
-            for (id, text) in resend {
-                call_host_with(
-                    &callback,
-                    &[JsValue::from_str(&id), JsValue::from_str(&text)],
-                );
-            }
-        }
+        // A host left on an echo of a text the user typed past hears the
+        // document again: now, or once a pause is over if it is still on it
+        // then (the document's echo may have been lost in a render of the
+        // host's that took a later text too).
+        let (resend, settles) = resend;
+        self.state.tell_again(resend, settles);
         Ok(())
     }
 
@@ -863,6 +833,7 @@ impl ConfigDocuments {
     /// afterwards.
     pub fn destroy(&self) {
         config_editor_leptos::js_support::flush_pending_input();
+        crate::settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id
             .take()

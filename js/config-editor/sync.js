@@ -18,7 +18,18 @@
 //   the document is still to come, the host is told the document again. A
 //   value sent before one that came back may still come (out of order) or
 //   never (a parent applying only the latest): it stays an echo, but is not
-//   counted on to come.
+//   counted on to come;
+// - an echo still to come may never be seen: a framework renders once for
+//   several changes, so a parent storing the document's echo and then a late
+//   echo of an older value in one render passes only the older one. So
+//   whenever an echo leaves the host on an older value, the binding checks
+//   again once a pause (`SETTLE_MS`) is over (`settle`), and a host still on
+//   an older value then hears the document again. A copy of the value the
+//   host holds, passed again while it is on its way, may be its echo (with a
+//   later value lost before it): it counts as news once.
+
+/** How long after an echo left the host on an older value to check it came back to the document. */
+export const SETTLE_MS = 250;
 
 /** A short stand-in for a document: its length and a 32-bit FNV-1a hash. */
 function fingerprint(text) {
@@ -38,8 +49,12 @@ export class ValueSync {
   constructor(options = {}) {
     this.maxPending = options.maxPending ?? 256;
     // The values sent that the host has not passed back yet, oldest first:
-    // `{ print, toCome }`, `toCome` while no value sent after it came back.
+    // `{ print, toCome, doubted }`, `toCome` while no value sent after it
+    // came back, `doubted` once the value the host held was passed again
+    // while it was on its way.
     this.pending = [];
+    // The value the host passed last.
+    this.lastGiven = null;
   }
 
   /**
@@ -50,34 +65,73 @@ export class ValueSync {
    * counted on).
    */
   sent(value, toCome = true) {
-    this.pending.push({ print: fingerprint(value), toCome });
+    this.pending.push({ print: fingerprint(value), toCome, doubted: false });
     if (this.pending.length > this.maxPending) this.pending.shift();
+  }
+
+  /**
+   * Whether the host passing again the value it passed last may be news: a
+   * copy of it is on its way (this may be its echo). Call `received` then.
+   */
+  mayEcho(value) {
+    const print = fingerprint(value);
+    return this.lastGiven === print && this.pending.some((sent) => sent.print === print && !sent.doubted);
   }
 
   /**
    * The host's value arrived. `current` is the editor's document now (read
    * `editor.value` first: it sends an edit still waiting out the typing
-   * pause). Returns the text to apply with `replaceValue`, if any, and the
-   * text to report to the host through its change callback, if any (already
-   * recorded as sent).
+   * pause). Returns the text to apply with `replaceValue`, if any, the text
+   * to report to the host through its change callback, if any (already
+   * recorded as sent), and whether to `settle` once a pause is over.
    * @param {string} value
    * @param {string} current
-   * @returns {{ apply: string | null, report: string | null }}
+   * @returns {{ apply: string | null, report: string | null, settle: boolean }}
    */
   received(value, current) {
-    // The newest copy (a typo fixed sends the same text twice): a parent
-    // applying only the latest value hands back that one.
+    const none = { apply: null, report: null, settle: false };
     const print = fingerprint(value);
-    const at = this.pending.findLastIndex((sent) => sent.print === print);
-    if (at < 0) return { apply: current !== value ? value : null, report: null };
-    this.pending.splice(at, 1);
-    for (const sent of this.pending.slice(0, at)) sent.toCome = false;
-    if (value === current) return { apply: null, report: null };
+    let news;
+    if (this.lastGiven === print) {
+      // Passed again: a render, or the echo of a copy sent since.
+      const copy = this.pending.findLast((sent) => sent.print === print && !sent.doubted);
+      if (copy) {
+        copy.toCome = false;
+        copy.doubted = value !== current;
+      }
+      news = copy?.doubted ?? false;
+    } else {
+      this.lastGiven = print;
+      // The newest copy (a typo fixed sends the same text twice): a parent
+      // applying only the latest value hands back that one.
+      const at = this.pending.findLastIndex((sent) => sent.print === print);
+      if (at < 0) return { ...none, apply: current !== value ? value : null };
+      this.pending.splice(at, 1);
+      for (const sent of this.pending.slice(0, at)) sent.toCome = false;
+      news = true;
+    }
+    if (value === current) return none;
     // An echo of a value the user typed past: the host holds it now, unless
     // an echo of the document is still to come.
     const shown = fingerprint(current);
-    if (this.pending.some((sent) => sent.toCome && sent.print === shown)) return { apply: null, report: null };
+    if (this.pending.some((sent) => sent.toCome && sent.print === shown)) return { ...none, settle: news };
     this.sent(current);
-    return { apply: null, report: current };
+    return { apply: null, report: current, settle: true };
+  }
+
+  /**
+   * The pause after a `received` asking to settle is over: whether the host,
+   * still on an older value, is to hear the document `current` again
+   * (already recorded as sent).
+   */
+  settle(current) {
+    if (this.lastGiven === null || this.lastGiven === fingerprint(current)) return false;
+    this.sent(current);
+    return true;
+  }
+
+  /** The host holds `value` (a reset it asked for): no echo to wait for. */
+  given(value) {
+    this.lastGiven = fingerprint(value);
   }
 }

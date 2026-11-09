@@ -4,6 +4,7 @@ import * as core from "@pngwasi/config-editor";
 import * as tools from "@pngwasi/config-editor/tools";
 import { loadConfigEditor, themes } from "@pngwasi/config-editor";
 import * as api from "@pngwasi/config-editor-react";
+import { later, manual } from "./echo-delay";
 import {
   ConfigEditor,
   type ConfigEditorHandle,
@@ -33,7 +34,8 @@ const late = new URLSearchParams(location.search).has("late");
 // round trip with many values in flight.
 const slow = new URLSearchParams(location.search).has("slow");
 // `?random` applies every onChange value 0-200 ms late, none skipped, in
-// whatever order the delays give (a fetch per edit).
+// whatever order the delays give (a fetch per edit). `?manual`: when a test
+// says so (see `echo-delay.ts`).
 const random = new URLSearchParams(location.search).has("random");
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
 // mounted (it mounts once the wasm is ready).
@@ -186,7 +188,7 @@ function App({ schema }: { schema: string }) {
               return next;
             });
           if (slow) return void setTimeout(apply, 1500);
-          if (random) return void setTimeout(apply, Math.random() * 200);
+          if (random || manual) return void later(apply);
           if (!late) return apply();
           clearTimeout(lateTimer.current);
           lateTimer.current = setTimeout(apply, 400);

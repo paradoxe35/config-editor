@@ -10,6 +10,7 @@
     type EditorSettings,
     type LanguageName,
   } from "@pngwasi/config-editor-svelte";
+  import { later } from "../echo-delay";
 
   let { schema }: { schema: string } = $props();
 
@@ -25,10 +26,6 @@
   let tabs: ReturnType<typeof ConfigDocuments> | undefined = $state();
 
   const note = (line: string) => log.push(line);
-  // `?random` lists each edit back 0-200 ms late, in whatever order the
-  // delays give (a fetch per edit).
-  const random = new URLSearchParams(location.search).has("random");
-  const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
   function update(id: string, change: Partial<DocumentSpec>) {
     const file = files.find((candidate) => candidate.id === id);
     if (file) Object.assign(file, change);

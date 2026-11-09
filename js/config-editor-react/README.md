@@ -376,7 +376,9 @@ editor sent that has not come back yet is taken as its echo, whatever its
 order or delay. Any other `value` (a revert, a reset, a loaded file) is
 applied. If an echo leaves the parent's state on an older text, with nothing
 still on its way to bring it back, `onChange` reports the document again so
-both end on it. A parent that applies only some values (a debounce keeping
+both end on it. React applies several values in one render, so the echo that
+would bring it back may never be seen: if the state is still on an older
+text 250 ms after such an echo, `onChange` reports the document again then. A parent that applies only some values (a debounce keeping
 the latest) leaves the others counted as echoes: to reset to a text the
 user may have passed through, call `ref.current.setValue(text)`, which
 always applies (also before the editor has mounted, from an effect: it is

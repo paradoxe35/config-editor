@@ -79,6 +79,8 @@ pub(crate) struct State {
     /// The texts `onChange` sent that the host has not handed back yet
     /// (with `echoes`).
     pub(crate) echoes: StoredValue<Echoes, LocalStorage>,
+    /// The check that the host came back to the document (see `settle`).
+    pub(crate) settle: crate::settle::Slot,
 }
 
 impl State {
