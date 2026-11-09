@@ -11,7 +11,7 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
     let bom = usize::from(source.starts_with('\u{FEFF}'));
     let text = source.strip_prefix('\u{FEFF}').unwrap_or(source);
     let read = || -> Result<Value, hcl::Error> {
-        hcl::from_body(super::heredoc::parse_body(text)?)
+        hcl::from_body(super::heredoc::parse_body(text)?).map(super::floats::read_whole_floats)
     };
     let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.

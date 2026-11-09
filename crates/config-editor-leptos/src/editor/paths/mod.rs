@@ -300,11 +300,75 @@ pub(crate) fn path_at(
     {
         return Some(FieldPath::from(path));
     }
+    if let Some(path) = in_string_over_lines(behavior, source, line_index, cursor) {
+        return Some(path);
+    }
     let context = behavior.completion_context(source, cursor);
     Some(FieldPath::from(match context.value_key {
         Some(key) => path_with_key(&context.path, &key),
         None => context.path,
     }))
+}
+
+/// On a line of a string written over lines (a YAML block scalar, a TOML
+/// `"""` string, an HCL heredoc, its closing line too): the string's
+/// field, the one its key's line names whose range runs over the caret.
+fn in_string_over_lines(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    line_index: usize,
+    cursor: usize,
+) -> Option<FieldPath> {
+    let lines: Vec<&str> = source.split('\n').collect();
+    // The body's lines, and the line ending it (`EOT`, `two"""`).
+    let key_line = behavior
+        .saved_string_lines(source)
+        .into_iter()
+        .find(|body| body.start <= line_index && line_index <= body.end && body.start > 0)
+        .map(|body| body.start - 1)?;
+    let key_line_end: usize = lines[..=key_line]
+        .iter()
+        .map(|line| line.encode_utf16().count() + 1)
+        .sum::<usize>()
+        - 1;
+    if key_line == line_index || key_line_end >= cursor {
+        return None;
+    }
+    // Not through the key line's own fallback: a string's field is named
+    // on its key's line.
+    let path = path_on_key_line(behavior, source, key_line, key_line_end)?;
+    let range = field_range(behavior, source, &path.to_pointer())?;
+    let (start, end) = (range.start.to_offset(source), range.end.to_offset(source));
+    (start <= cursor && cursor <= end).then_some(path)
+}
+
+/// The path of the field whose key the line `line_index` (ending at
+/// UTF-16 offset `line_end`) writes: on its first character.
+fn path_on_key_line(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    line_index: usize,
+    line_end: usize,
+) -> Option<FieldPath> {
+    let line = source.split('\n').nth(line_index)?;
+    let indent = line
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .count();
+    let found = [indent, indent + 1]
+        .into_iter()
+        .find_map(|column| hovered_key(source, line_index, column, behavior));
+    match found {
+        Some((path, _, _)) => Some(FieldPath::from(path)),
+        // A list item's line (`- |`): what the caret there names.
+        None => {
+            let context = behavior.completion_context(source, line_end);
+            Some(FieldPath::from(match context.value_key {
+                Some(key) => path_with_key(&context.path, &key),
+                None => context.path,
+            }))
+        }
+    }
 }
 
 #[cfg(all(
@@ -326,6 +390,16 @@ mod path_matrix;
     feature = "xml"
 ))]
 mod ranges_matrix;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod string_bodies_matrix;
 
 #[cfg(all(
     test,

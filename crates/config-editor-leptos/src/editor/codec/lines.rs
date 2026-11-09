@@ -267,7 +267,9 @@ fn patch_lines(
             continue;
         }
         if host[top - 1].trim().is_empty() {
-            if top < index {
+            // A blank line under other comments (a header's) parts them
+            // from the entry's: it stays with them.
+            if top < index && !(top >= 2 && is_comment(host[top - 2])) {
                 removed[top - 1] = true;
             }
         } else {

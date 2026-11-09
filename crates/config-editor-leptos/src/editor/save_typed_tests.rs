@@ -95,20 +95,19 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                     .ok()
                     .and_then(|value| value.pointer(&pointer).cloned());
                 // The host's type where the view cannot tell: a float stays
-                // a float (`2` typed in XML or HCL is 2.0); a view that can
-                // writes what was typed.
+                // a float (`2` typed in XML is 2.0); a view that can (HCL
+                // too, which reads `2.0` as a float) writes what was typed.
                 let typed_integer = Value::from(2);
-                let expected = if *typed == "2" && !matches!(edit.label(), "XML" | "HCL") {
+                let expected = if *typed == "2" && edit != Language::XML {
                     &typed_integer
                 } else {
                     expected
                 };
-                // HCL holds no whole float, and XML holds `1.50` as text.
+                // XML holds `1.50` as text.
                 let same = match (&value, expected) {
                     (Some(Value::Number(saved)), Value::Number(expected)) => {
                         saved.as_f64() == expected.as_f64()
-                            && (saved.is_f64() == expected.is_f64()
-                                || matches!(host.label(), "HCL" | "XML"))
+                            && (saved.is_f64() == expected.is_f64() || host == Language::XML)
                     }
                     (Some(Value::String(saved)), Value::Number(expected))
                         if host == Language::XML =>

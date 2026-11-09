@@ -325,8 +325,8 @@ fn yaml_anchors_aliases_and_merges_survive_an_edit_from_any_view() {
         },
         &yaml.replace("timeout: 30", "timeout: 31"),
     );
-    // Only the anchor's: the merge is written out, numbers as the host
-    // wrote them.
+    // Only the anchor's: the merge stays, and the map keeps the value as
+    // its own, as the host wrote it.
     from_every_view(
         &mut failures,
         "anchor parted from its merge",
@@ -335,7 +335,7 @@ fn yaml_anchors_aliases_and_merges_survive_an_edit_from_any_view() {
         &|v| v["defaults"]["timeout"] = 31.into(),
         &yaml
             .replace("  timeout: 30\n", "  timeout: 31\n")
-            .replace("  <<: *base\n", "  timeout: 30\n  retries: 0x1F\n"),
+            .replace("  <<: *base\n", "  timeout: 30\n  <<: *base\n"),
     );
     report(failures);
 }

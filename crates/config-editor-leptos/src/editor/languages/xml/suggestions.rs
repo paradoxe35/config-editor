@@ -127,7 +127,7 @@ pub(super) fn tag_completion_context(
     }
     let holder = snapshot.open_tag_path.clone();
     if let Some((name, start, end)) = quoted_value_at(source, &snapshot.inner, cursor) {
-        let value_path = attribute_value_path(&holder, &name);
+        let value_path = attribute_value_path(&holder, &snapshot.attribute_key(&name));
         let typed = source[start.min(cursor)..cursor].to_string();
         return CompletionContext {
             path: value_path.0,
@@ -145,7 +145,7 @@ pub(super) fn tag_completion_context(
         };
     }
     if let Some(name) = snapshot.pending_attr.clone() {
-        let value_path = attribute_value_path(&holder, &name);
+        let value_path = attribute_value_path(&holder, &snapshot.attribute_key(&name));
         return CompletionContext {
             path: value_path.0,
             typed: String::new(),

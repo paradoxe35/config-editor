@@ -4,7 +4,7 @@
 //! moved, and never becomes an element.
 
 use super::Language;
-use super::save_matrix::{from_every_view, report, save_value};
+use super::save_matrix::{from_every_view, report, save_steps, save_value};
 use serde_json::{Map, Value, json};
 
 type Change = fn(&mut Value);
@@ -246,11 +246,19 @@ fn the_caret_on_an_attribute_is_on_its_path() {
     let found = [
         at(" a=", 1),
         at(" a=", 2),
+        // In its value, and right after `=` (L24-1, round 25).
+        at("\"1\"", 1),
+        at("\"1\"", 2),
+        at(" a=", 3),
         at(" b=", 1),
+        at("\"2\"", 1),
         at("<a>", 1),
         at("<r", 1),
     ];
-    let expected = ["/r/@a", "/r/@a", "/r/b", "/r/a", "/r"].map(|path| Some(path.to_string()));
+    let expected = [
+        "/r/@a", "/r/@a", "/r/@a", "/r/@a", "/r/@a", "/r/b", "/r/b", "/r/a", "/r",
+    ]
+    .map(|path| Some(path.to_string()));
     assert_eq!(found, expected);
 }
 
@@ -336,6 +344,65 @@ fn an_element_added_beside_prefixed_siblings_keeps_the_views_order() {
     ];
     for (label, change, expected) in cases {
         from_every_view(&mut failures, label, Language::XML, host, &change, expected);
+    }
+    report(failures);
+}
+
+/// H25-E1: a child sharing its name with an attribute, removed in one save
+/// and added back in a later one of the same session (the view still
+/// spells the attribute `@a`), is a child again: the attribute keeps its
+/// value, and the child goes where the view puts it.
+#[test]
+fn a_child_removed_and_added_back_beside_its_attribute_is_a_child() {
+    let host = "<r a=\"1\">\n  <a>2</a> <!-- c -->\n  <z>0</z>\n</r>\n";
+    let remove: &dyn Fn(&mut Value) = &|value| {
+        element(value).shift_remove("a");
+    };
+    let cases: [(&str, Change, &str); 4] = [
+        (
+            "a scalar",
+            |value| {
+                element(value).insert("a".into(), json!(5));
+            },
+            "<r a=\"1\">\n  <z>0</z>\n  <a>5</a>\n</r>\n",
+        ),
+        (
+            "a list",
+            |value| {
+                element(value).insert("a".into(), json!([5, 6]));
+            },
+            "<r a=\"1\">\n  <z>0</z>\n  <a>5</a>\n  <a>6</a>\n</r>\n",
+        ),
+        (
+            "an element",
+            |value| {
+                element(value).insert("a".into(), json!({"k": 5}));
+            },
+            "<r a=\"1\">\n  <z>0</z>\n  <a>\n    <k>5</k>\n  </a>\n</r>\n",
+        ),
+        (
+            "a scalar, the attribute edited",
+            |value| {
+                element(value).insert("a".into(), json!(5));
+                element(value).insert("@a".into(), json!(7));
+            },
+            "<r a=\"7\">\n  <z>0</z>\n  <a>5</a>\n</r>\n",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (label, add, expected) in cases {
+        for view in [
+            Language::YAML,
+            Language::JSON,
+            Language::TOML,
+            Language::HCL,
+        ] {
+            match save_steps(Language::XML, view, host, &[remove, &add]) {
+                Ok(saved) if saved == expected => {}
+                Ok(saved) => failures.push(format!("{label} via {view}:\n{saved}")),
+                Err(error) => failures.push(format!("{label} via {view}: {error}")),
+            }
+        }
     }
     report(failures);
 }

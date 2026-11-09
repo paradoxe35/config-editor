@@ -5,6 +5,7 @@
 mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
+pub(super) mod enter_newline;
 mod navigation;
 mod page_keys;
 mod suggestions;

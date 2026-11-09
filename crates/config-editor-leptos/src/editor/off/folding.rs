@@ -41,6 +41,14 @@ impl EditorState {
     pub(super) fn restore_folds(&self, _folds: Vec<FoldRange>) {}
 
     pub(super) fn forget_folds(&self) {}
+
+    pub(super) fn folded_fields(&self, _text: &str, _language: super::Language) -> Vec<String> {
+        Vec::new()
+    }
+
+    pub(super) fn fold_fields(&self, _fields: &[String], _language: super::Language) -> bool {
+        false
+    }
 }
 
 pub(super) fn mount_fold_layers(_state: EditorState) {}

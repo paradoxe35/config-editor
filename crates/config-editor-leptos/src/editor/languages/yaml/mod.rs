@@ -21,6 +21,7 @@ mod constructs;
 mod enter;
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
+mod wide_negatives;
 mod tags;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
@@ -143,6 +144,10 @@ impl ConfigLanguage for YamlBehavior {
                 error.message = MULTI_DOCUMENT.to_string();
             }
             error
+        })
+        .and_then(|value| match wide_negatives::first_wide_negative(source, &value) {
+            Some(error) => Err(error),
+            None => Ok(value),
         })
     }
 
@@ -323,7 +328,7 @@ impl ConfigLanguage for YamlBehavior {
             None => (value, &[][..]),
         };
         noyalib::to_string(&Floats(value))
-            .map(|text| plain::quote_typed_plain(&text, value))
+            .map(|text| plain::quote_typed_plain(&text, value, &previous.map(plain::keys_written_bare).unwrap_or_default()))
             .map(|text| newlines::written(text, markers))
             .map(|text| match previous {
                 // Nested sequences written compact, as the host writes them.

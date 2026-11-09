@@ -132,9 +132,11 @@ pub(super) fn with_attributes(value: &Value, attributes: &AttributePaths, path: 
                 path.push(key.clone());
                 let scalar = matches!(child, Value::String(_) | Value::Number(_) | Value::Bool(_));
                 // An attribute keyed `@name` (a child element has its name).
+                // A plain key beside `@` its name is the child element.
+                let child_of_attribute = map.contains_key(&format!("@{key}"));
                 if scalar && key.starts_with('@') {
                     attrs.insert(key.clone(), child.clone());
-                } else if scalar && (attributes_only || attributes.contains(path.as_slice())) {
+                } else if scalar && !child_of_attribute && (attributes_only || attributes.contains(path.as_slice())) {
                     attrs.insert(format!("@{key}"), child.clone());
                 } else {
                     children.insert(key.clone(), with_attributes(child, attributes, path));

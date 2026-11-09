@@ -647,7 +647,7 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 |area| textarea_selection(&area),
             );
             let caret = field_caret(selection.0, (current, &text), (next, &converted));
-            // Another language's lines: the folds do not carry over; the
+            // Another language's lines: each fold is carried by its field; the
             // switch is an undo step back to this text (see
             // `edit::Origin::Switch`).
             state.commit(Edit::switching(text, converted, next, selection, caret));

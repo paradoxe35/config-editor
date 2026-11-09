@@ -319,3 +319,47 @@ fn a_mounted_editor_shows_dismisses_and_reshows_the_notice() {
     let (_owner, plain) = TestEditor::new(Language::YAML, "# the port\nlisten: 1\n").mount();
     assert!(!plain.edit_as_notice().any());
 }
+
+/// L22 L9, L7: a host text Edit as cannot read (a second YAML document, a
+/// syntax error) is shown as it is, and the problem saying why sits where
+/// the error is, as its message says, not at 1:1.
+#[test]
+fn a_refused_edit_as_is_placed_at_the_hosts_error() {
+    let broken = [
+        (Language::YAML, "a: 1\n---\nb: 2\n"),
+        (Language::JSON, "{\n  \"a\": 1,,\n}\n"),
+        (Language::TOML, "a = 1\nb = \n"),
+        (Language::HCL, "a = 1\nb = \n"),
+        (Language::XML, "<r>\n  <a></b>\n</r>\n"),
+    ];
+    let mut failures = Vec::new();
+    for (host, text) in broken {
+        let error = host.parse(text).expect_err(text);
+        for edit in languages().into_iter().filter(|edit| *edit != host) {
+            let bridge = Bridge::new(host, edit, None).unwrap();
+            let Err(convert) = bridge.to_edit(text) else {
+                failures.push(format!("{host} via {edit}: converts"));
+                continue;
+            };
+            // So is a switch waiting on it (a view's text that does not
+            // parse), beside the syntax problem rather than at 1:1.
+            let waiting = super::super::bridge::locate_error(
+                host.behavior(),
+                text,
+                &SaveError::Convert(convert.clone()),
+            );
+            for (what, at) in [
+                ("load", bridge.load_problem(&convert).at),
+                ("switch", waiting),
+            ] {
+                if (at.line, at.column) != (error.line, error.column) || error.line == Some(1) {
+                    failures.push(format!(
+                        "{host} via {edit}, {what}: at {:?}:{:?}, the error at {:?}:{:?}",
+                        at.line, at.column, error.line, error.column
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

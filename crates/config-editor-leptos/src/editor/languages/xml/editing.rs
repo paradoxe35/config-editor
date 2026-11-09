@@ -102,6 +102,18 @@ pub(super) fn newline_insertion(source: &str, cursor: usize) -> (String, usize) 
         .chars()
         .take_while(|character| matches!(character, ' ' | '\t'))
         .collect();
+    // At the end of a line after a comment that follows code (`<a> <!-- c
+    // -->`): as at the end of the code.
+    let line_before = &source[line_start..byte];
+    let line_rest = source[byte..].split('\n').next().unwrap_or("");
+    if line_before.trim_end().ends_with("-->")
+        && line_rest.trim().is_empty()
+        && let Some(open) = line_before.rfind("<!--")
+        && !line_before[..open].trim().is_empty()
+    {
+        let code_end = line_start + line_before[..open].trim_end().len();
+        return newline_insertion(source, source[..code_end].encode_utf16().count());
+    }
     let before = source[..byte].trim_end_matches([' ', '\t']);
     let after = source[byte..].trim_start_matches([' ', '\t']);
     if before.ends_with('>')

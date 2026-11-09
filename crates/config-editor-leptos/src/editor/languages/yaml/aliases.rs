@@ -62,65 +62,81 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         let Some(anchor) = anchors.get(&alias.name) else {
             continue;
         };
-        let parts = if alias.merge {
-            // A merge parts only when an inherited key no longer reads the
-            // anchor's value: the map's own keys change freely.
-            let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
-            let (_, column) = merge_layout(previous, line_start);
-            let own = own_keys(previous, line_start, column);
-            match (new.pointer(&alias.pointer), new.pointer(anchor), old.pointer(anchor)) {
-                // The anchor's keys before and after: one it gains would be
-                // inherited too.
-                (Some(Value::Object(map)), Some(Value::Object(source)), Some(Value::Object(was))) => was
-                    .keys()
-                    .chain(source.keys())
-                    // An own key gone (deleted, renamed) lets the anchor's
-                    // show through; an inherited one must still match.
-                    .any(|key| if own.contains(key) { !map.contains_key(key) } else { map.get(key) != source.get(key) }),
-                _ => true,
-            }
-        } else {
+        if !alias.merge {
             // An alias edited as its anchor was still reads it.
             let (alias_now, anchor_now) = (new.pointer(&alias.pointer), new.pointer(anchor));
-            (old.pointer(&alias.pointer) != alias_now || old.pointer(anchor) != anchor_now)
-                && !(alias_now.is_some() && alias_now == anchor_now)
-        };
-        if !parts {
+            let parts = (old.pointer(&alias.pointer) != alias_now || old.pointer(anchor) != anchor_now)
+                && !(alias_now.is_some() && alias_now == anchor_now);
+            if parts {
+                let value = old.pointer(&alias.pointer)?;
+                edits.push((alias.start, alias.end, written_value(previous, anchor, value)));
+            }
             continue;
         }
-        if alias.merge {
-            // The merged keys the map does not write itself, as its entries.
-            let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
-            let line_end = previous[alias.start..].find('\n').map_or(previous.len(), |at| alias.start + at);
-            // On a list item's line (`- <<: *p`) the map starts after the
-            // dash: the first entry takes its place, the others its column.
-            let (prefix, column) = merge_layout(previous, line_start);
-            let Some(Value::Object(merged)) = old.pointer(anchor) else {
-                return None;
-            };
-            let own = own_keys(previous, line_start, column);
-            let lines: Vec<String> = merged
-                .iter()
-                .filter(|(key, _)| !own.contains(*key))
-                .enumerate()
-                .map(|(index, (key, value))| {
-                    let lead = if index == 0 { prefix.clone() } else { " ".repeat(column) };
-                    let pointer = format!("{anchor}/{}", key.replace('~', "~0").replace('/', "~1"));
-                    format!("{lead}{}: {}", yaml_key(key), written_value(previous, &pointer, value))
-                })
-                .collect();
-            if lines.is_empty() {
-                // The item's dash would go with the line.
-                if prefix.trim_start().starts_with('-') {
-                    return None;
+        let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
+        let line_end = previous[alias.start..].find('\n').map_or(previous.len(), |at| alias.start + at);
+        // On a list item's line (`- <<: *p`) the map starts after the dash.
+        let (prefix, column) = merge_layout(previous, line_start);
+        let own = own_keys(previous, line_start, column);
+        let (Some(Value::Object(was)), Some(Value::Object(was_map))) = (old.pointer(anchor), old.pointer(&alias.pointer)) else {
+            return None;
+        };
+        let entry = |key: &String, value: &Value| {
+            let pointer = format!("{anchor}/{}", key.replace('~', "~0").replace('/', "~1"));
+            format!("{}: {}", yaml_key(key), written_value(previous, &pointer, value))
+        };
+        let lone = lone_merge(&previous[line_start..line_end], &alias.name);
+        match merge_parting(new.pointer(&alias.pointer), new.pointer(anchor), was, &own) {
+            Parting::No => {}
+            // The merge stays: each inherited key the map now holds
+            // otherwise becomes its own, as it read before the edit, on
+            // the merge's side where it reads in the same place.
+            Parting::Overrides(keys) if lone && let Some((before, after)) = overrides_around(was, &own, &keys) => {
+                let lines = |keys: &[String]| -> Option<Vec<String>> { keys.iter().map(|key| Some(entry(key, was_map.get(key)?))).collect() };
+                let (before, after) = (lines(&before)?, lines(&after)?);
+                let indent = " ".repeat(column);
+                if !before.is_empty() {
+                    let at = line_start + prefix.len();
+                    let text: String = before.iter().map(|line| format!("{line}\n{indent}")).collect();
+                    edits.push((at, at, text));
                 }
-                edits.push((line_start, (line_end + 1).min(previous.len()), String::new()));
-            } else {
-                edits.push((line_start, line_end, lines.join("\n")));
+                if !after.is_empty() {
+                    let text: String = after.iter().map(|line| format!("\n{indent}{line}")).collect();
+                    edits.push((line_end, line_end, text));
+                }
             }
-        } else {
-            let value = old.pointer(&alias.pointer)?;
-            edits.push((alias.start, alias.end, written_value(previous, anchor, value)));
+            // No override reads as the edit (an inherited key gone): the
+            // merged keys the map does not write itself, as its entries,
+            // the first in the merge's place, the others at its column.
+            // Those the edit keeps come first, so the merge's comments stay
+            // with one of them.
+            Parting::Overrides(_) | Parting::WrittenOut => {
+                let kept = |key: &String| new.pointer(&alias.pointer).and_then(|map| map.get(key)).is_some();
+                let (mut entries, gone): (Vec<_>, Vec<_>) = was.iter().filter(|(key, _)| !own.contains(*key)).partition(|(key, _)| kept(key));
+                entries.extend(gone);
+                let lines: Vec<String> = entries
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (key, value))| {
+                        let lead = if index == 0 { prefix.clone() } else { " ".repeat(column) };
+                        format!("{lead}{}", entry(key, value))
+                    })
+                    .collect();
+                if lines.is_empty() {
+                    // The item's dash would go with the line.
+                    if prefix.trim_start().starts_with('-') {
+                        return None;
+                    }
+                    edits.push((line_start, (line_end + 1).min(previous.len()), String::new()));
+                } else {
+                    // The merge line's comment stays, on the first entry.
+                    let line = &previous[line_start..line_end];
+                    let comment = &line[code_before_comment(line).trim_end().len()..];
+                    let mut lines = lines;
+                    lines[0].push_str(comment);
+                    edits.push((line_start, line_end, lines.join("\n")));
+                }
+            }
         }
     }
     if edits.is_empty() {
@@ -132,6 +148,73 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         detached.replace_range(start..end, &text);
     }
     Some(detached)
+}
+
+/// How a merge (`<<: *base`) reads the edit.
+enum Parting {
+    /// As the anchor's keys still: it stays.
+    No,
+    /// Otherwise for these inherited keys, which the map still holds: it
+    /// stays, and they become the map's own.
+    Overrides(Vec<String>),
+    /// Without an inherited key, or without its anchor: written out.
+    WrittenOut,
+}
+
+/// How the merged map `map` reads the edit beside its anchor `source`
+/// (`was` before it), `own` the keys the map writes itself.
+fn merge_parting(map: Option<&Value>, source: Option<&Value>, was: &serde_json::Map<String, Value>, own: &[String]) -> Parting {
+    let (Some(Value::Object(map)), Some(Value::Object(source))) = (map, source) else {
+        return Parting::WrittenOut;
+    };
+    // An anchor emptied writes no entries for the merge to read.
+    if source.is_empty() && !was.is_empty() {
+        return Parting::WrittenOut;
+    }
+    let mut overrides: Vec<String> = Vec::new();
+    // The anchor's keys before and after: one it gains would be inherited
+    // too.
+    for key in was.keys().chain(source.keys()) {
+        if own.contains(key) {
+            // An own key gone (deleted, renamed) lets the anchor's show
+            // through.
+            if !map.contains_key(key) {
+                return Parting::WrittenOut;
+            }
+        } else if map.get(key) != source.get(key) && !overrides.contains(key) {
+            // An override reads as the map did: only for a key it held.
+            if !map.contains_key(key) || !was.contains_key(key) {
+                return Parting::WrittenOut;
+            }
+            overrides.push(key.clone());
+        }
+    }
+    if overrides.is_empty() { Parting::No } else { Parting::Overrides(overrides) }
+}
+
+/// Whether `line` merges the one alias `*name` (`  <<: *name  # c`), not a
+/// list of them.
+fn lone_merge(line: &str, name: &str) -> bool {
+    let code = code_before_comment(line);
+    code.split_once("<<")
+        .and_then(|(_, rest)| rest.trim_start().strip_prefix(':'))
+        .is_some_and(|rest| rest.trim() == format!("*{name}"))
+}
+
+/// The overridden `keys` written before the merge and after it, so the map
+/// reads its keys in the order it did (the merged ones where the merge
+/// is): those leading the inherited keys go before it, those ending them
+/// after; `None` when some sit between keys still inherited.
+fn overrides_around(was: &serde_json::Map<String, Value>, own: &[String], keys: &[String]) -> Option<(Vec<String>, Vec<String>)> {
+    let inherited: Vec<&String> = was.keys().filter(|key| !own.contains(key)).collect();
+    let leading = inherited.iter().take_while(|key| keys.contains(key)).count();
+    let trailing = inherited[leading..].iter().rev().take_while(|key| keys.contains(key)).count();
+    if leading + trailing != keys.len() {
+        return None;
+    }
+    let before = inherited[..leading].iter().map(|key| (*key).clone()).collect();
+    let after = inherited[inherited.len() - trailing..].iter().map(|key| (*key).clone()).collect();
+    Some((before, after))
 }
 
 /// `value` as `previous` writes it at `pointer` (`0x1F`, `'quoted'`) when

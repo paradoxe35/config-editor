@@ -5,8 +5,8 @@ use web_sys::KeyboardEvent;
 
 use super::super::edit::Edit;
 use super::super::keyboard::{replace_selection, utf16_to_byte_index};
-use super::super::language::Newline;
 use super::super::state::{EditorState, textarea_selection};
+use super::enter_newline::newline_at;
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -71,17 +71,9 @@ pub(in crate::editor) fn enter_at(state: EditorState, selection: (usize, usize),
     // In a comment or a multi-line string's body the line break is text:
     // keep the line's indentation, nothing more.
     let behavior = state.behavior();
-    let newline = if behavior.lexical_state(&text, start).in_comment || state.in_string_body(start)
-    {
-        let line_start = line_start_of(&text, start);
-        let indent: String = text[utf16_to_byte_index(&text, line_start)..]
-            .chars()
-            .take_while(|character| matches!(character, ' ' | '\t'))
-            .collect();
-        Newline::new(format!("\n{indent}"))
-    } else {
-        behavior.newline(&text, start)
-    };
+    let bodies = state.view().string_bodies.get_untracked();
+    let in_body = |line: usize| bodies.iter().any(|lines| lines.contains(&line));
+    let newline = newline_at(behavior, &text, start, &in_body);
     // A line of only indentation is left empty, not with trailing spaces.
     let line_start = line_start_of(&text, start);
     let blank_before = text

@@ -20,6 +20,7 @@ mod editing;
 mod convert;
 mod floats;
 mod heredoc;
+mod expressions;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -52,6 +53,10 @@ pub(super) struct HclBehavior;
 impl ConfigLanguage for HclBehavior {
     fn repetition(&self) -> Repetition {
         Repetition::Blocks
+    }
+
+    fn expressions(&self, source: &str) -> Vec<String> {
+        expressions::expression_pointers(source)
     }
 
     fn info(&self) -> LanguageInfo {

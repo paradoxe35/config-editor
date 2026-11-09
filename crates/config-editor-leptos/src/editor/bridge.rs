@@ -142,10 +142,16 @@ impl Bridge {
         // host value as the edit language showed it, so values that language
         // cannot tell apart (XML reads `null`, `""` and `"1"` as text) keep
         // the host's own.
+        // Keys the host reads two ways are compared as the edit spells them
+        // (an XML attribute the view showed `@a` beside a child `a` a save
+        // removed is still `@a`, so a child `a` added back is the child).
+        let old = host.spelled_like(previous_host, old, &edited);
         let shown = self.to_edit(previous_host).ok();
-        let seen = shown
-            .as_ref()
-            .and_then(|shown| codec::read(self.edit.behavior(), &shown.text, self.shape()).ok());
+        let seen = shown.as_ref().and_then(|shown| {
+            codec::read(self.edit.behavior(), &shown.text, self.shape())
+                .ok()
+                .map(|seen| host.spelled_like(previous_host, seen, &edited))
+        });
         let unshown = shown.map(|shown| shown.losses).unwrap_or_default();
         let value = match &seen {
             // An edit where the view could not show the host's value (an
@@ -206,7 +212,7 @@ impl Bridge {
         // Keys the host reads two ways are spelled as the edit spells them
         // (an XML attribute `@a` whose child `a` is gone stays `@a`).
         let Ok(target) = codec::read(host, &rendered.text, self.shape())
-            .map(|target| host.spelled_like(target, &value))
+            .map(|target| host.spelled_like(&rendered.text, target, &value))
         else {
             #[cfg(test)]
             WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
@@ -449,11 +455,14 @@ impl Bridge {
 
     /// The error shown when the host's text cannot be converted for editing.
     pub(super) fn load_problem(&self, error: &ConvertError) -> EditAsProblem {
+        // The host's text is shown as it is: a syntax error is placed where
+        // its message says (a second YAML document's `---`).
+        let (line, column) = syntax_error_place(error).unwrap_or((1, 1));
         EditAsProblem {
             at: Diagnostic {
-                line: Some(1),
-                column: Some(1),
-                end_column: Some(2),
+                line: Some(line),
+                column: Some(column),
+                end_column: Some(column + 1),
                 severity: Severity::Error,
                 ..Diagnostic::default()
             },
@@ -553,7 +562,28 @@ pub(super) fn locate_error(
     source: &str,
     error: &SaveError,
 ) -> Diagnostic {
+    // A syntax error of `source` itself (a switch waiting on it) is placed
+    // where its message says, beside the syntax problem.
+    if let SaveError::Convert(convert) = error
+        && let Some((line, column)) = syntax_error_place(convert)
+    {
+        return Diagnostic {
+            line: Some(line),
+            column: Some(column),
+            end_column: Some(column + 1),
+            severity: Severity::Error,
+            ..Diagnostic::default()
+        };
+    }
     located(behavior, source, &error.pointer(), Severity::Error)
+}
+
+/// The line and column a syntax error names.
+fn syntax_error_place(error: &ConvertError) -> Option<(usize, usize)> {
+    match error {
+        ConvertError::Parse(parse) => Some((parse.line?, parse.column.unwrap_or(1))),
+        _ => None,
+    }
 }
 
 /// A place on the value at `pointer` in `source`, or on the document's

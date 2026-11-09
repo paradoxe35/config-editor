@@ -53,9 +53,15 @@ impl EditorState {
         if changed && origin.widens() {
             self.widen_edit(&mut edit);
         }
-        if origin == Origin::Switch {
-            self.forget_folds();
-        }
+        // Another language's lines: each fold is carried by its field.
+        let folded_fields = match switching {
+            Some(_) => {
+                let fields = self.folded_fields(&edit.before, language_before);
+                self.forget_folds();
+                fields
+            }
+            None => Vec::new(),
+        };
 
         trace(Stage::Check);
         if changed && origin.is_checked() {
@@ -89,6 +95,9 @@ impl EditorState {
             self.protect().trust_text();
         }
         let rewritten = self.write_text(edit.text.clone());
+        let rewritten = switching
+            .is_some_and(|language| self.fold_fields(&folded_fields, language))
+            || rewritten;
         if origin.redetects_indent() {
             self.redetect_indent();
         }

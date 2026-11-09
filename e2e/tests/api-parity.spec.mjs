@@ -156,6 +156,7 @@ const CONFIG_LANGUAGE = {
   mixed_content: { exempt: SAVE_FORMS },
   detach_shared: { exempt: SAVE_FORMS },
   tags: { exempt: SAVE_FORMS },
+  expressions: { exempt: 'values one built-in syntax writes as expressions (HCL references and templates), listed as a conversion\'s losses; a custom language\'s values are what its `parse` returns, and `serialize` writes them back as values' },
   spelled_like: { exempt: SAVE_FORMS },
   writes_as_labels: { exempt: SAVE_FORMS },
   has_processing_instructions: { exempt: RUST_ONLY_REFINEMENT },

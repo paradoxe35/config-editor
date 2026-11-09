@@ -27,6 +27,8 @@ mod text;
 mod one_line;
 mod text_bodies;
 mod spelling;
+mod attribute_values;
+mod entities;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -115,8 +117,8 @@ impl ConfigLanguage for XmlBehavior {
 
     /// An attribute read `a` (no child of its name now) where the value
     /// written spells it `@a`.
-    fn spelled_like(&self, read: Value, like: &Value) -> Value {
-        spelling::spelled_like(read, like)
+    fn spelled_like(&self, source: &str, read: Value, like: &Value) -> Value {
+        spelling::spelled_like(source, read, like)
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
@@ -208,7 +210,7 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn unconvertible(&self, source: &str) -> Option<String> {
-        namespace_clash(source)
+        namespace_clash(source).or_else(|| entities::declared_entity(source))
     }
 
     fn format_value(&self, value: &Value) -> String {
@@ -299,6 +301,10 @@ impl ConfigLanguage for XmlBehavior {
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
         let attributes = previous.map(attribute_paths).unwrap_or_default();
+        let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
+        if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
+            return Err(reason);
+        }
         let Value::Object(map) = &with_attributes(value, &attributes, &mut Vec::new()) else {
             return Err("the XML document model is an object of elements".to_string());
         };

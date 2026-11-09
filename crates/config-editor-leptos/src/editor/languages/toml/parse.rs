@@ -701,7 +701,28 @@ fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usi
         let (line_number, column) = line_column(source, offset + start);
         return (line_number, column, column + 1);
     }
-    span_between(source, offset + start, offset + end)
+    span_between(source, offset + start, multi_line_string_end(source, offset + start).unwrap_or(offset + end))
+}
+
+/// Where a multi-line string starting at byte `start` (`"""`, `'''`) and
+/// not closed on its first line ends, past its closing delimiter.
+fn multi_line_string_end(source: &str, start: usize) -> Option<usize> {
+    let rest = &source[start..];
+    let delimiter = ["\"\"\"", "'''"].into_iter().find(|delimiter| rest.starts_with(delimiter))?;
+    let first_line = rest.find('\n')?;
+    let body = &rest[delimiter.len()..];
+    let mut at = 0;
+    loop {
+        let found = body[at..].find(delimiter)? + at;
+        // A basic string's `\"""` is text; up to two more quotes close it.
+        let escaped = delimiter.starts_with('"') && body[..found].chars().rev().take_while(|character| *character == '\\').count() % 2 == 1;
+        if !escaped {
+            let extra = body[found + 3..].chars().take(2).take_while(|character| delimiter.starts_with(*character)).count();
+            let end = start + delimiter.len() + found + 3 + extra;
+            return (end > start + first_line).then_some(end);
+        }
+        at = found + 1;
+    }
 }
 
 pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {

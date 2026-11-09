@@ -57,11 +57,31 @@ pub(super) fn can_be_plain_in_flow(text: &str) -> bool {
     can_be_plain(text) && !text.contains(['?', ',', '[', ']', '{', '}', ':'])
 }
 
+/// The keys `previous` writes bare though the rule quotes them (`n:`, `on:`,
+/// which YAML 1.1 readers take for booleans): the host's readers take them
+/// as text, so new keys spelled so are written bare beside them.
+pub(super) fn keys_written_bare(previous: &str) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    for line in previous.lines() {
+        let code = super::editing::code_before_comment(line).trim_start();
+        let code = code.trim_start_matches(['-', ' ']);
+        let Some((key, rest)) = code.split_once(':') else {
+            continue;
+        };
+        let bare = !key.is_empty() && key.chars().all(|character| character.is_alphanumeric() || character == '_');
+        if bare && (rest.is_empty() || rest.starts_with([' ', '\t'])) && !can_be_plain(key) && !keys.iter().any(|known| known == key) {
+            keys.push(key.to_string());
+        }
+    }
+    keys
+}
+
 /// `text` (a document the YAML writer wrote for `value`) with each string
-/// value it wrote plain that [`can_be_plain`] refuses written in double
-/// quotes instead: the writer follows YAML 1.2 alone and leaves `yes`,
-/// `1_000` and dates bare.
-pub(super) fn quote_typed_plain(text: &str, value: &Value) -> String {
+/// value and key it wrote plain that [`can_be_plain`] refuses written in
+/// double quotes instead: the writer follows YAML 1.2 alone and leaves
+/// `yes`, `1_000` and dates bare. The keys `bare_keys` (the host's
+/// [`keys_written_bare`]) stay bare.
+pub(super) fn quote_typed_plain(text: &str, value: &Value, bare_keys: &[String]) -> String {
     let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
@@ -73,7 +93,7 @@ pub(super) fn quote_typed_plain(text: &str, value: &Value) -> String {
             let line = &text[start..text[start..].find('\n').map_or(text.len(), |end| start + end)];
             let byte = |column: usize| line.char_indices().nth(column - 1).map_or(line.len(), |(at, _)| at);
             let (from, to) = (byte(column), byte(end_column));
-            if line.get(from..to) == Some(key.as_str()) && line[to..].starts_with(':') && !can_be_plain(key) {
+            if line.get(from..to) == Some(key.as_str()) && line[to..].starts_with(':') && !can_be_plain(key) && !bare_keys.contains(key) {
                 edits.push((start + from..start + to, super::suggestions::yaml_quoted(key)));
             }
         }

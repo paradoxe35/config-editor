@@ -226,12 +226,30 @@ pub fn bracket_newline(
         .next()
         .filter(|next| !in_string && pairs.iter().any(|(_, close)| close == next));
     let unit = super::commands::indent_unit(source);
+    // Spacing the caret ends a bracket's entry with (`[1, |]`) is not left
+    // at the end of the line.
+    let raw = &source[line_start..byte];
+    let trailing = raw.len() - raw.trim_end_matches([' ', '\t']).len();
+    let trimmed = |mut newline: Newline| {
+        if !in_string && !raw.trim().is_empty() {
+            newline.replaces_before = trailing;
+        }
+        newline
+    };
+    let open_here = !in_string && opened_on_line(before, pairs);
     match (opens, closes) {
-        (Some(_), Some(_)) => Newline::with_caret(
+        (Some(_), Some(_)) => trimmed(Newline::with_caret(
             format!("\n{indent}{unit}\n{indent}"),
             1 + indent.len() + unit.len(),
-        ),
-        (Some(_), None) => Newline::new(format!("\n{indent}{unit}")),
+        )),
+        (Some(_), None) => trimmed(Newline::new(format!("\n{indent}{unit}"))),
+        // Before the closer of a bracket opened on this line (`[1, 2, |]`):
+        // the entries go on one level deeper, the closer on its own line,
+        // as between the brackets.
+        (None, Some(_)) if open_here && before.ends_with(',') => trimmed(Newline::with_caret(
+            format!("\n{indent}{unit}\n{indent}"),
+            1 + indent.len() + unit.len(),
+        )),
         (None, Some(closer)) => {
             let opener = pairs
                 .iter()
@@ -240,13 +258,11 @@ pub fn bracket_newline(
             let aligned = opener
                 .and_then(|opener| opener_line(source, byte, opener, closer))
                 .map_or(indent, |start| line_indent(&source[start..]));
-            Newline::new(format!("\n{aligned}"))
+            trimmed(Newline::new(format!("\n{aligned}")))
         }
         // Inside a bracket opened earlier on this line (`[1,| 2]`): one
         // level deeper, as after the opener itself.
-        (None, None) if !in_string && opened_on_line(before, pairs) => {
-            Newline::new(format!("\n{indent}{unit}"))
-        }
+        (None, None) if open_here => trimmed(Newline::new(format!("\n{indent}{unit}"))),
         (None, None) => Newline::new(format!("\n{indent}")),
     }
 }
@@ -1149,6 +1165,16 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// The JSON pointer of each value `source` writes as an expression (an
+    /// HCL reference `var.z`, or template `"${var.x}-y"`): the data holds
+    /// its text, which another language reads as plain text (as the text a
+    /// literal `"$${x}"` reads as), so a conversion lists it as a loss.
+    /// Empty by default.
+    fn expressions(&self, source: &str) -> Vec<String> {
+        let _ = source;
+        Vec::new()
+    }
+
     /// The JSON pointer of each value `source` writes with a tag (YAML
     /// `!Sub x`, `!include`), with the tag: the data holds the value under
     /// it, and an Edit-as save keeps each one or waits. Empty by default.
@@ -1464,13 +1490,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
-    /// `read`, a value read back from a text written from `like`, with its
-    /// keys spelled as `like` spells them, where the language reads one
-    /// key two ways: XML reads an attribute `@a` beside a child element
-    /// `a`, and `a` alone. A save then compares the two key by key (an
-    /// attribute stays one when the child is removed). Default: `read`.
-    fn spelled_like(&self, read: Value, like: &Value) -> Value {
-        let _ = like;
+    /// `read`, the value `source` reads as, with its keys spelled as
+    /// `like` spells them, where the language reads one key two ways: XML
+    /// reads an attribute `@a` beside a child element `a`, and `a` alone.
+    /// A save then compares the two key by key (an attribute stays one
+    /// when the child is removed, and a child added back beside it is a
+    /// child). Default: `read`.
+    fn spelled_like(&self, source: &str, read: Value, like: &Value) -> Value {
+        let _ = (source, like);
         read
     }
 

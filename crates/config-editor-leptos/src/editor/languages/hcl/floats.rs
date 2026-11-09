@@ -63,3 +63,35 @@ fn whole_floats(value: &Value, pointer: String, out: &mut Vec<(String, String)>)
         _ => {}
     }
 }
+
+/// Stands in for a whole float written with a fraction or exponent (`1.0`,
+/// `1e3`) while the document is read: `hcl-rs` numbers hold no whole float,
+/// so it would read as the integer 1. No document holds this string.
+const WHOLE_FLOAT: &str = "\u{0}whole float\u{0}";
+
+/// `number` (a value as the parser read it) marked when written as a float
+/// that reads as a whole number, so the read value keeps it a float, as
+/// every other language reads `1.0`.
+pub(super) fn mark_whole_float(expression: &mut hcl_edit::expr::Expression) {
+    let hcl_edit::expr::Expression::Number(number) = expression else {
+        return;
+    };
+    let written = number.as_repr().map(|repr| repr.to_string()).unwrap_or_default();
+    let value = number.value();
+    if !value.is_f64() && written.contains(['.', 'e', 'E']) && let Some(float) = value.as_f64() {
+        *expression = hcl_edit::expr::Expression::String(hcl_edit::Decorated::new(format!("{WHOLE_FLOAT}{float:?}")));
+    }
+}
+
+/// `value` with each marked whole float read as the float it is.
+pub(super) fn read_whole_floats(value: Value) -> Value {
+    match value {
+        Value::String(text) => match text.strip_prefix(WHOLE_FLOAT).and_then(|float| float.parse::<f64>().ok()) {
+            Some(float) => serde_json::Number::from_f64(float).map_or(Value::String(text), Value::Number),
+            None => Value::String(text),
+        },
+        Value::Object(map) => Value::Object(map.into_iter().map(|(key, child)| (key, read_whole_floats(child))).collect()),
+        Value::Array(items) => Value::Array(items.into_iter().map(read_whole_floats).collect()),
+        other => other,
+    }
+}

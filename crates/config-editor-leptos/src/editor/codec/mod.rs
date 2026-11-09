@@ -103,7 +103,7 @@ pub(super) fn reads_as(
     schema: Option<&Value>,
     new: &Value,
 ) -> bool {
-    read(language, text, schema).is_ok_and(|read| language.spelled_like(read, new) == *new)
+    read(language, text, schema).is_ok_and(|read| language.spelled_like(text, read, new) == *new)
 }
 
 /// [`read`] without the shared parse: a text read once on the side (a
@@ -136,6 +136,9 @@ pub(super) fn render(
             error.message
         ))
     })?;
+    // Keys read two ways (an XML attribute `@b` with no child `b` reads
+    // `b`) compared as `value` spells them.
+    let reread = target.spelled_like(&text, reread, value);
     let mut losses = Vec::new();
     differences(value, &reread, String::new(), &mut losses);
     Ok(Conversion { text, losses })
@@ -199,7 +202,9 @@ pub(super) fn convert(
 
 /// [`convert`] for a caller who keeps the result (the headless
 /// `convert`): the values whose tags the target has no place for (YAML's
-/// `!Sub`) are losses too. (Edit-as keeps the host's tags itself.)
+/// `!Sub`), and those written as expressions (HCL's `var.z`, which the
+/// target holds as text), are losses too. (Edit-as keeps the host's tags
+/// and expressions itself.)
 pub(super) fn convert_away(
     source: &str,
     from: &dyn ConfigLanguage,
@@ -207,7 +212,8 @@ pub(super) fn convert_away(
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     let mut conversion = convert(source, from, to, None, schema)?;
-    for (pointer, _) in from.tags(source) {
+    let tagged = from.tags(source).into_iter().map(|(pointer, _)| pointer);
+    for pointer in tagged.chain(from.expressions(source)) {
         if !conversion.losses.contains(&pointer) {
             conversion.losses.push(pointer);
         }
@@ -375,8 +381,18 @@ pub(super) fn patch_inline(
         {
             return Some(patched);
         }
+        // A new container in a collection over lines that is the language's
+        // block form (a JSON object) is written over lines too: left to the
+        // line patch.
+        let over_lines = span
+            .and_then(|span| kept_inline::multi_line_list(language, previous, span))
+            .zip(old.pointer(&pointer).zip(new.pointer(&pointer)))
+            .is_some_and(|(range, (before, after))| {
+                flow::adds_containers_over_lines(language, &previous[range], before, after)
+            });
+        let span_over_lines = span.filter(|_| !over_lines);
         // A list written one item per line (`allow = [` … `]`).
-        if let Some(span) = span
+        if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Array(items)) = new.pointer(&pointer)
             && let Some(Value::Array(before)) = old.pointer(&pointer)
@@ -402,7 +418,7 @@ pub(super) fn patch_inline(
         }
         // A flow map or object written one entry per line (`tcp: {` … `}`), its
         // entries kept on their lines (before restyling it whole).
-        if let Some(span) = span
+        if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && let Some(Value::Object(entries)) = new.pointer(&pointer)
             && let Some(Value::Object(before)) = old.pointer(&pointer)
@@ -426,7 +442,7 @@ pub(super) fn patch_inline(
         }
         // A flow collection over lines without comments in it (`{a: 1,\n
         // b: 2}`): restyled whole, its untouched items as written.
-        if let Some(span) = span
+        if let Some(span) = span_over_lines
             && let Some(range) = kept_inline::multi_line_list(language, previous, span)
             && previous[range.clone()]
                 .lines()
@@ -573,17 +589,23 @@ fn replace_inline(
     let end = start + matching_close(text, close)? + 1;
     let written = &line[start..end];
     // An empty container where the language writes new ones in block
-    // style (YAML's `[]`, the only way it writes an empty list) says
-    // nothing about the style its items take: they are written as new
-    // ones are (a block list), not kept on one line.
+    // style below their key (YAML's `[]`, the only way it writes an empty
+    // list) says nothing about the style its items take: they are written
+    // as new ones are (a block list), unless the host writes others of its
+    // kind filled on one line. Elsewhere (a TOML inline table, an HCL
+    // object) the block form is another form, written in another place: it
+    // stays on one line.
     let empty = written[1..written.len() - 1].trim().is_empty();
     let filled = match value {
         Value::Array(items) => !items.is_empty(),
         Value::Object(map) => !map.is_empty(),
         _ => false,
     };
+    let at = line_start + start;
     if empty
         && filled
+        && language.indent_is_structure()
+        && !flow::writes_filled_on_one_line(language, previous, close, at..at + written.len())
         && language
             .serialize(value, None)
             .is_ok_and(|fresh| !fresh.trim_start().starts_with(opener_of(close)))

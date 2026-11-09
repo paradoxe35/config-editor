@@ -569,10 +569,10 @@ fn untouched_numbers_stay_as_written_through_any_view() {
     report(failures);
 }
 
-/// A view that reads a whole float as an integer (HCL shows `1.0` as `1`,
-/// `3.0e2` as `300`) cannot tell it from one: a number typed over it keeps
-/// the host's float type (round 20: the HCL view saved an integer), and
-/// only that line changes.
+/// A view that reads a whole float as an integer cannot tell it from one:
+/// a number typed over it keeps the host's float type (round 20: the HCL
+/// view saved an integer, before HCL read `1.0` as a float), and only that
+/// line changes.
 #[test]
 fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
     fn whole_floats(value: &Value, pointer: String, out: &mut Vec<String>) {
@@ -636,7 +636,7 @@ fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
             }
         }
     }
-    assert!(tried > 10, "only {tried} cases");
+    assert!(tried > 0, "only {tried} cases");
     report(failures);
 }
 

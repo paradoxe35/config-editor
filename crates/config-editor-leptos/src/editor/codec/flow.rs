@@ -223,3 +223,102 @@ fn split_items(inner: &str) -> Option<Vec<&str>> {
     }
     Some(items)
 }
+
+/// Whether `previous` writes a container closed by `close` with items on
+/// one line (`tags: [a, b]`) other than at `skip` (a byte range): a sign
+/// its empty ones (`[]`) are filled on one line too.
+pub(super) fn writes_filled_on_one_line(
+    language: &dyn ConfigLanguage,
+    previous: &str,
+    close: char,
+    skip: std::ops::Range<usize>,
+) -> bool {
+    let Some(open) = language
+        .config()
+        .brackets
+        .iter()
+        .find_map(|(open, closer)| (*closer == close).then_some(*open))
+    else {
+        return false;
+    };
+    let mut offset = 0;
+    for line in previous.split_inclusive('\n') {
+        let code = &line[..super::comment_start(language, line)];
+        let filled = code.char_indices().any(|(at, character)| {
+            let start = offset + at;
+            character == open
+                && !skip.contains(&start)
+                && super::super::inline::matching_close(&code[at..], close)
+                    .is_some_and(|end| !code[at + 1..at + end].trim().is_empty())
+        });
+        if filled {
+            return true;
+        }
+        offset += line.len();
+    }
+    false
+}
+
+/// Whether `after` (a map or list `written` one entry per line) adds or
+/// changes an entry holding a container with entries of its own that is
+/// written over lines as its siblings are, not on one line inside them: in
+/// a language whose collections over lines are its block form (JSON), where
+/// no sibling container is written on one line (HCL's `{ name = "a" },`),
+/// and in a list only beside one written over lines.
+pub(super) fn adds_containers_over_lines(
+    language: &dyn ConfigLanguage,
+    written: &str,
+    before: &Value,
+    after: &Value,
+) -> bool {
+    if language.indent_is_structure() {
+        return false;
+    }
+    let closer_of = |open: char| {
+        language
+            .config()
+            .brackets
+            .iter()
+            .find_map(|(opener, close)| (*opener == open).then_some(*close))
+    };
+    let lines: Vec<&str> = written.lines().collect();
+    let inner = lines
+        .get(1..lines.len().saturating_sub(1))
+        .unwrap_or_default();
+    let code = |line: &&str| {
+        line[..super::comment_start(language, line)]
+            .trim()
+            .to_string()
+    };
+    let one_line = inner.iter().map(code).any(|code| {
+        code.char_indices().any(|(at, character)| {
+            let Some(close) = closer_of(character) else {
+                return false;
+            };
+            super::super::inline::matching_close(&code[at..], close)
+                .is_some_and(|end| !code[at + 1..at + end].trim().is_empty())
+        })
+    });
+    let opened = inner.iter().map(code).any(|code| {
+        code.chars()
+            .next_back()
+            .is_some_and(|last| closer_of(last).is_some())
+    });
+    if one_line || (after.is_array() && !opened) {
+        return false;
+    }
+    let filled = |value: &Value| match value {
+        Value::Object(map) => !map.is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        _ => false,
+    };
+    match (before, after) {
+        (Value::Object(before), Value::Object(after)) => after
+            .iter()
+            .any(|(key, value)| filled(value) && before.get(key) != Some(value)),
+        (Value::Array(before), Value::Array(after)) => after
+            .iter()
+            .any(|value| filled(value) && !before.contains(value)),
+        _ => false,
+    }
+}

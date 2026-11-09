@@ -1008,7 +1008,7 @@ fn round_12_saves_change_only_the_edit() {
         Language::JSON,
         yaml,
         &|v| v["clients"]["acme"]["max_connections"] = json!(5),
-        "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 5\n  gamma:\n    max_connections: 2\n    secret: s3\n",
+        "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 5\n  gamma:\n    max_connections: 2\n    <<: *client\n    secret: s3\n",
     );
     check(
         "H1 merge, other edit",
@@ -1337,7 +1337,7 @@ fn round_14_saves_change_only_the_edit() {
         Language::JSON,
         yaml,
         &|v| v["web"]["clients"][0]["target"] = json!(81),
-        "# top\nweb:\n  clients:\n    - &p {name: a, target: 81, w: 3}\napi:\n  clients:\n    - {name: a, target: 80, w: 3}\n    - name: a\n      target: 80\n      w: 2 # override\n",
+        "# top\nweb:\n  clients:\n    - &p {name: a, target: 81, w: 3}\napi:\n  clients:\n    - {name: a, target: 80, w: 3}\n    - <<: *p\n      target: 80\n      w: 2 # override\n",
     );
     // H2: expressions stay expressions; a labelled block holding one deletes.
     let hcl = "# top\nvariable \"v\" {\n  d = 1 # d\n}\nvariable \"w\" {\n  type = number\n}\n";

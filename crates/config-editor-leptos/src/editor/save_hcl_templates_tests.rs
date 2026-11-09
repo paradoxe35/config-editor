@@ -149,3 +149,72 @@ fn a_heredoc_template_keeps_its_interpolation_when_edited() {
         );
     }
 }
+
+/// M25-E2: a document's expressions (templates `"${var.x}-y"`, heredocs
+/// holding `${…}`, references `var.z`, in lists and blocks too) are read
+/// as their text, as an escaped literal `"$${only}"` is: converting lists
+/// each one as a loss, so a round trip that writes it back as text does not
+/// change its meaning silently. Literals are no loss.
+#[test]
+fn a_conversion_lists_the_documents_expressions_as_losses() {
+    let source = "a = \"${var.x}-y\"\nb = <<EOT\nhi ${var.n}\n$${lit}\nEOT\nc = var.z\nd = \"$${only}\"\ne = \"plain\"\nl = [var.p, \"q\", \"${var.r}\"]\nf = upper(\"x\")\nsvc \"web\" {\n  port = var.port\n  name = \"$${n}\"\n}\n";
+    let expected = ["/a", "/b", "/c", "/l/0", "/l/2", "/f", "/svc/web/port"];
+    let mut failures = Vec::new();
+    for target in super::save_matrix::ALL {
+        match Language::HCL.convert(source, target) {
+            Ok(conversion) => {
+                let mut losses = conversion.losses.clone();
+                losses.sort();
+                let mut wanted = expected.map(str::to_string).to_vec();
+                wanted.sort();
+                if losses != wanted {
+                    failures.push(format!("to {target}: losses {losses:?}"));
+                }
+            }
+            Err(error) => failures.push(format!("to {target}: {error}")),
+        }
+    }
+    // A document with no expressions converts with none.
+    let literal = "d = \"$${only}\"\nh = <<EOT\n$${lit}\nEOT\n";
+    for target in super::save_matrix::ALL {
+        match Language::HCL.convert(literal, target) {
+            Ok(conversion) if conversion.losses.is_empty() => {}
+            other => failures.push(format!("literals to {target}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Through Edit as, each string keeps its meaning however the view shows
+/// it: a template stays one, a reference stays one, an escaped literal
+/// stays escaped, and `${` typed into a literal is text.
+#[test]
+fn edits_keep_templates_references_and_literals_apart_from_every_view() {
+    let host_text = "a = \"${var.x}-y\"\nc = var.z\nd = \"$${only}\"\ne = \"plain\"\n";
+    let cases: [(&str, &str, &str, &str); 4] = [
+        (
+            "/a",
+            "${var.x}-z",
+            "a = \"${var.x}-y\"",
+            "a = \"${var.x}-z\"",
+        ),
+        ("/c", "${var.w}", "c = var.z", "c = var.w"),
+        ("/d", "${only2}", "d = \"$${only}\"", "d = \"$${only2}\""),
+        ("/e", "plain${q}", "e = \"plain\"", "e = \"plain$${q}\""),
+    ];
+    let mut failures = Vec::new();
+    for (pointer, text, before, after) in cases {
+        for view in VIEWS {
+            let bridge = Bridge::new(Language::HCL, view, None).unwrap();
+            let shown = bridge.to_edit(host_text).unwrap();
+            let edited = view_with(view, &shown.text, |value| {
+                *value.pointer_mut(pointer).unwrap() = json!(text)
+            });
+            match bridge.to_host(&edited, host_text) {
+                Ok(saved) if saved.text == host_text.replace(before, after) => {}
+                other => failures.push(format!("{pointer} via {}: {other:?}", view.label())),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

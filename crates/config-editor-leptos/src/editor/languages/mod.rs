@@ -70,6 +70,15 @@ mod editing_matrix;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml"
+))]
+mod enter_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml",
     feature = "folding"
 ))]

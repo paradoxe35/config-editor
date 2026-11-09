@@ -1591,8 +1591,9 @@ fn enter_inside_a_yaml_scalar_continues_it() {
         ("key: value|\n", "key: value\n|\n"),
         ("key: v|  # c\n", "key: v\n|  # c\n"),
         ("key: \"done\"|\n", "key: \"done\"\n|\n"),
-        // In a flow collection, one level deeper (round 21).
-        ("key: [a, |b]\n", "key: [a, \n  |b]\n"),
+        // In a flow collection, one level deeper (round 21), no spacing
+        // left at the line's end.
+        ("key: [a, |b]\n", "key: [a,\n  |b]\n"),
     ] {
         let actual = enter(Language::YAML, marked);
         if actual != expected {

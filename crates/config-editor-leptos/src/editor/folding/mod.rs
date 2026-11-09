@@ -24,10 +24,21 @@ mod components;
 mod follow;
 mod handle;
 mod keys;
+mod switch;
 pub(crate) mod texts;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod switch_tests;
 
 pub(super) use components::mount_fold_layers;
 pub(super) use keys::{chord_key, shortcuts, unfold_before_edit};

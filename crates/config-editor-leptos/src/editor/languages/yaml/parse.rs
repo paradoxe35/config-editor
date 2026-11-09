@@ -34,6 +34,25 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
         {
             message = plain;
         }
+        // A key that is a list or a map (`? [a, b]`, `{[a]: 1}`): said
+        // plainly, on its `?` where it has one.
+        let mut column = column;
+        if let Some(kind) = ["sequence", "mapping", "map"]
+            .into_iter()
+            .find(|kind| message.starts_with(&format!("invalid type: {kind}, expected a string key")))
+        {
+            let kind = if kind == "sequence" { "list" } else { "map" };
+            message = format!("this key is a {kind}: the editor reads only keys that are text, numbers or booleans");
+            if let (Some(line), Some(at)) = (line, column) {
+                let text: Vec<char> = source.split('\n').nth(line - 1).unwrap_or_default().chars().collect();
+                let before: String = text[..(at - 1).min(text.len())].iter().collect();
+                if let Some(mark) = before.trim_end().strip_suffix('?')
+                    && mark.trim_start().strip_prefix('-').unwrap_or(mark).trim().is_empty()
+                {
+                    column = Some(mark.chars().count() + 1);
+                }
+            }
+        }
         ParseError {
             message,
             line,

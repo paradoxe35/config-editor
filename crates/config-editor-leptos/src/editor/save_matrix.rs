@@ -97,3 +97,32 @@ pub(super) fn find_slot<'a>(document: &'a mut Value, pointer: &str) -> Option<&'
     let lone = lone.strip_suffix("/0").unwrap_or(&lone).to_string();
     document.pointer_mut(&lone)
 }
+
+/// The host after an edit session in the edit language's view of
+/// `host_text`: each change is made to the view as the previous one left it
+/// and saved over the host's last save, as the editor saves each typing
+/// pause (the view is not converted again between them).
+pub(super) fn save_steps(
+    host: Language,
+    edit: Language,
+    host_text: &str,
+    changes: &[&dyn Fn(&mut Value)],
+) -> Result<String, String> {
+    let bridge = Bridge::new(host, edit, None).ok_or("same language")?;
+    let mut shown = bridge
+        .to_edit(host_text)
+        .map_err(|error| error.to_string())?
+        .text;
+    let mut saved = host_text.to_string();
+    for change in changes {
+        let mut value = edit.parse(&shown).map_err(|error| error.message)?;
+        change(&mut value);
+        shown = super::codec::serialize(edit.behavior(), &value, Some(&shown))
+            .map_err(|error| error.to_string())?;
+        saved = bridge
+            .to_host_since(&shown, &saved, host_text)
+            .map_err(|error| format!("{error:?}"))?
+            .text;
+    }
+    Ok(saved)
+}

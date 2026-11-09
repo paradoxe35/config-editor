@@ -39,6 +39,9 @@ pub(super) struct Snapshot {
     pub(super) pending_attr: Option<String>,
     /// The caret is in the config root's start tag, which holds only metadata.
     pub(super) in_root_tag: bool,
+    /// The open tag's attributes a child element shares a name with, read
+    /// `@name`.
+    pub(super) spelled_apart: Vec<String>,
 }
 
 #[derive(Default)]
@@ -345,6 +348,14 @@ pub(super) fn capture_snapshot(
             },
             <[Seg]>::to_vec,
         );
+    let spelled_apart = open_tag.map_or_else(Vec::new, |tag| {
+        inner
+            .iter()
+            .filter(|token| matches!(token.kind, Kind::Text { quoted: false }) && is_attr_name(source, &tag, **token))
+            .map(|token| source[token.start..token.end].to_string())
+            .filter(|name| plan.attribute_key(tag.start, name).starts_with('@'))
+            .collect()
+    });
     Snapshot {
         path,
         partial,
@@ -354,6 +365,15 @@ pub(super) fn capture_snapshot(
         inner,
         pending_attr,
         in_root_tag: open_tag.is_some_and(|tag| plan.root == Some(tag.start)),
+        spelled_apart,
+    }
+}
+
+impl Snapshot {
+    /// The key of the open tag's attribute `name`: `@name` where a child
+    /// element has its name ([`PathPlan::attribute_key`]).
+    pub(super) fn attribute_key(&self, name: &str) -> String {
+        if self.spelled_apart.iter().any(|apart| apart == name) { format!("@{name}") } else { name.to_string() }
     }
 }
 

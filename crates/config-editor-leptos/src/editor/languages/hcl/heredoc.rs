@@ -60,7 +60,8 @@ pub(super) fn string_expression(text: &str) -> hcl::Expression {
 }
 
 /// `source` parsed, each heredoc value that holds no template sequence read
-/// as the text it stands for, as a quoted string is. `hcl-rs` keeps a
+/// as the text it stands for, as a quoted string is (and each whole float
+/// marked, see [`super::floats::read_whole_floats`]). `hcl-rs` keeps a
 /// heredoc as its template written again, with [`quoted`]'s marker bug, so
 /// its text is taken from the parser's literal (escapes read, indentation
 /// stripped).
@@ -98,6 +99,8 @@ fn read_in(expression: &mut hcl_edit::expr::Expression) {
         }
         Expression::Array(items) => items.iter_mut().for_each(read_in),
         Expression::Object(object) => object.iter_mut().for_each(|(_, value)| read_in(value.expr_mut())),
+        // A whole float written so (`1.0`) is read as one.
+        Expression::Number(_) => super::floats::mark_whole_float(expression),
         _ => {}
     }
 }
