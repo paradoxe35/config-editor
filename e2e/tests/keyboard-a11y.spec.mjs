@@ -270,3 +270,59 @@ test.describe('a host problem at the caret', () => {
     await expect(announcement(page)).toHaveText('Warning 1 of 1 from burrow: port in use');
   });
 });
+
+// Per-line controls (change markers, fold chevrons) stay out of the Tab
+// order (QA 24: thirty markers took thirty-one Shift+Tab presses to leave
+// the editor backwards); Alt+F3 / Alt+F5 reach the changes instead, and a
+// click on a marker still opens its preview.
+test.describe('per-line controls and the Tab order', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+  const LANGUAGES = {
+    yaml: (key, value) => `${key}: ${value}`,
+    toml: (key, value) => `${key} = ${value}`,
+    json: (key, value, last) => `  "${key}": "${value}"${last ? '' : ','}`,
+  };
+  const lines = (language, changed) => {
+    const line = LANGUAGES[language];
+    const body = Array.from({ length: 60 }, (_, i) => line(`k${i}`, changed && i % 2 ? `old${i}` : i, i === 59));
+    return `${(language === 'json' ? ['{', ...body, '}'] : body).join('\n')}\n`;
+  };
+
+  for (const language of Object.keys(LANGUAGES)) {
+    test(`${language}: Escape then Shift+Tab, or Tab, leaves past 30 change markers at once`, async ({ page }) => {
+      const options = { language, value: lines(language, false), baseline: lines(language, true) };
+      await page.goto(`${pathToFileURL(join(js, 'examples', 'vanilla.html')).href}?options=${encodeURIComponent(JSON.stringify(options))}`);
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      const input = page.locator('.config-editor__input');
+      const markers = page.locator('.config-editor__diff-change-trigger');
+      await expect(markers).toHaveCount(30);
+      // Every per-line control is out of the Tab order, and still named.
+      const tabbable = await page
+        .locator('.config-editor__gutter :is(button, a[href], input, select, [tabindex])')
+        .evaluateAll((controls) => controls.filter((control) => control.tabIndex >= 0).length);
+      expect(tabbable).toBe(0);
+      await expect(markers.first()).toHaveAccessibleName(/\d/);
+
+      const inGutter = () => page.evaluate(() => Boolean(document.activeElement?.closest('.config-editor__gutter')));
+      for (const key of ['Shift+Tab', 'Tab']) {
+        await input.focus();
+        await page.keyboard.press('Escape');
+        await page.keyboard.press(key);
+        expect(await focused(page), key).not.toBe('textarea');
+        expect(await inGutter(), key).toBe(false);
+      }
+
+      // A click on a marker opens the preview; Alt+F3 from the text too.
+      const preview = page.locator('.config-editor__diff-peek');
+      await markers.first().click();
+      await expect(preview).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(preview).toBeHidden();
+      await input.focus();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.press('Alt+F3');
+      await expect(preview).toBeVisible();
+    });
+  }
+});

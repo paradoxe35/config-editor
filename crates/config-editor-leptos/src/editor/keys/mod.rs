@@ -6,6 +6,7 @@ mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
 mod navigation;
+mod page_keys;
 mod suggestions;
 mod tab;
 mod typing;
@@ -49,6 +50,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     ) {
         state.forget_refusal();
     }
+    page_keys::keep_page_still(state, event);
     if !matches!(
         event.key().as_str(),
         "F8" | "Shift" | "Control" | "Alt" | "Meta"

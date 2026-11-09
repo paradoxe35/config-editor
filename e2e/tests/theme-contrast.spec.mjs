@@ -3,24 +3,29 @@ import { setupEditor } from './helpers.mjs';
 
 // Every built-in theme keeps its text readable: the theme's own variables,
 // read off the editor in each theme, measured with the WCAG contrast ratio.
-// Text in the code, the line numbers and the selected suggestion's type are
-// held to 4.5:1 (QA 21: they were 3.4 to 4.4 in some themes), the editor's
-// own other interface text (labels, chips, icons) to 3:1, and a disabled control looks
-// disabled (clearly dimmer than when enabled) while staying readable.
+// Text is held to 4.5:1 (QA 21: code, line numbers and the selected
+// suggestion's type were 3.4 to 4.4 in some themes; QA 24: tab names, the
+// hover card's link, preview code, kind icons and code on tinted lines),
+// the editor's other interface parts (glyphs, outlines) to 3:1, and a
+// disabled control looks disabled (clearly dimmer than when enabled) while
+// staying readable.
 //
 // Each pair is [what, foreground, background (bottom layer first)], each a
-// theme variable or a `.class` (the color its rule gives); a translucent
-// layer is composited over the ones under it.
+// theme variable or a `.class` (the color its rule gives; `.a .b`: an
+// element `.b` in an element `.a`); a translucent layer is composited over
+// the ones under it.
 const CODE = 4.5;
 const UI = 3;
+const TOKENS = ['text', 'key', 'string', 'literal', 'value', 'punctuation', 'comment', 'locked'];
+// A line's tints, alone and under the active line's (bottom layer first).
+const TINTS = ['active-line', 'error-line', 'added-line', 'modified-line'];
+const LINES = [
+  ['', ['bg']],
+  ...TINTS.map((tint) => [` on the ${tint}`, ['bg', tint]]),
+  ...TINTS.slice(1).map((tint) => [` on the active ${tint}`, ['bg', tint, 'active-line']]),
+];
 const PAIRS = [
-  ...['text', 'key', 'string', 'literal', 'value', 'punctuation', 'comment'].map((name) => [
-    `code ${name}`,
-    CODE,
-    name,
-    ['bg'],
-  ]),
-  ['read-only value', CODE, 'locked', ['bg']],
+  ...TOKENS.flatMap((name) => LINES.map(([where, layers]) => [`code ${name}${where}`, CODE, name, layers])),
   ['line number', CODE, 'line-number', ['bg']],
   // A changed or broken line's number, as its rule colors it (QA 23:
   // Solarized Light's added lines were 2.97:1).
@@ -30,19 +35,37 @@ const PAIRS = [
   ['fold toggle', UI, 'fold-toggle', ['bg']],
   ['fold chip', UI, 'fold-chip-text', ['bg', 'fold-chip']],
   ['muted on panel (footer, tabs)', UI, 'muted', ['panel']],
-  ['tab text', UI, 'tab-text', ['tab-bar']],
+  ['tab name', CODE, '.config-editor-documents__tab', ['tab-bar', 'tab-bg']],
+  ['tab name, selected', CODE, '.config-editor-documents__tab-active', ['tab-bar', 'tab-active-bg']],
+  ['add tab glyph', UI, 'tab-text', ['tab-bar']],
   ['toolbar text', CODE, 'toolbar-text', ['panel']],
+  ['edit-as notice text', CODE, '.config-editor__edit-as-notice', ['panel']],
   ['popup text', CODE, 'raised-text', ['raised']],
   ['popup muted', UI, 'raised-muted', ['raised']],
   // The hover card's "deprecated" badge (QA 23: 2.1:1 in light themes).
   ['deprecated badge on the hover card', CODE, 'status-warning', ['raised']],
-  ['completion kind icon', UI, 'completion-icon-text', ['raised']],
-  ['completion type', UI, 'completion-type', ['raised']],
-  ['completion detail', UI, 'completion-detail', ['raised']],
+  ['completion kind icon', CODE, 'completion-icon-text', ['raised']],
+  ['completion kind icon, selected', CODE, 'completion-icon-text', ['raised', 'completion-active']],
+  ['completion key', CODE, 'completion-key', ['raised']],
+  ['deprecated completion key', CODE, '.config-editor__completion--deprecated .config-editor__completion-key', ['raised']],
+  ['deprecated completion key, selected', CODE, '.config-editor__completion--deprecated .config-editor__completion-key', ['raised', 'completion-active']],
+  ['completion type', CODE, 'completion-type', ['raised']],
+  ['completion detail', CODE, 'completion-detail', ['raised']],
+  // The hover card's Documentation link, the tips' text and the change
+  // preview's code.
+  ['hover card Documentation link', CODE, '.config-editor__hover-link', ['raised']],
+  ['problem tip text', CODE, 'tooltip-text', ['raised']],
+  ['problem tip text, current entry', CODE, 'tooltip-text', ['raised', 'raised-hover']],
+  ['problem tip detail', CODE, '.config-editor__problem-tip-detail', ['raised']],
+  ['problem tip detail, current entry', CODE, '.config-editor__problem-tip-detail', ['raised', 'raised-hover']],
+  ['problem tip link', CODE, '.config-editor__problem-tip-link', ['raised']],
+  ['problem tip link, current entry', CODE, '.config-editor__problem-tip-link', ['raised', 'raised-hover']],
+  ['preview removed code', CODE, 'diff-removed-text', ['raised', 'diff-removed-bg']],
+  ['preview current code', CODE, 'diff-current-text', ['raised', 'diff-current-bg']],
   ['completion key, selected', CODE, 'completion-key', ['raised', 'completion-active']],
   ['completion type, selected', CODE, 'completion-type-active', ['raised', 'completion-active']],
-  ['matched letters, selected row', UI, 'completion-match-active', ['raised', 'completion-active']],
-  ['matched letters', UI, 'accent', ['raised']],
+  ['matched letters, selected row', CODE, 'completion-match-active', ['raised', 'completion-active']],
+  ['matched letters', CODE, '.config-editor__completion-match', ['raised']],
   ['control text', CODE, 'control-text', ['control-bg']],
   ['disabled control text', 2.5, 'control-disabled-text', ['control-bg']],
   // The footer's small text (its counts, the detail after them and the
@@ -54,6 +77,7 @@ const PAIRS = [
   ['footer hint count', CODE, 'status-hint', ['panel']],
   ['footer changes count', CODE, 'status-changes', ['panel']],
   // Outlines and markers (WCAG's 3:1 for interface parts).
+  ['schema check mark', UI, '.config-editor__schema-check', ['panel']],
   ['focus ring', UI, 'focus-ring', ['bg']],
   ['change bar focus ring', UI, 'diff-focus-ring', ['bg']],
 ];
@@ -74,10 +98,19 @@ async function themeColors(page, names) {
       for (const name of wanted) {
         // A variable, or (`.class`) the color a class's rule gives.
         const rule = name.startsWith('.');
-        probe.className = rule ? name.slice(1) : '';
+        const classes = rule ? name.split(' ').map((part) => part.slice(1)) : [''];
+        probe.replaceChildren();
+        probe.className = classes[0];
+        let inner = probe;
+        for (const nested of classes.slice(1)) {
+          const child = document.createElement('span');
+          child.className = nested;
+          inner.append(child);
+          inner = child;
+        }
         probe.style.color = '';
         if (!rule) probe.style.color = `var(--config-editor-${name})`;
-        const computed = getComputedStyle(probe).color;
+        const computed = getComputedStyle(inner).color;
         const srgb = computed.match(/color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)/);
         const rgb = computed.match(/rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?\)/);
         colors[name] = srgb

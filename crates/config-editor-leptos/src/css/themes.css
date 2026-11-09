@@ -1,3 +1,9 @@
+/* VS Code Dark is the default palette (`base.css`); its accent, as text,
+   needs more of the text color to read on popups (4.5:1). */
+:where(.config-editor[data-color-theme="vscode-dark"], .config-editor-documents[data-color-theme="vscode-dark"], .config-editor-theme[data-color-theme="vscode-dark"]) {
+  --config-editor-accent-text: color-mix(in srgb, var(--config-editor-accent) 40%, var(--config-editor-text));
+}
+
 :where(.config-editor[data-color-theme="dracula"], .config-editor-documents[data-color-theme="dracula"], .config-editor-theme[data-color-theme="dracula"]) {
   --config-editor-bg: #282a36;
   --config-editor-panel: #21222c;
@@ -19,11 +25,11 @@
   --config-editor-control-bg: #343746;
   --config-editor-control-text: #f8f8f2;
   --config-editor-completion-active: #44475a;
-  --config-editor-comment: #9297ab;
+  --config-editor-comment: #acb0bf;
   --config-editor-key: #8be9fd;
   --config-editor-punctuation: #f8f8f2;
   --config-editor-string: #f1fa8c;
-  --config-editor-literal: #bd93f9;
+  --config-editor-literal: #c49ffa;
   --config-editor-value: #f1fa8c;
   --config-editor-active-line: rgb(255 255 255 / 5%);
   --config-editor-error-line: rgb(255 85 85 / 8%);
@@ -56,17 +62,17 @@
   --config-editor-raised: #3b4252;
   --config-editor-raised-border: #4c566a;
   --config-editor-raised-text: #e5e9f0;
-  --config-editor-raised-muted: #b0bacb;
+  --config-editor-raised-muted: #b5bece;
   --config-editor-raised-hover: #434c5e;
   --config-editor-control-bg: #3b4252;
   --config-editor-control-text: #e5e9f0;
   --config-editor-completion-active: #434c5e;
-  --config-editor-comment: #9aa8bd;
+  --config-editor-comment: #aeb9ca;
   --config-editor-key: #88c0d0;
   --config-editor-punctuation: #d8dee9;
-  --config-editor-string: #a3be8c;
-  --config-editor-literal: #bc96b5;
-  --config-editor-value: #a3be8c;
+  --config-editor-string: #a6c08f;
+  --config-editor-literal: #ccafc7;
+  --config-editor-value: #a6c08f;
   --config-editor-active-line: rgb(255 255 255 / 5%);
   --config-editor-error-line: rgb(191 97 106 / 8%);
   --config-editor-added-line: rgb(163 190 140 / 8%);
@@ -100,7 +106,7 @@
   --config-editor-control-bg: #f6f8fa;
   --config-editor-control-text: #1f2328;
   --config-editor-completion-active: #ddf4ff;
-  --config-editor-comment: #6e7781;
+  --config-editor-comment: #606870;
   --config-editor-key: #0550ae;
   --config-editor-punctuation: #57606a;
   --config-editor-string: #0a3069;
@@ -127,7 +133,7 @@
   --config-editor-bg: #fdf6e3;
   --config-editor-panel: #eee8d5;
   --config-editor-border: #d6ceb9;
-  --config-editor-text: #586e75;
+  --config-editor-text: #51666c;
   --config-editor-muted: #657b83;
   --config-editor-line-number: #5e727a;
   --config-editor-accent: #268bd2;
@@ -138,24 +144,30 @@
   --config-editor-modified: #268bd2;
   --config-editor-raised: #fdf6e3;
   --config-editor-raised-border: #d6ceb9;
-  --config-editor-raised-text: #536870;
+  --config-editor-raised-text: #51656d;
   --config-editor-raised-muted: #4f646b;
   --config-editor-raised-hover: #e5dfcc;
   --config-editor-control-bg: #f7f0dc;
   --config-editor-control-text: #4a5f66;
   --config-editor-completion-active: #d8e6e8;
-  --config-editor-comment: #586e75;
-  --config-editor-key: #1b6f9c;
-  --config-editor-punctuation: #586e75;
-  --config-editor-string: #5b6f00;
-  --config-editor-literal: #c52e77;
-  --config-editor-value: #14756d;
+  --config-editor-comment: #51666c;
+  --config-editor-key: #1a6a95;
+  --config-editor-punctuation: #51666c;
+  --config-editor-string: #586b00;
+  --config-editor-literal: #b52a6d;
+  --config-editor-value: #137068;
   --config-editor-active-line: rgb(7 54 66 / 5%);
   --config-editor-error-line: rgb(220 50 47 / 6%);
   --config-editor-added-line: rgb(133 153 0 / 8%);
   --config-editor-modified-line: rgb(38 139 210 / 8%);
   --config-editor-selection: rgb(38 139 210 / 24%);
   --config-editor-caret: #586e75;
+  /* Text, 4.5:1: read-only values on every line tint, tab names, links. */
+  --config-editor-locked: #53676d;
+  --config-editor-tab-text: #566b71;
+  --config-editor-accent-text: #1c669a;
+  /* The footer's schema check mark, 3:1 on its panel. */
+  --config-editor-schema-check: #758600;
 }
 
 :where(.config-editor[data-color-theme="atom-one-dark"], .config-editor-documents[data-color-theme="atom-one-dark"], .config-editor-theme[data-color-theme="atom-one-dark"]) {
@@ -176,16 +188,16 @@
   --config-editor-raised: #21252b;
   --config-editor-raised-border: #3e4451;
   --config-editor-raised-text: #d7dae0;
-  --config-editor-raised-muted: #9299a5;
+  --config-editor-raised-muted: #9ca2ad;
   --config-editor-raised-hover: #323842;
   --config-editor-control-bg: #292e37;
   --config-editor-control-text: #d7dae0;
   --config-editor-completion-active: #2c313a;
-  --config-editor-comment: #9298a2;
-  --config-editor-key: #e87a83;
+  --config-editor-comment: #a7acb4;
+  --config-editor-key: #ec9299;
   --config-editor-punctuation: #abb2bf;
   --config-editor-string: #98c379;
-  --config-editor-literal: #d19a66;
+  --config-editor-literal: #d4a171;
   --config-editor-value: #e5c07b;
   --config-editor-active-line: rgb(255 255 255 / 4%);
   --config-editor-error-line: rgb(224 108 117 / 8%);
@@ -193,6 +205,8 @@
   --config-editor-modified-line: rgb(97 175 239 / 8%);
   --config-editor-selection: rgb(97 126 178 / 40%);
   --config-editor-caret: #abb2bf;
+  /* Read-only values on every line tint: 4.5:1. */
+  --config-editor-locked: #a6abb5;
 }
 
 :where(.config-editor[data-color-theme="github-dark"], .config-editor-documents[data-color-theme="github-dark"], .config-editor-theme[data-color-theme="github-dark"]) {
@@ -210,7 +224,7 @@
   --config-editor-raised: #161b22;
   --config-editor-raised-border: #30363d;
   --config-editor-raised-text: #e6edf3;
-  --config-editor-raised-muted: #8b949e;
+  --config-editor-raised-muted: #9ea5ae;
   --config-editor-raised-hover: #21262d;
   --config-editor-control-bg: #21262d;
   --config-editor-control-text: #e6edf3;
@@ -244,12 +258,12 @@
   --config-editor-raised: #202734;
   --config-editor-raised-border: #3b4555;
   --config-editor-raised-text: #d2d9e2;
-  --config-editor-raised-muted: #9aa5b3;
+  --config-editor-raised-muted: #9faab7;
   --config-editor-raised-hover: #2a3341;
   --config-editor-control-bg: #242c39;
   --config-editor-control-text: #d2d9e2;
   --config-editor-completion-active: #303e4d;
-  --config-editor-comment: #788493;
+  --config-editor-comment: #8f99a5;
   --config-editor-key: #83b4cb;
   --config-editor-punctuation: #b7c1ce;
   --config-editor-string: #c9ad86;

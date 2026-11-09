@@ -67,7 +67,10 @@ pub(in crate::editor) fn ChangeMarkers(
     }
 }
 
-/// A gutter marker that toggles the change preview for `peek`.
+/// A gutter marker that toggles the change preview for `peek`. Out of the
+/// Tab order, as the fold chevrons are: lines can have many, and `Tab` from
+/// the text after Escape leaves the editor at once; `Alt+F3` / `Alt+F5`
+/// reach the changes from the keyboard.
 #[component]
 fn PeekTrigger(
     state: EditorState,
@@ -108,6 +111,7 @@ fn PeekTrigger(
         <button
             type="button"
             class=class
+            tabindex="-1"
             aria-label=label
             title=state.text(title)
             on:click=toggle

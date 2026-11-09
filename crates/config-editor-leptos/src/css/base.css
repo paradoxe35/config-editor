@@ -14,16 +14,16 @@
   --config-editor-raised: #252526;
   --config-editor-raised-border: #454545;
   --config-editor-raised-text: #d4d4d4;
-  --config-editor-raised-muted: #a0a0a0;
+  --config-editor-raised-muted: #a8a8a8;
   --config-editor-raised-hover: #3c3c3c;
   --config-editor-control-bg: #333333;
   --config-editor-control-text: #cccccc;
   --config-editor-completion-active: #094771;
-  --config-editor-comment: #6a9955;
+  --config-editor-comment: #83aa71;
   --config-editor-key: #9cdcfe;
   --config-editor-punctuation: #d4d4d4;
   --config-editor-string: #ce9178;
-  --config-editor-literal: #569cd6;
+  --config-editor-literal: #65a5da;
   --config-editor-value: #ce9178;
   --config-editor-active-line: rgb(255 255 255 / 4%);
   --config-editor-error-line: rgb(241 76 76 / 5%);
@@ -54,10 +54,13 @@
   --config-editor-completion-icon-text: #bdbdbd;
   /* Matched letters on the selected suggestion: the accent toward the
      label's color, so they stay readable on the selection. */
-  --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent) 50%, var(--config-editor-completion-key));
+  --config-editor-completion-match-active: color-mix(in srgb, var(--config-editor-accent-text) 50%, var(--config-editor-completion-key));
   /* The type on the selected suggestion, toward the label's color: readable
      (4.5:1) on the selection. */
   --config-editor-completion-type-active: color-mix(in srgb, var(--config-editor-completion-type) 50%, var(--config-editor-completion-key));
+  /* The accent as text (links, matched letters): toward the text color,
+     readable (4.5:1) on popups in every theme. */
+  --config-editor-accent-text: color-mix(in srgb, var(--config-editor-accent) 70%, var(--config-editor-text));
   --config-editor-scrollbar-thumb: #686868;
   --config-editor-status-error: #f48771;
   --config-editor-status-warning: #cca700;
@@ -83,7 +86,8 @@
   --config-editor-tab-bar: var(--config-editor-panel);
   --config-editor-tab-bg: var(--config-editor-panel);
   --config-editor-tab-active-bg: var(--config-editor-bg);
-  --config-editor-tab-text: var(--config-editor-muted);
+  /* A tab's name is text: the muted color toward the text, 4.5:1. */
+  --config-editor-tab-text: color-mix(in srgb, var(--config-editor-muted) 60%, var(--config-editor-text));
   --config-editor-tab-active-text: var(--config-editor-text);
   --config-editor-tab-border: var(--config-editor-border);
   --config-editor-tab-active-border: var(--config-editor-accent);
@@ -170,7 +174,7 @@
 
 .config-editor__toolbar-meta { color: var(--config-editor-raised-muted); }
 .config-editor__schema-state { color: var(--config-editor-raised-muted); }
-.config-editor__schema-check { color: var(--config-editor-added); }
+.config-editor__schema-check { color: var(--config-editor-schema-check, var(--config-editor-added)); }
 .config-editor__language { font: 10px var(--config-editor-mono); }
 /* A separator between the schema state and the language, not before a
    language alone. */
@@ -228,7 +232,7 @@
   border-bottom: 1px solid var(--config-editor-raised-border);
   border-left: 3px solid var(--config-editor-accent);
   background: var(--config-editor-panel);
-  color: var(--config-editor-muted);
+  color: var(--config-editor-raised-muted);
   font: 12px/1.5 ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -238,8 +242,10 @@
 
 .config-editor__edit-as-notice-dismiss {
   flex: none;
-  width: 20px;
-  height: 20px;
+  /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
+  width: 24px;
+  height: 24px;
+  margin-block: -3px;
   padding: 0;
   border: 0;
   border-radius: 3px;
@@ -595,9 +601,11 @@
 }
 
 .config-editor__input-wrap { position: relative; min-width: 0; min-height: 0; flex: 1; }
+/* Within the surface's bounds, so the gutter (stretched to the surface)
+   covers every row in a short window. */
 .config-editor__highlight,
 .config-editor__input {
-  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px)));
+  min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px), 100vh - 80px));
   padding: var(--config-editor-padding-top) 20px var(--config-editor-padding-bottom) 0;
   border: 0;
   margin: 0;
@@ -763,7 +771,7 @@
   -webkit-text-fill-color: transparent;
   overflow: auto;
   height: var(--config-editor-height, var(--config-editor-content-height, auto));
-  max-height: var(--config-editor-max-height, 80vh);
+  max-height: var(--config-editor-max-height, min(80vh, 100vh - 80px));
   overscroll-behavior: contain;
 }
 
@@ -880,7 +888,7 @@
 .config-editor__problem-tip-message--docs { cursor: pointer; }
 .config-editor__problem-tip-severity { font-weight: 600; }
 .config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
-.config-editor__problem-tip-link { color: var(--config-editor-accent); }
+.config-editor__problem-tip-link { color: var(--config-editor-accent-text); }
 /* The problems on a documented key's line, listed in its hover card above
    the docs (the tip yields to the card there); scrolled when many. */
 .config-editor__hover-problems {
@@ -1237,7 +1245,12 @@
 
 .config-editor__hover-link {
   justify-self: start;
-  color: var(--config-editor-accent);
+  /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-block: -4px;
+  color: var(--config-editor-accent-text);
   font-size: 11px;
 }
 
@@ -1313,7 +1326,7 @@
   white-space: nowrap;
 }
 
-.config-editor__completion-match { color: var(--config-editor-accent); }
+.config-editor__completion-match { color: var(--config-editor-accent-text); }
 .config-editor__completion-active .config-editor__completion-match {
   color: var(--config-editor-completion-match-active);
 }
@@ -1324,7 +1337,8 @@
 
 .config-editor__completion--deprecated .config-editor__completion-key {
   text-decoration: line-through;
-  opacity: 0.75;
+  /* Dimmer than a current key, still text (4.5:1). */
+  color: color-mix(in srgb, var(--config-editor-completion-key) 80%, var(--config-editor-completion-type));
 }
 
 .config-editor__completion-deprecated {
@@ -1512,12 +1526,12 @@
   --config-editor-control-bg: #f8f8f8;
   --config-editor-control-text: #333333;
   --config-editor-completion-active: #cce8ff;
-  --config-editor-comment: #008000;
+  --config-editor-comment: #007600;
   --config-editor-key: #0451a5;
   --config-editor-punctuation: #333333;
   --config-editor-string: #a31515;
-  --config-editor-literal: #098658;
-  --config-editor-value: #267f99;
+  --config-editor-literal: #08734c;
+  --config-editor-value: #216d84;
   --config-editor-active-line: rgb(0 0 0 / 5%);
   --config-editor-error-line: rgb(211 47 47 / 6%);
   --config-editor-added-line: rgb(22 128 60 / 9%);
@@ -1541,12 +1555,12 @@
   --config-editor-raised: #101415;
   --config-editor-raised-border: #30383c;
   --config-editor-raised-text: #d5dce1;
-  --config-editor-raised-muted: #929ba1;
+  --config-editor-raised-muted: #9aa2a8;
   --config-editor-raised-hover: #20282c;
   --config-editor-control-bg: #171d20;
   --config-editor-control-text: #d5dce1;
   --config-editor-completion-active: #173a50;
-  --config-editor-comment: #7f878d;
+  --config-editor-comment: #858c92;
   --config-editor-key: #83c8ff;
   --config-editor-punctuation: #cbd2d8;
   --config-editor-string: #b4e1a5;
@@ -1588,12 +1602,12 @@
   --config-editor-control-bg: #f5f8f6;
   --config-editor-control-text: #35413a;
   --config-editor-completion-active: #dceef8;
-  --config-editor-comment: #66736b;
-  --config-editor-key: #2778a9;
+  --config-editor-comment: #5c6860;
+  --config-editor-key: #236a96;
   --config-editor-punctuation: #526058;
-  --config-editor-string: #467a46;
-  --config-editor-literal: #347b42;
-  --config-editor-value: #467a46;
+  --config-editor-string: #406f40;
+  --config-editor-literal: #30723d;
+  --config-editor-value: #406f40;
   --config-editor-active-line: rgb(20 50 30 / 5%);
   --config-editor-error-line: rgb(196 61 61 / 6%);
   --config-editor-added-line: rgb(52 123 66 / 8%);
@@ -1783,8 +1797,16 @@
     background: Highlight;
     color: HighlightText;
   }
+  /* Every part of the selected suggestion, over the rules that color
+     them there (QA 24: its type kept its grey on Highlight). */
   .config-editor__completion-active *,
-  .config-editor__completion-active .config-editor__completion-match {
+  .config-editor__completion-active .config-editor__completion-match,
+  .config-editor__completion-active .config-editor__completion-type,
+  .config-editor__completion-active .config-editor__completion-deprecated,
+  .config-editor__completion-active .config-editor__completion-key,
+  .config-editor__completion-active .config-editor__completion-detail,
+  .config-editor__completion-active .config-editor__completion-icon {
+    border-color: HighlightText;
     color: HighlightText;
   }
   .config-editor__problem-tip-entry--current { outline: 1px solid Highlight; }
