@@ -6,6 +6,7 @@
 
 use super::super::Language;
 use super::super::codec;
+use super::super::work_count::{Work, counted};
 use super::arrival_tests::{From, GHOST, LOCKED, allowed, locks};
 use super::guard::check;
 use super::locks::Protected;
@@ -242,10 +243,16 @@ fn without_lines(text: &str, from: &str, count: usize) -> String {
     lines[..start].concat() + &lines[end..].concat()
 }
 
+/// Lines a deletion of unrelated lines, or the repair after it, reads for
+/// their paths (each a read from the top of the text) at most, however
+/// many were deleted: those near a locked field and those naming one of
+/// its keys (reading every deleted line took a read per line).
+const LINES_READ: usize = 50;
+
 /// Many lines deleted from a large broken text, none holding a locked
 /// field, then the break repaired: the deletion and the repair go through,
-/// each in a moment (I2). Deleted with the locked fields among them, it is refused naming
-/// one (I1).
+/// each reading only the lines that may hold a locked field (I2). Deleted
+/// with the locked fields among them, it is refused naming one (I1).
 #[test]
 fn deleting_many_unrelated_lines_then_repairing_goes_through() {
     let strings = crate::EditorStrings::default();
@@ -269,15 +276,15 @@ fn deleting_many_unrelated_lines_then_repairing_goes_through() {
             for count in [200, 500, 1000, 2500] {
                 let tag = format!("{language} ({from:?}) {count} lines deleted");
                 let deleted = without_lines(&shown, first, count);
-                let (took, deletion) = crate::editor::test_timing::best_of(2, || {
+                let (deletion, lookups) = counted(Work::PathLookup, || {
                     allowed(language, &shown, &deleted, &protected)
                 });
                 if !deletion {
                     failures.push(format!("{tag}: the deletion refused"));
                     continue;
                 }
-                if took > std::time::Duration::from_millis(400) {
-                    failures.push(format!("{tag}: the deletion took {took:?}"));
+                if lookups > LINES_READ {
+                    failures.push(format!("{tag}: the deletion read {lookups} lines"));
                 }
                 let carried = locks(language, &deleted, from, true, Some(&protected));
                 let repaired = deleted.replacen(bad, fixed, 1);
@@ -285,14 +292,14 @@ fn deleting_many_unrelated_lines_then_repairing_goes_through() {
                     codec::read(language.behavior(), &repaired, None).is_ok(),
                     "{tag}"
                 );
-                let (took, result) =
-                    crate::editor::test_timing::best_of(2, || check(&carried, &deleted, &repaired));
+                let (result, lookups) =
+                    counted(Work::PathLookup, || check(&carried, &deleted, &repaired));
                 if let Err(blocked) = result {
                     let message = blocked.message(&strings);
                     failures.push(format!("{tag}: the repair refused: {message}"));
                 }
-                if took > std::time::Duration::from_millis(400) {
-                    failures.push(format!("{tag}: the repair took {took:?}"));
+                if lookups > LINES_READ {
+                    failures.push(format!("{tag}: the repair read {lookups} lines"));
                 }
             }
             // The locked fields deleted with the lines before them.

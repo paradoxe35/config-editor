@@ -1,9 +1,8 @@
 //! The editor's problems and the host's, merged: a problem both report
 //! shows once.
 
-use std::collections::HashMap;
-
 use super::super::diagnostics::Diagnostic;
+use super::overlap::{Grouped, Span, by_key};
 
 /// The editor's `own` problems and the host's, each problem once: where the
 /// host marks the same text (an overlapping marker) with the same message,
@@ -16,38 +15,38 @@ use super::super::diagnostics::Diagnostic;
 /// another problem: both show.
 pub(in super::super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Diagnostic> {
     let mut host = distinct(host);
-    // Each marker as `(start, end, severity, index)` by message: one look
-    // per problem, not a pass over thousands of the other side's.
-    let mut theirs_by_message: HashMap<&str, Vec<Marker>> = HashMap::new();
-    for (index, theirs) in host.iter().enumerate() {
-        if let Some(marker) = marker(theirs, index) {
-            theirs_by_message
-                .entry(theirs.message.trim())
-                .or_default()
-                .push(marker);
+    // The host's markers in a tree for each message: one walk per problem
+    // to the ones it overlaps, not a look at each of thousands.
+    let spans: Vec<Option<Span>> = host.iter().map(span).collect();
+    let mut grouped = by_key(&spans, |index| host[index].message.trim());
+    for (index, placed) in grouped.placed.iter().enumerate() {
+        if let Some((tree, rank)) = *placed {
+            grouped.trees[tree].add(rank, index);
         }
     }
     // Each host problem the editor says more seriously: hidden, into the
     // editor's that says it (none when that one is hidden too).
     let mut hidden: Vec<Option<Option<usize>>> = vec![None; host.len()];
     let mut merged: Vec<Diagnostic> = Vec::with_capacity(own.len() + host.len());
-    for (index, mine) in own.iter().enumerate() {
-        let Some((start, end, severity, _)) = marker(mine, index) else {
+    for mine in own {
+        let Some(marker) = span(mine) else {
             merged.push(mine.clone());
             continue;
         };
-        let overlapping = same_messages(&mine.message)
-            .filter_map(|message| theirs_by_message.get(message))
-            .flatten()
-            .filter(|&&(their_start, their_end, ..)| start < their_end && their_start < end);
+        let severity = mine.severity as u8;
         let mut repeated = false;
         let mut hides = Vec::new();
-        for &(.., theirs, their_index) in overlapping {
-            if theirs <= severity {
-                repeated = true;
-            } else {
-                hides.push(their_index);
-            }
+        for message in same_messages(&mine.message) {
+            let Some(&tree) = grouped.trees_by_key.get(message) else {
+                continue;
+            };
+            grouped.trees[tree].each(marker, |their_index| {
+                if host[their_index].severity as u8 <= severity {
+                    repeated = true;
+                } else {
+                    hides.push(their_index);
+                }
+            });
         }
         let into = (!repeated).then_some(merged.len());
         for their_index in hides {
@@ -74,24 +73,29 @@ pub(in super::super) fn merge(own: &[Diagnostic], host: &[Diagnostic]) -> Vec<Di
 /// reporter once: the most serious (the first of those as serious), with
 /// a code or docs link only another of them gave.
 fn distinct(host: &[Diagnostic]) -> Vec<Diagnostic> {
+    let spans: Vec<Option<Span>> = host.iter().map(span).collect();
+    let Grouped {
+        mut trees, placed, ..
+    } = by_key(&spans, |index| {
+        (host[index].message.trim(), host[index].source.as_deref())
+    });
     let mut kept: Vec<Diagnostic> = Vec::with_capacity(host.len());
-    let mut by_message: HashMap<(&str, Option<&str>), Vec<Marker>> = HashMap::new();
-    for problem in host {
-        let Some((start, end, severity, _)) = marker(problem, kept.len()) else {
+    // The severity of each kept problem (as kept, the most serious).
+    let mut severities: Vec<u8> = Vec::with_capacity(host.len());
+    for ((problem, span), placed) in host.iter().zip(spans).zip(placed) {
+        let severity = problem.severity as u8;
+        let (Some(span), Some((tree, rank))) = (span, placed) else {
             kept.push(problem.clone());
+            severities.push(severity);
             continue;
         };
-        let said = by_message
-            .entry((problem.message.trim(), problem.source.as_deref()))
-            .or_default();
-        let same = said
-            .iter_mut()
-            .find(|(their_start, their_end, ..)| start < *their_end && *their_start < end);
-        match same {
-            Some((.., theirs, index)) => {
-                let other = &mut kept[*index];
-                if severity < *theirs {
-                    *theirs = severity;
+        // The kept ones never overlap each other: one that would is kept
+        // into the first it overlaps.
+        match trees[tree].first_of_apart(span) {
+            Some(index) => {
+                let other = &mut kept[index];
+                if severity < severities[index] {
+                    severities[index] = severity;
                     let less = std::mem::replace(other, problem.clone());
                     take_reporter(other, &less);
                 } else {
@@ -99,8 +103,9 @@ fn distinct(host: &[Diagnostic]) -> Vec<Diagnostic> {
                 }
             }
             None => {
-                said.push((start, end, severity, kept.len()));
+                trees[tree].add(rank, kept.len());
                 kept.push(problem.clone());
+                severities.push(severity);
             }
         }
     }
@@ -121,22 +126,12 @@ fn take_reporter(shown: &mut Diagnostic, hidden: &Diagnostic) {
     }
 }
 
-/// Where a problem's marker starts and ends, its severity (lower is more
-/// serious) and its index in its list.
-type Marker = (Spot, Spot, u8, usize);
-
-fn marker(problem: &Diagnostic, index: usize) -> Option<Marker> {
-    span(problem).map(|(start, end)| (start, end, problem.severity as u8, index))
-}
-
-/// A one-based `(line, column)` place.
-type Spot = (usize, usize);
-
 /// Where a problem's marker starts and ends (past its last character, at
-/// least one character on).
-fn span(problem: &Diagnostic) -> Option<(Spot, Spot)> {
+/// least one character on: one ending on a line before its own ends on
+/// its own).
+fn span(problem: &Diagnostic) -> Option<Span> {
     let (line, column) = (problem.line?, problem.column?);
-    let last_line = problem.last_line().unwrap_or(line);
+    let last_line = problem.last_line().unwrap_or(line).max(line);
     let end_column = problem.end_column.unwrap_or(column + 1);
     let end = if last_line == line {
         (line, end_column.max(column + 1))

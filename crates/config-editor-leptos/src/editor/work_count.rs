@@ -30,6 +30,9 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the XML path plan notes it")
     )]
     ElementPath,
+    /// A problem's marker compared with another's (or with the furthest
+    /// end of a group of them), looking for the ones it overlaps.
+    MarkerComparison,
     /// A pass over the host's secret placeholders (each compared with a
     /// value or a path), where one lookup among them was wanted.
     #[cfg_attr(
@@ -48,14 +51,15 @@ impl Work {
             Self::LineSplit => 2,
             Self::SpanScan => 3,
             Self::ElementPath => 4,
-            Self::TokenScan => 5,
+            Self::MarkerComparison => 5,
+            Self::TokenScan => 6,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 6]> = const { std::cell::Cell::new([0; 6]) };
+    static COUNTS: std::cell::Cell<[usize; 7]> = const { std::cell::Cell::new([0; 7]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

@@ -6,6 +6,7 @@ use super::paths::{FieldPath, TextRange};
 
 mod fields;
 mod merge;
+mod overlap;
 mod place;
 mod targets;
 pub(super) use merge::merge;
@@ -118,6 +119,8 @@ impl HostDiagnostic {
     feature = "xml"
 ))]
 mod fields_tests;
+#[cfg(test)]
+mod merge_properties;
 #[cfg(all(
     test,
     feature = "yaml",
