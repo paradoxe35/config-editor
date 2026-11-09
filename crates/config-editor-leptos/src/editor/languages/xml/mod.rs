@@ -400,3 +400,5 @@ fn empty_key(value: &Value, pointer: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod existing_tests;

@@ -28,6 +28,10 @@ pub(super) struct PathPlan {
     pub(super) root: Option<usize>,
     /// Each element's children's names, by the element's id.
     child_names: HashSet<(usize, String)>,
+    /// Whether no two elements' paths read alike: no element named like an
+    /// index (`<0>`), and no element beside the config root at the top
+    /// (whose children's paths would start like its own).
+    unique: bool,
 }
 
 /// An element seen while planning: enough structure to find the config root
@@ -71,6 +75,30 @@ impl PathPlan {
             Some(id) if self.child_names.contains(&(id, name.to_string())) => format!("@{name}"),
             _ => name.to_string(),
         }
+    }
+
+    /// The element whose path reads `path` among those starting at
+    /// `starts`, and the start of the first element after it and all it
+    /// holds (`None` at the document's end): every path starting with
+    /// `path` is its or one inside it, so its keys are read there alone.
+    /// `None` where paths may read alike, or for the empty path (every
+    /// element's).
+    pub(super) fn subtree(
+        &self,
+        path: &[String],
+        starts: impl IntoIterator<Item = usize>,
+    ) -> Option<(usize, Option<usize>)> {
+        if !self.unique || path.is_empty() {
+            return None;
+        }
+        let start = starts
+            .into_iter()
+            .find(|start| self.path_of(*start).is_some_and(|found| strings(found) == path))?;
+        let id = self.nodes.binary_search_by_key(&start, |node| node.start).ok()?;
+        // Planned from a stack: what an element holds follows it, deeper.
+        let depth = self.nodes[id].depth;
+        let after = self.nodes[id + 1..].iter().find(|node| node.depth <= depth);
+        Some((start, after.map(|node| node.start)))
     }
 
     /// The path of element `id`, its parent's being built.
@@ -186,7 +214,12 @@ pub(super) fn plan_text(source: &str, tokens: &[Token]) -> PathPlan {
         .iter()
         .filter_map(|node| Some((node.parent?, node.name.clone())))
         .collect();
+    let unique = nodes.iter().all(|node| {
+        !node.name.bytes().all(|byte| byte.is_ascii_digit())
+            && (wrapper.is_none() || node.parent.is_some() || Some(node.start) == wrapper.map(|id| nodes[id].start))
+    });
     PathPlan {
+        unique,
         child_names,
         paths: (0..nodes.len()).map(|_| OnceCell::new()).collect(),
         root: wrapper.map(|id| nodes[id].start),

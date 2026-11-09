@@ -124,6 +124,39 @@ fn a_keystroke_reads_the_string_bodies_and_the_caret_s_place_once() {
     super::parse_cache::release();
 }
 
+/// The suggestions typing in a value offers (its values, and the children
+/// a word there may name, less those already written) read the text once,
+/// for the caret's place: the keys already written are read around the
+/// caret's element, not off every span of the document (a second read of
+/// the whole text, most of an XML keystroke's suggestions).
+#[test]
+fn a_keystroke_in_a_value_reads_the_whole_text_once_for_its_suggestions() {
+    let schema = schema();
+    super::parse_cache::hold();
+    for (language, text) in samples() {
+        let (_owner, state) = TestEditor {
+            schema: Some(schema.clone()),
+            ..TestEditor::new(language, text)
+        }
+        .mount();
+        read_view(state);
+        let at = middle_value_end(text);
+        let (((), places), scans) = counted(Work::SpanScan, || {
+            counted(Work::CompletionContext, || {
+                type_x(state, at);
+                let _ = state.completion().suggestions.get_untracked();
+            })
+        });
+        let label = language.label();
+        assert_eq!(
+            (places, scans),
+            (1, 0),
+            "{label}: (the caret's place, every span)"
+        );
+    }
+    super::parse_cache::release();
+}
+
 /// How many times `run` read the whole text for its string bodies, its
 /// constructs over lines, its fold ranges and its changes.
 fn readings(run: impl FnOnce()) -> [usize; 4] {

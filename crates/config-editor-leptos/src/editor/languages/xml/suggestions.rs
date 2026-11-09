@@ -388,8 +388,7 @@ pub(super) fn cursor_bytes(source: &str, cursor: usize) -> usize {
 /// Names to filter from suggestions. Only attribute positions filter;
 /// repeated sibling elements are arrays, so element names never do.
 pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>> {
-    let scan = analyze(source, cursor_byte);
-    let snapshot = scan.snapshot.clone()?;
+    let snapshot = caret_snapshot(source, cursor_byte);
     let naming_element = snapshot
         .open_tag
         .is_some_and(|tag| is_element_name_position(&tag, cursor_byte));
@@ -409,8 +408,9 @@ pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<Hash
             path
         });
         if let Some(element) = element {
+            let starts = [snapshot.open_tag.map(|tag| tag.start), snapshot.holder];
             names.extend(
-                scan.key_spans
+                key_spans_under(source, cursor_byte, &element, starts.into_iter().flatten())
                     .iter()
                     .filter(|(segments, ..)| segments.len() == element.len() + 1 && segments.starts_with(&element))
                     .map(|(segments, ..)| segments[element.len()].clone()),
@@ -423,7 +423,7 @@ pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<Hash
     // `repetition`).
     let holder = strings(&snapshot.path);
     Some(
-        scan.key_spans
+        key_spans_under(source, cursor_byte, &holder, snapshot.holder)
             .iter()
             .filter(|(_, start, end)| !(*start <= cursor_byte && cursor_byte <= *end))
             .filter(|(segments, ..)| segments.len() > holder.len() && segments.starts_with(&holder))

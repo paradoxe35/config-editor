@@ -28,6 +28,8 @@ impl Frame {
 #[derive(Clone, Debug)]
 pub(super) struct Snapshot {
     pub(super) path: Vec<Seg>,
+    /// Where the start tag of the element holding the caret starts.
+    pub(super) holder: Option<usize>,
     pub(super) partial: Option<Token>,
     /// Whether the caret sits inside a tag (`<...>`) rather than in text.
     pub(super) in_tag: bool,
@@ -137,25 +139,6 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
     let mut frames: Vec<Frame> = Vec::new();
     let mut scan = Scan::default();
 
-    // Records a `<name>` start tag: its name span and the new open frame
-    // (`empty` skips the frame for `<name/>`). Its path is looked up only
-    // for its span: the caret's alone needs no other.
-    let open_element =
-        |scan: &mut Scan, frames: &mut Vec<Frame>, name: &str, tag: &Token, empty: bool| {
-            if spans
-                && let Some(path) = plan.path_of(tag.start).filter(|path| !path.is_empty())
-            {
-                scan.key_spans.push((
-                    strings(path),
-                    local_name_start(source, tag),
-                    local_name_start(source, tag) + name_len(source, tag),
-                ));
-            }
-            if !empty {
-                open_frame(frames, name, tag);
-            }
-        };
-
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
@@ -166,35 +149,13 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
         }
         match token.kind {
             Kind::OpenTag { .. } => {
-                let self_closing = opens_nothing(source, &token);
+                if spans {
+                    record_tag_keys(source, &token, is_partial, &plan, &mut scan.key_spans);
+                }
                 let name = token_name(source, &token);
-                // A bare `<` (or `< >`) opens nothing; its attributes, if any,
-                // still belong to no element.
-                if !name.is_empty() {
-                    let metadata = plan.root == Some(token.start);
-                    let attributes = if spans && !metadata {
-                        tokenize_tag_inside(source, &token)
-                    } else {
-                        Vec::new()
-                    };
-                    let path = if attributes.is_empty() {
-                        &[][..]
-                    } else {
-                        plan.path_of(token.start).unwrap_or_default()
-                    };
-                    for inner in attributes {
-                        if let Kind::Text { quoted: false } = inner.kind
-                            && is_attr_name(source, &token, inner)
-                            && !is_partial
-                        {
-                            scan.key_spans.push((
-                                attribute_key(path, &plan.attribute_key(token.start, &source[inner.start..inner.end])),
-                                inner.start,
-                                inner.end,
-                            ));
-                        }
-                    }
-                    open_element(&mut scan, &mut frames, &name, &token, self_closing);
+                // A bare `<` (or `< >`) opens nothing.
+                if !name.is_empty() && !opens_nothing(source, &token) {
+                    open_frame(&mut frames, &name, &token);
                 }
             }
             Kind::EndTag => close_frame(&mut frames, &token_name(source, &token)),
@@ -239,6 +200,114 @@ pub(super) fn scan_text(source: &str, cursor: usize, spans: bool) -> Scan {
         scan.snapshot = Some(capture_snapshot(source, partial, &frames, &plan, cursor));
     }
     scan
+}
+
+/// Records the key spans of the start tag `tag`: its attributes' names
+/// (unless it is the config root's, or `partial`, the tag being typed) and
+/// its name. Its path is looked up only for its spans: the caret's alone
+/// needs no other.
+pub(super) fn record_tag_keys(
+    source: &str,
+    tag: &Token,
+    partial: bool,
+    plan: &PathPlan,
+    key_spans: &mut Vec<(Vec<String>, usize, usize)>,
+) {
+    let name = token_name(source, tag);
+    // A bare `<` (or `< >`) opens nothing; its attributes, if any, still
+    // belong to no element.
+    if name.is_empty() {
+        return;
+    }
+    let attributes = if plan.root == Some(tag.start) {
+        Vec::new()
+    } else {
+        tokenize_tag_inside(source, tag)
+    };
+    let path = if attributes.is_empty() {
+        &[][..]
+    } else {
+        plan.path_of(tag.start).unwrap_or_default()
+    };
+    for inner in attributes {
+        if let Kind::Text { quoted: false } = inner.kind
+            && is_attr_name(source, tag, inner)
+            && !partial
+        {
+            key_spans.push((
+                attribute_key(path, &plan.attribute_key(tag.start, &source[inner.start..inner.end])),
+                inner.start,
+                inner.end,
+            ));
+        }
+    }
+    if let Some(path) = plan.path_of(tag.start).filter(|path| !path.is_empty()) {
+        key_spans.push((
+            strings(path),
+            local_name_start(source, tag),
+            local_name_start(source, tag) + name_len(source, tag),
+        ));
+    }
+}
+
+/// Key spans (see [`Scan::key_spans`]): some, or the whole scan's.
+pub(super) enum KeySpans {
+    Some(Vec<(Vec<String>, usize, usize)>),
+    All(std::rc::Rc<Scan>),
+}
+
+impl std::ops::Deref for KeySpans {
+    type Target = [(Vec<String>, usize, usize)];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Some(spans) => spans,
+            Self::All(scan) => &scan.key_spans,
+        }
+    }
+}
+
+/// The key spans [`analyze`] records at byte `cursor`, at least all whose
+/// path starts with `path`: read from the element with that path among
+/// those starting at `starts` (see [`PathPlan::subtree`]) where they lie
+/// only there, not off the whole document.
+pub(super) fn key_spans_under(
+    source: &str,
+    cursor: usize,
+    path: &[String],
+    starts: impl IntoIterator<Item = usize>,
+) -> KeySpans {
+    some_key_spans(source, cursor, path, starts)
+        .map_or_else(|| KeySpans::All(analyze(source, cursor)), KeySpans::Some)
+}
+
+fn some_key_spans(
+    source: &str,
+    cursor: usize,
+    path: &[String],
+    starts: impl IntoIterator<Item = usize>,
+) -> Option<Vec<(Vec<String>, usize, usize)>> {
+    let walked = walked(source);
+    let read;
+    let tokens: &[Token] = match &walked {
+        Some(walked) => &walked.tokens,
+        None => {
+            read = tokenize(source);
+            &read
+        }
+    };
+    let plan = plan_paths(source, tokens);
+    let (start, after) = plan.subtree(path, starts)?;
+    let first = tokens.partition_point(|token| token.start < start);
+    let end = after.map_or(tokens.len(), |after| tokens.partition_point(|token| token.start < after));
+    let partial = holding(source, tokens, cursor);
+    let mut key_spans = Vec::new();
+    for (index, token) in tokens.iter().enumerate().take(end).skip(first) {
+        if matches!(token.kind, Kind::OpenTag { .. }) {
+            record_tag_keys(source, token, partial == Some(index), &plan, &mut key_spans);
+        }
+    }
+    Some(key_spans)
 }
 
 /// Whether `gap` holds only whitespace, comments and processing
@@ -382,7 +451,7 @@ pub(super) fn walked(source: &str) -> Option<std::rc::Rc<Walked>> {
 
 /// The index of the token holding the caret at byte `cursor` (not a comment
 /// or processing instruction), found by halving `tokens`.
-fn holding(source: &str, tokens: &[Token], cursor: usize) -> Option<usize> {
+pub(super) fn holding(source: &str, tokens: &[Token], cursor: usize) -> Option<usize> {
     let next = tokens.partition_point(|token| token.start < cursor);
     next.checked_sub(1).filter(|before| {
         let token = &tokens[*before];
@@ -446,6 +515,7 @@ pub(super) fn capture_snapshot(
     });
     Snapshot {
         path,
+        holder: frames.last().map(|frame| frame.start),
         partial,
         in_tag: open_tag.is_some(),
         open_tag,
