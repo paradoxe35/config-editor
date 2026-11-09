@@ -915,6 +915,14 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         false
     }
 
+    /// Whether the language has one number type, so `2` and `2.0` are the
+    /// same value (HCL), even when [`parse`](Self::parse) keeps how a number
+    /// was written. An integer typed over a float the host holds then keeps
+    /// the host's float type: the view cannot say otherwise.
+    fn one_number_type(&self) -> bool {
+        false
+    }
+
     /// Whether indentation is structure (YAML: a key's indent says which
     /// block it belongs to). A read-only field's lines then keep their
     /// indent; where it is not (the default), re-indenting them stays free.

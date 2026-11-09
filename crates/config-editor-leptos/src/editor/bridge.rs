@@ -189,9 +189,9 @@ impl Bridge {
             }
             _ => value,
         };
-        // A view that reads a whole float as an integer (HCL) only shows it
-        // so: a number typed over it stays a float, and over any float when
-        // the view reads every whole number as an integer.
+        // A view that shows a whole float as an integer only shows it so: a
+        // number typed over it stays a float, and over any float when the
+        // view cannot tell the two (HCL's one number type).
         let value = match &seen {
             Some(seen) => whole_floats::kept(
                 &old,

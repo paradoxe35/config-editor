@@ -59,6 +59,11 @@ impl ConfigLanguage for HclBehavior {
         expressions::expression_pointers(source)
     }
 
+    fn one_number_type(&self) -> bool {
+        // HCL numbers are one arbitrary-precision type: `2` is `2.0`.
+        true
+    }
+
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "HCL",

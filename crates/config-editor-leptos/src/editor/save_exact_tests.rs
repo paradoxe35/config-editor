@@ -569,10 +569,10 @@ fn untouched_numbers_stay_as_written_through_any_view() {
     report(failures);
 }
 
-/// A view that reads a whole float as an integer cannot tell it from one:
-/// a number typed over it keeps the host's float type (round 20: the HCL
-/// view saved an integer, before HCL read `1.0` as a float), and only that
-/// line changes.
+/// A view that reads a whole float as an integer, or whose numbers are one
+/// type (HCL), cannot tell it from one: a number typed over it keeps the
+/// host's float type (round 20: the HCL view saved an integer; QA 25 again,
+/// once HCL read `1.0` as a float), and only that line changes.
 #[test]
 fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
     fn whole_floats(value: &Value, pointer: String, out: &mut Vec<String>) {
@@ -605,9 +605,11 @@ fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
                 continue;
             };
             for pointer in &pointers {
-                // Only where the view shows an integer.
-                if !super::save_matrix::find_slot(&mut seen, pointer)
-                    .is_some_and(|shown| shown.is_u64() || shown.is_i64())
+                // Only where the view shows an integer, or cannot tell one
+                // from a float (HCL's one number type).
+                if !edit.behavior().one_number_type()
+                    && !super::save_matrix::find_slot(&mut seen, pointer)
+                        .is_some_and(|shown| shown.is_u64() || shown.is_i64())
                 {
                     continue;
                 }
@@ -636,7 +638,7 @@ fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
             }
         }
     }
-    assert!(tried > 0, "only {tried} cases");
+    assert!(tried > 10, "only {tried} cases");
     report(failures);
 }
 

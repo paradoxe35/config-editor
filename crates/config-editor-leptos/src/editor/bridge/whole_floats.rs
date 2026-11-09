@@ -1,5 +1,5 @@
-//! Whole floats a view reads as integers (HCL reads `1.0` as `1`): a
-//! number typed over one keeps the host's float type.
+//! Whole floats a view cannot tell from integers (XML text, HCL's one
+//! number type): a number typed over one keeps the host's float type.
 
 use super::super::language::ConfigLanguage;
 use serde_json::{Number, Value};
@@ -55,8 +55,13 @@ fn shown_as_integer(before: &Number, shown: &Number) -> bool {
         && before.as_f64() == shown.as_f64()
 }
 
-/// Whether `language` reads a whole float it writes (`1.0`) as a float.
+/// Whether `language` tells a whole float from an integer: it reads a
+/// whole float it writes (`1.0`) as a float, and its numbers are not one
+/// type ([`ConfigLanguage::one_number_type`]: HCL's `2` is `2.0`).
 pub(super) fn tells_floats(language: &dyn ConfigLanguage) -> bool {
+    if language.one_number_type() {
+        return false;
+    }
     let document = serde_json::json!({ "k": 1.0 });
     language
         .serialize(&document, None)

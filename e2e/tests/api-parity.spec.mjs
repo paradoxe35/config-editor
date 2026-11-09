@@ -131,6 +131,7 @@ const CONFIG_LANGUAGE = {
   config: { custom: ['comments', 'brackets', 'separators'] },
   parse: { custom: 'parse' },
   serialize: { custom: 'serialize' },
+  one_number_type: { exempt: RUST_ONLY_REFINEMENT },
   writes_non_finite: { exempt: 'a custom language writes infinities and NaN as the text `inf` / `nan` (JS data holds them as numbers)' },
   indent_is_structure: { exempt: RUST_ONLY_REFINEMENT },
   plain_scalars: { exempt: RUST_ONLY_REFINEMENT },

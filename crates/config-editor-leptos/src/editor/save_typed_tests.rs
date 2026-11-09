@@ -95,10 +95,10 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                     .ok()
                     .and_then(|value| value.pointer(&pointer).cloned());
                 // The host's type where the view cannot tell: a float stays
-                // a float (`2` typed in XML is 2.0); a view that can (HCL
-                // too, which reads `2.0` as a float) writes what was typed.
+                // a float (`2` typed in XML, or in HCL, whose numbers are one
+                // type, is 2.0); a view that can writes what was typed.
                 let typed_integer = Value::from(2);
-                let expected = if *typed == "2" && edit != Language::XML {
+                let expected = if *typed == "2" && edit != Language::XML && edit != Language::HCL {
                     &typed_integer
                 } else {
                     expected
