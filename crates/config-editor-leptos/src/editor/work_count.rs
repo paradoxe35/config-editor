@@ -89,6 +89,10 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the lock guard notes it")
     )]
     OffsetBytes,
+    /// A text read from its top to find one line or one place in it (where
+    /// line `n` starts, the line and column of a byte), outside a batch
+    /// that splits its lines once.
+    LineSeek,
 }
 
 impl Work {
@@ -114,13 +118,14 @@ impl Work {
             Self::UngroupedParse => 16,
             Self::Statements => 17,
             Self::OffsetBytes => 18,
+            Self::LineSeek => 19,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 19]> = const { std::cell::Cell::new([0; 19]) };
+    static COUNTS: std::cell::Cell<[usize; 20]> = const { std::cell::Cell::new([0; 20]) };
 }
 
 /// `work` is starting (counted on this thread in tests).

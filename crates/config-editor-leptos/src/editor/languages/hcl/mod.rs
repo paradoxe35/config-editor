@@ -467,3 +467,5 @@ mod splice_tests;
 mod read_tests;
 #[cfg(test)]
 mod big_errors_tests;
+#[cfg(test)]
+mod expressions_scale_tests;

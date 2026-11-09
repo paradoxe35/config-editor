@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use super::super::work_count::Work;
+use super::super::work_count::{Work, note};
 use super::TextPosition;
 use super::span_memo::{batch_cached_as, in_batch};
 
@@ -120,6 +120,7 @@ pub(crate) fn line_column(source: &str, byte: usize) -> (usize, usize) {
     if in_batch(source) {
         return lines(source).line_column(source, byte);
     }
+    note(Work::LineSeek);
     let before = &source[..byte.min(source.len())];
     let line = before.matches('\n').count() + 1;
     let line_start = before.rfind('\n').map_or(0, |index| index + 1);
@@ -133,6 +134,7 @@ pub(crate) fn units_at(source: &str, byte: usize) -> usize {
     if in_batch(source) {
         return lines(source).units_at(source, byte);
     }
+    note(Work::LineSeek);
     source[..byte.min(source.len())].encode_utf16().count()
 }
 
@@ -166,6 +168,7 @@ pub(crate) fn line_start(source: &str, index: usize) -> usize {
         let lines = lines(source);
         return lines.starts.get(index).copied().unwrap_or(source.len());
     }
+    note(Work::LineSeek);
     source.split_inclusive('\n').take(index).map(str::len).sum()
 }
 
@@ -175,6 +178,7 @@ pub(crate) fn split_line(source: &str, index: usize) -> Option<&str> {
     if in_batch(source) {
         return lines(source).line(source, index);
     }
+    note(Work::LineSeek);
     source.split('\n').nth(index)
 }
 
@@ -194,6 +198,7 @@ pub(crate) fn text_line(source: &str, index: usize) -> Option<&str> {
         }
         return Some(line.strip_suffix('\r').unwrap_or(line));
     }
+    note(Work::LineSeek);
     source.lines().nth(index)
 }
 

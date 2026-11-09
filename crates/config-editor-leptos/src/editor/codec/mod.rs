@@ -832,11 +832,9 @@ fn through_long_quote(
 
 /// The byte range of a one-based line/character-column span.
 pub(super) fn byte_range(source: &str, span: Span) -> Option<std::ops::Range<usize>> {
-    let line_start = if span.line <= 1 {
-        0
-    } else {
-        source.match_indices('\n').nth(span.line - 2)?.0 + 1
-    };
+    // (A lookup while a batch runs for the text; past its last line, the
+    // empty text at its end.)
+    let line_start = crate::editor::paths::line_start(source, span.line.saturating_sub(1));
     let line = &source[line_start..];
     let byte_of = |column: usize| {
         line.char_indices()

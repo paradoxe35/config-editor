@@ -5,6 +5,7 @@
 
 use hcl_edit::expr::Expression;
 use serde_json::Value;
+use std::collections::HashSet;
 
 use super::read::MARK;
 
@@ -153,14 +154,16 @@ pub(super) fn changed_expression(previous: &str, patched: &str) -> Option<String
     let (Ok(old), Ok(new)) = (super::hcl_parse(previous), super::hcl_parse(patched)) else {
         return None;
     };
+    // (Sets: a document of many expressions is looked through once.)
+    let (before_set, after_set): (HashSet<&String>, HashSet<&String>) = (before.iter().collect(), after.iter().collect());
     let string = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_str).map(str::to_string);
     let to_literal = before.iter().find(|pointer| {
-        !after.contains(pointer)
+        !after_set.contains(pointer)
             && string(&old, pointer).is_some()
             && string(&new, pointer).is_some_and(|text| text.contains("${") || text.contains("%{"))
     });
-    let to_expression = || after.iter().find(|pointer| !before.contains(pointer) && string(&old, pointer).is_some());
-    to_literal.or_else(to_expression).cloned().or_else(|| moved_to_literal(&before, &after, &old, &new))
+    let to_expression = || after.iter().find(|pointer| !before_set.contains(pointer) && string(&old, pointer).is_some());
+    to_literal.or_else(to_expression).cloned().or_else(|| moved_to_literal(&before, &after_set, &old, &new))
 }
 
 /// The first value `patched` writes as a literal string with a template
@@ -168,9 +171,9 @@ pub(super) fn changed_expression(previous: &str, patched: &str) -> Option<String
 /// an expression of `previous` (at `before`) that `patched` no longer
 /// writes (at `after`) reads as: that expression moved (to another block)
 /// and was written as a literal.
-fn moved_to_literal(before: &[String], after: &[String], old: &Value, new: &Value) -> Option<String> {
+fn moved_to_literal(before: &[String], after: &HashSet<&String>, old: &Value, new: &Value) -> Option<String> {
     let string = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_str).map(str::to_string);
-    let gone: Vec<String> = before.iter().filter(|pointer| !after.contains(pointer)).filter_map(|pointer| string(old, pointer)).collect();
+    let gone: HashSet<String> = before.iter().filter(|pointer| !after.contains(pointer)).filter_map(|pointer| string(old, pointer)).collect();
     if gone.is_empty() {
         return None;
     }

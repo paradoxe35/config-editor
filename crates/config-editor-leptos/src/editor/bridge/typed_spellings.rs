@@ -38,18 +38,10 @@ pub(super) fn kept(
     if changed.is_empty() {
         return saved;
     }
-    let typed = edit.value_spans(edit_text, &changed);
-    let written = host.value_spans(&saved, &changed);
-    let was = host.value_spans(previous, &changed);
-    let mut edits = Vec::new();
-    // The values a host whose values are all text holds as typed, where
-    // the edit read a number (`4.10` is the text `4.10` there).
-    let mut as_text = Vec::new();
-    for (((pointer, typed), written), was) in changed.iter().zip(typed).zip(written).zip(was) {
-        let Some(range) = written.and_then(|written| codec::byte_range(&saved, written)) else {
-            continue;
-        };
-        let Some(value) = target.pointer(pointer) else {
+    // Where the save writes each value that may be spelled anew.
+    let mut places = Vec::new();
+    for (pointer, written) in changed.iter().zip(ranges(host, &saved, &changed)) {
+        let (Some(range), Some(value)) = (written, target.pointer(pointer)) else {
             continue;
         };
         let range = trimmed(&saved, range);
@@ -61,21 +53,51 @@ pub(super) fn kept(
         };
         let written = &saved[range.clone()];
         // An anchor or tag before it (`&x 2`, `!!float 2`), or an alias
-        // (`*x`), stays the host's.
+        // (`*x`), stays the host's; so does a string it writes quoted or
+        // over lines (see `spelled`).
         if written.is_empty()
             || host.value_properties_len(written) > 0
             || host.reference_len(written).is_some()
+            || value.is_string() && !bare_string(host, written)
         {
             continue;
         }
-        let typed = typed
-            .and_then(|typed| codec::byte_range(edit_text, typed))
-            .and_then(|range| spelled(host, edit, edit_text[range].trim(), written, value));
+        places.push((pointer, value, range));
+    }
+    if places.is_empty() {
+        return saved;
+    }
+    // Only those are looked up in the edit's text, and the numbers among
+    // them in the host's last (their form there).
+    let pointers: Vec<String> = places
+        .iter()
+        .map(|(pointer, ..)| (*pointer).clone())
+        .collect();
+    let typed = ranges(edit, edit_text, &pointers);
+    let numbers: Vec<String> = places
+        .iter()
+        .filter(|(pointer, value, _)| {
+            value.is_number() && old.pointer(pointer).is_some_and(Value::is_number)
+        })
+        .map(|(pointer, ..)| (*pointer).clone())
+        .collect();
+    let was: std::collections::HashMap<String, std::ops::Range<usize>> = numbers
+        .iter()
+        .cloned()
+        .zip(ranges(host, previous, &numbers))
+        .filter_map(|(pointer, range)| Some((pointer, range?)))
+        .collect();
+    let mut edits = Vec::new();
+    // The values a host whose values are all text holds as typed, where
+    // the edit read a number (`4.10` is the text `4.10` there).
+    let mut as_text = Vec::new();
+    for ((pointer, value, range), typed) in places.into_iter().zip(typed) {
+        let written = &saved[range.clone()];
+        let typed =
+            typed.and_then(|range| spelled(host, edit, edit_text[range].trim(), written, value));
         let in_form = || {
             let number = value.as_number()?;
-            old.pointer(pointer)?.as_number()?;
-            let was = codec::byte_range(previous, was?)?;
-            host.number_in_form(previous[was].trim(), number)
+            host.number_in_form(previous[was.get(pointer)?.clone()].trim(), number)
                 .filter(|text| text != written)
         };
         if let Some(text) = typed.or_else(in_form) {
@@ -139,19 +161,31 @@ pub(super) fn respelled(
     {
         return Vec::new();
     }
+    // An edit inside the one value it changed (a digit typed into a
+    // string) spells no other number anew: no value is written inside
+    // another, so none touches it. Only that value is looked up.
+    let mut changed = Vec::new();
+    changed_scalars(seen, edited, String::new(), &mut changed);
+    if let [_] = changed.as_slice()
+        && let Some(Some(range)) = ranges(edit, edit_text, &changed).pop()
+        && let range = trimmed(edit_text, range)
+        && range.start < start
+        && end < range.end
+    {
+        return Vec::new();
+    }
     let mut numbers = Vec::new();
     same_numbers(seen, edited, String::new(), &mut numbers);
     if numbers.is_empty() {
         return Vec::new();
     }
-    // The numbers touching the changed bytes, every one's span read in
-    // one pass of the text (alone, each lookup read it all again).
-    let typed = spans(edit, edit_text, &numbers);
+    // The numbers touching the changed bytes.
+    let typed = ranges(edit, edit_text, &numbers);
     let touched: Vec<(String, std::ops::Range<usize>)> = numbers
         .into_iter()
         .zip(typed)
-        .filter_map(|(pointer, span)| {
-            let range = trimmed(edit_text, codec::byte_range(edit_text, span?)?);
+        .filter_map(|(pointer, range)| {
+            let range = trimmed(edit_text, range?);
             (range.start <= end && start <= range.end).then_some((pointer, range))
         })
         .collect();
@@ -159,27 +193,31 @@ pub(super) fn respelled(
         return Vec::new();
     }
     let pointers: Vec<String> = touched.iter().map(|(pointer, _)| pointer.clone()).collect();
-    let was = spans(edit, shown, &pointers);
+    let was = ranges(edit, shown, &pointers);
     touched
         .into_iter()
         .zip(was)
         .filter_map(|((pointer, range), was)| {
-            let was = trimmed(shown, codec::byte_range(shown, was?)?);
+            let was = trimmed(shown, was?);
             (shown[was] != edit_text[range]).then_some(pointer)
         })
         .collect()
 }
 
-/// The value spans of `pointers` in `text`, read in one batch.
-fn spans(
+/// The byte ranges of the values of `pointers` in `text`, read in one
+/// pass of it: the language's readings of the whole text, and its lines,
+/// are made once for all of them (alone, each lookup read the text again,
+/// and each span's line was counted from the top).
+fn ranges(
     language: &dyn ConfigLanguage,
     text: &str,
     pointers: &[String],
-) -> Vec<Option<super::super::language::Span>> {
-    super::super::paths::with_spans(language, text, pointers, || {
-        pointers
-            .iter()
-            .map(|pointer| super::super::paths::memo_value_span(language, text, pointer))
+) -> Vec<Option<std::ops::Range<usize>>> {
+    super::super::paths::with_spans(language, text, &[], || {
+        language
+            .value_spans(text, pointers)
+            .into_iter()
+            .map(|span| codec::byte_range(text, span?))
             .collect()
     })
 }
@@ -250,9 +288,7 @@ fn spelled(
 ) -> Option<String> {
     let typed = if value.is_string() {
         // Only a string the host writes bare, typed without escapes.
-        if super::super::flow_syntax::Flow::of(host).starts_quoted(written)
-            || written.contains('\n')
-        {
+        if !bare_string(host, written) {
             return None;
         }
         unquoted(edit, typed)?
@@ -262,6 +298,12 @@ fn spelled(
     // A host whose values are all text holds a number as typed.
     let reads = host.scalar_reads_as(typed, value) || host.scalars_are_text() && value.is_number();
     (!typed.is_empty() && written != typed && reads).then(|| typed.to_string())
+}
+
+/// Whether the host writes a string `written` so bare: unquoted, on one
+/// line.
+fn bare_string(host: &dyn ConfigLanguage, written: &str) -> bool {
+    !super::super::flow_syntax::Flow::of(host).starts_quoted(written) && !written.contains('\n')
 }
 
 /// `typed` (as `edit` writes it) without the quotes around it, when it
