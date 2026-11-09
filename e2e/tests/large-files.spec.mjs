@@ -184,7 +184,7 @@ test.describe('large files', () => {
       if (language === 'json') {
         // Inside a string value, where JSON allows any text.
         await e.input.evaluate((element) => {
-          const at = element.value.indexOf('"tunnel.pngwasi.me"') + '"tunnel'.length;
+          const at = element.value.indexOf('"tunnel.example.com"') + '"tunnel'.length;
           element.setSelectionRange(at, at);
         });
         await page.keyboard.type(JSON_TYPED, { delay: 25 });

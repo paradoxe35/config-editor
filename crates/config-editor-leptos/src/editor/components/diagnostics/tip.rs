@@ -11,6 +11,7 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::super::metrics::read_editor_metrics;
+use super::super::super::popup_pointer::{enter_popup, popup_wheel, take_pointer_again};
 use super::super::super::positioning::PopupFrame;
 use super::super::super::problem_hit::tip_column;
 use super::super::super::state::EditorState;
@@ -63,9 +64,14 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
     let visible = Memo::new(move |_| placement.with(Option::is_some));
     Effect::new(move |seen: Option<Option<TipContent>>| {
         let now = content.get();
-        if seen.is_some_and(|seen| seen != now) && natural.get_untracked() != 0.0 {
+        let changed = seen.is_some_and(|seen| seen != now);
+        if changed && natural.get_untracked() != 0.0 {
             // New entries: measured again before they are shown.
             natural.set(0.0);
+        }
+        if changed && let Some(tip) = tip_ref.get_untracked() {
+            // Other problems: the tip takes the pointer again.
+            take_pointer_again(&tip);
         }
         if visible.get() {
             // Once its entries and its showing are on the page (before it
@@ -110,8 +116,9 @@ pub(crate) fn ProblemTip(state: EditorState) -> impl IntoView {
             on:focusout=move |event| leave_tip_focus(state, &event)
             hidden=move || placement.with(Option::is_none)
             style=cssom(move || placement.get().map(Placement::style))
-            on:mouseenter=move |_| state.problems().tip_entered.set_value(true)
+            on:mouseenter=move |event| enter_tip(state, &event)
             on:mouseleave=move |_| leave_tip(state)
+            on:wheel=move |event| wheel_tip(state, &event)
             // Scrolling it or clicking a link keeps the caret.
             on:mousedown=move |event| event.prevent_default()
         >
@@ -159,7 +166,9 @@ fn tip_key(state: EditorState, event: &web_sys::KeyboardEvent) {
     let Some(tip) = state.problems().tip_ref.get_untracked() else {
         return;
     };
-    if super::super::super::hover_focus::opens_docs_from(state, &tip, event) {
+    if super::super::super::hover_focus::opens_docs_from(state, &tip, event)
+        || super::super::super::hover_focus::selects_all_in(&tip, event)
+    {
         return;
     }
     super::super::super::hover_focus::card_keys(&tip, event);
@@ -178,9 +187,31 @@ fn leave_tip_focus(state: EditorState, event: &web_sys::FocusEvent) {
     }
 }
 
-/// The pointer left the tip: it closes a moment later, as when it leaves
-/// an underline.
+/// The pointer came onto the tip: from its underline, it stays; another
+/// way, it lets the pointer through to the text under it (see
+/// `popup_pointer`).
+fn enter_tip(state: EditorState, event: &web_sys::MouseEvent) {
+    let Some(tip) = state.problems().tip_ref.get_untracked() else {
+        return;
+    };
+    if enter_popup(state, &tip, event) {
+        state.problems().tip_entered.set_value(true);
+    }
+}
+
+/// A wheel over the tip: see `popup_pointer`.
+fn wheel_tip(state: EditorState, event: &web_sys::WheelEvent) {
+    if let Some(tip) = state.problems().tip_ref.get_untracked() {
+        popup_wheel(state, &tip, event);
+    }
+}
+
+/// The pointer left the tip it entered: it closes a moment later, as when
+/// it leaves an underline.
 fn leave_tip(state: EditorState) {
+    if !state.problems().tip_entered.get_value() {
+        return;
+    }
     state.problems().tip_entered.set_value(false);
     state.leave_problem();
 }

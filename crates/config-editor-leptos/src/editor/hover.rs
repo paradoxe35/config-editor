@@ -9,7 +9,7 @@ use super::a11y::{
 };
 use super::completion::{KeyHover, key_hover};
 use super::components::HoverCard;
-use super::positioning::hover_card_style;
+use super::positioning::hover_card_anchor;
 use super::state::EditorState;
 
 /// How many characters before the caret `Ctrl+K Ctrl+I` looks for the key
@@ -32,8 +32,10 @@ pub(super) struct HoverState {
     /// Where the pointer was last over the text, in the window's pixels
     /// (see `hover_path`).
     pub(super) pointer: StoredValue<Option<(f64, f64)>>,
-    /// The pointer's last move headed for the popup it can enter.
-    pub(super) heading: StoredValue<bool>,
+    /// The pointer's last move over the text was on the way to the popup
+    /// it can enter: on what the popup is for, in its gap, or heading for
+    /// it from there (see `hover_path`).
+    pub(super) on_way: StoredValue<bool>,
     /// The card's element while it shows: the keyboard reaches its links
     /// (see [`EditorState::keep_card_for`]).
     pub(super) card_ref: NodeRef<leptos::html::Div>,
@@ -50,7 +52,7 @@ impl HoverState {
             token: StoredValue::new(0),
             at_caret: StoredValue::new(false),
             pointer: StoredValue::new(None),
-            heading: StoredValue::new(false),
+            on_way: StoredValue::new(false),
             card_ref: NodeRef::new(),
             card_focused: RwSignal::new(false),
         }
@@ -74,6 +76,15 @@ impl EditorState {
                 state.hide_hover();
             }
         });
+    }
+
+    /// The pointer is back on the card's key: a hiding it was waiting for
+    /// is called off (the card stays, as in VS Code).
+    pub(super) fn keep_hover(&self) {
+        self.hover().on_way.set_value(true);
+        if !self.hover().at_caret.get_value() {
+            self.hover().token.update_value(|token| *token += 1);
+        }
     }
 
     /// Shows the hover card for the key (or documented value) at the caret,
@@ -123,12 +134,12 @@ impl EditorState {
         } else {
             format!("{problems}. {docs}")
         };
-        let style = hover_card_style(&element, line, info.start_column);
+        let anchor = hover_card_anchor(&element, line, info.start_column);
         self.hover().card.set(Some(HoverCard {
             info,
             line,
             caret,
-            style,
+            anchor,
         }));
         self.hover().at_caret.set_value(true);
         self.a11y().announce(said);

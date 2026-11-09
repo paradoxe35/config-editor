@@ -1,6 +1,6 @@
 {
   "listen": "0.0.0.0:7835",
-  "public_address": "tunnel.pngwasi.me",
+  "public_address": "tunnel.example.com",
   "insecure_plaintext": false,
   "update": {
     "remote": true
@@ -8,7 +8,7 @@
   "websocket": {
     "listen": "127.0.0.1:7836",
     "path": "/tunnel",
-    "host": "tunnel.pngwasi.me",
+    "host": "tunnel.example.com",
     "keepalive_secs": 20,
     "challenge": "http"
   },
@@ -453,13 +453,13 @@
     }
   },
   "visitors": {
-    "paradoxe-pc": {
-      "secret": "«secret 808eab68»",
+    "victor-pc": {
+      "secret": "«secret 321efaf1»",
       "admin": "write",
       "reach": {}
     },
-    "paradoxe-laptop": {
-      "secret": "«secret 97e15829»",
+    "victor-laptop": {
+      "secret": "«secret 05b5759c»",
       "admin": "read",
       "reach": {
         "etiolles-pve-ai": [
@@ -469,12 +469,12 @@
         "etiolles-backup": "self"
       }
     },
-    "gaby-pc": {
-      "secret": "«secret 14154ecf»",
+    "wendy-pc": {
+      "secret": "«secret ad31e83b»",
       "max_connections": 34
     },
-    "gaby-phone": {
-      "secret": "«secret 08a7bb62»",
+    "wendy-phone": {
+      "secret": "«secret 7236477e»",
       "reach": {},
       "admin_from": [
         "10.3.0.0/16",
@@ -627,8 +627,8 @@
       "client": "etiolles-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ]
     },
     "etiolles-pve-web": {
@@ -639,8 +639,8 @@
       ],
       "mode": "failover",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "health_check": {
         "interval_secs": 10,
@@ -675,8 +675,8 @@
         "etiolles-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "10mbit"
     },
@@ -696,8 +696,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -714,8 +714,8 @@
       "client": "hetzner-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-laptop",
-        "gaby-pc"
+        "victor-laptop",
+        "wendy-pc"
       ]
     },
     "hetzner-pve-web": {
@@ -726,8 +726,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-phone"
+        "victor-pc",
+        "wendy-phone"
       ],
       "health_check": {
         "interval_secs": 11,
@@ -762,8 +762,8 @@
         "hetzner-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "20mbit"
     },
@@ -783,8 +783,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -801,8 +801,8 @@
       "client": "ikoula-pve",
       "target": 22,
       "visitors": [
-        "gaby-pc",
-        "gaby-phone"
+        "wendy-pc",
+        "wendy-phone"
       ]
     },
     "ikoula-pve-web": {
@@ -813,7 +813,7 @@
       ],
       "mode": "least_connections",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "ops-oncall"
       ],
       "health_check": {
@@ -849,8 +849,8 @@
         "ikoula-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "30mbit"
     },
@@ -870,8 +870,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -888,7 +888,7 @@
       "client": "scaleway-pve",
       "target": 22,
       "visitors": [
-        "gaby-phone",
+        "wendy-phone",
         "ops-oncall"
       ]
     },
@@ -900,7 +900,7 @@
       ],
       "mode": "ip_hash",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "ci-runner"
       ],
       "health_check": {
@@ -936,8 +936,8 @@
         "scaleway-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "40mbit"
     },
@@ -957,8 +957,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -976,7 +976,7 @@
       "target": 22,
       "visitors": [
         "ops-oncall",
-        "paradoxe-pc"
+        "victor-pc"
       ]
     },
     "ovh-pve-web": {
@@ -987,7 +987,7 @@
       ],
       "mode": "failover",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "grafana-bot"
       ],
       "health_check": {
@@ -1023,8 +1023,8 @@
         "ovh-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "50mbit"
     },
@@ -1044,8 +1044,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -1062,8 +1062,8 @@
       "client": "gravelines-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ]
     },
     "gravelines-pve-web": {
@@ -1074,7 +1074,7 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "backup-agent"
       ],
       "health_check": {
@@ -1110,8 +1110,8 @@
         "gravelines-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "60mbit"
     },
@@ -1131,8 +1131,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -1149,8 +1149,8 @@
       "client": "roubaix-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-laptop",
-        "gaby-pc"
+        "victor-laptop",
+        "wendy-pc"
       ]
     },
     "roubaix-pve-web": {
@@ -1161,7 +1161,7 @@
       ],
       "mode": "least_connections",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "alice-laptop"
       ],
       "health_check": {
@@ -1197,8 +1197,8 @@
         "roubaix-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "70mbit"
     },
@@ -1218,8 +1218,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -1236,8 +1236,8 @@
       "client": "strasbourg-pve",
       "target": 22,
       "visitors": [
-        "gaby-pc",
-        "gaby-phone"
+        "wendy-pc",
+        "wendy-phone"
       ]
     },
     "strasbourg-pve-web": {
@@ -1248,7 +1248,7 @@
       ],
       "mode": "ip_hash",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "bob-desktop"
       ],
       "health_check": {
@@ -1284,8 +1284,8 @@
         "strasbourg-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "80mbit"
     },
@@ -1305,8 +1305,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -1323,7 +1323,7 @@
       "client": "frankfurt-pve",
       "target": 22,
       "visitors": [
-        "gaby-phone",
+        "wendy-phone",
         "ops-oncall"
       ]
     },
@@ -1335,7 +1335,7 @@
       ],
       "mode": "failover",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "carol-tablet"
       ],
       "health_check": {
@@ -1371,8 +1371,8 @@
         "frankfurt-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "90mbit"
     },
@@ -1392,8 +1392,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -1411,7 +1411,7 @@
       "target": 22,
       "visitors": [
         "ops-oncall",
-        "paradoxe-pc"
+        "victor-pc"
       ]
     },
     "helsinki-pve-web": {
@@ -1422,7 +1422,7 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "dave-workstation"
       ],
       "health_check": {
@@ -1458,8 +1458,8 @@
         "helsinki-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "100mbit"
     },
@@ -1479,8 +1479,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -1497,8 +1497,8 @@
       "client": "amsterdam-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ]
     },
     "amsterdam-pve-web": {
@@ -1509,7 +1509,7 @@
       ],
       "mode": "least_connections",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "erin-laptop"
       ],
       "health_check": {
@@ -1545,8 +1545,8 @@
         "amsterdam-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "110mbit"
     },
@@ -1566,8 +1566,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v1"
     },
@@ -1584,8 +1584,8 @@
       "client": "london-pve",
       "target": 22,
       "visitors": [
-        "paradoxe-laptop",
-        "gaby-pc"
+        "victor-laptop",
+        "wendy-pc"
       ]
     },
     "london-pve-web": {
@@ -1596,7 +1596,7 @@
       ],
       "mode": "ip_hash",
       "visitors": [
-        "paradoxe-pc",
+        "victor-pc",
         "frank-pc"
       ],
       "health_check": {
@@ -1632,8 +1632,8 @@
         "london-pve-ai"
       ],
       "visitors": [
-        "paradoxe-pc",
-        "paradoxe-laptop"
+        "victor-pc",
+        "victor-laptop"
       ],
       "bandwidth": "120mbit"
     },
@@ -1653,8 +1653,8 @@
       ],
       "mode": "balance",
       "visitors": [
-        "paradoxe-pc",
-        "gaby-pc"
+        "victor-pc",
+        "wendy-pc"
       ],
       "proxy_protocol": "v2"
     },
@@ -1672,8 +1672,8 @@
       "target": "192.168.0.11:8000",
       "web": {
         "hosts": [
-          "whoami.gracecarry.shop",
-          "www.whoami.gracecarry.shop"
+          "whoami.example.org",
+          "www.whoami.example.org"
         ],
         "tls": "auto",
         "compress": true,
@@ -1691,8 +1691,8 @@
           "/whoami/api"
         ],
         "redirect_from": [
-          "old-whoami.gracecarry.shop",
-          "whoami.legacy.gracecarry.shop"
+          "old-whoami.example.org",
+          "whoami.legacy.example.org"
         ]
       }
     },
@@ -1701,8 +1701,8 @@
       "target": "192.168.0.12:8080",
       "web": {
         "hosts": [
-          "speedtest.pngwasi.me",
-          "www.speedtest.pngwasi.me"
+          "speedtest.example.com",
+          "www.speedtest.example.com"
         ],
         "tls": "off",
         "compress": false,
@@ -1726,8 +1726,8 @@
       "target": "192.168.0.13:3000",
       "web": {
         "hosts": [
-          "grafana.example.dev",
-          "www.grafana.example.dev"
+          "grafana.example.net",
+          "www.grafana.example.net"
         ],
         "tls": "internal",
         "compress": true,
@@ -1748,8 +1748,8 @@
       "target": "192.168.0.14:9090",
       "web": {
         "hosts": [
-          "prometheus.gracecarry.shop",
-          "www.prometheus.gracecarry.shop"
+          "prometheus.example.org",
+          "www.prometheus.example.org"
         ],
         "tls": "auto",
         "compress": false,
@@ -1767,8 +1767,8 @@
           "/prometheus/api"
         ],
         "redirect_from": [
-          "old-prometheus.gracecarry.shop",
-          "prometheus.legacy.gracecarry.shop"
+          "old-prometheus.example.org",
+          "prometheus.legacy.example.org"
         ],
         "target_tls": {
           "insecure_skip_verify": true
@@ -1785,8 +1785,8 @@
       "target": "192.168.0.15:3100",
       "web": {
         "hosts": [
-          "loki.pngwasi.me",
-          "www.loki.pngwasi.me"
+          "loki.example.com",
+          "www.loki.example.com"
         ],
         "tls": "auto",
         "compress": true,
@@ -1808,8 +1808,8 @@
       "target": "192.168.0.16:3000",
       "web": {
         "hosts": [
-          "gitea.example.dev",
-          "www.gitea.example.dev"
+          "gitea.example.net",
+          "www.gitea.example.net"
         ],
         "tls": "off",
         "compress": false,
@@ -1836,8 +1836,8 @@
       "target": "192.168.0.17:8000",
       "web": {
         "hosts": [
-          "drone.gracecarry.shop",
-          "www.drone.gracecarry.shop"
+          "drone.example.org",
+          "www.drone.example.org"
         ],
         "tls": "internal",
         "compress": true,
@@ -1855,8 +1855,8 @@
           "/drone/api"
         ],
         "redirect_from": [
-          "old-drone.gracecarry.shop",
-          "drone.legacy.gracecarry.shop"
+          "old-drone.example.org",
+          "drone.legacy.example.org"
         ]
       }
     },
@@ -1864,8 +1864,8 @@
       "target": "192.168.0.18:80",
       "web": {
         "hosts": [
-          "nextcloud.pngwasi.me",
-          "www.nextcloud.pngwasi.me"
+          "nextcloud.example.com",
+          "www.nextcloud.example.com"
         ],
         "tls": "auto",
         "compress": false,
@@ -1896,8 +1896,8 @@
       "target": "192.168.0.19:8081",
       "web": {
         "hosts": [
-          "vaultwarden.example.dev",
-          "www.vaultwarden.example.dev"
+          "vaultwarden.example.net",
+          "www.vaultwarden.example.net"
         ],
         "tls": "auto",
         "compress": true,
@@ -1917,8 +1917,8 @@
       "target": "192.168.0.20:8096",
       "web": {
         "hosts": [
-          "jellyfin.gracecarry.shop",
-          "www.jellyfin.gracecarry.shop"
+          "jellyfin.example.org",
+          "www.jellyfin.example.org"
         ],
         "tls": "off",
         "compress": false,
@@ -1936,8 +1936,8 @@
           "/jellyfin/api"
         ],
         "redirect_from": [
-          "old-jellyfin.gracecarry.shop",
-          "jellyfin.legacy.gracecarry.shop"
+          "old-jellyfin.example.org",
+          "jellyfin.legacy.example.org"
         ],
         "basic_auth": {
           "admin": "$2y$05$d2f1fb57admin",
@@ -1953,8 +1953,8 @@
       "target": "192.168.0.21:2283",
       "web": {
         "hosts": [
-          "immich.pngwasi.me",
-          "www.immich.pngwasi.me"
+          "immich.example.com",
+          "www.immich.example.com"
         ],
         "tls": "internal",
         "compress": true,
@@ -1975,8 +1975,8 @@
       "target": "192.168.0.22:8000",
       "web": {
         "hosts": [
-          "paperless.example.dev",
-          "www.paperless.example.dev"
+          "paperless.example.net",
+          "www.paperless.example.net"
         ],
         "tls": "auto",
         "compress": false,
@@ -2001,8 +2001,8 @@
       "target": "192.168.0.23:8123",
       "web": {
         "hosts": [
-          "homeassistant.gracecarry.shop",
-          "www.homeassistant.gracecarry.shop"
+          "homeassistant.example.org",
+          "www.homeassistant.example.org"
         ],
         "tls": "auto",
         "compress": true,
@@ -2020,8 +2020,8 @@
           "/homeassistant/api"
         ],
         "redirect_from": [
-          "old-homeassistant.gracecarry.shop",
-          "homeassistant.legacy.gracecarry.shop"
+          "old-homeassistant.example.org",
+          "homeassistant.legacy.example.org"
         ],
         "forward_auth": "sso",
         "rate_limit": 62,
@@ -2035,8 +2035,8 @@
       "target": "192.168.0.24:3001",
       "web": {
         "hosts": [
-          "uptime.pngwasi.me",
-          "www.uptime.pngwasi.me"
+          "uptime.example.com",
+          "www.uptime.example.com"
         ],
         "tls": "off",
         "compress": false,
@@ -2060,8 +2060,8 @@
       "target": "192.168.0.25:9001",
       "web": {
         "hosts": [
-          "minio.example.dev",
-          "www.minio.example.dev"
+          "minio.example.net",
+          "www.minio.example.net"
         ],
         "tls": "internal",
         "compress": true,
@@ -2080,8 +2080,8 @@
       "target": "192.168.0.26:8443",
       "web": {
         "hosts": [
-          "keycloak.gracecarry.shop",
-          "www.keycloak.gracecarry.shop"
+          "keycloak.example.org",
+          "www.keycloak.example.org"
         ],
         "tls": "auto",
         "compress": false,
@@ -2099,8 +2099,8 @@
           "/keycloak/api"
         ],
         "redirect_from": [
-          "old-keycloak.gracecarry.shop",
-          "keycloak.legacy.gracecarry.shop"
+          "old-keycloak.example.org",
+          "keycloak.legacy.example.org"
         ],
         "target_tls": {
           "insecure_skip_verify": true
@@ -2117,8 +2117,8 @@
       "target": "192.168.0.27:3000",
       "web": {
         "hosts": [
-          "outline.pngwasi.me",
-          "www.outline.pngwasi.me"
+          "outline.example.com",
+          "www.outline.example.com"
         ],
         "tls": "auto",
         "compress": true,
@@ -2144,8 +2144,8 @@
       "target": "192.168.0.28:8000",
       "web": {
         "hosts": [
-          "plausible.example.dev",
-          "www.plausible.example.dev"
+          "plausible.example.net",
+          "www.plausible.example.net"
         ],
         "tls": "off",
         "compress": false,
@@ -2171,8 +2171,8 @@
       "target": "192.168.0.29:3000",
       "web": {
         "hosts": [
-          "umami.gracecarry.shop",
-          "www.umami.gracecarry.shop"
+          "umami.example.org",
+          "www.umami.example.org"
         ],
         "tls": "internal",
         "compress": true,
@@ -2190,8 +2190,8 @@
           "/umami/api"
         ],
         "redirect_from": [
-          "old-umami.gracecarry.shop",
-          "umami.legacy.gracecarry.shop"
+          "old-umami.example.org",
+          "umami.legacy.example.org"
         ]
       }
     },
@@ -2199,8 +2199,8 @@
       "target": "192.168.0.30:5678",
       "web": {
         "hosts": [
-          "n8n.pngwasi.me",
-          "www.n8n.pngwasi.me"
+          "n8n.example.com",
+          "www.n8n.example.com"
         ],
         "tls": "auto",
         "compress": false,
@@ -2228,8 +2228,8 @@
       "target": "192.168.0.31:9443",
       "web": {
         "hosts": [
-          "portainer.example.dev",
-          "www.portainer.example.dev"
+          "portainer.example.net",
+          "www.portainer.example.net"
         ],
         "tls": "auto",
         "compress": true,
@@ -2249,8 +2249,8 @@
       "target": "192.168.0.32:8082",
       "web": {
         "hosts": [
-          "traefik.gracecarry.shop",
-          "www.traefik.gracecarry.shop"
+          "traefik.example.org",
+          "www.traefik.example.org"
         ],
         "tls": "off",
         "compress": false,
@@ -2268,8 +2268,8 @@
           "/traefik/api"
         ],
         "redirect_from": [
-          "old-traefik.gracecarry.shop",
-          "traefik.legacy.gracecarry.shop"
+          "old-traefik.example.org",
+          "traefik.legacy.example.org"
         ],
         "basic_auth": {
           "admin": "$2y$05$6d82aa80admin",
@@ -2285,8 +2285,8 @@
       "target": "192.168.0.33:80",
       "web": {
         "hosts": [
-          "pihole.pngwasi.me",
-          "www.pihole.pngwasi.me"
+          "pihole.example.com",
+          "www.pihole.example.com"
         ],
         "tls": "internal",
         "compress": true,
@@ -2309,8 +2309,8 @@
       "target": "192.168.0.34:3000",
       "web": {
         "hosts": [
-          "adguard.example.dev",
-          "www.adguard.example.dev"
+          "adguard.example.net",
+          "www.adguard.example.net"
         ],
         "tls": "auto",
         "compress": false,
@@ -2335,8 +2335,8 @@
       "target": "192.168.0.35:3000",
       "web": {
         "hosts": [
-          "wikijs.gracecarry.shop",
-          "www.wikijs.gracecarry.shop"
+          "wikijs.example.org",
+          "www.wikijs.example.org"
         ],
         "tls": "auto",
         "compress": true,
@@ -2354,8 +2354,8 @@
           "/wikijs/api"
         ],
         "redirect_from": [
-          "old-wikijs.gracecarry.shop",
-          "wikijs.legacy.gracecarry.shop"
+          "old-wikijs.example.org",
+          "wikijs.legacy.example.org"
         ]
       }
     },
@@ -2364,8 +2364,8 @@
       "target": "192.168.0.36:80",
       "web": {
         "hosts": [
-          "bookstack.pngwasi.me",
-          "www.bookstack.pngwasi.me"
+          "bookstack.example.com",
+          "www.bookstack.example.com"
         ],
         "tls": "off",
         "compress": false,
@@ -2393,8 +2393,8 @@
       "target": "192.168.0.37:9000",
       "web": {
         "hosts": [
-          "mealie.example.dev",
-          "www.mealie.example.dev"
+          "mealie.example.net",
+          "www.mealie.example.net"
         ],
         "tls": "internal",
         "compress": true,
@@ -2416,8 +2416,8 @@
       "target": "192.168.0.38:8080",
       "web": {
         "hosts": [
-          "firefly.gracecarry.shop",
-          "www.firefly.gracecarry.shop"
+          "firefly.example.org",
+          "www.firefly.example.org"
         ],
         "tls": "auto",
         "compress": false,
@@ -2435,8 +2435,8 @@
           "/firefly/api"
         ],
         "redirect_from": [
-          "old-firefly.gracecarry.shop",
-          "firefly.legacy.gracecarry.shop"
+          "old-firefly.example.org",
+          "firefly.legacy.example.org"
         ],
         "forward_auth": "sso",
         "rate_limit": 77,
@@ -2455,8 +2455,8 @@
       "target": "192.168.0.39:2342",
       "web": {
         "hosts": [
-          "photoprism.pngwasi.me",
-          "www.photoprism.pngwasi.me"
+          "photoprism.example.com",
+          "www.photoprism.example.com"
         ],
         "tls": "auto",
         "compress": true,
@@ -2478,8 +2478,8 @@
       "target": "192.168.0.40:8384",
       "web": {
         "hosts": [
-          "syncthing.example.dev",
-          "www.syncthing.example.dev"
+          "syncthing.example.net",
+          "www.syncthing.example.net"
         ],
         "tls": "off",
         "compress": false,
@@ -2501,14 +2501,14 @@
     "status-page": {
       "client": "hetzner-pve-prod",
       "target": "192.168.0.90:80",
-      "web": "status.gracecarry.shop"
+      "web": "status.example.org"
     },
     "docs-site": {
       "client": "hetzner-pve-prod",
       "target": "192.168.0.91:80",
       "web": [
-        "docs.gracecarry.shop",
-        "docs.pngwasi.me"
+        "docs.example.org",
+        "docs.example.com"
       ]
     },
     "self-metrics": {
@@ -2561,13 +2561,13 @@
       }
     },
     "redirect_names": {
-      "old.gracecarry.shop": "gracecarry.shop",
-      "legacy.pngwasi.me": {
-        "to": "pngwasi.me",
+      "old.example.org": "example.org",
+      "legacy.example.com": {
+        "to": "example.com",
         "permanent": true
       },
-      "beta.example.dev": {
-        "to": "example.dev",
+      "beta.example.net": {
+        "to": "example.net",
         "permanent": false
       }
     },
@@ -2582,16 +2582,16 @@
     "certificates": [
       {
         "hosts": [
-          "internal.gracecarry.shop",
-          "intranet.gracecarry.shop"
+          "internal.example.org",
+          "intranet.example.org"
         ],
         "cert": "certs/internal/fullchain.pem",
         "key": "certs/internal/privkey.pem"
       },
       {
         "hosts": [
-          "vpn.pngwasi.me",
-          "wg.pngwasi.me"
+          "vpn.example.com",
+          "wg.example.com"
         ],
         "upload": "vpn-cert"
       }
@@ -2603,12 +2603,12 @@
       "dns": [
         {
           "domains": [
-            "gracecarry.shop",
-            "pngwasi.me"
+            "example.org",
+            "example.com"
           ],
           "wildcards": [
-            "*.gracecarry.shop",
-            "*.pngwasi.me"
+            "*.example.org",
+            "*.example.com"
           ],
           "cloudflare": {
             "token": "${CLOUDFLARE_API_TOKEN}"
@@ -2621,11 +2621,11 @@
         },
         {
           "domains": [
-            "example.dev",
-            "lab.example.dev"
+            "example.net",
+            "lab.example.net"
           ],
           "rfc2136": {
-            "server": "ns1.example.dev:53",
+            "server": "ns1.example.net:53",
             "key_name": "tunnel-acme",
             "secret": "${RFC2136_SECRET}",
             "algorithm": "hmac-sha256"
@@ -2634,8 +2634,8 @@
         },
         {
           "domains": [
-            "acme.pngwasi.me",
-            "edge.pngwasi.me"
+            "acme.example.com",
+            "edge.example.com"
           ],
           "acme_dns": {
             "api": "https://auth.acme-dns.io",

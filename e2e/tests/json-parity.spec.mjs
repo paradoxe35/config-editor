@@ -356,7 +356,8 @@ test.describe('hover documentation', () => {
     await expect(card.locator('.config-editor__hover-key')).toHaveText('listen');
     await expect(card).toContainText('0.0.0.0:7835');
 
-    const offKey = await pointAt(page, 1, 14);
+    // Off the line's text (its value shows the key's docs too).
+    const offKey = await pointAt(page, 1, 45);
     await page.mouse.move(offKey.x, offKey.y, { steps: 3 });
     await expect(card).toHaveCount(0);
   });

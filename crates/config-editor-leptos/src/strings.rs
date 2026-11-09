@@ -161,7 +161,7 @@ pub struct EditorStrings {
     /// Its tooltip.
     pub keep_mine_title: String,
     /// How to reach the notice's choices from the keyboard, shown on it
-    /// (and announced with it).
+    /// (and announced with it); not on touch screens.
     pub baseline_changed_keys: String,
 
     // Find and replace.

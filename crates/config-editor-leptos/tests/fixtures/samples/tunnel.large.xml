@@ -2,7 +2,7 @@
 <!-- tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names -->
 <tunnel config-root="true">
   <listen>0.0.0.0:7835</listen>
-  <public_address>tunnel.pngwasi.me</public_address>
+  <public_address>tunnel.example.com</public_address>
   <insecure_plaintext>false</insecure_plaintext>
   <update>
     <remote>true</remote>
@@ -10,7 +10,7 @@
   <websocket>
     <listen>127.0.0.1:7836</listen>
     <path>/tunnel</path>
-    <host>tunnel.pngwasi.me</host>
+    <host>tunnel.example.com</host>
     <keepalive_secs>20</keepalive_secs>
     <challenge>http</challenge>
   </websocket>
@@ -389,30 +389,30 @@
     </london-backup>
   </clients>
   <visitors>
-    <paradoxe-pc>
-      <secret>«secret 808eab68»</secret>
+    <victor-pc>
+      <secret>«secret 321efaf1»</secret>
       <admin>write</admin>
       <reach/>
-    </paradoxe-pc>
-    <paradoxe-laptop>
-      <secret>«secret 97e15829»</secret>
+    </victor-pc>
+    <victor-laptop>
+      <secret>«secret 05b5759c»</secret>
       <admin>read</admin>
       <reach>
         <etiolles-pve-ai>hetzner-pve-ssh</etiolles-pve-ai>
         <etiolles-pve-ai>hetzner-pve-web</etiolles-pve-ai>
         <etiolles-backup>self</etiolles-backup>
       </reach>
-    </paradoxe-laptop>
-    <gaby-pc>
-      <secret>«secret 14154ecf»</secret>
+    </victor-laptop>
+    <wendy-pc>
+      <secret>«secret ad31e83b»</secret>
       <max_connections>34</max_connections>
-    </gaby-pc>
-    <gaby-phone>
-      <secret>«secret 08a7bb62»</secret>
+    </wendy-pc>
+    <wendy-phone>
+      <secret>«secret 7236477e»</secret>
       <reach/>
       <admin_from>10.3.0.0/16</admin_from>
       <admin_from>192.168.3.0/24</admin_from>
-    </gaby-phone>
+    </wendy-phone>
     <ops-oncall>
       <secret>«secret e1e1bb70»</secret>
       <reach>
@@ -540,16 +540,16 @@
     <etiolles-pve-ssh>
       <client>etiolles-pve</client>
       <target>22</target>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
     </etiolles-pve-ssh>
     <etiolles-pve-web>
       <target>8006</target>
       <clients>etiolles-pve</clients>
       <clients>etiolles-pve-ai</clients>
       <mode>failover</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <health_check>
         <interval_secs>10</interval_secs>
         <timeout_secs>3</timeout_secs>
@@ -574,8 +574,8 @@
       <protocol>udp</protocol>
       <clients>etiolles-pve</clients>
       <clients>etiolles-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>10mbit</bandwidth>
     </etiolles-wireguard>
     <etiolles-wgdashboard>
@@ -591,8 +591,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </etiolles-wgdashboard>
     <etiolles-backup-sync>
@@ -605,16 +605,16 @@
     <hetzner-pve-ssh>
       <client>hetzner-pve</client>
       <target>22</target>
-      <visitors>paradoxe-laptop</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-laptop</visitors>
+      <visitors>wendy-pc</visitors>
     </hetzner-pve-ssh>
     <hetzner-pve-web>
       <target>8006</target>
       <clients>hetzner-pve</clients>
       <clients>hetzner-pve-ai</clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-phone</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-phone</visitors>
       <health_check>
         <interval_secs>11</interval_secs>
         <timeout_secs>3</timeout_secs>
@@ -639,8 +639,8 @@
       <protocol>udp</protocol>
       <clients>hetzner-pve</clients>
       <clients>hetzner-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>20mbit</bandwidth>
     </hetzner-wireguard>
     <hetzner-wgdashboard>
@@ -656,8 +656,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </hetzner-wgdashboard>
     <hetzner-backup-sync>
@@ -670,15 +670,15 @@
     <ikoula-pve-ssh>
       <client>ikoula-pve</client>
       <target>22</target>
-      <visitors>gaby-pc</visitors>
-      <visitors>gaby-phone</visitors>
+      <visitors>wendy-pc</visitors>
+      <visitors>wendy-phone</visitors>
     </ikoula-pve-ssh>
     <ikoula-pve-web>
       <target>8006</target>
       <clients>ikoula-pve</clients>
       <clients>ikoula-pve-ai</clients>
       <mode>least_connections</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>ops-oncall</visitors>
       <health_check>
         <interval_secs>12</interval_secs>
@@ -704,8 +704,8 @@
       <protocol>udp</protocol>
       <clients>ikoula-pve</clients>
       <clients>ikoula-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>30mbit</bandwidth>
     </ikoula-wireguard>
     <ikoula-wgdashboard>
@@ -721,8 +721,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </ikoula-wgdashboard>
     <ikoula-backup-sync>
@@ -735,7 +735,7 @@
     <scaleway-pve-ssh>
       <client>scaleway-pve</client>
       <target>22</target>
-      <visitors>gaby-phone</visitors>
+      <visitors>wendy-phone</visitors>
       <visitors>ops-oncall</visitors>
     </scaleway-pve-ssh>
     <scaleway-pve-web>
@@ -743,7 +743,7 @@
       <clients>scaleway-pve</clients>
       <clients>scaleway-pve-ai</clients>
       <mode>ip_hash</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>ci-runner</visitors>
       <health_check>
         <interval_secs>13</interval_secs>
@@ -769,8 +769,8 @@
       <protocol>udp</protocol>
       <clients>scaleway-pve</clients>
       <clients>scaleway-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>40mbit</bandwidth>
     </scaleway-wireguard>
     <scaleway-wgdashboard>
@@ -786,8 +786,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </scaleway-wgdashboard>
     <scaleway-backup-sync>
@@ -801,14 +801,14 @@
       <client>ovh-pve</client>
       <target>22</target>
       <visitors>ops-oncall</visitors>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
     </ovh-pve-ssh>
     <ovh-pve-web>
       <target>8006</target>
       <clients>ovh-pve</clients>
       <clients>ovh-pve-ai</clients>
       <mode>failover</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>grafana-bot</visitors>
       <health_check>
         <interval_secs>14</interval_secs>
@@ -834,8 +834,8 @@
       <protocol>udp</protocol>
       <clients>ovh-pve</clients>
       <clients>ovh-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>50mbit</bandwidth>
     </ovh-wireguard>
     <ovh-wgdashboard>
@@ -851,8 +851,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </ovh-wgdashboard>
     <ovh-backup-sync>
@@ -865,15 +865,15 @@
     <gravelines-pve-ssh>
       <client>gravelines-pve</client>
       <target>22</target>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
     </gravelines-pve-ssh>
     <gravelines-pve-web>
       <target>8006</target>
       <clients>gravelines-pve</clients>
       <clients>gravelines-pve-ai</clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>backup-agent</visitors>
       <health_check>
         <interval_secs>15</interval_secs>
@@ -899,8 +899,8 @@
       <protocol>udp</protocol>
       <clients>gravelines-pve</clients>
       <clients>gravelines-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>60mbit</bandwidth>
     </gravelines-wireguard>
     <gravelines-wgdashboard>
@@ -916,8 +916,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </gravelines-wgdashboard>
     <gravelines-backup-sync>
@@ -930,15 +930,15 @@
     <roubaix-pve-ssh>
       <client>roubaix-pve</client>
       <target>22</target>
-      <visitors>paradoxe-laptop</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-laptop</visitors>
+      <visitors>wendy-pc</visitors>
     </roubaix-pve-ssh>
     <roubaix-pve-web>
       <target>8006</target>
       <clients>roubaix-pve</clients>
       <clients>roubaix-pve-ai</clients>
       <mode>least_connections</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>alice-laptop</visitors>
       <health_check>
         <interval_secs>16</interval_secs>
@@ -964,8 +964,8 @@
       <protocol>udp</protocol>
       <clients>roubaix-pve</clients>
       <clients>roubaix-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>70mbit</bandwidth>
     </roubaix-wireguard>
     <roubaix-wgdashboard>
@@ -981,8 +981,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </roubaix-wgdashboard>
     <roubaix-backup-sync>
@@ -995,15 +995,15 @@
     <strasbourg-pve-ssh>
       <client>strasbourg-pve</client>
       <target>22</target>
-      <visitors>gaby-pc</visitors>
-      <visitors>gaby-phone</visitors>
+      <visitors>wendy-pc</visitors>
+      <visitors>wendy-phone</visitors>
     </strasbourg-pve-ssh>
     <strasbourg-pve-web>
       <target>8006</target>
       <clients>strasbourg-pve</clients>
       <clients>strasbourg-pve-ai</clients>
       <mode>ip_hash</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>bob-desktop</visitors>
       <health_check>
         <interval_secs>17</interval_secs>
@@ -1029,8 +1029,8 @@
       <protocol>udp</protocol>
       <clients>strasbourg-pve</clients>
       <clients>strasbourg-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>80mbit</bandwidth>
     </strasbourg-wireguard>
     <strasbourg-wgdashboard>
@@ -1046,8 +1046,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </strasbourg-wgdashboard>
     <strasbourg-backup-sync>
@@ -1060,7 +1060,7 @@
     <frankfurt-pve-ssh>
       <client>frankfurt-pve</client>
       <target>22</target>
-      <visitors>gaby-phone</visitors>
+      <visitors>wendy-phone</visitors>
       <visitors>ops-oncall</visitors>
     </frankfurt-pve-ssh>
     <frankfurt-pve-web>
@@ -1068,7 +1068,7 @@
       <clients>frankfurt-pve</clients>
       <clients>frankfurt-pve-ai</clients>
       <mode>failover</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>carol-tablet</visitors>
       <health_check>
         <interval_secs>18</interval_secs>
@@ -1094,8 +1094,8 @@
       <protocol>udp</protocol>
       <clients>frankfurt-pve</clients>
       <clients>frankfurt-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>90mbit</bandwidth>
     </frankfurt-wireguard>
     <frankfurt-wgdashboard>
@@ -1111,8 +1111,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </frankfurt-wgdashboard>
     <frankfurt-backup-sync>
@@ -1126,14 +1126,14 @@
       <client>helsinki-pve</client>
       <target>22</target>
       <visitors>ops-oncall</visitors>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
     </helsinki-pve-ssh>
     <helsinki-pve-web>
       <target>8006</target>
       <clients>helsinki-pve</clients>
       <clients>helsinki-pve-ai</clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>dave-workstation</visitors>
       <health_check>
         <interval_secs>19</interval_secs>
@@ -1159,8 +1159,8 @@
       <protocol>udp</protocol>
       <clients>helsinki-pve</clients>
       <clients>helsinki-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>100mbit</bandwidth>
     </helsinki-wireguard>
     <helsinki-wgdashboard>
@@ -1176,8 +1176,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </helsinki-wgdashboard>
     <helsinki-backup-sync>
@@ -1190,15 +1190,15 @@
     <amsterdam-pve-ssh>
       <client>amsterdam-pve</client>
       <target>22</target>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
     </amsterdam-pve-ssh>
     <amsterdam-pve-web>
       <target>8006</target>
       <clients>amsterdam-pve</clients>
       <clients>amsterdam-pve-ai</clients>
       <mode>least_connections</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>erin-laptop</visitors>
       <health_check>
         <interval_secs>20</interval_secs>
@@ -1224,8 +1224,8 @@
       <protocol>udp</protocol>
       <clients>amsterdam-pve</clients>
       <clients>amsterdam-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>110mbit</bandwidth>
     </amsterdam-wireguard>
     <amsterdam-wgdashboard>
@@ -1241,8 +1241,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v1</proxy_protocol>
     </amsterdam-wgdashboard>
     <amsterdam-backup-sync>
@@ -1255,15 +1255,15 @@
     <london-pve-ssh>
       <client>london-pve</client>
       <target>22</target>
-      <visitors>paradoxe-laptop</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-laptop</visitors>
+      <visitors>wendy-pc</visitors>
     </london-pve-ssh>
     <london-pve-web>
       <target>8006</target>
       <clients>london-pve</clients>
       <clients>london-pve-ai</clients>
       <mode>ip_hash</mode>
-      <visitors>paradoxe-pc</visitors>
+      <visitors>victor-pc</visitors>
       <visitors>frank-pc</visitors>
       <health_check>
         <interval_secs>21</interval_secs>
@@ -1289,8 +1289,8 @@
       <protocol>udp</protocol>
       <clients>london-pve</clients>
       <clients>london-pve-ai</clients>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>paradoxe-laptop</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>victor-laptop</visitors>
       <bandwidth>120mbit</bandwidth>
     </london-wireguard>
     <london-wgdashboard>
@@ -1306,8 +1306,8 @@
         <weight>1</weight>
       </clients>
       <mode>balance</mode>
-      <visitors>paradoxe-pc</visitors>
-      <visitors>gaby-pc</visitors>
+      <visitors>victor-pc</visitors>
+      <visitors>wendy-pc</visitors>
       <proxy_protocol>v2</proxy_protocol>
     </london-wgdashboard>
     <london-backup-sync>
@@ -1321,8 +1321,8 @@
       <client>etiolles-pve-prod</client>
       <target>192.168.0.11:8000</target>
       <web>
-        <hosts>whoami.gracecarry.shop</hosts>
-        <hosts>www.whoami.gracecarry.shop</hosts>
+        <hosts>whoami.example.org</hosts>
+        <hosts>www.whoami.example.org</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1336,16 +1336,16 @@
         </response_headers>
         <paths>/</paths>
         <paths>/whoami/api</paths>
-        <redirect_from>old-whoami.gracecarry.shop</redirect_from>
-        <redirect_from>whoami.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-whoami.example.org</redirect_from>
+        <redirect_from>whoami.legacy.example.org</redirect_from>
       </web>
     </whoami>
     <speedtest>
       <client>hetzner-pve-prod</client>
       <target>192.168.0.12:8080</target>
       <web>
-        <hosts>speedtest.pngwasi.me</hosts>
-        <hosts>www.speedtest.pngwasi.me</hosts>
+        <hosts>speedtest.example.com</hosts>
+        <hosts>www.speedtest.example.com</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>false</hsts>
@@ -1367,8 +1367,8 @@
       <client>ikoula-pve-prod</client>
       <target>192.168.0.13:3000</target>
       <web>
-        <hosts>grafana.example.dev</hosts>
-        <hosts>www.grafana.example.dev</hosts>
+        <hosts>grafana.example.net</hosts>
+        <hosts>www.grafana.example.net</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1387,8 +1387,8 @@
     <prometheus>
       <target>192.168.0.14:9090</target>
       <web>
-        <hosts>prometheus.gracecarry.shop</hosts>
-        <hosts>www.prometheus.gracecarry.shop</hosts>
+        <hosts>prometheus.example.org</hosts>
+        <hosts>www.prometheus.example.org</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1402,8 +1402,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/prometheus/api</paths>
-        <redirect_from>old-prometheus.gracecarry.shop</redirect_from>
-        <redirect_from>prometheus.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-prometheus.example.org</redirect_from>
+        <redirect_from>prometheus.legacy.example.org</redirect_from>
         <target_tls>
           <insecure_skip_verify>true</insecure_skip_verify>
         </target_tls>
@@ -1416,8 +1416,8 @@
       <client>ovh-pve-prod</client>
       <target>192.168.0.15:3100</target>
       <web>
-        <hosts>loki.pngwasi.me</hosts>
-        <hosts>www.loki.pngwasi.me</hosts>
+        <hosts>loki.example.com</hosts>
+        <hosts>www.loki.example.com</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>false</hsts>
@@ -1437,8 +1437,8 @@
       <client>gravelines-pve-prod</client>
       <target>192.168.0.16:3000</target>
       <web>
-        <hosts>gitea.example.dev</hosts>
-        <hosts>www.gitea.example.dev</hosts>
+        <hosts>gitea.example.net</hosts>
+        <hosts>www.gitea.example.net</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1463,8 +1463,8 @@
       <client>roubaix-pve-prod</client>
       <target>192.168.0.17:8000</target>
       <web>
-        <hosts>drone.gracecarry.shop</hosts>
-        <hosts>www.drone.gracecarry.shop</hosts>
+        <hosts>drone.example.org</hosts>
+        <hosts>www.drone.example.org</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1478,15 +1478,15 @@
         </response_headers>
         <paths>/</paths>
         <paths>/drone/api</paths>
-        <redirect_from>old-drone.gracecarry.shop</redirect_from>
-        <redirect_from>drone.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-drone.example.org</redirect_from>
+        <redirect_from>drone.legacy.example.org</redirect_from>
       </web>
     </drone>
     <nextcloud>
       <target>192.168.0.18:80</target>
       <web>
-        <hosts>nextcloud.pngwasi.me</hosts>
-        <hosts>www.nextcloud.pngwasi.me</hosts>
+        <hosts>nextcloud.example.com</hosts>
+        <hosts>www.nextcloud.example.com</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>false</hsts>
@@ -1513,8 +1513,8 @@
       <client>frankfurt-pve-prod</client>
       <target>192.168.0.19:8081</target>
       <web>
-        <hosts>vaultwarden.example.dev</hosts>
-        <hosts>www.vaultwarden.example.dev</hosts>
+        <hosts>vaultwarden.example.net</hosts>
+        <hosts>www.vaultwarden.example.net</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1532,8 +1532,8 @@
       <client>helsinki-pve-prod</client>
       <target>192.168.0.20:8096</target>
       <web>
-        <hosts>jellyfin.gracecarry.shop</hosts>
-        <hosts>www.jellyfin.gracecarry.shop</hosts>
+        <hosts>jellyfin.example.org</hosts>
+        <hosts>www.jellyfin.example.org</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1547,8 +1547,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/jellyfin/api</paths>
-        <redirect_from>old-jellyfin.gracecarry.shop</redirect_from>
-        <redirect_from>jellyfin.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-jellyfin.example.org</redirect_from>
+        <redirect_from>jellyfin.legacy.example.org</redirect_from>
         <basic_auth>
           <admin>$2y$05$d2f1fb57admin</admin>
           <viewer>$2y$05$84b397e2viewer</viewer>
@@ -1562,8 +1562,8 @@
       <client>amsterdam-pve-prod</client>
       <target>192.168.0.21:2283</target>
       <web>
-        <hosts>immich.pngwasi.me</hosts>
-        <hosts>www.immich.pngwasi.me</hosts>
+        <hosts>immich.example.com</hosts>
+        <hosts>www.immich.example.com</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>false</hsts>
@@ -1582,8 +1582,8 @@
     <paperless>
       <target>192.168.0.22:8000</target>
       <web>
-        <hosts>paperless.example.dev</hosts>
-        <hosts>www.paperless.example.dev</hosts>
+        <hosts>paperless.example.net</hosts>
+        <hosts>www.paperless.example.net</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1604,8 +1604,8 @@
       <client>etiolles-pve-prod</client>
       <target>192.168.0.23:8123</target>
       <web>
-        <hosts>homeassistant.gracecarry.shop</hosts>
-        <hosts>www.homeassistant.gracecarry.shop</hosts>
+        <hosts>homeassistant.example.org</hosts>
+        <hosts>www.homeassistant.example.org</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1619,8 +1619,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/homeassistant/api</paths>
-        <redirect_from>old-homeassistant.gracecarry.shop</redirect_from>
-        <redirect_from>homeassistant.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-homeassistant.example.org</redirect_from>
+        <redirect_from>homeassistant.legacy.example.org</redirect_from>
         <forward_auth>sso</forward_auth>
         <rate_limit>62</rate_limit>
         <maintenance>false</maintenance>
@@ -1632,8 +1632,8 @@
       <client>hetzner-pve-prod</client>
       <target>192.168.0.24:3001</target>
       <web>
-        <hosts>uptime.pngwasi.me</hosts>
-        <hosts>www.uptime.pngwasi.me</hosts>
+        <hosts>uptime.example.com</hosts>
+        <hosts>www.uptime.example.com</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>false</hsts>
@@ -1655,8 +1655,8 @@
       <client>ikoula-pve-prod</client>
       <target>192.168.0.25:9001</target>
       <web>
-        <hosts>minio.example.dev</hosts>
-        <hosts>www.minio.example.dev</hosts>
+        <hosts>minio.example.net</hosts>
+        <hosts>www.minio.example.net</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1673,8 +1673,8 @@
     <keycloak>
       <target>192.168.0.26:8443</target>
       <web>
-        <hosts>keycloak.gracecarry.shop</hosts>
-        <hosts>www.keycloak.gracecarry.shop</hosts>
+        <hosts>keycloak.example.org</hosts>
+        <hosts>www.keycloak.example.org</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1688,8 +1688,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/keycloak/api</paths>
-        <redirect_from>old-keycloak.gracecarry.shop</redirect_from>
-        <redirect_from>keycloak.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-keycloak.example.org</redirect_from>
+        <redirect_from>keycloak.legacy.example.org</redirect_from>
         <target_tls>
           <insecure_skip_verify>true</insecure_skip_verify>
         </target_tls>
@@ -1702,8 +1702,8 @@
       <client>ovh-pve-prod</client>
       <target>192.168.0.27:3000</target>
       <web>
-        <hosts>outline.pngwasi.me</hosts>
-        <hosts>www.outline.pngwasi.me</hosts>
+        <hosts>outline.example.com</hosts>
+        <hosts>www.outline.example.com</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>false</hsts>
@@ -1727,8 +1727,8 @@
       <client>gravelines-pve-prod</client>
       <target>192.168.0.28:8000</target>
       <web>
-        <hosts>plausible.example.dev</hosts>
-        <hosts>www.plausible.example.dev</hosts>
+        <hosts>plausible.example.net</hosts>
+        <hosts>www.plausible.example.net</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1752,8 +1752,8 @@
       <client>roubaix-pve-prod</client>
       <target>192.168.0.29:3000</target>
       <web>
-        <hosts>umami.gracecarry.shop</hosts>
-        <hosts>www.umami.gracecarry.shop</hosts>
+        <hosts>umami.example.org</hosts>
+        <hosts>www.umami.example.org</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1767,15 +1767,15 @@
         </response_headers>
         <paths>/</paths>
         <paths>/umami/api</paths>
-        <redirect_from>old-umami.gracecarry.shop</redirect_from>
-        <redirect_from>umami.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-umami.example.org</redirect_from>
+        <redirect_from>umami.legacy.example.org</redirect_from>
       </web>
     </umami>
     <n8n>
       <target>192.168.0.30:5678</target>
       <web>
-        <hosts>n8n.pngwasi.me</hosts>
-        <hosts>www.n8n.pngwasi.me</hosts>
+        <hosts>n8n.example.com</hosts>
+        <hosts>www.n8n.example.com</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>false</hsts>
@@ -1799,8 +1799,8 @@
       <client>frankfurt-pve-prod</client>
       <target>192.168.0.31:9443</target>
       <web>
-        <hosts>portainer.example.dev</hosts>
-        <hosts>www.portainer.example.dev</hosts>
+        <hosts>portainer.example.net</hosts>
+        <hosts>www.portainer.example.net</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1818,8 +1818,8 @@
       <client>helsinki-pve-prod</client>
       <target>192.168.0.32:8082</target>
       <web>
-        <hosts>traefik.gracecarry.shop</hosts>
-        <hosts>www.traefik.gracecarry.shop</hosts>
+        <hosts>traefik.example.org</hosts>
+        <hosts>www.traefik.example.org</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1833,8 +1833,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/traefik/api</paths>
-        <redirect_from>old-traefik.gracecarry.shop</redirect_from>
-        <redirect_from>traefik.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-traefik.example.org</redirect_from>
+        <redirect_from>traefik.legacy.example.org</redirect_from>
         <basic_auth>
           <admin>$2y$05$6d82aa80admin</admin>
           <viewer>$2y$05$202f66b7viewer</viewer>
@@ -1848,8 +1848,8 @@
       <client>amsterdam-pve-prod</client>
       <target>192.168.0.33:80</target>
       <web>
-        <hosts>pihole.pngwasi.me</hosts>
-        <hosts>www.pihole.pngwasi.me</hosts>
+        <hosts>pihole.example.com</hosts>
+        <hosts>www.pihole.example.com</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>false</hsts>
@@ -1870,8 +1870,8 @@
     <adguard>
       <target>192.168.0.34:3000</target>
       <web>
-        <hosts>adguard.example.dev</hosts>
-        <hosts>www.adguard.example.dev</hosts>
+        <hosts>adguard.example.net</hosts>
+        <hosts>www.adguard.example.net</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1892,8 +1892,8 @@
       <client>etiolles-pve-prod</client>
       <target>192.168.0.35:3000</target>
       <web>
-        <hosts>wikijs.gracecarry.shop</hosts>
-        <hosts>www.wikijs.gracecarry.shop</hosts>
+        <hosts>wikijs.example.org</hosts>
+        <hosts>www.wikijs.example.org</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1907,16 +1907,16 @@
         </response_headers>
         <paths>/</paths>
         <paths>/wikijs/api</paths>
-        <redirect_from>old-wikijs.gracecarry.shop</redirect_from>
-        <redirect_from>wikijs.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-wikijs.example.org</redirect_from>
+        <redirect_from>wikijs.legacy.example.org</redirect_from>
       </web>
     </wikijs>
     <bookstack>
       <client>hetzner-pve-prod</client>
       <target>192.168.0.36:80</target>
       <web>
-        <hosts>bookstack.pngwasi.me</hosts>
-        <hosts>www.bookstack.pngwasi.me</hosts>
+        <hosts>bookstack.example.com</hosts>
+        <hosts>www.bookstack.example.com</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>false</hsts>
@@ -1942,8 +1942,8 @@
       <client>ikoula-pve-prod</client>
       <target>192.168.0.37:9000</target>
       <web>
-        <hosts>mealie.example.dev</hosts>
-        <hosts>www.mealie.example.dev</hosts>
+        <hosts>mealie.example.net</hosts>
+        <hosts>www.mealie.example.net</hosts>
         <tls>internal</tls>
         <compress>true</compress>
         <hsts>true</hsts>
@@ -1963,8 +1963,8 @@
     <firefly>
       <target>192.168.0.38:8080</target>
       <web>
-        <hosts>firefly.gracecarry.shop</hosts>
-        <hosts>www.firefly.gracecarry.shop</hosts>
+        <hosts>firefly.example.org</hosts>
+        <hosts>www.firefly.example.org</hosts>
         <tls>auto</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -1978,8 +1978,8 @@
         </response_headers>
         <paths>/</paths>
         <paths>/firefly/api</paths>
-        <redirect_from>old-firefly.gracecarry.shop</redirect_from>
-        <redirect_from>firefly.legacy.gracecarry.shop</redirect_from>
+        <redirect_from>old-firefly.example.org</redirect_from>
+        <redirect_from>firefly.legacy.example.org</redirect_from>
         <forward_auth>sso</forward_auth>
         <rate_limit>77</rate_limit>
         <target_tls>
@@ -1994,8 +1994,8 @@
       <client>ovh-pve-prod</client>
       <target>192.168.0.39:2342</target>
       <web>
-        <hosts>photoprism.pngwasi.me</hosts>
-        <hosts>www.photoprism.pngwasi.me</hosts>
+        <hosts>photoprism.example.com</hosts>
+        <hosts>www.photoprism.example.com</hosts>
         <tls>auto</tls>
         <compress>true</compress>
         <hsts>false</hsts>
@@ -2015,8 +2015,8 @@
       <client>gravelines-pve-prod</client>
       <target>192.168.0.40:8384</target>
       <web>
-        <hosts>syncthing.example.dev</hosts>
-        <hosts>www.syncthing.example.dev</hosts>
+        <hosts>syncthing.example.net</hosts>
+        <hosts>www.syncthing.example.net</hosts>
         <tls>off</tls>
         <compress>false</compress>
         <hsts>true</hsts>
@@ -2037,13 +2037,13 @@
     <status-page>
       <client>hetzner-pve-prod</client>
       <target>192.168.0.90:80</target>
-      <web>status.gracecarry.shop</web>
+      <web>status.example.org</web>
     </status-page>
     <docs-site>
       <client>hetzner-pve-prod</client>
       <target>192.168.0.91:80</target>
-      <web>docs.gracecarry.shop</web>
-      <web>docs.pngwasi.me</web>
+      <web>docs.example.org</web>
+      <web>docs.example.com</web>
     </docs-site>
     <self-metrics>
       <client>self</client>
@@ -2087,15 +2087,15 @@
       </basic>
     </forward_auth>
     <redirect_names>
-      <old.gracecarry.shop>gracecarry.shop</old.gracecarry.shop>
-      <legacy.pngwasi.me>
-        <to>pngwasi.me</to>
+      <old.example.org>example.org</old.example.org>
+      <legacy.example.com>
+        <to>example.com</to>
         <permanent>true</permanent>
-      </legacy.pngwasi.me>
-      <beta.example.dev>
-        <to>example.dev</to>
+      </legacy.example.com>
+      <beta.example.net>
+        <to>example.net</to>
         <permanent>false</permanent>
-      </beta.example.dev>
+      </beta.example.net>
     </redirect_names>
     <request_headers>
       <X-Served-By>tunnel</X-Served-By>
@@ -2106,14 +2106,14 @@
       <X-Content-Type-Options>nosniff</X-Content-Type-Options>
     </response_headers>
     <certificates>
-      <hosts>internal.gracecarry.shop</hosts>
-      <hosts>intranet.gracecarry.shop</hosts>
+      <hosts>internal.example.org</hosts>
+      <hosts>intranet.example.org</hosts>
       <cert>certs/internal/fullchain.pem</cert>
       <key>certs/internal/privkey.pem</key>
     </certificates>
     <certificates>
-      <hosts>vpn.pngwasi.me</hosts>
-      <hosts>wg.pngwasi.me</hosts>
+      <hosts>vpn.example.com</hosts>
+      <hosts>wg.example.com</hosts>
       <upload>vpn-cert</upload>
     </certificates>
     <letsencrypt>
@@ -2121,10 +2121,10 @@
       <directory>production</directory>
       <profile>tlsserver</profile>
       <dns>
-        <domains>gracecarry.shop</domains>
-        <domains>pngwasi.me</domains>
-        <wildcards>*.gracecarry.shop</wildcards>
-        <wildcards>*.pngwasi.me</wildcards>
+        <domains>example.org</domains>
+        <domains>example.com</domains>
+        <wildcards>*.example.org</wildcards>
+        <wildcards>*.example.com</wildcards>
         <cloudflare>
           <token>${CLOUDFLARE_API_TOKEN}</token>
         </cloudflare>
@@ -2133,10 +2133,10 @@
         <resolvers>1.0.0.1:53</resolvers>
       </dns>
       <dns>
-        <domains>example.dev</domains>
-        <domains>lab.example.dev</domains>
+        <domains>example.net</domains>
+        <domains>lab.example.net</domains>
         <rfc2136>
-          <server>ns1.example.dev:53</server>
+          <server>ns1.example.net:53</server>
           <key_name>tunnel-acme</key_name>
           <secret>${RFC2136_SECRET}</secret>
           <algorithm>hmac-sha256</algorithm>
@@ -2144,8 +2144,8 @@
         <wait_secs>120</wait_secs>
       </dns>
       <dns>
-        <domains>acme.pngwasi.me</domains>
-        <domains>edge.pngwasi.me</domains>
+        <domains>acme.example.com</domains>
+        <domains>edge.example.com</domains>
         <acme_dns>
           <api>https://auth.acme-dns.io</api>
           <username>tunnel</username>

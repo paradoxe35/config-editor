@@ -922,6 +922,11 @@
 /* Unseen for the moment until its height is measured and it is placed
    beside its line (never over it). */
 .config-editor__problem-tip--unmeasured { visibility: hidden; }
+/* The pointer came onto the tip or the hover card another way than from
+   what it is for (a card below its line covers the next lines): it goes
+   through to the text under it. */
+.config-editor__problem-tip[data-passing],
+.config-editor__hover[data-passing] { pointer-events: none; }
 .config-editor__problem-tip-entry {
   padding-left: 7px;
   border-left: 3px solid var(--config-editor-error);
@@ -1225,6 +1230,10 @@
 @media (hover: none) {
   .config-editor__hover:not(.config-editor__hover--interactive) { pointer-events: none; }
 }
+
+/* Unseen for the moment until its height is measured: it goes above its
+   line when it fits there whole. */
+.config-editor__hover--unmeasured { visibility: hidden; }
 
 .config-editor__hover--scrolls {
   scrollbar-width: thin;
@@ -2265,7 +2274,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 220px;
+  /* Wider by the letters that tell a shared file's name apart (set on the
+     tab), so the rest of the name keeps its room. */
+  max-width: calc(220px + var(--config-editor-tab-kept, 0px));
   height: 35px;
   padding: 0 6px 0 10px;
   border-right: 1px solid var(--config-editor-tab-border);
@@ -2314,6 +2325,11 @@
 }
 .config-editor-documents__name-start:empty { display: none; }
 .config-editor-documents__name-end { flex: none; }
+/* The letters that tell a name from the other tabs' with the same file's
+   name (`eu-…limits.toml` beside `eu/limits.toml`) stay whole, and the
+   ellipsis after them shows. */
+.config-editor-documents__name-kept { flex: none; }
+.config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
 
 .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 
@@ -2413,7 +2429,10 @@
 }
 
 @media (max-width: 600px) {
-  .config-editor-documents__tab { max-width: 160px; padding-left: 8px; }
+  .config-editor-documents__tab {
+    max-width: calc(160px + var(--config-editor-tab-kept, 0px));
+    padding-left: 8px;
+  }
   /* A tab's folder (`conf.d/`) is left out, so the names that tell the
      tabs apart show; the title keeps the whole name. */
   .config-editor-documents__name-folder { display: none; }

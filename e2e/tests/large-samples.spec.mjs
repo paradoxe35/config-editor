@@ -52,7 +52,7 @@ for (const language of LANGUAGES) {
       // keystroke run inside a string value instead.
       if (language === 'json') {
         await e.input.evaluate((element) => {
-          const at = element.value.indexOf('tunnel.pngwasi.me') + 'tunnel'.length;
+          const at = element.value.indexOf('tunnel.example.com') + 'tunnel'.length;
           element.setSelectionRange(at, at);
         });
         await page.keyboard.type('-edge', { delay: 20 });

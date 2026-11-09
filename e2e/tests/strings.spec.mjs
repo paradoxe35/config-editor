@@ -281,7 +281,7 @@ test('every built-in text comes from the strings setting', async ({ page }) => {
   await input(page).click();
   await page.keyboard.press('Control+End');
   await page.keyboard.type('\nlisten: 1');
-  await page.locator('#server-change').click();
+  await page.locator('#external-change').click();
   await expect(page.locator('.config-editor__notice')).toBeVisible();
   await look();
   await page.locator('.config-editor__notice-keep').click();

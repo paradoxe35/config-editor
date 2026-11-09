@@ -44,7 +44,7 @@ const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address
 
 function App({ schema }: { schema: string }) {
   const [value, setValue] = useState(initialText);
-  // The version last saved on the server; saves and other clients move it.
+  // The version the host last saved; saves and other clients move it.
   const [baseline, setBaseline] = useState(initialText);
   const [dirty, setDirty] = useState(false);
   const [saves, setSaves] = useState<string[]>([]);
@@ -144,7 +144,7 @@ function App({ schema }: { schema: string }) {
             )
           }
         >
-          Server problems
+          Host problems
         </button>
         <label>
           <input id="lock-address" type="checkbox" checked={lockAddress} onChange={(event) => setLockAddress(event.target.checked)} />{" "}
@@ -157,8 +157,8 @@ function App({ schema }: { schema: string }) {
         <button id="load-secret" type="button" onClick={() => setValue("clients:\n  acme:\n    secret: «secret 3f2a»\n")}>
           Load a secret
         </button>
-        <button id="server-change" type="button" onClick={() => setBaseline((text) => text.replace("7835", "7836"))}>
-          Change on server
+        <button id="external-change" type="button" onClick={() => setBaseline((text) => text.replace("7835", "7836"))}>
+          External change
         </button>
         <button id="save" type="button" onClick={() => handle.current?.save()}>
           Save

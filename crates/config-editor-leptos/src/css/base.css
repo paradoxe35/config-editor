@@ -922,6 +922,11 @@
 /* Unseen for the moment until its height is measured and it is placed
    beside its line (never over it). */
 .config-editor__problem-tip--unmeasured { visibility: hidden; }
+/* The pointer came onto the tip or the hover card another way than from
+   what it is for (a card below its line covers the next lines): it goes
+   through to the text under it. */
+.config-editor__problem-tip[data-passing],
+.config-editor__hover[data-passing] { pointer-events: none; }
 .config-editor__problem-tip-entry {
   padding-left: 7px;
   border-left: 3px solid var(--config-editor-error);
@@ -1225,6 +1230,10 @@
 @media (hover: none) {
   .config-editor__hover:not(.config-editor__hover--interactive) { pointer-events: none; }
 }
+
+/* Unseen for the moment until its height is measured: it goes above its
+   line when it fits there whole. */
+.config-editor__hover--unmeasured { visibility: hidden; }
 
 .config-editor__hover--scrolls {
   scrollbar-width: thin;

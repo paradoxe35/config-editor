@@ -58,6 +58,7 @@ mod line_endings;
 mod line_rows;
 mod live_settings;
 mod outside_press;
+mod popup_pointer;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(
     test,
@@ -386,6 +387,7 @@ pub fn ConfigEditor(
     }
     remeasure_on_window_changes(state);
     outside_press::close_popups_on_outside_press(state);
+    outside_press::close_popups_on_escape_over_them(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
     folding::mount_fold_layers(state);

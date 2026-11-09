@@ -9,6 +9,10 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, KeyboardEvent};
 
 use super::state::EditorState;
+use crate::reactive::later;
+
+/// How many frames the focus waits for a card just shown to be measured.
+const UNMEASURED_FRAMES: u8 = 3;
 
 /// How far an arrow key scrolls the card, in pixels: about a line of it.
 const LINE_STEP: i32 = 18;
@@ -18,6 +22,13 @@ impl EditorState {
     /// scroll it and get back. Returns whether it did (no card there: the
     /// chord shows one).
     pub(super) fn focus_card(&self) -> bool {
+        self.focus_card_within(UNMEASURED_FRAMES)
+    }
+
+    /// [`Self::focus_card`], waiting up to `frames` frames for a card just
+    /// shown to be measured and placed (unseen until then, it cannot take
+    /// the focus).
+    fn focus_card_within(&self, frames: u8) -> bool {
         let hover = self.hover();
         if !hover.at_caret.get_value() || hover.card.with_untracked(Option::is_none) {
             return false;
@@ -25,6 +36,16 @@ impl EditorState {
         let Some(card) = hover.card_ref.get_untracked() else {
             return false;
         };
+        if frames > 0
+            && card
+                .class_list()
+                .contains("config-editor__hover--unmeasured")
+        {
+            later::next_frame(*self, move |state| {
+                state.focus_card_within(frames - 1);
+            });
+            return true;
+        }
         // A dialog by the time the focus lands, so that is what is said.
         let _ = card.set_attribute("role", "dialog");
         self.note_card_focus(true);
@@ -122,6 +143,27 @@ fn docs_in_reach(popup: &HtmlElement, target: Option<&web_sys::EventTarget>) -> 
         shown.bottom() > top && shown.top() < bottom
     });
     in_view.or(links.first()).and_then(href)
+}
+
+/// `Ctrl+A` (`Cmd+A`) in the focused `popup` (the card, the problem
+/// tip): selects its text, to be copied, not the page's. Returns whether
+/// it did.
+pub(super) fn selects_all_in(popup: &HtmlElement, event: &KeyboardEvent) -> bool {
+    let select_all = (event.ctrl_key() || event.meta_key())
+        && !event.alt_key()
+        && !event.shift_key()
+        && event.key().eq_ignore_ascii_case("a");
+    if !select_all {
+        return false;
+    }
+    let Some(selection) =
+        web_sys::window().and_then(|window| window.get_selection().ok().flatten())
+    else {
+        return false;
+    };
+    event.prevent_default();
+    let _ = selection.select_all_children(popup);
+    true
 }
 
 /// Where a scroll key takes the card's `scroll_top`, from `top` in a card

@@ -1,13 +1,13 @@
 # tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names
 listen: "0.0.0.0:7835"
-public_address: tunnel.pngwasi.me
+public_address: tunnel.example.com
 insecure_plaintext: false
 update:
   remote: true
 websocket:
   listen: "127.0.0.1:7836"
   path: /tunnel
-  host: tunnel.pngwasi.me
+  host: tunnel.example.com
   keepalive_secs: 20
   challenge: http
 heartbeat:
@@ -314,23 +314,23 @@ clients:
   london-backup:
     secret: "«secret 1d73e68e»"
 visitors:
-  paradoxe-pc:
-    secret: "«secret 808eab68»"
+  victor-pc:
+    secret: "«secret 321efaf1»"
     admin: write
     reach: {}
-  paradoxe-laptop:
-    secret: "«secret 97e15829»"
+  victor-laptop:
+    secret: "«secret 05b5759c»"
     admin: read
     reach:
       etiolles-pve-ai:
         - hetzner-pve-ssh
         - hetzner-pve-web
       etiolles-backup: self
-  gaby-pc:
-    secret: "«secret 14154ecf»"
+  wendy-pc:
+    secret: "«secret ad31e83b»"
     max_connections: 34
-  gaby-phone:
-    secret: "«secret 08a7bb62»"
+  wendy-phone:
+    secret: "«secret 7236477e»"
     reach: {}
     admin_from:
       - "10.3.0.0/16"
@@ -443,8 +443,8 @@ services:
     client: etiolles-pve
     target: 22
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
   etiolles-pve-web:
     target: 8006
     clients:
@@ -452,8 +452,8 @@ services:
       - etiolles-pve-ai
     mode: failover
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     health_check:
       interval_secs: 10
       timeout_secs: 3
@@ -480,8 +480,8 @@ services:
       - etiolles-pve
       - etiolles-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "10mbit"
   etiolles-wgdashboard:
     target: "192.168.50.164:10086"
@@ -494,8 +494,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   etiolles-backup-sync:
     client: etiolles-backup
@@ -508,8 +508,8 @@ services:
     client: hetzner-pve
     target: 22
     visitors:
-      - paradoxe-laptop
-      - gaby-pc
+      - victor-laptop
+      - wendy-pc
   hetzner-pve-web:
     target: 8006
     clients:
@@ -517,8 +517,8 @@ services:
       - hetzner-pve-ai
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-phone
+      - victor-pc
+      - wendy-phone
     health_check:
       interval_secs: 11
       timeout_secs: 3
@@ -545,8 +545,8 @@ services:
       - hetzner-pve
       - hetzner-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "20mbit"
   hetzner-wgdashboard:
     target: "192.168.51.164:10086"
@@ -559,8 +559,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   hetzner-backup-sync:
     client: hetzner-backup
@@ -573,8 +573,8 @@ services:
     client: ikoula-pve
     target: 22
     visitors:
-      - gaby-pc
-      - gaby-phone
+      - wendy-pc
+      - wendy-phone
   ikoula-pve-web:
     target: 8006
     clients:
@@ -582,7 +582,7 @@ services:
       - ikoula-pve-ai
     mode: least_connections
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - ops-oncall
     health_check:
       interval_secs: 12
@@ -610,8 +610,8 @@ services:
       - ikoula-pve
       - ikoula-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "30mbit"
   ikoula-wgdashboard:
     target: "192.168.52.164:10086"
@@ -624,8 +624,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   ikoula-backup-sync:
     client: ikoula-backup
@@ -638,7 +638,7 @@ services:
     client: scaleway-pve
     target: 22
     visitors:
-      - gaby-phone
+      - wendy-phone
       - ops-oncall
   scaleway-pve-web:
     target: 8006
@@ -647,7 +647,7 @@ services:
       - scaleway-pve-ai
     mode: ip_hash
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - ci-runner
     health_check:
       interval_secs: 13
@@ -675,8 +675,8 @@ services:
       - scaleway-pve
       - scaleway-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "40mbit"
   scaleway-wgdashboard:
     target: "192.168.53.164:10086"
@@ -689,8 +689,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   scaleway-backup-sync:
     client: scaleway-backup
@@ -704,7 +704,7 @@ services:
     target: 22
     visitors:
       - ops-oncall
-      - paradoxe-pc
+      - victor-pc
   ovh-pve-web:
     target: 8006
     clients:
@@ -712,7 +712,7 @@ services:
       - ovh-pve-ai
     mode: failover
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - grafana-bot
     health_check:
       interval_secs: 14
@@ -740,8 +740,8 @@ services:
       - ovh-pve
       - ovh-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "50mbit"
   ovh-wgdashboard:
     target: "192.168.54.164:10086"
@@ -754,8 +754,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   ovh-backup-sync:
     client: ovh-backup
@@ -768,8 +768,8 @@ services:
     client: gravelines-pve
     target: 22
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
   gravelines-pve-web:
     target: 8006
     clients:
@@ -777,7 +777,7 @@ services:
       - gravelines-pve-ai
     mode: balance
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - backup-agent
     health_check:
       interval_secs: 15
@@ -805,8 +805,8 @@ services:
       - gravelines-pve
       - gravelines-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "60mbit"
   gravelines-wgdashboard:
     target: "192.168.55.164:10086"
@@ -819,8 +819,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   gravelines-backup-sync:
     client: gravelines-backup
@@ -833,8 +833,8 @@ services:
     client: roubaix-pve
     target: 22
     visitors:
-      - paradoxe-laptop
-      - gaby-pc
+      - victor-laptop
+      - wendy-pc
   roubaix-pve-web:
     target: 8006
     clients:
@@ -842,7 +842,7 @@ services:
       - roubaix-pve-ai
     mode: least_connections
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - alice-laptop
     health_check:
       interval_secs: 16
@@ -870,8 +870,8 @@ services:
       - roubaix-pve
       - roubaix-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "70mbit"
   roubaix-wgdashboard:
     target: "192.168.56.164:10086"
@@ -884,8 +884,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   roubaix-backup-sync:
     client: roubaix-backup
@@ -898,8 +898,8 @@ services:
     client: strasbourg-pve
     target: 22
     visitors:
-      - gaby-pc
-      - gaby-phone
+      - wendy-pc
+      - wendy-phone
   strasbourg-pve-web:
     target: 8006
     clients:
@@ -907,7 +907,7 @@ services:
       - strasbourg-pve-ai
     mode: ip_hash
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - bob-desktop
     health_check:
       interval_secs: 17
@@ -935,8 +935,8 @@ services:
       - strasbourg-pve
       - strasbourg-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "80mbit"
   strasbourg-wgdashboard:
     target: "192.168.57.164:10086"
@@ -949,8 +949,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   strasbourg-backup-sync:
     client: strasbourg-backup
@@ -963,7 +963,7 @@ services:
     client: frankfurt-pve
     target: 22
     visitors:
-      - gaby-phone
+      - wendy-phone
       - ops-oncall
   frankfurt-pve-web:
     target: 8006
@@ -972,7 +972,7 @@ services:
       - frankfurt-pve-ai
     mode: failover
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - carol-tablet
     health_check:
       interval_secs: 18
@@ -1000,8 +1000,8 @@ services:
       - frankfurt-pve
       - frankfurt-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "90mbit"
   frankfurt-wgdashboard:
     target: "192.168.58.164:10086"
@@ -1014,8 +1014,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   frankfurt-backup-sync:
     client: frankfurt-backup
@@ -1029,7 +1029,7 @@ services:
     target: 22
     visitors:
       - ops-oncall
-      - paradoxe-pc
+      - victor-pc
   helsinki-pve-web:
     target: 8006
     clients:
@@ -1037,7 +1037,7 @@ services:
       - helsinki-pve-ai
     mode: balance
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - dave-workstation
     health_check:
       interval_secs: 19
@@ -1065,8 +1065,8 @@ services:
       - helsinki-pve
       - helsinki-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "100mbit"
   helsinki-wgdashboard:
     target: "192.168.59.164:10086"
@@ -1079,8 +1079,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   helsinki-backup-sync:
     client: helsinki-backup
@@ -1093,8 +1093,8 @@ services:
     client: amsterdam-pve
     target: 22
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
   amsterdam-pve-web:
     target: 8006
     clients:
@@ -1102,7 +1102,7 @@ services:
       - amsterdam-pve-ai
     mode: least_connections
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - erin-laptop
     health_check:
       interval_secs: 20
@@ -1130,8 +1130,8 @@ services:
       - amsterdam-pve
       - amsterdam-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "110mbit"
   amsterdam-wgdashboard:
     target: "192.168.60.164:10086"
@@ -1144,8 +1144,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v1
   amsterdam-backup-sync:
     client: amsterdam-backup
@@ -1158,8 +1158,8 @@ services:
     client: london-pve
     target: 22
     visitors:
-      - paradoxe-laptop
-      - gaby-pc
+      - victor-laptop
+      - wendy-pc
   london-pve-web:
     target: 8006
     clients:
@@ -1167,7 +1167,7 @@ services:
       - london-pve-ai
     mode: ip_hash
     visitors:
-      - paradoxe-pc
+      - victor-pc
       - frank-pc
     health_check:
       interval_secs: 21
@@ -1195,8 +1195,8 @@ services:
       - london-pve
       - london-pve-ai
     visitors:
-      - paradoxe-pc
-      - paradoxe-laptop
+      - victor-pc
+      - victor-laptop
     bandwidth: "120mbit"
   london-wgdashboard:
     target: "192.168.61.164:10086"
@@ -1209,8 +1209,8 @@ services:
         weight: 1
     mode: balance
     visitors:
-      - paradoxe-pc
-      - gaby-pc
+      - victor-pc
+      - wendy-pc
     proxy_protocol: v2
   london-backup-sync:
     client: london-backup
@@ -1224,8 +1224,8 @@ services:
     target: "192.168.0.11:8000"
     web:
       hosts:
-        - whoami.gracecarry.shop
-        - www.whoami.gracecarry.shop
+        - whoami.example.org
+        - www.whoami.example.org
       tls: auto
       compress: true
       hsts: true
@@ -1239,15 +1239,15 @@ services:
         - /
         - /whoami/api
       redirect_from:
-        - old-whoami.gracecarry.shop
-        - whoami.legacy.gracecarry.shop
+        - old-whoami.example.org
+        - whoami.legacy.example.org
   speedtest:
     client: hetzner-pve-prod
     target: "192.168.0.12:8080"
     web:
       hosts:
-        - speedtest.pngwasi.me
-        - www.speedtest.pngwasi.me
+        - speedtest.example.com
+        - www.speedtest.example.com
       tls: "off"
       compress: false
       hsts: false
@@ -1265,8 +1265,8 @@ services:
     target: "192.168.0.13:3000"
     web:
       hosts:
-        - grafana.example.dev
-        - www.grafana.example.dev
+        - grafana.example.net
+        - www.grafana.example.net
       tls: internal
       compress: true
       hsts: true
@@ -1282,8 +1282,8 @@ services:
     target: "192.168.0.14:9090"
     web:
       hosts:
-        - prometheus.gracecarry.shop
-        - www.prometheus.gracecarry.shop
+        - prometheus.example.org
+        - www.prometheus.example.org
       tls: auto
       compress: false
       hsts: true
@@ -1297,8 +1297,8 @@ services:
         - /
         - /prometheus/api
       redirect_from:
-        - old-prometheus.gracecarry.shop
-        - prometheus.legacy.gracecarry.shop
+        - old-prometheus.example.org
+        - prometheus.legacy.example.org
       target_tls:
         insecure_skip_verify: true
     clients:
@@ -1310,8 +1310,8 @@ services:
     target: "192.168.0.15:3100"
     web:
       hosts:
-        - loki.pngwasi.me
-        - www.loki.pngwasi.me
+        - loki.example.com
+        - www.loki.example.com
       tls: auto
       compress: true
       hsts: false
@@ -1328,8 +1328,8 @@ services:
     target: "192.168.0.16:3000"
     web:
       hosts:
-        - gitea.example.dev
-        - www.gitea.example.dev
+        - gitea.example.net
+        - www.gitea.example.net
       tls: "off"
       compress: false
       hsts: true
@@ -1350,8 +1350,8 @@ services:
     target: "192.168.0.17:8000"
     web:
       hosts:
-        - drone.gracecarry.shop
-        - www.drone.gracecarry.shop
+        - drone.example.org
+        - www.drone.example.org
       tls: internal
       compress: true
       hsts: true
@@ -1365,14 +1365,14 @@ services:
         - /
         - /drone/api
       redirect_from:
-        - old-drone.gracecarry.shop
-        - drone.legacy.gracecarry.shop
+        - old-drone.example.org
+        - drone.legacy.example.org
   nextcloud:
     target: "192.168.0.18:80"
     web:
       hosts:
-        - nextcloud.pngwasi.me
-        - www.nextcloud.pngwasi.me
+        - nextcloud.example.com
+        - www.nextcloud.example.com
       tls: auto
       compress: false
       hsts: false
@@ -1396,8 +1396,8 @@ services:
     target: "192.168.0.19:8081"
     web:
       hosts:
-        - vaultwarden.example.dev
-        - www.vaultwarden.example.dev
+        - vaultwarden.example.net
+        - www.vaultwarden.example.net
       tls: auto
       compress: true
       hsts: true
@@ -1412,8 +1412,8 @@ services:
     target: "192.168.0.20:8096"
     web:
       hosts:
-        - jellyfin.gracecarry.shop
-        - www.jellyfin.gracecarry.shop
+        - jellyfin.example.org
+        - www.jellyfin.example.org
       tls: "off"
       compress: false
       hsts: true
@@ -1427,8 +1427,8 @@ services:
         - /
         - /jellyfin/api
       redirect_from:
-        - old-jellyfin.gracecarry.shop
-        - jellyfin.legacy.gracecarry.shop
+        - old-jellyfin.example.org
+        - jellyfin.legacy.example.org
       basic_auth:
         admin: "$2y$05$d2f1fb57admin"
         viewer: "$2y$05$84b397e2viewer"
@@ -1439,8 +1439,8 @@ services:
     target: "192.168.0.21:2283"
     web:
       hosts:
-        - immich.pngwasi.me
-        - www.immich.pngwasi.me
+        - immich.example.com
+        - www.immich.example.com
       tls: internal
       compress: true
       hsts: false
@@ -1456,8 +1456,8 @@ services:
     target: "192.168.0.22:8000"
     web:
       hosts:
-        - paperless.example.dev
-        - www.paperless.example.dev
+        - paperless.example.net
+        - www.paperless.example.net
       tls: auto
       compress: false
       hsts: true
@@ -1476,8 +1476,8 @@ services:
     target: "192.168.0.23:8123"
     web:
       hosts:
-        - homeassistant.gracecarry.shop
-        - www.homeassistant.gracecarry.shop
+        - homeassistant.example.org
+        - www.homeassistant.example.org
       tls: auto
       compress: true
       hsts: true
@@ -1491,8 +1491,8 @@ services:
         - /
         - /homeassistant/api
       redirect_from:
-        - old-homeassistant.gracecarry.shop
-        - homeassistant.legacy.gracecarry.shop
+        - old-homeassistant.example.org
+        - homeassistant.legacy.example.org
       forward_auth: sso
       rate_limit: 62
       maintenance: false
@@ -1503,8 +1503,8 @@ services:
     target: "192.168.0.24:3001"
     web:
       hosts:
-        - uptime.pngwasi.me
-        - www.uptime.pngwasi.me
+        - uptime.example.com
+        - www.uptime.example.com
       tls: "off"
       compress: false
       hsts: false
@@ -1522,8 +1522,8 @@ services:
     target: "192.168.0.25:9001"
     web:
       hosts:
-        - minio.example.dev
-        - www.minio.example.dev
+        - minio.example.net
+        - www.minio.example.net
       tls: internal
       compress: true
       hsts: true
@@ -1537,8 +1537,8 @@ services:
     target: "192.168.0.26:8443"
     web:
       hosts:
-        - keycloak.gracecarry.shop
-        - www.keycloak.gracecarry.shop
+        - keycloak.example.org
+        - www.keycloak.example.org
       tls: auto
       compress: false
       hsts: true
@@ -1552,8 +1552,8 @@ services:
         - /
         - /keycloak/api
       redirect_from:
-        - old-keycloak.gracecarry.shop
-        - keycloak.legacy.gracecarry.shop
+        - old-keycloak.example.org
+        - keycloak.legacy.example.org
       target_tls:
         insecure_skip_verify: true
     clients:
@@ -1565,8 +1565,8 @@ services:
     target: "192.168.0.27:3000"
     web:
       hosts:
-        - outline.pngwasi.me
-        - www.outline.pngwasi.me
+        - outline.example.com
+        - www.outline.example.com
       tls: auto
       compress: true
       hsts: false
@@ -1586,8 +1586,8 @@ services:
     target: "192.168.0.28:8000"
     web:
       hosts:
-        - plausible.example.dev
-        - www.plausible.example.dev
+        - plausible.example.net
+        - www.plausible.example.net
       tls: "off"
       compress: false
       hsts: true
@@ -1607,8 +1607,8 @@ services:
     target: "192.168.0.29:3000"
     web:
       hosts:
-        - umami.gracecarry.shop
-        - www.umami.gracecarry.shop
+        - umami.example.org
+        - www.umami.example.org
       tls: internal
       compress: true
       hsts: true
@@ -1622,14 +1622,14 @@ services:
         - /
         - /umami/api
       redirect_from:
-        - old-umami.gracecarry.shop
-        - umami.legacy.gracecarry.shop
+        - old-umami.example.org
+        - umami.legacy.example.org
   n8n:
     target: "192.168.0.30:5678"
     web:
       hosts:
-        - n8n.pngwasi.me
-        - www.n8n.pngwasi.me
+        - n8n.example.com
+        - www.n8n.example.com
       tls: auto
       compress: false
       hsts: false
@@ -1651,8 +1651,8 @@ services:
     target: "192.168.0.31:9443"
     web:
       hosts:
-        - portainer.example.dev
-        - www.portainer.example.dev
+        - portainer.example.net
+        - www.portainer.example.net
       tls: auto
       compress: true
       hsts: true
@@ -1667,8 +1667,8 @@ services:
     target: "192.168.0.32:8082"
     web:
       hosts:
-        - traefik.gracecarry.shop
-        - www.traefik.gracecarry.shop
+        - traefik.example.org
+        - www.traefik.example.org
       tls: "off"
       compress: false
       hsts: true
@@ -1682,8 +1682,8 @@ services:
         - /
         - /traefik/api
       redirect_from:
-        - old-traefik.gracecarry.shop
-        - traefik.legacy.gracecarry.shop
+        - old-traefik.example.org
+        - traefik.legacy.example.org
       basic_auth:
         admin: "$2y$05$6d82aa80admin"
         viewer: "$2y$05$202f66b7viewer"
@@ -1694,8 +1694,8 @@ services:
     target: "192.168.0.33:80"
     web:
       hosts:
-        - pihole.pngwasi.me
-        - www.pihole.pngwasi.me
+        - pihole.example.com
+        - www.pihole.example.com
       tls: internal
       compress: true
       hsts: false
@@ -1713,8 +1713,8 @@ services:
     target: "192.168.0.34:3000"
     web:
       hosts:
-        - adguard.example.dev
-        - www.adguard.example.dev
+        - adguard.example.net
+        - www.adguard.example.net
       tls: auto
       compress: false
       hsts: true
@@ -1733,8 +1733,8 @@ services:
     target: "192.168.0.35:3000"
     web:
       hosts:
-        - wikijs.gracecarry.shop
-        - www.wikijs.gracecarry.shop
+        - wikijs.example.org
+        - www.wikijs.example.org
       tls: auto
       compress: true
       hsts: true
@@ -1748,15 +1748,15 @@ services:
         - /
         - /wikijs/api
       redirect_from:
-        - old-wikijs.gracecarry.shop
-        - wikijs.legacy.gracecarry.shop
+        - old-wikijs.example.org
+        - wikijs.legacy.example.org
   bookstack:
     client: hetzner-pve-prod
     target: "192.168.0.36:80"
     web:
       hosts:
-        - bookstack.pngwasi.me
-        - www.bookstack.pngwasi.me
+        - bookstack.example.com
+        - www.bookstack.example.com
       tls: "off"
       compress: false
       hsts: false
@@ -1777,8 +1777,8 @@ services:
     target: "192.168.0.37:9000"
     web:
       hosts:
-        - mealie.example.dev
-        - www.mealie.example.dev
+        - mealie.example.net
+        - www.mealie.example.net
       tls: internal
       compress: true
       hsts: true
@@ -1795,8 +1795,8 @@ services:
     target: "192.168.0.38:8080"
     web:
       hosts:
-        - firefly.gracecarry.shop
-        - www.firefly.gracecarry.shop
+        - firefly.example.org
+        - www.firefly.example.org
       tls: auto
       compress: false
       hsts: true
@@ -1810,8 +1810,8 @@ services:
         - /
         - /firefly/api
       redirect_from:
-        - old-firefly.gracecarry.shop
-        - firefly.legacy.gracecarry.shop
+        - old-firefly.example.org
+        - firefly.legacy.example.org
       forward_auth: sso
       rate_limit: 77
       target_tls:
@@ -1825,8 +1825,8 @@ services:
     target: "192.168.0.39:2342"
     web:
       hosts:
-        - photoprism.pngwasi.me
-        - www.photoprism.pngwasi.me
+        - photoprism.example.com
+        - www.photoprism.example.com
       tls: auto
       compress: true
       hsts: false
@@ -1843,8 +1843,8 @@ services:
     target: "192.168.0.40:8384"
     web:
       hosts:
-        - syncthing.example.dev
-        - www.syncthing.example.dev
+        - syncthing.example.net
+        - www.syncthing.example.net
       tls: "off"
       compress: false
       hsts: true
@@ -1860,13 +1860,13 @@ services:
   status-page:
     client: hetzner-pve-prod
     target: "192.168.0.90:80"
-    web: status.gracecarry.shop
+    web: status.example.org
   docs-site:
     client: hetzner-pve-prod
     target: "192.168.0.91:80"
     web:
-      - docs.gracecarry.shop
-      - docs.pngwasi.me
+      - docs.example.org
+      - docs.example.com
   self-metrics:
     client: self
     target: "127.0.0.1:9100"
@@ -1907,12 +1907,12 @@ web:
         - X-User
         - X-Groups
   redirect_names:
-    old.gracecarry.shop: gracecarry.shop
-    legacy.pngwasi.me:
-      to: pngwasi.me
+    old.example.org: example.org
+    legacy.example.com:
+      to: example.com
       permanent: true
-    beta.example.dev:
-      to: example.dev
+    beta.example.net:
+      to: example.net
       permanent: false
   request_headers:
     X-Served-By: tunnel
@@ -1922,13 +1922,13 @@ web:
     X-Content-Type-Options: nosniff
   certificates:
     - hosts:
-        - internal.gracecarry.shop
-        - intranet.gracecarry.shop
+        - internal.example.org
+        - intranet.example.org
       cert: certs/internal/fullchain.pem
       key: certs/internal/privkey.pem
     - hosts:
-        - vpn.pngwasi.me
-        - wg.pngwasi.me
+        - vpn.example.com
+        - wg.example.com
       upload: vpn-cert
   letsencrypt:
     email: paradoxngwasi@outlook.com
@@ -1936,11 +1936,11 @@ web:
     profile: tlsserver
     dns:
       - domains:
-          - gracecarry.shop
-          - pngwasi.me
+          - example.org
+          - example.com
         wildcards:
-          - "*.gracecarry.shop"
-          - "*.pngwasi.me"
+          - "*.example.org"
+          - "*.example.com"
         cloudflare:
           token: "${CLOUDFLARE_API_TOKEN}"
         wait_secs: 60
@@ -1948,17 +1948,17 @@ web:
           - "1.1.1.1:53"
           - "1.0.0.1:53"
       - domains:
-          - example.dev
-          - lab.example.dev
+          - example.net
+          - lab.example.net
         rfc2136:
-          server: "ns1.example.dev:53"
+          server: "ns1.example.net:53"
           key_name: tunnel-acme
           secret: "${RFC2136_SECRET}"
           algorithm: hmac-sha256
         wait_secs: 120
       - domains:
-          - acme.pngwasi.me
-          - edge.pngwasi.me
+          - acme.example.com
+          - edge.example.com
         acme_dns:
           api: "https://auth.acme-dns.io"
           username: tunnel

@@ -66,7 +66,7 @@
       window.documentsView = view;
       // For tests: a document's own fields, as the host would change them.
       window.updateFile = update;
-      // And a document the host lists by itself (a server pushed it).
+      // And a document the host lists by itself (the host pushed it).
       window.addFile = (file) => {
         files = [...files, { schema, ...file }];
         view.update({ documents: files });

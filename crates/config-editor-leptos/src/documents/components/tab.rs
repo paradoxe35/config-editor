@@ -7,6 +7,7 @@ use web_sys::{KeyboardEvent, MouseEvent};
 use super::super::entries::{Documents, Entry, Focus};
 use super::super::keys;
 use super::super::tab_names::{TabLabel, tab_label};
+use crate::cssom::{Declarations, cssom};
 use crate::strings::fill;
 
 #[component]
@@ -35,6 +36,14 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     let name = move || {
         let name = file_name.get();
         names.with(|names| tab_label(&name, names))
+    };
+    // Room for the letters that tell it from the tabs with the same
+    // file's name, and the ellipsis after them.
+    let style = move || {
+        let kept = name().kept.chars().count();
+        (kept > 0).then(|| {
+            Declarations::new().set("--config-editor-tab-kept", format!("calc({kept}ch + 1em)"))
+        })
     };
     let accessible_name = move || {
         let mut name = file_name.get();
@@ -148,6 +157,7 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
             role="tab"
             id=entry.tab_id(documents)
             class=class
+            style=cssom(style)
             aria-controls=entry.panel_id(documents)
             aria-selected=move || selected.get().to_string()
             aria-label=accessible_name
@@ -171,12 +181,24 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     }
 }
 
-/// A tab's name: its folder (in its own span, which a narrow strip leaves
-/// out) and the start, which a narrow tab cuts, then the end, kept whole.
-fn name_view(TabLabel { folder, start, end }: TabLabel) -> impl IntoView {
+/// A tab's name: the letters that tell it from tabs with the same file's
+/// name, kept whole; its folder (in its own span, which a narrow strip
+/// leaves out) and the start, which a narrow tab cuts; then the end, kept
+/// whole.
+fn name_view(
+    TabLabel {
+        folder,
+        kept,
+        start,
+        end,
+    }: TabLabel,
+) -> impl IntoView {
+    let kept = (!kept.is_empty())
+        .then(|| view! { <span class="config-editor-documents__name-kept">{kept}</span> });
     let end = (!end.is_empty())
         .then(|| view! { <span class="config-editor-documents__name-end">{end}</span> });
     view! {
+        {kept}
         <span class="config-editor-documents__name-start">
             {folder.map(|folder| view! { <span class="config-editor-documents__name-folder">{folder}</span> })}
             {start}

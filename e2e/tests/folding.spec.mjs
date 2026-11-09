@@ -93,7 +93,7 @@ test.describe('folding', () => {
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
     await page.keyboard.type('x: 1');
-    await expect.poll(() => doc(page)).toContain('public_address: tunnel.pngwasi.me\nx: 1\n');
+    await expect.poll(() => doc(page)).toContain('public_address: tunnel.example.com\nx: 1\n');
     expect(await isClosed(page, 8)).toBe(true);
     expect(await e.value()).toContain('websocket:\nheartbeat:');
     expect(await doc(page)).toContain('  path: /tunnel');
@@ -141,7 +141,7 @@ test.describe('folding', () => {
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     expect(copied).toBe(
       '  remote: true\nwebsocket:\n  listen: "127.0.0.1:7836"\n  path: /tunnel\n' +
-        '  host: tunnel.pngwasi.me\n  keepalive_secs: 20\n  challenge: http\n',
+        '  host: tunnel.example.com\n  keepalive_secs: 20\n  challenge: http\n',
     );
     await page.keyboard.press('Control+X');
     await expect.poll(() => doc(page)).toContain('update:\nheartbeat:');

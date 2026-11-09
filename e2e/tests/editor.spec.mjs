@@ -256,7 +256,8 @@ test.describe('hover documentation', () => {
     await expect(card).toContainText('0.0.0.0:7835');
     await expect(card).toContainText('Port or ip:port for plain HTTP');
 
-    const offKey = await pointAt(page, 1, 9);
+    // Off the line's text (its value shows the key's docs too).
+    const offKey = await pointAt(page, 1, 20);
     await page.mouse.move(offKey.x, offKey.y, { steps: 3 });
     await expect(card).toHaveCount(0);
   });

@@ -1,6 +1,6 @@
 # tunnel server configuration (large demo); secrets show as fingerprints or ${ENV} names
 listen = "0.0.0.0:7835"
-public_address = "tunnel.pngwasi.me"
+public_address = "tunnel.example.com"
 insecure_plaintext = false
 update {
   remote = true
@@ -8,7 +8,7 @@ update {
 websocket {
   listen = "127.0.0.1:7836"
   path = "/tunnel"
-  host = "tunnel.pngwasi.me"
+  host = "tunnel.example.com"
   keepalive_secs = 20
   challenge = "http"
 }
@@ -354,25 +354,25 @@ clients {
   }
 }
 visitors {
-  paradoxe-pc {
-    secret = "«secret 808eab68»"
+  victor-pc {
+    secret = "«secret 321efaf1»"
     admin = "write"
     reach = {}
   }
-  paradoxe-laptop {
-    secret = "«secret 97e15829»"
+  victor-laptop {
+    secret = "«secret 05b5759c»"
     admin = "read"
     reach {
       etiolles-pve-ai = ["hetzner-pve-ssh", "hetzner-pve-web"]
       etiolles-backup = "self"
     }
   }
-  gaby-pc {
-    secret = "«secret 14154ecf»"
+  wendy-pc {
+    secret = "«secret ad31e83b»"
     max_connections = 34
   }
-  gaby-phone {
-    secret = "«secret 08a7bb62»"
+  wendy-phone {
+    secret = "«secret 7236477e»"
     reach = {}
     admin_from = ["10.3.0.0/16", "192.168.3.0/24"]
   }
@@ -494,13 +494,13 @@ services {
   etiolles-pve-ssh {
     client = "etiolles-pve"
     target = 22
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
   }
   etiolles-pve-web {
     target = 8006
     clients = ["etiolles-pve", "etiolles-pve-ai"]
     mode = "failover"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     health_check {
       interval_secs = 10
       timeout_secs = 3
@@ -521,7 +521,7 @@ services {
     bind = 65002
     protocol = "udp"
     clients = ["etiolles-pve", "etiolles-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "10mbit"
   }
   etiolles-wgdashboard {
@@ -539,7 +539,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   etiolles-backup-sync {
@@ -551,13 +551,13 @@ services {
   hetzner-pve-ssh {
     client = "hetzner-pve"
     target = 22
-    visitors = ["paradoxe-laptop", "gaby-pc"]
+    visitors = ["victor-laptop", "wendy-pc"]
   }
   hetzner-pve-web {
     target = 8006
     clients = ["hetzner-pve", "hetzner-pve-ai"]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-phone"]
+    visitors = ["victor-pc", "wendy-phone"]
     health_check {
       interval_secs = 11
       timeout_secs = 3
@@ -578,7 +578,7 @@ services {
     bind = 65004
     protocol = "udp"
     clients = ["hetzner-pve", "hetzner-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "20mbit"
   }
   hetzner-wgdashboard {
@@ -596,7 +596,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   hetzner-backup-sync {
@@ -608,13 +608,13 @@ services {
   ikoula-pve-ssh {
     client = "ikoula-pve"
     target = 22
-    visitors = ["gaby-pc", "gaby-phone"]
+    visitors = ["wendy-pc", "wendy-phone"]
   }
   ikoula-pve-web {
     target = 8006
     clients = ["ikoula-pve", "ikoula-pve-ai"]
     mode = "least_connections"
-    visitors = ["paradoxe-pc", "ops-oncall"]
+    visitors = ["victor-pc", "ops-oncall"]
     health_check {
       interval_secs = 12
       timeout_secs = 3
@@ -635,7 +635,7 @@ services {
     bind = 65006
     protocol = "udp"
     clients = ["ikoula-pve", "ikoula-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "30mbit"
   }
   ikoula-wgdashboard {
@@ -653,7 +653,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   ikoula-backup-sync {
@@ -665,13 +665,13 @@ services {
   scaleway-pve-ssh {
     client = "scaleway-pve"
     target = 22
-    visitors = ["gaby-phone", "ops-oncall"]
+    visitors = ["wendy-phone", "ops-oncall"]
   }
   scaleway-pve-web {
     target = 8006
     clients = ["scaleway-pve", "scaleway-pve-ai"]
     mode = "ip_hash"
-    visitors = ["paradoxe-pc", "ci-runner"]
+    visitors = ["victor-pc", "ci-runner"]
     health_check {
       interval_secs = 13
       timeout_secs = 3
@@ -692,7 +692,7 @@ services {
     bind = 65008
     protocol = "udp"
     clients = ["scaleway-pve", "scaleway-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "40mbit"
   }
   scaleway-wgdashboard {
@@ -710,7 +710,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   scaleway-backup-sync {
@@ -722,13 +722,13 @@ services {
   ovh-pve-ssh {
     client = "ovh-pve"
     target = 22
-    visitors = ["ops-oncall", "paradoxe-pc"]
+    visitors = ["ops-oncall", "victor-pc"]
   }
   ovh-pve-web {
     target = 8006
     clients = ["ovh-pve", "ovh-pve-ai"]
     mode = "failover"
-    visitors = ["paradoxe-pc", "grafana-bot"]
+    visitors = ["victor-pc", "grafana-bot"]
     health_check {
       interval_secs = 14
       timeout_secs = 3
@@ -749,7 +749,7 @@ services {
     bind = 65010
     protocol = "udp"
     clients = ["ovh-pve", "ovh-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "50mbit"
   }
   ovh-wgdashboard {
@@ -767,7 +767,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   ovh-backup-sync {
@@ -779,13 +779,13 @@ services {
   gravelines-pve-ssh {
     client = "gravelines-pve"
     target = 22
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
   }
   gravelines-pve-web {
     target = 8006
     clients = ["gravelines-pve", "gravelines-pve-ai"]
     mode = "balance"
-    visitors = ["paradoxe-pc", "backup-agent"]
+    visitors = ["victor-pc", "backup-agent"]
     health_check {
       interval_secs = 15
       timeout_secs = 3
@@ -806,7 +806,7 @@ services {
     bind = 65012
     protocol = "udp"
     clients = ["gravelines-pve", "gravelines-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "60mbit"
   }
   gravelines-wgdashboard {
@@ -824,7 +824,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   gravelines-backup-sync {
@@ -836,13 +836,13 @@ services {
   roubaix-pve-ssh {
     client = "roubaix-pve"
     target = 22
-    visitors = ["paradoxe-laptop", "gaby-pc"]
+    visitors = ["victor-laptop", "wendy-pc"]
   }
   roubaix-pve-web {
     target = 8006
     clients = ["roubaix-pve", "roubaix-pve-ai"]
     mode = "least_connections"
-    visitors = ["paradoxe-pc", "alice-laptop"]
+    visitors = ["victor-pc", "alice-laptop"]
     health_check {
       interval_secs = 16
       timeout_secs = 3
@@ -863,7 +863,7 @@ services {
     bind = 65014
     protocol = "udp"
     clients = ["roubaix-pve", "roubaix-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "70mbit"
   }
   roubaix-wgdashboard {
@@ -881,7 +881,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   roubaix-backup-sync {
@@ -893,13 +893,13 @@ services {
   strasbourg-pve-ssh {
     client = "strasbourg-pve"
     target = 22
-    visitors = ["gaby-pc", "gaby-phone"]
+    visitors = ["wendy-pc", "wendy-phone"]
   }
   strasbourg-pve-web {
     target = 8006
     clients = ["strasbourg-pve", "strasbourg-pve-ai"]
     mode = "ip_hash"
-    visitors = ["paradoxe-pc", "bob-desktop"]
+    visitors = ["victor-pc", "bob-desktop"]
     health_check {
       interval_secs = 17
       timeout_secs = 3
@@ -920,7 +920,7 @@ services {
     bind = 65016
     protocol = "udp"
     clients = ["strasbourg-pve", "strasbourg-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "80mbit"
   }
   strasbourg-wgdashboard {
@@ -938,7 +938,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   strasbourg-backup-sync {
@@ -950,13 +950,13 @@ services {
   frankfurt-pve-ssh {
     client = "frankfurt-pve"
     target = 22
-    visitors = ["gaby-phone", "ops-oncall"]
+    visitors = ["wendy-phone", "ops-oncall"]
   }
   frankfurt-pve-web {
     target = 8006
     clients = ["frankfurt-pve", "frankfurt-pve-ai"]
     mode = "failover"
-    visitors = ["paradoxe-pc", "carol-tablet"]
+    visitors = ["victor-pc", "carol-tablet"]
     health_check {
       interval_secs = 18
       timeout_secs = 3
@@ -977,7 +977,7 @@ services {
     bind = 65018
     protocol = "udp"
     clients = ["frankfurt-pve", "frankfurt-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "90mbit"
   }
   frankfurt-wgdashboard {
@@ -995,7 +995,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   frankfurt-backup-sync {
@@ -1007,13 +1007,13 @@ services {
   helsinki-pve-ssh {
     client = "helsinki-pve"
     target = 22
-    visitors = ["ops-oncall", "paradoxe-pc"]
+    visitors = ["ops-oncall", "victor-pc"]
   }
   helsinki-pve-web {
     target = 8006
     clients = ["helsinki-pve", "helsinki-pve-ai"]
     mode = "balance"
-    visitors = ["paradoxe-pc", "dave-workstation"]
+    visitors = ["victor-pc", "dave-workstation"]
     health_check {
       interval_secs = 19
       timeout_secs = 3
@@ -1034,7 +1034,7 @@ services {
     bind = 65020
     protocol = "udp"
     clients = ["helsinki-pve", "helsinki-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "100mbit"
   }
   helsinki-wgdashboard {
@@ -1052,7 +1052,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   helsinki-backup-sync {
@@ -1064,13 +1064,13 @@ services {
   amsterdam-pve-ssh {
     client = "amsterdam-pve"
     target = 22
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
   }
   amsterdam-pve-web {
     target = 8006
     clients = ["amsterdam-pve", "amsterdam-pve-ai"]
     mode = "least_connections"
-    visitors = ["paradoxe-pc", "erin-laptop"]
+    visitors = ["victor-pc", "erin-laptop"]
     health_check {
       interval_secs = 20
       timeout_secs = 3
@@ -1091,7 +1091,7 @@ services {
     bind = 65022
     protocol = "udp"
     clients = ["amsterdam-pve", "amsterdam-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "110mbit"
   }
   amsterdam-wgdashboard {
@@ -1109,7 +1109,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v1"
   }
   amsterdam-backup-sync {
@@ -1121,13 +1121,13 @@ services {
   london-pve-ssh {
     client = "london-pve"
     target = 22
-    visitors = ["paradoxe-laptop", "gaby-pc"]
+    visitors = ["victor-laptop", "wendy-pc"]
   }
   london-pve-web {
     target = 8006
     clients = ["london-pve", "london-pve-ai"]
     mode = "ip_hash"
-    visitors = ["paradoxe-pc", "frank-pc"]
+    visitors = ["victor-pc", "frank-pc"]
     health_check {
       interval_secs = 21
       timeout_secs = 3
@@ -1148,7 +1148,7 @@ services {
     bind = 65024
     protocol = "udp"
     clients = ["london-pve", "london-pve-ai"]
-    visitors = ["paradoxe-pc", "paradoxe-laptop"]
+    visitors = ["victor-pc", "victor-laptop"]
     bandwidth = "120mbit"
   }
   london-wgdashboard {
@@ -1166,7 +1166,7 @@ services {
       },
     ]
     mode = "balance"
-    visitors = ["paradoxe-pc", "gaby-pc"]
+    visitors = ["victor-pc", "wendy-pc"]
     proxy_protocol = "v2"
   }
   london-backup-sync {
@@ -1179,7 +1179,7 @@ services {
     client = "etiolles-pve-prod"
     target = "192.168.0.11:8000"
     web {
-      hosts = ["whoami.gracecarry.shop", "www.whoami.gracecarry.shop"]
+      hosts = ["whoami.example.org", "www.whoami.example.org"]
       tls = "auto"
       compress = true
       hsts = true
@@ -1192,14 +1192,14 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/whoami/api"]
-      redirect_from = ["old-whoami.gracecarry.shop", "whoami.legacy.gracecarry.shop"]
+      redirect_from = ["old-whoami.example.org", "whoami.legacy.example.org"]
     }
   }
   speedtest {
     client = "hetzner-pve-prod"
     target = "192.168.0.12:8080"
     web {
-      hosts = ["speedtest.pngwasi.me", "www.speedtest.pngwasi.me"]
+      hosts = ["speedtest.example.com", "www.speedtest.example.com"]
       tls = "off"
       compress = false
       hsts = false
@@ -1221,7 +1221,7 @@ services {
     client = "ikoula-pve-prod"
     target = "192.168.0.13:3000"
     web {
-      hosts = ["grafana.example.dev", "www.grafana.example.dev"]
+      hosts = ["grafana.example.net", "www.grafana.example.net"]
       tls = "internal"
       compress = true
       hsts = true
@@ -1240,7 +1240,7 @@ services {
   prometheus {
     target = "192.168.0.14:9090"
     web {
-      hosts = ["prometheus.gracecarry.shop", "www.prometheus.gracecarry.shop"]
+      hosts = ["prometheus.example.org", "www.prometheus.example.org"]
       tls = "auto"
       compress = false
       hsts = true
@@ -1253,7 +1253,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/prometheus/api"]
-      redirect_from = ["old-prometheus.gracecarry.shop", "prometheus.legacy.gracecarry.shop"]
+      redirect_from = ["old-prometheus.example.org", "prometheus.legacy.example.org"]
       target_tls {
         insecure_skip_verify = true
       }
@@ -1265,7 +1265,7 @@ services {
     client = "ovh-pve-prod"
     target = "192.168.0.15:3100"
     web {
-      hosts = ["loki.pngwasi.me", "www.loki.pngwasi.me"]
+      hosts = ["loki.example.com", "www.loki.example.com"]
       tls = "auto"
       compress = true
       hsts = false
@@ -1285,7 +1285,7 @@ services {
     client = "gravelines-pve-prod"
     target = "192.168.0.16:3000"
     web {
-      hosts = ["gitea.example.dev", "www.gitea.example.dev"]
+      hosts = ["gitea.example.net", "www.gitea.example.net"]
       tls = "off"
       compress = false
       hsts = true
@@ -1310,7 +1310,7 @@ services {
     client = "roubaix-pve-prod"
     target = "192.168.0.17:8000"
     web {
-      hosts = ["drone.gracecarry.shop", "www.drone.gracecarry.shop"]
+      hosts = ["drone.example.org", "www.drone.example.org"]
       tls = "internal"
       compress = true
       hsts = true
@@ -1323,13 +1323,13 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/drone/api"]
-      redirect_from = ["old-drone.gracecarry.shop", "drone.legacy.gracecarry.shop"]
+      redirect_from = ["old-drone.example.org", "drone.legacy.example.org"]
     }
   }
   nextcloud {
     target = "192.168.0.18:80"
     web {
-      hosts = ["nextcloud.pngwasi.me", "www.nextcloud.pngwasi.me"]
+      hosts = ["nextcloud.example.com", "www.nextcloud.example.com"]
       tls = "auto"
       compress = false
       hsts = false
@@ -1355,7 +1355,7 @@ services {
     client = "frankfurt-pve-prod"
     target = "192.168.0.19:8081"
     web {
-      hosts = ["vaultwarden.example.dev", "www.vaultwarden.example.dev"]
+      hosts = ["vaultwarden.example.net", "www.vaultwarden.example.net"]
       tls = "auto"
       compress = true
       hsts = true
@@ -1373,7 +1373,7 @@ services {
     client = "helsinki-pve-prod"
     target = "192.168.0.20:8096"
     web {
-      hosts = ["jellyfin.gracecarry.shop", "www.jellyfin.gracecarry.shop"]
+      hosts = ["jellyfin.example.org", "www.jellyfin.example.org"]
       tls = "off"
       compress = false
       hsts = true
@@ -1386,7 +1386,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/jellyfin/api"]
-      redirect_from = ["old-jellyfin.gracecarry.shop", "jellyfin.legacy.gracecarry.shop"]
+      redirect_from = ["old-jellyfin.example.org", "jellyfin.legacy.example.org"]
       basic_auth {
         admin = "$2y$05$d2f1fb57admin"
         viewer = "$2y$05$84b397e2viewer"
@@ -1400,7 +1400,7 @@ services {
     client = "amsterdam-pve-prod"
     target = "192.168.0.21:2283"
     web {
-      hosts = ["immich.pngwasi.me", "www.immich.pngwasi.me"]
+      hosts = ["immich.example.com", "www.immich.example.com"]
       tls = "internal"
       compress = true
       hsts = false
@@ -1419,7 +1419,7 @@ services {
   paperless {
     target = "192.168.0.22:8000"
     web {
-      hosts = ["paperless.example.dev", "www.paperless.example.dev"]
+      hosts = ["paperless.example.net", "www.paperless.example.net"]
       tls = "auto"
       compress = false
       hsts = true
@@ -1439,7 +1439,7 @@ services {
     client = "etiolles-pve-prod"
     target = "192.168.0.23:8123"
     web {
-      hosts = ["homeassistant.gracecarry.shop", "www.homeassistant.gracecarry.shop"]
+      hosts = ["homeassistant.example.org", "www.homeassistant.example.org"]
       tls = "auto"
       compress = true
       hsts = true
@@ -1452,7 +1452,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/homeassistant/api"]
-      redirect_from = ["old-homeassistant.gracecarry.shop", "homeassistant.legacy.gracecarry.shop"]
+      redirect_from = ["old-homeassistant.example.org", "homeassistant.legacy.example.org"]
       forward_auth = "sso"
       rate_limit = 62
       maintenance = false
@@ -1464,7 +1464,7 @@ services {
     client = "hetzner-pve-prod"
     target = "192.168.0.24:3001"
     web {
-      hosts = ["uptime.pngwasi.me", "www.uptime.pngwasi.me"]
+      hosts = ["uptime.example.com", "www.uptime.example.com"]
       tls = "off"
       compress = false
       hsts = false
@@ -1486,7 +1486,7 @@ services {
     client = "ikoula-pve-prod"
     target = "192.168.0.25:9001"
     web {
-      hosts = ["minio.example.dev", "www.minio.example.dev"]
+      hosts = ["minio.example.net", "www.minio.example.net"]
       tls = "internal"
       compress = true
       hsts = true
@@ -1503,7 +1503,7 @@ services {
   keycloak {
     target = "192.168.0.26:8443"
     web {
-      hosts = ["keycloak.gracecarry.shop", "www.keycloak.gracecarry.shop"]
+      hosts = ["keycloak.example.org", "www.keycloak.example.org"]
       tls = "auto"
       compress = false
       hsts = true
@@ -1516,7 +1516,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/keycloak/api"]
-      redirect_from = ["old-keycloak.gracecarry.shop", "keycloak.legacy.gracecarry.shop"]
+      redirect_from = ["old-keycloak.example.org", "keycloak.legacy.example.org"]
       target_tls {
         insecure_skip_verify = true
       }
@@ -1528,7 +1528,7 @@ services {
     client = "ovh-pve-prod"
     target = "192.168.0.27:3000"
     web {
-      hosts = ["outline.pngwasi.me", "www.outline.pngwasi.me"]
+      hosts = ["outline.example.com", "www.outline.example.com"]
       tls = "auto"
       compress = true
       hsts = false
@@ -1552,7 +1552,7 @@ services {
     client = "gravelines-pve-prod"
     target = "192.168.0.28:8000"
     web {
-      hosts = ["plausible.example.dev", "www.plausible.example.dev"]
+      hosts = ["plausible.example.net", "www.plausible.example.net"]
       tls = "off"
       compress = false
       hsts = true
@@ -1576,7 +1576,7 @@ services {
     client = "roubaix-pve-prod"
     target = "192.168.0.29:3000"
     web {
-      hosts = ["umami.gracecarry.shop", "www.umami.gracecarry.shop"]
+      hosts = ["umami.example.org", "www.umami.example.org"]
       tls = "internal"
       compress = true
       hsts = true
@@ -1589,13 +1589,13 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/umami/api"]
-      redirect_from = ["old-umami.gracecarry.shop", "umami.legacy.gracecarry.shop"]
+      redirect_from = ["old-umami.example.org", "umami.legacy.example.org"]
     }
   }
   n8n {
     target = "192.168.0.30:5678"
     web {
-      hosts = ["n8n.pngwasi.me", "www.n8n.pngwasi.me"]
+      hosts = ["n8n.example.com", "www.n8n.example.com"]
       tls = "auto"
       compress = false
       hsts = false
@@ -1618,7 +1618,7 @@ services {
     client = "frankfurt-pve-prod"
     target = "192.168.0.31:9443"
     web {
-      hosts = ["portainer.example.dev", "www.portainer.example.dev"]
+      hosts = ["portainer.example.net", "www.portainer.example.net"]
       tls = "auto"
       compress = true
       hsts = true
@@ -1636,7 +1636,7 @@ services {
     client = "helsinki-pve-prod"
     target = "192.168.0.32:8082"
     web {
-      hosts = ["traefik.gracecarry.shop", "www.traefik.gracecarry.shop"]
+      hosts = ["traefik.example.org", "www.traefik.example.org"]
       tls = "off"
       compress = false
       hsts = true
@@ -1649,7 +1649,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/traefik/api"]
-      redirect_from = ["old-traefik.gracecarry.shop", "traefik.legacy.gracecarry.shop"]
+      redirect_from = ["old-traefik.example.org", "traefik.legacy.example.org"]
       basic_auth {
         admin = "$2y$05$6d82aa80admin"
         viewer = "$2y$05$202f66b7viewer"
@@ -1663,7 +1663,7 @@ services {
     client = "amsterdam-pve-prod"
     target = "192.168.0.33:80"
     web {
-      hosts = ["pihole.pngwasi.me", "www.pihole.pngwasi.me"]
+      hosts = ["pihole.example.com", "www.pihole.example.com"]
       tls = "internal"
       compress = true
       hsts = false
@@ -1684,7 +1684,7 @@ services {
   adguard {
     target = "192.168.0.34:3000"
     web {
-      hosts = ["adguard.example.dev", "www.adguard.example.dev"]
+      hosts = ["adguard.example.net", "www.adguard.example.net"]
       tls = "auto"
       compress = false
       hsts = true
@@ -1704,7 +1704,7 @@ services {
     client = "etiolles-pve-prod"
     target = "192.168.0.35:3000"
     web {
-      hosts = ["wikijs.gracecarry.shop", "www.wikijs.gracecarry.shop"]
+      hosts = ["wikijs.example.org", "www.wikijs.example.org"]
       tls = "auto"
       compress = true
       hsts = true
@@ -1717,14 +1717,14 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/wikijs/api"]
-      redirect_from = ["old-wikijs.gracecarry.shop", "wikijs.legacy.gracecarry.shop"]
+      redirect_from = ["old-wikijs.example.org", "wikijs.legacy.example.org"]
     }
   }
   bookstack {
     client = "hetzner-pve-prod"
     target = "192.168.0.36:80"
     web {
-      hosts = ["bookstack.pngwasi.me", "www.bookstack.pngwasi.me"]
+      hosts = ["bookstack.example.com", "www.bookstack.example.com"]
       tls = "off"
       compress = false
       hsts = false
@@ -1750,7 +1750,7 @@ services {
     client = "ikoula-pve-prod"
     target = "192.168.0.37:9000"
     web {
-      hosts = ["mealie.example.dev", "www.mealie.example.dev"]
+      hosts = ["mealie.example.net", "www.mealie.example.net"]
       tls = "internal"
       compress = true
       hsts = true
@@ -1770,7 +1770,7 @@ services {
   firefly {
     target = "192.168.0.38:8080"
     web {
-      hosts = ["firefly.gracecarry.shop", "www.firefly.gracecarry.shop"]
+      hosts = ["firefly.example.org", "www.firefly.example.org"]
       tls = "auto"
       compress = false
       hsts = true
@@ -1783,7 +1783,7 @@ services {
         Referrer-Policy = "strict-origin-when-cross-origin"
       }
       paths = ["/", "/firefly/api"]
-      redirect_from = ["old-firefly.gracecarry.shop", "firefly.legacy.gracecarry.shop"]
+      redirect_from = ["old-firefly.example.org", "firefly.legacy.example.org"]
       forward_auth = "sso"
       rate_limit = 77
       target_tls {
@@ -1797,7 +1797,7 @@ services {
     client = "ovh-pve-prod"
     target = "192.168.0.39:2342"
     web {
-      hosts = ["photoprism.pngwasi.me", "www.photoprism.pngwasi.me"]
+      hosts = ["photoprism.example.com", "www.photoprism.example.com"]
       tls = "auto"
       compress = true
       hsts = false
@@ -1817,7 +1817,7 @@ services {
     client = "gravelines-pve-prod"
     target = "192.168.0.40:8384"
     web {
-      hosts = ["syncthing.example.dev", "www.syncthing.example.dev"]
+      hosts = ["syncthing.example.net", "www.syncthing.example.net"]
       tls = "off"
       compress = false
       hsts = true
@@ -1838,12 +1838,12 @@ services {
   status-page {
     client = "hetzner-pve-prod"
     target = "192.168.0.90:80"
-    web = "status.gracecarry.shop"
+    web = "status.example.org"
   }
   docs-site {
     client = "hetzner-pve-prod"
     target = "192.168.0.91:80"
-    web = ["docs.gracecarry.shop", "docs.pngwasi.me"]
+    web = ["docs.example.org", "docs.example.com"]
   }
   self-metrics {
     client = "self"
@@ -1883,13 +1883,13 @@ web {
     }
   }
   redirect_names = {
-    "old.gracecarry.shop" = "gracecarry.shop"
-    "legacy.pngwasi.me" = {
-      to = "pngwasi.me"
+    "old.example.org" = "example.org"
+    "legacy.example.com" = {
+      to = "example.com"
       permanent = true
     }
-    "beta.example.dev" = {
-      to = "example.dev"
+    "beta.example.net" = {
+      to = "example.net"
       permanent = false
     }
   }
@@ -1903,12 +1903,12 @@ web {
   }
   certificates = [
     {
-      hosts = ["internal.gracecarry.shop", "intranet.gracecarry.shop"]
+      hosts = ["internal.example.org", "intranet.example.org"]
       cert = "certs/internal/fullchain.pem"
       key = "certs/internal/privkey.pem"
     },
     {
-      hosts = ["vpn.pngwasi.me", "wg.pngwasi.me"]
+      hosts = ["vpn.example.com", "wg.example.com"]
       upload = "vpn-cert"
     },
   ]
@@ -1918,8 +1918,8 @@ web {
     profile = "tlsserver"
     dns = [
       {
-        domains = ["gracecarry.shop", "pngwasi.me"]
-        wildcards = ["*.gracecarry.shop", "*.pngwasi.me"]
+        domains = ["example.org", "example.com"]
+        wildcards = ["*.example.org", "*.example.com"]
         cloudflare = {
           token = "$${CLOUDFLARE_API_TOKEN}"
         }
@@ -1927,9 +1927,9 @@ web {
         resolvers = ["1.1.1.1:53", "1.0.0.1:53"]
       },
       {
-        domains = ["example.dev", "lab.example.dev"]
+        domains = ["example.net", "lab.example.net"]
         rfc2136 = {
-          server = "ns1.example.dev:53"
+          server = "ns1.example.net:53"
           key_name = "tunnel-acme"
           secret = "$${RFC2136_SECRET}"
           algorithm = "hmac-sha256"
@@ -1937,7 +1937,7 @@ web {
         wait_secs = 120
       },
       {
-        domains = ["acme.pngwasi.me", "edge.pngwasi.me"]
+        domains = ["acme.example.com", "edge.example.com"]
         acme_dns = {
           api = "https://auth.acme-dns.io"
           username = "tunnel"

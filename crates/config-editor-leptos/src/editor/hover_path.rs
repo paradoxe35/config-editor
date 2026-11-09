@@ -4,8 +4,13 @@
 //! reached instead of giving way to the tip or the card of what the
 //! pointer crosses. Heading for it means each move stays inside the
 //! shape spanned by the point before it and the popup (the "safe
-//! triangle" of menus); a pointer that stops on the way still lets the
-//! popup go after its usual moment.
+//! triangle" of menus), on a way that starts at what the popup is for (its
+//! anchor) or in the gap between the popup and its line; a pointer that
+//! stops on the way still lets the popup go after its usual moment.
+//!
+//! Only a pointer on that way enters the popup: one that comes onto it
+//! another way (a card below its line covers the next lines) goes through
+//! to the text under it (see `popup_pointer`).
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -27,7 +32,7 @@ struct Rect {
     bottom: f64,
 }
 
-type Point = (f64, f64);
+pub(super) type Point = (f64, f64);
 
 /// Whether the pointer moving from `from` to `to` heads for `target`: `to`
 /// is inside `target` or the triangle from `from` to one of its sides
@@ -56,14 +61,39 @@ fn heads_for(from: Point, to: Point, target: Rect) -> bool {
     (0..4).any(|side| in_triangle(to, from, corners[side], corners[(side + 1) % 4]))
 }
 
+/// Whether the pointer going from `from` to `to` (on `target`) crossed the
+/// side of `target` that faces `from` above or below it: the side next to
+/// the popup's line. From beside it (level with it) it came through
+/// another side.
+fn crosses_facing_side(from: Point, to: Point, target: Rect) -> bool {
+    let side = if from.1 <= target.top {
+        target.top
+    } else if from.1 >= target.bottom {
+        target.bottom
+    } else {
+        return false;
+    };
+    if (to.1 - from.1).abs() < f64::EPSILON {
+        return (target.left..=target.right).contains(&from.0);
+    }
+    let at = (side - from.1) / (to.1 - from.1);
+    let x = from.0 + (to.0 - from.0) * at.clamp(0.0, 1.0);
+    x >= target.left - SLACK && x <= target.right + SLACK
+}
+
+/// Whether `point` is on `target` itself.
+fn inside((x, y): Point, target: Rect) -> bool {
+    x >= target.left && x <= target.right && y >= target.top && y <= target.bottom
+}
+
 /// Whether `point` is in the gap the popup `target` keeps from its line,
-/// above or below it (or on the popup).
+/// above or below it (not on it, nor beside it: on the lines it covers or
+/// passes).
 fn in_gap((x, y): Point, target: Rect) -> bool {
     let reach = POPUP_GAP + SLACK;
-    x >= target.left - SLACK
-        && x <= target.right + SLACK
-        && y >= target.top - reach
-        && y <= target.bottom + reach
+    let above = y >= target.top - reach && y < target.top;
+    let below = y > target.bottom && y <= target.bottom + reach;
+    x >= target.left - SLACK && x <= target.right + SLACK && (above || below)
 }
 
 /// Whether `point` is inside the triangle `a`, `b`, `c` (or on its edge).
@@ -83,24 +113,53 @@ impl EditorState {
         let from = self.hover().pointer.get_value();
         self.hover().pointer.set_value(Some((x, y)));
         let popup = self.reachable_popup();
+        let on_way = self.hover().on_way.get_value();
+        // Over the popup, which let the pointer through (it came another
+        // way): the text under it answers.
+        if popup.is_some_and(|popup| inside((x, y), popup)) {
+            self.hover().on_way.set_value(false);
+            return false;
+        }
+        let on_anchor = self.on_popup_anchor(line, cell);
         // In the gap between the line and the popup: as good as on it, so
         // resting there keeps it.
-        if popup.is_some_and(|popup| in_gap((x, y), popup)) && !self.on_popup_anchor(line, cell) {
-            self.hover().heading.set_value(true);
+        if popup.is_some_and(|popup| in_gap((x, y), popup)) && !on_anchor {
+            self.hover().on_way.set_value(true);
+            self.popup_takes_pointer();
             self.hold_popup();
             return true;
         }
-        let heading = match from {
-            Some(from) if from == (x, y) => self.hover().heading.get_value(),
-            Some(from) => popup.is_some_and(|popup| heads_for(from, (x, y), popup)),
-            None => false,
-        };
-        self.hover().heading.set_value(heading);
-        if !heading || self.on_popup_anchor(line, cell) {
+        if on_anchor {
+            self.hover().on_way.set_value(true);
+            self.popup_takes_pointer();
+            return false;
+        }
+        let heading = on_way
+            && match from {
+                Some(from) if from == (x, y) => true,
+                Some(from) => popup.is_some_and(|popup| heads_for(from, (x, y), popup)),
+                None => false,
+            };
+        self.hover().on_way.set_value(heading);
+        if !heading {
             return false;
         }
         self.wait_on_the_way();
         true
+    }
+
+    /// Whether the pointer came onto the popup at `entry` (in the window)
+    /// on its way there: its last move over the text was on the popup's
+    /// anchor, in its gap, or heading for it from there, and from that
+    /// point it crossed the popup's side that faces its line (not another
+    /// side, from the lines beside or past it: moves come in batches when
+    /// the page is busy). Only then does the popup take it.
+    pub(super) fn entered_on_the_way(&self, entry: Point) -> bool {
+        let (Some(from), Some(popup)) = (self.hover().pointer.get_value(), self.reachable_popup())
+        else {
+            return false;
+        };
+        self.hover().on_way.get_value() && crosses_facing_side(from, entry, popup)
     }
 
     /// The pointer stopped on the way and the popup went: what it rests
@@ -110,20 +169,27 @@ impl EditorState {
         else {
             return;
         };
-        self.hover().heading.set_value(false);
+        self.hover().on_way.set_value(false);
         super::input::pointer_at(*self, &element, x, y, true);
     }
 
-    /// The pointer left the text (for a popup or away): the next move
-    /// starts a new way.
-    pub(super) fn forget_pointer(&self) {
-        self.hover().pointer.set_value(None);
-        self.hover().heading.set_value(false);
+    /// The pointer left the text for `to`: the next move over it starts a
+    /// new way. Onto the popup, the way so far holds (the popup decides
+    /// whether it takes the pointer).
+    pub(super) fn forget_pointer(&self, to: Option<&web_sys::EventTarget>) {
+        let onto_popup = self.reachable_popup_element().is_some_and(|popup| {
+            to.and_then(|to| to.dyn_ref::<web_sys::Node>())
+                .is_some_and(|to| popup.contains(Some(to)))
+        });
+        if !onto_popup {
+            self.hover().pointer.set_value(None);
+            self.hover().on_way.set_value(false);
+        }
     }
 
-    /// The box of the popup the pointer can enter: the hover card, else
-    /// the problem tip with a link (or one that scrolls).
-    fn reachable_popup(&self) -> Option<Rect> {
+    /// The popup the pointer can enter: the hover card, else the problem
+    /// tip with a link (or one that scrolls).
+    pub(super) fn reachable_popup_element(&self) -> Option<web_sys::HtmlElement> {
         let shown = self.hover().card.with_untracked(Option::is_some)
             || self.problems().hovered.with_untracked(Option::is_some);
         if !shown {
@@ -139,7 +205,12 @@ impl EditorState {
                     .ok()
                     .flatten()
             })?;
-        let popup: web_sys::HtmlElement = popup.dyn_into().ok()?;
+        popup.dyn_into().ok()
+    }
+
+    /// The box of the popup the pointer can enter.
+    fn reachable_popup(&self) -> Option<Rect> {
+        let popup = self.reachable_popup_element()?;
         let rect = popup.get_bounding_client_rect();
         (rect.width() > 0.0).then(|| Rect {
             left: rect.left(),
@@ -223,7 +294,7 @@ impl EditorState {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rect, heads_for, in_gap};
+    use super::{Rect, crosses_facing_side, heads_for, in_gap};
 
     /// A card below a key's line, as the hover card opens.
     const CARD: Rect = Rect {
@@ -264,15 +335,61 @@ mod tests {
         assert!(!heads_for(key, key, CARD));
     }
 
+    /// QA 26 (M26-U1): a card below its line took the pointer that came
+    /// onto the lines it covers from beside it, so those lines could not
+    /// be hovered, clicked or scrolled. Only a way across its side facing
+    /// the line counts (moves may come in batches, so a long step too);
+    /// from beside it, it does not.
+    #[test]
+    fn only_the_side_facing_the_line_lets_the_pointer_in() {
+        // Down from the key, straight or slanted, in one step or several.
+        for (from, to) in [
+            ((60.0, 45.0), (60.0, 70.0)),
+            ((60.0, 45.0), (370.0, 190.0)),
+            ((60.0, 58.0), (45.0, 61.0)),
+            ((200.0, 59.0), (200.0, 60.5)),
+        ] {
+            assert!(crosses_facing_side(from, to, CARD), "{from:?} -> {to:?}");
+        }
+        // From beside the card, or from its line past its side.
+        for (from, to) in [
+            ((420.0, 100.0), (370.0, 100.0)),
+            ((600.0, 45.0), (370.0, 70.0)),
+            ((20.0, 150.0), (45.0, 150.0)),
+            ((-200.0, 40.0), (45.0, 120.0)),
+        ] {
+            assert!(!crosses_facing_side(from, to, CARD), "{from:?} -> {to:?}");
+        }
+        // Below the card (from the lines past it), up across its far side
+        // only when it is above its line.
+        let above = Rect {
+            top: 0.0,
+            bottom: 40.0,
+            ..CARD
+        };
+        assert!(crosses_facing_side((60.0, 50.0), (60.0, 30.0), above));
+    }
+
     /// QA 24 (L24-U1): the pointer resting in the 4 px gap between the
     /// line and the card let it close. The gap above and below it counts
-    /// as on it; the line itself, and beside the card, do not.
+    /// as on the way; the line itself, and beside the card, do not. QA 26
+    /// (M26-U1): nor does the card itself, or the lines just beside it
+    /// (which it lets the pointer through to when it came another way).
     #[test]
     fn the_gap_between_the_line_and_the_card_is_on_the_way() {
-        for y in [56.5, 58.0, 59.5, 60.0, 120.0, 203.0] {
+        for y in [56.5, 58.0, 59.5, 203.0] {
             assert!(in_gap((100.0, y), CARD), "{y}");
         }
-        for (x, y) in [(100.0, 50.0), (100.0, 53.0), (20.0, 58.0), (400.0, 58.0)] {
+        for (x, y) in [
+            (100.0, 50.0),
+            (100.0, 53.0),
+            (20.0, 58.0),
+            (400.0, 58.0),
+            (100.0, 60.0),
+            (100.0, 120.0),
+            (39.0, 120.0),
+            (381.0, 150.0),
+        ] {
             assert!(!in_gap((x, y), CARD), "{x}, {y}");
         }
     }

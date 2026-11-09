@@ -5,6 +5,8 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
+use super::super::popup_pointer::{enter_popup, popup_wheel};
+use super::super::positioning::{CardAnchor, hover_card_geometry};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
 use crate::cssom::cssom;
@@ -20,7 +22,8 @@ pub(crate) struct HoverCard {
     /// The one-based place at the caret it was shown at (`Ctrl+K Ctrl+I`,
     /// a tap), whose problems it lists.
     pub(crate) caret: Option<(usize, usize)>,
-    pub(crate) style: crate::cssom::Declarations,
+    /// Where it points; its side waits for its height.
+    pub(crate) anchor: CardAnchor,
 }
 
 #[component]
@@ -33,13 +36,30 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     });
     let card_ref = state.hover().card_ref;
     let focused = Relay::new(move || state.hover().card_focused.get());
-    // Taller than its room (it scrolls): measured once drawn.
+    // Its full height (0 until measured, unseen until then), which
+    // decides its side; then whether it is taller than its room (it
+    // scrolls): measured once drawn.
+    let natural = RwSignal::new(0.0_f64);
     let scrolls = RwSignal::new(false);
     Effect::new(move |_| {
         state.hover().card.track();
         problems.track();
-        later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+        if natural.get_untracked() != 0.0 {
+            natural.set(0.0);
+        }
+        later::next_frame(scrolls, move |scrolls| {
+            measure_height(card_ref, natural);
+            later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
+        });
     });
+    let style = Relay::new(move || {
+        state
+            .hover()
+            .card
+            .with(|card| card.as_ref().map(|card| card.anchor))
+            .map(|anchor| hover_card_geometry(anchor, natural.get()))
+    });
+    let measured = Relay::new(move || natural.get() > 0.0);
     move || {
         state
             .hover()
@@ -58,6 +78,8 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                     || problems.iter().any(|entry| entry.docs_url.is_some());
                 let interactive = move || links || scrolls.get();
                 let focused = focused.read();
+                let style = style.read();
+                let measured = measured.read();
                 // A dialog while it has the focus (to scroll it, or on its
                 // links), named after its key; a tooltip otherwise.
                 let role = move || if focused.get() { "dialog" } else { "tooltip" };
@@ -67,18 +89,20 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class="config-editor__hover"
                         class:config-editor__hover--interactive=interactive
                         class:config-editor__hover--scrolls=move || scrolls.get()
+                        class:config-editor__hover--unmeasured=move || !measured.get()
                         role=role
                         aria-label=label
                         // Focused by a second Ctrl+K Ctrl+I, to scroll it.
                         tabindex="-1"
                         node_ref=state.hover().card_ref
-                        style=cssom(card.style)
+                        style=cssom(move || style.get())
                         on:keydown=move |event| card_key(state, &event)
                         on:focusin=move |_| state.note_card_focus(true)
                         on:focusout=move |event| leave_card_focus(state, &event)
-                        on:mouseenter=move |_| enter_card(state)
+                        on:mouseenter=move |event| enter_card(state, &event)
                         on:mouseleave=move |_| leave_card(state)
                         on:mousedown=move |event| press_card(&event)
+                        on:wheel=move |event| wheel_card(state, &event)
                     >
                         {problems_section(state, problems)}
                         {info.value.map(value_section)}
@@ -131,6 +155,20 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     }
 }
 
+/// The card's full height, borders included, into `natural`.
+fn measure_height(card_ref: NodeRef<Div>, natural: RwSignal<f64>) {
+    let Some(card) = card_ref.get_untracked() else {
+        return;
+    };
+    if card.offset_height() == 0 {
+        return;
+    }
+    let height = f64::from(card.scroll_height() + card.offset_height() - card.client_height());
+    if natural.get_untracked() != height {
+        natural.set(height);
+    }
+}
+
 /// Whether the card is taller than its room (its `max-height`), into
 /// `scrolls`.
 fn measure(card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
@@ -155,16 +193,34 @@ fn press_card(event: &web_sys::MouseEvent) {
     }
 }
 
-/// The pointer is over the card: it stays, with the problems it lists.
-fn enter_card(state: EditorState) {
+/// The pointer came onto the card: from its key, it stays, with the
+/// problems it lists; another way, it lets the pointer through to the
+/// text under it (see `popup_pointer`).
+fn enter_card(state: EditorState, event: &web_sys::MouseEvent) {
+    let Some(card) = state.hover().card_ref.get_untracked() else {
+        return;
+    };
+    if !enter_popup(state, &card, event) {
+        return;
+    }
     state.hover().card_entered.set_value(true);
     state.problems().tip_entered.set_value(true);
 }
 
-/// The pointer left the card: it closes, as when it leaves a key, and so
-/// do the problems it listed (not on to the problem tip: the pointer back
-/// on them shows them again).
+/// A wheel over the card: see `popup_pointer`.
+fn wheel_card(state: EditorState, event: &web_sys::WheelEvent) {
+    if let Some(card) = state.hover().card_ref.get_untracked() {
+        popup_wheel(state, &card, event);
+    }
+}
+
+/// The pointer left the card it entered: it closes, as when it leaves a
+/// key, and so do the problems it listed (not on to the problem tip: the
+/// pointer back on them shows them again).
 fn leave_card(state: EditorState) {
+    if !state.hover().card_entered.get_value() {
+        return;
+    }
     state.hover().card_entered.set_value(false);
     state.problems().tip_entered.set_value(false);
     if state.card_has_focus() {
@@ -185,7 +241,9 @@ fn card_label(state: EditorState, key: String) -> impl Fn() -> String + Send + S
 /// the text); the scroll keys scroll it.
 fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
     if let Some(card) = state.hover().card_ref.get_untracked() {
-        if super::super::hover_focus::opens_docs_from(state, &card, event) {
+        if super::super::hover_focus::opens_docs_from(state, &card, event)
+            || super::super::hover_focus::selects_all_in(&card, event)
+        {
             return;
         }
         super::super::hover_focus::card_keys(&card, event);

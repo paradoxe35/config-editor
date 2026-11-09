@@ -1,7 +1,9 @@
 //! The editor is generic and embeddable: what its users read (the READMEs,
 //! the changelog, rustdoc, the shipped JS files and typings, the examples,
 //! the demo and its samples, the screenshot scenes and gallery) never names
-//! one particular product and never assumes the host has a server or a disk.
+//! one particular product or person (the samples' hosts and machines are
+//! RFC 2606 names and placeholders) and never assumes the host has a server
+//! or a disk.
 //! A server may stay as one example among several ("a service, a build
 //! step"); config data (a `server:` key) and the YAML language server are
 //! not about the host.
@@ -11,6 +13,10 @@ use std::path::{Path, PathBuf};
 
 /// A product the samples once came from; no user-facing place names it.
 const PRODUCT: &str = "burrow";
+
+/// People's own domains and machines the samples once used; the samples
+/// use RFC 2606 names (`example.com`) and placeholder people instead.
+const PERSONAL: [&str; 4] = ["pngwasi.me", "gracecarry.shop", "paradoxe-", "gaby-"];
 
 /// Phrases that tell the reader the host keeps its files on a server or a
 /// disk.
@@ -200,6 +206,39 @@ fn no_user_facing_place_names_one_product() {
     assert!(places.len() > 100, "only {} files read", places.len());
     let hits = found(&places, &[PRODUCT]);
     assert!(hits.is_empty(), "a product's name:\n{}", hits.join("\n"));
+}
+
+#[test]
+fn no_user_facing_place_names_a_person() {
+    let mut places = prose();
+    for path in shown_data() {
+        let text = fs::read_to_string(&path).expect("readable");
+        places.push((path, text));
+    }
+    let hits = found(&places, &PERSONAL);
+    assert!(
+        hits.is_empty(),
+        "a person's domain or machine (use example.com, example.net, example.org):\n{}",
+        hits.join("\n")
+    );
+}
+
+/// The example pages' controls, which a user reads as UI (a button that
+/// moves the baseline on), say what happened, not where.
+#[test]
+fn no_example_page_assumes_the_host_has_a_server_or_a_disk() {
+    let mut places = Vec::new();
+    for path in files("js/examples", &[".html", ".ts", ".tsx", ".svelte"]) {
+        let text = fs::read_to_string(&path).expect("readable");
+        places.push((path, text));
+    }
+    assert!(places.len() > 10, "only {} pages read", places.len());
+    let hits = found(&places, &ASSUMED);
+    assert!(
+        hits.is_empty(),
+        "host-specific wording (\"External change\"):\n{}",
+        hits.join("\n")
+    );
 }
 
 #[test]

@@ -33,7 +33,7 @@ SITES = [
 ]
 ROLES = ["pve", "pve-ai", "pve-stagging", "pve-prod", "ai-server", "nas", "edge", "backup"]
 PEOPLE = [
-    "paradoxe-pc", "paradoxe-laptop", "gaby-pc", "gaby-phone", "ops-oncall",
+    "victor-pc", "victor-laptop", "wendy-pc", "wendy-phone", "ops-oncall",
     "ci-runner", "grafana-bot", "backup-agent", "alice-laptop", "bob-desktop",
     "carol-tablet", "dave-workstation", "erin-laptop", "frank-pc", "grace-phone",
     "heidi-laptop", "ivan-desktop", "judy-laptop", "mallory-audit", "niaj-laptop",
@@ -49,7 +49,7 @@ APPS = [
     ("wikijs", 3000), ("bookstack", 80), ("mealie", 9000), ("firefly", 8080),
     ("photoprism", 2342), ("syncthing", 8384),
 ]
-DOMAINS = ["gracecarry.shop", "pngwasi.me", "example.dev"]
+DOMAINS = ["example.org", "example.com", "example.net"]
 MODES = ["failover", "balance", "least_connections", "ip_hash"]
 
 
@@ -219,12 +219,12 @@ def config(scale=1):
     services["status-page"] = {
         "client": "hetzner-pve-prod",
         "target": "192.168.0.90:80",
-        "web": "status.gracecarry.shop",
+        "web": "status.example.org",
     }
     services["docs-site"] = {
         "client": "hetzner-pve-prod",
         "target": "192.168.0.91:80",
-        "web": ["docs.gracecarry.shop", "docs.pngwasi.me"],
+        "web": ["docs.example.org", "docs.example.com"],
     }
     services["self-metrics"] = {"client": "self", "target": "127.0.0.1:9100"}
 
@@ -254,19 +254,19 @@ def config(scale=1):
             "basic": {"service": "outline", "path": "/auth/verify", "copy_headers": ["X-User", "X-Groups"]},
         },
         "redirect_names": {
-            "old.gracecarry.shop": "gracecarry.shop",
-            "legacy.pngwasi.me": {"to": "pngwasi.me", "permanent": True},
-            "beta.example.dev": {"to": "example.dev", "permanent": False},
+            "old.example.org": "example.org",
+            "legacy.example.com": {"to": "example.com", "permanent": True},
+            "beta.example.net": {"to": "example.net", "permanent": False},
         },
         "request_headers": {"X-Served-By": "tunnel", "X-Region": "eu-west"},
         "response_headers": {"Server": "tunnel", "X-Content-Type-Options": "nosniff"},
         "certificates": [
             {
-                "hosts": ["internal.gracecarry.shop", "intranet.gracecarry.shop"],
+                "hosts": ["internal.example.org", "intranet.example.org"],
                 "cert": "certs/internal/fullchain.pem",
                 "key": "certs/internal/privkey.pem",
             },
-            {"hosts": ["vpn.pngwasi.me", "wg.pngwasi.me"], "upload": "vpn-cert"},
+            {"hosts": ["vpn.example.com", "wg.example.com"], "upload": "vpn-cert"},
         ],
         "letsencrypt": {
             "email": "paradoxngwasi@outlook.com",
@@ -274,16 +274,16 @@ def config(scale=1):
             "profile": "tlsserver",
             "dns": [
                 {
-                    "domains": ["gracecarry.shop", "pngwasi.me"],
-                    "wildcards": ["*.gracecarry.shop", "*.pngwasi.me"],
+                    "domains": ["example.org", "example.com"],
+                    "wildcards": ["*.example.org", "*.example.com"],
                     "cloudflare": {"token": "${CLOUDFLARE_API_TOKEN}"},
                     "wait_secs": 60,
                     "resolvers": ["1.1.1.1:53", "1.0.0.1:53"],
                 },
                 {
-                    "domains": ["example.dev", "lab.example.dev"],
+                    "domains": ["example.net", "lab.example.net"],
                     "rfc2136": {
-                        "server": "ns1.example.dev:53",
+                        "server": "ns1.example.net:53",
                         "key_name": "tunnel-acme",
                         "secret": "${RFC2136_SECRET}",
                         "algorithm": "hmac-sha256",
@@ -291,7 +291,7 @@ def config(scale=1):
                     "wait_secs": 120,
                 },
                 {
-                    "domains": ["acme.pngwasi.me", "edge.pngwasi.me"],
+                    "domains": ["acme.example.com", "edge.example.com"],
                     "acme_dns": {
                         "api": "https://auth.acme-dns.io",
                         "username": "tunnel",
@@ -305,13 +305,13 @@ def config(scale=1):
 
     return {
         "listen": "0.0.0.0:7835",
-        "public_address": "tunnel.pngwasi.me",
+        "public_address": "tunnel.example.com",
         "insecure_plaintext": False,
         "update": {"remote": True},
         "websocket": {
             "listen": "127.0.0.1:7836",
             "path": "/tunnel",
-            "host": "tunnel.pngwasi.me",
+            "host": "tunnel.example.com",
             "keepalive_secs": 20,
             "challenge": "http",
         },

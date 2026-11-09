@@ -30,7 +30,7 @@
   const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
   let value = $state(initialText);
-  // The version last saved on the server; saves and other clients move it.
+  // The version the host last saved; saves and other clients move it.
   let baseline = $state(initialText);
   let dirty = $state(false);
   let saves: string[] = $state([]);
@@ -158,11 +158,11 @@
   <button id="bad-theme" type="button" onclick={() => (theme = "not-a-theme")}>Invalid theme</button>
   <button id="rename" type="button" onclick={() => (fileName = `renamed-${fileName}`)}>Rename (re-mounts)</button>
   <button id="reveal" type="button" onclick={() => editor?.reveal(["public_address"])}>Go to public_address</button>
-  <button id="host-problems" type="button" onclick={toggleHostProblems}>Server problems</button>
+  <button id="host-problems" type="button" onclick={toggleHostProblems}>Host problems</button>
   <label><input id="lock-address" type="checkbox" bind:checked={lockAddress} /> Lock public_address</label>
   <label><input id="lock-first-line" type="checkbox" bind:checked={lockFirstLine} /> Lock line 1</label>
   <button id="load-secret" type="button" onclick={() => (value = "clients:\n  acme:\n    secret: «secret 3f2a»\n")}>Load a secret</button>
-  <button id="server-change" type="button" onclick={() => (baseline = baseline.replace("7835", "7836"))}>Change on server</button>
+  <button id="external-change" type="button" onclick={() => (baseline = baseline.replace("7835", "7836"))}>External change</button>
   <button id="save" type="button" onclick={() => editor?.save()}>Save</button>
   <span id="dirty">{dirty ? "unsaved" : "saved"}</span>
   <span id="saves" data-count={saves.length}>{saves.at(-1) ?? ""}</span>

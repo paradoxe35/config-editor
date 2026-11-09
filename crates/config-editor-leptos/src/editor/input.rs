@@ -10,7 +10,7 @@ use super::components::HoverCard;
 use super::edit::{After, Edit};
 use super::history::EditHistory;
 use super::keyboard::replace_selection;
-use super::positioning::{hover_card_style, pointer_text_position, schedule_hover};
+use super::positioning::{hover_card_anchor, pointer_text_position, schedule_hover};
 use super::source_area::SourceArea;
 use super::state::{EditorState, normalize_newlines, textarea_selection};
 use crate::reactive::later;
@@ -309,8 +309,8 @@ fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str, r
 
 /// The pointer left the text: the docs card and the problem tip close
 /// (each after its moment to reach it).
-pub(super) fn mouse_leave(state: EditorState) {
-    state.forget_pointer();
+pub(super) fn mouse_leave(state: EditorState, event: &web_sys::MouseEvent) {
+    state.forget_pointer(event.related_target().as_ref());
     state.leave_hover();
     if state.problems().hovered.with_untracked(Option::is_some) {
         state.leave_problem();
@@ -339,6 +339,7 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
     }
     if free {
         state.point_at_problems(line, column);
+        state.note_on_problems();
     }
     if !state.completion().suggestions.with_untracked(Vec::is_empty) {
         state.hide_hover();
@@ -369,20 +370,25 @@ pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f6
         })
     });
     if shown {
+        // Back on its key within the moment it was given to be reached:
+        // it stays.
+        state.keep_hover();
         return;
     }
     state.hide_hover();
     state.hover().pending.set_value(Some(identity));
     let token = state.hover().token.get_value();
-    let style = hover_card_style(element, line, info.start_column);
+    let anchor = hover_card_anchor(element, line, info.start_column);
     schedule_hover(state, move |state| {
         if state.hover().token.get_value() == token {
             state.hover().pending.set_value(None);
+            // The pointer rests on its key: on the way to it.
+            state.hover().on_way.set_value(true);
             state.hover().card.set(Some(HoverCard {
                 info,
                 line,
                 caret: None,
-                style,
+                anchor,
             }));
         }
     });

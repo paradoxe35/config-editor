@@ -56,7 +56,7 @@ const App = defineComponent({
   props: { schema: { type: String, required: true } },
   setup() {
     const value = ref(initialText);
-    // The version last saved on the server; saves and other clients move it.
+    // The version the host last saved; saves and other clients move it.
     const baseline = ref(initialText);
     const dirty = ref(false);
     const saves = ref<string[]>([]);
@@ -151,11 +151,11 @@ const App = defineComponent({
       <button id="bad-theme" type="button" @click="theme = 'not-a-theme'">Invalid theme</button>
       <button id="rename" type="button" @click="fileName = 'renamed-' + fileName">Rename (re-mounts)</button>
       <button id="reveal" type="button" @click="editor?.reveal(['public_address'])">Go to public_address</button>
-      <button id="host-problems" type="button" @click="toggleHostProblems">Server problems</button>
+      <button id="host-problems" type="button" @click="toggleHostProblems">Host problems</button>
       <label><input id="lock-address" type="checkbox" v-model="lockAddress" /> Lock public_address</label>
       <label><input id="lock-first-line" type="checkbox" v-model="lockFirstLine" /> Lock line 1</label>
       <button id="load-secret" type="button" @click="value = 'clients:\\n  acme:\\n    secret: «secret 3f2a»\\n'">Load a secret</button>
-      <button id="server-change" type="button" @click="baseline = baseline.replace('7835', '7836')">Change on server</button>
+      <button id="external-change" type="button" @click="baseline = baseline.replace('7835', '7836')">External change</button>
       <button id="save" type="button" @click="editor?.save()">Save</button>
       <span id="dirty">{{ dirty ? "unsaved" : "saved" }}</span>
       <span id="saves" :data-count="saves.length">{{ saves.at(-1) ?? "" }}</span>

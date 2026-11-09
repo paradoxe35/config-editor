@@ -364,7 +364,7 @@ export interface EditorStrings {
    */
   keepMineTitle?: string;
   /**
-   * How to reach the notice's choices from the keyboard, shown on it (and announced with it).
+   * How to reach the notice's choices from the keyboard, shown on it (and announced with it); not on touch screens.
    *
    * @default "F6 moves to the choices and back."
    */

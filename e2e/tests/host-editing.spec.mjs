@@ -399,7 +399,7 @@ for (const name of ['vanilla.html', ...FRAMEWORK_PAGES.flatMap((page) => [page, 
       await page.keyboard.press('Control+End');
       await page.keyboard.type('limits:');
       expect(await page.evaluate(`${handle}.isDirty`)).toBe(true);
-      await page.locator('#server-change').evaluate((button) => button.click());
+      await page.locator('#external-change').evaluate((button) => button.click());
       await expect(page.locator('.config-editor__notice')).toBeVisible();
       await page.keyboard.press('F6');
       await expect.poll(() => focusedClass(page)).toContain('config-editor__notice-keep');

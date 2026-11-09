@@ -181,13 +181,15 @@ test.describe('QA round 25: host API', () => {
           const name = tab.querySelector('.config-editor-documents__name').getBoundingClientRect();
           const end = tab.querySelector('.config-editor-documents__name-end');
           const start = tab.querySelector('.config-editor-documents__name-start');
+          // The letters that tell it apart, kept whole (QA 26).
+          const kept = tab.querySelector('.config-editor-documents__name-kept');
           const box = end.getBoundingClientRect();
           return {
-            start: start.textContent,
+            start: (kept?.textContent ?? '') + start.textContent,
             end: end.textContent,
             whole: box.left >= name.left - 0.5 && box.right <= name.right + 0.5,
             // Cut or whole, the start shows more than one letter.
-            shown: start.clientWidth >= 14,
+            shown: (kept?.clientWidth ?? 0) + start.clientWidth >= 14,
           };
         }),
       );

@@ -23,8 +23,8 @@ pub(super) const FALLBACK_VIEWPORT_HEIGHT: f64 = 768.0;
 /// Matches `max-width` on `.config-editor__hover` in `css/base.css`.
 pub(super) const HOVER_CARD_MAX_WIDTH: f64 = 340.0;
 
-/// Card height assumed when deciding to flip above the line; matches the
-/// editor `min-height` in `css/base.css`.
+/// Room below its line under which a one-line tip (or a card not measured
+/// yet) goes above.
 pub(super) const HOVER_CARD_ESTIMATED_HEIGHT: f64 = 240.0;
 
 /// Least height the hover card gets, in pixels, however little room the
@@ -187,9 +187,19 @@ pub(super) fn pointer_text_position(element: &SourceArea, x: f64, y: f64) -> (us
     )
 }
 
-/// Fixed-position style for the hover card; flips above the line when space
-/// below is short.
-pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> Declarations {
+/// Where a hover card points: the text at editor `x` on a line at
+/// `line_top` (`line_height` tall), in `frame`. Its side and height wait
+/// for the card's own height (see [`hover_card_geometry`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CardAnchor {
+    frame: PopupFrame,
+    x: f64,
+    line_top: f64,
+    line_height: f64,
+}
+
+/// Where the hover card for character `column` of zero-based `line` points.
+pub(super) fn hover_card_anchor(element: &SourceArea, line: usize, column: usize) -> CardAnchor {
     let target: &web_sys::Element = element.element().unchecked_ref();
     let line = element.row_of_line(line);
     let frame = PopupFrame::measure(element.state());
@@ -199,19 +209,35 @@ pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize)
         - element.scroll_left() as f64;
     let line_top = rect.top + metrics.padding_top + line as f64 * metrics.line_height
         - element.scroll_top() as f64;
-    hover_card_geometry(&frame, x, line_top, metrics.line_height)
+    CardAnchor {
+        frame,
+        x,
+        line_top,
+        line_height: metrics.line_height,
+    }
 }
 
-/// The hover card's style for text at editor `x` on a line at `line_top`
-/// (`line_height` tall) in the text area at `rect`: below the line, or
-/// above when the room below is short, inside the window, no taller than
-/// the window's room on that side (it scrolls).
-pub(super) fn hover_card_geometry(
-    frame: &PopupFrame,
-    x: f64,
-    line_top: f64,
-    line_height: f64,
-) -> Declarations {
+/// The style of a one-line tip at character `column` of zero-based `line`
+/// (the protected text's tip, the read-only notice): below the line,
+/// above when the room below is short.
+pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> Declarations {
+    hover_card_geometry(hover_card_anchor(element, line, column), 0.0)
+}
+
+/// The hover card's style at `anchor`, `natural` pixels tall in full. As
+/// in VS Code it goes above the line whenever the window has room for it
+/// there (reaching past the editor if need be), so the lines under the
+/// pointer stay free; else below when it fits there, else on the roomier
+/// side, no taller than the room there (it scrolls). Inside the window
+/// either way. Not measured yet (`natural` 0, unseen), or a one-line tip:
+/// below unless the room there is short.
+pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarations {
+    let CardAnchor {
+        frame,
+        x,
+        line_top,
+        line_height,
+    } = anchor;
     let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
     // At most the window's width, so narrow screens do not clip the text.
     let width = HOVER_CARD_MAX_WIDTH.min(viewport_width - 2.0 * POPUP_MARGIN);
@@ -220,11 +246,15 @@ pub(super) fn hover_card_geometry(
         (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
     );
     // The window's room on each side of the line (the card is fixed: it
-    // may reach past the editor); below unless short there and more above.
+    // may reach past the editor).
     let room_below = viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP);
     let room_above = line_top - POPUP_GAP - POPUP_MARGIN;
     let left = frame.left(left);
-    let above = room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below;
+    let above = if natural > 0.0 {
+        natural <= room_above || (natural > room_below && room_above > room_below)
+    } else {
+        room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below
+    };
     let top = if above {
         frame.top(line_top)
     } else {
@@ -407,8 +437,8 @@ mod tests {
         for (name, probe) in containers() {
             let frame = PopupFrame::new(Some(probe), (1100.0, 700.0));
             // Text at the window's right edge.
-            let style =
-                hover_card_geometry(&frame, frame.viewport_width - 10.0, 20.0, 20.0).to_string();
+            let style = hover_card_geometry(anchor(frame, frame.viewport_width - 10.0, 20.0), 80.0)
+                .to_string();
             let number = |key: &str| -> f64 {
                 let from = style.find(key).unwrap() + key.len();
                 style[from..].split("px").next().unwrap().parse().unwrap()
@@ -432,7 +462,7 @@ mod tests {
         for (name, probe) in containers() {
             let frame = PopupFrame::new(Some(probe), (800.0, 400.0));
             for line_top in [0.03, 0.4, 0.7, 0.92].map(|at| at * frame.viewport_height) {
-                let style = hover_card_geometry(&frame, 50.0, line_top, 20.0);
+                let style = hover_card_geometry(anchor(frame, 50.0, line_top), 1000.0);
                 let number = |key: &str| -> f64 {
                     style
                         .get(key)
@@ -460,26 +490,45 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
+    /// A card for text at `x` on a 20 px line at `line_top`.
+    fn anchor(frame: PopupFrame, x: f64, line_top: f64) -> CardAnchor {
+        CardAnchor {
+            frame,
+            x,
+            line_top,
+            line_height: 20.0,
+        }
+    }
+
     /// QA 25 (U25-4): a key on an editor's first lines near the window's
     /// bottom (the page scrolled so the editor starts low) opened its card
     /// below, squeezed into the few pixels left and run off the window,
-    /// with the window's room above it unused: the side was chosen by the
-    /// room inside the editor. The card goes where the window has more
-    /// room, in every container.
+    /// with the window's room above it unused. QA 26 (M26-U1): a card
+    /// below its line covered the next lines, where the pointer goes on.
+    /// As in VS Code, the card goes above whenever it fits there whole,
+    /// else below when it fits there, else where the window has more room,
+    /// in every container.
     #[test]
-    fn the_hover_card_takes_the_side_of_the_window_with_more_room() {
+    fn the_hover_card_goes_above_when_it_fits_there() {
         let mut failures = Vec::new();
         for (name, probe) in containers() {
             let frame = PopupFrame::new(Some(probe), (800.0, 500.0));
             let height = frame.viewport_height;
-            // (line top, whether the card goes above)
-            for (line_top, above) in [
-                (height - 60.0, true),
-                (height - 120.0, true),
-                (40.0, false),
-                (height / 2.0 - 40.0, false),
+            // (line top, the card's height, whether it goes above)
+            for (line_top, natural, above) in [
+                (height - 60.0, 300.0, true),
+                (height - 120.0, 300.0, true),
+                (40.0, 300.0, false),
+                (height / 2.0 - 40.0, 300.0, false),
+                // Small cards fit above, near the top too.
+                (height / 2.0 - 40.0, 60.0, true),
+                (80.0, 60.0, true),
+                (40.0, 60.0, false),
+                // Taller than either side: the roomier one.
+                (height / 2.0 + 40.0, 2000.0, true),
+                (height / 2.0 - 60.0, 2000.0, false),
             ] {
-                let style = hover_card_geometry(&frame, 50.0, line_top, 20.0);
+                let style = hover_card_geometry(anchor(frame, 50.0, line_top), natural);
                 let max_height: f64 = style
                     .get("max-height")
                     .unwrap()
@@ -492,7 +541,7 @@ mod tests {
                 } else {
                     height - POPUP_MARGIN - (line_top + 20.0 + POPUP_GAP)
                 };
-                if shown_above != above || max_height > room + 0.1 {
+                if shown_above != above || max_height > room.max(HOVER_CARD_MIN_HEIGHT) + 0.1 {
                     failures.push(format!("{name} at {line_top}: {style}"));
                 }
             }

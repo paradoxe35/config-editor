@@ -46,7 +46,7 @@ const charBox = (page, line, column) =>
       range.setStart(node, left);
       range.setEnd(node, left + 1);
       const box = range.getBoundingClientRect();
-      return { x: box.left + box.width / 2, y: box.top + box.height / 2, bottom: box.bottom };
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2, top: box.top, bottom: box.bottom };
     },
     [line, column],
   );
@@ -218,13 +218,16 @@ test.describe('L24-U1: the pointer resting between the line and the card keeps i
         await page.mouse.move(key.x, key.y);
         await expect(card(page)).toBeVisible();
         const box = await card(page).boundingBox();
-        expect(box.y).toBeGreaterThan(key.bottom);
-        // In the gap: below the line, above the card.
-        await page.mouse.move(key.x, (key.bottom + box.y) / 2 + 0.5, { steps: 3 });
+        // Below the line, or above it when it fits there (QA 26).
+        const below = box.y > key.bottom;
+        if (!below) expect(box.y + box.height).toBeLessThan(key.top);
+        // In the gap between the line and the card.
+        const gap = below ? (key.bottom + box.y) / 2 + 0.5 : (box.y + box.height + key.top) / 2 - 0.5;
+        await page.mouse.move(key.x, gap, { steps: 3 });
         await page.waitForTimeout(1200);
         expect(await shown(page)).toBe('hover');
         // Then on into it, and it stays.
-        await page.mouse.move(key.x, box.y + 10, { steps: 2 });
+        await page.mouse.move(key.x, below ? box.y + 10 : box.y + box.height - 10, { steps: 2 });
         await page.waitForTimeout(600);
         expect(await shown(page)).toBe('hover');
         expect(errors).toEqual([]);

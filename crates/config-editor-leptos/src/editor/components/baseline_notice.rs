@@ -26,8 +26,7 @@ pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
                 <strong>{state.text(|strings| &strings.baseline_changed)}</strong>
                 " "
                 <span class="config-editor__notice-detail">{state.text(|strings| &strings.baseline_changed_detail)}</span>
-                " "
-                <span class="config-editor__notice-keys">{state.text(|strings| &strings.baseline_changed_keys)}</span>
+                {keys_hint(state)}
             </span>
             <span class="config-editor__notice-actions">
                 <button
@@ -50,6 +49,17 @@ pub(crate) fn BaselineNotice(state: EditorState) -> impl IntoView {
             </span>
         </div>
     }
+}
+
+/// How to reach the choices from the keyboard (F6); none on a touch
+/// screen, where they are tapped (the footer's hint says "tap" there too).
+fn keys_hint(state: EditorState) -> Option<impl IntoView> {
+    (!super::super::touch::touch_screen()).then(|| {
+        view! {
+            " "
+            <span class="config-editor__notice-keys">{state.text(|strings| &strings.baseline_changed_keys)}</span>
+        }
+    })
 }
 
 /// Escape keeps the text (the choice that loses nothing) and returns to it.
