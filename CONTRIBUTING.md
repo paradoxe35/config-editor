@@ -23,6 +23,12 @@ trunk build && cd e2e && npx playwright test                  # the end-to-end t
 
 The end-to-end tests run on 4 workers locally and on 2 in CI (`E2E_WORKERS`
 to change it); the specs that measure time run after the others, alone.
+CI builds the packages and the demo once, then splits the other specs over
+one machine per 500 tests (`TESTS_PER_MACHINE` in `.github/workflows/ci.yml`,
+Playwright's `--shard`), so the number of machines follows the suite's size;
+the timed specs keep a machine of their own, and one HTML report merges the
+machines' parts (the `e2e-report` artifact). To run one part locally:
+`npx playwright test --project=editor --no-deps --shard=2/4`.
 A test that fails only under that load assumes a timing it should not.
 
 Performance tests count work where they can: a test guarding against work
