@@ -218,7 +218,8 @@ pub struct EditorStrings {
     pub replaced_other: String,
     /// Added when Replace All left matches in protected text alone.
     pub replace_skipped: String,
-    /// After Replace All when every match is in read-only text.
+    /// After Replace All when every match is in read-only text or a secret
+    /// placeholder.
     pub nothing_replaced: String,
 
     // Go to line.
@@ -541,7 +542,9 @@ impl Default for EditorStrings {
             replaced_one: text("Replaced {count} occurrence"),
             replaced_other: text("Replaced {count} occurrences"),
             replace_skipped: text("; skipped {count} in read-only text or secret placeholders"),
-            nothing_replaced: text("Every match is in read-only text; nothing was replaced"),
+            nothing_replaced: text(
+                "Every match is in read-only text or secret placeholders; nothing was replaced",
+            ),
             go_to_line: text("Go to line"),
             go_to_line_placeholder: text("line or line:column"),
             go_to_line_hint: text("Line 1–{lines}, or line:column"),

@@ -472,7 +472,26 @@ pub(super) fn xml_lexical_state(source: &str, cursor: usize) -> (Option<char>, b
 /// element text. Whitespace between tokens and inside tags stays plain.
 pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     let mut out = Tokens::new();
+    // Text words with only blanks between them: one value run, as the other
+    // languages draw a value (a long text line was one span per word).
+    let mut text: Option<std::ops::Range<usize>> = None;
     for token in tokenize(line) {
+        let words = matches!(token.kind, Kind::Text { .. } | Kind::Equals)
+            && !line[token.start..token.end].starts_with(CDATA_CLOSE);
+        if words {
+            match &mut text {
+                Some(run) if line[run.end..token.start].trim().is_empty() => run.end = token.end,
+                _ => {
+                    if let Some(run) = text.replace(token.start..token.end) {
+                        out.push(run.start, run.end, TokenKind::Value);
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(run) = text.take() {
+            out.push(run.start, run.end, TokenKind::Value);
+        }
         match token.kind {
             Kind::Comment => out.push(token.start, token.end, TokenKind::Comment),
             Kind::Special if line[token.start..].starts_with(CDATA_OPEN) => {
@@ -490,6 +509,9 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
                 out.push(token.start, token.end, TokenKind::Value);
             }
         }
+    }
+    if let Some(run) = text {
+        out.push(run.start, run.end, TokenKind::Value);
     }
     out.finish()
 }

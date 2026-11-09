@@ -590,9 +590,8 @@ fn highlights_element_text_as_values() {
             run(Punctuation, "<"),
             run(Key, "n"),
             run(Punctuation, ">"),
-            run(Value, "12"),
-            plain(" "),
-            run(Value, "true"),
+            // The words of a text, one run.
+            run(Value, "12 true"),
             run(Punctuation, "</"),
             run(Key, "n"),
             run(Punctuation, ">"),

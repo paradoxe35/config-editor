@@ -44,6 +44,12 @@ enum Group {
 /// Steps kept for undo; the oldest are dropped beyond this.
 const MAX_STEPS: usize = 500;
 
+/// Bytes of earlier texts kept for undo (each step keeps the whole text
+/// before it): past this the oldest steps are dropped, the newest always
+/// kept, so a large document keeps fewer steps (500 steps of a 50,000-line
+/// text would hold about a gigabyte).
+const MAX_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Default)]
 pub(super) struct EditHistory {
     undo: Vec<Step>,
@@ -133,11 +139,23 @@ impl EditHistory {
     }
 
     fn push(&mut self, step: Step) {
-        self.undo.push(step);
-        if self.undo.len() > MAX_STEPS {
-            self.undo.remove(0);
-        }
         self.redo.clear();
+        self.undo.push(step);
+        // The newest steps that fit in both budgets.
+        let mut bytes = 0;
+        let kept = self
+            .undo
+            .iter()
+            .rev()
+            .take(MAX_STEPS)
+            .take_while(|step| {
+                bytes += step.before.value.len();
+                bytes <= MAX_BYTES
+            })
+            .count()
+            .max(1);
+        let dropped = self.undo.len() - kept;
+        self.undo.drain(..dropped);
     }
 
     /// The host replaced the text `current` with `new` (a new controlled
@@ -378,5 +396,44 @@ mod tests {
         assert_eq!(history.undo("a: ".into()), Some(at("a", 1)));
         history.record_action(at("a", 1), (2, 2));
         assert_eq!(history.redo("ab".into()), None);
+    }
+
+    /// The steps kept: by count, and by the bytes of the texts they keep.
+    #[test]
+    fn history_is_capped_by_steps_and_by_size_keeping_the_newest() {
+        let mut history = EditHistory::default();
+        for step in 0..MAX_STEPS + 20 {
+            history.record_action(at(&step.to_string(), 0), (0, 0));
+        }
+        assert_eq!(history.undo.len(), MAX_STEPS);
+        assert_eq!(
+            history.next_undo().map(|step| step.value.as_str()),
+            Some("519")
+        );
+
+        // Steps of a large text: as many as fit in the budget, the newest.
+        let mut history = EditHistory::default();
+        let large = "x".repeat(MAX_BYTES / 10);
+        for step in 0..30 {
+            history.record_action(at(&format!("{step}{large}"), 0), (0, 0));
+        }
+        let kept: usize = history
+            .undo
+            .iter()
+            .map(|step| step.before.value.len())
+            .sum();
+        assert!(kept <= MAX_BYTES, "{kept} bytes kept");
+        assert_eq!(history.undo.len(), 9);
+        assert!(
+            history
+                .next_undo()
+                .is_some_and(|step| step.value.starts_with("29x"))
+        );
+
+        // One step larger than the budget is still undoable.
+        let mut history = EditHistory::default();
+        let huge = "y".repeat(MAX_BYTES + 1);
+        history.record_action(at(&huge, 0), (0, 0));
+        assert_eq!(history.undo.len(), 1);
     }
 }

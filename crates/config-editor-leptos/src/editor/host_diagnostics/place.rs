@@ -13,10 +13,8 @@ use serde_json::Value;
 
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin};
 use super::super::language::ConfigLanguage;
-use super::super::paths::{
-    Lines, TextRange, lines, memo_key_span, path_at, problem_span, split_line, with_spans,
-};
-use super::fields::{HostFields, fields};
+use super::super::paths::{Lines, TextRange, lines, memo_key_span, problem_span, with_spans};
+use super::targets::{HostTargets, Target, targets};
 use super::{DiagnosticTarget, HostDiagnostic, is_web_url};
 use crate::EditorStrings;
 use crate::strings::fill;
@@ -26,24 +24,14 @@ use crate::strings::fill;
 pub(in crate::editor) enum RangeText<'a> {
     /// The text on screen is the host's.
     OnScreen,
-    /// Editing as another language: the host's text, in its language.
-    Host(&'static dyn ConfigLanguage, &'a str),
+    /// Editing as another language: the fields the ranges start in, in the
+    /// host's text (found once for it, see [`HostTargets`]).
+    Host(&'a HostTargets),
 }
 
 /// Where a problem goes: `(line, column, end_line, end_column)`, with
 /// `end_line` only when it ends on a later line.
 type Position = (usize, usize, Option<usize>, usize);
-
-/// What a problem is placed by on screen.
-enum Target {
-    /// The field at a pointer: on its key when `on_key`, else where a
-    /// problem with it is marked.
-    Field { pointer: String, on_key: bool },
-    /// A range of the text on screen.
-    Covered(TextRange),
-    /// Nothing on screen: the footer.
-    Nowhere,
-}
 
 /// `problems` as diagnostics on `source` (the text on screen, in `behavior`):
 /// a path where the field is written, as schema problems are marked (the
@@ -120,55 +108,6 @@ pub(in crate::editor) fn place(
     })
 }
 
-/// What each of `problems` is placed by: a path's field; a range, where
-/// the text on screen is the host's, else the field it starts in (every
-/// range's found in one read of the host's text).
-fn targets(problems: &[HostDiagnostic], ranges: RangeText<'_>) -> Vec<Target> {
-    let of_path = |problem: &HostDiagnostic| match &problem.target {
-        DiagnosticTarget::Path(path) if !path.is_root() => Target::Field {
-            pointer: path.to_pointer(),
-            on_key: false,
-        },
-        _ => Target::Nowhere,
-    };
-    let RangeText::Host(host, text) = ranges else {
-        return problems
-            .iter()
-            .map(|problem| match &problem.target {
-                DiagnosticTarget::Range(range) => Target::Covered(*range),
-                _ => of_path(problem),
-            })
-            .collect();
-    };
-    let has_ranges = problems
-        .iter()
-        .any(|problem| matches!(problem.target, DiagnosticTarget::Range(_)));
-    if !has_ranges {
-        return problems.iter().map(of_path).collect();
-    }
-    let host_fields = host
-        .parse(text)
-        .map(|document| fields(&document))
-        .unwrap_or_default();
-    let pointers: Vec<String> = host_fields
-        .iter()
-        .map(|(pointer, _)| pointer.clone())
-        .collect();
-    with_spans(host, text, &pointers, || {
-        let written = HostFields::new(host, text, host_fields);
-        problems
-            .iter()
-            .map(|problem| match &problem.target {
-                DiagnosticTarget::Range(range) => field_of(host, text, &written, *range).map_or(
-                    Target::Nowhere,
-                    |(pointer, on_key)| Target::Field { pointer, on_key },
-                ),
-                _ => of_path(problem),
-            })
-            .collect()
-    })
-}
-
 /// Where a problem with the field at `pointer` goes, as schema problems
 /// are marked: the value, or the key of a block.
 fn at_field(
@@ -225,41 +164,4 @@ fn covered(source: &str, split: &Lines, range: TextRange) -> Option<Position> {
         return Some((line, start, None, end.max(start + 1)));
     }
     Some((line, start, Some(end_line), end))
-}
-
-/// The field of the host's `text` that `range` starts in, and whether it
-/// starts on its key: looked up where the fields are `written` when it
-/// starts on a key or a value, else read from the text. `None` when it
-/// starts in no field (past the text, or at the top level).
-fn field_of(
-    host: &'static dyn ConfigLanguage,
-    text: &str,
-    written: &HostFields,
-    range: TextRange,
-) -> Option<(String, bool)> {
-    let line_text = split_line(text, range.start.line.saturating_sub(1))?;
-    // Starting in the line's indentation (a whole line selected from its
-    // start), it starts at the field written on that line.
-    let mut start = range.start;
-    let indent = line_text
-        .chars()
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .count();
-    if start.column <= indent && indent < line_text.chars().count() {
-        start.column = indent + 1;
-    }
-    let pointer = match written.at(start) {
-        Some(pointer) => pointer.to_string(),
-        None => {
-            let path = path_at(host, text, start.to_offset(text))?;
-            if path.is_root() {
-                return None;
-            }
-            path.to_pointer()
-        }
-    };
-    let on_key = memo_key_span(host, text, &pointer).is_some_and(|key| {
-        key.line == start.line && (key.start_column..key.end_column).contains(&start.column)
-    });
-    Some((pointer, on_key))
 }

@@ -4,7 +4,7 @@
 use super::super::Language;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::paths::{TextPosition, TextRange};
-use super::{HostDiagnostic, RangeText, merge};
+use super::{HostDiagnostic, HostTargets, RangeText, merge};
 use crate::strings::default_strings;
 
 /// [`super::place`] with the default texts.
@@ -14,11 +14,12 @@ fn place(
     problems: &[HostDiagnostic],
     on_screen: bool,
 ) -> Vec<Diagnostic> {
+    // No host text holds a field at any range.
+    let found = HostTargets::new(Language::YAML.behavior(), "", problems);
     let ranges = if on_screen {
         RangeText::OnScreen
     } else {
-        // No host text holds a field at any range.
-        RangeText::Host(Language::YAML.behavior(), "")
+        RangeText::Host(&found)
     };
     super::place(behavior, source, problems, ranges, default_strings())
 }

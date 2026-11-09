@@ -11,7 +11,13 @@ mod types;
 #[cfg(feature = "yaml")]
 pub(crate) use lines::text_line;
 pub(crate) use lines::{Lines, line_column, line_start, lines, split_line};
-#[cfg(any(feature = "yaml", feature = "json", feature = "hcl", feature = "xml"))]
+#[cfg(any(
+    feature = "yaml",
+    feature = "json",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect"
+))]
 pub(crate) use span_memo::batch_cached;
 #[cfg(feature = "xml")]
 pub(crate) use span_memo::in_batch;

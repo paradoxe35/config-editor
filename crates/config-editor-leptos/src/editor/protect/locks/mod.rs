@@ -63,7 +63,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::super::language::ConfigLanguage;
-use super::super::paths::FieldPath;
+use super::super::paths::{FieldPath, with_spans};
 use super::texts::Reason;
 use place::{Placed, Placer};
 use reading::Reading;
@@ -190,13 +190,19 @@ pub(crate) fn protect(
     let marks = reading.schema_marks();
     let marked = fields::marked(&reading, carried, marks.read_only);
     let mut placer = Placer::new(&reading, carried);
-    for (pointer, reason) in fields::outermost(&reading, &marked) {
-        match placer.place(pointer, reason) {
-            Placed::Locked(lock) => protected.locks.push(lock),
-            Placed::Unplaced(pointer, reason) => protected.unplaced.push((pointer, reason)),
-            Placed::Absent => {}
+    let outermost = fields::outermost(&reading, &marked);
+    // Every field's spans read in one pass of the document, not each
+    // field's in a pass of its own.
+    let wanted = placer.spans_wanted(&outermost);
+    with_spans(behavior, text, &wanted, || {
+        for (pointer, reason) in outermost {
+            match placer.place(pointer, reason) {
+                Placed::Locked(lock) => protected.locks.push(lock),
+                Placed::Unplaced(pointer, reason) => protected.unplaced.push((pointer, reason)),
+                Placed::Absent => {}
+            }
         }
-    }
+    });
     protected.pins = placer.into_pins(&protected.locks, &protected.unplaced);
     protected.secret = fields::secret(&reading, carried, marks.secret);
     protected.marked = marked;

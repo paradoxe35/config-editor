@@ -158,6 +158,18 @@ test.describe('secret placeholders', () => {
     await expect(saved(page)).toContainText('key: "${TLS_KEY}"');
   });
 
+  test('replace all with every match in a placeholder replaces nothing and says why', async ({ page }) => {
+    const before = await editor(page).value();
+    await editor(page).input.click();
+    await page.keyboard.press('Control+H');
+    const widget = page.locator('.config-editor__find');
+    await widget.getByRole('textbox', { name: 'Find' }).fill('secret 3f2a');
+    await widget.getByRole('textbox', { name: 'Replace' }).fill('x');
+    await widget.getByRole('button', { name: 'Replace all' }).click();
+    await expect(widget).toContainText('Every match is in read-only text or secret placeholders; nothing was replaced');
+    expect(await editor(page).value()).toBe(before);
+  });
+
   test('saving keeps the placeholders byte-for-byte', async ({ page }) => {
     await clickAt(page, 'edge', 4);
     await page.keyboard.type('2');

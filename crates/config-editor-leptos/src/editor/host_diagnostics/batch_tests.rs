@@ -7,6 +7,8 @@
 
 use std::time::Duration;
 
+use leptos::prelude::StoredValue;
+
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -15,7 +17,7 @@ use super::super::paths::{TextPosition, TextRange};
 use super::super::test_timing::best_of;
 use super::super::work_count::{Work, counted};
 use super::tests::report;
-use super::{HostDiagnostic, RangeText, place};
+use super::{HostDiagnostic, HostTargets, RangeText, place};
 use crate::strings::default_strings;
 
 const LANGUAGES: [Language; 5] = [
@@ -115,16 +117,19 @@ fn placed(
     } else {
         by_path(items)
     };
-    let run = || {
-        let (behavior, text, range_text) = match (view, &shown_text) {
-            (Some(edit), Some(shown)) => (
-                edit.behavior(),
-                shown.as_str(),
-                RangeText::Host(host.behavior(), &host_text),
-            ),
-            _ => (host.behavior(), host_text.as_str(), RangeText::OnScreen),
-        };
-        place(behavior, text, &problems, range_text, default_strings())
+    let run = || match (view, &shown_text) {
+        (Some(edit), Some(shown)) => {
+            let found = HostTargets::new(host.behavior(), &host_text, &problems);
+            let ranges = RangeText::Host(&found);
+            place(edit.behavior(), shown, &problems, ranges, default_strings())
+        }
+        _ => place(
+            host.behavior(),
+            &host_text,
+            &problems,
+            RangeText::OnScreen,
+            default_strings(),
+        ),
     };
     let mut counts = [0; 3];
     let ((shown, lookups), reads) = counted(Work::DocumentRead, || {
@@ -197,6 +202,93 @@ fn thousands_of_host_problems_are_placed_in_linear_time_in_every_language_and_vi
                         name(host, view)
                     ));
                 }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// A problem over each line of `text`: block keys, closers and blank lines
+/// as well as scalars.
+fn on_every_line(text: &str) -> Vec<HostDiagnostic> {
+    (1..text.split('\n').count())
+        .map(|line| {
+            HostDiagnostic::at_range(
+                TextRange::new(TextPosition::new(line, 1), TextPosition::new(line + 1, 1)),
+                Severity::Error,
+                format!("line {line}"),
+            )
+        })
+        .collect()
+}
+
+/// An edit in an Edit-as view (a line added at the top) with `items` items
+/// and a range problem on every line of the host's text, which the edit
+/// leaves as it is: what re-placing the problems costs once their fields
+/// were found (reads, path lookups, line splits), and how many are placed.
+fn replaced_after_an_edit(host: Language, edit: Language, items: usize) -> (usize, [usize; 3]) {
+    let value = document(items);
+    let host_text = host.serialize(&value).expect("the host's text");
+    let shown = edit.serialize(&value).expect("the view's text");
+    let problems = on_every_line(&host_text);
+    let cache = StoredValue::new(None);
+    let place_on = |shown: &str| {
+        let found = HostTargets::cached(cache, host.behavior(), &host_text, &problems);
+        place(
+            edit.behavior(),
+            shown,
+            &problems,
+            RangeText::Host(&found),
+            default_strings(),
+        )
+    };
+    let before = place_on(&shown);
+    let edited = format!("\n{shown}");
+    let mut counts = [0; 3];
+    let ((after, lookups), reads) = counted(Work::DocumentRead, || {
+        counted(Work::PathLookup, || {
+            let (after, splits) = counted(Work::LineSplit, || place_on(&edited));
+            counts[2] = splits;
+            after
+        })
+    });
+    counts[0] = reads;
+    counts[1] = lookups;
+    // The same problems, one line down.
+    let lines = |placed: &[Diagnostic]| -> Vec<Option<usize>> {
+        placed.iter().map(|problem| problem.line).collect()
+    };
+    let moved: Vec<Option<usize>> = lines(&before)
+        .into_iter()
+        .map(|line| line.map(|line| line + 1))
+        .collect();
+    assert_eq!(
+        lines(&after),
+        moved,
+        "{host} as {edit}: placed after the edit"
+    );
+    (
+        after.iter().filter(|shown| shown.line.is_some()).count(),
+        counts,
+    )
+}
+
+/// An edit in an Edit-as view re-places the host's range problems on the
+/// text on screen only: the fields they start in, read from the host's
+/// text, are kept (5000 ranges read the host's text again after every key,
+/// over a second each time), so nothing reads it from the top and the reads
+/// do not grow with the problems.
+#[test]
+fn an_edit_in_a_view_does_not_read_the_hosts_text_again_for_its_ranges() {
+    let mut failures = Vec::new();
+    for host in LANGUAGES {
+        for edit in LANGUAGES.into_iter().filter(|edit| *edit != host) {
+            let (few_shown, few) = replaced_after_an_edit(host, edit, 10);
+            let (many_shown, many) = replaced_after_an_edit(host, edit, 100);
+            if few != many || few[1] != 0 || many_shown <= few_shown {
+                failures.push(format!(
+                    "{host} as {edit}: (reads, path lookups, line splits) {few:?} for {few_shown} placed, {many:?} for {many_shown}"
+                ));
             }
         }
     }

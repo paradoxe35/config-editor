@@ -119,6 +119,7 @@ impl ProtectState {
         let local =
             RwSignal::new(source.with_untracked(|text| offsets(text, &ranges.get_untracked())));
         let marks = StoredValue::new(Marks::default());
+        let covered = Covered(StoredValue::new(None));
         let protected = Memo::new_with_compare(
             move |previous: Option<&Arc<Protected>>| {
                 let epoch = marks.with_value(|marks| marks.epoch);
@@ -140,8 +141,14 @@ impl ProtectState {
                     // Edit-as: the host's ranges lock the fields they cover.
                     let host_ranges = ranges.get();
                     if !host_ranges.is_empty() {
-                        let host = host_text.get_value();
-                        fields.extend(covered_fields(host_language, &host, &host_ranges, reading));
+                        host_text.with_value(|host| {
+                            fields.extend(covered.found(
+                                host_language,
+                                host,
+                                &host_ranges,
+                                reading,
+                            ));
+                        });
                     }
                     Vec::new()
                 };
@@ -216,6 +223,39 @@ impl ProtectState {
             self.tip.set(None);
             self.cancel_tip_timer();
         }
+    }
+}
+
+/// The fields the host's ranges cover in its text, kept while the text and
+/// the ranges stay the same: an edit in an Edit-as view leaves the host's
+/// text as it is until it converts back, so it is not read again for each.
+#[derive(Clone, Copy)]
+struct Covered(StoredValue<Option<CoveredFields>>);
+
+/// A host text, its read-only ranges and the fields they cover.
+type CoveredFields = (String, Vec<TextRange>, Vec<FieldPath>);
+
+impl Covered {
+    /// [`covered_fields`], from the last ones found when they were of the
+    /// same text and ranges.
+    fn found(
+        self,
+        language: Language,
+        host: &str,
+        ranges: &[TextRange],
+        reading: Option<&serde_json::Value>,
+    ) -> Vec<FieldPath> {
+        let kept = self.0.with_value(|kept| {
+            kept.as_ref()
+                .filter(|(text, known, _)| text == host && known == ranges)
+                .map(|(_, _, fields)| fields.clone())
+        });
+        kept.unwrap_or_else(|| {
+            let fields = covered_fields(language, host, ranges, reading);
+            self.0
+                .set_value(Some((host.to_string(), ranges.to_vec(), fields.clone())));
+            fields
+        })
     }
 }
 

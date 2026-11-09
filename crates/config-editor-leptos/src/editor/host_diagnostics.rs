@@ -7,8 +7,10 @@ use super::paths::{FieldPath, TextRange};
 mod fields;
 mod merge;
 mod place;
+mod targets;
 pub(super) use merge::merge;
 pub(super) use place::{RangeText, place};
+pub(super) use targets::HostTargets;
 
 /// Where a [`HostDiagnostic`] points.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -45,8 +45,17 @@ pub(crate) fn in_batch(source: &str) -> bool {
 }
 
 #[cfg_attr(
-    not(any(feature = "yaml", feature = "json", feature = "hcl", feature = "xml")),
-    allow(dead_code, reason = "the YAML, JSON, HCL and XML readers share it")
+    not(any(
+        feature = "yaml",
+        feature = "json",
+        feature = "hcl",
+        feature = "xml",
+        feature = "protect"
+    )),
+    allow(
+        dead_code,
+        reason = "the YAML, JSON, HCL and XML readers and the locks share it"
+    )
 )]
 /// `make()`, a reading of all of `source` (the lines of its keys, say):
 /// made once while [`with_spans`] runs for that text, so the spans asked one

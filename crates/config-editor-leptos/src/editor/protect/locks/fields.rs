@@ -2,10 +2,12 @@
 //! (in the parsed text, carried from the text before, or read from a text
 //! that does not parse), the host's read-only paths, and the secret fields.
 
+use std::collections::{HashMap, HashSet};
+
 use serde_json::Value;
 
 use super::super::super::language::ConfigLanguage;
-use super::super::locate::{lookup, within};
+use super::super::locate::{lookup, plain};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::Protected;
@@ -64,13 +66,14 @@ pub(super) fn outermost(
     marked: &[(String, Reason)],
 ) -> Vec<(String, Reason)> {
     let mut fields = marked.to_vec();
+    let mut known: HashSet<String> = fields.iter().map(|(pointer, _)| pointer.clone()).collect();
     for path in reading.sources.paths {
         let pointer = path.to_pointer();
         let written = reading
             .document
             .as_ref()
             .is_none_or(|document| lookup(document, &pointer).is_some());
-        if written && !fields.iter().any(|(known, _)| *known == pointer) {
+        if written && known.insert(pointer.clone()) {
             fields.push((pointer, Reason::Field));
         }
     }
@@ -78,15 +81,38 @@ pub(super) fn outermost(
     outer_only(reading.behavior, &fields)
 }
 
-/// `fields` without those inside another one.
+/// `fields` without those inside another one (`locate::within`): each
+/// field's ancestors looked up among the others' plain forms, one set for
+/// all, not every other field compared with each.
 fn outer_only(behavior: &dyn ConfigLanguage, fields: &[(String, Reason)]) -> Vec<(String, Reason)> {
+    // Each plain form, with the distinct pointers written so.
+    let mut forms: HashMap<String, Vec<&str>> = HashMap::new();
+    for (pointer, _) in fields {
+        let spellings = forms.entry(plain(behavior, pointer)).or_default();
+        if !spellings.contains(&pointer.as_str()) {
+            spellings.push(pointer);
+        }
+    }
+    let inside_another = |pointer: &str| {
+        let form = plain(behavior, pointer);
+        // Another spelling of the same field, or of the whole document.
+        if forms.get(&form).is_some_and(|known| known.len() > 1)
+            || (!form.is_empty() && forms.contains_key(""))
+        {
+            return true;
+        }
+        let mut end = form.len();
+        while let Some(cut) = form[..end].rfind('/') {
+            if cut > 0 && forms.contains_key(&form[..cut]) {
+                return true;
+            }
+            end = cut;
+        }
+        false
+    };
     fields
         .iter()
-        .filter(|(pointer, _)| {
-            !fields
-                .iter()
-                .any(|(other, _)| other != pointer && within(behavior, pointer, other))
-        })
+        .filter(|(pointer, _)| !inside_another(pointer))
         .cloned()
         .collect()
 }

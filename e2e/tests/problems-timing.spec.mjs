@@ -190,6 +190,46 @@ test.describe('problem timing', () => {
     expect(failures).toEqual([]);
   });
 
+  test('P23-2: typing in an Edit-as view with 5000 host ranges costs about what it costs without them', async ({ page }) => {
+    test.setTimeout(300_000);
+    // 8000 lines of YAML edited as JSON, a range over each of 5000 lines.
+    const text = Array.from({ length: 2000 }, (_, i) => `svc_${i}:\n  host: h${i}.example.com # c\n  port: ${1000 + i}\n  on: true`).join('\n') + '\n';
+    const lines = text.split('\n').length;
+    const ranges = Array.from({ length: 5000 }, (_, i) => ({
+      range: { startLine: 1 + (i % (lines - 2)), startColumn: 1, endLine: 2 + (i % (lines - 2)), endColumn: 1 },
+      severity: ['error', 'warning'][i % 2],
+      message: `p${i}`,
+    }));
+    await open(page, { value: text, schema: '{}' });
+    // The shortest longest task of a few spaces typed at a line's end, the
+    // problems placed again after the typing pause included.
+    const keys = async (problems) => {
+      await page.evaluate(() => window.editor.update({ editAs: null }));
+      await page.evaluate((list) => window.editor.update({ hostDiagnostics: list }), problems);
+      await page.waitForTimeout(800);
+      const switched = await longestTask(page, async () => {
+        await page.evaluate(() => window.editor.update({ editAs: 'json' }));
+        await expect(input(page)).toHaveValue(/^\{/, { timeout: 20000 });
+        await page.waitForTimeout(1200);
+      });
+      await input(page).click();
+      await page.keyboard.press('Control+g');
+      await page.keyboard.type('3000');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('End');
+      const presses = [];
+      for (let press = 0; press < 4; press += 1) {
+        presses.push(await longestTask(page, () => page.keyboard.press('Space'), 1200));
+      }
+      return { key: Math.min(...presses), switched };
+    };
+    const bare = await keys([]);
+    const hosted = await keys(ranges);
+    console.log(`Edit as JSON: longest task per key ${JSON.stringify(bare)} alone, ${JSON.stringify(hosted)} with 5000 host ranges`);
+    // Each key was followed by a 1.1-1.6 s task.
+    expect(hosted.key - bare.key, `${Math.round(hosted.key)} ms with the ranges, ${Math.round(bare.key)} ms without`).toBeLessThan(150);
+  });
+
   test('U20-3: 400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
     test.setTimeout(120_000);
     const text = longDocument('yaml');

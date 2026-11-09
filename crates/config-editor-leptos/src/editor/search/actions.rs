@@ -275,7 +275,7 @@ pub(in crate::editor) fn count_label(
 pub(in crate::editor) enum SearchNotice {
     /// `count` matches replaced, `skipped` left in protected text.
     Replaced { count: usize, skipped: usize },
-    /// Every match is in read-only text.
+    /// Every match is in read-only text or a secret placeholder.
     NothingReplaced,
 }
 

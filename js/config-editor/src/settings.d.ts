@@ -526,9 +526,9 @@ export interface EditorStrings {
    */
   replaceSkipped?: string;
   /**
-   * After Replace All when every match is in read-only text.
+   * After Replace All when every match is in read-only text or a secret placeholder.
    *
-   * @default "Every match is in read-only text; nothing was replaced"
+   * @default "Every match is in read-only text or secret placeholders; nothing was replaced"
    */
   nothingReplaced?: string;
   /**

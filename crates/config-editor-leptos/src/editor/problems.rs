@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use super::diagnostics::{Diagnostic, SchemaBundle, capped, shift_diagnostics, validate_with};
 use super::edit_as::EditAsProblem;
 use super::host_diagnostics::{
-    HostDiagnostic, RangeText, merge as merge_host, place as place_host,
+    HostDiagnostic, HostTargets, RangeText, merge as merge_host, place as place_host,
 };
 use super::languages::Language;
 use super::problem_hit::{column_at_cell, covering};
@@ -150,6 +150,7 @@ impl ProblemsState {
         });
         // The host's problems, placed on the text validation saw; a new list
         // from the host re-places only these, not the editor's own.
+        let host_targets = StoredValue::new(None);
         let host_placed = Memo::new(move |_| {
             if !enabled.get() {
                 return Vec::new();
@@ -159,6 +160,10 @@ impl ProblemsState {
                 strings.with(|strings| {
                     diagnosed_text.with(|text| {
                         if edit == host_language {
+                            // Nothing kept from a view left.
+                            if host_targets.with_value(Option::is_some) {
+                                host_targets.set_value(None);
+                            }
                             place_host(
                                 edit.behavior(),
                                 text,
@@ -168,11 +173,18 @@ impl ProblemsState {
                             )
                         } else {
                             // The host's text matching the text checked (it
-                            // follows every conversion back).
-                            host_text.with_value(|host| {
-                                let ranges = RangeText::Host(host_language.behavior(), host);
-                                place_host(edit.behavior(), text, problems, ranges, strings)
-                            })
+                            // follows every conversion back); the fields its
+                            // ranges start in kept while it stays the same.
+                            let found = host_text.with_value(|host| {
+                                HostTargets::cached(
+                                    host_targets,
+                                    host_language.behavior(),
+                                    host,
+                                    problems,
+                                )
+                            });
+                            let ranges = RangeText::Host(&found);
+                            place_host(edit.behavior(), text, problems, ranges, strings)
                         }
                     })
                 })

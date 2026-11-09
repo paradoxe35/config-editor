@@ -454,3 +454,33 @@ fn constructs_cut_anywhere_still_color_every_line_in_order() {
         );
     }
 }
+
+/// A value of many words on one line is drawn as one run in every language,
+/// not a run per word (a 100,000-character XML text line was 32,000 spans).
+#[test]
+fn a_long_value_of_words_is_one_run_in_every_language() {
+    let line = |language: Language, words: usize| -> String {
+        let value: Vec<String> = (0..words).map(|index| format!("w{index}")).collect();
+        let value = value.join(" ");
+        match language.info().label {
+            "YAML" => format!("long: {value}"),
+            "JSON" => format!("  \"long\": \"{value}\","),
+            "XML" => format!("  <long>{value}</long>"),
+            _ => format!("long = \"{value}\""),
+        }
+    };
+    let mut grew = Vec::new();
+    for &language in Language::ALL {
+        let runs = |words: usize| {
+            let line = line(language, words);
+            colored(language, &line)[0].1.split('|').count()
+        };
+        let (few, many) = (runs(3), runs(1000));
+        if few != many {
+            grew.push(format!(
+                "{language}: {few} runs for 3 words, {many} for 1000"
+            ));
+        }
+    }
+    assert!(grew.is_empty(), "{grew:#?}");
+}

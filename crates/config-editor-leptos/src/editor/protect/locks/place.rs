@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::super::super::paths::key_range;
 use super::super::carry::Moves;
-use super::super::locate::{Extent, extent, lookup};
+use super::super::locate::{Extent, extent, inside, lookup};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::reading::Reading;
@@ -134,14 +134,7 @@ impl<'r, 'a> Placer<'r, 'a> {
             document,
             ..
         } = self.reading;
-        let value = match document {
-            Some(document) => lookup(document, pointer),
-            None => self
-                .pins
-                .iter()
-                .find(|(pinned, _)| *pinned == pointer)
-                .map(|(_, value)| value),
-        };
+        let value = self.value(pointer);
         let inside = match (value, document) {
             (None, None) => Some(self.reading.written()),
             _ => None,
@@ -149,6 +142,32 @@ impl<'r, 'a> Placer<'r, 'a> {
         extent(*behavior, text, lines, value, inside, pointer).or_else(|| {
             inside.and_then(|written| scan::under_own_key(*behavior, text, lines, written, pointer))
         })
+    }
+
+    /// The value of the field at `pointer`: in the parsed text, else the
+    /// one pinned in the last text that parsed.
+    fn value(&self, pointer: &str) -> Option<&Value> {
+        match &self.reading.document {
+            Some(document) => lookup(document, pointer),
+            None => self
+                .pins
+                .iter()
+                .find(|(pinned, _)| *pinned == pointer)
+                .map(|(_, value)| value),
+        }
+    }
+
+    /// The fields whose spans placing `pointers` looks up: each one and
+    /// those inside it (see `locate::extent`), to read in one batch.
+    pub(super) fn spans_wanted(&self, pointers: &[(String, Reason)]) -> Vec<String> {
+        let mut wanted = Vec::with_capacity(pointers.len());
+        for (pointer, _) in pointers {
+            wanted.push(pointer.clone());
+            if let Some(value) = self.value(pointer) {
+                wanted.extend(inside(value, pointer));
+            }
+        }
+        wanted
     }
 
     /// Whether a field not found is held: in a text that parses, when the

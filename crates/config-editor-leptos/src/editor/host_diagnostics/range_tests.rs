@@ -6,7 +6,7 @@ use super::super::Language;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::paths::{TextPosition, TextRange};
 use super::tests::{DOCUMENTS, marked, report};
-use super::{HostDiagnostic, RangeText, place};
+use super::{HostDiagnostic, HostTargets, RangeText, place};
 use crate::strings::default_strings;
 
 fn range(line: usize, column: usize, end_line: usize, end_column: usize) -> TextRange {
@@ -112,7 +112,8 @@ fn a_range_from_a_lines_indentation_is_placed_at_the_field_on_that_line() {
                     Severity::Error,
                     "x",
                 )];
-                let ranges = RangeText::Host(host.behavior(), host_text);
+                let found = HostTargets::new(host.behavior(), host_text, &problems);
+                let ranges = RangeText::Host(&found);
                 place(edit.behavior(), shown, &problems, ranges, default_strings())
                     .first()
                     .and_then(|problem| marked(shown, problem))
@@ -153,7 +154,8 @@ fn a_range_is_placed_at_its_field_while_editing_as_every_other_language() {
             ];
             for (name, range, expected) in cases {
                 let problems = [HostDiagnostic::at_range(range, Severity::Error, "x")];
-                let ranges = RangeText::Host(host.behavior(), host_text);
+                let found = HostTargets::new(host.behavior(), host_text, &problems);
+                let ranges = RangeText::Host(&found);
                 let placed = place(edit.behavior(), shown, &problems, ranges, default_strings());
                 let found = placed.first().and_then(|problem| marked(shown, problem));
                 if placed.len() != 1 || found != expected {

@@ -4,11 +4,12 @@
 //! closers ending a container).
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{TextRange, field_range, key_range, path_at};
+use super::super::paths::{TextRange, batch_cached, field_range, key_range, path_at};
 use super::marks::escape;
 use super::scan::Written;
 
@@ -86,6 +87,31 @@ impl<'a> LineIndex<'a> {
     pub(crate) fn line_count(&self) -> usize {
         self.starts.len()
     }
+
+    /// The byte index of UTF-16 `offset` (clamped to the text), read from
+    /// its line's start, not from the text's.
+    pub(crate) fn byte_of(&self, offset: usize) -> usize {
+        let (byte, units) = self.starts[self.line_of(offset)];
+        let mut counted = units;
+        for (at, character) in self.text[byte..].char_indices() {
+            if counted >= offset {
+                return byte + at;
+            }
+            counted += character.len_utf16();
+        }
+        self.text.len()
+    }
+
+    /// The UTF-16 offset of byte `byte` (a character boundary), counted
+    /// from its line's start.
+    pub(crate) fn units_of(&self, byte: usize) -> usize {
+        let line = self
+            .starts
+            .partition_point(|(start, _)| *start <= byte)
+            .saturating_sub(1);
+        let (start, units) = self.starts[line];
+        units + self.text[start..byte].encode_utf16().count()
+    }
 }
 
 /// Where a locked field is written.
@@ -119,11 +145,12 @@ pub(crate) fn extent(
     let constructs = if over_lines {
         construct_ranges(behavior, text)
     } else {
-        Vec::new()
+        Rc::new(Constructs(Vec::new()))
     };
+    let constructs = &constructs.0;
     let written_range = |pointer: &str| {
         field_range(behavior, text, pointer)
-            .map(|range| over_constructs(lines.range(range), &constructs))
+            .map(|range| over_constructs(lines.range(range), constructs))
     };
     let mut ranges = vec![written_range(pointer)?];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
@@ -139,9 +166,7 @@ pub(crate) fn extent(
         }
     }
     if let Some(value) = value {
-        let mut inside = Vec::new();
-        descendants(value, pointer.to_string(), &mut inside);
-        for child in inside.iter().take(MAX_DESCENDANTS) {
+        for child in &inside(value, pointer) {
             if let Some(range) = written_range(child) {
                 ranges.push(range);
             }
@@ -153,13 +178,13 @@ pub(crate) fn extent(
     let markup = behavior.closing_markup_len("</x>").is_some();
     // Markup opening the field (`<web>`) starts at its `<`.
     if markup && let Some(first) = ranges.first_mut() {
-        let before = &text[..byte_of(text, first.start)];
+        let before = &text[..lines.byte_of(first.start)];
         if before.ends_with('<') {
             first.start -= 1;
         }
     }
     let mut ranges = merge(behavior, text, lines, ranges, pointer);
-    close(behavior, text, &mut ranges, markup);
+    close(behavior, text, lines, &mut ranges, markup);
     Some(Extent { key, ranges })
 }
 
@@ -167,6 +192,15 @@ pub(crate) fn extent(
 /// repeated element.
 pub(crate) fn lookup<'a>(document: &'a Value, pointer: &str) -> Option<&'a Value> {
     document.pointer(pointer)
+}
+
+/// The pointers of the fields inside `value` (at `pointer`), at most
+/// [`MAX_DESCENDANTS`]: those a lock on it covers.
+pub(crate) fn inside(value: &Value, pointer: &str) -> Vec<String> {
+    let mut inside = Vec::new();
+    descendants(value, pointer.to_string(), &mut inside);
+    inside.truncate(MAX_DESCENDANTS);
+    inside
 }
 
 fn descendants(value: &Value, pointer: String, out: &mut Vec<String>) {
@@ -199,15 +233,15 @@ fn add_string_bodies(
     lines: &LineIndex<'_>,
     ranges: &mut Vec<Range<usize>>,
 ) {
-    let bodies = behavior.string_body_lines(text);
-    if bodies.is_empty() {
+    let bodies = batch_cached(text, || Bodies(behavior.string_body_lines(text)));
+    if bodies.0.is_empty() {
         return;
     }
     let covered: Vec<usize> = ranges
         .iter()
         .map(|range| lines.line_of(range.end))
         .collect();
-    for body in bodies {
+    for body in bodies.0.iter().cloned() {
         if body.start > 0 && covered.contains(&(body.start - 1)) && !body.is_empty() {
             let start = lines.line_bounds(body.start).start;
             let end = lines.line_bounds(body.end - 1).end;
@@ -216,9 +250,22 @@ fn add_string_bodies(
     }
 }
 
+/// The lines of the multi-line strings' bodies of a text (see
+/// `ConfigLanguage::string_body_lines`), read once for all the locks.
+struct Bodies(Vec<Range<usize>>);
+
+/// The UTF-16 ranges of the constructs a text writes over lines, read once
+/// for all the locks.
+struct Constructs(Vec<Range<usize>>);
+
 /// UTF-16 ranges of the constructs `text` writes over lines (see
-/// `ConfigLanguage::multiline_constructs`).
-fn construct_ranges(behavior: &dyn ConfigLanguage, text: &str) -> Vec<Range<usize>> {
+/// `ConfigLanguage::multiline_constructs`), shared by the locks placed in
+/// one batch (`paths::with_spans`).
+fn construct_ranges(behavior: &dyn ConfigLanguage, text: &str) -> Rc<Constructs> {
+    batch_cached(text, || Constructs(constructs_of(behavior, text)))
+}
+
+fn constructs_of(behavior: &dyn ConfigLanguage, text: &str) -> Vec<Range<usize>> {
     let constructs = behavior.multiline_constructs(text);
     if constructs.is_empty() {
         return Vec::new();
@@ -259,10 +306,6 @@ fn over_constructs(range: Range<usize>, constructs: &[Range<usize>]) -> Range<us
         .map(|construct| construct.end)
         .fold(range.end, usize::max);
     range.start..end
-}
-
-fn byte_of(text: &str, offset: usize) -> usize {
-    super::super::keyboard::utf16_to_byte_index(text, offset)
 }
 
 /// The ranges sorted and joined where only the field's own text lies
@@ -306,7 +349,7 @@ fn gap_is_inside(
     // Lines wholly inside the gap must belong to the field.
     for line in first + 1..last {
         let bounds = lines.line_bounds(line);
-        let content = &text[byte_of(text, bounds.start)..byte_of(text, bounds.end)];
+        let content = &text[lines.byte_of(bounds.start)..lines.byte_of(bounds.end)];
         let blank = content.trim();
         if blank.is_empty()
             || behavior.comment_start(content) == Some(content.len() - content.trim_start().len())
@@ -327,33 +370,42 @@ fn gap_is_inside(
 /// Whether `path` is `pointer` or inside it, ignoring the `/0` steps of
 /// lone repeated elements.
 pub(crate) fn within(behavior: &dyn ConfigLanguage, path: &str, pointer: &str) -> bool {
-    let plain = |pointer: &str| -> String {
-        if behavior.repetition() == Repetition::None {
-            pointer.to_string()
-        } else {
-            let lone = format!("{pointer}/").replace("/0/", "/");
-            lone.trim_end_matches('/').to_string()
-        }
-    };
-    let (path, pointer) = (plain(path), plain(pointer));
+    let (path, pointer) = (plain(behavior, path), plain(behavior, pointer));
     pointer.is_empty() || path == pointer || path.starts_with(&format!("{pointer}/"))
+}
+
+/// `pointer` without the `/0` steps of lone repeated elements (as is, in a
+/// language without them): the form [`within`] compares.
+pub(crate) fn plain(behavior: &dyn ConfigLanguage, pointer: &str) -> String {
+    if behavior.repetition() == Repetition::None {
+        pointer.to_string()
+    } else {
+        let lone = format!("{pointer}/").replace("/0/", "/");
+        lone.trim_end_matches('/').to_string()
+    }
 }
 
 /// The last range carried over the closers of containers it opened (`}`,
 /// `]`, an XML end tag, with the element's text before it), so deleting
 /// one cannot unmake the field.
-fn close(behavior: &dyn ConfigLanguage, text: &str, ranges: &mut [Range<usize>], markup: bool) {
+fn close(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    ranges: &mut [Range<usize>],
+    markup: bool,
+) {
     let (Some(first), Some(last)) = (ranges.first().cloned(), ranges.last_mut()) else {
         return;
     };
-    let covered = &text[byte_of(text, first.start)..byte_of(text, last.end)];
+    let covered = &text[lines.byte_of(first.start)..lines.byte_of(last.end)];
     let pairs = behavior.config().brackets;
     let mut depth = if markup {
         markup_depth(covered)
     } else {
         bracket_depth(covered, pairs)
     };
-    let mut end = byte_of(text, last.end);
+    let mut end = lines.byte_of(last.end);
     while depth > 0 {
         let rest = &text[end..];
         let skipped = rest.len() - rest.trim_start().len();
@@ -378,7 +430,7 @@ fn close(behavior: &dyn ConfigLanguage, text: &str, ranges: &mut [Range<usize>],
         end += skipped + length;
         depth -= 1;
     }
-    last.end = text[..end].encode_utf16().count();
+    last.end = lines.units_of(end);
 }
 
 /// Brackets opened and not closed in `text`, outside double-quoted strings.

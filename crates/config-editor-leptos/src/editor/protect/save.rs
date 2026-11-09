@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::super::codec;
 use super::super::language::ConfigLanguage;
-use super::super::paths::field_range;
+use super::super::paths::{field_range, with_spans};
 use super::locate::LineIndex;
 use super::locks::{Sources, protect};
 use super::marks::escape;
@@ -21,7 +21,9 @@ pub(crate) struct ReadOnlyChange {
 }
 
 /// The pointers of the fields `ranges` (UTF-16, in `text`) cover: each
-/// field written there whose range overlaps one, outermost first.
+/// field written there whose range overlaps one, outermost first. Every
+/// field's span is read in one pass of the text (a read each made every
+/// keystroke of an Edit-as view with read-only ranges cost fields × text).
 pub(crate) fn range_pointers(
     behavior: &dyn ConfigLanguage,
     text: &str,
@@ -32,38 +34,86 @@ pub(crate) fn range_pointers(
         return Vec::new();
     }
     let lines = LineIndex::new(text);
-    let mut found: Vec<String> = Vec::new();
-    let mut stack: Vec<(String, &Value)> = vec![(String::new(), document)];
-    while let Some((pointer, value)) = stack.pop() {
-        let children: Vec<(String, &Value)> = match value {
-            Value::Object(map) => map
-                .iter()
-                .map(|(key, child)| (format!("{pointer}/{}", escape(key)), child))
-                .collect(),
-            Value::Array(items) => items
-                .iter()
-                .enumerate()
-                .map(|(index, child)| (format!("{pointer}/{index}"), child))
-                .collect(),
-            _ => Vec::new(),
-        };
-        for (child_pointer, child) in children {
-            let covered = field_range(behavior, text, &child_pointer)
-                .map(|range| lines.range(range))
-                .is_some_and(|field| {
-                    ranges
-                        .iter()
-                        .any(|range| field.start < range.end && range.start < field.end)
-                });
-            if covered {
-                found.push(child_pointer);
-            } else {
-                stack.push((child_pointer, child));
+    let overlaps = Overlaps::new(ranges);
+    let mut all = Vec::new();
+    every_field(document, "", &mut all);
+    with_spans(behavior, text, &all, || {
+        let mut found: Vec<String> = Vec::new();
+        let mut stack: Vec<(String, &Value)> = vec![(String::new(), document)];
+        while let Some((pointer, value)) = stack.pop() {
+            let mut inside = Vec::new();
+            children(value, &pointer, &mut |pointer, child| {
+                inside.push((pointer, child));
+            });
+            for (child_pointer, child) in inside {
+                let covered = field_range(behavior, text, &child_pointer)
+                    .is_some_and(|range| overlaps.any(lines.range(range)));
+                if covered {
+                    found.push(child_pointer);
+                } else {
+                    stack.push((child_pointer, child));
+                }
             }
         }
+        found.retain(|pointer| !pointer.is_empty());
+        found
+    })
+}
+
+/// The pointer of every field inside `value` (at `pointer`).
+fn every_field(value: &Value, pointer: &str, out: &mut Vec<String>) {
+    children(value, pointer, &mut |child_pointer, child| {
+        every_field(child, &child_pointer, out);
+        out.push(child_pointer);
+    });
+}
+
+/// Each child of `value` (at `pointer`) with its pointer, in order.
+fn children<'v>(value: &'v Value, pointer: &str, every: &mut dyn FnMut(String, &'v Value)) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                every(format!("{pointer}/{}", escape(key)), child);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                every(format!("{pointer}/{index}"), child);
+            }
+        }
+        _ => {}
     }
-    found.retain(|pointer| !pointer.is_empty());
-    found
+}
+
+/// Ranges sorted by their start, with the furthest end so far: whether a
+/// field overlaps any is a binary search, not a look at each.
+struct Overlaps {
+    starts: Vec<usize>,
+    furthest: Vec<usize>,
+}
+
+impl Overlaps {
+    fn new(ranges: &[Range<usize>]) -> Self {
+        let mut sorted = ranges.to_vec();
+        sorted.sort_by_key(|range| range.start);
+        let mut furthest = Vec::with_capacity(sorted.len());
+        let mut end = 0;
+        for range in &sorted {
+            end = end.max(range.end);
+            furthest.push(end);
+        }
+        Overlaps {
+            starts: sorted.iter().map(|range| range.start).collect(),
+            furthest,
+        }
+    }
+
+    /// Whether `field` overlaps a range: one starting before its end ends
+    /// after its start.
+    fn any(&self, field: Range<usize>) -> bool {
+        let before = self.starts.partition_point(|start| *start < field.end);
+        before > 0 && self.furthest[before - 1] > field.start
+    }
 }
 
 /// Every read-only pointer of the host's `text`.
