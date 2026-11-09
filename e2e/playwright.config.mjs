@@ -22,7 +22,10 @@ export default defineConfig({
   outputDir: 'test-results',
   projects: [
     { name: 'editor', testIgnore: TIMED, fullyParallel: workers > 1 },
-    { name: 'timed', testMatch: TIMED, dependencies: ['editor'], workers: 1 },
+    // One worker: a timed test has its machine to itself. Fully parallel only so
+    // CI can split these specs by test over several machines (`--shard`); on one
+    // machine they still run one at a time.
+    { name: 'timed', testMatch: TIMED, dependencies: ['editor'], workers: 1, fullyParallel: true },
   ],
   use: {
     baseURL: pathToFileURL(join(here, '.standalone', 'index.html')).href,

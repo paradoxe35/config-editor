@@ -55,10 +55,13 @@ jobs:
     name: npm packages and the build the tests run
     runs-on: ubuntu-latest
     env:
-      # Tests per end-to-end machine: the one number that sets how many run.
+      # Tests per end-to-end machine: the numbers that set how many run (the
+      # timed specs run one at a time, so fewer per machine).
       TESTS_PER_MACHINE: 500
+      TIMED_TESTS_PER_MACHINE: 30
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
+      timed_shards: ${{ steps.shards.outputs.timed_shards }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -101,12 +104,16 @@ jobs:
         working-directory: e2e
         run: |
           npm ci
-          total=$(npx playwright test --list --project=editor --no-deps | sed -n 's/^Total: \([0-9]*\) tests.*/\1/p')
-          count=$(( (total + TESTS_PER_MACHINE - 1) / TESTS_PER_MACHINE ))
-          (( count >= 1 )) || count=1
-          echo "$total tests: $count machines of up to $TESTS_PER_MACHINE"
-          echo "shards=[$(seq -s, 1 "$count")]" >> "$GITHUB_OUTPUT"
-          echo "count=$count" >> "$GITHUB_OUTPUT"
+          machines() {
+            local total
+            total=$(npx playwright test --list --project="$1" --no-deps | sed -n 's/^Total: \([0-9]*\) tests.*/\1/p')
+            local count=$(( (total + $2 - 1) / $2 ))
+            (( count >= 1 )) || count=1
+            echo "$1: $total tests, $count machines of up to $2" >&2
+            echo "[$(seq -s, 1 "$count")]"
+          }
+          echo "shards=$(machines editor "$TESTS_PER_MACHINE")" >> "$GITHUB_OUTPUT"
+          echo "timed_shards=$(machines timed "$TIMED_TESTS_PER_MACHINE")" >> "$GITHUB_OUTPUT"
       - name: Keep the build for the test machines
         uses: actions/upload-artifact@v4
         with:
@@ -154,9 +161,13 @@ jobs:
           path: e2e/blob-report/
 
   e2e-timed:
-    name: end-to-end tests (timed)
+    name: end-to-end tests (timed, ${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: browser-build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.browser-build.outputs.timed_shards) }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -173,7 +184,7 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          npx playwright test --reporter=line --project=timed --no-deps
+          npx playwright test --reporter=line --project=timed --no-deps --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # One HTML report from every machine's part, only when a test failed (an
   # artifact of the run, to look into the failure).
