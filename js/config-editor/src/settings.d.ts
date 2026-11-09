@@ -330,7 +330,7 @@ export interface EditorStrings {
   /**
    * The notice shown when the host's baseline changes under unsaved edits.
    *
-   * @default "The file changed on the server."
+   * @default "This file changed outside the editor."
    */
   baselineChanged?: string;
   /**

@@ -63,7 +63,7 @@ Added, modified and removed lines in the gutter, each with a before/after previe
 
 ![Moving to a change with Alt+F3](changes.png)
 
-### The file changed on the server
+### The file changed outside the editor
 
 A new baseline while there are unsaved edits asks before replacing them.
 

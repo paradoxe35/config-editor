@@ -536,7 +536,7 @@ impl Default for EditorStrings {
                 "Comments typed in {edit} are not saved: {host} has no comments.",
             ),
             edit_as_dismiss: text("Dismiss"),
-            baseline_changed: text("The file changed on the server."),
+            baseline_changed: text("This file changed outside the editor."),
             baseline_changed_detail: text(
                 "Reload it, losing your changes, or keep your text and compare it with the new version.",
             ),

@@ -286,7 +286,7 @@ with that reason.
 | `editAsTypedComments`       | `"Comments typed in {edit} are not saved: the {host} file keeps only its own comments."`                                             | The Edit-as notice when comments are typed in the edited language, which saving drops, and the host's language has comments.                                                                                                                   |
 | `editAsTypedCommentsNone`   | `"Comments typed in {edit} are not saved: {host} has no comments."`                                                                  | The same when the host's language has no comments (JSON).                                                                                                                                                                                      |
 | `editAsDismiss`             | `"Dismiss"`                                                                                                                          | The Edit-as notice's close button.                                                                                                                                                                                                             |
-| `baselineChanged`           | `"The file changed on the server."`                                                                                                  | The notice shown when the host's baseline changes under unsaved edits.                                                                                                                                                                         |
+| `baselineChanged`           | `"This file changed outside the editor."`                                                                                            | The notice shown when the host's baseline changes under unsaved edits.                                                                                                                                                                         |
 | `baselineChangedDetail`     | `"Reload it, losing your changes, or keep your text and compare it with the new version."`                                           | What the notice's choices do, after its message.                                                                                                                                                                                               |
 | `reload`                    | `"Reload"`                                                                                                                           | The notice's button that takes the new baseline as the text.                                                                                                                                                                                   |
 | `reloadTitle`               | `"Replace your text with the new version (Ctrl+Z brings yours back)"`                                                                | Its tooltip.                                                                                                                                                                                                                                   |
@@ -863,7 +863,7 @@ ConfigEditor` and `update()`.
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
 - `Alt+Enter`: open the documentation of the problem at the caret (a problem with a docs link), else the hover card's Documentation link
-- `F6`: while the "file changed on the server" notice is open, move to its choices and back
+- `F6`: while the "file changed outside the editor" notice is open, move to its choices and back
 - `Ctrl+K Ctrl+I`: show the schema docs of the key at the caret (read to
   screen readers, its Documentation link too; `Escape` closes them; in
   `Ctrl+M` mode `Tab` moves into its links); on a touch screen, a tap on a
@@ -990,7 +990,7 @@ events.on("config-changed", (text) => editor.update({ baseline: text }));
 ```
 
 A new baseline while the user has unsaved edits opens a notice in the editor,
-"The file changed on the server." (announced, `role="alert"`; it leaves the
+"This file changed outside the editor." (announced, `role="alert"`; it leaves the
 focus in the text, and `F6` moves it to **Keep mine** and back): **Reload** makes the new baseline the document (one undo step,
 reported through `onChange`), **Keep mine** (or `Escape`) keeps the document
 and diffs it against the new baseline. Without unsaved edits, or when the new

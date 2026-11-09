@@ -40,7 +40,7 @@ export const GALLERY = [
           ['changes.png', 'Moving to a change with Alt+F3'],
         ],
       },
-      { title: 'The file changed on the server', caption: 'A new baseline while there are unsaved edits asks before replacing them.', images: [['server-change.png', 'The baseline notice with Reload and Keep mine']] },
+      { title: 'The file changed outside the editor', caption: 'A new baseline while there are unsaved edits asks before replacing them.', images: [['server-change.png', 'The baseline notice with Reload and Keep mine']] },
     ],
   },
   {

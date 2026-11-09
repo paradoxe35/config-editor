@@ -160,7 +160,7 @@ test.describe('the baseline changing under unsaved edits', () => {
     await pushFromServer(page);
     await expect(notice(page)).toBeVisible();
     await expect(notice(page)).toHaveAttribute('role', 'alert');
-    await expect(notice(page)).toContainText('The file changed on the server.');
+    await expect(notice(page)).toContainText('This file changed outside the editor.');
     await expect(notice(page)).toContainText('F6');
     // The focus stays in the text; F6 goes to the notice and back.
     expect(await focusedClass(page)).toContain('config-editor__input');

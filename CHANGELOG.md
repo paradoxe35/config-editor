@@ -43,7 +43,7 @@ WebAssembly.
   range (also while editing as another language).
 - Saving with `Ctrl+S`, an unsaved-edits flag, a diff gutter against a
   baseline with a before/after preview, a change summary and a unified diff,
-  and a notice when the file changes on the server.
+  and a notice when the file changes outside the editor.
 - Several documents as tabs, each with its own language and state; a "+"
   after the tabs (`on_add` / `onAdd`) asks the host for a new file, which
   opens selected with the focus in it, and documents can be kept open
