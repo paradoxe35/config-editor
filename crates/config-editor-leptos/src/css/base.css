@@ -1259,6 +1259,8 @@
   box-shadow: 0 4px 12px var(--config-editor-hover-shadow);
   pointer-events: none;
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+  /* A host's reason may hold a long URL or word: it wraps inside the tip. */
+  overflow-wrap: anywhere;
 }
 
 .config-editor__protect-tip--refused,

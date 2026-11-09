@@ -15,6 +15,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
 use crate::documents_list::{Kept, Listed, documents_from};
+use crate::echoes::{Echo, Echoes};
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::languages::{language_named, writable_edit_as};
@@ -83,6 +84,9 @@ pub(crate) struct State {
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     /// What the state callbacks last reported of each document (see `told`).
     told: StoredValue<HashMap<String, Told>, LocalStorage>,
+    /// Each document's texts `onChange` sent that the host has not listed
+    /// back yet (see `echoes`).
+    echoes: StoredValue<HashMap<String, Echoes>, LocalStorage>,
     pub(crate) handle: DocumentsHandle,
 }
 
@@ -170,6 +174,34 @@ impl State {
         listed
     }
 
+    /// Takes late echoes out of `listed`: a document whose listed text is
+    /// one its editor sent and has moved past keeps what it holds (see
+    /// `echoes`). Returns the documents whose host took such an echo after
+    /// its own text, with the text to send it again.
+    fn keep_moved_past(&self, listed: &mut Listed) -> Vec<(String, String)> {
+        let mut resend = Vec::new();
+        let now = js_sys::Date::now();
+        let _ = self.echoes.try_update_value(|echoes| {
+            echoes.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
+            for document in &mut listed.documents {
+                let (Some(echo), Some(texts)) =
+                    (echoes.get_mut(&document.id), self.texts_of(&document.id))
+                else {
+                    continue;
+                };
+                match echo.received(&document.value, &texts.value, now) {
+                    Echo::Apply => {}
+                    Echo::Skip => document.value = texts.value,
+                    Echo::Resend => {
+                        document.value.clone_from(&texts.value);
+                        resend.push((document.id.clone(), texts.value));
+                    }
+                }
+            }
+        });
+        resend
+    }
+
     fn show(&self, listed: Listed) {
         remember_texts(self.texts, &listed.documents);
         let _ = self.overrides.try_set_value(listed.overrides);
@@ -250,6 +282,10 @@ fn view(state: State, setup: Setup) -> AnyView {
         if let Some(callback) = host(state.on_change) {
             // The host lists this string as the document's value next.
             let value = JsValue::from_str(&text);
+            let _ = state.echoes.try_update_value(|echoes| {
+                let now = js_sys::Date::now();
+                echoes.entry(id.clone()).or_default().sent(&text, now);
+            });
             let _ = state.kept.try_update_value(|kept| {
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
@@ -278,6 +314,7 @@ fn view(state: State, setup: Setup) -> AnyView {
         }
     };
     let dirty_changed = move |(id, dirty): (String, bool)| {
+        note(state, &id, |told| told.dirty = Some(dirty));
         if let Some(callback) = host(state.on_dirty_change) {
             call_host_with(
                 &callback,
@@ -373,8 +410,10 @@ pub struct ConfigDocuments {
     state: State,
     /// The view's reactive owner, which a document's `secrets` check lives in.
     owner: Owner,
-    /// The view's entry in [`MOUNTED`] until `destroy`.
-    id: Option<u32>,
+    /// The view's entry in [`MOUNTED`] until `destroy`: a cell, as
+    /// `destroy` takes `&self` so a callback that a method of this instance
+    /// fired (`saveAll()` calling `onSave`) can call it.
+    id: std::cell::Cell<Option<u32>>,
 }
 
 #[wasm_bindgen]
@@ -448,6 +487,7 @@ impl ConfigDocuments {
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             told: StoredValue::new_local(HashMap::new()),
+            echoes: StoredValue::new_local(HashMap::new()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
@@ -465,7 +505,7 @@ impl ConfigDocuments {
         Ok(ConfigDocuments {
             state,
             owner,
-            id: Some(id),
+            id: std::cell::Cell::new(Some(id)),
         })
     }
 
@@ -596,7 +636,7 @@ impl ConfigDocuments {
         refuse_remount(&options, DOCUMENTS_REMOUNT_OPTIONS, "ConfigDocuments")?;
         warn_unknown_options(&options, DOCUMENTS_OPTIONS);
         config_editor_leptos::js_support::flush_pending_input();
-        if self.id.is_none() {
+        if self.id.get().is_none() {
             return Ok(());
         }
         let active = given(&options, "activeId")
@@ -671,7 +711,9 @@ impl ConfigDocuments {
         if let Some(settings) = settings {
             let _ = self.state.settings.try_set(settings);
         }
-        if let Some(listed) = listed {
+        let mut resend = Vec::new();
+        if let Some(mut listed) = listed {
+            resend = self.state.keep_moved_past(&mut listed);
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
             // right after `update` returns.
@@ -712,6 +754,16 @@ impl ConfigDocuments {
             self.state.handle.show(&id);
         }
         self.tell_added(added);
+        // A host that took a late echo after its own text hears the
+        // document again.
+        if let Some(callback) = self.state.on_change.try_get_value().flatten() {
+            for (id, text) in resend {
+                call_host_with(
+                    &callback,
+                    &[JsValue::from_str(&id), JsValue::from_str(&text)],
+                );
+            }
+        }
         Ok(())
     }
 
@@ -743,7 +795,7 @@ impl ConfigDocuments {
 
     /// Unmounts the view and its editors. The instance cannot be used
     /// afterwards.
-    pub fn destroy(&mut self) {
+    pub fn destroy(&self) {
         config_editor_leptos::js_support::flush_pending_input();
         let Some((mounted, owner, _)) = self
             .id

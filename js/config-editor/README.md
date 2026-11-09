@@ -454,8 +454,9 @@ editor.update({ hostDiagnostics: problems, onSave: null });
 
 - A key left out, or set to `undefined`, stays as it is.
 - A callback given where there was none reporting a state (`onEditAsChange`,
-  `onSyncChange`, `onProblems`) hears the current one at once, as it would
-  have on mount (a `ConfigDocuments` tells it of each document).
+  `onSyncChange`, `onProblems`, `onDirtyChange`, `onChangeSummary`) hears the
+  current one at once, as it would have on mount (a `ConfigDocuments` tells
+  it of each document).
 - `null` removes a callback (`onSave: null` gives `Ctrl+S` back to the
   browser), clears `hostDiagnostics`, `readOnlyPaths` and `readOnlyRanges`,
   turns `editAs` and `readOnly` off, and returns a setting to its default.
@@ -464,7 +465,13 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   set to `null` returns to its default (`colors: null` clears them all).
 - A new `value` replaces the document as a host update: the caret stays on
   the same text when possible. `readOnlyRanges` and host `range`s given with
-  it are in the new document.
+  it are in the new document. A host storing each `onChange` text and handing
+  it back may do so late, after the user typed on: a `value` that is a text
+  `onChange` gave and the editor has since moved past is such a late echo,
+  and keeps the document (nothing typed is lost, whatever the delay). A text
+  the editor never sent is the host's own (a reset, a loaded file) and
+  replaces it; an echo still on its way then is skipped, and should the
+  host store it anyway, `onChange` gives it the document again.
 - `language`, `schema`, `fileName`, `className` and `secrets` are what the
   editor is built from: they throw (`"language cannot change on a mounted
 ConfigEditor …"`); create a new editor to change them. The `language`
@@ -496,11 +503,12 @@ ConfigEditor …"`); create a new editor to change them. The `language`
 
 `ConfigEditor` adds:
 
-| Member            | Description                                                                                                                                                                                                                                                                                     |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update(options)` | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                         |
-| `destroy()`       | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                              |
-| `free()`          | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). |
+| Member               | Description                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                         |
+| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: `update({ value })` takes a text `onChange` gave, which the user has typed past, for a late echo and keeps the document; this never does (a revert to what `onChange` gave earlier). The caret stays on the same text when possible; `onChange` does not hear it. |
+| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                                                              |
+| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method).                                 |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -1122,7 +1130,11 @@ view.isDirty("main");
   `language` or `schema` mounts a new editor). Handing the whole list back
   after every edit is cheap: a `value`, `baseline` or `schema` that is the
   same string as last time (the one `onChange` gave you included) is not
-  read again, so only the edited document costs anything.
+  read again, so only the edited document costs anything. It may also come
+  late (a store that re-renders after a delay): a document's `value` that
+  is a text `onChange` gave and its editor has since moved past is a late
+  echo and keeps what the editor holds, as `ConfigEditor`'s `update({ value
+})` does; a text the editor never sent is yours and replaces it.
 - `onProblems(id, problems)` gives each document's editor's own problems
   (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
   document is first shown, then each time they change.
@@ -1348,8 +1360,9 @@ parses with the field's value changed is refused (while the text does not
 parse, the edit that makes it parse again is checked). Secret placeholders
 are found by their text and need nothing from the language. Built-in names cannot be
 replaced, and a registered language cannot take another's name or extension
-(`registerLanguage` throws); registering the same label again replaces it
-for new editors. Its name is the label lowercased (`"Énv"` → `"énv"`).
+(`registerLanguage` throws); registering the same label again replaces its
+definition, in the editors already open too, and takes no more memory (a
+component may register its language each time it mounts). Its name is the label lowercased (`"Énv"` → `"énv"`).
 
 ### Schema completion and hover
 

@@ -1,13 +1,14 @@
 //! What the host was last told of an editor's state (the language on
-//! screen, whether it is in sync, its problems), so a callback given later
+//! screen, whether it is in sync, its problems, whether it is dirty, its
+//! change summary), so a callback given later
 //! through `update` hears it at once instead of waiting for the next change.
 
-use config_editor_leptos::{Diagnostic, Language};
+use config_editor_leptos::{ChangeSummary, Diagnostic, Language};
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::values::diagnostics_to_js;
+use crate::values::{ChangeSummaryOut, diagnostics_to_js, to_js};
 
 /// The last of each state an editor reported.
 #[derive(Clone, Default)]
@@ -15,10 +16,18 @@ pub(crate) struct Told {
     pub(crate) language: Option<Language>,
     pub(crate) in_sync: Option<bool>,
     pub(crate) problems: Option<Vec<Diagnostic>>,
+    pub(crate) dirty: Option<bool>,
+    pub(crate) summary: Option<ChangeSummary>,
 }
 
 /// The callbacks reporting a state, by option name.
-pub(crate) const STATE_CALLBACKS: [&str; 3] = ["onEditAsChange", "onSyncChange", "onProblems"];
+pub(crate) const STATE_CALLBACKS: [&str; 5] = [
+    "onEditAsChange",
+    "onSyncChange",
+    "onProblems",
+    "onDirtyChange",
+    "onChangeSummary",
+];
 
 impl Told {
     /// The state `name` (one of [`STATE_CALLBACKS`]) reports, as its
@@ -30,6 +39,10 @@ impl Told {
                 .map(|language| JsValue::from_str(&language_name(language))),
             "onSyncChange" => self.in_sync.map(JsValue::from_bool),
             "onProblems" => self.problems.clone().map(diagnostics_to_js),
+            "onDirtyChange" => self.dirty.map(JsValue::from_bool),
+            "onChangeSummary" => self
+                .summary
+                .map(|summary| to_js(&ChangeSummaryOut::from(summary))),
             _ => None,
         }
     }

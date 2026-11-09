@@ -11,6 +11,7 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
+use crate::echoes::Echoes;
 use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
 
@@ -75,6 +76,8 @@ pub(crate) struct State {
     pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
+    /// The texts `onChange` sent that the host has not handed back yet.
+    pub(crate) echoes: StoredValue<Echoes, LocalStorage>,
 }
 
 impl State {
@@ -122,6 +125,9 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
         let _ = state.value.try_set(text.clone());
         if let Some(callback) = state.on_change.try_get_value().flatten() {
+            let _ = state
+                .echoes
+                .try_update_value(|echoes| echoes.sent(&text, js_sys::Date::now()));
             call_host(&callback, &JsValue::from_str(&text));
         }
     };
@@ -142,6 +148,9 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         }
     };
     let summarized = move |summary: ChangeSummary| {
+        let _ = state
+            .told
+            .try_update_value(|told| told.summary = Some(summary));
         if let Some(callback) = state.on_change_summary.try_get_value().flatten() {
             call_host(&callback, &to_js(&ChangeSummaryOut::from(summary)));
         }
@@ -166,6 +175,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         }
     };
     let dirty_changed = move |dirty: bool| {
+        let _ = state.told.try_update_value(|told| told.dirty = Some(dirty));
         if let Some(callback) = state.on_dirty_change.try_get_value().flatten() {
             call_host(&callback, &JsValue::from_bool(dirty));
         }

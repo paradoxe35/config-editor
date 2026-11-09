@@ -321,7 +321,9 @@ export class EditorBinding extends Binding {
         // now (reading `value` does), so its echo is told apart like any.
         const current = editor.value;
         const { apply, report } = this.#sync.received(value, current);
-        if (apply !== null) editor.update({ value: apply });
+        // Told apart here: the editor, which never sees the echoes this
+        // absorbs, takes it as the host's own text whatever it is.
+        if (apply !== null) editor.replaceValue(apply);
         if (report !== null) this.props.onChange?.(report);
       });
     }
@@ -368,7 +370,7 @@ export class EditorBinding extends Binding {
     }
     this.guard((editor) => {
       if (editor.value === value) return;
-      editor.update({ value });
+      editor.replaceValue(value);
       // The host's state follows the reset: it is reported like an edit,
       // and its echo is recognised like one.
       this.#sync.sent(value);
@@ -432,12 +434,9 @@ export class EditorBinding extends Binding {
   }
 }
 
-/** A `ConfigDocuments` view driven by a component's props. */
+/** A `ConfigDocuments` view driven by a component's props. The view tells
+ * a late echo of an edit in the list from a value of the host's own. */
 export class DocumentsBinding extends Binding {
-  // Per document: what its editor holds now, and the echoes of its edits
-  // still on their way through the host (see `ValueSync`).
-  #texts = new Map();
-  #syncs = new Map();
   #applied = {};
   #save = (id, value, language) => this.props.onSave?.(id, value, language);
 
@@ -456,56 +455,18 @@ export class DocumentsBinding extends Binding {
     return null;
   }
 
-  #syncOf(id) {
-    let sync = this.#syncs.get(id);
-    if (!sync) this.#syncs.set(id, (sync = new ValueSync()));
-    return sync;
-  }
-
-  // The host's list with late echoes of the user's own edits replaced by
-  // what the editors hold, so a slow host never rolls a document back.
-  #reconcile(documents) {
-    const listed = new Set(documents.map((document) => document.id));
-    for (const id of [...this.#texts.keys()]) {
-      if (!listed.has(id)) {
-        this.#texts.delete(id);
-        this.#syncs.delete(id);
-      }
-    }
-    return documents.map((document) => {
-      const current = this.#texts.get(document.id);
-      if (current === undefined) {
-        this.#texts.set(document.id, document.value);
-        return document;
-      }
-      const { apply, report } = this.#syncOf(document.id).received(document.value, current);
-      if (report !== null) this.props.onChange?.(document.id, report);
-      if (apply !== null) {
-        this.#texts.set(document.id, apply);
-        return document;
-      }
-      return current === document.value ? document : { ...document, value: current };
-    });
-  }
-
   create(element, settings) {
     const props = this.props;
-    this.#texts.clear();
-    this.#syncs.clear();
     return new ConfigDocuments(element, {
       ...settings,
-      documents: this.#reconcile(props.documents ?? []),
+      documents: props.documents ?? [],
       activeId: props.activeId,
       className: props.viewClassName,
       label: props.label,
       onSelect: (id) => this.props.onSelect?.(id),
       onClose: props.onClose ? (request) => this.props.onClose?.(request) : undefined,
       onAdd: props.onAdd ? () => this.props.onAdd?.() : undefined,
-      onChange: (id, value) => {
-        this.#texts.set(id, value);
-        this.#syncOf(id).sent(value);
-        this.props.onChange?.(id, value);
-      },
+      onChange: (id, value) => this.props.onChange?.(id, value),
       onSave: this.#save,
       onDirtyChange: (id, dirty) => this.props.onDirtyChange?.(id, dirty),
       onProblems: (id, problems) => this.props.onProblems?.(id, problems),
@@ -539,7 +500,7 @@ export class DocumentsBinding extends Binding {
     // `Ctrl+S` is the view's only while `onSave` is set.
     const saves = props.onSave !== undefined;
     if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
-    if (update.documents) this.guard((view) => view.update({ documents: this.#reconcile(update.documents) }));
+    if (update.documents) this.guard((view) => view.update({ documents: update.documents }));
     if ("onSave" in update) this.guard((view) => view.update({ onSave: update.onSave }));
     // A new `activeId` shows that document (the mount took the first one).
     const activeId = props.activeId ?? null;

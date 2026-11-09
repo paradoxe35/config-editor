@@ -137,6 +137,7 @@ npm install @pngwasi/config-editor-react @pngwasi/config-editor
 ```
 
 ```tsx
+import { useState } from "react";
 import { ConfigEditor } from "@pngwasi/config-editor-react";
 
 function Settings({ schema }: { schema: string }) {

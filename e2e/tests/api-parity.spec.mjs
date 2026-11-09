@@ -345,6 +345,7 @@ const CRATE_EXPORTS = {
 // does not expose, and why.
 const EDITOR_JS_ONLY = {
   update: 'the props: a component applies each change itself',
+  replaceValue: 'a component\'s parent sets `value`, and the binding tells its late echoes apart itself (its `setValue` replaces the value through it)',
   destroy: 'the component unmounts the editor itself',
   settings: 'the setting props',
 };
@@ -1164,7 +1165,8 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       if (!js.members.has(name)) problems.push(`ConfigEditor has no \`${name}\` (EditorView)`);
       if (!js.documentEditorMembers.has(name)) problems.push(`DocumentEditorView has no \`${name}\` (EditorView)`);
     }
-    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
+    // A document's value, like its options, comes from the view's list.
+    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
     for (const name of js.documentEditorMembers) if (!js.viewMembers.has(name)) problems.push(`DocumentEditorView member \`${name}\` is not in EditorView`);
     expect(problems).toEqual([]);
   });

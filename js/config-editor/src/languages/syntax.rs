@@ -6,7 +6,7 @@
 use js_sys::Array;
 use wasm_bindgen::{JsError, JsValue};
 
-use super::{field, leak};
+use super::{field, interned};
 
 /// The one character `text` is.
 fn single(text: Option<String>) -> Option<char> {
@@ -70,7 +70,7 @@ pub(super) fn item_marker(definition: &JsValue) -> Result<Option<&'static str>, 
     }
     match value.as_string() {
         Some(marker) if !marker.is_empty() && !marker.contains(char::is_whitespace) => {
-            Ok(Some(leak(marker)))
+            Ok(Some(interned::text(&marker)))
         }
         _ => Err(JsError::new(
             "itemMarker must be a non-empty string without spaces, e.g. \"-\"",
@@ -94,7 +94,7 @@ pub(super) fn written_separator(
                 .iter()
                 .any(|separator| written.trim() == *separator) =>
         {
-            Ok(Some(leak(written)))
+            Ok(Some(interned::text(&written)))
         }
         _ => Err(JsError::new(
             "writtenSeparator must be one of separators with its spacing, e.g. \": \"",
@@ -129,5 +129,5 @@ pub(super) fn literal_quotes(
             .ok_or_else(problem)?;
         literal.push(*known);
     }
-    Ok(Box::leak(literal.into_boxed_slice()))
+    Ok(interned::texts(&literal))
 }

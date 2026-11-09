@@ -1,6 +1,6 @@
 //! The [`ConfigLanguage`] a `registerLanguage` definition is adapted into.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
 
@@ -28,12 +28,16 @@ use crate::values::{field, json_from_js, string_field, to_js};
 /// has its fields found on their lines; any other
 /// has its read-only fields checked by value alone. Constructs written over
 /// lines come from `multilineRanges`.
+///
+/// Each label has one, for good: the editor's languages live as long as the
+/// page, and registering the label again puts the new definition in it
+/// (see [`JsLanguage::replace`]) instead of leaking another.
 pub(super) struct JsLanguage {
-    pub(super) definition: JsValue,
-    pub(super) info: LanguageInfo,
-    pub(super) config: LanguageConfig,
+    definition: RefCell<JsValue>,
+    info: Cell<LanguageInfo>,
+    config: Cell<LanguageConfig>,
     /// `multilineRanges` of the last text it was called for.
-    pub(super) multiline: RefCell<Option<(String, Multiline)>>,
+    multiline: RefCell<Option<(String, Multiline)>>,
 }
 
 // SAFETY: wasm32 without the `atomics` target feature runs on one thread, so
@@ -45,8 +49,31 @@ unsafe impl Send for JsLanguage {}
 unsafe impl Sync for JsLanguage {}
 
 impl JsLanguage {
+    pub(super) fn new(definition: JsValue, info: LanguageInfo, config: LanguageConfig) -> Self {
+        Self {
+            definition: RefCell::new(definition),
+            info: Cell::new(info),
+            config: Cell::new(config),
+            multiline: RefCell::default(),
+        }
+    }
+
+    /// Takes a new definition of its label: editors already open follow it.
+    pub(super) fn replace(&self, definition: JsValue, info: LanguageInfo, config: LanguageConfig) {
+        *self.definition.borrow_mut() = definition;
+        self.info.set(info);
+        self.config.set(config);
+        self.multiline.borrow_mut().take();
+    }
+
+    /// The definition (a handle: a callback may register the label again
+    /// while it runs).
+    fn definition(&self) -> JsValue {
+        self.definition.borrow().clone()
+    }
+
     pub(super) fn method(&self, name: &str) -> Option<Function> {
-        field(&self.definition, name).dyn_into::<Function>().ok()
+        field(&self.definition(), name).dyn_into::<Function>().ok()
     }
 
     /// Calls the definition's `name` with `arguments`: `None` when it has no
@@ -58,14 +85,15 @@ impl JsLanguage {
             static LOGGED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
         }
         let method = self.method(name)?;
+        let definition = self.definition();
         let result = match arguments {
-            [first, second] => method.call2(&self.definition, first, second),
-            [first] => method.call1(&self.definition, first),
-            _ => method.call0(&self.definition),
+            [first, second] => method.call2(&definition, first, second),
+            [first] => method.call1(&definition, first),
+            _ => method.call0(&definition),
         };
         result
             .map_err(|error| {
-                let message = format!("config-editor: {}'s {name}() threw", self.info.label);
+                let message = format!("config-editor: {}'s {name}() threw", self.info.get().label);
                 if LOGGED.with(|logged| logged.borrow_mut().insert(message.clone())) {
                     web_sys::console::error_2(&JsValue::from_str(&message), &error);
                 }
@@ -82,7 +110,7 @@ impl JsLanguage {
         }
         let message = format!(
             "config-editor: {}'s {callback}() {problem}; read as null",
-            self.info.label
+            self.info.get().label
         );
         if WARNED.with(|warned| warned.borrow_mut().insert(message.clone())) {
             web_sys::console::warn_1(&JsValue::from_str(&message));
@@ -98,7 +126,7 @@ impl JsLanguage {
     /// `KEY=value` entry per line), so its fields are found on their lines
     /// when it gives no `keySpan` / `valueSpan`.
     fn is_flat(&self) -> bool {
-        !self.config.separators.is_empty() && !self.has("contextAt")
+        !self.config.get().separators.is_empty() && !self.has("contextAt")
     }
 
     /// The `multilineRanges` of `source`, called once per text.
@@ -157,7 +185,7 @@ fn given_span(span: &JsValue, source: &str) -> Option<Span> {
 #[cfg(not(target_feature = "atomics"))]
 impl ConfigLanguage for JsLanguage {
     fn info(&self) -> LanguageInfo {
-        self.info
+        self.info.get()
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
@@ -166,7 +194,7 @@ impl ConfigLanguage for JsLanguage {
             line: None,
             column: None,
         })?;
-        match parse.call1(&self.definition, &JsValue::from_str(source)) {
+        match parse.call1(&self.definition(), &JsValue::from_str(source)) {
             Ok(value) if value.is_undefined() => Err(ParseError {
                 message: "parse() returned nothing".to_string(),
                 line: None,
@@ -205,9 +233,9 @@ impl ConfigLanguage for JsLanguage {
     fn serialize(&self, value: &Value, _previous: Option<&str>) -> Result<String, String> {
         let serialize = self
             .method("serialize")
-            .ok_or_else(|| format!("{} cannot write documents", self.info.label))?;
+            .ok_or_else(|| format!("{} cannot write documents", self.info.get().label))?;
         serialize
-            .call1(&self.definition, &to_js(value))
+            .call1(&self.definition(), &to_js(value))
             .map_err(|error| {
                 string_field(&error, "message")
                     .or_else(|| error.as_string())
@@ -220,7 +248,7 @@ impl ConfigLanguage for JsLanguage {
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
         self.span("keySpan", source, pointer).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.flat_key_span(source, pointer))
+                .then(|| self.config.get().flat_key_span(source, pointer))
                 .flatten()
         })
     }
@@ -228,7 +256,7 @@ impl ConfigLanguage for JsLanguage {
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
         self.span("valueSpan", source, pointer).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.flat_value_span(source, pointer))
+                .then(|| self.config.get().flat_value_span(source, pointer))
                 .flatten()
         })
     }
@@ -295,7 +323,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("contextAt") {
             assist::context_at(self, source, cursor)
         } else {
-            self.config.flat_completion_context(source, cursor)
+            self.config.get().flat_completion_context(source, cursor)
         }
     }
 
@@ -308,7 +336,9 @@ impl ConfigLanguage for JsLanguage {
         if self.has("contextAt") {
             assist::parsed_keys(self, source, cursor_byte, path)
         } else {
-            self.config.flat_existing_keys(source, cursor_byte, path)
+            self.config
+                .get()
+                .flat_existing_keys(source, cursor_byte, path)
         }
     }
 
@@ -322,7 +352,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("insertKey") {
             assist::insert_key(self, key, property, root, context)
         } else {
-            self.config.flat_property_insert(key)
+            self.config.get().flat_property_insert(key)
         }
     }
 
@@ -332,7 +362,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("contextAt") {
             value.to_string()
         } else {
-            self.config.flat_format_value(value)
+            self.config.get().flat_format_value(value)
         }
     }
 
@@ -340,7 +370,7 @@ impl ConfigLanguage for JsLanguage {
         if self.has("keyAt") {
             return None;
         }
-        self.config.flat_hover_key(line, column)
+        self.config.get().flat_hover_key(line, column)
     }
 
     fn hover_path(
@@ -356,6 +386,6 @@ impl ConfigLanguage for JsLanguage {
     }
 
     fn config(&self) -> LanguageConfig {
-        self.config
+        self.config.get()
     }
 }

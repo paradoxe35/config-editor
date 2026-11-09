@@ -478,6 +478,11 @@ impl Documents {
             if let Some(callback) = self.callbacks.on_select {
                 callback.run(id.to_string());
             }
+            // The host selected another document in answer: that one
+            // stands, with its own focus.
+            if self.active_id().as_deref() != Some(id) {
+                return true;
+            }
         }
         match focus {
             Focus::Keep => {}

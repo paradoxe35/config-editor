@@ -14,6 +14,7 @@ use crate::typings::CustomLanguage;
 use crate::values::{field, string_field};
 
 mod assist;
+mod interned;
 mod js_language;
 mod ranges;
 mod syntax;
@@ -23,6 +24,8 @@ use js_language::JsLanguage;
 thread_local! {
     /// Languages registered from JavaScript, by lowercase label.
     pub(crate) static REGISTERED: RefCell<HashMap<String, Language>> = RefCell::new(HashMap::new());
+    /// The same languages as they were registered, to take a new definition.
+    static OWN: RefCell<HashMap<String, &'static JsLanguage>> = RefCell::new(HashMap::new());
 }
 
 pub(crate) fn language_named(name: &str) -> Result<Language, JsError> {
@@ -96,10 +99,6 @@ const DEFINITION_KEYS: &[&str] = &[
     "multilineRanges",
 ];
 
-pub(super) fn leak(text: String) -> &'static str {
-    Box::leak(text.into_boxed_str())
-}
-
 /// A list of strings, or one string, as `name` (absent is empty).
 fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
     if value.is_undefined() || value.is_null() {
@@ -144,7 +143,7 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
         let block = string_list(&field(&comments, "blockComment"), "comments.blockComment")?;
         let block = match block.as_slice() {
             [] => None,
-            [open, close] => Some((leak(open.clone()), leak(close.clone()))),
+            [open, close] => Some((interned::text(open), interned::text(close))),
             _ => return Err(JsError::new("comments.blockComment must be [open, close]")),
         };
         (
@@ -176,15 +175,12 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
             brackets.push(pair);
         }
     }
-    let leak_all = |items: Vec<String>| -> &'static [&'static str] {
-        Box::leak(items.into_iter().map(leak).collect())
-    };
     const QUOTES: &[&str] = &["\"", "'"];
-    let separators = leak_all(separators);
+    let separators = interned::texts(&separators);
     Ok(LanguageConfig {
-        line_comments: leak_all(line_comments),
+        line_comments: interned::texts(&line_comments),
         block_comment,
-        brackets: Box::leak(brackets.into_boxed_slice()),
+        brackets: interned::pairs(brackets),
         separators,
         written_separator: syntax::written_separator(definition, separators)?,
         quotes: QUOTES,
@@ -198,7 +194,8 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
 
 /// Registers a language implemented in JavaScript and returns its name for
 /// `language` / `editAs` (its label, lowercased). Registering the same label
-/// again replaces it for new editors.
+/// again replaces its definition, in the editors already open too, and
+/// takes no more memory.
 #[cfg(not(target_feature = "atomics"))]
 #[wasm_bindgen(js_name = registerLanguage)]
 pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> {
@@ -244,32 +241,31 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
         }
     };
     let extensions_value = field(&definition, "extensions");
-    let extensions: Vec<&'static str> =
-        if extensions_value.is_undefined() || extensions_value.is_null() {
-            Vec::new()
-        } else if Array::is_array(&extensions_value) {
-            Array::from(&extensions_value)
-                .iter()
-                .map(|extension| {
-                    // Written without the dot (`env`); a built-in's is taken.
-                    let extension = extension
-                        .as_string()
-                        .map(|text| text.trim().trim_start_matches('.').to_lowercase())
-                        .filter(|text| !text.is_empty())
-                        .ok_or_else(|| JsError::new("extensions must hold non-empty strings"))?;
-                    if extension.parse::<Language>().is_ok() {
-                        return Err(JsError::new(&format!(
-                            "extension \"{extension}\" already names a built-in language"
-                        )));
-                    }
-                    Ok(leak(extension))
-                })
-                .collect::<Result<_, _>>()?
-        } else {
-            return Err(JsError::new(
-                "extensions must be an array of strings, e.g. [\"env\"]",
-            ));
-        };
+    let extensions: Vec<String> = if extensions_value.is_undefined() || extensions_value.is_null() {
+        Vec::new()
+    } else if Array::is_array(&extensions_value) {
+        Array::from(&extensions_value)
+            .iter()
+            .map(|extension| {
+                // Written without the dot (`env`); a built-in's is taken.
+                let extension = extension
+                    .as_string()
+                    .map(|text| text.trim().trim_start_matches('.').to_lowercase())
+                    .filter(|text| !text.is_empty())
+                    .ok_or_else(|| JsError::new("extensions must hold non-empty strings"))?;
+                if extension.parse::<Language>().is_ok() {
+                    return Err(JsError::new(&format!(
+                        "extension \"{extension}\" already names a built-in language"
+                    )));
+                }
+                Ok(extension)
+            })
+            .collect::<Result<_, _>>()?
+    } else {
+        return Err(JsError::new(
+            "extensions must be an array of strings, e.g. [\"env\"]",
+        ));
+    };
     let name = label.to_lowercase();
     // A name or extension another registered language already answers to
     // would be taken from it, or never reach this one.
@@ -285,7 +281,7 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
                 )));
             }
             if let Some(extension) = extensions.iter().find(|extension| {
-                **extension == other.as_str() || language.extensions().contains(*extension)
+                *extension == other.as_str() || language.extensions().contains(&extension.as_str())
             }) {
                 return Err(JsError::new(&format!(
                     "extension \"{extension}\" already names the registered language \"{other}\""
@@ -295,20 +291,26 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
         Ok(())
     })?;
     let config = language_config(&definition)?;
-    let language: &'static JsLanguage = Box::leak(Box::new(JsLanguage {
-        config,
-        definition,
-        multiline: Default::default(),
-        info: LanguageInfo {
-            label: leak(label),
-            icon: leak(icon),
-            extensions: Box::leak(extensions.into_boxed_slice()),
-        },
-    }));
-    REGISTERED.with(|languages| {
-        languages
-            .borrow_mut()
-            .insert(name.clone(), Language::new(language));
-    });
+    let info = LanguageInfo {
+        label: interned::text(&label),
+        icon: interned::text(&icon),
+        extensions: interned::texts(&extensions),
+    };
+    // The label's language, kept for good: registered again, it takes the
+    // new definition (editors already open follow it).
+    let known = OWN.with(|own| own.borrow().get(&name).copied());
+    match known {
+        Some(language) => language.replace(definition, info, config),
+        None => {
+            let language: &'static JsLanguage =
+                Box::leak(Box::new(JsLanguage::new(definition, info, config)));
+            OWN.with(|own| own.borrow_mut().insert(name.clone(), language));
+            REGISTERED.with(|languages| {
+                languages
+                    .borrow_mut()
+                    .insert(name.clone(), Language::new(language));
+            });
+        }
+    }
     Ok(name)
 }

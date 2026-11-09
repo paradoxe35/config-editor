@@ -221,3 +221,40 @@ fn closing_the_active_document_keeps_the_focus_where_it_was() {
     assert_eq!(focus_place(false, true), Focus::Editor);
     assert_eq!(focus_place(false, false), Focus::Keep);
 }
+
+/// QA 27: a host selecting another document from `on_select` lost it: the
+/// outer selection's focus went to its own document afterwards.
+#[test]
+fn a_document_the_host_selects_in_answer_to_a_selection_stands() {
+    let owner = Owner::new();
+    owner.set();
+    let view_of: Arc<Mutex<Option<Documents>>> = Arc::default();
+    let selects: Shared = Arc::default();
+    let on_select = {
+        let (view_of, selects) = (view_of.clone(), selects.clone());
+        Callback::new(move |id: String| {
+            lock(&selects).selects.push(id.clone());
+            let documents = view_of.lock().expect("not poisoned").expect("mounted");
+            if id == "tls" {
+                documents.select("main", Focus::Editor);
+            }
+        })
+    };
+    let documents = Documents::new(
+        Callbacks {
+            on_select: Some(on_select),
+            ..Callbacks::default()
+        },
+        Signal::stored(EditorSettings::default()),
+    );
+    *view_of.lock().expect("not poisoned") = Some(documents);
+    documents.sync(&files());
+    assert_eq!(documents.active_id().as_deref(), Some("main"));
+    assert!(documents.select("tls", Focus::Editor));
+    assert_eq!(documents.active_id().as_deref(), Some("main"));
+    assert_eq!(
+        documents.focus_editor.get_untracked().as_deref(),
+        Some("main")
+    );
+    assert_eq!(lock(&selects).selects, ["tls", "main"]);
+}

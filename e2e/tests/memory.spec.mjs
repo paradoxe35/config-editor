@@ -246,6 +246,42 @@ test.describe('memory', () => {
     expect(errors).toEqual([]);
   });
 
+  test('registering a language again and again takes no more memory', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    const grown = await growths(browserPage, {
+      warmUp: 2,
+      cycles: 5,
+      cycle: () =>
+        browserPage.evaluate(async () => {
+          const { registerLanguage } = await import('../config-editor/pkg/config_editor.js');
+          // A new definition each time, as a component registering its
+          // language on every mount makes it: fresh functions, the same
+          // label and syntax.
+          for (let index = 0; index < 1000; index += 1) {
+            registerLanguage({
+              label: 'Repeated',
+              extensions: ['repeated'],
+              parse: (text) => Object.fromEntries(text.split('\n').filter(Boolean).map((line) => line.split(' = '))),
+              serialize: (value) => Object.entries(value).map(([key, item]) => `${key} = ${item}\n`).join(''),
+              comments: { lineComment: '#', blockComment: ['/*', '*/'] },
+              brackets: [['(', ')']],
+              separators: ['='],
+              writtenSeparator: ' = ',
+              listBrackets: ['(', ')'],
+              itemSeparator: ';',
+              itemMarker: '*',
+              literalQuotes: ["'"],
+            });
+          }
+        }),
+    });
+    // Each registration leaked its language and texts, about 400 B (5000
+    // grew memory by 2 MB).
+    expect(grown.wasm).toBeLessThanOrEqual(64 * KB);
+    if (grown.heap !== null) expect(grown.heap).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+  });
+
   for (const name of FRAMEWORK_PAGES) {
     test(`the ${name} component remounting gives the old editor back`, async ({ page: browserPage }) => {
       const errors = await open(browserPage, name);

@@ -252,6 +252,48 @@ fn no_doc_assumes_the_host_has_a_server_or_a_disk() {
     );
 }
 
+/// The sample schema (the demo's and the examples', and its copy the tests
+/// read) describes a sample service: its descriptions name none of the
+/// commands or the admin UI of the product it came from (QA 27).
+#[test]
+fn the_sample_schema_describes_a_neutral_service() {
+    const PRODUCT_WORDS: [&str; 9] = [
+        "tunnel admin",
+        "tunnel visit",
+        "tunnel passwd",
+        "tunnel mcp",
+        "tunnel service",
+        "client-config",
+        "admin ui",
+        "state folder",
+        "tunnel server",
+    ];
+    let schema = fs::read_to_string(root().join("schema.json")).expect("readable");
+    let copy = fs::read_to_string(
+        root().join("crates/config-editor-leptos/tests/fixtures/tunnel.schema.json"),
+    )
+    .expect("readable");
+    assert_eq!(schema, copy, "the tests' copy of schema.json differs");
+    let lines: Vec<&str> = schema
+        .lines()
+        .filter(|line| line.contains("\"description\"") || line.contains("\"title\""))
+        .collect();
+    assert!(lines.len() > 100, "only {} descriptions read", lines.len());
+    let hits: Vec<&str> = lines
+        .into_iter()
+        .filter(|line| {
+            let lower = line.to_lowercase();
+            PRODUCT_WORDS.iter().any(|word| lower.contains(word))
+        })
+        .map(str::trim)
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "product-specific wording in schema.json:\n{}",
+        hits.join("\n")
+    );
+}
+
 #[test]
 fn the_check_reads_the_places_it_names() {
     // A moved file would silently drop out of the check.

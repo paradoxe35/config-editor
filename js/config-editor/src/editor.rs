@@ -9,6 +9,7 @@ use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
+use crate::echoes::{Echo, Echoes};
 use crate::handle_calls;
 use crate::host_diagnostics::host_diagnostics_from;
 use crate::languages::{language_named, writable_edit_as};
@@ -45,9 +46,11 @@ pub struct ConfigEditor {
     state: State,
     latest: Latest,
     /// The document when `destroy` ran, so `value` still answers afterwards.
-    final_value: Option<String>,
-    /// The editor's entry in [`MOUNTED`] until `destroy`.
-    id: Option<u32>,
+    final_value: RefCell<Option<String>>,
+    /// The editor's entry in [`MOUNTED`] until `destroy`. Both are cells:
+    /// `destroy` takes `&self`, so a callback that a method of this
+    /// instance fired (`save()` calling `onSave`) can call it.
+    id: std::cell::Cell<Option<u32>>,
 }
 
 /// The unmount handle, reactive owner, and element of an editor.
@@ -83,6 +86,15 @@ thread_local! {
 }
 
 impl ConfigEditor {
+    /// Shows `value` as the host's document.
+    fn show(&self, value: String) {
+        *self
+            .latest
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
+        let _ = self.state.value.try_set(value);
+    }
+
     /// The document as the host last saw it.
     fn latest_text(&self) -> String {
         self.latest
@@ -184,6 +196,7 @@ impl ConfigEditor {
             read_only_paths: RwSignal::new(read_only_paths),
             read_only_ranges: RwSignal::new(read_only_ranges),
             told: StoredValue::new_local(Told::default()),
+            echoes: StoredValue::new_local(Echoes::default()),
         });
         let setup = Setup {
             language,
@@ -210,8 +223,8 @@ impl ConfigEditor {
         Ok(ConfigEditor {
             state,
             latest,
-            final_value: None,
-            id: Some(id),
+            final_value: RefCell::new(None),
+            id: std::cell::Cell::new(Some(id)),
         })
     }
 
@@ -221,7 +234,7 @@ impl ConfigEditor {
         // Input the browser sent in this task, and an Edit-as edit still
         // waiting out the typing pause, first: the document as shown.
         config_editor_leptos::flush_pending_edits();
-        match &self.final_value {
+        match &*self.final_value.borrow() {
             Some(value) => value.clone(),
             None => self.latest_text(),
         }
@@ -241,7 +254,9 @@ impl ConfigEditor {
     /// Settings merge key by key, `strings` text by text, `colors` token by
     /// token. A new `value`
     /// replaces the document as a host update (the caret kept when the
-    /// text is unchanged). `language`, `schema`, `fileName`, `className`
+    /// text is unchanged); a late echo of a text `onChange` gave, which
+    /// the user has typed past, is not one and keeps the document.
+    /// `language`, `schema`, `fileName`, `className`
     /// and `secrets` are what the editor is built from: they throw (create
     /// a new editor instead), but for `language` naming the editor's own.
     /// Every key is checked before any applies.
@@ -274,9 +289,23 @@ impl ConfigEditor {
         } else {
             config_editor_leptos::js_support::flush_pending_input();
         }
-        if self.id.is_none() {
+        if self.id.get().is_none() {
             return Ok(());
         }
+        // A late echo of an edit the user typed past keeps the document
+        // (see `echoes`), decided on a copy kept once every key is checked.
+        let mut echoes = self.state.echoes.try_get_value().unwrap_or_default();
+        let (value, resend) = match value {
+            Some(value) => {
+                let current = self.latest_text();
+                match echoes.received(&value, &current, js_sys::Date::now()) {
+                    Echo::Apply => (Some(value), None),
+                    Echo::Skip => (None, None),
+                    Echo::Resend => (None, Some(current)),
+                }
+            }
+            None => (None, None),
+        };
         let baseline = given(&options, "baseline")
             .map(|baseline| text_arg(&baseline, "baseline"))
             .transpose()?;
@@ -338,12 +367,9 @@ impl ConfigEditor {
         let on_save = callback_change(&options, "onSave")?;
 
         // Everything checked: apply.
+        let _ = state.echoes.try_set_value(echoes);
         if let Some(value) = value {
-            *self
-                .latest
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
-            let _ = state.value.try_set(value);
+            self.show(value);
         }
         if let Some(baseline) = baseline {
             let _ = state.baseline.try_set(baseline);
@@ -401,6 +427,34 @@ impl ConfigEditor {
                 call_host(&callback, &argument);
             }
         }
+        // The host took a late echo after its own text: it hears the
+        // document again.
+        if let Some(text) = resend
+            && let Some(callback) = state.on_change.try_get_value().flatten()
+        {
+            call_host(&callback, &JsValue::from_str(&text));
+        }
+        Ok(())
+    }
+
+    /// Replaces the document with `value`, the host's own text whatever it
+    /// is (as `update({ value })` does for a text `onChange` never gave):
+    /// never taken for a late echo, so it also reverts to a text `onChange`
+    /// gave earlier while later ones are still on their way (those are then
+    /// skipped when they come). The caret stays on the same text when
+    /// possible; `onChange` does not hear it.
+    #[wasm_bindgen(js_name = replaceValue)]
+    pub fn replace_value(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
+    ) -> Result<(), JsError> {
+        let value = text_arg(&value, "value")?;
+        config_editor_leptos::flush_pending_edits();
+        if self.id.get().is_none() {
+            return Ok(());
+        }
+        let _ = self.state.echoes.try_update_value(Echoes::replaced);
+        self.show(value);
         Ok(())
     }
 
@@ -544,7 +598,7 @@ impl ConfigEditor {
     /// Unmounts the editor. The instance cannot be used afterwards. An edit
     /// still waiting to be saved (while editing as another language) is sent
     /// to `onChange` first.
-    pub fn destroy(&mut self) {
+    pub fn destroy(&self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
         config_editor_leptos::js_support::flush_pending_input();
         let Some((mounted, owner, _)) = self
@@ -562,14 +616,14 @@ impl ConfigEditor {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns, calling nothing more.
             self.state.silence();
-            self.final_value = Some(self.latest_text());
+            *self.final_value.borrow_mut() = Some(self.latest_text());
             let deferred = Closure::once_into_js(unmount);
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
             }
         } else {
             unmount();
-            self.final_value = Some(self.latest_text());
+            *self.final_value.borrow_mut() = Some(self.latest_text());
         }
     }
 }

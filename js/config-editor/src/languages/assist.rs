@@ -126,7 +126,7 @@ fn read_context(
                 context.value_key = Some(key);
                 // `key:|` takes a space before the value, as `key: ` is written.
                 context.value_needs_space = prefix.is_empty()
-                    && language.config.separators.contains(&":")
+                    && language.config().separators.contains(&":")
                     && before.ends_with(':');
             }
             Some(SchemaPathSegment::ArrayItem(_)) => context.is_array_item = true,

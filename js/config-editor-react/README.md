@@ -441,6 +441,8 @@ ref.current?.foldedLines; // [{ startLine, endLine }], one-based
 ### Saving
 
 ```tsx
+import { useState } from "react";
+
 const [saved, setSaved] = useState(loaded);
 const [text, setText] = useState(loaded);
 const [dirty, setDirty] = useState(false);
