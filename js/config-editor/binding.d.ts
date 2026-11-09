@@ -165,6 +165,12 @@ export interface ConfigDocumentsHandle {
    * answer `null` / `false` until the document has been shown once.
    */
   editor(id: string): EditorView | null;
+  /**
+   * Replaces the text of the document `id`, always (a revert or a reset to a
+   * text the user just passed through), and reports it through `onChange`
+   * for the parent's list; `false` when there is no such document.
+   */
+  setValue(id: string, value: string): boolean;
 }
 
 /**
@@ -173,7 +179,7 @@ export interface ConfigDocumentsHandle {
  * after every change, `detach` on unmount) and expose `handle`. Settings and
  * most props apply live; `language`, `schema`, `fileName`, `editorClassName`
  * and the `secrets` patterns re-mount (the document, baseline and caret
- * carried over); a late echo of the bound value never rolls the document back; a mount that
+ * carried over); an echo of the bound value, late or out of order, never rolls the document back; a mount that
  * failed on a bad prop is retried when a prop changes.
  */
 export class EditorBinding {

@@ -14,6 +14,11 @@ import { loadConfigEditor } from "@pngwasi/config-editor";
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 const schema = await (await fetch("../../schema.json")).text();
 
+// `?random` lists each edit back 0-200 ms late, in whatever order the delays
+// give (a fetch per edit).
+const random = new URLSearchParams(location.search).has("random");
+const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
+
 const App = defineComponent({
   components: { ConfigDocuments },
   setup() {
@@ -37,6 +42,7 @@ const App = defineComponent({
     Object.assign(window, {
       setViewSettings: (change: (settings: EditorSettings) => EditorSettings) => (settings.value = change(settings.value)),
       updateFile: update,
+      currentFiles: () => files.value,
       documentsHandle: {
         get current() {
           return tabs.value;
@@ -50,7 +56,7 @@ const App = defineComponent({
       settings,
       onChange: (id: string, value: string) => {
         note(`change ${id}`);
-        update(id, { value });
+        later(() => update(id, { value }));
       },
       onSave: (id: string, value: string, language: LanguageName) => {
         note(`save ${id} ${language}`);

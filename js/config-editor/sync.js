@@ -3,10 +3,22 @@
 // A framework binding the document two ways (React's `value` + `onChange`,
 // Vue's `v-model`, Svelte's `bind:value`, Angular's ControlValueAccessor,
 // Solid signals) passes every edit back in as its value, sometimes late and
-// several at a time. Applying such an echo would roll the document back; a
-// value of the host's own (a reset, a loaded file) must be applied. A
-// `ValueSync` tells them apart from what the editor sent, so each framework
-// wrapper only wires it up.
+// in any order (a parent applying each edit after a fetch). Applying such an
+// echo would roll the document back; a value of the host's own (a reset, a
+// loaded file) must be applied. A `ValueSync` tells them apart from what the
+// editor sent, as a `ConfigEditor` with `echoes: true` does
+// (`js/config-editor/src/echoes.rs`), so each framework wrapper only wires
+// it up:
+//
+// - a value the editor sent that has not come back yet is an echo, whatever
+//   its order or delay: skipped (and forgotten);
+// - any other value is the host's own and applies (the binding's `setValue`
+//   goes back to a value still on its way, through `replaceValue`);
+// - a skipped echo leaves the host holding an old value: unless an echo of
+//   the document is still to come, the host is told the document again. A
+//   value sent before one that came back may still come (out of order) or
+//   never (a parent applying only the latest): it stays an echo, but is not
+//   counted on to come.
 
 /** A short stand-in for a document: its length and a 32-bit FNV-1a hash. */
 function fingerprint(text) {
@@ -20,73 +32,52 @@ function fingerprint(text) {
 
 export class ValueSync {
   /**
-   * @param {{ echoWindowMs?: number, maxPending?: number }} [options]
+   * @param {{ maxPending?: number }} [options] how many values sent are
+   * remembered at most (a parent handing back only some leaves the others).
    */
   constructor(options = {}) {
-    this.echoWindowMs = options.echoWindowMs ?? 10_000;
-    this.maxPending = options.maxPending ?? 1000;
-    // Values sent that the host has not passed back yet, oldest first.
+    this.maxPending = options.maxPending ?? 256;
+    // The values sent that the host has not passed back yet, oldest first:
+    // `{ print, toCome }`, `toCome` while no value sent after it came back.
     this.pending = [];
-    // Values still on their way when the document was replaced.
-    this.superseded = [];
-  }
-
-  /** Records a value the editor sends to the host (call it from `onChange`). */
-  sent(value) {
-    this.pending.push({ print: fingerprint(value), sent: Date.now() });
-    if (this.pending.length > this.maxPending) this.pending.shift();
   }
 
   /**
-   * The document was replaced from code (an imperative reset): values still
-   * on their way are late echoes of what it replaced, skipped when they come.
-   * Call `sent` for the new document after, when the host is told about it.
+   * Records a value the editor sends to the host (call it from `onChange`).
+   * `toCome`: whether its echo is expected (a framework does not render
+   * again for the value it holds already, so the echo of a value equal to
+   * the bound one may never come: still an echo should it come, but not
+   * counted on).
    */
-  supersede() {
-    // Bounded like `pending`: echoes older than the window never come.
-    const now = Date.now();
-    this.superseded = [...this.superseded, ...this.pending]
-      .filter((echo) => now - echo.sent < this.echoWindowMs)
-      .slice(-this.maxPending);
-    this.pending = [];
+  sent(value, toCome = true) {
+    this.pending.push({ print: fingerprint(value), toCome });
+    if (this.pending.length > this.maxPending) this.pending.shift();
   }
 
   /**
    * The host's value arrived. `current` is the editor's document now (read
    * `editor.value` first: it sends an edit still waiting out the typing
-   * pause). Returns the text to apply with `update({ value })`, if any, and the text
-   * to report to the host through its change callback, if any (already
+   * pause). Returns the text to apply with `replaceValue`, if any, and the
+   * text to report to the host through its change callback, if any (already
    * recorded as sent).
    * @param {string} value
    * @param {string} current
    * @returns {{ apply: string | null, report: string | null }}
    */
   received(value, current) {
-    const now = Date.now();
-    this.pending = this.pending.filter((echo) => now - echo.sent < this.echoWindowMs);
+    // The newest copy (a typo fixed sends the same text twice): a parent
+    // applying only the latest value hands back that one.
     const print = fingerprint(value);
-    // A value sent before a reset is a late echo of what it replaced.
-    const replaced = this.superseded.findIndex((echo) => echo.print === print && now - echo.sent < this.echoWindowMs);
-    if (replaced >= 0) {
-      this.superseded.splice(0, replaced + 1);
-      // The host took that old value: tell it the document again.
-      if (this.superseded.length === 0 && current !== value) {
-        this.sent(current);
-        return { apply: null, report: current };
-      }
-      return { apply: null, report: null };
-    }
-    // Echoes come back in order, so this is the oldest pending copy (a typo
-    // fixed sends the same text twice).
-    const sent = this.pending.findIndex((echo) => echo.print === print);
-    if (sent >= 0) {
-      this.pending.splice(0, sent + 1);
-      // Newer values are still on their way: this one is stale.
-      if (this.pending.length > 0) return { apply: null, report: null };
-    } else {
-      // The host's own value: what is still on its way is superseded.
-      this.supersede();
-    }
-    return { apply: current !== value ? value : null, report: null };
+    const at = this.pending.findLastIndex((sent) => sent.print === print);
+    if (at < 0) return { apply: current !== value ? value : null, report: null };
+    this.pending.splice(at, 1);
+    for (const sent of this.pending.slice(0, at)) sent.toCome = false;
+    if (value === current) return { apply: null, report: null };
+    // An echo of a value the user typed past: the host holds it now, unless
+    // an echo of the document is still to come.
+    const shown = fingerprint(current);
+    if (this.pending.some((sent) => sent.toCome && sent.print === shown)) return { apply: null, report: null };
+    this.sent(current);
+    return { apply: null, report: current };
   }
 }

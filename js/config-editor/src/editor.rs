@@ -145,6 +145,7 @@ impl ConfigEditor {
         let class = string_option(&options, "className")?;
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let read_only_reason = string_option(&options, "readOnlyReason")?;
+        let echoes = bool_option(&options, "echoes")?.unwrap_or(false);
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
@@ -196,7 +197,11 @@ impl ConfigEditor {
             read_only_paths: RwSignal::new(read_only_paths),
             read_only_ranges: RwSignal::new(read_only_ranges),
             told: StoredValue::new_local(Told::default()),
-            echoes: StoredValue::new_local(Echoes::default()),
+            echoes: StoredValue::new_local({
+                let mut given = Echoes::new(echoes);
+                given.given(&value);
+                given
+            }),
         });
         let setup = Setup {
             language,
@@ -254,10 +259,10 @@ impl ConfigEditor {
     /// Settings merge key by key, `strings` text by text, `colors` token by
     /// token. A new `value`
     /// replaces the document as a host update (the caret kept when the
-    /// text is unchanged); a late echo of a text `onChange` gave, which
-    /// the user has typed past, is not one and keeps the document.
-    /// `language`, `schema`, `fileName`, `className`
-    /// and `secrets` are what the editor is built from: they throw (create
+    /// text is unchanged). With `echoes`, a text `onChange` gave that has
+    /// not come back yet is its echo and keeps the document.
+    /// `language`, `schema`, `fileName`, `className`,
+    /// `secrets` and `echoes` are what the editor is built from: they throw (create
     /// a new editor instead), but for `language` naming the editor's own.
     /// Every key is checked before any applies.
     pub fn update(&self, options: EditorUpdate) -> Result<(), JsError> {
@@ -292,13 +297,14 @@ impl ConfigEditor {
         if self.id.get().is_none() {
             return Ok(());
         }
-        // A late echo of an edit the user typed past keeps the document
-        // (see `echoes`), decided on a copy kept once every key is checked.
+        // With `echoes`, an echo of an edit the user typed past keeps the
+        // document (see `echoes`), decided on a copy kept once every key is
+        // checked.
         let mut echoes = self.state.echoes.try_get_value().unwrap_or_default();
         let (value, resend) = match value {
             Some(value) => {
                 let current = self.latest_text();
-                match echoes.received(&value, &current, js_sys::Date::now()) {
+                match echoes.received(&value, &current) {
                     Echo::Apply => (Some(value), None),
                     Echo::Skip => (None, None),
                     Echo::Resend => (None, Some(current)),
@@ -427,8 +433,8 @@ impl ConfigEditor {
                 call_host(&callback, &argument);
             }
         }
-        // The host took a late echo after its own text: it hears the
-        // document again.
+        // The host was left on an echo of a text the user typed past: it
+        // hears the document again.
         if let Some(text) = resend
             && let Some(callback) = state.on_change.try_get_value().flatten()
         {
@@ -438,11 +444,11 @@ impl ConfigEditor {
     }
 
     /// Replaces the document with `value`, the host's own text whatever it
-    /// is (as `update({ value })` does for a text `onChange` never gave):
-    /// never taken for a late echo, so it also reverts to a text `onChange`
-    /// gave earlier while later ones are still on their way (those are then
-    /// skipped when they come). The caret stays on the same text when
-    /// possible; `onChange` does not hear it.
+    /// is: with `echoes`, `update({ value })` takes a text `onChange` gave
+    /// that has not come back yet for its echo; this never does (a revert to
+    /// such a text). Echoes still on their way are skipped when they come.
+    /// The caret stays on the same text when possible; `onChange` does not
+    /// hear it.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
         &self,
@@ -453,7 +459,6 @@ impl ConfigEditor {
         if self.id.get().is_none() {
             return Ok(());
         }
-        let _ = self.state.echoes.try_update_value(Echoes::replaced);
         self.show(value);
         Ok(())
     }

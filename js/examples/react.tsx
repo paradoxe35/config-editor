@@ -32,6 +32,9 @@ const late = new URLSearchParams(location.search).has("late");
 // `?slow` applies every onChange value 1.5 s late, none skipped: a slow store
 // round trip with many values in flight.
 const slow = new URLSearchParams(location.search).has("slow");
+// `?random` applies every onChange value 0-200 ms late, none skipped, in
+// whatever order the delays give (a fetch per edit).
+const random = new URLSearchParams(location.search).has("random");
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
@@ -183,6 +186,7 @@ function App({ schema }: { schema: string }) {
               return next;
             });
           if (slow) return void setTimeout(apply, 1500);
+          if (random) return void setTimeout(apply, Math.random() * 200);
           if (!late) return apply();
           clearTimeout(lateTimer.current);
           lateTimer.current = setTimeout(apply, 400);

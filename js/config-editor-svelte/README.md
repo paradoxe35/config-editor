@@ -365,15 +365,18 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <details>
 <summary>Passing value one way, late echoes, and resetting with setValue</summary>
 
-`bind:value` is immediate. A parent that applies the edits late (a store, a
-debounce, a server round trip) passes `value` one way and updates it from
-`onChange`; it cannot roll the document back to an older one: a `value`
-equal to one the editor sent in the last 10 seconds, while newer ones are
-still on their way, is taken as that late echo. Any other value (a revert, a
-reset) is applied. To reset to a text the user may have just passed through
-while a late parent is catching up, call `setValue(text)` on the instance,
-which always applies (also before the editor has mounted) and is reported
-through `value` and `onChange`.
+`bind:value` is immediate. A parent that applies the edits late, even in
+another order (a store, a server round trip per edit), passes `value` one
+way and updates it from `onChange`; it cannot roll the document back: a
+`value` the editor sent that has not come back yet is taken as its echo,
+whatever its order or delay. Any other value (a revert, a reset, a loaded
+file) is applied. If an echo leaves the parent's value on an older text,
+with nothing still on its way to bring it back, `onChange` reports the
+document again. A parent that applies only some values (a debounce keeping
+the latest) leaves the others counted as echoes: to reset to a text the
+user may have passed through, call `setValue(text)` on the instance, which
+always applies (also before the editor has mounted) and is reported through
+`value` and `onChange`.
 
 ```svelte
 <ConfigEditor value={$config} onChange={(next) => config.saveDebounced(next)} />
@@ -492,7 +495,7 @@ only with it: add the new document, which opens selected), `onChange`, `onSave`,
 document's id and its editor's own problems), `label`, `viewClass`,
 `class`, `style`, `onError` and
 every [setting](#settings). Exported functions: `select(id)`, `isDirty(id)`,
-`save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `getActiveId()`, `getInstance()`, and
+`save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `setValue(id, text)` (replaces a document's text, always, and reports it through `onChange`), `getActiveId()`, `getInstance()`, and
 `editor(id)`, the editor of a document, an `EditorView` (`value`, `reveal`,
 `rangeOf`, `fold`, `unifiedDiff`, …). See
 the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).

@@ -129,7 +129,7 @@ export function frameworkCases(name) {
     }
 
     // late parents and failed mounts
-    test('a reset to a repeated value applies once the echo window has passed', async ({ page: browserPage }) => {
+    test('a reset to a value a debounced parent skipped is its echo, the parent kept in step; setValue applies it', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
       const before = await input(browserPage).inputValue();
@@ -139,15 +139,38 @@ export function frameworkCases(name) {
       await browserPage.keyboard.press('Backspace');
       await browserPage.keyboard.type('x');
       // The parent applies only the latest value, late.
-      await expect(saved(browserPage)).toContainText('tunnel.example.com\nx');
-      // Within the window the reset could be a late echo (see the README);
-      // after it, it is the parent's own.
-      await browserPage.evaluate(() => {
-        const realNow = Date.now;
-        Date.now = () => realNow() + 11000;
-      });
+      await expect(saved(browserPage)).toHaveText(before + 'x');
+      // The initial text was sent and never came back: the parent setting
+      // it is taken for its echo (see the README), and hears the document.
       await browserPage.locator('#reset').click();
+      await browserPage.waitForTimeout(700);
+      await expect(input(browserPage)).toHaveValue(before + 'x');
+      await expect(saved(browserPage)).toHaveText(before + 'x');
+      // setValue always applies, and the parent follows.
+      await browserPage.locator('#force-reset').click();
       await expect(input(browserPage)).toHaveValue(before);
+      await browserPage.waitForTimeout(700);
+      await expect(input(browserPage)).toHaveValue(before);
+      await expect(saved(browserPage)).toHaveText(before);
+    });
+
+    test('a parent applying each value 0-200 ms late, in any order, loses no keystroke', async ({ page: browserPage }) => {
+      await browserPage.goto(page(name) + '?random');
+      await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      const before = await input(browserPage).inputValue();
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      let typed = before;
+      for (const round of ['abcdefghij', 'klmnopqrst']) {
+        await browserPage.keyboard.type(round, { delay: 25 });
+        await browserPage.keyboard.press('Backspace');
+        await browserPage.keyboard.press('Backspace');
+        await browserPage.keyboard.type('XY', { delay: 25 });
+        typed += round.slice(0, -2) + 'XY';
+        await browserPage.waitForTimeout(600);
+        await expect(input(browserPage)).toHaveValue(typed);
+        await expect(saved(browserPage)).toHaveText(typed);
+      }
     });
 
     test('backspacing a word against a slow parent never rolls the document back', async ({ page: browserPage }) => {
@@ -257,7 +280,7 @@ export function frameworkCases(name) {
       expect(await input(browserPage).inputValue()).toBe(typed);
     });
 
-    test('a value the user only passed through is applied once the parent sets it', async ({ page: browserPage }) => {
+    test('a value the user only passed through, set by a debounced parent, is its echo; setValue applies it', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
       const before = await input(browserPage).inputValue();
@@ -267,13 +290,15 @@ export function frameworkCases(name) {
       await browserPage.keyboard.press('Backspace');
       // The late parent applies the unchanged text: no render, nothing echoed.
       await browserPage.waitForTimeout(600);
-      // Later than the echo window, the parent sets the passed-through text.
-      await browserPage.evaluate((text) => {
-        const realNow = Date.now;
-        Date.now = () => realNow() + 11000;
-        window.setParentValue(text);
-      }, before + 'x');
+      // The parent sets the passed-through text, which never came back: an
+      // echo, and the parent hears the document again.
+      await browserPage.evaluate((text) => window.setParentValue(text), before + 'x');
+      await browserPage.waitForTimeout(700);
+      await expect(input(browserPage)).toHaveValue(before);
+      await expect(saved(browserPage)).toHaveText(before);
+      await browserPage.evaluate((text) => window.editorHandle.current.setValue(text), before + 'x');
       await expect(input(browserPage)).toHaveValue(before + 'x');
+      await expect(saved(browserPage)).toHaveText(before + 'x');
     });
 
     test('fixing a prop that failed a re-mount brings the editor back', async ({ page: browserPage }) => {

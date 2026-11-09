@@ -20,7 +20,7 @@ use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
-use crate::options::{function_option, string_option, warn_unknown_options};
+use crate::options::{bool_option, function_option, string_option, warn_unknown_options};
 use crate::settings::{settings_from, settings_over, settings_result};
 use crate::told::{self, Told};
 use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, SettingsResult};
@@ -33,6 +33,7 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "activeId",
     "className",
     "label",
+    "echoes",
     "onSelect",
     "onClose",
     "onAdd",
@@ -45,7 +46,7 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
 ];
 
 /// The options the view is built from, which `update` refuses.
-const DOCUMENTS_REMOUNT_OPTIONS: &[&str] = &["className", "label"];
+const DOCUMENTS_REMOUNT_OPTIONS: &[&str] = &["className", "label", "echoes"];
 
 /// What `onClose` receives.
 #[derive(Serialize)]
@@ -84,8 +85,10 @@ pub(crate) struct State {
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     /// What the state callbacks last reported of each document (see `told`).
     told: StoredValue<HashMap<String, Told>, LocalStorage>,
-    /// Each document's texts `onChange` sent that the host has not listed
-    /// back yet (see `echoes`).
+    /// Whether the host lists every text `onChange` gives back (`echoes`).
+    echoing: bool,
+    /// With `echoing`, each document's texts `onChange` sent that the host
+    /// has not listed back yet (see `echoes`).
     echoes: StoredValue<HashMap<String, Echoes>, LocalStorage>,
     pub(crate) handle: DocumentsHandle,
 }
@@ -174,22 +177,27 @@ impl State {
         listed
     }
 
-    /// Takes late echoes out of `listed`: a document whose listed text is
-    /// one its editor sent and has moved past keeps what it holds (see
-    /// `echoes`). Returns the documents whose host took such an echo after
-    /// its own text, with the text to send it again.
+    /// With `echoing`, takes echoes out of `listed`: a document whose
+    /// listed text is one its editor sent and has moved past keeps what it
+    /// holds (see `echoes`). Returns the documents whose host was left on
+    /// such an echo, with the text to send it again.
     fn keep_moved_past(&self, listed: &mut Listed) -> Vec<(String, String)> {
         let mut resend = Vec::new();
-        let now = js_sys::Date::now();
+        if !self.echoing {
+            return resend;
+        }
         let _ = self.echoes.try_update_value(|echoes| {
             echoes.retain(|id, _| listed.documents.iter().any(|document| document.id == *id));
             for document in &mut listed.documents {
-                let (Some(echo), Some(texts)) =
-                    (echoes.get_mut(&document.id), self.texts_of(&document.id))
-                else {
+                let echo = echoes
+                    .entry(document.id.clone())
+                    .or_insert_with(|| Echoes::new(true));
+                let Some(texts) = self.texts_of(&document.id) else {
+                    // Listed for the first time.
+                    echo.given(&document.value);
                     continue;
                 };
-                match echo.received(&document.value, &texts.value, now) {
+                match echo.received(&document.value, &texts.value) {
                     Echo::Apply => {}
                     Echo::Skip => document.value = texts.value,
                     Echo::Resend => {
@@ -282,10 +290,14 @@ fn view(state: State, setup: Setup) -> AnyView {
         if let Some(callback) = host(state.on_change) {
             // The host lists this string as the document's value next.
             let value = JsValue::from_str(&text);
-            let _ = state.echoes.try_update_value(|echoes| {
-                let now = js_sys::Date::now();
-                echoes.entry(id.clone()).or_default().sent(&text, now);
-            });
+            if state.echoing {
+                let _ = state.echoes.try_update_value(|echoes| {
+                    echoes
+                        .entry(id.clone())
+                        .or_insert_with(|| Echoes::new(true))
+                        .sent(&text);
+                });
+            }
             let _ = state.kept.try_update_value(|kept| {
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
@@ -449,6 +461,7 @@ impl ConfigDocuments {
         let on_problems = function_option(&options, "onProblems")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
+        let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let setup = Setup {
             active: string_option(&options, "activeId")?,
             class: string_option(&options, "className")?.unwrap_or_default(),
@@ -487,10 +500,24 @@ impl ConfigDocuments {
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             told: StoredValue::new_local(HashMap::new()),
+            echoing,
             echoes: StoredValue::new_local(HashMap::new()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
+        if echoing {
+            let given: HashMap<String, Echoes> = state.documents.with_untracked(|documents| {
+                documents
+                    .iter()
+                    .map(|document| {
+                        let mut echo = Echoes::new(true);
+                        echo.given(&document.value);
+                        (document.id.clone(), echo)
+                    })
+                    .collect()
+            });
+            let _ = state.echoes.try_set_value(given);
+        }
         let mount_element = element.clone();
         let mounted = owner.with(|| leptos::mount::mount_to(element, move || view(state, setup)));
         let id = NEXT_ID.with(|next| {
@@ -614,6 +641,43 @@ impl ConfigDocuments {
         .unchecked_into())
     }
 
+    /// Replaces the text of the document `id` with `value`, the host's own
+    /// whatever it is: with `echoes`, a document's `value` in
+    /// `update({ documents })` that its editor gave and has not seen come
+    /// back yet is its echo; this never is (a revert to such a text). List
+    /// the document with that text from then on. Its editor keeps the
+    /// caret on the same text when possible; `onChange` does not hear it.
+    /// `false` when no document has that id.
+    #[wasm_bindgen(js_name = replaceValue)]
+    pub fn replace_value(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "string")] value: JsValue,
+    ) -> Result<bool, JsError> {
+        let id = text_arg(&id, "id")?;
+        let value = text_arg(&value, "value")?;
+        config_editor_leptos::flush_pending_edits();
+        if self.id.get().is_none() || self.state.texts_of(&id).is_none() {
+            return Ok(false);
+        }
+        let _ = self.state.texts.try_update_value(|texts| {
+            if let Some(known) = texts.get_mut(&id) {
+                known.value.clone_from(&value);
+            }
+        });
+        let _ = self.state.documents.try_update(|documents| {
+            if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
+                document.value = value;
+            }
+        });
+        if let Some(documents) = self.state.documents.try_get_untracked() {
+            self.owner.with(|| {
+                config_editor_leptos::js_support::take_documents(&self.state.handle, &documents);
+            });
+        }
+        Ok(true)
+    }
+
     /// Changes the view, live: `documents`, `activeId`, the settings and
     /// the callbacks, any of them. A key left out or `undefined` stays as
     /// it is; `null` removes a callback or returns a setting to its default.
@@ -623,8 +687,10 @@ impl ConfigDocuments {
     /// a document keeps its editor (caret, undo history, scroll, folds)
     /// while its `id` stays listed, its text, baseline, file name and
     /// read-only state update in place, and a new `language` or `schema`
-    /// mounts a new editor. `activeId` shows that document, leaving the
-    /// focus where it is (an id not listed throws). `className` and `label`, and an `onClose` or
+    /// mounts a new editor. With `echoes`, a document's `value` that its
+    /// editor gave and has not seen listed back yet is its echo and keeps
+    /// what the editor holds (see `replaceValue`). `activeId` shows that document, leaving the
+    /// focus where it is (an id not listed throws). `className`, `label` and `echoes`, and an `onClose` or
     /// `onAdd` for a view mounted without one (its tabs have no close
     /// buttons, its strip no "+"), throw: create a new view instead. Every key is checked before any applies.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {

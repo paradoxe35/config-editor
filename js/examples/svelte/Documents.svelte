@@ -25,6 +25,10 @@
   let tabs: ReturnType<typeof ConfigDocuments> | undefined = $state();
 
   const note = (line: string) => log.push(line);
+  // `?random` lists each edit back 0-200 ms late, in whatever order the
+  // delays give (a fetch per edit).
+  const random = new URLSearchParams(location.search).has("random");
+  const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
   function update(id: string, change: Partial<DocumentSpec>) {
     const file = files.find((candidate) => candidate.id === id);
     if (file) Object.assign(file, change);
@@ -42,18 +46,20 @@
       editAs: instance.editAs,
       focus: instance.focus,
       editor: instance.editor,
+      setValue: instance.setValue,
     };
   }
   // For tests: the view's settings, a document's own fields and the instance.
   Object.assign(window, {
     setViewSettings: (change: (settings: EditorSettings) => EditorSettings) => (settings = change(settings)),
     updateFile: update,
+    currentFiles: () => files,
     documentsHandle: { get current() { return tabs ? asHandle(tabs) : null; } },
   });
 
   function onChange(id: string, value: string) {
     note(`change ${id}`);
-    update(id, { value });
+    later(() => update(id, { value }));
   }
   function onSave(id: string, value: string, language: LanguageName) {
     note(`save ${id} ${language}`);

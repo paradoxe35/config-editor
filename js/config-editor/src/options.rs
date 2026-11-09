@@ -17,6 +17,7 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "fileName",
     "readOnly",
     "readOnlyReason",
+    "echoes",
     "className",
     "onChange",
     "onEditAsChange",
@@ -46,8 +47,14 @@ pub(crate) fn warn_unknown_options(options: &JsValue, known: &[&str]) {
 
 /// The options the editor is built from, which `update` refuses: changing
 /// one needs a new `ConfigEditor`.
-pub(crate) const EDITOR_REMOUNT_OPTIONS: &[&str] =
-    &["language", "schema", "fileName", "className", "secrets"];
+pub(crate) const EDITOR_REMOUNT_OPTIONS: &[&str] = &[
+    "language",
+    "schema",
+    "fileName",
+    "className",
+    "secrets",
+    "echoes",
+];
 
 /// A console warning for each key of `object` not in `known`, with the
 /// closest known one as a hint (`valu` → `value`).

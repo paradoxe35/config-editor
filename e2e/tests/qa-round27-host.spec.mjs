@@ -44,7 +44,7 @@ const TYPED = 'abcdefghij';
 const HOSTS = ['editor', 'one document', 'two documents'];
 
 /** Mounts `host` in the page, its host echoing every `onChange` text
- * `delay` ms late, the caret after `name: x`. */
+ * `delay` ms late (`echoes: true`), the caret after `name: x`. */
 async function mountEchoing(page, host, delay) {
   await page.evaluate(
     async ([host, delay]) => {
@@ -56,6 +56,7 @@ async function mountEchoing(page, host, delay) {
         window.store = { a: 'name: x\n' };
         const editor = new window.module.ConfigEditor(element, {
           value: window.store.a,
+          echoes: true,
           onChange: (text) =>
             later(() => {
               window.store.a = text;
@@ -72,6 +73,7 @@ async function mountEchoing(page, host, delay) {
       const list = () => Object.entries(window.store).map(([id, value]) => ({ id, fileName: `${id}.yaml`, value }));
       const view = new window.module.ConfigDocuments(element, {
         documents: list(),
+        echoes: true,
         onChange: (id, text) =>
           later(() => {
             window.store[id] = text;

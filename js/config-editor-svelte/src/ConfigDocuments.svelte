@@ -75,6 +75,10 @@
   export function editor(id: string): EditorView | null {
     return handle.editor(id);
   }
+  /** Replaces the text of the document `id`, always, and reports it through `onChange`; `false` when there is no such document. */
+  export function setValue(id: string, value: string): boolean {
+    return handle.setValue(id, value);
+  }
 </script>
 
 <div bind:this={host} class={className} {style}></div>

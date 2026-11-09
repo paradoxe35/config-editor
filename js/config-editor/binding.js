@@ -7,7 +7,8 @@
 // change means: settings and most props apply live (the caret, undo history
 // and folds stay), the few the editor is built from re-mount it (the
 // document, its baseline and the caret carried over), the bound value goes
-// through `ValueSync` (a late echo never rolls the document back), a mount
+// through `ValueSync` (an echo, late or out of order, never rolls the
+// document back), a mount
 // that failed on a bad prop is retried when a prop changes, and the
 // WebAssembly loads once for every editor on the page.
 
@@ -237,7 +238,9 @@ export class EditorBinding extends Binding {
       className: props.editorClassName,
       onChange: (text) => {
         if (this.#carried) this.#carried.value = text;
-        this.#sync.sent(text);
+        // A parent setting the value it holds does not render again: the
+        // echo of a text equal to the bound value may never come.
+        this.#sync.sent(text, text !== this.#handledValue);
         this.props.onChange?.(text);
       },
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
@@ -359,10 +362,6 @@ export class EditorBinding extends Binding {
       this.report(new TypeError("setValue needs a string"));
       return;
     }
-    // An Edit-as edit still waiting is sent first, so it is superseded with
-    // the others below.
-    void this.instance?.value;
-    this.#sync.supersede();
     if (this.#carried) this.#carried.value = value;
     if (!this.instance) {
       this.#reset = value;
@@ -435,7 +434,8 @@ export class EditorBinding extends Binding {
 }
 
 /** A `ConfigDocuments` view driven by a component's props. The view tells
- * a late echo of an edit in the list from a value of the host's own. */
+ * an echo of an edit in the list (the component lists every one back) from
+ * a value of the host's own (`echoes: true`). */
 export class DocumentsBinding extends Binding {
   #applied = {};
   #save = (id, value, language) => this.props.onSave?.(id, value, language);
@@ -463,6 +463,8 @@ export class DocumentsBinding extends Binding {
       activeId: props.activeId,
       className: props.viewClassName,
       label: props.label,
+      // The parent lists every `onChange` text back, possibly late.
+      echoes: true,
       onSelect: (id) => this.props.onSelect?.(id),
       onClose: props.onClose ? (request) => this.props.onClose?.(request) : undefined,
       onAdd: props.onAdd ? () => this.props.onAdd?.() : undefined,
@@ -527,6 +529,21 @@ export class DocumentsBinding extends Binding {
       editAs: (id, language) => binding.ask((view) => view.editAs(id, language), false),
       focus: () => binding.guard((view) => view.focus()),
       editor: (id) => binding.ask((view) => view.editor(id) ?? null, null),
+      setValue: (id, value) => binding.#setValue(id, value),
     };
+  }
+
+  /** Replaces a document's text, always, and reports it through `onChange`. */
+  #setValue(id, value) {
+    if (typeof id !== "string" || typeof value !== "string") {
+      this.report(new TypeError("setValue needs an id and a string"));
+      return false;
+    }
+    return this.ask((view) => {
+      if (!view.replaceValue(id, value)) return false;
+      // The parent's list follows, as after an edit.
+      this.props.onChange?.(id, value);
+      return true;
+    }, false);
   }
 }

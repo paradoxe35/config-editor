@@ -21,6 +21,7 @@ declare const ConfigDocuments: import("svelte").Component<ConfigDocumentsProps, 
     editAs: (id: string, language: LanguageName) => boolean;
     focus: () => void;
     editor: (id: string) => EditorView | null;
+    setValue: (id: string, value: string) => boolean;
 }, "">;
 type ConfigDocuments = ReturnType<typeof ConfigDocuments>;
 export default ConfigDocuments;

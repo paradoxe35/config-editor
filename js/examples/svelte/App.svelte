@@ -21,11 +21,13 @@
   const query = new URLSearchParams(location.search);
   // `?uncontrolled`: `defaultValue` instead of `bind:value`. `?late`: edits
   // reach the parent 400 ms late, only the latest. `?slow`: every edit 1.5 s
-  // late. `?reset-early`: `setValue` before the editor mounts.
+  // late. `?random`: every edit 0-200 ms late, in whatever order the delays
+  // give. `?reset-early`: `setValue` before the editor mounts.
   // `?props={...}`: extra props (`setExtraProps` changes them later).
   const uncontrolled = query.has("uncontrolled");
   const late = query.has("late");
   const slow = query.has("slow");
+  const random = query.has("random");
   const resetEarly = query.has("reset-early");
   const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
@@ -108,6 +110,7 @@
   }
   function onChange(next: string) {
     if (slow) return void setTimeout(() => apply(next), 1500);
+    if (random) return void setTimeout(() => apply(next), Math.random() * 200);
     if (!late) return apply(next);
     clearTimeout(lateTimer);
     lateTimer = setTimeout(() => apply(next), 400);
@@ -202,7 +205,7 @@
   <!-- Unmounted (`setShown(false)`). -->
 {:else if uncontrolled}
   {@render editorView({ defaultValue: initialText, onChange })}
-{:else if late || slow}
+{:else if late || slow || random}
   <!-- A parent applying edits late: one-way `value` and `onChange`. -->
   {@render editorView({ value, onChange })}
 {:else}

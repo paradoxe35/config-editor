@@ -76,7 +76,8 @@ pub(crate) struct State {
     pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
-    /// The texts `onChange` sent that the host has not handed back yet.
+    /// The texts `onChange` sent that the host has not handed back yet
+    /// (with `echoes`).
     pub(crate) echoes: StoredValue<Echoes, LocalStorage>,
 }
 
@@ -125,9 +126,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
         let _ = state.value.try_set(text.clone());
         if let Some(callback) = state.on_change.try_get_value().flatten() {
-            let _ = state
-                .echoes
-                .try_update_value(|echoes| echoes.sent(&text, js_sys::Date::now()));
+            let _ = state.echoes.try_update_value(|echoes| echoes.sent(&text));
             call_host(&callback, &JsValue::from_str(&text));
         }
     };

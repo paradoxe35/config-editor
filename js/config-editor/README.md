@@ -127,6 +127,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `readOnlyReason`     | `string`                                    | —                | Why the editor is read-only, while `readOnly` is on: the "Cannot edit in a read-only editor" notice says it when the user tries to edit, and so does the text area's accessible description. `update` changes it (`null`: no reason).                                                                                                                                                                                                     |
 | `fileName`           | `string`                                    | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `className`          | `string`                                    | —                | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `echoes`             | `boolean`                                   | `false`          | Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order; see [Hosts that echo](#hosts-that-echo). Fixed for the editor's life.                                                                                                                                                                                                                                                        |
 | `onChange`           | `(value: string) => void`                   | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                    |
 | `onEditAsChange`     | `(language: string) => void`                | —                | Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (a switch is an undo step). A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `onChange` as it is, with the reason on the value in the way. Label the language shown from this, not from `editAs`. |
 | `onSyncChange`       | `(inSync: boolean) => void`                 | —                | Called with whether the text on screen is written back to the document: once on mount, then each time that changes. `false` while an `editAs` edit cannot convert back (`value` is `null`, `onChange` waits), whatever brought it there (typing, paste, undo, a switch, a reload, a new `value`); read after each typing pause. Always `true` in `language`.                                                                              |
@@ -148,7 +149,7 @@ An unknown language, theme or color token, or an invalid schema, throws an
 `value`, `baseline`, `editAs`, `readOnly`, `hostDiagnostics`, the read-only
 fields, the callbacks and every setting change live through
 [`update`](#updateoptions). The other options (`language`, `schema`,
-`fileName`, `className`, `secrets`) are what the editor is built from:
+`fileName`, `className`, `secrets`, `echoes`) are what the editor is built from:
 create a new one to change them (the framework components do it for you).
 
 ### Settings
@@ -464,16 +465,13 @@ editor.update({ hostDiagnostics: problems, onSave: null });
 - Settings merge key by key, `strings` text by text and `colors` token by
   token, as the settings do: a text or token set to `undefined` stays, one
   set to `null` returns to its default (`colors: null` clears them all).
-- A new `value` replaces the document as a host update: the caret stays on
-  the same text when possible. `readOnlyRanges` and host `range`s given with
-  it are in the new document. A host storing each `onChange` text and handing
-  it back may do so late, after the user typed on: a `value` that is a text
-  `onChange` gave and the editor has since moved past is such a late echo,
-  and keeps the document (nothing typed is lost, whatever the delay). A text
-  the editor never sent is the host's own (a reset, a loaded file) and
-  replaces it; an echo still on its way then is skipped, and should the
-  host store it anyway, `onChange` gives it the document again.
-- `language`, `schema`, `fileName`, `className` and `secrets` are what the
+- A new `value` replaces the document as a host update, whatever it is (a
+  file switched to, a discard, a reset); a `value` that is the document
+  already changes nothing. The caret stays on the same text when possible.
+  `readOnlyRanges` and host `range`s given with it are in the new document.
+  For a host that hands every `onChange` text back, see
+  [Hosts that echo](#hosts-that-echo).
+- `language`, `schema`, `fileName`, `className`, `secrets` and `echoes` are what the
   editor is built from: they throw (`"language cannot change on a mounted
 ConfigEditor …"`); create a new editor to change them. The `language`
   the editor already has changes nothing. TypeScript types them `never` in
@@ -482,6 +480,38 @@ ConfigEditor …"`); create a new editor to change them. The `language`
   nothing.
 
 </details>
+
+#### Hosts that echo
+
+A host that only saves what `onChange` gives (`onChange: save`, as in the
+[Quick start](#quick-start)) needs nothing more: every `value` it passes to
+`update` applies. A host that hands every `onChange` text back through
+`update({ value })` (a store that re-renders after a delay, a fetch per
+edit) may do it late, after the user typed on, and in any order. Applying
+such an echo would roll the document back, so tell the editor with
+`echoes: true`:
+
+```ts
+const editor = new ConfigEditor(element, {
+  value: store.text,
+  echoes: true,
+  onChange: (text) => store.save(text), // the store calls editor.update({ value }) later
+});
+```
+
+Then a `value` that `onChange` gave and that has not come back yet is its
+echo and keeps the document, whatever its order or delay: nothing typed is
+lost. The text you gave last, given again (a render for another reason, the
+whole `documents` list after another document's edit), is no news either. A
+text the editor never gave (a loaded file, a reset) applies; echoes of what
+was typed before it are still skipped when they come. When an echo
+leaves your store holding an older text and nothing still on its way brings
+it back, `onChange` gives it the document again. To go back to a text
+`onChange` gave that may still be on its way (a discard to what you saved, a
+revert), call `replaceValue(text)`, which always applies. The promise is
+yours to keep: a host that hands back only some texts (the latest of
+several) leaves the others counted as echoes (the newest 256 are
+remembered), so set those with `replaceValue` too.
 
 ### Instance members
 
@@ -504,12 +534,12 @@ ConfigEditor …"`); create a new editor to change them. The `language`
 
 `ConfigEditor` adds:
 
-| Member               | Description                                                                                                                                                                                                                                                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                         |
-| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: `update({ value })` takes a text `onChange` gave, which the user has typed past, for a late echo and keeps the document; this never does (a revert to what `onChange` gave earlier). The caret stays on the same text when possible; `onChange` does not hear it. |
-| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                                                              |
-| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method).                                 |
+| Member               | Description                                                                                                                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                               |
+| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible; `onChange` does not hear it. |
+| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside `onChange`.                                                                                                                                                                                    |
+| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method).                       |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.
@@ -1134,11 +1164,15 @@ view.isDirty("main");
   `language` or `schema` mounts a new editor). Handing the whole list back
   after every edit is cheap: a `value`, `baseline` or `schema` that is the
   same string as last time (the one `onChange` gave you included) is not
-  read again, so only the edited document costs anything. It may also come
-  late (a store that re-renders after a delay): a document's `value` that
-  is a text `onChange` gave and its editor has since moved past is a late
-  echo and keeps what the editor holds, as `ConfigEditor`'s `update({ value
-})` does; a text the editor never sent is yours and replaces it.
+  read again, so only the edited document costs anything. A listed `value`
+  always applies (a discard, a reload); one that is the document already
+  changes nothing. A host that lists every `onChange` text back late, in
+  any order (a store that re-renders after a delay), creates the view with
+  `echoes: true`: a document's `value` its editor gave that has not come
+  back yet is then its echo and keeps what the editor holds, as in
+  [Hosts that echo](#hosts-that-echo); `view.replaceValue(id, text)` goes
+  back to such a text (list the document with it from then on; `false` for
+  an id not listed).
 - `onProblems(id, problems)` gives each document's editor's own problems
   (as `ConfigEditor`'s `onProblems`): once its editor mounts, when the
   document is first shown, then each time they change.
@@ -1247,8 +1281,8 @@ view.editAs("main", "toml"); // after an undo across the switch: ask again
   (left out or `undefined` stays, `null` removes a callback or returns a
   setting to its default, every key checked before any applies): the
   `documents`, `activeId` (shows that document, leaving the focus where it
-  is), the settings and the callbacks. `className` and `label` (the tab
-  list's name) are fixed and throw, and so does an `onClose` for a view
+  is), the settings and the callbacks. `className`, `label` (the tab
+  list's name) and `echoes` are fixed and throw, and so does an `onClose` for a view
   created without one (its tabs have no close buttons); `activeId` given to
   the constructor is the document shown first. An `activeId` not listed
   throws there, as a wrong option does; `select(id)` is a request and

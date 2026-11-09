@@ -379,12 +379,15 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <details>
 <summary>Late echoes, and resetting with setValue</summary>
 
-A parent that applies the edits late (a store, a debounce, a server round
-trip) cannot roll the document back to an older one: a `modelValue` equal to
-one the editor sent in the last 10 seconds, while newer ones are still on
-their way, is taken as that late echo. Any other value (a revert, a reset)
-is applied. To reset to a text the user may have just passed through while
-a late parent is catching up, call `setValue(text)` on the instance, which
+A parent that applies the edits late, even in another order (a store, a
+server round trip per edit), cannot roll the document back: a `modelValue`
+the editor sent that has not come back yet is taken as its echo, whatever
+its order or delay. Any other value (a revert, a reset, a loaded file) is
+applied. If an echo leaves the parent's value on an older text, with nothing
+still on its way to bring it back, `@update:model-value` reports the
+document again. A parent that applies only some values (a debounce keeping
+the latest) leaves the others counted as echoes: to reset to a text the
+user may have passed through, call `setValue(text)` on the instance, which
 always applies (also before the editor has mounted) and is reported through
 `@update:model-value`.
 
@@ -513,7 +516,7 @@ tabs, shown only with a listener: add the new document, which opens
 selected),
 `@dirty-change`, `@edit-as-change`, `@sync-change`, `@problems` (a
 document's id and its editor's own problems), `@error`. The template ref is a `ConfigDocumentsHandle`:
-`select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `activeId`,
+`select(id)`, `isDirty(id)`, `save(id)`, `saveAll()`, `editAs(id, language)`, `focus()`, `setValue(id, text)` (replaces a document's text, always, and reports it through `@change`), `activeId`,
 `instance`, and `editor(id)`, the editor of a document, an `EditorView`
 (`value`, `reveal`, `rangeOf`, `fold`, `unifiedDiff`, …). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
 Per document, `@edit-as-change` (`id, language`) says the language on screen (once when its editor mounts, then on each change: a switch made, one that waited, undo or redo across a switch) and `@sync-change` (`id, inSync`) whether the text on screen is written back to its `value`. A prop that did not change is not sent again, so after an undo stepped back across a switch, `editAs(id, language)` on the template ref asks for it again. A document's `editAsText` (with `editAs`) opens its editor with the text the user had on screen (kept from `editor(id).text`), converted back once it is valid; `readOnlyReason` shows why a read-only document is read-only (its tab's tooltip, the notice when the user types, the accessible descriptions).

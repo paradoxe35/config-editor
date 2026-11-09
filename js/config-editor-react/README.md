@@ -368,18 +368,20 @@ keeps them) and that comments typed there are not saved.
 <!-- strings:end -->
 
 <details>
-<summary>Parents that apply onChange late: late echoes and resetting with setValue</summary>
+<summary>Parents that apply onChange late: echoes and resetting with setValue</summary>
 
-A parent that applies `onChange` values late cannot roll the document back to
-an older one: a `value` equal to one the editor sent in the last 10 seconds,
-while newer ones are still on their way, is taken as that late echo. Any other `value` (a revert, a reset)
-is applied. To reset to a text the user may have just passed through while a
-late parent is catching up, call `ref.current.setValue(text)`, which always
-applies (also before the editor has mounted, from an effect: it is applied
-when the editor mounts): it is reported through `onChange` so the parent's state follows,
-echoes of values sent before it are skipped, and if the parent's state took
-one of them anyway, `onChange` reports the document again so both end on the
-reset.
+A parent that applies `onChange` values late, even in another order (a
+store, a fetch per edit), cannot roll the document back: a `value` the
+editor sent that has not come back yet is taken as its echo, whatever its
+order or delay. Any other `value` (a revert, a reset, a loaded file) is
+applied. If an echo leaves the parent's state on an older text, with nothing
+still on its way to bring it back, `onChange` reports the document again so
+both end on it. A parent that applies only some values (a debounce keeping
+the latest) leaves the others counted as echoes: to reset to a text the
+user may have passed through, call `ref.current.setValue(text)`, which
+always applies (also before the editor has mounted, from an effect: it is
+applied when the editor mounts) and is reported through `onChange` so the
+parent's state follows.
 
 </details>
 
@@ -535,7 +537,7 @@ work per document as on `<ConfigEditor>`. A new `activeId` shows that
 document, leaving the focus where it is. `ref.current.editor(id)` returns
 that document's editor, an `EditorView` (`null` for an id not listed):
 `value`, `rangeOf`, `reveal`, `fold`, `currentPath`, `unifiedDiff`, …; its
-queries answer `null` until the document has been shown once. Per document, `onEditAsChange(id, language)` says the language on screen (once when its editor mounts, then on each change: a switch made, one that waited, undo or redo across a switch) and `onSyncChange(id, inSync)` whether the text on screen is written back to its `value`. A prop that did not change is not sent again, so after an undo stepped back across a switch, `editAs(id, language)` on the ref asks for it again. A document's `editAsText` (with `editAs`) opens its editor with the text the user had on screen (kept from `editor(id).text`), converted back once it is valid; `readOnlyReason` shows why a read-only document is read-only (its tab's tooltip, the notice when the user types, the accessible descriptions). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
+queries answer `null` until the document has been shown once. `ref.current.setValue(id, text)` replaces a document's text, always (a reset to a text the user passed through), and reports it through `onChange`. Per document, `onEditAsChange(id, language)` says the language on screen (once when its editor mounts, then on each change: a switch made, one that waited, undo or redo across a switch) and `onSyncChange(id, inSync)` whether the text on screen is written back to its `value`. A prop that did not change is not sent again, so after an undo stepped back across a switch, `editAs(id, language)` on the ref asks for it again. A document's `editAsText` (with `editAs`) opens its editor with the text the user had on screen (kept from `editor(id).text`), converted back once it is valid; `readOnlyReason` shows why a read-only document is read-only (its tab's tooltip, the notice when the user types, the accessible descriptions). See the [`@pngwasi/config-editor` README](https://www.npmjs.com/package/@pngwasi/config-editor#several-documents).
 
 For example:
 

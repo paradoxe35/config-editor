@@ -31,6 +31,8 @@ export interface EditorOptions extends EditorSettings {
   readOnlyReason?: string;
   /** Extra class on the editor root. */
   className?: string;
+  /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
+  echoes?: boolean;
   /** Called with the document, in `language`, after every edit. */
   onChange?: (value: string) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
@@ -120,11 +122,11 @@ export type SettingsUpdate = {
  * left out (or `undefined`) stays as it is; `null` removes a callback,
  * clears a list, turns `editAs` and `readOnly` off, or returns a setting to
  * its default; settings merge key by key. The options the editor is built
- * from (`language`, `schema`, `fileName`, `className`, `secrets`) cannot
+ * from (`language`, `schema`, `fileName`, `className`, `secrets`, `echoes`) cannot
  * change: create a new editor.
  */
 export interface EditorUpdate extends SettingsUpdate {
-  /** Replaces the document (in `language`), as a host update: the caret stays when the text is unchanged. */
+  /** Replaces the document (in `language`), as a host update: the caret stays when the text is unchanged. With `echoes`, a text `onChange` gave that has not come back yet is its echo and keeps the document. */
   value?: string;
   /** The text the diff gutter compares against. */
   baseline?: string;
@@ -161,6 +163,8 @@ export interface EditorUpdate extends SettingsUpdate {
   className?: never;
   /** The editor is built from it: create a new one to change it. */
   secrets?: never;
+  /** The editor is built from it: create a new one to change it. */
+  echoes?: never;
 }
 
 /**
@@ -392,6 +396,8 @@ export interface DocumentsOptions extends EditorSettings {
   className?: string;
   /** The tab list's accessible name. Default `"Open files"`. */
   label?: string;
+  /** Set it when you list every `onChange` text back as the document's `value` in `update({ documents })`, possibly late and in any order: a `value` its editor gave that has not come back yet is then its echo and keeps what the editor holds. A text it never gave applies; go back to one it gave with `replaceValue(id, text)`. Without it (the default) every listed `value` applies. Fixed for the view's life. */
+  echoes?: boolean;
   /** Called with a document's id when it becomes the active one (a tab, `Alt+PageDown` / `Alt+PageUp`, `select()`, or the active one closing). */
   onSelect?: (id: string) => void;
   /** Called when the user asks to close a document (close button, middle click, `Delete` on its tab); only `closable` documents ask. Without it, tabs have no close button. */
@@ -416,7 +422,7 @@ export interface DocumentsOptions extends EditorSettings {
  * What `view.update` takes: the documents, the active one, the settings and
  * the callbacks, any of them. A key left out (or `undefined`) stays as it
  * is; `null` removes a callback or returns a setting to its default;
- * settings merge key by key. `className` and `label` cannot change.
+ * settings merge key by key. `className`, `label` and `echoes` cannot change.
  */
 export interface DocumentsUpdate extends SettingsUpdate {
   /** Replaces the list: a document keeps its editor while its `id` stays listed. */
@@ -439,6 +445,8 @@ export interface DocumentsUpdate extends SettingsUpdate {
   className?: never;
   /** The view is built from it: create a new one to change it. */
   label?: never;
+  /** The view is built from it: create a new one to change it. */
+  echoes?: never;
 }
 "#;
 

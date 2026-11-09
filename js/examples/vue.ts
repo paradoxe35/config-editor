@@ -26,11 +26,13 @@ const ready = query.has("late-load")
   : loadConfigEditor(wasm);
 // `?uncontrolled`: `default-value` instead of `v-model`. `?late`: edits reach
 // the parent 400 ms late, only the latest. `?slow`: every edit 1.5 s late.
+// `?random`: every edit 0-200 ms late, in whatever order the delays give.
 // `?reset-early`: `setValue` before the editor mounts. `?props={...}`: extra
 // props (`setExtraProps` changes them later).
 const uncontrolled = query.has("uncontrolled");
 const late = query.has("late");
 const slow = query.has("slow");
+const random = query.has("random");
 const resetEarly = query.has("reset-early");
 const initialExtra = JSON.parse(query.get("props") ?? "{}") as Record<string, unknown>;
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
@@ -99,6 +101,7 @@ const App = defineComponent({
     };
     const onModel = (next: string) => {
       if (slow) return void setTimeout(() => apply(next), 1500);
+      if (random) return void setTimeout(() => apply(next), Math.random() * 200);
       if (!late) return apply(next);
       clearTimeout(lateTimer);
       lateTimer = setTimeout(() => apply(next), 400);

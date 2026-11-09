@@ -12,6 +12,11 @@ import { loadConfigEditor } from "@pngwasi/config-editor";
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 const schema = await (await fetch("../../schema.json")).text();
 
+// `?random` lists each edit back 0-200 ms late, in whatever order the delays
+// give (a fetch per edit).
+const random = new URLSearchParams(location.search).has("random");
+const later = (apply: () => void) => (random ? void setTimeout(apply, Math.random() * 200) : apply());
+
 const initialFiles: DocumentSpec[] = [
   { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
   { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
@@ -23,14 +28,17 @@ function App() {
   const [log, setLog] = useState<string[]>([]);
   const tabs = useRef<ConfigDocumentsHandle>(null);
   // For tests: the view's settings (`setViewSettings`), a document's own
-  // fields (`updateFile`) and the ref (`documentsHandle`).
+  // fields (`updateFile`), the ref (`documentsHandle`) and the list
+  // (`currentFiles`).
   const [settings, setSettings] = useState<EditorSettings>({});
   const hooks = window as unknown as {
     setViewSettings: typeof setSettings;
     updateFile: (id: string, change: Partial<DocumentSpec>) => void;
     documentsHandle: typeof tabs;
+    currentFiles: () => DocumentSpec[];
   };
   hooks.setViewSettings = setSettings;
+  hooks.currentFiles = () => files;
   hooks.documentsHandle = tabs;
   const note = (line: string) => setLog((lines) => [...lines, line]);
   const update = (id: string, change: Partial<DocumentSpec>) =>
@@ -59,7 +67,7 @@ function App() {
         documents={files}
         onChange={(id, value) => {
           note(`change ${id}`);
-          update(id, { value });
+          later(() => update(id, { value }));
         }}
         onSave={(id, value, language) => {
           note(`save ${id} ${language}`);

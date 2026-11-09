@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 //   has as a prop (under its framework's name). Each option either changes
 //   live (`update`: a key of `EditorUpdate` / `DocumentsUpdate`) or is one
 //   the instance is built from (`fixed`, with the reason: `update` refuses
-//   it and the components re-mount for it).
+//   it and the components re-mount for it). An option with no Rust prop
+//   and no component prop is in `OPTIONS_JS_ONLY` with the reason.
 // - `member`: an instance member of `ConfigEditor` (and of `EditorView`,
 //   which a document's editor implements), or of `ConfigDocuments`; each is
 //   a member of the binding's handle and of every component's instance API.
@@ -344,6 +345,15 @@ const CRATE_EXPORTS = {
   unified_diff: { tool: 'unifiedDiff' },
 };
 
+// Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
+// and no component has, and why.
+const OPTIONS_JS_ONLY = {
+  echoes: 'a host handing every `onChange` text back through `update`: in Rust the `value` prop is a signal the host sets, with no echo to tell apart; a component\'s binding tells its parent\'s echoes apart itself (`ValueSync`)',
+};
+const DOCUMENTS_OPTIONS_JS_ONLY = {
+  echoes: 'a host listing every `onChange` text back through `update`: in Rust the `documents` prop is a signal the host sets; a component\'s binding always sets it (its parent lists every edit back)',
+};
+
 // Instance members of `ConfigEditor` / `ConfigDocuments` that a component
 // does not expose, and why.
 const EDITOR_JS_ONLY = {
@@ -354,6 +364,7 @@ const EDITOR_JS_ONLY = {
 };
 const DOCUMENTS_JS_ONLY = {
   update: 'the props: a component applies each change itself',
+  replaceValue: 'a component\'s parent lists `documents`, and its handle\'s `setValue(id, text)` replaces a document\'s text through it',
   destroy: 'the component unmounts the view itself',
   settings: 'the setting props',
 };
@@ -366,6 +377,7 @@ const EDITOR_MEMBERS_JS_ONLY = {
   editAs: 'a component\'s `editAs` prop asked for again (a prop that did not change is not sent): the `edit_as` prop in Rust, a signal set again',
 };
 const DOCUMENTS_MEMBERS_JS_ONLY = {
+  setValue: 'a component\'s parent lists `documents`: the `documents` prop in Rust, which a signal sets',
   instance: 'a component\'s way to the `ConfigDocuments` instance it mounted (Rust: the `handle` prop is that instance)',
 };
 
@@ -912,7 +924,7 @@ function optionListProblems(side, { js }) {
  * its binding prop, which every component has under its own name; every
  * binding prop and component prop maps back to an option or is exempted.
  */
-function optionProblems({ tables, options, forwarded, bindingProps, bindingOnly, frameworks, frameworkProps, rename, only, where }) {
+function optionProblems({ tables, options, jsOnly = {}, forwarded, bindingProps, bindingOnly, frameworks, frameworkProps, rename, only, where }) {
   const toProp = new Map(
     tables
       .flatMap((table) => Object.values(table))
@@ -921,6 +933,7 @@ function optionProblems({ tables, options, forwarded, bindingProps, bindingOnly,
   );
   const problems = [];
   for (const option of options) {
+    if (option in jsOnly) continue;
     const prop = toProp.get(option);
     if (!prop) {
       problems.push(`JS option \`${option}\` has no Rust prop in the mapping (${where})`);
@@ -1046,6 +1059,7 @@ function allProblems(read) {
     ...optionProblems({
       tables: [PROPS],
       options: read.js.options,
+      jsOnly: OPTIONS_JS_ONLY,
       forwarded: read.binding.forwarded,
       bindingProps: read.binding.props,
       bindingOnly: BINDING_ONLY_PROPS,
@@ -1058,6 +1072,7 @@ function allProblems(read) {
     ...optionProblems({
       tables: [DOCUMENTS_PROPS],
       options: read.js.documentsOptions,
+      jsOnly: DOCUMENTS_OPTIONS_JS_ONLY,
       forwarded: read.binding.documentsForwarded,
       bindingProps: read.binding.documentsProps,
       bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
@@ -1187,6 +1202,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       optionProblems({
         tables: [PROPS],
         options: js.options,
+        jsOnly: OPTIONS_JS_ONLY,
         forwarded: binding.forwarded,
         bindingProps: binding.props,
         bindingOnly: BINDING_ONLY_PROPS,
@@ -1204,6 +1220,7 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       optionProblems({
         tables: [DOCUMENTS_PROPS],
         options: js.documentsOptions,
+        jsOnly: DOCUMENTS_OPTIONS_JS_ONLY,
         forwarded: binding.documentsForwarded,
         bindingProps: binding.documentsProps,
         bindingOnly: DOCUMENTS_BINDING_ONLY_PROPS,
