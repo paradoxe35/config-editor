@@ -93,6 +93,8 @@ mod fold_matrix;
     feature = "xml"
 ))]
 mod highlight_matrix;
+#[cfg(all(test, feature = "yaml", feature = "schema-validation"))]
+mod item_start_tests;
 #[cfg(all(
     test,
     feature = "yaml",

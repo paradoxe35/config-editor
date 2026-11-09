@@ -148,6 +148,7 @@ const CONFIG_LANGUAGE = {
   hover_key: { custom: ['separators', 'keyAt'] },
   hover_path: { custom: 'keyAt' },
   hover_cursor: { exempt: RUST_ONLY_REFINEMENT },
+  item_start: { custom: 'brackets' },
   highlight: { custom: 'highlight' },
   newline: { custom: 'brackets' },
   toggle_comments: { custom: 'comments' },

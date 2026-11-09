@@ -289,6 +289,18 @@ impl ConfigLanguage for YamlBehavior {
         hover_context_offset(line, column)
     }
 
+    fn item_start(&self, source: &str, line_start: usize, line: &str, column: usize) -> Option<usize> {
+        // A block sequence's `- ` (or a dash alone on its line) opens an item.
+        let (at, marker) = line.char_indices().nth(column)?;
+        let after = &line[at + marker.len_utf8()..];
+        match after.chars().next() {
+            _ if marker != '-' => crate::editor::language::bracket_item_start(self, source, line_start, line, column),
+            None => Some(at + 1),
+            Some(next) if next.is_whitespace() => Some(at + 1 + next.len_utf8()),
+            Some(_) => None,
+        }
+    }
+
     fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
         highlight(line)
     }

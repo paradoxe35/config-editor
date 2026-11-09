@@ -72,6 +72,10 @@ pub use super::inline::{
     inline_value_len, skip_quoted, statement_start, statements, string_end_at_caret,
 };
 pub use super::keyboard::utf16_to_byte_index;
+pub use item_start::bracket_item_start;
+pub(crate) use item_start::cursor_at;
+
+mod item_start;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -1049,6 +1053,22 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     fn hover_cursor(&self, line: &str, column: usize) -> usize {
         let _ = column;
         line.len()
+    }
+
+    /// When character `column` of `line` (starting at byte `line_start` of
+    /// `source`) opens a list item, the byte offset in `line` where the
+    /// item's content starts; the hover card then shows the list's docs and
+    /// the item's. The default: one of the language's opening brackets where
+    /// an item goes (a JSON item's `{`). A language with its own item marker
+    /// (a YAML `- `) reports that too.
+    fn item_start(
+        &self,
+        source: &str,
+        line_start: usize,
+        line: &str,
+        column: usize,
+    ) -> Option<usize> {
+        bracket_item_start(self, source, line_start, line, column)
     }
 
     /// The highlighted runs of one line; uncovered text renders plain.

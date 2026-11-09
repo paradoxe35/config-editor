@@ -1,6 +1,7 @@
 //! Schema docs for the key or documented value under the pointer.
 
 use super::*;
+use crate::editor::language::cursor_at;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct KeyHover {
@@ -72,8 +73,8 @@ pub(crate) fn key_hover(
 }
 
 /// The path of the list item that character `column` of `line` (starting
-/// at byte `line_start` of `source`) opens: a YAML `- ` or the `{` or `[`
-/// of an item written inline (a JSON item); None elsewhere.
+/// at byte `line_start` of `source`) opens, by what the language says opens
+/// one there ([`ConfigLanguage::item_start`]); None elsewhere.
 fn item_at(
     source: &str,
     line_start: usize,
@@ -81,28 +82,10 @@ fn item_at(
     column: usize,
     behavior: &dyn ConfigLanguage,
 ) -> Option<Vec<SchemaPathSegment>> {
-    let (at, marker) = line.char_indices().nth(column)?;
-    let next = line[at + marker.len_utf8()..].chars().next();
-    let dash = marker == '-' && next.is_none_or(char::is_whitespace);
-    if !dash && !matches!(marker, '{' | '[') {
-        return None;
-    }
-    let cursor = |offset: usize| source[..line_start + offset].encode_utf16().count();
-    // A bracket is an item's when it stands where an item goes.
-    if !dash
-        && !behavior
-            .completion_context(source, cursor(at))
-            .is_array_item
-    {
-        return None;
-    }
-    let past_space = if dash {
-        next.map_or(0, char::len_utf8)
-    } else {
-        0
-    };
-    let inside = at + marker.len_utf8() + past_space;
-    let path = behavior.completion_context(source, cursor(inside)).path;
+    let inside = behavior.item_start(source, line_start, line, column)?;
+    let path = behavior
+        .completion_context(source, cursor_at(source, line_start, inside))
+        .path;
     matches!(path.last(), Some(SchemaPathSegment::ArrayItem(_))).then_some(path)
 }
 
