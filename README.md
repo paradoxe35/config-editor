@@ -104,6 +104,8 @@ fn Settings() -> impl IntoView {
 }
 ```
 
+Full documentation: [Config Editor for Leptos](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos#config-editor-for-leptos).
+
 ### JavaScript
 
 ```sh
@@ -126,6 +128,8 @@ editor.update({ readOnly: true, theme: "nord" }); // live; the rest stays
 Text without an editor (a service's check, a build step) is
 `@pngwasi/config-editor/tools` (`validate`, `convert`, `parse`, …).
 
+Full documentation: [Config Editor for JavaScript](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#config-editor-for-javascript).
+
 ### React
 
 ```sh
@@ -147,6 +151,8 @@ function Settings({ schema }: { schema: string }) {
   );
 }
 ```
+
+Full documentation: [Config Editor for React](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react#config-editor-for-react).
 
 ### Vue
 
@@ -173,6 +179,8 @@ const text = ref("listen: 7835\n");
 </template>
 ```
 
+Full documentation: [Config Editor for Vue](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-vue#config-editor-for-vue).
+
 ### Svelte
 
 ```sh
@@ -189,6 +197,8 @@ npm install @pngwasi/config-editor-svelte @pngwasi/config-editor
 
 <ConfigEditor bind:value={text} language="yaml" {schema} onSave={upload} />
 ```
+
+Full documentation: [Config Editor for Svelte](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-svelte#config-editor-for-svelte).
 
 ## Repository layout
 
