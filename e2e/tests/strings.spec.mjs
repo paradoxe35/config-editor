@@ -78,6 +78,7 @@ const ELSEWHERE = {
   deprecated: 'schema help tests',
   documentation: 'schema help tests (x-docs-url)',
   openDocs: 'host problems with a docs link: host diagnostics tests',
+  openDocsTouch: 'a touch screen: the hover-card-text spec',
   examples: 'schema help tests',
   readOnlyText: 'read-only ranges: protect tests',
   holdsReadOnly: 'renaming a locked field’s key: protect tests',

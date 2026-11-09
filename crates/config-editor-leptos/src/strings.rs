@@ -325,6 +325,8 @@ pub struct EditorStrings {
     pub problem_tip_label: String,
     /// The link under a host problem's message.
     pub open_docs: String,
+    /// `open_docs` on a touch screen, which has no keys to name.
+    pub open_docs_touch: String,
     /// An error, as a screen reader hears it.
     pub error: String,
     /// A warning, as a screen reader hears it.
@@ -617,6 +619,7 @@ impl Default for EditorStrings {
             hover_label: text("About {key}"),
             problem_tip_label: text("Problems here"),
             open_docs: text("Open docs ↗ (Alt+Enter)"),
+            open_docs_touch: text("Open docs ↗"),
             error: text("Error"),
             warning: text("Warning"),
             info: text("Info"),

@@ -27,7 +27,7 @@ pub(super) fn ProblemCount(state: EditorState) -> impl IntoView {
     let underlines_cut = state.problems().underlines_cut;
     let summary = Memo::new(move |_| {
         let underlines_cut = underlines_cut.get();
-        let touch = touch_screen();
+        let touch = super::super::touch::touch_screen();
         state.strings(|strings| {
             diagnostics.with(|problems| summary_parts(strings, problems, underlines_cut, touch))
         })
@@ -106,14 +106,6 @@ impl Summary {
 /// The note `validate` adds when it cut the list.
 fn is_more_note(problem: &Diagnostic) -> bool {
     problem.code.as_deref() == Some(MORE_PROBLEMS_CODE)
-}
-
-/// Whether the screen has no hover (a phone's, a tablet's): its hint says
-/// "tap".
-fn touch_screen() -> bool {
-    web_sys::window()
-        .and_then(|window| window.match_media("(hover: none)").ok().flatten())
-        .is_some_and(|query| query.matches())
 }
 
 /// The counts, then an unplaced problem's message and the notes that the

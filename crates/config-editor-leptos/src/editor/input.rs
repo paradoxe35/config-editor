@@ -360,9 +360,14 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     };
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    let (line, column) = pointer_text_position(&element, x, y);
     // Not while a button is held (a drag selecting text).
-    let free = event.buttons() == 0;
+    pointer_at(state, &element, x, y, event.buttons() == 0);
+}
+
+/// The pointer is at `(x, y)` in the window over the text (`free`: no
+/// button held): what is there shows.
+pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f64, free: bool) {
+    let (line, column) = pointer_text_position(element, x, y);
     // Heading for the popup across other text: that text waits.
     if free && state.on_the_way_to_popup(x, y, line, column) {
         return;
@@ -404,7 +409,7 @@ pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     state.hide_hover();
     state.hover().pending.set_value(Some(identity));
     let token = state.hover().token.get_value();
-    let style = hover_card_style(&element, line, info.start_column);
+    let style = hover_card_style(element, line, info.start_column);
     schedule_hover(state, move |state| {
         if state.hover().token.get_value() == token {
             state.hover().pending.set_value(None);

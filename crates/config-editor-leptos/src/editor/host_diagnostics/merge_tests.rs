@@ -148,11 +148,96 @@ fn a_host_problem_hides_the_editors_own_only_when_it_says_the_same() {
             ] {
                 let host = placed(language, text, &[host]);
                 let merged = merge(&own, &host);
-                if merged != own {
+                // (It names the host as well: see the test below.)
+                let unnamed: Vec<Diagnostic> = merged
+                    .iter()
+                    .cloned()
+                    .map(|problem| Diagnostic {
+                        source: None,
+                        ..problem
+                    })
+                    .collect();
+                if unnamed != own {
                     failures.push(format!(
                         "{language} same message as a {severity:?}: {merged:?}"
                     ));
                 }
+            }
+        }
+    }
+    report(failures);
+}
+
+/// QA 25 (U25-5): the host repeating a schema error less seriously showed
+/// the schema's alone, the host's docs link and name lost; the host saying
+/// one message at several severities on the same text showed (and counted)
+/// it once per severity. Each shows once, the most serious, with the
+/// host's name, code and docs link.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn a_problem_said_twice_shows_once_with_the_hosts_name_and_link() {
+    let schema = super::super::Schema::compile(SCHEMA).unwrap();
+    let docs = "https://example.com/max";
+    let mut failures = Vec::new();
+    for (language, text) in DOCUMENTS {
+        let own = schema.validate(language, text);
+        let Some(too_big) = own.iter().find(|problem| !problem.deprecated) else {
+            continue;
+        };
+        let line = too_big.line.unwrap();
+        let said = |severity| {
+            HostDiagnostic::at_range(whole_line(text, line), severity, bare(&too_big.message))
+        };
+        // (case, host problems, the severity and message shown, its source)
+        let cases: Vec<(&str, Vec<HostDiagnostic>, Severity, &str, &str)> = vec![
+            (
+                "the schema's error as a warning, with a link",
+                vec![said(Severity::Warning).with_docs_url(docs).with_code("W1")],
+                Severity::Error,
+                &too_big.message,
+                "host",
+            ),
+            (
+                "the host's at three severities",
+                vec![
+                    HostDiagnostic::at_path("/web", Severity::Warning, "dup"),
+                    HostDiagnostic::at_path("/web", Severity::Error, "dup").with_code("W1"),
+                    HostDiagnostic::at_path("/web", Severity::Hint, "dup").with_docs_url(docs),
+                ],
+                Severity::Error,
+                "dup",
+                "host",
+            ),
+            (
+                "the schema's at three severities from a named host",
+                vec![
+                    said(Severity::Hint).with_source("lint").with_docs_url(docs),
+                    said(Severity::Warning).with_source("lint").with_code("W1"),
+                    said(Severity::Info).with_source("lint"),
+                ],
+                Severity::Error,
+                &too_big.message,
+                "lint",
+            ),
+        ];
+        for (case, host, severity, message, source) in cases {
+            let host = placed(language, text, &host);
+            let merged = merge(&own, &host);
+            let shown: Vec<_> = merged
+                .iter()
+                .filter(|problem| problem.message == message)
+                .map(|problem| {
+                    (
+                        problem.severity,
+                        problem.source.as_deref(),
+                        problem.code.as_deref(),
+                        problem.docs_url.as_deref(),
+                    )
+                })
+                .collect();
+            let wanted = [(severity, Some(source), Some("W1"), Some(docs))];
+            if shown != wanted || merged.len() != own.len() + usize::from(message == "dup") {
+                failures.push(format!("{language} {case}: {shown:?} of {merged:?}"));
             }
         }
     }

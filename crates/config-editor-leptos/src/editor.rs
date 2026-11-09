@@ -89,6 +89,7 @@ mod sync;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
 mod theme;
+mod touch;
 mod typing;
 mod work_count;
 

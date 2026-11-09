@@ -2,7 +2,7 @@
 //! `strings` setting.
 
 use super::super::completion::{ChoiceHover, KeyHover};
-use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
+use super::super::diagnostics::{Diagnostic, Severity};
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -21,7 +21,7 @@ fn source_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
     problem
         .source
         .as_deref()
-        .filter(|_| problem.origin == DiagnosticOrigin::Host)
+        .filter(|_| problem.reported_by_host())
         .map(|source| fill(&strings.problem_source, &[("source", &source)]))
         .unwrap_or_default()
 }
@@ -32,7 +32,7 @@ fn links_part(strings: &EditorStrings, problem: &Diagnostic) -> String {
     let code = problem
         .code
         .as_deref()
-        .filter(|_| problem.origin == DiagnosticOrigin::Host)
+        .filter(|_| problem.reported_by_host())
         .map(|code| fill(&strings.problem_code, &[("code", &code)]));
     let docs = problem
         .docs_url
@@ -105,9 +105,10 @@ pub(in crate::editor) fn problem_marker(
 
 /// The hover card's docs as one text, for screen readers when the card is
 /// shown from the keyboard or a tap: the value's, then the key's name, type,
-/// marks and title, its description, its `oneOf` option, default and
-/// examples, and its docs link, which `Alt+Enter` opens unless a problem
-/// at the caret has a link of its own (`docs_key`, see `open_docs_key`).
+/// marks and title, its description, a list item's own, its `oneOf`
+/// option, default and examples, and its docs link, which `Alt+Enter`
+/// opens unless a problem at the caret has a link of its own (`docs_key`,
+/// see `open_docs_key`).
 pub(in crate::editor) fn hover_text(
     strings: &EditorStrings,
     hover: &KeyHover,
@@ -139,6 +140,10 @@ pub(in crate::editor) fn hover_text(
     parts.extend(hover.title.clone());
     parts.extend(hover.deprecation.clone());
     parts.extend(hover.description.clone());
+    if let Some(item) = &hover.item {
+        parts.extend(item.title.clone());
+        parts.extend(item.description.clone());
+    }
     match &hover.choice {
         Some(ChoiceHover::Matched(doc)) => {
             parts.extend(doc.title.clone());

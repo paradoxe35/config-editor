@@ -132,3 +132,162 @@ fn an_xml_containers_closing_tag_shows_its_docs() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// QA 25 (U25-7): a repeated block's card showed the item's type with the
+/// list's description, the item's own title and description lost; a YAML
+/// `- ` and a JSON item's `{` showed no card. Each item, by its key or
+/// what opens it, shows the list's docs with the item's own under them.
+#[test]
+fn a_list_item_shows_the_lists_docs_and_its_own() {
+    let bundle = build_schema(
+        r#"{"type": "object", "properties": {
+            "svc": {"type": "array", "description": "Services list",
+                "items": {"type": "object", "title": "Service",
+                    "description": "One service entry",
+                    "properties": {"name": {"type": "string", "description": "Service name"}}}},
+            "ports": {"type": "array", "description": "Ports",
+                "items": {"type": "integer", "description": "One port"}}
+        }}"#,
+    )
+    .unwrap();
+    let documents = [
+        (
+            Language::YAML,
+            "svc:\n  - name: a\n  - name: b\nports:\n  - 80\n  -\n",
+            vec![("- name", 0), ("- name", 1)],
+            vec![("- 80", 0), ("-\n", 0)],
+        ),
+        (
+            Language::JSON,
+            "{\n  \"svc\": [\n    { \"name\": \"a\" },\n    {\n      \"name\": \"b\"\n    }\n  ],\n  \"ports\": [[80]]\n}\n",
+            vec![("{ \"name", 0), ("{\n      \"name", 0)],
+            vec![],
+        ),
+        (
+            Language::TOML,
+            "[[svc]]\nname = \"a\"\n\n[[svc]]\nname = \"b\"\n",
+            vec![("svc", 0), ("svc", 1)],
+            vec![],
+        ),
+        (
+            Language::HCL,
+            "svc {\n  name = \"a\"\n}\nsvc {\n  name = \"b\"\n}\n",
+            vec![("svc", 0), ("svc", 1)],
+            vec![],
+        ),
+        (
+            Language::XML,
+            "<svc>\n  <name>a</name>\n</svc>\n<svc>\n  <name>b</name>\n</svc>\n",
+            vec![("<svc", 0), ("<svc", 1)],
+            vec![],
+        ),
+    ];
+    // (key, type, description, item title, item description)
+    type Shown = (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let shown = |hover: Option<KeyHover>| -> Option<Shown> {
+        hover.map(|hover| {
+            let item = hover.item.unwrap_or_default();
+            (
+                hover.key,
+                hover.type_label,
+                hover.description,
+                item.title,
+                item.description,
+            )
+        })
+    };
+    let wanted = |key: &str, description: &str, title: Option<&str>, own: &str| {
+        Some((
+            key.to_string(),
+            "array".to_string(),
+            Some(description.to_string()),
+            title.map(str::to_string),
+            Some(own.to_string()),
+        ))
+    };
+    let mut failures = Vec::new();
+    for (language, source, services, ports) in documents {
+        // On the first character of each: the dash, the brace, the key.
+        let at = |needle: &str, nth: usize| {
+            let (at, _) = source.match_indices(needle).nth(nth).unwrap();
+            let line = source[..at].matches('\n').count();
+            let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
+            let column = source[line_start..at].chars().count();
+            let column = if needle.starts_with('<') {
+                column + 1
+            } else {
+                column
+            };
+            key_hover(source, line, column, Some(&bundle), language.behavior())
+        };
+        for (needle, nth) in services {
+            let got = shown(at(needle, nth));
+            if got != wanted("svc", "Services list", Some("Service"), "One service entry") {
+                failures.push(format!("{language:?} {needle:?} #{nth}: {got:?}"));
+            }
+        }
+        for (needle, nth) in ports {
+            let got = shown(at(needle, nth));
+            if got != wanted("ports", "Ports", None, "One port") {
+                failures.push(format!("{language:?} {needle:?} #{nth}: {got:?}"));
+            }
+        }
+        // A list's own key still shows the list alone; its item's key, its.
+        let key = shown(at("name", 0)).map(|(key, _, description, ..)| (key, description));
+        if key != Some(("name".to_string(), Some("Service name".to_string()))) {
+            failures.push(format!("{language:?} name: {key:?}"));
+        }
+    }
+    // A bracket that opens a list, not an item of one, is no item.
+    let json = "{\n  \"ports\": [\n    80\n  ]\n}\n";
+    let bracket = json.find('[').unwrap();
+    let column = bracket - json[..bracket].rfind('\n').unwrap() - 1;
+    let on = key_hover(json, 1, column, Some(&bundle), Language::JSON.behavior());
+    if on.as_ref().is_some_and(|hover| hover.item.is_some()) {
+        failures.push(format!("JSON list bracket: {:?}", shown(on)));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Hovering any character of lists holding wide characters (a secret's
+/// `•` placeholder, accents, a no-break space after a dash) finds docs or
+/// nothing, in every language, and never stops the editor.
+#[test]
+fn hovering_any_character_of_a_list_with_wide_characters_never_fails() {
+    let bundle = schema();
+    let documents = [
+        (
+            Language::YAML,
+            "svc:\n  - name: é•••\n  -\u{a0}name: x\n  -•\n- •\n",
+        ),
+        (
+            Language::JSON,
+            "{\"svc\": [{\"name\": \"é•\"}, [\"•\"], {•}]}\n",
+        ),
+        (
+            Language::TOML,
+            "svc = [{name = \"é•\"}, [\"•\"]]\n[[svc]]\nname = \"•\"\n",
+        ),
+        (
+            Language::HCL,
+            "svc = [{name = \"é•\"}, [\"•\"]]\nsvc {\n  name = \"•\"\n}\n",
+        ),
+        (
+            Language::XML,
+            "<svc>\n  <name>é•</name>\n</svc>\n<svc>•</svc>\n",
+        ),
+    ];
+    for (language, source) in documents {
+        for (line, text) in source.split('\n').enumerate() {
+            for column in 0..=text.chars().count() {
+                let _ = key_hover(source, line, column, Some(&bundle), language.behavior());
+            }
+        }
+    }
+}

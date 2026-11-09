@@ -4,7 +4,7 @@
 use leptos::html::Div;
 use leptos::prelude::*;
 
-use super::super::completion::{ChoiceHover, HoverValue, KeyHover};
+use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
 use crate::cssom::cssom;
@@ -38,7 +38,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
     Effect::new(move |_| {
         state.hover().card.track();
         problems.track();
-        later::next_frame(scrolls, move |scrolls| measure(state, card_ref, scrolls));
+        later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
     });
     move || {
         state
@@ -50,9 +50,10 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 let info = card.info;
                 let examples = info.examples.join(", ");
                 let problems = problems.get();
-                // A card with a link, or one taller than its room, takes the
-                // pointer, so the link can be reached and clicked and the
-                // card scrolled; others let it through to the text.
+                // The card takes the pointer: its text can be selected and
+                // copied, its links clicked, and it scrolls. On a touch
+                // screen only one with a link or that scrolls takes taps;
+                // others let them through to the text (see the stylesheet).
                 let links = info.docs_url.is_some()
                     || problems.iter().any(|entry| entry.docs_url.is_some());
                 let interactive = move || links || scrolls.get();
@@ -77,8 +78,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         on:focusout=move |event| leave_card_focus(state, &event)
                         on:mouseenter=move |_| enter_card(state)
                         on:mouseleave=move |_| leave_card(state)
-                        // Clicking the link keeps the caret (and the card).
-                        on:mousedown=move |event| event.prevent_default()
+                        on:mousedown=move |event| press_card(&event)
                     >
                         {problems_section(state, problems)}
                         {info.value.map(value_section)}
@@ -101,6 +101,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         {info.description.map(|description| view! {
                             <p class="config-editor__hover-description">{description}</p>
                         })}
+                        {info.item.map(item_section)}
                         {info.choice.map(|choice| choice_section(state, choice))}
                         {info.default.map(|default| view! {
                             <div class="config-editor__hover-meta">
@@ -131,14 +132,26 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
 }
 
 /// Whether the card is taller than its room (its `max-height`), into
-/// `scrolls` (and the hover state, for the way to it).
-fn measure(state: EditorState, card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
+/// `scrolls`.
+fn measure(card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
     let overflows = card_ref
         .get_untracked()
         .is_some_and(|card| card.scroll_height() > card.client_height());
-    state.hover().scrolls.set_value(overflows);
     if scrolls.get_untracked() != overflows {
         scrolls.set(overflows);
+    }
+}
+
+/// A press on a link keeps the caret (and the card) while it opens; one on
+/// the text selects it, to be copied.
+fn press_card(event: &web_sys::MouseEvent) {
+    let on_link = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|target| target.closest("a").ok().flatten())
+        .is_some();
+    if on_link {
+        event.prevent_default();
     }
 }
 
@@ -227,6 +240,20 @@ fn choice_section(state: EditorState, choice: ChoiceHover) -> impl IntoView {
             </div>
         }
         .into_any(),
+    }
+}
+
+/// A list item's own title and description, under the list's.
+fn item_section(item: ValueDoc) -> impl IntoView {
+    view! {
+        <div class="config-editor__hover-item">
+            {item.title.map(|title| view! {
+                <strong class="config-editor__hover-item-title">{title}</strong>
+            })}
+            {item.description.map(|description| view! {
+                <p class="config-editor__hover-description">{description}</p>
+            })}
+        </div>
     }
 }
 

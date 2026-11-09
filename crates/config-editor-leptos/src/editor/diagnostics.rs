@@ -135,6 +135,12 @@ impl Diagnostic {
     pub(crate) fn last_line(&self) -> Option<usize> {
         self.end_line.or(self.line)
     }
+
+    /// Whether the host reported it: its own problem, or the editor's that
+    /// the host said too (it then names the host, see `merge`).
+    pub(crate) fn reported_by_host(&self) -> bool {
+        self.origin == DiagnosticOrigin::Host || self.source.is_some()
+    }
 }
 
 /// Who found a [`Diagnostic`].

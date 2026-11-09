@@ -802,6 +802,12 @@ export interface EditorStrings {
    */
   openDocs?: string;
   /**
+   * `open_docs` on a touch screen, which has no keys to name.
+   *
+   * @default "Open docs ↗"
+   */
+  openDocsTouch?: string;
+  /**
    * An error, as a screen reader hears it.
    *
    * @default "Error"

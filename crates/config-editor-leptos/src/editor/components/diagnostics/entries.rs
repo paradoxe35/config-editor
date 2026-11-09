@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 
 use super::super::super::a11y::severity_name;
-use super::super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
+use super::super::super::diagnostics::{Diagnostic, Severity};
 use super::super::super::problem_hit::covering;
 use super::super::super::state::EditorState;
 use crate::EditorStrings;
@@ -41,7 +41,8 @@ pub(crate) struct Entry {
 
 /// The entries' lines (built once per content: no reactive reads inside).
 pub(crate) fn entries_view(state: EditorState, entries: Vec<Entry>) -> impl IntoView {
-    let open_docs = state.strings_untracked(|strings| strings.open_docs.clone());
+    let touch = super::super::super::touch::touch_screen();
+    let open_docs = state.strings_untracked(|strings| open_docs_text(strings, touch).to_string());
     entries
         .into_iter()
         .map(|entry| {
@@ -86,6 +87,16 @@ pub(crate) fn entries_view(state: EditorState, entries: Vec<Entry>) -> impl Into
         .collect_view()
 }
 
+/// A problem's docs link: it names its key (Alt+Enter), unless on a
+/// `touch` screen.
+fn open_docs_text(strings: &EditorStrings, touch: bool) -> &str {
+    if touch {
+        &strings.open_docs_touch
+    } else {
+        &strings.open_docs
+    }
+}
+
 /// A click on a message with docs opens them, as its link does.
 fn open(url: Option<&str>) {
     if let (Some(url), Some(window)) = (url, web_sys::window()) {
@@ -118,7 +129,7 @@ pub(crate) fn entries_at(
 
 /// "burrow · E_PORT": who reported a host's problem, and its code.
 fn reported_by(problem: &Diagnostic) -> Option<String> {
-    if problem.origin != DiagnosticOrigin::Host {
+    if !problem.reported_by_host() {
         return None;
     }
     let parts: Vec<&str> = [problem.source.as_deref(), problem.code.as_deref()]

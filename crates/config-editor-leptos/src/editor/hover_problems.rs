@@ -5,7 +5,6 @@
 
 use leptos::prelude::*;
 
-use super::problem_hit::covering;
 use super::state::EditorState;
 
 /// The one-based place whose problems the card on zero-based `card_line`
@@ -79,30 +78,6 @@ impl EditorState {
         if listed && problems.tip_leaving.get_value() && !problems.tip_entered.get_value() {
             self.hide_problem_tip();
         }
-    }
-
-    /// Whether the pointer may enter the card: it scrolls, or has a link to
-    /// reach (its docs', or a problem's it lists), so the pointer leaving
-    /// its key gives it a moment.
-    pub(super) fn card_reachable(&self) -> bool {
-        if self.hover().card.with_untracked(Option::is_some) && self.hover().scrolls.get_value() {
-            return true;
-        }
-        untrack(|| {
-            let docs = self.hover().card.with(|card| {
-                card.as_ref()
-                    .is_some_and(|card| card.info.docs_url.is_some())
-            });
-            docs || self.card_problem_place().is_some_and(|(line, column)| {
-                self.doc().text.with(|text| {
-                    let line_text = text.split('\n').nth(line - 1).unwrap_or("");
-                    self.problems().diagnostics.with(|problems| {
-                        covering(problems, line, column, line_text)
-                            .any(|problem| problem.docs_url.is_some())
-                    })
-                })
-            })
-        })
     }
 }
 

@@ -906,7 +906,14 @@
 .config-editor__problem-tip-message--docs { cursor: pointer; }
 .config-editor__problem-tip-severity { font-weight: 600; }
 .config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
-.config-editor__problem-tip-link { color: var(--config-editor-accent-text); }
+.config-editor__problem-tip-link {
+  /* A 24px target (WCAG 2.5.8), taking no more room than its line. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-block: -4px;
+  color: var(--config-editor-accent-text);
+}
 /* The problems on a documented key's line, listed in its hover card above
    the docs (the tip yields to the card there); scrolled when many. */
 .config-editor__hover-problems {
@@ -1168,13 +1175,26 @@
   background: var(--config-editor-raised);
   color: var(--config-editor-raised-text);
   box-shadow: 0 8px 24px var(--config-editor-hover-shadow);
-  pointer-events: none;
   font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
   /* No taller than the window's room beside its line (set inline): the
      rest scrolls, with a scroll bar and a shade where more is hidden. */
   box-sizing: border-box;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* A long word or web address wraps inside the card. */
+  overflow-wrap: anywhere;
+}
+
+/* A title, description or deprecation keeps the schema's line breaks (its
+   paragraphs and lists). */
+.config-editor__hover-title,
+.config-editor__hover-description,
+.config-editor__hover-deprecation { white-space: pre-line; }
+
+/* A touch screen: a tap on a card with nothing to tap (no link) or scroll
+   goes through to the text under it, to place the caret there. */
+@media (hover: none) {
+  .config-editor__hover:not(.config-editor__hover--interactive) { pointer-events: none; }
 }
 
 .config-editor__hover--scrolls {
@@ -1233,8 +1253,6 @@
   font: 10px var(--config-editor-mono);
 }
 
-.config-editor__hover--interactive { pointer-events: auto; }
-
 /* Focused from the keyboard (a second Ctrl+K Ctrl+I), to scroll it. */
 .config-editor__hover:focus-visible {
   outline: 2px solid var(--config-editor-focus-ring);
@@ -1280,6 +1298,7 @@
   font-size: 11px;
 }
 
+.config-editor__hover-item,
 .config-editor__hover-choice {
   display: grid;
   gap: 2px;
@@ -1287,6 +1306,7 @@
   border-left: 2px solid var(--config-editor-raised-border);
 }
 
+.config-editor__hover-item-title,
 .config-editor__hover-choice-title {
   color: var(--config-editor-raised-text);
   font-size: 12px;

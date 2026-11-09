@@ -201,7 +201,7 @@ fn marker(
 /// The line under a host problem's message: who reported it and its code
 /// (the tip adds its docs link).
 pub(super) fn detail(strings: &EditorStrings, diagnostic: &Diagnostic) -> Option<String> {
-    if diagnostic.origin != DiagnosticOrigin::Host {
+    if !diagnostic.reported_by_host() {
         return None;
     }
     let parts: Vec<&str> = [

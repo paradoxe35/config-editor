@@ -24,6 +24,10 @@ pub(crate) struct KeyHover {
     /// Set when the pointer is over one of the key's documented values
     /// rather than the key.
     pub(crate) value: Option<HoverValue>,
+    /// An item of the list the key names (a repeated block, a YAML `- `, a
+    /// JSON item's `{`): the item's own title and description, under the
+    /// list's (those it does not share with it).
+    pub(crate) item: Option<ValueDoc>,
 }
 
 /// A documented value under the pointer: an `enum` entry with its
@@ -60,7 +64,54 @@ pub(crate) fn key_hover(
     {
         return None;
     }
+    if let Some(path) = item_at(source, line_start, line, column, behavior) {
+        let key = list_key(&path)?;
+        return property_hover(source, &path, key, column, bundle, behavior);
+    }
     value_hover(source, line_start, line, column, bundle, behavior)
+}
+
+/// The path of the list item that character `column` of `line` (starting
+/// at byte `line_start` of `source`) opens: a YAML `- ` or the `{` or `[`
+/// of an item written inline (a JSON item); None elsewhere.
+fn item_at(
+    source: &str,
+    line_start: usize,
+    line: &str,
+    column: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<Vec<SchemaPathSegment>> {
+    let (at, marker) = line.char_indices().nth(column)?;
+    let next = line[at + marker.len_utf8()..].chars().next();
+    let dash = marker == '-' && next.is_none_or(char::is_whitespace);
+    if !dash && !matches!(marker, '{' | '[') {
+        return None;
+    }
+    let cursor = |offset: usize| source[..line_start + offset].encode_utf16().count();
+    // A bracket is an item's when it stands where an item goes.
+    if !dash
+        && !behavior
+            .completion_context(source, cursor(at))
+            .is_array_item
+    {
+        return None;
+    }
+    let past_space = if dash {
+        next.map_or(0, char::len_utf8)
+    } else {
+        0
+    };
+    let inside = at + marker.len_utf8() + past_space;
+    let path = behavior.completion_context(source, cursor(inside)).path;
+    matches!(path.last(), Some(SchemaPathSegment::ArrayItem(_))).then_some(path)
+}
+
+/// The key naming the list an item `path` is in.
+fn list_key(path: &[SchemaPathSegment]) -> Option<String> {
+    path.iter().rev().find_map(|segment| match segment {
+        SchemaPathSegment::Key(key) => Some(key.clone()),
+        SchemaPathSegment::ArrayItem(_) => None,
+    })
 }
 
 /// The key under character `column` of zero-based `line_index`: its path in
@@ -126,17 +177,7 @@ fn value_hover(
     let context = behavior.completion_context(source, cursor);
     let (path, key) = match context.value_key {
         Some(key) => (path_with_key(&context.path, &key), key),
-        None if context.is_array_item => {
-            let key = context
-                .path
-                .iter()
-                .rev()
-                .find_map(|segment| match segment {
-                    SchemaPathSegment::Key(key) => Some(key.clone()),
-                    SchemaPathSegment::ArrayItem(_) => None,
-                })?;
-            (context.path.clone(), key)
-        }
+        None if context.is_array_item => (context.path.clone(), list_key(&context.path)?),
         None => return None,
     };
     let root = &bundle.schema;
@@ -222,19 +263,37 @@ fn property_hover(
         Vec::new()
     };
     let documented: Vec<&Value> = owners.iter().chain(&schemas).copied().collect();
-    let branches: Vec<&Value> = documented
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root, 0))
-        .collect();
-    // A value option (a `const` branch) documents that value, not the key.
-    let text_of = |name: &str| {
-        branches
+    let branches = branches_of(&documented, root);
+    // An item of a list: the list's docs, the item's own under them.
+    let (title, description, item) = if owners.is_empty() {
+        (
+            text_of(&branches, "title"),
+            text_of(&branches, "description"),
+            None,
+        )
+    } else {
+        // (A repeating language finds the item at the list's path too.)
+        let lists: Vec<&Value> = owners
             .iter()
-            .filter(|branch| branch.get("const").is_none())
-            .find_map(|branch| branch.get(name).and_then(Value::as_str).map(str::to_string))
+            .filter(|&&owner| !schemas.iter().any(|&item| std::ptr::eq(owner, item)))
+            .copied()
+            .collect();
+        let list = branches_of(&lists, root);
+        let items = branches_of(&schemas, root);
+        let (title, description) = (text_of(&list, "title"), text_of(&list, "description"));
+        let own = |name: &str, list: &Option<String>| {
+            text_of(&items, name).filter(|text| Some(text) != list.as_ref())
+        };
+        let item = ValueDoc {
+            title: own("title", &title),
+            description: own("description", &description),
+        };
+        (
+            title,
+            description,
+            (item != ValueDoc::default()).then_some(item),
+        )
     };
-    let description = text_of("description");
-    let title = text_of("title").filter(|title| !title.trim().is_empty());
     let default = schemas
         .iter()
         .find_map(|schema| schema_default(schema, root))
@@ -269,7 +328,9 @@ fn property_hover(
         object_at(source, parent, behavior)
     });
     let holding = parent_choices.holding(&key);
-    let type_label = if holding.is_empty() {
+    let type_label = if let Some(list) = owners.first() {
+        schema_type_label(list, root, "property")
+    } else if holding.is_empty() {
         schema_type_label(schemas[0], root, "property")
     } else {
         let schemas: Vec<&Value> = holding.iter().map(|(_, schema)| *schema).collect();
@@ -304,7 +365,27 @@ fn property_hover(
         docs_url: documented.iter().find_map(|schema| docs_url(schema, root)),
         choice,
         value: None,
+        item,
     })
+}
+
+/// The `allOf`/`$ref` branches of `schemas` (see `resolve_branches`).
+fn branches_of<'a>(schemas: &[&'a Value], root: &'a Value) -> Vec<&'a Value> {
+    schemas
+        .iter()
+        .flat_map(|schema| resolve_branches(schema, root, 0))
+        .collect()
+}
+
+/// The first non-blank `name` text (`title`, `description`) of `branches`;
+/// a value option (a `const` branch) documents that value, not the key.
+fn text_of(branches: &[&Value], name: &str) -> Option<String> {
+    branches
+        .iter()
+        .filter(|branch| branch.get("const").is_none())
+        .find_map(|branch| branch.get(name).and_then(Value::as_str))
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_string)
 }
 
 #[cfg(test)]

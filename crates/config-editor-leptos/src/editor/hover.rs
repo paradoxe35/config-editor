@@ -22,7 +22,7 @@ pub(super) struct HoverState {
     pub(super) card: RwSignal<Option<HoverCard>>,
     /// The key waiting out the pause: (line, start column, key).
     pub(super) pending: StoredValue<Option<(usize, usize, String)>>,
-    /// The pointer is over the hover card (one with a link it can reach).
+    /// The pointer is over the hover card.
     pub(super) card_entered: StoredValue<bool>,
     /// Bumped on each hide, so a card scheduled before it never shows.
     pub(super) token: StoredValue<u64>,
@@ -37,9 +37,6 @@ pub(super) struct HoverState {
     /// The card's element while it shows: the keyboard reaches its links
     /// (see [`EditorState::keep_card_for`]).
     pub(super) card_ref: NodeRef<leptos::html::Div>,
-    /// The card is taller than its room (it scrolls), measured once
-    /// drawn: the pointer can enter it to scroll it, as one with a link.
-    pub(super) scrolls: StoredValue<bool>,
     /// The focus is in the card: it is a dialog then, not a tooltip.
     pub(super) card_focused: RwSignal<bool>,
 }
@@ -55,21 +52,19 @@ impl HoverState {
             pointer: StoredValue::new(None),
             heading: StoredValue::new(false),
             card_ref: NodeRef::new(),
-            scrolls: StoredValue::new(false),
             card_focused: RwSignal::new(false),
         }
     }
 }
 
 impl EditorState {
-    /// Hides a card the pointer may be on its way to (one with a link, or
-    /// one that scrolls) after a moment, unless it gets there; hides any
-    /// other card now.
+    /// Hides the card after a moment, unless the pointer gets there (to
+    /// select its text, follow a link, scroll it); a waiting one now.
     pub(super) fn leave_hover(&self) {
         if self.hover().at_caret.get_value() {
             return;
         }
-        if !self.card_reachable() {
+        if self.hover().card.with_untracked(Option::is_none) {
             self.hide_hover();
             return;
         }
@@ -171,7 +166,6 @@ impl EditorState {
         self.hover().pending.set_value(None);
         self.hover().card_entered.set_value(false);
         self.hover().at_caret.set_value(false);
-        self.hover().scrolls.set_value(false);
         self.note_card_focus(false);
         if self.hover().card.with_untracked(Option::is_some) {
             // The card or a link in it had the focus (Tab, in `Ctrl+M`

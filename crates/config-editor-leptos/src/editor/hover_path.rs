@@ -1,5 +1,5 @@
 //! The way to a popup the pointer can enter (the hover card, the problem
-//! tip, each with a link): while the pointer heads for it across other
+//! tip with a link): while the pointer heads for it across other
 //! text, that text's docs and problems wait, so the popup stays to be
 //! reached instead of giving way to the tip or the card of what the
 //! pointer crosses. Heading for it means each move stays inside the
@@ -103,6 +103,17 @@ impl EditorState {
         true
     }
 
+    /// The pointer stopped on the way and the popup went: what it rests
+    /// on shows, as if it had just moved there.
+    fn point_again(&self) {
+        let (Some((x, y)), Some(element)) = (self.hover().pointer.get_value(), self.textarea())
+        else {
+            return;
+        };
+        self.hover().heading.set_value(false);
+        super::input::pointer_at(*self, &element, x, y, true);
+    }
+
     /// The pointer left the text (for a popup or away): the next move
     /// starts a new way.
     pub(super) fn forget_pointer(&self) {
@@ -110,8 +121,8 @@ impl EditorState {
         self.hover().heading.set_value(false);
     }
 
-    /// The box of the popup the pointer can enter: the hover card with a
-    /// link, else the problem tip with one (or one that scrolls).
+    /// The box of the popup the pointer can enter: the hover card, else
+    /// the problem tip with a link (or one that scrolls).
     fn reachable_popup(&self) -> Option<Rect> {
         let shown = self.hover().card.with_untracked(Option::is_some)
             || self.problems().hovered.with_untracked(Option::is_some);
@@ -120,7 +131,7 @@ impl EditorState {
         }
         let root = self.view().root_ref.get_untracked()?;
         let popup = root
-            .query_selector(".config-editor__hover--interactive")
+            .query_selector(".config-editor__hover")
             .ok()
             .flatten()
             .or_else(|| {
@@ -201,6 +212,7 @@ impl EditorState {
                 if !state.problems().tip_entered.get_value() {
                     state.hide_problem_tip();
                 }
+                state.point_again();
             });
         } else if problems.hovered.with_untracked(Option::is_some) {
             problems.tip_leaving.set_value(false);
