@@ -6,6 +6,7 @@ use std::hash::Hash;
 use leptos::prelude::*;
 use leptos::tachys::reactive_graph::OwnedView;
 use leptos::tachys::view::keyed::{SerializableKey, keyed};
+use leptos::tachys::view::{Mountable, Render};
 
 /// A new owner that no other owner records as its child: it lives for as
 /// long as its holder keeps it, and is cleaned up when dropped.
@@ -21,6 +22,39 @@ pub(crate) fn detached_owner() -> Owner {
     let owner = Owner::new();
     current.set();
     owner
+}
+
+/// Mounts the view `f` builds into `parent`, as `leptos::mount::mount_to`
+/// does, under an owner of its own that no other records
+/// ([`detached_owner`]). Dropping the returned handle unmounts the view and
+/// then cleans its owner up, at once: an owner left to go with its last
+/// holder would live on in its effects' first runs, which would read what
+/// the view was given after it is gone.
+pub(crate) fn mount_detached<F, N>(parent: web_sys::HtmlElement, f: F) -> Box<dyn std::any::Any>
+where
+    F: FnOnce() -> N + 'static,
+    N: IntoView + 'static,
+{
+    let owner = detached_owner();
+    let mountable = owner.with(move || {
+        let mut mountable = f().into_view().build();
+        mountable.mount(&parent, None);
+        mountable
+    });
+    Box::new(Detached { owner, mountable })
+}
+
+/// A view [`mount_detached`] mounted, with its owner.
+struct Detached<M: Mountable> {
+    owner: Owner,
+    mountable: M,
+}
+
+impl<M: Mountable> Drop for Detached<M> {
+    fn drop(&mut self) {
+        self.mountable.unmount();
+        self.owner.cleanup();
+    }
 }
 
 /// `For`, with each row's owner held by the row alone: rows that come and

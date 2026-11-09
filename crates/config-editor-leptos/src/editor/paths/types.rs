@@ -43,9 +43,10 @@ impl FieldPath {
     }
 
     /// The path read from a JSON pointer (RFC 6901): `""` is the root, and
-    /// `"/"` the key `""` under it.
+    /// `"/"` the key `""` under it. Whitespace is part of a key (`"/a "`
+    /// names the key `"a "`), but not before the first `/`.
     pub fn from_pointer(pointer: &str) -> Self {
-        let pointer = pointer.trim();
+        let pointer = pointer.trim_start();
         if pointer.is_empty() {
             return FieldPath::root();
         }

@@ -83,9 +83,8 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         let mut dash_column = 0;
         while rest == "-" || rest.starts_with("- ") {
             if let Some(path) = array_item_path.take() {
-                // An outer item of a compact sequence: on this line.
-                let column = line[..item_indent].chars().count() + 1;
-                entries.push((path, index + 1, column, column + 1));
+                // An outer item of a compact sequence: at its own dash.
+                entries.push((path, index + 1, dash_column, dash_column + 1));
             }
             // An item at its key's column belongs to that key (`l:` then
             // `- a`).
@@ -131,15 +130,25 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             continue;
         }
         // An explicit key (`? k`), its value on a line of its own (`: v`).
-        if let Some(key_raw) = explicit_key(rest) {
+        // A block scalar key (`? |`) is named by its text below, and is
+        // written at its indicator.
+        let block_key = explicit_block_key(rest)
+            .and_then(|indicator| Some((indicator, block_scalar_text(indicator, &all_lines[index + 1..], content_indent)?)));
+        let is_block_key = block_key.is_some();
+        if let Some((key_raw, name)) =
+            block_key.or_else(|| explicit_key(rest).map(|key| (key, key.trim_matches(['\'', '"']).to_string())))
+        {
             if let Some(path) = array_item_path {
                 entries.push((path, index + 1, dash_column, dash_column + 1));
             }
             while stack.last().is_some_and(|(level, _, _)| *level >= content_indent) {
                 stack.pop();
             }
+            if is_block_key {
+                block_owner = Some(content_indent);
+            }
             let mut path = stack.last().map(|(_, path, _)| path.clone()).unwrap_or_default();
-            path.push(key_raw.trim_matches(['\'', '"']).to_string());
+            path.push(name);
             let offset = key_raw.as_ptr() as usize - rest.as_ptr() as usize;
             let column = line[..content_indent].chars().count() + rest[..offset].chars().count() + 1;
             entries.push((path.clone(), index + 1, column, column + key_raw.chars().count()));
@@ -151,7 +160,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             && (rest == ":" || rest.starts_with(": "))
         {
             let value = without_node_properties(rest[1..].trim());
-            if value.is_empty() || value.starts_with('#') {
+            if opens_block(&rest[1..]) {
                 stack.push((content_indent, path, true));
             } else if is_block_scalar(code_before_comment(value).trim()) || continues_as_text(value) {
                 block_owner = Some(content_indent);
@@ -166,7 +175,9 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             }
             continue;
         };
-        let key_raw = &rest[..colon];
+        // A key's own anchor or tag (`&k b: 1`) is no part of its name.
+        let written = without_node_properties(&rest[..colon]);
+        let key_raw = &rest[colon - written.len()..colon];
         let key = key_raw.trim().trim_matches(['\'', '"']);
         // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
         if key_raw.trim().is_empty() {
@@ -187,11 +198,11 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             .map(|(_, path, _)| path.clone())
             .unwrap_or_default();
         path.push(key.to_string());
-        let column = line[..content_indent].chars().count() + 1;
+        let column = line[..content_indent].chars().count() + rest[..colon - written.len()].chars().count() + 1;
         let end_column = column + key_raw.trim_end().chars().count();
         entries.push((path.clone(), index + 1, column, end_column));
         let value = without_node_properties(rest[colon + 1..].trim());
-        if value.is_empty() || value.starts_with('#') {
+        if opens_block(&rest[colon + 1..]) {
             stack.push((content_indent, path, true));
         } else if is_block_scalar(code_before_comment(value).trim()) || continues_as_text(value) {
             block_owner = Some(content_indent);
@@ -380,13 +391,43 @@ fn block_below(below: &[&str], dash: usize) -> bool {
 /// The key an explicit key line (`? k`, `? "k" # c`) writes, as written:
 /// a scalar, not a collection (`? [a, b]`) or a mapping (`? a: b`).
 fn explicit_key(rest: &str) -> Option<&str> {
-    let key = code_before_comment(rest.strip_prefix("? ")?).trim();
+    let key = without_node_properties(code_before_comment(rest.strip_prefix("? ")?).trim());
     (!key.is_empty() && !key.starts_with(['[', '{', '-', '?', '|', '>']) && key_colon(key).is_none()).then_some(key)
+}
+
+/// Whether the text after a key's `:` (or an explicit key's `: `) leaves
+/// its value to the lines below: nothing, a comment, or only anchors and
+/// tags (`base: &b # shared`).
+pub(super) fn opens_block(after_colon: &str) -> bool {
+    let value = without_node_properties(after_colon.trim());
+    value.is_empty() || value.starts_with('#')
+}
+
+/// The indicator of a block scalar written as an explicit key (`? |`,
+/// `? &k >-`).
+fn explicit_block_key(rest: &str) -> Option<&str> {
+    let key = without_node_properties(code_before_comment(rest.strip_prefix("? ")?).trim());
+    is_block_scalar(key).then_some(key)
+}
+
+/// The text of the block scalar opened by `indicator` (`|`, `>-`): the
+/// first lines of `below` indented past `owner` (and blank ones).
+fn block_scalar_text(indicator: &str, below: &[&str], owner: usize) -> Option<String> {
+    let body = below
+        .iter()
+        .map(|line| line.trim_end_matches('\r'))
+        .take_while(|line| line.trim().is_empty() || line.len() - line.trim_start().len() > owner)
+        .map(|line| format!(" {line}\n"))
+        .collect::<String>();
+    match yaml_parse(&format!("k: {indicator}\n{body}")).ok()?.get("k")? {
+        Value::String(text) => Some(text.clone()),
+        _ => None,
+    }
 }
 
 /// `value` without the anchors and tags before it (`&base`, `!!map`): a
 /// key whose value is only those opens a block below it.
-fn without_node_properties(mut value: &str) -> &str {
+pub(super) fn without_node_properties(mut value: &str) -> &str {
     while value.starts_with(['&', '!']) {
         let end = value.find([' ', '\t']).unwrap_or(value.len());
         value = value[end..].trim_start();

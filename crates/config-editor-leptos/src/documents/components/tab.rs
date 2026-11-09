@@ -6,7 +6,7 @@ use web_sys::{KeyboardEvent, MouseEvent};
 
 use super::super::entries::{Documents, Entry, Focus};
 use super::super::keys;
-use super::super::tab_names::{split_end, split_name};
+use super::super::tab_names::{TabLabel, tab_label};
 use crate::strings::fill;
 
 #[component]
@@ -28,15 +28,12 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     } = entry;
     let icon = entry.setup.language.file_icon();
     let strings = documents.follows.strings.read();
-    let shared = documents.follows.shared_names.read();
-    // The name as its folder and the rest: a narrow strip leaves the
-    // folder out (the title and accessible name keep it).
+    let names = documents.follows.names.read();
+    // What the tab shows of the name (the title and accessible name keep
+    // it whole).
     let name = move || {
         let name = file_name.get();
-        shared.with(|shared| {
-            let (folder, rest) = split_name(&name, shared);
-            (folder.map(str::to_string), rest.to_string())
-        })
+        names.with(|names| tab_label(&name, names))
     };
     let accessible_name = move || {
         let mut name = file_name.get();
@@ -146,11 +143,9 @@ pub(in crate::documents) fn DocumentTab(documents: Documents, entry: Entry) -> i
     }
 }
 
-/// A tab's name: its folder (in its own span) and the rest's start, which
-/// a narrow tab cuts, then the end of a long name, kept whole.
-fn name_view((folder, rest): (Option<String>, String)) -> impl IntoView {
-    let (start, end) = split_end(&rest);
-    let (start, end) = (start.to_string(), end.to_string());
+/// A tab's name: its folder (in its own span, which a narrow strip leaves
+/// out) and the start, which a narrow tab cuts, then the end, kept whole.
+fn name_view(TabLabel { folder, start, end }: TabLabel) -> impl IntoView {
     let end = (!end.is_empty())
         .then(|| view! { <span class="config-editor-documents__name-end">{end}</span> });
     view! {

@@ -317,7 +317,7 @@ export interface CustomLanguageContext {
 const DOCUMENT_TYPES: &str = r#"
 /** One open document of a `ConfigDocuments` view. */
 export interface DocumentSpec {
-  /** Identifies the document across `update({ documents })` calls and in every callback. Unique in the list. */
+  /** Identifies the document across `update({ documents })` calls and in every callback. Not empty, unique in the list. */
   id: string;
   /** The tab's label (a file name or path); its extension gives the language when `language` is not set. */
   fileName: string;
@@ -331,7 +331,7 @@ export interface DocumentSpec {
   readOnly?: boolean;
   /** Whether the user may close it (close button, middle click, `Delete` on its tab ask `onClose`). Default `true`; `false` for a document that must stay open: its tab has no close button. Without `onClose` no tab has one. Switches live. */
   closable?: boolean;
-  /** JSON Schema as JSON text; documents with the same text share one compiled schema. An invalid schema is reported inline. */
+  /** JSON Schema as JSON text; documents with the same text share one compiled schema. One that does not compile throws, as it does for a `ConfigEditor`. */
   schema?: string;
   /** Edit in another language than `language`; switches live. */
   editAs?: LanguageName;

@@ -130,6 +130,35 @@
 
 .config-editor__frame > * { flex: none; }
 
+/* Tells the editor whether its height is given (see `fill.rs`): as tall as
+   the editor then, nothing when the content sizes it. */
+.config-editor__fill-probe {
+  float: left;
+  width: 0;
+  height: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* A given height is filled however short or tall: the text area takes what
+   the toolbar and footer leave, with no minimum or maximum of its own
+   (unless the host sets one). */
+.config-editor__fills .config-editor__surface {
+  min-height: var(--config-editor-min-height, 0);
+  height: auto;
+  max-height: var(--config-editor-max-height, none);
+}
+.config-editor__fills .config-editor__highlight,
+.config-editor__fills .config-editor__input {
+  min-height: var(--config-editor-min-height, 0);
+}
+.config-editor__fills .config-editor__input {
+  flex: 1 1 0;
+  height: auto;
+  max-height: var(--config-editor-max-height, none);
+  resize: none;
+}
+
 .config-editor__frame:focus-within {
   border-color: var(--config-editor-accent);
 }
@@ -2269,21 +2298,22 @@
 .config-editor-documents__icon { flex: none; }
 
 .config-editor-documents__name {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A name's end stays whole (`service-con…production.yaml`, the file's own
+   name after a folder: `eu-west-1/…limits.toml`): a narrow tab cuts its
+   start, so names sharing a start still differ. */
+.config-editor-documents__name-start {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-/* A long name's end stays whole (`service-con…production.yaml`): a narrow
-   tab cuts its start, so names sharing a start still differ. */
-.config-editor-documents__name-start {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: top;
-}
-.config-editor-documents__name-start:not(:last-child) { max-width: calc(100% - 12ch); }
+.config-editor-documents__name-start:empty { display: none; }
+.config-editor-documents__name-end { flex: none; }
 
 .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 

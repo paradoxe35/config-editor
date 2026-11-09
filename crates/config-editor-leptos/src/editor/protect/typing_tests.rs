@@ -115,29 +115,31 @@ fn refused_typing_leaves_nothing_half_written() {
 
 /// After a key glued onto a read-only value is refused, what is free next
 /// to it is not held back by that refusal: a space, a comment after it, a
-/// new line (Enter or Shift+Enter alike), at the same caret.
+/// new line (Enter or Shift+Enter alike), at the same caret, and a comment
+/// glued on where the language starts one right after a value.
 #[test]
 fn a_refused_key_does_not_hold_back_what_is_free_after_the_field() {
     // Where in each of `documents()` an X glues onto `/id` (after the text
-    // here), and a comment after it. Nothing glues onto an XML element's
-    // end: there, the X renames the tag, and a space after its name is free.
-    let lines = [
-        ("id: abc", " # c"),
-        ("\"id\": \"abc\"", " "),
-        ("id = \"abc\"", " # c"),
-        ("id = \"abc\"", " # c"),
-        ("<id", " "),
+    // here), a comment after it, and the comments glued on. Nothing glues
+    // onto an XML element's end: there, the X renames the tag, and a space
+    // after its name is free.
+    let lines: [(&str, &str, &[&str]); 5] = [
+        ("id: abc", " # c", &[]),
+        ("\"id\": \"abc\"", " ", &[]),
+        ("id = \"abc\"", " # c", &["#c"]),
+        ("id = \"abc\"", " # c", &["#c", "//c", "/*c*/"]),
+        ("<id", " ", &[]),
     ];
-    let mut cases: Vec<(Language, &str, &str, &str)> = documents()
+    let mut cases: Vec<(Language, &str, &str, &str, &[&str])> = documents()
         .into_iter()
         .zip(lines)
-        .map(|((language, text), (line, comment))| (language, text, line, comment))
+        .map(|((language, text), (line, comment, glued))| (language, text, line, comment, glued))
         .collect();
-    cases.push((Language::new(&ENV), ENV_TEXT, "ID=srv-1", " "));
+    cases.push((Language::new(&ENV), ENV_TEXT, "ID=srv-1", " ", &[]));
     let mut failures = Vec::new();
-    for (language, text, line, comment) in cases {
+    for (language, text, line, comment, glued) in cases {
         let breaks: &[&str] = if line == "<id" { &[] } else { &["\n", " \n"] };
-        for &next in [comment].iter().chain(breaks) {
+        for &next in [comment].iter().chain(breaks).chain(glued) {
             let mut editor = TestEditor::new(language, text);
             editor.read_only_paths = vec![FieldPath::from("/id"), FieldPath::from("/ID")];
             let (_owner, state) = editor.mount();

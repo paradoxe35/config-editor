@@ -19,6 +19,7 @@
 //! - [`KeyedList`]: `For` whose rows own themselves instead of registering
 //!   with the list's owner.
 //! - [`detached_owner`]: an owner no parent keeps a record of.
+//! - [`mount_detached`]: a view mounted under such an owner.
 //! - [`Kept`]: a part a setting switches on and off, built once and then
 //!   taken off the page and put back.
 //! - [`later`]: the one door for deferred work (timers, frames,
@@ -35,7 +36,7 @@ mod tests;
 mod window_listener;
 
 pub(crate) use kept::Kept;
-pub(crate) use keyed::{KeyedList, detached_owner};
+pub(crate) use keyed::{KeyedList, detached_owner, mount_detached};
 pub(crate) use relay::{Fanout, Relay, notify};
 pub(crate) use size_observer::size_observer;
 pub(crate) use window_listener::window_listener;

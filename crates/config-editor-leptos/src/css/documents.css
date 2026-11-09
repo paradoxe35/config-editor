@@ -98,21 +98,22 @@
 .config-editor-documents__icon { flex: none; }
 
 .config-editor-documents__name {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A name's end stays whole (`service-con…production.yaml`, the file's own
+   name after a folder: `eu-west-1/…limits.toml`): a narrow tab cuts its
+   start, so names sharing a start still differ. */
+.config-editor-documents__name-start {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-/* A long name's end stays whole (`service-con…production.yaml`): a narrow
-   tab cuts its start, so names sharing a start still differ. */
-.config-editor-documents__name-start {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: top;
-}
-.config-editor-documents__name-start:not(:last-child) { max-width: calc(100% - 12ch); }
+.config-editor-documents__name-start:empty { display: none; }
+.config-editor-documents__name-end { flex: none; }
 
 .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
 

@@ -35,6 +35,34 @@ fn lists() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "spec:\n  containers:\n    - name: web\n      ports:\n        - containerPort: 80\n        - containerPort: 443\n    - name: side\n",
         ),
+        // Anchors, tags and comments on a block's key line, and on keys.
+        (
+            Language::YAML,
+            "base: &b\n  x: 1\n  y:\n    - 1\nseq: &s\n  - a: 1\n",
+        ),
+        (Language::YAML, "b: !tag\n  c: 2\nl: !list\n  - d: 1\n"),
+        (
+            Language::YAML,
+            "b: &a !tag # shared\n  c: 2\nd: # note\n  e: 3\n",
+        ),
+        (
+            Language::YAML,
+            "a:\n  &x b: 1\n  !t c: 2\n  &y d:\n    e: 3\n",
+        ),
+        (Language::YAML, "? &k b\n: 1\n? !t c\n: &v\n  d: 2\n"),
+        (Language::YAML, "- - 1\n  - 2\n- - - 3\n"),
+        // Block scalars as explicit keys.
+        (Language::YAML, "? |\n  multi\n  line\n: v\nz: 1\n"),
+        (
+            Language::YAML,
+            "l:\n  - ? >-\n      folded\n      key\n    :\n      x: 1\n",
+        ),
+        // Keys ending in whitespace, and quoted keys holding a dot.
+        (Language::YAML, "\"k \": 1\n\"m \":\n  \" n \": 2\n"),
+        (Language::JSON, "{\"k \": 1, \"m \": {\" n \": 2}}\n"),
+        (Language::TOML, "\"k \" = 1\n\n[\"m \"]\n\" n \" = 2\n"),
+        (Language::TOML, "\"a.b\" = 1\nc.\"d.e\" = 2\n"),
+        (Language::YAML, "\"a.b\": 1\n"),
         (Language::JSON, "{\"l\": [{\"n\": 1}, {\"n\": 2}]}\n"),
         (Language::JSON, "[\n  {\"n\": 1},\n  [1, 2]\n]\n"),
         (Language::TOML, "[[l]]\nn = 1\n\n[[l]]\nn = 2\n"),

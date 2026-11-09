@@ -30,6 +30,7 @@ mod edit;
 mod edit_as;
 #[cfg(feature = "schema-validation")]
 mod false_schema;
+mod fill;
 mod flat_keys;
 mod fold_ranges;
 #[cfg_attr(not(feature = "folding"), path = "editor/off/folding.rs")]
@@ -118,6 +119,7 @@ use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
     HoverCardView, ProblemTip, ReadOnlyNotice, SourceInput, StatusBar, Toolbar,
 };
+use fill::FillProbe;
 use positioning::frame_probe_style;
 use protect::ProtectTipView;
 use search::{FindWidget, GoToLineWidget, SearchHighlights};
@@ -352,12 +354,14 @@ pub fn ConfigEditor(
         .unwrap_or_else(|| language.default_file_name().to_string());
     let root_class = class.unwrap_or_default();
     let shown = state.config().settings;
+    let fills = RwSignal::new(false);
 
     view! {
         <div
             class=move || {
                 let read_only = if read_only.get() { " config-editor__readonly" } else { "" };
-                format!("config-editor {root_class}{read_only}")
+                let fills = if fills.get() { fill::FILLS_CLASS } else { "" };
+                format!("config-editor {root_class}{read_only}{fills}")
             }
             // Code reads left to right, in a right-to-left page too: the
             // text, the gutter, the popups (all inside) and the footer.
@@ -369,6 +373,7 @@ pub fn ConfigEditor(
             on:keydown=move |event| keys::on_root_keydown(state, &event)
         >
             {move || shown.styled.get().then(|| view! { <style>{PRESET_CSS}</style> })}
+            <FillProbe fills=fills />
             <section class="config-editor__frame" aria-label=state.language_text(|strings| &strings.editor_label)>
                 <Kept when=shown.toolbar view=move || view! { <Toolbar state=state file_name=file_name.clone() has_schema=has_schema /> } />
                 <EditAsNotice state=state />

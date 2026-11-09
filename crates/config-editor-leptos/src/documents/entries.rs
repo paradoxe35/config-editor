@@ -45,6 +45,9 @@ pub(super) struct Entry {
     pub(super) dirty: RwSignal<bool>,
     /// Shown at least once: its editor is mounted.
     pub(super) visited: RwSignal<bool>,
+    /// Mounts its editor now, once its panel is on the page (set by the
+    /// panel): a document shown answers its editor's calls at once.
+    pub(super) mount_now: StoredValue<Option<Callback<()>>>,
     pub(super) handle: EditorHandle,
     /// Owns the signals above; disposed after the document closes, or with
     /// the view. No owner records it as a child: the view's owner lives on
@@ -77,19 +80,24 @@ impl Entry {
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             visited: RwSignal::new(false),
+            mount_now: StoredValue::new(None),
             handle: EditorHandle::new(),
             owner: owner.clone(),
         })
     }
 
     /// Its editor's `reveal`, `reveal_range` and `focus` select it first
-    /// when it is not shown, as [`crate::DocumentsHandle::select`] does.
+    /// when it is not shown, as [`crate::DocumentsHandle::select`] does;
+    /// selected but not yet on screen (its panel still inert, so the focus
+    /// did not take), its editor is focused once it is.
     fn show_with(&self, documents: Documents) {
         let id = self.id.clone();
         let show = self.owner.with(|| {
             Callback::new(move |()| {
                 if documents.active_id().as_deref() != Some(id.as_str()) {
                     documents.select(&id, Focus::Editor);
+                } else if documents.panel_inert(&id) {
+                    documents.focus_editor.set(Some(id.clone()));
                 }
             })
         });
@@ -183,9 +191,9 @@ pub(super) struct Follows {
     pub(super) settings: Relay<EditorSettings>,
     /// The view's built-in texts (the tabs').
     pub(super) strings: Relay<Arc<EditorStrings>>,
-    /// The files' own names (past their folders) more than one tab has:
-    /// those tabs keep their folders on a narrow strip (see `tab_names`).
-    pub(super) shared_names: Relay<Vec<String>>,
+    /// Every tab's file name: what a tab shows of its own depends on the
+    /// others' (see `tab_names`).
+    pub(super) names: Relay<Vec<String>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -267,12 +275,9 @@ impl Documents {
                 strings: Relay::new(move || {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
                 }),
-                shared_names: Relay::new(move || {
-                    entries.with(|entries| {
-                        let names: Vec<String> =
-                            entries.iter().map(|entry| entry.file_name.get()).collect();
-                        super::tab_names::shared_base_names(&names)
-                    })
+                names: Relay::new(move || {
+                    entries
+                        .with(|entries| entries.iter().map(|entry| entry.file_name.get()).collect())
                 }),
             },
             root: NodeRef::new(),
@@ -408,7 +413,7 @@ impl Documents {
         let next = active_after(&previous_ids, &ids, active.as_deref());
         match next {
             Some(next) if active.as_deref() != Some(next.as_str()) => {
-                self.select(&next, self.focus_after_close());
+                self.select(&next, self.focus_place_now());
             }
             Some(next) => self.show(&next),
             None => self.active.set(None),
@@ -427,6 +432,17 @@ impl Documents {
         if self.entry(id).is_none() {
             return false;
         }
+        // The editor shown is hidden, inert, and would drop the focus to
+        // the page: it goes to the editor shown instead.
+        let focus = match focus {
+            Focus::Keep
+                if self.active_id().as_deref() != Some(id)
+                    && self.focus_place_now() == Focus::Editor =>
+            {
+                Focus::Editor
+            }
+            focus => focus,
+        };
         self.show(id);
         if self.active_id().as_deref() != Some(id) {
             self.active.set(Some(id.to_string()));
@@ -456,6 +472,9 @@ impl Documents {
             .filter(|entry| !entry.visited.get_untracked())
         {
             entry.visited.set(true);
+            if let Some(mount) = entry.mount_now.get_value() {
+                untrack(|| mount.run(()));
+            }
         }
         if self.active_id().is_none() {
             self.active.set(Some(id.to_string()));
@@ -543,12 +562,13 @@ impl Documents {
             .collect()
     }
 
-    /// Where the focus goes when the active document closes: to the tab
-    /// taking its place when it was in the tab list (the WAI-ARIA tabs
-    /// pattern: a second `Delete` closes that tab, it never edits its
-    /// text), into the next editor when it was elsewhere in the view (the
-    /// closed editor), and nowhere when it was outside (the host's page).
-    fn focus_after_close(&self) -> Focus {
+    /// Where the focus goes when the active document closes or the host
+    /// shows another: to the tab taking its place when it was in the tab
+    /// list (the WAI-ARIA tabs pattern: a second `Delete` closes that tab,
+    /// it never edits its text), into the editor shown when it was
+    /// elsewhere in the view (the editor going), and nowhere when it was
+    /// outside (the host's page).
+    fn focus_place_now(&self) -> Focus {
         // Not mounted. Mounted, the closed tab still holds the focus here:
         // the tab list renders the new list later.
         let Some(root) = self.root.get_untracked() else {
@@ -576,6 +596,18 @@ impl Documents {
             .ok()
     }
 
+    /// Whether the panel of `id` is still inert (it is shown on the next
+    /// render).
+    fn panel_inert(&self, id: &str) -> bool {
+        let (Some(entry), Some(root)) = (self.entry(id), self.root.get_untracked()) else {
+            return false;
+        };
+        root.query_selector(&format!("#{}", entry.panel_id(*self)))
+            .ok()
+            .flatten()
+            .is_some_and(|panel| panel.has_attribute("inert"))
+    }
+
     /// Focuses the tab of `id`, once it is rendered.
     fn focus_tab(&self, id: &str) {
         let documents = *self;
@@ -588,7 +620,7 @@ impl Documents {
     }
 }
 
-/// [`Documents::focus_after_close`] from where the focus is: in the tab
+/// [`Documents::focus_place_now`] from where the focus is: in the tab
 /// list, elsewhere in the view.
 pub(super) fn focus_place(in_tab_list: bool, in_view: bool) -> Focus {
     if in_tab_list {

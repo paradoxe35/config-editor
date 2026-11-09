@@ -655,7 +655,9 @@ on is not a change from elsewhere. Colors: the notice uses `raised`,
   footer come on top. `--config-editor-height` (a length, such as `400px`)
   fixes the text area's height. To fill a container of a set height, give
   the editor `height: 100%` (`.config-editor { height: 100%; }`): the text
-  area takes what the toolbar and footer leave. The custom properties go
+  area takes what the toolbar and footer leave, however short or tall
+  (neither the minimum nor the 80% applies, unless you set the custom
+  property). The custom properties go
   on `.config-editor` or any element above it. `ConfigDocuments` sizes
   itself the same way (the tab strip, then the shown editor); to fill a
   container of a set height, give the view `height: 100%`

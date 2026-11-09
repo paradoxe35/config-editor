@@ -1001,7 +1001,8 @@ VS Code-style tabs over one editor per document, each with its own language
 (from `fileName` unless given, registered languages included, as
 `languageForFile` reads it; a file no language claims opens in the default
 language, with a console warning), baseline, read-only state, `editAs`,
-schema (documents with the same schema text share one compiled schema) and,
+schema (documents with the same schema text share one compiled schema; one
+that does not compile throws, as it does for a `ConfigEditor`) and,
 optionally, settings, host problems and read-only fields.
 
 ```js
@@ -1399,7 +1400,9 @@ short for it) to `--config-editor-max-height` (80% of the window, less in a
 short one), then scrolls; the toolbar, tab bar and footer come on top.
 `--config-editor-height` (a length, such as `400px`) fixes the text area's
 height. To fill an element of a set height, give the editor `height: 100%`:
-the text area takes what the toolbar and footer leave.
+the text area takes what the toolbar and footer leave, however short or tall
+(neither the minimum nor the 80% applies, unless you set the custom
+property).
 
 ```css
 #config {

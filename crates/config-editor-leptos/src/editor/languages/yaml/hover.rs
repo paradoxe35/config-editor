@@ -114,6 +114,9 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         return None;
     }
     let colon = mapping_colon_anywhere(body)?;
+    // A key's own anchor or tag (`&k b: 1`) is no part of it.
+    let properties = colon - without_node_properties(&body[..colon]).len();
+    let (body, colon) = (&body[properties..], colon - properties);
     let key_raw = &body[..colon];
     let key = key_raw.trim().trim_matches(['\'', '"']);
     if key.is_empty() {

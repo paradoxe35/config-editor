@@ -430,3 +430,55 @@ fn yaml_items_and_keys_written_apart_have_their_range() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// YAML anchors and tags, on a block's key line (`base: &b`) or on a key
+/// itself (`&k b: 1`), and comments after a block's key: the block's lines
+/// stay under its key wherever the caret is (on a key, in a value, on a
+/// blank line where a key is typed), and a key is named without them.
+#[test]
+fn yaml_node_properties_keep_the_paths_below_them() {
+    // `|` marks the caret.
+    let cases = [
+        ("base: &b\n  x: 1\n  |\n", "/base"),
+        ("base: !t\n  x: 1\n  |\n", "/base"),
+        ("base: &b !t # shared\n  x: 1\n  |\n", "/base"),
+        ("base: # note\n  x: 1\n  |\n", "/base"),
+        ("base: &b\n  x: o|ne\n", "/base/x"),
+        ("base: &b\n  |x: 1\n", "/base/x"),
+        ("l: !list\n  - d: |1\n", "/l/0/d"),
+        ("a:\n  &k b: 1|\n", "/a/b"),
+        ("a:\n  &k |b: 1\n", "/a/b"),
+        ("a:\n  !t c|: 2\n", "/a/c"),
+        ("a:\n  &k b:\n    c: |1\n", "/a/b/c"),
+        ("? &k b\n: |1\n", "/b"),
+        ("- - 1\n|- - 3\n", "/1"),
+        ("- - 1\n- |- 3\n", "/1/0"),
+    ];
+    let mut failures = Vec::new();
+    for (marked, wanted) in cases {
+        let caret = marked.find('|').unwrap();
+        let text = marked.replacen('|', "", 1);
+        let at = TextPosition::from_offset(&text, text[..caret].encode_utf16().count());
+        let found = Language::YAML
+            .path_at(&text, at)
+            .map(|path| path.to_pointer());
+        if found.as_deref() != Some(wanted) {
+            failures.push(format!(
+                "{marked:?}: path_at gives {found:?}, wanted {wanted}"
+            ));
+        }
+    }
+    // What a key with its own anchor or tag covers.
+    for (text, pointer, expected) in [
+        ("a:\n  &k b: 1\n  c: 2\n", "/a/b", "b: 1"),
+        ("a:\n  &k b: 1\n  c: 2\n", "/a/c", "c: 2"),
+        ("a:\n  !t c: 2\n", "/a/c", "c: 2"),
+        ("- - 1\n- - - 3\n", "/1", "-"),
+    ] {
+        let found = Language::YAML.range_of(text, pointer);
+        if found.map(|range| range.slice(text).to_string()).as_deref() != Some(expected) {
+            failures.push(format!("{pointer} in {text:?}: range {found:?}"));
+        }
+    }
+    report(failures);
+}

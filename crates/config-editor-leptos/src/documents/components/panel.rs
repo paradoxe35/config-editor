@@ -1,5 +1,6 @@
 //! One document's tab panel and its editor. The editor mounts the first time
-//! the document is shown, then stays mounted while the document is open:
+//! the document is shown (at once, so its handle answers right after a
+//! `select`), then stays mounted while the document is open:
 //! hidden panels keep their layout (`visibility: hidden`, `inert`), so the
 //! editor's scroll position, caret, undo history, folds and find widget are
 //! all there when the document comes back.
@@ -7,7 +8,7 @@
 use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
-use crate::reactive::later;
+use crate::reactive::{later, mount_detached};
 use crate::{ConfigEditor, EditorSettings, Language, SaveRequest};
 
 #[component]
@@ -18,11 +19,7 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
         active.with(|active| id.with_value(|id| active.as_deref() == Some(id.as_str())))
     });
     focus_when_mounted(documents, &entry);
-    let visited = entry.visited;
-    let editor = {
-        let entry = entry.clone();
-        move || visited.get().then(|| editor(documents, entry.clone()))
-    };
+    let panel = mount_when_shown(documents, &entry);
     let class = move || {
         if shown.get() {
             "config-editor-documents__panel"
@@ -39,10 +36,48 @@ pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) ->
             aria-labelledby=entry.tab_id(documents)
             inert=move || !shown.get()
             data-document-id=entry.id.clone()
-        >
-            {editor}
-        </div>
+            node_ref=panel
+        ></div>
     }
+}
+
+/// Mounts the document's editor into its panel the first time it is shown:
+/// at once when the view shows it (`Entry::mount_now`), or once the panel
+/// is on the page for a document shown before. As a view of its own, with
+/// an owner of its own, unmounted (then cleaned up) with the panel.
+fn mount_when_shown(documents: Documents, entry: &Entry) -> NodeRef<leptos::html::Div> {
+    let panel: NodeRef<leptos::html::Div> = NodeRef::new();
+    let mounted: StoredValue<Option<Box<dyn std::any::Any>>, LocalStorage> =
+        StoredValue::new_local(None);
+    let mount = {
+        let entry = entry.clone();
+        move |()| {
+            let built = mounted.try_with_value(Option::is_some).unwrap_or(true);
+            if built || !entry.visited.get_untracked() {
+                return;
+            }
+            let Some(element) = panel.get_untracked() else {
+                return;
+            };
+            let entry = entry.clone();
+            let view = untrack(|| mount_detached(element.into(), move || editor(documents, entry)));
+            mounted.set_value(Some(view));
+        }
+    };
+    let mount = Callback::new(mount);
+    entry.mount_now.set_value(Some(mount));
+    let visited = entry.visited;
+    Effect::new(move |_| {
+        if panel.get().is_some() && visited.get() {
+            mount.run(());
+        }
+    });
+    let mount_now = entry.mount_now;
+    on_cleanup(move || {
+        let _ = mount_now.try_set_value(None);
+        let _ = mounted.try_update_value(|view| *view = None);
+    });
+    panel
 }
 
 /// Focuses the document's editor once it is mounted and shown, when a

@@ -12,6 +12,7 @@ use super::super::diagnostics::SchemaBundle;
 use super::super::edit::{Edit, Origin};
 use super::super::input::edit_range;
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::paths::{FieldPath, TextRange};
 use super::super::secret_options::SecretOptions;
@@ -323,7 +324,7 @@ impl EditorState {
         // Typing on where a key was refused: the rest of the word, or the
         // spaces after it, would only be left there half-written.
         if let Some(at) = inserted_at(edit)
-            && holds_back(edit, at)
+            && holds_back(edit, at, &comment_markers(self.behavior()))
             && let Some(message) = self.protect().marks.with_value(|marks| {
                 marks
                     .refused
@@ -675,8 +676,9 @@ fn inserted_at(edit: &Edit) -> Option<usize> {
 /// rest of an entry refused where a line starts (its key, the spaces and
 /// value after it), or more text glued on after a field. A line break ends
 /// what was refused, and whitespace after a field is free, like a comment
-/// after it: those are checked like any other edit.
-fn holds_back(edit: &Edit, at: usize) -> bool {
+/// after it (`#`, or the `/` starting a `//`, glued on or not): those are
+/// checked like any other edit.
+fn holds_back(edit: &Edit, at: usize, comment_markers: &[&str]) -> bool {
     let added = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
     let (from, to) = (
         utf16_to_byte_index(&edit.text, at),
@@ -691,5 +693,22 @@ fn holds_back(edit: &Edit, at: usize) -> bool {
         .rsplit(['\n', '\r'])
         .next()
         .unwrap_or_default();
-    line.trim().is_empty() || !inserted.trim().is_empty()
+    let typed = inserted.trim();
+    let starts_comment = !typed.is_empty()
+        && comment_markers
+            .iter()
+            .any(|marker| typed.starts_with(marker) || marker.starts_with(typed));
+    (line.trim().is_empty() || !typed.is_empty()) && !starts_comment
+}
+
+/// The markers that start a comment in `behavior`'s language: its line
+/// comments and the opener of its block comment.
+fn comment_markers(behavior: &dyn ConfigLanguage) -> Vec<&'static str> {
+    let config = behavior.config();
+    config
+        .line_comments
+        .iter()
+        .copied()
+        .chain(config.block_comment.map(|(open, _)| open))
+        .collect()
 }

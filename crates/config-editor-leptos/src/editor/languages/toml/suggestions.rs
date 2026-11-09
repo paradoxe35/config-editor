@@ -160,7 +160,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let key = unquote_key(&raw_key);
         let mut full = path.clone();
         // In `a.b = |` only `b` is the value's key; `a` extends the path.
-        let mut dotted: Vec<SchemaPathSegment> = split_key_path(&key)
+        let mut dotted: Vec<SchemaPathSegment> = split_key_path(&raw_key)
             .unwrap_or_else(|| vec![key.clone()])
             .into_iter()
             .map(SchemaPathSegment::Key)
@@ -689,7 +689,7 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         }
         return None;
     }
-    (column >= start_column && column < end_column).then_some((key, start_column))
+    (column >= start_column && column < end_column).then(|| (dotted[0].clone(), start_column))
 }
 
 /// The path of one segment of a table header or dotted key: hovering `web`

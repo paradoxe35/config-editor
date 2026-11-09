@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use config_editor_leptos::{
     CloseRequest, ConfigDocuments as DocumentsView, Document, DocumentsHandle, EditorSettings,
-    Language, SaveRequest, SecretOptions,
+    Language, SaveRequest, Schema, SecretOptions,
 };
 use js_sys::{Array, Function, Object};
 use leptos::prelude::*;
@@ -73,8 +73,18 @@ struct Listed {
 
 /// The documents JavaScript lists, as the component takes them. Schemas
 /// stay JSON text: the view compiles each distinct text once and shares it.
+/// What reading the list keeps from one reading to the next: each
+/// document's secret options, built once per id as its editor reads them
+/// when it mounts, and the schemas compiled, by their JSON text.
+#[derive(Clone, Default)]
+struct Kept {
+    secrets: HashMap<String, SecretOptions>,
+    schemas: HashMap<String, Schema>,
+}
+
 /// A document's `settings` go over `view`; its `secrets` are built once per
-/// id (`secrets`), as its editor reads them when it mounts.
+/// id, and its `schema` compiled once per text (a schema that does not
+/// compile throws, as a `ConfigEditor`'s does), see [`Kept`].
 /// A console warning, once per file name, that no language claims
 /// `file_name`'s extension, so the document opens in `fallback`.
 fn warn_unclaimed(file_name: &str, fallback: Language) {
@@ -97,8 +107,9 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 fn documents_from(
     list: &JsValue,
     view: &EditorSettings,
-    secrets: &mut HashMap<String, SecretOptions>,
+    kept: &mut Kept,
 ) -> Result<Listed, JsError> {
+    let mut schemas = HashMap::new();
     if !Array::is_array(list) {
         return Err(JsError::new(
             "documents must be an array of { id, fileName, value, … }",
@@ -116,6 +127,9 @@ fn documents_from(
         }
         warn_unknown_keys(&item, DOCUMENT_KEYS, "document key");
         let id = text_arg(&field(&item, "id"), &name("id"))?;
+        if id.is_empty() {
+            return Err(JsError::new(&format!("{} must not be empty", name("id"))));
+        }
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
         let value = optional_text(&field(&item, "value"), &name("value"))?.unwrap_or_default();
         let mut document = Document::new(id, file_name, value);
@@ -138,7 +152,13 @@ fn documents_from(
         if let Some(closable) = bool_option(&item, "closable")? {
             document = document.closable(closable);
         }
-        if let Some(schema) = optional_text(&field(&item, "schema"), &name("schema"))? {
+        if let Some(json) = optional_text(&field(&item, "schema"), &name("schema"))? {
+            let schema = match schemas.get(&json).or_else(|| kept.schemas.get(&json)) {
+                Some(schema) => schema.clone(),
+                None => Schema::compile(&json)
+                    .map_err(|error| JsError::new(&format!("{}: {error}", name("schema"))))?,
+            };
+            schemas.insert(json, schema.clone());
             document = document.schema(schema);
         }
         if let Some(edit_as) = optional_text(&field(&item, "editAs"), &name("editAs"))? {
@@ -148,7 +168,7 @@ fn documents_from(
                 document = document.edit_as(edit_as);
             }
         }
-        document = with_protection(document, &item, index, secrets)?;
+        document = with_protection(document, &item, index, &mut kept.secrets)?;
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
             if !own.is_object() || Array::is_array(&own) {
@@ -169,7 +189,9 @@ fn documents_from(
         }
         documents.push(document);
     }
-    secrets.retain(|id, _| documents.iter().any(|document| document.id == *id));
+    kept.secrets
+        .retain(|id, _| documents.iter().any(|document| document.id == *id));
+    kept.schemas = schemas;
     Ok(Listed {
         documents,
         overrides,
@@ -234,8 +256,8 @@ pub(crate) struct State {
     settings: RwSignal<EditorSettings>,
     /// Each document's own `settings`, as JavaScript gave them.
     overrides: StoredValue<Vec<(String, JsValue)>, LocalStorage>,
-    /// Each document's secret options, built once (see `documents_from`).
-    secrets: StoredValue<HashMap<String, SecretOptions>, LocalStorage>,
+    /// What reading the list keeps (see `Kept`).
+    kept: StoredValue<Kept, LocalStorage>,
     /// Whether `onSave` is set: only then does `Ctrl+S` save.
     pub(crate) saves: RwSignal<bool>,
     on_select: StoredValue<Option<Function>, LocalStorage>,
@@ -311,9 +333,9 @@ impl State {
 
     /// Reads a list from JavaScript against the view's settings `view`.
     fn read(&self, list: &JsValue, view: &EditorSettings) -> Result<Listed, JsError> {
-        let mut secrets = self.secrets.try_get_value().unwrap_or_default();
-        let listed = documents_from(list, view, &mut secrets)?;
-        let _ = self.secrets.try_set_value(secrets);
+        let mut kept = self.kept.try_get_value().unwrap_or_default();
+        let listed = documents_from(list, view, &mut kept)?;
+        let _ = self.kept.try_set_value(kept);
         Ok(listed)
     }
 
@@ -494,13 +516,13 @@ impl ConfigDocuments {
         let options: JsValue = options.into();
         let settings = settings_from(&options)?;
         let owner = Owner::new();
-        let mut secrets = HashMap::new();
+        let mut kept = Kept::default();
         let listed = match field(&options, "documents") {
             list if list.is_undefined() || list.is_null() => Listed {
                 documents: Vec::new(),
                 overrides: Vec::new(),
             },
-            list => owner.with(|| documents_from(&list, &settings, &mut secrets))?,
+            list => owner.with(|| documents_from(&list, &settings, &mut kept))?,
         };
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
@@ -523,7 +545,7 @@ impl ConfigDocuments {
             documents: RwSignal::new(listed.documents),
             settings: RwSignal::new(settings),
             overrides: StoredValue::new_local(listed.overrides),
-            secrets: StoredValue::new_local(secrets),
+            kept: StoredValue::new_local(kept),
             saves: RwSignal::new(on_save.is_some()),
             on_select: StoredValue::new_local(on_select),
             on_close: StoredValue::new_local(on_close),

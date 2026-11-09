@@ -120,8 +120,14 @@ impl ConfigEditor {
             }
             None => None,
         };
-        let value = string_option(&options, "value")?.unwrap_or_default();
-        let baseline = string_option(&options, "baseline")?.unwrap_or_else(|| value.clone());
+        // A text, as `update` takes it: `null` is no document.
+        let text_option = |name: &str| {
+            given(&options, name)
+                .map(|text| text_arg(&text, name))
+                .transpose()
+        };
+        let value = text_option("value")?.unwrap_or_default();
+        let baseline = text_option("baseline")?.unwrap_or_else(|| value.clone());
         let file_name = string_option(&options, "fileName")?;
         let class = string_option(&options, "className")?;
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);

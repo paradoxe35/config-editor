@@ -193,8 +193,9 @@ pub(super) fn unquote_key(segment: &str) -> String {
     }
 }
 
-/// The unquoted key before `=` on a value line, with its byte span relative
-/// to the line start. Comment lines and table headers yield `None`.
+/// The key before `=` on a value line as written (quotes and dots kept:
+/// [`split_key_path`] names its segments), with its byte span relative to
+/// the line start. Comment lines and table headers yield `None`.
 pub(super) fn key_assignment(line: &str) -> Option<(String, usize, usize)> {
     let (code, _) = split_toml_comment(line);
     if code.trim().is_empty() || code.trim_start().starts_with('[') {
@@ -205,9 +206,8 @@ pub(super) fn key_assignment(line: &str) -> Option<(String, usize, usize)> {
     if raw.is_empty() {
         return None;
     }
-    let key = unquote_key(raw);
     let start = code[..equals].find(raw).unwrap_or(0);
-    Some((key, start, start + raw.len()))
+    Some((raw.to_string(), start, start + raw.len()))
 }
 
 /// Byte index of the `=` separating key from value, ignoring `=` inside

@@ -421,7 +421,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let Some(colon) = mapping_colon_anywhere(mapping) else {
             continue;
         };
-        let key = mapping[..colon].trim().trim_matches(['\'', '"']);
+        let key = without_node_properties(mapping[..colon].trim()).trim_matches(['\'', '"']);
         if key.is_empty() {
             continue;
         }
@@ -431,7 +431,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         {
             ancestors.pop();
         }
-        if mapping[colon + 1..].trim().is_empty() {
+        if opens_block(&mapping[colon + 1..]) {
             ancestors.push((mapping_indent, SchemaPathSegment::Key(key.to_string())));
         }
     }
@@ -453,9 +453,11 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     let mut path: Vec<_> = ancestors.into_iter().map(|(_, key)| key).collect();
     let (line_content, content_offset) = {
         // The caret line's dashes: the first continues the list at its
-        // column, any further one starts a new inner list.
+        // column, any further one starts a new inner list (an item the caret
+        // is on only once at or past its dash: `|- - 3` is the outer item).
         let mut content = prefix;
         let mut first = true;
+        let caret_column = cursor - current_line_start;
         while let Some(after_dash) = dash_item(content) {
             let column = indent + (prefix.len() - content.len());
             let index = if first {
@@ -463,7 +465,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             } else {
                 0
             };
-            path.push(SchemaPathSegment::ArrayItem(index));
+            if first || column <= caret_column {
+                path.push(SchemaPathSegment::ArrayItem(index));
+            }
             content = after_dash;
             first = false;
         }
@@ -488,8 +492,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     });
     let value_key = colon
         .map(|colon| {
-            line_content[..colon]
-                .trim()
+            without_node_properties(line_content[..colon].trim())
                 .trim_matches(['\'', '"'])
                 .to_string()
         })
@@ -701,8 +704,7 @@ pub(super) fn existing_mapping_keys(
         .unwrap_or_default();
     let current_line = current_line.trim_start().trim_start_matches("- ");
     let current_key = mapping_colon_anywhere(current_line).map(|colon| {
-        current_line[..colon]
-            .trim()
+        without_node_properties(current_line[..colon].trim())
             .trim_matches(['\'', '"'])
             .to_string()
     });
@@ -726,7 +728,7 @@ pub(super) fn sibling_block_keys(source: &str, line_start: usize, line_end: usiz
         let body = line.trim_start();
         let body = body.strip_prefix("- ").unwrap_or(body);
         let colon = mapping_colon_anywhere(body)?;
-        Some(body[..colon].trim().trim_matches(['\'', '"']).to_string())
+        Some(without_node_properties(body[..colon].trim()).trim_matches(['\'', '"']).to_string())
     };
     let is_sibling = |line: &&str| line.trim().is_empty() || line.trim_start().starts_with('#') || indent_of(line) >= indent;
     let before = source[..line_start.saturating_sub(1)].lines().rev().take_while(is_sibling);

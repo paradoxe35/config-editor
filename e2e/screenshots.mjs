@@ -275,6 +275,8 @@ const scenes = {
     await page.goto(`${demo}?documents`);
     await page.locator('.config-editor__input').first().waitFor();
     await ready(page);
+    // The main config stays open, as a host keeps it: no close button.
+    await page.locator('.demo__toggle-closable').click();
     const tabs = page.getByRole('tab');
     await tabs.nth(1).click();
     await page.locator('.config-editor__input:visible').click();

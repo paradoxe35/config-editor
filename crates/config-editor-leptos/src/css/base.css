@@ -130,6 +130,35 @@
 
 .config-editor__frame > * { flex: none; }
 
+/* Tells the editor whether its height is given (see `fill.rs`): as tall as
+   the editor then, nothing when the content sizes it. */
+.config-editor__fill-probe {
+  float: left;
+  width: 0;
+  height: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* A given height is filled however short or tall: the text area takes what
+   the toolbar and footer leave, with no minimum or maximum of its own
+   (unless the host sets one). */
+.config-editor__fills .config-editor__surface {
+  min-height: var(--config-editor-min-height, 0);
+  height: auto;
+  max-height: var(--config-editor-max-height, none);
+}
+.config-editor__fills .config-editor__highlight,
+.config-editor__fills .config-editor__input {
+  min-height: var(--config-editor-min-height, 0);
+}
+.config-editor__fills .config-editor__input {
+  flex: 1 1 0;
+  height: auto;
+  max-height: var(--config-editor-max-height, none);
+  resize: none;
+}
+
 .config-editor__frame:focus-within {
   border-color: var(--config-editor-accent);
 }
