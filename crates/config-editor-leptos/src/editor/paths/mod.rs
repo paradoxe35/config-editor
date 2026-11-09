@@ -84,12 +84,10 @@ pub(crate) fn field_range(
             TextPosition::new(lines, last.chars().count() + 1),
         ));
     }
-    let found = spellings(behavior, pointer)
+    spellings(behavior, pointer)
         .iter()
-        .find_map(|pointer| field_span(behavior, source, pointer));
-    found
-        .or_else(|| first_repeated(behavior, source, pointer))
-        .map(range)
+        .find_map(|pointer| field_span(behavior, source, pointer))
+        .or_else(|| first_repeated(behavior, source, pointer).map(range))
 }
 
 /// A list written as repeated elements or blocks (`<hosts>` twice) has no
@@ -116,18 +114,19 @@ pub(crate) fn key_range(
 }
 
 /// [`field_range`] of one spelling of a pointer.
-fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<Span> {
+fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Option<TextRange> {
     let key = key_span(behavior, source, pointer);
     let value = value_span(behavior, source, pointer);
     let Some(key) = key else {
-        return value;
+        return value.map(|value| spanning(source, value));
     };
+    let width = trimmed_width(source, key.line);
     let Some(value) = value.filter(|value| {
         value.line == key.line
             && value.start_column >= key.start_column
-            && value.start_column <= trimmed_width(source, key.line)
+            && value.start_column <= width
     }) else {
-        return Some(key);
+        return Some(range(key));
     };
     let line: Vec<char> = split_line(source, key.line - 1)
         .unwrap_or("")
@@ -142,27 +141,64 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
     // block below it.
     let written = text(value.start_column - 1, value.end_column - 1);
     if matches!(written.trim(), "{" | "[") {
-        return Some(key);
+        return Some(range(key));
     }
-    let mut start = key.start_column;
-    let mut end = value
-        .end_column
-        .min(trimmed_width(source, key.line) + 1)
-        .max(key.end_column);
+    let start = key.start_column;
+    // A value over lines (a block scalar, a heredoc, element text) ends on
+    // the line it ends on.
+    let end = if value.end_column > width + 1 {
+        spanning(source, value).end
+    } else {
+        TextPosition::new(key.line, value.end_column.max(key.end_column))
+    };
     // Markup closing the value (`</listen>`) is part of the field, and so
     // is the start tag's `<`.
-    let rest = text(end - 1, line.len());
-    if let Some(closing) = behavior.closing_markup_len(&rest) {
-        end += rest[..closing.min(rest.len())].chars().count();
-        if start > 1 && line.get(start - 2) == Some(&'<') {
-            start -= 1;
+    let end_line: Vec<char> = split_line(source, end.line - 1)
+        .unwrap_or("")
+        .chars()
+        .collect();
+    let rest: String = end_line[(end.column - 1).min(end_line.len())..]
+        .iter()
+        .collect();
+    match behavior.closing_markup_len(&rest) {
+        Some(closing) => {
+            let start = if start > 1 && line.get(start - 2) == Some(&'<') {
+                start - 1
+            } else {
+                start
+            };
+            Some(TextRange::new(
+                TextPosition::new(key.line, start),
+                TextPosition::new(
+                    end.line,
+                    end.column + rest[..closing.min(rest.len())].chars().count(),
+                ),
+            ))
         }
+        None => Some(TextRange::new(TextPosition::new(key.line, start), end)),
     }
-    Some(Span {
-        line: key.line,
-        start_column: start,
-        end_column: end,
-    })
+}
+
+/// `span` over the lines it covers: its end column counts on past its line
+/// (each line break one column) to where it ends.
+fn spanning(source: &str, span: Span) -> TextRange {
+    let start = TextPosition::new(span.line, span.start_column);
+    let (mut line, mut column) = (span.line, span.end_column);
+    while let Some(text) = split_line(source, line - 1) {
+        let width = text.chars().count();
+        if column <= width + 1 || split_line(source, line).is_none() {
+            break;
+        }
+        column -= width + 1;
+        line += 1;
+    }
+    // Through a line break (a heredoc's terminator line): the end of that
+    // line.
+    if column == 1 && line > span.line {
+        line -= 1;
+        column = split_line(source, line - 1).map_or(0, |text| text.chars().count()) + 1;
+    }
+    TextRange::new(start, TextPosition::new(line, column))
 }
 
 /// Where a problem with the value at `pointer` is underlined, as schema
@@ -217,6 +253,10 @@ pub(crate) fn path_at(
     source: &str,
     cursor: usize,
 ) -> Option<FieldPath> {
+    // A leading byte order mark is no part of the document.
+    if let (text, true) = super::byte_order_mark::split(source) {
+        return path_at(behavior, text, cursor.saturating_sub(1));
+    }
     note(Work::PathLookup);
     if cursor > source.encode_utf16().count() {
         return None;

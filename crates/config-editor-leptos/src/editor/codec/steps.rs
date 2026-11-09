@@ -66,6 +66,9 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
             let same_keys =
                 left.len() == right.len() && left.keys().all(|key| right.contains_key(key));
             if !same_keys {
+                if let Some(step) = renames_apart(left, right) {
+                    return Some(Value::Object(step));
+                }
                 let rebuilt: Map<String, Value> = right
                     .iter()
                     .map(|(key, value)| (key.clone(), left.get(key).unwrap_or(value).clone()))
@@ -93,6 +96,60 @@ fn one_structural_step(current: &Value, target: &Value) -> Option<Value> {
         }
         _ => Some(target.clone()),
     }
+}
+
+/// Keys renamed in a map that also loses or gains others, made a step of
+/// their own so the rename patch makes them in place (an XML attribute
+/// renamed stays one, which a rewrite of the map would write as an
+/// element): `left` without the keys removed outright first, then with the
+/// renamed keys renamed where they are. A key removed and one added
+/// holding the same value, in order, are a rename. `None` when the map
+/// only renames, or renames nothing.
+fn renames_apart(
+    left: &Map<String, Value>,
+    right: &Map<String, Value>,
+) -> Option<Map<String, Value>> {
+    let removed: Vec<&String> = left
+        .keys()
+        .filter(|key| !right.contains_key(*key))
+        .collect();
+    let added: Vec<&String> = right
+        .keys()
+        .filter(|key| !left.contains_key(*key))
+        .collect();
+    let mut renames: Vec<(&String, &String)> = Vec::new();
+    let mut from = 0;
+    for old_key in &removed {
+        if let Some(offset) = added[from..]
+            .iter()
+            .position(|new_key| right[*new_key] == left[*old_key])
+        {
+            renames.push((old_key, added[from + offset]));
+            from += offset + 1;
+        }
+    }
+    if renames.is_empty() {
+        return None;
+    }
+    let renamed = |key: &String| {
+        renames
+            .iter()
+            .find(|(old, _)| *old == key)
+            .map(|(_, new)| *new)
+    };
+    if renames.len() < removed.len() {
+        return Some(
+            left.iter()
+                .filter(|(key, _)| right.contains_key(*key) || renamed(key).is_some())
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        );
+    }
+    (renames.len() < added.len()).then(|| {
+        left.iter()
+            .map(|(key, value)| (renamed(key).unwrap_or(key).clone(), value.clone()))
+            .collect()
+    })
 }
 
 #[cfg(test)]

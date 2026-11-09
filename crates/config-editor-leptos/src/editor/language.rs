@@ -1444,6 +1444,25 @@ pub trait ConfigLanguage: Send + Sync + 'static {
         None
     }
 
+    /// `read`, a value read back from a text written from `like`, with its
+    /// keys spelled as `like` spells them, where the language reads one
+    /// key two ways: XML reads an attribute `@a` beside a child element
+    /// `a`, and `a` alone. A save then compares the two key by key (an
+    /// attribute stays one when the child is removed). Default: `read`.
+    fn spelled_like(&self, read: Value, like: &Value) -> Value {
+        let _ = like;
+        read
+    }
+
+    /// Whether the map at `pointer` is written in `source` as the labels
+    /// of blocks (HCL's `svc "a" { … }` holds `/svc/a`, so `/svc` is such a
+    /// map): emptied, it is written as no blocks, not as an empty block.
+    /// Default: no.
+    fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
+        let _ = (source, pointer);
+        false
+    }
+
     /// The container at `pointer` when the document writes it on one line in
     /// a form other than a `{…}` or `[…]` value: an XML element with its
     /// children on one line, an HCL one-line block. A structural Edit-as

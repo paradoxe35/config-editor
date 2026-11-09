@@ -4,7 +4,7 @@
 use super::super::language::ConfigLanguage;
 use super::compare::{comment_start, comparable, spaced_trailing_comment, trailing_comment};
 use super::list_items::opens_list_item;
-use super::{empty_containers, kept_inline, read, serialize};
+use super::{empty_containers, kept_inline, reads_as, serialize};
 use serde_json::Value;
 
 /// `previous` with a structural edit (keys or items added or removed) applied
@@ -26,7 +26,7 @@ pub(in super::super) fn patch_structure(
     if previous.trim().is_empty() {
         return None;
     }
-    let reads_as_new = |text: &str| read(language, text, schema).ok().as_ref() == Some(new);
+    let reads_as_new = |text: &str| reads_as(language, text, schema, new);
     // Empty containers over lines (`block {` then `}`) as the serializer
     // writes them, on one line.
     if let Some(joined) = empty_containers::join(language, previous)
@@ -48,7 +48,7 @@ fn patch_kept_lines(
     new: &Value,
     schema: Option<&Value>,
 ) -> Option<String> {
-    let reads_as_new = |text: &str| read(language, text, schema).ok().as_ref() == Some(new);
+    let reads_as_new = |text: &str| reads_as(language, text, schema, new);
     if let Some(kept) = kept_inline::hide(language, previous, old, new)
         && let Some(patched) = patch_lines(language, &kept.host, &kept.old, &kept.new)
     {

@@ -1,6 +1,16 @@
 //! Integers past 64 bits, which a parser without big integers reads as a
 //! float (silently not the number written): a syntax error, as YAML and
 //! TOML make it.
+#![cfg_attr(
+    not(all(
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )),
+    allow(dead_code, reason = "not every language reads through each helper")
+)]
 
 use serde_json::Value;
 
@@ -49,4 +59,52 @@ fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) 
         }
         _ => {}
     }
+}
+
+/// A parser's error about a number it cannot hold (`u64 value was too
+/// large`, `number out of range`, `floating-point number overflowed`, or a
+/// syntax error inside `1e400`), said plainly: the number literal at
+/// `line` and `column` (one-based, in characters; the error may point just
+/// past it) past the 64-bit integers, or past the largest float. `None`
+/// when no such literal is there.
+pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<String> {
+    let text: Vec<char> = source
+        .split('\n')
+        .nth(line.checked_sub(1)?)?
+        .chars()
+        .collect();
+    let part = |character: char| {
+        character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.' | '_')
+    };
+    let at = column.checked_sub(1)?.min(text.len());
+    // The literal holding the column, or ending just before it.
+    let probe = if text.get(at).copied().is_some_and(part) {
+        at
+    } else {
+        at.checked_sub(1)?
+    };
+    if !text.get(probe).copied().is_some_and(part) {
+        return None;
+    }
+    let start = (0..=probe)
+        .rev()
+        .take_while(|index| part(text[*index]))
+        .last()?;
+    let end = (probe..text.len())
+        .take_while(|index| part(text[*index]))
+        .last()?
+        + 1;
+    let literal: String = text[start..end].iter().collect();
+    let plain = literal.replace('_', "");
+    let digits = plain.strip_prefix(['-', '+']).unwrap_or(&plain);
+    if !digits.starts_with(|character: char| character.is_ascii_digit()) {
+        return None;
+    }
+    if digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return plain.parse::<i64>().is_err().then(|| message(&literal));
+    }
+    plain
+        .parse::<f64>()
+        .is_ok_and(f64::is_infinite)
+        .then(|| format!("the number {literal} is past the largest float"))
 }

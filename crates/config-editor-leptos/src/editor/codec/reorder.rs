@@ -3,7 +3,7 @@
 //! being rewritten in place under the comments of others.
 
 use super::super::language::{ConfigLanguage, Repetition};
-use super::{byte_range, comment_start, escape, inline_location, read};
+use super::{byte_range, comment_start, escape, inline_location, reads_as};
 use serde_json::Value;
 use std::ops::Range;
 
@@ -66,7 +66,7 @@ pub(in super::super) fn patch_reorder(
         patched.splice(range, block);
     }
     let patched = patched.join("\n");
-    (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
+    reads_as(language, &patched, schema, new).then_some(patched)
 }
 
 /// The items of the list at `pointer`, each on lines of its own: a scalar
@@ -243,7 +243,7 @@ fn indent_of(line: &str) -> usize {
 /// its dash's indent or further out, at exactly its indent above the first
 /// item), its dash line, and its last line (deeper comment lines end the
 /// item before).
-fn block_items(
+pub(super) fn block_items(
     language: &dyn ConfigLanguage,
     previous: &str,
     lines: &[&str],

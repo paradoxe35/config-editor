@@ -29,6 +29,11 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 "at end of input",
             );
         }
+        if let (Some(line), Some(column)) = (line, column)
+            && let Some(plain) = super::super::wide_integers::out_of_range(source, line, column)
+        {
+            message = plain;
+        }
         ParseError {
             message,
             line,
@@ -581,6 +586,36 @@ pub(super) fn sequence_item_span(source: &str, wanted: &[String]) -> Option<(usi
         return Some((line_number, column, end));
     }
     Some((line_number, column, column + value.chars().count().max(1)))
+}
+
+/// Where a root written as a flow collection (`[a, b]`, `--- {a: 1}`)
+/// opens, past comments, directives, the document start and node
+/// properties; `None` for a block root.
+pub(super) fn root_flow_span(source: &str) -> Option<(usize, usize, usize)> {
+    for (index, line) in source.lines().enumerate() {
+        let code = line_comment_start(line).map_or(line, |start| &line[..start]);
+        let mut text = code.trim_start();
+        if text.is_empty() || (text.starts_with('%') && text.len() == code.len()) {
+            continue;
+        }
+        if let Some(rest) = text.strip_prefix("---") {
+            if rest.trim().is_empty() {
+                continue;
+            }
+            if !rest.starts_with([' ', '\t']) {
+                return None;
+            }
+            text = rest.trim_start();
+        }
+        let value = &text[node_properties_len(text)..];
+        if !value.starts_with(['[', '{']) {
+            return None;
+        }
+        // Each step above cut only the front of the code.
+        let column = code[..code.len() - value.len()].chars().count() + 1;
+        return Some((index + 1, column, column + 1));
+    }
+    None
 }
 
 pub(super) fn first_yaml_span(source: &str) -> Option<(usize, usize, usize)> {

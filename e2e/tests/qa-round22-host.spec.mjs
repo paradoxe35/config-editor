@@ -256,8 +256,8 @@ test.describe('host LOWs', () => {
     }, LANGUAGES);
     for (const language of LANGUAGES) {
       expect(result[language][0], language).toBe(true);
-      expect(result[language][1], language).toMatch(/^throws: value is not JSON data/);
-      expect(result[language][2], language).toMatch(/^throws: value is not JSON data/);
+      expect(result[language][1], language).toMatch(/^throws: cannot write this value/);
+      expect(result[language][2], language).toMatch(/^throws: cannot write this value/);
     }
   });
 

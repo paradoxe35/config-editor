@@ -168,7 +168,7 @@ mod escapes;
 #[cfg(any(feature = "toml", feature = "hcl"))]
 mod aligned;
 // Integers past 64 bits a parser reads as floats: a syntax error.
-#[cfg(any(feature = "json", feature = "hcl"))]
+#[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
 
 macro_rules! registry {
@@ -348,7 +348,7 @@ impl Language {
     /// # }
     /// ```
     pub fn convert(self, source: &str, target: Language) -> Result<Conversion, ConvertError> {
-        codec::convert(source, self.0, target.0, None, None)
+        codec::convert_away(source, self.0, target.0, None)
     }
 
     /// Where the field at `path` is written in `source`: its key and value

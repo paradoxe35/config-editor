@@ -26,6 +26,7 @@ mod convert;
 mod text;
 mod one_line;
 mod text_bodies;
+mod spelling;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
@@ -112,8 +113,14 @@ impl ConfigLanguage for XmlBehavior {
         xml_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
+    /// An attribute read `a` (no child of its name now) where the value
+    /// written spells it `@a`.
+    fn spelled_like(&self, read: Value, like: &Value) -> Value {
+        spelling::spelled_like(read, like)
+    }
+
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_name_span(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| xml_name_span(text, pointer).map(Span::from))
     }
 
     /// Element text ending in a line break before its end tag
@@ -149,11 +156,11 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_value_span(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| xml_value_span(text, pointer).map(Span::from))
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        first_content_span(source).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| first_content_span(text).map(Span::from))
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

@@ -317,7 +317,7 @@ test.describe('headless functions, every language', () => {
     expect(result.written).toBe('A=1\n');
     expect(result.syntax).toMatch(/line \d+/);
     expect(result.unsupported).toMatch(/null/i);
-    expect(result.notData).toContain('value is not JSON data');
+    expect(result.notData).toContain('cannot write this value');
     expect(result.unknown).toMatch(/cobol/);
     expect(result.badTheme).toMatch(/neon/);
     expect(result.badIndex).toBe('index must be a non-negative integer');

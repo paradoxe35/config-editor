@@ -6,7 +6,7 @@
 //! Each is kept only if it reads back as the new document.
 
 use super::super::language::{ConfigLanguage, Span};
-use super::{byte_range, escape, read, through_long_quote};
+use super::{byte_range, escape, reads_as, through_long_quote};
 use serde_json::Value;
 
 /// `previous` with renamed keys renamed where they are written, when `new`
@@ -33,7 +33,7 @@ pub(in super::super) fn patch_renames(
             None => rename_at_key_span(language, &patched, &pointer, &old_key, &written)?,
         };
     }
-    (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
+    reads_as(language, &patched, schema, new).then_some(patched)
 }
 
 /// `source` with the key at `pointer` written `new_key` (as the language
@@ -130,7 +130,7 @@ pub(in super::super) fn patch_scalar_to_container(
     range.end = through_long_quote(language, previous, range.clone());
     let mut patched = previous.to_string();
     patched.replace_range(range, &text);
-    (read(language, &patched, schema).ok().as_ref() == Some(new)).then_some(patched)
+    reads_as(language, &patched, schema, new).then_some(patched)
 }
 
 /// The pointer of the one value `new` changes, keys and lengths kept.

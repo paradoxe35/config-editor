@@ -77,19 +77,19 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_key_span(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| hcl_key_span(text, pointer).map(Span::from))
     }
 
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_value_span(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| hcl_value_span(text, pointer).map(Span::from))
     }
 
     fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+        super::super::byte_order_mark::spans(source, |text| hcl_value_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
     }
 
     fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+        super::super::byte_order_mark::spans(source, |text| hcl_key_spans(text, pointers).into_iter().map(|span| span.map(Span::from)).collect())
     }
 
     /// A one-line block holds a single attribute; more open it over lines.
@@ -124,6 +124,13 @@ impl ConfigLanguage for HclBehavior {
         repeated_block_lines(source, pointer)
     }
 
+    fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
+        let wanted = super::super::language::pointer_segments(pointer);
+        labelled_blocks(source)
+            .iter()
+            .any(|(path, labels)| wanted.len() >= path.len() && wanted.len() < path.len() + labels && wanted[..path.len()] == path[..])
+    }
+
     fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
         one_line_block(source, pointer)
     }
@@ -152,7 +159,7 @@ impl ConfigLanguage for HclBehavior {
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        first_line_span(source).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| first_line_span(text).map(Span::from))
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {

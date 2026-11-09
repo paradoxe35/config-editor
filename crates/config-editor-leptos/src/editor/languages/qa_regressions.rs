@@ -1638,3 +1638,61 @@ fn a_leading_byte_order_mark_is_no_part_of_the_document() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// L24-4: a number past what a language holds is said plainly, the same
+/// way in every language, at the number.
+#[test]
+fn numbers_out_of_range_are_said_plainly_in_every_language() {
+    let mut failures = Vec::new();
+    for (language, text, number) in [
+        (
+            Language::TOML,
+            "a = 99999999999999999999\n",
+            "99999999999999999999",
+        ),
+        (
+            Language::TOML,
+            "a = -99999999999999999999\n",
+            "-99999999999999999999",
+        ),
+        (Language::TOML, "a = 1e400\n", "1e400"),
+        (
+            Language::YAML,
+            "a: 99999999999999999999\n",
+            "99999999999999999999",
+        ),
+        (
+            Language::HCL,
+            "a = 99999999999999999999\n",
+            "99999999999999999999",
+        ),
+        (Language::HCL, "a = 1e400\n", "1e400"),
+        (
+            Language::JSON,
+            "{\"a\": 99999999999999999999}\n",
+            "99999999999999999999",
+        ),
+        (Language::JSON, "{\"a\": 1e400}\n", "1e400"),
+    ] {
+        let expected = if number.contains('e') {
+            format!("the number {number} is past the largest float")
+        } else {
+            format!("the integer {number} does not fit in 64 bits")
+        };
+        match language.parse(text) {
+            Err(error) if error.message == expected && error.line == Some(1) => {}
+            other => failures.push(format!("{language} {text:?}: {other:?}")),
+        }
+    }
+    // A number in range beside a syntax error keeps the parser's message.
+    for (language, text) in [
+        (Language::TOML, "a = 12 3\n"),
+        (Language::JSON, "{\"a\": 12 3}\n"),
+    ] {
+        match language.parse(text) {
+            Err(error) if !error.message.contains("64 bits") => {}
+            other => failures.push(format!("{language} {text:?}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

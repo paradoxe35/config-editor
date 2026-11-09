@@ -37,7 +37,7 @@ pub fn serialize(
 ) -> Result<String, JsError> {
     let language = language_named(&text_arg(&language, "language")?)?;
     let value = json_from_js(&value, 0)
-        .map_err(|error| JsError::new(&format!("value is not JSON data: {error}")))?;
+        .map_err(|error| JsError::new(&format!("cannot write this value: {error}")))?;
     language
         .serialize(&value)
         .map_err(|error| JsError::new(&error.to_string()))

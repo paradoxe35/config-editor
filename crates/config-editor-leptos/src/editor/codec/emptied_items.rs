@@ -1,14 +1,18 @@
 //! A list the host writes as items of lines of their own (HCL repeated
-//! blocks, TOML `[[array]]` tables) emptied: written as no items, as XML
-//! writes an emptied repeated element, not as an attribute (`tag = []`,
-//! which Terraform refuses for a block type). The key goes with them.
+//! blocks, TOML `[[array]]` tables), or a map it writes as the labels of
+//! blocks (HCL `svc "a" { … }`), emptied: written as no items, as XML
+//! writes an emptied repeated element, not as an attribute (`tag = []`) or
+//! an empty block (`svc {}`), which Terraform refuses for a block type.
+//! The key goes with them.
 
 use super::super::language::ConfigLanguage;
 use serde_json::Value;
 use std::borrow::Cow;
 
-/// `value` without the empty lists `previous` writes as item lines.
-pub(super) fn without_emptied<'a>(
+/// `value` without the empty lists `previous` writes as item lines, nor
+/// the empty maps it writes as labels (nor the maps of labels left empty
+/// by them).
+pub(in super::super) fn without_emptied<'a>(
     language: &dyn ConfigLanguage,
     previous: Option<&str>,
     value: Cow<'a, Value>,
@@ -16,22 +20,25 @@ pub(super) fn without_emptied<'a>(
     let Some(previous) = previous else {
         return value;
     };
-    let mut found = Vec::new();
-    emptied(language, previous, &value, String::new(), &mut found);
-    if found.is_empty() {
-        return value;
-    }
-    let mut value = value.into_owned();
-    for (parent, key) in found {
-        if let Some(Value::Object(map)) = value.pointer_mut(&parent) {
-            map.remove(&key);
+    let mut value = value;
+    loop {
+        let mut found = Vec::new();
+        emptied(language, previous, &value, String::new(), &mut found);
+        if found.is_empty() {
+            return value;
+        }
+        let owned = value.to_mut();
+        for (parent, key) in found {
+            if let Some(Value::Object(map)) = owned.pointer_mut(&parent) {
+                map.shift_remove(&key);
+            }
         }
     }
-    Cow::Owned(value)
 }
 
 /// The keys (parent pointer, key) of the empty lists in `value` whose
-/// items `previous` writes as lines of their own.
+/// items `previous` writes as lines of their own, and of the empty maps it
+/// writes as labels.
 fn emptied(
     language: &dyn ConfigLanguage,
     previous: &str,
@@ -44,11 +51,13 @@ fn emptied(
             for (key, child) in map {
                 let child_pointer =
                     format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
-                if child.as_array().is_some_and(Vec::is_empty)
+                let lines = child.as_array().is_some_and(Vec::is_empty)
                     && language
                         .item_lines(previous, &format!("{child_pointer}/0"))
-                        .is_some()
-                {
+                        .is_some();
+                let labels = child.as_object().is_some_and(serde_json::Map::is_empty)
+                    && language.writes_as_labels(previous, &child_pointer);
+                if lines || labels {
                     found.push((pointer.clone(), key.clone()));
                 } else {
                     emptied(language, previous, child, child_pointer, found);

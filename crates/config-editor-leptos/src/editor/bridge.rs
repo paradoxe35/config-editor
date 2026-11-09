@@ -6,6 +6,7 @@
 //! directions go through `codec`, so no language needs bridge support.
 
 use super::Language;
+use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
 use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
@@ -15,6 +16,7 @@ use std::sync::Arc;
 mod emptied_quotes;
 mod host_strings;
 mod merge;
+mod tags;
 mod text_scalars;
 mod typed_spellings;
 mod whole_floats;
@@ -97,8 +99,22 @@ impl Bridge {
 
     /// [`Self::to_host`] in an edit session that began on the host text
     /// `origin`, whose styles outlast the session's saves (the quotes of a
-    /// string emptied and typed again).
+    /// string emptied and typed again). A leading byte order mark is no
+    /// part of the document: the text after it is patched, and it stays.
     pub(super) fn to_host_since(
+        &self,
+        edit_text: &str,
+        previous_host: &str,
+        origin: &str,
+    ) -> Result<Conversion, SaveError> {
+        let (previous, _) = byte_order_mark::split(previous_host);
+        let (origin, _) = byte_order_mark::split(origin);
+        let mut conversion = self.to_unmarked_host(edit_text, previous, origin)?;
+        conversion.text = byte_order_mark::restore(previous_host, conversion.text);
+        Ok(conversion)
+    }
+
+    fn to_unmarked_host(
         &self,
         edit_text: &str,
         previous_host: &str,
@@ -187,7 +203,11 @@ impl Bridge {
         // would (losses included), so its comments and formatting survive: a
         // value edit rewrites just those values, a structural one just those
         // lines.
-        let Ok(target) = codec::read(host, &rendered.text, self.shape()) else {
+        // Keys the host reads two ways are spelled as the edit spells them
+        // (an XML attribute `@a` whose child `a` is gone stays `@a`).
+        let Ok(target) = codec::read(host, &rendered.text, self.shape())
+            .map(|target| host.spelled_like(target, &value))
+        else {
             #[cfg(test)]
             WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
             return Ok(rendered);
@@ -293,7 +313,10 @@ impl Bridge {
                     }
                     Some(text)
                 })
-                .or_else(|| structure(previous, old, target)))
+                .or_else(|| structure(previous, old, target))
+                // Block items no line patch tells apart (tagged maps)
+                // removed whole.
+                .or_else(|| first(&[codec::patch_removed_items], previous, old, target)))
         };
         // Items moved while others are added or removed: moved first (with
         // their comments), then the removed ones dropped, then the rest.
@@ -339,18 +362,19 @@ impl Bridge {
                 rendered
             }
         };
-        self.tags_kept(previous_host, &conversion.text, &target)?;
+        self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
         Ok(conversion)
     }
 
     /// Every tag of the host's `previous` text (YAML `!Sub`) on a value the
-    /// edit kept is still on it in `saved`, else the save waits: the edit
-    /// language has no tags, so a value written anew loses its tag.
+    /// edit kept is still on it in `saved`, where it is or where it moved,
+    /// else the save waits: the edit language has no tags, so a value
+    /// written anew loses its tag.
     fn tags_kept(
         &self,
         previous: &str,
         saved: &str,
-        target: &serde_json::Value,
+        (old, target): (&serde_json::Value, &serde_json::Value),
     ) -> Result<(), SaveError> {
         let host = self.host.behavior();
         let before = host.tags(previous);
@@ -358,12 +382,7 @@ impl Bridge {
             return Ok(());
         }
         let after = host.tags(saved);
-        let lost = before.iter().find(|(pointer, tag)| {
-            target.pointer(pointer).is_some()
-                && !after
-                    .iter()
-                    .any(|(known, kept)| known == pointer && kept == tag)
-        });
+        let lost = tags::first_lost(&before, &after, old, target);
         match lost {
             Some((pointer, tag)) => Err(ConvertError::Unsupported(format!(
                 "{} has no tags, and this edit would write this value without its {} tag {tag}: edit it as {} (at {pointer})",

@@ -72,8 +72,9 @@ fn cdata(text: &str) -> String {
 /// `code` (one line) with CDATA markers dropped and the predefined entity
 /// references read, so text compares the same however it is written.
 pub(super) fn comparable_text(code: &str) -> std::borrow::Cow<'_, str> {
+    let code = without_prefixes(code);
     if !code.contains("<![CDATA[") && !code.contains("]]>") && !code.contains('&') {
-        return std::borrow::Cow::Borrowed(code);
+        return code;
     }
     let text = code
         .replace("<![CDATA[", "")
@@ -84,6 +85,40 @@ pub(super) fn comparable_text(code: &str) -> std::borrow::Cow<'_, str> {
         .replace("&apos;", "'")
         .replace("&amp;", "&");
     std::borrow::Cow::Owned(text)
+}
+
+/// `code` with the namespace prefixes of its tag names left out
+/// (`<k:a>1</k:a>` is `<a>1</a>`): the model keys an element by its local
+/// name, as the serializer writes it.
+fn without_prefixes(code: &str) -> std::borrow::Cow<'_, str> {
+    let name_start = |character: char| character.is_alphabetic() || character == '_';
+    let name_part =
+        |character: char| character.is_alphanumeric() || matches!(character, '_' | '-' | '.');
+    let mut out = String::new();
+    let mut rest = code;
+    let mut changed = false;
+    while let Some(open) = rest.find('<') {
+        let after = &rest[open + 1..];
+        let tag = after.strip_prefix('/').unwrap_or(after);
+        let head = rest.len() - tag.len();
+        let prefix_len = tag
+            .find(|character: char| !name_part(character))
+            .unwrap_or(tag.len());
+        let prefixed = tag.starts_with(name_start)
+            && tag[prefix_len..].starts_with(':')
+            && tag[prefix_len + 1..].starts_with(name_start);
+        out.push_str(&rest[..head]);
+        rest = &rest[head..];
+        if prefixed {
+            rest = &rest[prefix_len + 1..];
+            changed = true;
+        }
+    }
+    if !changed {
+        return std::borrow::Cow::Borrowed(code);
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
 }
 
 /// `text` escaped as element content: `&`, `<`, the `>` of a `]]>`, and a

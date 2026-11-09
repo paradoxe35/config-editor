@@ -544,6 +544,14 @@ fn check(
                     );
                 }
             }
+            // Blocks all removed (a list of them or the map of their labels
+            // emptied) are written as none: the key goes too.
+            let normalised = codec::without_emptied(
+                host.behavior(),
+                Some(host_text),
+                std::borrow::Cow::Owned(normalised),
+            )
+            .into_owned();
             // XML cannot tell a one-item list from its item where the schema
             // allows both (`secret`: a string or a list); a warning says so.
             let lone_items = (host.label() == "XML").then(|| without_one_item_lists(&normalised));

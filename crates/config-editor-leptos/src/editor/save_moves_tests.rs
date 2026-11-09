@@ -316,3 +316,33 @@ fn emptying_a_list_written_as_blocks_or_tables_removes_them() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+/// M24-E1: every labelled HCL block removed (the map of its labels
+/// emptied, at any of its labels) goes with its comments, as unlabelled
+/// ones do: no `svc {}` or `resource "aws_s3" {}` left, which Terraform
+/// refuses.
+#[test]
+fn emptying_the_labels_of_blocks_removes_them() {
+    let mut failures = Vec::new();
+    let services = "x = 1\n\n# A\nsvc \"a\" {\n  p = 1\n}\n\n# B\nsvc \"b\" {\n  p = 2\n}\n";
+    let resource = "# R\nresource \"aws_s3\" \"b\" {\n  acl = \"x\"\n}\n\nx = 1\n";
+    let nested = "top {\n  x = 1\n\n  # A\n  svc \"a\" {\n    p = 1\n  }\n}\n";
+    let cases = [
+        ("one label", services, "/svc", "x = 1\n"),
+        ("two labels", resource, "/resource", "x = 1\n"),
+        ("the inner label", resource, "/resource/aws_s3", "x = 1\n"),
+        ("in a block", nested, "/top/svc", "top {\n  x = 1\n}\n"),
+    ];
+    for (name, text, pointer, expected) in cases {
+        check(
+            &mut failures,
+            name,
+            Language::HCL,
+            text,
+            pointer,
+            "{}",
+            expected,
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

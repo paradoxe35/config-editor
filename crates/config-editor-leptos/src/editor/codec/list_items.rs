@@ -6,8 +6,9 @@ use super::super::language::{ConfigLanguage, Repetition};
 use super::compare::comment_start;
 
 /// Whether line `index` of `host` starts a list item: a YAML `- ` item, a
-/// TOML `[[array]]` table, or an XML element or HCL unlabeled block whose
-/// name another line at its indent repeats (`<s …>` twice, `s {` twice).
+/// TOML `[[array]]` table, an HCL labelled block, or an XML element or
+/// HCL unlabeled block whose name another line at its indent repeats
+/// (`<s …>` twice, `s {` twice).
 pub(super) fn opens_list_item(language: &dyn ConfigLanguage, host: &[&str], index: usize) -> bool {
     let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
     let indent = |line: &str| line.len() - line.trim_start().len();
@@ -39,6 +40,11 @@ pub(super) fn opens_list_item(language: &dyn ConfigLanguage, host: &[&str], inde
                 })
                 .collect();
             let after = rest[name.len()..].trim_start();
+            // A labelled block (`svc "a" {`) is an entry of the map of its
+            // labels, written as lines of its own as an item is.
+            if !name.is_empty() && after.starts_with('"') && line.ends_with('{') {
+                return true;
+            }
             (!name.is_empty() && after.starts_with('{')).then(|| format!("{name} {{"))
         }
         _ => None,

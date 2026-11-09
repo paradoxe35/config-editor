@@ -13,14 +13,19 @@ mod list_items;
 mod lists;
 mod moves;
 pub(super) mod non_finite;
+mod removed_items;
 mod renames;
 mod reorder;
 mod steps;
 
 use compare::{canonical_number, comment_start, comparable};
+#[cfg(test)]
+#[allow(unused_imports, reason = "the save property tests read through it")]
+pub(super) use emptied_items::without_emptied;
 pub(super) use lines::patch_structure;
 pub(super) use moves::stages as move_stages;
 pub use non_finite::{float_of, float_value, string_of, string_value};
+pub(super) use removed_items::patch_removed_items;
 pub(super) use renames::{patch_renames, patch_scalar_to_container};
 pub(super) use reorder::{patch_reorder, unmoved_comments};
 pub(super) use steps::steps;
@@ -88,6 +93,17 @@ pub(super) fn read(
         conform_arrays(&mut value, schema, language.repetition());
     }
     Ok(value)
+}
+
+/// Whether `text` reads back as `new`, its keys spelled as `new` spells
+/// them (see [`ConfigLanguage::spelled_like`]): a patch's check.
+pub(super) fn reads_as(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    schema: Option<&Value>,
+    new: &Value,
+) -> bool {
+    read(language, text, schema).is_ok_and(|read| language.spelled_like(read, new) == *new)
 }
 
 /// [`read`] without the shared parse: a text read once on the side (a
@@ -179,6 +195,24 @@ pub(super) fn convert(
     let value = read(from, source, schema).map_err(ConvertError::Parse)?;
     convertible(from, source)?;
     render(&value, to, previous, schema)
+}
+
+/// [`convert`] for a caller who keeps the result (the headless
+/// `convert`): the values whose tags the target has no place for (YAML's
+/// `!Sub`) are losses too. (Edit-as keeps the host's tags itself.)
+pub(super) fn convert_away(
+    source: &str,
+    from: &dyn ConfigLanguage,
+    to: &dyn ConfigLanguage,
+    schema: Option<&Value>,
+) -> Result<Conversion, ConvertError> {
+    let mut conversion = convert(source, from, to, None, schema)?;
+    for (pointer, _) in from.tags(source) {
+        if !conversion.losses.contains(&pointer) {
+            conversion.losses.push(pointer);
+        }
+    }
+    Ok(conversion)
 }
 
 /// Refuses a document holding what no other language can show (XML mixed
@@ -307,7 +341,7 @@ pub(super) fn patch_scalars(
         patched.replace_range(range, &text);
     }
     // Trust the patch only if it reads back as exactly the new document.
-    (read(language, &patched, schema).ok()? == *new).then_some(patched)
+    reads_as(language, &patched, schema, new).then_some(patched)
 }
 
 /// `previous` with a structural edit inside one inline container (a key
@@ -324,13 +358,20 @@ pub(super) fn patch_inline(
     let changed = changed_container(old, new, String::new())?;
     // The container that changed, or the nearest inline one around it.
     let mut pointer = changed;
+    let mut ascended = false;
     loop {
+        // Where indentation is structure, a root written `[a, b]` holding
+        // the change is a flow collection as a nested one is; elsewhere
+        // (JSON) the root's brackets are the document's own form, left to
+        // the other patches.
+        let document_form = ascended && pointer.is_empty() && !language.indent_is_structure();
         let span = language
             .value_span(previous, &pointer)
-            .or_else(|| inline_location(language, previous, &pointer, false));
+            .or_else(|| inline_location(language, previous, &pointer, false))
+            .filter(|_| !document_form);
         if let Some(span) = span
             && let Some(patched) = replace_inline(language, previous, &span, new, &pointer)
-            && read(language, &patched, schema).ok().as_ref() == Some(new)
+            && reads_as(language, &patched, schema, new)
         {
             return Some(patched);
         }
@@ -354,7 +395,7 @@ pub(super) fn patch_inline(
                 };
                 let mut patched = previous.to_string();
                 patched.replace_range(range.clone(), &text);
-                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                if reads_as(language, &patched, schema, new) {
                     return Some(patched);
                 }
             }
@@ -378,7 +419,7 @@ pub(super) fn patch_inline(
                 };
                 let mut patched = previous.to_string();
                 patched.replace_range(range.clone(), &text);
-                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                if reads_as(language, &patched, schema, new) {
                     return Some(patched);
                 }
             }
@@ -395,12 +436,13 @@ pub(super) fn patch_inline(
         {
             let mut patched = previous.to_string();
             patched.replace_range(range, &text);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+            if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
         }
         // A one-line block or element (`tcp { nodelay = true }`).
-        if let Some(one_line) = language.one_line_container(previous, &pointer)
+        if !document_form
+            && let Some(one_line) = language.one_line_container(previous, &pointer)
             && let Some(body) = new.pointer(&pointer).and_then(|value| {
                 let line_start = previous[..one_line.range.start]
                     .rfind('\n')
@@ -414,7 +456,7 @@ pub(super) fn patch_inline(
         {
             let mut patched = previous.to_string();
             patched.replace_range(one_line.value, &body);
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+            if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
         }
@@ -428,15 +470,12 @@ pub(super) fn patch_inline(
         {
             let mut patched = previous.to_string();
             patched.replace_range(range, &language.format_value_like(value, ""));
-            if read(language, &patched, schema).ok().as_ref() == Some(new) {
+            if reads_as(language, &patched, schema, new) {
                 return Some(patched);
             }
         }
-        let parent = pointer.rfind('/')?;
-        if parent == 0 && pointer.is_empty() {
-            return None;
-        }
-        pointer.truncate(parent);
+        // The root's own container was tried last (a YAML root written
+        // `[a, b]`, found by the language's span of the root).
         if pointer.is_empty() {
             // A document that is one container on one line (compact JSON).
             let trimmed = previous.trim();
@@ -446,12 +485,14 @@ pub(super) fn patch_inline(
             {
                 let mut patched = previous.to_string();
                 patched.replace_range(start..start + trimmed.len(), &text);
-                if read(language, &patched, schema).ok().as_ref() == Some(new) {
+                if reads_as(language, &patched, schema, new) {
                     return Some(patched);
                 }
             }
             return None;
         }
+        pointer.truncate(pointer.rfind('/')?);
+        ascended = true;
     }
 }
 
@@ -577,55 +618,70 @@ pub(super) fn inline_location(
     pointer: &str,
     key: bool,
 ) -> Option<Span> {
-    use super::language::{SchemaPathSegment, pointer_segments};
+    use super::language::pointer_segments;
     let segments = pointer_segments(pointer);
     for depth in (1..segments.len()).rev() {
         let ancestor: String = segments[..depth]
             .iter()
-            .map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1")))
+            .map(|segment| format!("/{}", escape(segment)))
             .collect();
         let Some(span) = super::paths::memo_value_span(behavior, source, &ancestor) else {
             continue;
         };
-        let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
-        let start = line_start
-            + source[line_start..]
-                .char_indices()
-                .nth(span.start_column.saturating_sub(1))
-                .map_or(0, |(index, _)| index);
-        let start = start + behavior.value_properties_len(&source[start..]);
-        let text = &source[start..];
-        if !text.starts_with(['{', '[']) {
-            return None;
-        }
-        let rest: Vec<SchemaPathSegment> = segments[depth..]
-            .iter()
-            .map(|segment| match segment.parse::<usize>() {
-                Ok(index) => SchemaPathSegment::ArrayItem(index),
-                Err(_) => SchemaPathSegment::Key(segment.clone()),
-            })
-            .collect();
-        let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
-        let (from, to) = (start + from, start + to);
-        // A comment after the value (`30 # b` in a flow map over lines) is
-        // the language's, not the value's.
-        let to = match behavior.comment_start(&source[from..to]) {
-            Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
-            _ => to,
-        };
-        let (line, column) = super::paths::line_column(source, from);
-        let to_column = if source[from..to].contains('\n') {
-            column + 1
-        } else {
-            column + source[from..to].chars().count()
-        };
-        return Some(Span {
-            line,
-            start_column: column,
-            end_column: to_column.max(column + 1),
-        });
+        return in_flow_container(behavior, source, span, &segments[depth..], key);
     }
     None
+}
+
+/// The span of what `rest` names inside the inline container whose value
+/// is written at `span` (`None` when no `{…}` or `[…]` is there): its key
+/// when `key`, else its value. A language whose root may be such a
+/// container (YAML's `[a, b]`) finds the paths in it with this.
+pub(super) fn in_flow_container(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    span: Span,
+    rest: &[String],
+    key: bool,
+) -> Option<Span> {
+    use super::language::SchemaPathSegment;
+    let line_start = super::paths::line_start(source, span.line.saturating_sub(1));
+    let start = line_start
+        + source[line_start..]
+            .char_indices()
+            .nth(span.start_column.saturating_sub(1))
+            .map_or(0, |(index, _)| index);
+    let start = start + behavior.value_properties_len(&source[start..]);
+    let text = &source[start..];
+    if !text.starts_with(['{', '[']) {
+        return None;
+    }
+    let rest: Vec<SchemaPathSegment> = rest
+        .iter()
+        .map(|segment| match segment.parse::<usize>() {
+            Ok(index) => SchemaPathSegment::ArrayItem(index),
+            Err(_) => SchemaPathSegment::Key(segment.clone()),
+        })
+        .collect();
+    let (from, to) = super::inline::inline_path_span(text, &rest, key)?;
+    let (from, to) = (start + from, start + to);
+    // A comment after the value (`30 # b` in a flow map over lines) is
+    // the language's, not the value's.
+    let to = match behavior.comment_start(&source[from..to]) {
+        Some(comment) if comment > 0 => from + source[from..from + comment].trim_end().len(),
+        _ => to,
+    };
+    let (line, column) = super::paths::line_column(source, from);
+    let to_column = if source[from..to].contains('\n') {
+        column + 1
+    } else {
+        column + source[from..to].chars().count()
+    };
+    Some(Span {
+        line,
+        start_column: column,
+        end_column: to_column.max(column + 1),
+    })
 }
 
 /// Collects `(pointer, new value)` for every changed scalar; `None` when the

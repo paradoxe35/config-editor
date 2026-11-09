@@ -11,10 +11,11 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             .span()
             .map(|span| line_column(source, span.start))
             .unwrap_or((1, 1));
+        let (line, column) = (line.clamp(1, line_count), column.max(1));
         ParseError {
-            message: error.message().to_string(),
-            line: Some(line.clamp(1, line_count)),
-            column: Some(column.max(1)),
+            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| error.message().to_string()),
+            line: Some(line),
+            column: Some(column),
         }
     })?;
     Ok(Value::Object(

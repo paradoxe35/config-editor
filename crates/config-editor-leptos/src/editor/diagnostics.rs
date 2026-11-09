@@ -376,11 +376,10 @@ impl Schema {
         source: &str,
         to: super::Language,
     ) -> Result<super::Conversion, super::ConvertError> {
-        super::codec::convert(
+        super::codec::convert_away(
             source,
             from.behavior(),
             to.behavior(),
-            None,
             Some(&self.bundle.schema),
         )
     }

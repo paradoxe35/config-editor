@@ -35,7 +35,7 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
             }
         }
         ParseError {
-            message,
+            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or(message),
             line: Some(line),
             column: Some(column),
         }

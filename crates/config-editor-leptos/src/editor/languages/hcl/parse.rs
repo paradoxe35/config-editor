@@ -24,10 +24,11 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             _ => (1, 1),
         };
         let line_count = source.split('\n').count().max(1);
+        let (line, column) = (line.clamp(1, line_count), column.max(1));
         ParseError {
-            message: readable_error(&error.to_string()),
-            line: Some(line.clamp(1, line_count)),
-            column: Some(column.max(1)),
+            message: super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| readable_error(&error.to_string())),
+            line: Some(line),
+            column: Some(column),
         }
     })?;
     if let Some((offset, message)) = shadowed_name(source) {

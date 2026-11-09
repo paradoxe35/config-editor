@@ -13,6 +13,7 @@ use crate::reactive::{Kept, size_observer, window_listener};
 
 mod a11y;
 mod bridge;
+mod byte_order_mark;
 mod change_summary;
 #[cfg_attr(not(feature = "diff"), path = "editor/off/changes.rs")]
 mod changes;
@@ -485,7 +486,25 @@ mod save_blocks_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod save_bom_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod save_exact_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_flow_root_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -594,6 +613,15 @@ mod save_tests;
     feature = "xml"
 ))]
 mod save_typed_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_xml_attributes_tests;
 #[cfg(all(
     test,
     feature = "yaml",

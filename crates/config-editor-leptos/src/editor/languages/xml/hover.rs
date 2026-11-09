@@ -90,6 +90,9 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
     let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
     let tokens = tokenize(source);
     let plan = plan_paths(source, &tokens);
+    if let Some(found) = attribute_hover_path(source, &tokens, &plan, byte) {
+        return Some(found);
+    }
     let (hovered, name_start) = tokens.iter().enumerate().find_map(|(index, token)| match token.kind {
         Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end => Some((index, token.start + 1)),
         Kind::EndTag => {
@@ -117,6 +120,37 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
     let name = decode_entities(&token_name(source, token));
     let start_column = source[line_start..name_start].chars().count();
     Some((segments, name, start_column))
+}
+
+/// [`element_hover_path`] on an attribute's name: the attribute's path, its
+/// key `@name` where a child element has the name too.
+fn attribute_hover_path(
+    source: &str,
+    tokens: &[Token],
+    plan: &PathPlan,
+    byte: usize,
+) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+    let open = tokens.iter().find(|token| {
+        matches!(token.kind, Kind::OpenTag { name_end, .. } if name_end <= byte && byte < token.end)
+    })?;
+    let name = tokenize_tag_inside(source, open).into_iter().find(|inner| {
+        matches!(inner.kind, Kind::Text { quoted: false })
+            && inner.start <= byte
+            && byte < inner.end
+            && is_attr_name(source, open, *inner)
+    })?;
+    let written = &source[name.start..name.end];
+    let mut segments: Vec<SchemaPathSegment> = plan
+        .path_of(open.start)?
+        .iter()
+        .map(|segment| match segment {
+            Seg::Key(key) => SchemaPathSegment::Key(key.clone()),
+            Seg::Index(index) => SchemaPathSegment::ArrayItem(*index),
+        })
+        .collect();
+    segments.push(SchemaPathSegment::Key(plan.attribute_key(open.start, written)));
+    let line_start = source[..name.start].rfind('\n').map_or(0, |at| at + 1);
+    Some((segments, written.to_string(), source[line_start..name.start].chars().count()))
 }
 
 /// The start tag the end tag `tokens[end]` closes, matched as the path

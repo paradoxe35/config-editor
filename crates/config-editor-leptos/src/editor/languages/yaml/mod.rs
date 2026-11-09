@@ -27,6 +27,16 @@ mod tags;
 mod folding;
 
 use parse::*;
+
+/// The span of `pointer` in a document whose root is a flow collection
+/// opened at `root`: found in it as in a nested one.
+fn in_flow_root(language: &dyn ConfigLanguage, text: &str, root: (usize, usize, usize), pointer: &str, key: bool) -> Option<Span> {
+    let segments = super::super::language::pointer_segments(pointer);
+    if segments.is_empty() {
+        return (!key).then(|| Span::from(root));
+    }
+    super::super::codec::in_flow_container(language, text, Span::from(root), &segments, key)
+}
 use suggestions::*;
 use hover::*;
 use editing::*;
@@ -137,15 +147,22 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        yaml_span_for_path(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| match root_flow_span(text) {
+            Some(root) => in_flow_root(self, text, root, pointer, true),
+            None => yaml_span_for_path(text, pointer).map(Span::from),
+        })
     }
 
+    /// The root's value is found only when it is a flow collection.
     fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        yaml_value_span_for_path(source, pointer).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| match root_flow_span(text) {
+            Some(root) => in_flow_root(self, text, root, pointer, false),
+            None => yaml_value_span_for_path(text, pointer).map(Span::from),
+        })
     }
 
     fn first_span(&self, source: &str) -> Option<Span> {
-        first_yaml_span(source).map(Span::from)
+        super::super::byte_order_mark::span(source, |text| first_yaml_span(text).map(Span::from))
     }
 
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
