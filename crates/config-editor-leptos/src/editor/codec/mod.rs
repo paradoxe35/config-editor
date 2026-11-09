@@ -738,7 +738,18 @@ pub(super) fn in_flow_container(
         .iter()
         .map(|segment| SchemaPathSegment::from_pointer_segment(segment.clone()))
         .collect();
-    let (from, to) = Flow::of(behavior).path_span(text, &rest, key)?;
+    // While a batch runs for the text, each container walked is kept for
+    // the other paths looked up in it.
+    let walked = super::paths::in_batch(source)
+        .then(|| super::paths::batch_kept(source, crate::editor::flow_syntax::Walked::default));
+    let kept = walked
+        .as_deref()
+        .map(|walked| crate::editor::flow_syntax::Kept {
+            walked,
+            language: behavior.info().label,
+            base: start,
+        });
+    let (from, to) = Flow::of(behavior).path_span_in(text, &rest, key, kept)?;
     let (from, to) = (start + from, start + to);
     // A comment after the value (`30 # b` in a flow map over lines) is
     // the language's, not the value's.

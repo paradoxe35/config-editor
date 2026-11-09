@@ -3,8 +3,17 @@
 use super::*;
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
-    let mut parser_config =
-        super::limits::parser_config(source).duplicate_key_policy(DuplicateKeyPolicy::Error);
+    let mut parser_config = match super::limits::parser_config(source) {
+        Ok(config) => config.duplicate_key_policy(DuplicateKeyPolicy::Error),
+        Err(alias) => {
+            let (line, column) = crate::editor::paths::line_column(source, alias);
+            return Err(ParseError {
+                message: super::limits::EXPANSION_REFUSED.to_string(),
+                line: Some(line),
+                column: Some(column),
+            });
+        }
+    };
     // A plain number too large for a float (`1e400`) is an infinity, as
     // YAML's float syntax says, never a string (TOML and JSON read it as a
     // number too, one too large).

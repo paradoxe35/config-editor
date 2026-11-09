@@ -24,6 +24,7 @@ mod aliases;
 mod wide_negatives;
 mod tags;
 mod limits;
+mod expansion;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;

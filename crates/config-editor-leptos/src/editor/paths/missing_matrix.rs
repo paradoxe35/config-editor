@@ -145,3 +145,69 @@ fn a_path_the_document_does_not_have_is_written_nowhere() {
         shown.join("\n")
     );
 }
+
+/// The whole-text readings `lookups` missing paths of each kind (a leaf
+/// under a service, a top-level key, an index under a value, a key inside
+/// a list of objects) cost while a batch runs for a text of 200 services:
+/// (reads of the document, statements read).
+fn missing_lookups(language: Language, lookups: usize) -> (usize, usize) {
+    use super::super::work_count::{Work, counted};
+    let services: serde_json::Map<String, Value> = (0..200)
+        .map(|index| {
+            let service =
+                json!({"host": format!("h{index}"), "port": index, "dns": [{"wait": index}, {"wait": 0}]});
+            (format!("svc_{index}"), service)
+        })
+        .collect();
+    let value = if language == Language::XML {
+        json!({ "root": services })
+    } else {
+        Value::Object(services)
+    };
+    let text = language
+        .serialize(&value)
+        .unwrap_or_else(|error| panic!("{language}: {error:?}"));
+    let root = if language == Language::XML {
+        "/root"
+    } else {
+        ""
+    };
+    let paths: Vec<String> = (0..lookups)
+        .flat_map(|index| {
+            [
+                format!("{root}/svc_{index}/zz_missing"),
+                format!("{root}/zz_missing_{index}"),
+                format!("{root}/svc_{index}/host/1"),
+                format!("{root}/svc_{index}/dns/0/zz_missing"),
+            ]
+        })
+        .collect();
+    let behavior = language.behavior();
+    let ((found, statements), reads) = counted(Work::DocumentRead, || {
+        counted(Work::Statements, || {
+            super::with_spans(behavior, &text, &[], || {
+                paths
+                    .iter()
+                    .filter(|path| super::field_range(behavior, &text, path).is_some())
+                    .count()
+            })
+        })
+    });
+    assert_eq!(found, 0, "{language}: a missing path found");
+    (reads, statements)
+}
+
+#[test]
+fn missing_paths_looked_up_in_a_batch_read_the_text_a_fixed_number_of_times() {
+    let mut grew = Vec::new();
+    for &language in Language::ALL {
+        let few = missing_lookups(language, 2);
+        let many = missing_lookups(language, 100);
+        if few != many {
+            grew.push(format!(
+                "{language}: 2 lookups of each kind {few:?}, 100 {many:?} (reads, statements)"
+            ));
+        }
+    }
+    assert!(grew.is_empty(), "{grew:#?}");
+}

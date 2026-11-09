@@ -236,7 +236,7 @@ pub(super) fn hcl_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usize
     let missing: Vec<usize> = (0..wanted.len())
         .filter(|at| found[*at].is_none() && !wanted[*at].is_empty())
         .collect();
-    for (at, key) in missing.iter().zip(inline_keys(source, &missing.iter().map(|at| wanted[*at].clone()).collect::<Vec<_>>())) {
+    for (at, key) in missing.iter().zip(inline_keys(source, &index, &missing.iter().map(|at| wanted[*at].clone()).collect::<Vec<_>>())) {
         found[*at] = key.map(|(start, end, _)| (start, end));
     }
     found
@@ -246,13 +246,30 @@ pub(super) fn hcl_key_spans(source: &str, paths: &[String]) -> Vec<Option<(usize
 }
 
 /// Keys nested in inline containers (`dns = [{ wait_secs = 60 }]`), which
-/// the block scan does not index, for each of `wanted`, reading the
-/// statements once: `(key start, key end, value start)`.
-fn inline_keys(source: &str, wanted: &[Vec<String>]) -> Vec<Option<(usize, usize, usize)>> {
+/// the block scan does not index, for each of `wanted`: `(key start, key
+/// end, value start)`. Only the statement holding the value of the
+/// attribute each path is under is read (a path under none names no such
+/// key), the statements found once while a batch runs for the text.
+fn inline_keys(source: &str, index: &Indexed, wanted: &[Vec<String>]) -> Vec<Option<(usize, usize, usize)>> {
     let mut found = vec![None; wanted.len()];
-    if wanted.is_empty() {
-        return found;
+    let mut read: Vec<usize> = Vec::new();
+    // Read only when some path is under an attribute.
+    let mut all: Option<std::rc::Rc<Statements>> = None;
+    for path in wanted {
+        let Some(attribute) = (1..path.len()).find_map(|end| index.attributes.get(&path[..end])) else {
+            continue;
+        };
+        let value = index.scan.attributes[*attribute].value_span.0;
+        let all = all.get_or_insert_with(|| statements_of(source));
+        let at = all.0.partition_point(|(start, _)| *start <= value);
+        if at > 0 && value < all.0[at - 1].1 && !read.contains(&(at - 1)) {
+            read.push(at - 1);
+        }
     }
+    let Some(all) = all.filter(|_| !read.is_empty()) else {
+        return found;
+    };
+    read.sort_unstable();
     let mut by_path: HashMap<&[String], Vec<usize>> = HashMap::new();
     let mut tails: HashSet<&[String]> = HashSet::new();
     for (at, path) in wanted.iter().enumerate() {
@@ -266,7 +283,7 @@ fn inline_keys(source: &str, wanted: &[Vec<String>]) -> Vec<Option<(usize, usize
         SchemaPathSegment::Key(key) => key.clone(),
         SchemaPathSegment::ArrayItem(index) => index.to_string(),
     };
-    for (start, end) in statements(source) {
+    for (start, end) in read.into_iter().map(|at| all.0[at]) {
         if missing == 0 {
             break;
         }
@@ -299,6 +316,14 @@ fn inline_keys(source: &str, wanted: &[Vec<String>]) -> Vec<Option<(usize, usize
     found
 }
 
+/// The statements of a text (see `inline::statements`), in order.
+struct Statements(Vec<(usize, usize)>);
+
+/// [`Statements`] of `source`, read once while a batch runs for it.
+fn statements_of(source: &str) -> std::rc::Rc<Statements> {
+    crate::editor::paths::batch_kept(source, || Statements(statements(source)))
+}
+
 pub(super) fn hcl_value_span(source: &str, path: &str) -> Option<(usize, usize, usize)> {
     hcl_value_spans(source, &[path.to_string()]).pop().flatten()
 }
@@ -312,7 +337,7 @@ pub(super) fn hcl_value_spans(source: &str, paths: &[String]) -> Vec<Option<(usi
         .filter(|wanted| !index.attributes.contains_key(*wanted))
         .cloned()
         .collect();
-    let mut inline = inline_keys(source, &missing).into_iter();
+    let mut inline = inline_keys(source, &index, &missing).into_iter();
     wanted
         .iter()
         .map(|wanted| {

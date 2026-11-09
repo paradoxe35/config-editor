@@ -160,15 +160,11 @@ fn broken_then_entered(language: Language, text: &str, service: usize) -> (Strin
     (broken, entered)
 }
 
-/// How long checking an Enter in a broken text of `blocks` services takes
-/// (the best of three), with five read-only paths the text does not have
-/// or, `present`, the first service's port locked; and whether it was let
-/// through.
-fn enter_in_broken_text(
-    language: Language,
-    blocks: usize,
-    present: bool,
-) -> (std::time::Duration, bool) {
+/// The bytes read placing offsets (as UTF-16 units) checking an Enter in
+/// a broken text of `blocks` services, with five read-only paths the text
+/// does not have or, `present`, the first service's port locked; and
+/// whether it was let through.
+fn enter_in_broken_text(language: Language, blocks: usize, present: bool) -> (usize, bool) {
     let good = text(language, blocks);
     let root = if language.label() == "XML" {
         "/root"
@@ -190,18 +186,18 @@ fn enter_in_broken_text(
     let whole = protect(language.behavior(), &good, sources(None));
     let (broken, entered) = broken_then_entered(language, &good, blocks / 2);
     let protected = protect(language.behavior(), &broken, sources(Some(&whole)));
-    crate::editor::test_timing::best_of(3, || {
+    let (ok, bytes) = counted(Work::OffsetBytes, || {
         check(language.behavior(), None, &protected, &broken, &entered).is_ok()
-    })
+    });
+    (bytes, ok)
 }
 
 /// Each Enter in a long text that does not parse, with read-only paths
-/// (one it has, or only ones it does not have), is checked in time growing
+/// (one it has, or only ones it does not have), is checked in work growing
 /// with the text, in every language: four times the text, about four
-/// times the time (QA 26 and 27: XML counted each element's text from the
-/// top, 0.5 s per Enter at 8,000 lines with one lock once a tag name was
-/// typed into, 5.6 s at 20,000). Measured, as a ratio: the work is one
-/// pass per element either way, only each pass grew with the text.
+/// times the bytes read to place offsets (QA 26 and 27: XML counted each
+/// element's text from the top, 0.5 s per Enter at 8,000 lines with one
+/// lock once a tag name was typed into, 5.6 s at 20,000).
 #[test]
 fn an_enter_in_a_long_broken_text_with_locks_is_checked_in_linear_time() {
     let mut slow = Vec::new();
@@ -211,11 +207,10 @@ fn an_enter_in_a_long_broken_text_with_locks_is_checked_in_linear_time() {
             let (large, large_ok) = enter_in_broken_text(language, 2000, present);
             assert!(small_ok && large_ok, "{language}: the Enter is let through");
             // Linear is 4 times; a count from the top for each element was 16.
-            let ceiling = 8 * small.max(std::time::Duration::from_millis(1));
-            if large > ceiling {
+            if large > 8 * small.max(1_000) {
                 let locks = if present { "a lock" } else { "missing paths" };
                 slow.push(format!(
-                    "{language} ({locks}): {small:?} for 500 services, {large:?} for 2000"
+                    "{language} ({locks}): {small} bytes read for 500 services, {large} for 2000"
                 ));
             }
         }

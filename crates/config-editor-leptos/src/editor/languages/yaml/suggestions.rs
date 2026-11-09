@@ -746,8 +746,10 @@ pub(super) fn existing_mapping_keys(
         return Some(keys.into_iter().collect());
     }
     let sanitized = format!("{}{}", &source[..line_start], &source[line_end..]);
-    let parser_config =
-        super::limits::parser_config(&sanitized).duplicate_key_policy(DuplicateKeyPolicy::Error);
+    let Ok(parser_config) = super::limits::parser_config(&sanitized) else {
+        return Some(sibling_block_keys(source, line_start, line_end));
+    };
+    let parser_config = parser_config.duplicate_key_policy(DuplicateKeyPolicy::Error);
     let Ok(document) = noyalib::from_str_with_config::<Value>(&sanitized, &parser_config) else {
         return Some(sibling_block_keys(source, line_start, line_end));
     };

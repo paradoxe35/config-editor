@@ -16,7 +16,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+use super::big_errors::Located;
 use super::big_objects::{self, Parsed};
+use crate::editor::work_count::{Work, note};
 
 /// Stands in, in the data read with `marks`, for each value written as an
 /// expression (a reference, a call, a template with `${…}`): a string no
@@ -51,9 +53,30 @@ pub(super) fn read_with(text: &str, marks: bool, grouping: bool) -> Result<Value
     match body_value(&parsed, &parsed.body, marks) {
         Ok(value) => Ok(value),
         Err(Stop::Error(error)) => Err(error),
-        // A whole parse has no groups to send it back.
-        Err(Stop::Regroup) => read_with(text, marks, false),
+        Err(Stop::Regroup) => repeated(text, &parsed, marks),
     }
+}
+
+/// A text with a key two groups of one object both write: an error where
+/// the whole parse finds one (`super::big_errors`), else read as the whole
+/// parse reads it.
+fn repeated(text: &str, parsed: &Parsed, marks: bool) -> Result<Value, hcl::Error> {
+    match super::big_errors::located(text, &parsed.objects, |object, group| parsed.groups(object).get(group)) {
+        Located::Error(error) => return Err(error),
+        Located::Parses if !parsed.repeats() => {
+            parsed.allow_repeats();
+            match body_value(parsed, &parsed.body, marks) {
+                Ok(value) => return Ok(value),
+                Err(Stop::Error(error)) => return Err(error),
+                // Written twice in an object inside a group.
+                Err(Stop::Regroup) => {}
+            }
+        }
+        _ => {}
+    }
+    // A whole parse has no groups to send it back.
+    note(Work::UngroupedParse);
+    read_with(text, marks, false)
 }
 
 /// A body's data under the HCL JSON mapping, as `hcl-rs` reads it.
@@ -173,24 +196,31 @@ fn expression_value(parsed: &Parsed, expression: &Expression, marks: bool) -> Re
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Array),
         Expression::Object(object) => match parsed.groups_of(object) {
-            Some(groups) => grouped_object(groups, marks),
+            Some(groups) => grouped_object(parsed, groups, marks),
             None => {
                 let mut map = Map::with_capacity(object.len());
                 entries_into(parsed, object, marks, &mut map, false)?;
                 Ok(Value::Object(map))
             }
         },
+        // Plain values read straight (as `hcl-rs` reads them), not copied
+        // into its expressions first.
+        Expression::Null(_) => Ok(Value::Null),
+        Expression::Bool(flag) => Ok(Value::Bool(*flag.value())),
+        Expression::String(text) => Ok(Value::String(text.value().clone())),
+        Expression::Number(number) => Ok(Value::deserialize(hcl::Expression::Number(*number.value()))?),
         other => Ok(Value::deserialize(hcl::Expression::from(other.clone()))?),
     }
 }
 
 /// An object parsed in groups: each group's entries in turn, a key written
-/// in two groups sending the reading back to a whole parse.
-fn grouped_object(groups: &[Parsed], marks: bool) -> Result<Value, Stop> {
+/// in two groups sending the reading back (unless the text is known to
+/// parse whole, see [`Parsed::allow_repeats`]).
+fn grouped_object(parsed: &Parsed, groups: &[Parsed], marks: bool) -> Result<Value, Stop> {
     let mut map = Map::new();
     for group in groups {
         let object = group.object().ok_or(Stop::Regroup)?;
-        entries_into(group, object, marks, &mut map, true)?;
+        entries_into(group, object, marks, &mut map, !parsed.repeats())?;
     }
     Ok(Value::Object(map))
 }

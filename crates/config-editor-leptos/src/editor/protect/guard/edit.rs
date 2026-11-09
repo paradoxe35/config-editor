@@ -37,7 +37,7 @@ pub(super) struct Edited<'a> {
     pub(super) region: Range<usize>,
     pub(super) new_region: Range<usize>,
     parsed: OnceCell<Option<Value>>,
-    unchanged: OnceCell<Option<Vec<bool>>>,
+    unchanged: OnceCell<Option<[Vec<bool>; 2]>>,
     reformat: OnceCell<bool>,
     spacing: OnceCell<bool>,
     content: OnceCell<Vec<Range<usize>>>,
@@ -112,15 +112,21 @@ impl<'a> Edited<'a> {
     }
 
     /// Whether the lines of `range` of `before` are kept whole by a line
-    /// diff of the two texts.
+    /// diff of the two texts, either one of the two shortest (two lines
+    /// swapped keep one or the other: the edit and its undo, a line moved
+    /// up or down past a locked one, are judged alike).
     pub(super) fn lines_kept(&self, range: &Range<usize>) -> bool {
         let lines = &self.lines;
+        let wanted = lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1));
         self.unchanged
             .get_or_init(|| unchanged_lines(self.before, self.after))
             .as_ref()
-            .is_some_and(|same: &Vec<bool>| {
-                (lines.line_of(range.start)..=lines.line_of(range.end.saturating_sub(1)))
-                    .all(|line| same.get(line).copied().unwrap_or(false))
+            .is_some_and(|diffs| {
+                diffs.iter().any(|same| {
+                    wanted
+                        .clone()
+                        .all(|line| same.get(line).copied().unwrap_or(false))
+                })
             })
     }
 
@@ -199,20 +205,32 @@ impl<'a> Edited<'a> {
 }
 
 /// For each line of `before`, whether a line diff to `after` keeps it as
-/// it is; `None` when the texts differ too much to tell.
-fn unchanged_lines(before: &str, after: &str) -> Option<Vec<bool>> {
+/// it is, by the diff read from the top and the one read from the bottom
+/// (they break ties the other way); `None` when the texts differ too much
+/// to tell.
+fn unchanged_lines(before: &str, after: &str) -> Option<[Vec<bool>; 2]> {
     let old: Vec<&str> = before.split('\n').collect();
     let new: Vec<&str> = after.split('\n').collect();
-    let edits = myers_edits(&old, &new)?;
-    let mut same = Vec::with_capacity(old.len());
-    for edit in edits {
-        match edit {
-            DiffEdit::Equal => same.push(true),
-            DiffEdit::Delete => same.push(false),
-            DiffEdit::Insert => {}
-        }
-    }
-    Some(same)
+    let from_top = kept_by(myers_edits(&old, &new)?);
+    let (old_up, new_up): (Vec<&str>, Vec<&str>) = (
+        old.iter().rev().copied().collect(),
+        new.iter().rev().copied().collect(),
+    );
+    let mut from_bottom = kept_by(myers_edits(&old_up, &new_up)?);
+    from_bottom.reverse();
+    Some([from_top, from_bottom])
+}
+
+/// Whether each line of the old text is kept by `edits`.
+fn kept_by(edits: Vec<DiffEdit>) -> Vec<bool> {
+    edits
+        .into_iter()
+        .filter_map(|edit| match edit {
+            DiffEdit::Equal => Some(true),
+            DiffEdit::Delete => Some(false),
+            DiffEdit::Insert => None,
+        })
+        .collect()
 }
 
 fn without_whitespace(units: &[u16]) -> Vec<u16> {

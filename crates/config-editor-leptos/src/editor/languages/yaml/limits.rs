@@ -10,26 +10,35 @@
 
 use noyalib::{Error, ParserConfig};
 
-/// Bytes (as the parser estimates them) every alias of a document may add
-/// in all, whatever its length: far beyond what real files reuse, far below
-/// what would stall the page.
-const EXPANSION_FLOOR: usize = 8 * 1024 * 1024;
+/// Bytes of text every alias of a document may add in all, whatever its
+/// length (see `super::expansion`: a copy of its anchor's node as
+/// written): far beyond what real files reuse, far below what would stall
+/// the page.
+pub(super) const EXPANSION_FLOOR: usize = 8 * 1024 * 1024;
 
 /// What a document whose aliases expand past the limit is told.
 pub(super) const EXPANSION_REFUSED: &str = "The aliases (*name) in this text expand to far more data than the text itself (each copies its anchor, and anchors alias each other): the editor does not read it";
 
 /// The parser configuration for `source`: serde_yaml's reading, no limit
-/// on the number of aliases, and their expansion bounded by the larger of
-/// [`EXPANSION_FLOOR`] and the text's own length.
-pub(super) fn parser_config(source: &str) -> ParserConfig {
+/// on the number of aliases, and what they add bounded by the larger of
+/// [`EXPANSION_FLOOR`] and the text's own length, in bytes of text. `Err`
+/// with the byte of the alias taking it past that.
+pub(super) fn parser_config(source: &str) -> Result<ParserConfig, usize> {
+    if let Some(alias) = super::expansion::past(source, source.len().max(EXPANSION_FLOOR)) {
+        return Err(alias);
+    }
     let mut config = ParserConfig::serde_yaml_compat();
     config.alias_anchor_ratio = None;
     config.alias_jump_event_factor = None;
     config.max_alias_expansions = usize::MAX;
-    // The parser bounds the expanded bytes by the document length limit,
-    // which the text itself is also checked against.
-    config.max_document_length = source.len().max(EXPANSION_FLOOR);
-    config
+    // The parser bounds the bytes it allocates for the copies by the
+    // document length limit (and by 32 MB whatever it is): left at its own
+    // bound, a backstop for copies the text measure does not see (an
+    // anchor aliased on its own line). Many small values copied reach it
+    // before the text limit (it counts each value at the size of one in
+    // memory).
+    config.max_document_length = usize::MAX;
+    Ok(config)
 }
 
 /// Whether `error` is the expansion guard refusing a document.
@@ -97,6 +106,62 @@ mod tests {
             assert_eq!(error.message, EXPANSION_REFUSED, "{levels} levels");
             assert!(started.elapsed().as_secs() < 5, "{levels} levels: {:?}", started.elapsed());
         }
+    }
+
+    /// A Compose file whose `x-defaults` anchor of `options` lines of
+    /// `width` characters is merged into `services` services; and the
+    /// bytes of text one copy of the anchor takes.
+    fn merged(options: usize, width: usize, services: usize) -> (String, usize) {
+        let mut text = String::from("x-defaults: &defaults\n");
+        for index in 0..options {
+            text.push_str(&format!("  opt_{index}: value-{index}-{}\n", "x".repeat(width)));
+        }
+        let copy = text.len() - text.find("&defaults").expect("anchored");
+        text.push_str("services:\n");
+        for index in 0..services {
+            text.push_str(&format!("  s{index}:\n    <<: *defaults\n    image: app{index}\n"));
+        }
+        (text, copy)
+    }
+
+    #[test]
+    fn aliases_adding_up_to_the_limit_read_and_past_it_are_refused() {
+        let limit = super::EXPANSION_FLOOR;
+        let (_, copy) = merged(40, 200, 0);
+        let under = limit / copy;
+        let (text, _) = merged(40, 200, under);
+        assert!(under * copy > limit - copy, "{under} copies of {copy} bytes");
+        let value = YamlBehavior.parse(&text).unwrap_or_else(|error| panic!("{} below the limit: {}", under * copy, error.message));
+        assert_eq!(value["services"][format!("s{}", under - 1)]["opt_39"].as_str().map(str::len), Some(209));
+        let (text, _) = merged(40, 200, under + 1);
+        let error = YamlBehavior.parse(&text).expect_err("past the limit");
+        assert_eq!(error.message, EXPANSION_REFUSED);
+        // At the alias taking it past.
+        let alias_line = text.lines().position(|line| line == format!("  s{under}:")).expect("written") + 2;
+        assert_eq!(error.line, Some(alias_line));
+    }
+
+    #[test]
+    fn a_long_anchor_merged_into_hundreds_of_services_reads() {
+        let (text, copy) = merged(100, 20, 634);
+        assert!(copy * 634 > 2_000_000, "{copy}");
+        let value = YamlBehavior.parse(&text).unwrap_or_else(|error| panic!("{}", error.message));
+        assert_eq!(value["services"]["s633"]["opt_99"], json!(format!("value-99-{}", "x".repeat(20))));
+    }
+
+    #[test]
+    fn what_the_aliases_add_is_measured_in_bytes_of_the_anchors_text() {
+        let (text, copy) = merged(3, 10, 5);
+        assert_eq!(super::super::expansion::past(&text, 5 * copy), None);
+        let first_past = super::super::expansion::past(&text, 5 * copy - 1).expect("past");
+        assert_eq!(&text[first_past..first_past + 9], "*defaults");
+        assert!(text[first_past..].starts_with("*defaults\n    image: app4"));
+        // Nested: an anchor holding aliases copies them too.
+        let nested = "a: &a [1, 2, 3]\nb: &b\n  - *a\n  - *a\nc: *b\n";
+        let a = "&a [1, 2, 3]\n".len();
+        let b = "&b\n  - *a\n  - *a\n".len() + 2 * (a - 2);
+        assert_eq!(super::super::expansion::past(nested, 2 * a + b), None);
+        assert!(super::super::expansion::past(nested, 2 * a + b - 1).is_some());
     }
 
     #[test]

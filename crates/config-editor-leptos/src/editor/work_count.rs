@@ -72,6 +72,23 @@ pub(crate) enum Work {
     LineDiff,
     /// A text's indent unit read off its first lines.
     IndentUnit,
+    /// One entry of a container written between brackets passed, walking
+    /// it for what a path names inside it.
+    FlowEntry,
+    /// A text holding an object of many entries parsed whole (HCL's
+    /// parser compares each key with every key before it).
+    #[cfg_attr(not(feature = "hcl"), allow(dead_code, reason = "only HCL notes it"))]
+    UngroupedParse,
+    /// A whole text's statements over lines (containers between brackets)
+    /// read (`inline::statements`).
+    Statements,
+    /// A byte of a text read to tell a place in it as UTF-16 units (one
+    /// note per byte, see [`note_many`]).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the lock guard notes it")
+    )]
+    OffsetBytes,
 }
 
 impl Work {
@@ -93,13 +110,17 @@ impl Work {
             Self::LexicalState => 12,
             Self::IndentUnit => 13,
             Self::SpanLookup => 14,
+            Self::FlowEntry => 15,
+            Self::UngroupedParse => 16,
+            Self::Statements => 17,
+            Self::OffsetBytes => 18,
         }
     }
 }
 
 #[cfg(test)]
 thread_local! {
-    static COUNTS: std::cell::Cell<[usize; 15]> = const { std::cell::Cell::new([0; 15]) };
+    static COUNTS: std::cell::Cell<[usize; 19]> = const { std::cell::Cell::new([0; 19]) };
 }
 
 /// `work` is starting (counted on this thread in tests).
@@ -113,6 +134,23 @@ pub(crate) fn note(work: Work) {
     });
     #[cfg(not(test))]
     let _ = work;
+}
+
+/// `count` units of `work` are starting.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only the lock guard notes many at once")
+)]
+#[inline(always)]
+pub(crate) fn note_many(work: Work, count: usize) {
+    #[cfg(test)]
+    COUNTS.with(|counts| {
+        let mut now = counts.get();
+        now[work.index()] += count;
+        counts.set(now);
+    });
+    #[cfg(not(test))]
+    let _ = (work, count);
 }
 
 /// Runs `run` and returns its result and how many times it started `work`.

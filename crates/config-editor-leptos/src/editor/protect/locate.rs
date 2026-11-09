@@ -11,6 +11,7 @@ use serde_json::Value;
 use super::super::language::{ConfigLanguage, Repetition};
 use super::super::parse_cache::string_bodies;
 use super::super::paths::{TextRange, batch_cached, field_range, key_range, path_at};
+use super::super::work_count::{Work, note_many};
 use super::marks::escape;
 use super::scan::Written;
 
@@ -111,6 +112,7 @@ impl<'a> LineIndex<'a> {
             .partition_point(|(start, _)| *start <= byte)
             .saturating_sub(1);
         let (start, units) = self.starts[line];
+        note_many(Work::OffsetBytes, byte - start);
         units + self.text[start..byte].encode_utf16().count()
     }
 }

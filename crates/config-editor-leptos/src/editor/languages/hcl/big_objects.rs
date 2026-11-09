@@ -5,13 +5,17 @@
 //! growing with the square of its entries. Each such object is cut out of
 //! the text where its entries start (a key at the start of a line, or after
 //! a comma, as the token scan finds them) and parsed `GROUP` entries at a
-//! time; the text around it is parsed with a stand-in in its place. A cut
-//! that is not between entries leaves a group that does not parse, and
-//! then the whole text is parsed as written (as it is for every error, so
-//! an error is reported where it is).
+//! time; the text around it is parsed with a stand-in in its place. When a
+//! part does not parse (an error, or a cut that is not between entries),
+//! the error is found without parsing such an object whole (see
+//! `super::big_errors`).
+
+use std::cell::Cell;
 
 use hcl_edit::expr::{Expression, Object, ObjectKey};
 use hcl_edit::structure::Body;
+
+use crate::editor::work_count::{Work, note};
 
 use super::tokens::{Kind, tokenize};
 
@@ -27,6 +31,12 @@ const STAND_IN: &str = "\u{0}groups\u{0}";
 pub(super) struct Parsed {
     pub(super) body: Body,
     groups: Vec<Vec<Parsed>>,
+    /// Where each object parsed in groups is in the text.
+    pub(super) objects: Vec<Big>,
+    /// Whether a key two groups of one object both write is read as the
+    /// whole parse reads it (the later value in the earlier place): once
+    /// the text is known to parse whole.
+    repeats: Cell<bool>,
 }
 
 impl Parsed {
@@ -48,6 +58,22 @@ impl Parsed {
         self.groups.iter().flatten()
     }
 
+    /// The groups of the object `object` (in [`Parsed::objects`]).
+    pub(super) fn groups(&self, object: usize) -> &[Parsed] {
+        &self.groups[object]
+    }
+
+    /// Whether a key written in two groups reads as in the whole parse.
+    pub(super) fn repeats(&self) -> bool {
+        self.repeats.get()
+    }
+
+    /// Reads a key written in two groups as the whole parse does, the
+    /// text being known to parse whole.
+    pub(super) fn allow_repeats(&self) {
+        self.repeats.set(true);
+    }
+
     /// The object of a group (`v = { … }`).
     pub(super) fn object(&self) -> Option<&Object> {
         self.body
@@ -63,19 +89,42 @@ impl Parsed {
 pub(super) fn parse(text: &str, grouping: bool) -> Result<Parsed, hcl::Error> {
     let objects = if grouping { big_objects(text) } else { Vec::new() };
     if objects.is_empty() {
-        let mut body: Body = text.parse()?;
-        super::heredoc::read_heredocs(&mut body);
-        return Ok(Parsed { body, groups: Vec::new() });
+        return whole(text);
     }
-    match grouped(text, &objects) {
-        Some(parsed) => Ok(parsed),
-        None => parse(text, false),
+    match grouped(text, objects) {
+        Ok(parsed) => Ok(parsed),
+        Err(failed) => match super::big_errors::located(text, &failed.objects, |object, group| failed.groups[object][group].as_ref()) {
+            super::big_errors::Located::Error(error) => Err(error),
+            _ => whole_of_big(text),
+        },
     }
 }
 
-/// `text` parsed with each of `objects` in groups; `None` when a part does
-/// not parse.
-fn grouped(text: &str, objects: &[Big]) -> Option<Parsed> {
+/// `text` parsed as written, no object in groups.
+fn whole(text: &str) -> Result<Parsed, hcl::Error> {
+    let mut body: Body = text.parse()?;
+    super::heredoc::read_heredocs(&mut body);
+    Ok(Parsed { body, groups: Vec::new(), objects: Vec::new(), repeats: Cell::new(false) })
+}
+
+/// [`whole`] for a text holding an object of many entries, which the
+/// parser reads in time growing with the square of its entries: only when
+/// nothing else tells what the text reads.
+pub(super) fn whole_of_big(text: &str) -> Result<Parsed, hcl::Error> {
+    note(Work::UngroupedParse);
+    whole(text)
+}
+
+/// A text whose objects of many entries did not all parse in groups: each
+/// group parsed (`None` where it does not parse).
+struct Failed {
+    objects: Vec<Big>,
+    groups: Vec<Vec<Option<Parsed>>>,
+}
+
+/// `text` parsed with each of `objects` in groups; when a part does not
+/// parse, every group parsed or not.
+fn grouped(text: &str, objects: Vec<Big>) -> Result<Parsed, Failed> {
     let mut skeleton = String::with_capacity(text.len());
     let mut groups = Vec::with_capacity(objects.len());
     let mut at = 0;
@@ -83,31 +132,45 @@ fn grouped(text: &str, objects: &[Big]) -> Option<Parsed> {
         skeleton.push_str(&text[at..=object.open]);
         skeleton.push_str(&format!("\"\\u0000groups\\u0000{index}\" = null "));
         at = object.close;
-        let mut parts = Vec::new();
-        for cut in object.starts.chunks(GROUP).enumerate().map(|(chunk, starts)| {
-            let end = object.starts.get((chunk + 1) * GROUP).copied().unwrap_or(object.close);
-            (starts[0], end)
-        }) {
-            let group = parse(&format!("v = {{\n{}\n}}\n", &text[cut.0..cut.1]), true).ok()?;
-            if group.body.len() != 1 || group.object().is_none() {
-                return None;
-            }
-            parts.push(group);
-        }
+        let parts: Vec<Option<Parsed>> = object
+            .groups()
+            .map(|(start, end)| {
+                parse(&format!("v = {{\n{}\n}}\n", &text[start..end]), true)
+                    .ok()
+                    .filter(|group| group.body.len() == 1 && group.object().is_some())
+            })
+            .collect();
         groups.push(parts);
     }
     skeleton.push_str(&text[at..]);
-    let mut body: Body = skeleton.parse().ok()?;
+    let body = match groups.iter().flatten().all(Option::is_some) {
+        true => skeleton.parse::<Body>().ok(),
+        false => None,
+    };
+    let Some(mut body) = body else {
+        return Err(Failed { objects, groups });
+    };
     super::heredoc::read_heredocs(&mut body);
-    Some(Parsed { body, groups })
+    let groups = groups.into_iter().map(|parts| parts.into_iter().flatten().collect()).collect();
+    Ok(Parsed { body, groups, objects, repeats: Cell::new(false) })
 }
 
 /// An object literal of many entries: where its braces are and where each
 /// entry starts (bytes).
-struct Big {
+pub(super) struct Big {
     open: usize,
-    close: usize,
-    starts: Vec<usize>,
+    pub(super) close: usize,
+    pub(super) starts: Vec<usize>,
+}
+
+impl Big {
+    /// Where each group of entries starts and ends (bytes).
+    pub(super) fn groups(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.starts.chunks(GROUP).enumerate().map(|(chunk, starts)| {
+            let end = self.starts.get((chunk + 1) * GROUP).copied().unwrap_or(self.close);
+            (starts[0], end)
+        })
+    }
 }
 
 /// What a bracket open while the tokens are walked holds.

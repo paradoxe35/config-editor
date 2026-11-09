@@ -25,6 +25,7 @@ mod interpolation;
 mod list_items;
 mod read;
 mod big_objects;
+mod big_errors;
 mod splice;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
@@ -464,3 +465,5 @@ mod tests;
 mod splice_tests;
 #[cfg(test)]
 mod read_tests;
+#[cfg(test)]
+mod big_errors_tests;

@@ -316,7 +316,7 @@ fn merge_layout(source: &str, line_start: usize) -> (String, usize) {
 }
 
 /// Whether byte `at` of `code` sits inside a quoted string.
-fn in_quotes(code: &str, at: usize) -> bool {
+pub(super) fn in_quotes(code: &str, at: usize) -> bool {
     let mut quote = None;
     for character in code[..at].chars() {
         match quote {

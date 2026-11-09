@@ -144,8 +144,9 @@ pub(super) fn respelled(
     if numbers.is_empty() {
         return Vec::new();
     }
-    // The numbers touching the changed bytes.
-    let typed = edit.value_spans(edit_text, &numbers);
+    // The numbers touching the changed bytes, every one's span read in
+    // one pass of the text (alone, each lookup read it all again).
+    let typed = spans(edit, edit_text, &numbers);
     let touched: Vec<(String, std::ops::Range<usize>)> = numbers
         .into_iter()
         .zip(typed)
@@ -158,7 +159,7 @@ pub(super) fn respelled(
         return Vec::new();
     }
     let pointers: Vec<String> = touched.iter().map(|(pointer, _)| pointer.clone()).collect();
-    let was = edit.value_spans(shown, &pointers);
+    let was = spans(edit, shown, &pointers);
     touched
         .into_iter()
         .zip(was)
@@ -167,6 +168,20 @@ pub(super) fn respelled(
             (shown[was] != edit_text[range]).then_some(pointer)
         })
         .collect()
+}
+
+/// The value spans of `pointers` in `text`, read in one batch.
+fn spans(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    pointers: &[String],
+) -> Vec<Option<super::super::language::Span>> {
+    super::super::paths::with_spans(language, text, pointers, || {
+        pointers
+            .iter()
+            .map(|pointer| super::super::paths::memo_value_span(language, text, pointer))
+            .collect()
+    })
 }
 
 /// The pointers of the numbers `new` holds where `old` holds the same.

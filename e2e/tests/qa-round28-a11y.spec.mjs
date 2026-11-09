@@ -172,10 +172,9 @@ test.describe('L28-A2', () => {
         } else {
           // Made: the locked value is still there, as it was.
           expect(now, command).toContain('edge');
-          // Back to the text the host gave (an undo may itself be refused:
-          // the lock check reads a swap of two lines one way only).
-          await page.evaluate((value) => window.editor.update({ value }), value);
-          await expect(input(page), `${command}, then the host's text`).toHaveValue(value);
+          // Undone: a swap of two lines is judged alike both ways.
+          await page.keyboard.press('Control+z');
+          await expect(input(page), `${command} undone`).toHaveValue(value);
         }
       }
       // Deleting the locked line is refused, at least.

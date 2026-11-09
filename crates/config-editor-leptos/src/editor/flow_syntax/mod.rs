@@ -4,7 +4,11 @@
 //! separates their items, what separates a key from its value, its quotes
 //! and its line comments. Nothing here knows a language's characters.
 
-use super::language::{ConfigLanguage, LanguageConfig, SchemaPathSegment};
+mod paths;
+
+pub(crate) use paths::{Kept, Walked};
+
+use super::language::{ConfigLanguage, LanguageConfig};
 
 /// A language's syntax for values written between brackets.
 #[derive(Clone, Debug)]
@@ -359,98 +363,6 @@ impl Flow {
             end = index;
         }
         end
-    }
-
-    /// The byte range in `code` of what `path` names inside the container
-    /// `code` starts with (spanning lines if needed): the value, or with
-    /// `key` the key.
-    pub(crate) fn path_span(
-        &self,
-        code: &str,
-        path: &[SchemaPathSegment],
-        key: bool,
-    ) -> Option<(usize, usize)> {
-        let start = code.len() - code.trim_start().len();
-        self.span_from(code, start, path, key)
-    }
-
-    fn span_from(
-        &self,
-        code: &str,
-        at: usize,
-        path: &[SchemaPathSegment],
-        key: bool,
-    ) -> Option<(usize, usize)> {
-        let at = self.skip_space(code, at, true);
-        let Some((segment, rest)) = path.split_first() else {
-            return Some((at, self.value_end(code, at)));
-        };
-        let open = code[at..].chars().next()?;
-        let is = |pair: Option<(char, char)>| pair.is_some_and(|(opener, _)| opener == open);
-        match segment {
-            SchemaPathSegment::ArrayItem(index) if is(self.list()) => {
-                let mut position = at + open.len_utf8();
-                for _ in 0..*index {
-                    position = self.skip_space(code, position, true);
-                    position = self.value_end(code, position);
-                    position = self.skip_space(code, position, true);
-                    let next = code[position..].chars().next();
-                    if !next.is_some_and(|next| self.is_separator(next)) {
-                        return None;
-                    }
-                    position += next?.len_utf8();
-                }
-                let position = self.skip_space(code, position, true);
-                match code[position..].chars().next() {
-                    None => return None,
-                    Some(next) if self.is_closer(next) => return None,
-                    Some(_) => {}
-                }
-                self.span_from(code, position, rest, key)
-            }
-            SchemaPathSegment::Key(wanted) if is(self.map()) => {
-                let mut position = at + open.len_utf8();
-                loop {
-                    position = self.skip_space(code, position, true);
-                    while let Some(next) = code[position..].chars().next()
-                        && self.is_separator(next)
-                    {
-                        position = self.skip_space(code, position + next.len_utf8(), true);
-                    }
-                    let key_start = position;
-                    let first = code[position..].chars().next()?;
-                    if self.is_closer(first) {
-                        return None;
-                    }
-                    let key_end = if self.quote(first).is_some() {
-                        self.quote_end(code, position)
-                    } else {
-                        let rest_code = &code[position..];
-                        position
-                            + rest_code
-                                .char_indices()
-                                .find(|(offset, character)| {
-                                    character.is_whitespace()
-                                        || self.is_separator(*character)
-                                        || self.is_closer(*character)
-                                        || self.starts_key_separator(&rest_code[*offset..])
-                                })
-                                .map_or(rest_code.len(), |(offset, _)| offset)
-                    };
-                    let separator = self.skip_space(code, key_end, false);
-                    let length = self.key_separator_len(&code[separator..])?;
-                    let value = separator + length;
-                    if self.strip_quotes(&code[key_start..key_end]) == *wanted {
-                        if rest.is_empty() && key {
-                            return Some((key_start, key_end));
-                        }
-                        return self.span_from(code, value, rest, key);
-                    }
-                    position = self.value_end(code, self.skip_space(code, value, true));
-                }
-            }
-            _ => None,
-        }
     }
 
     fn starts_key_separator(&self, text: &str) -> bool {

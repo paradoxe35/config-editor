@@ -529,6 +529,7 @@ pub fn inline_key_paths(code: &str, separator: u8) -> Vec<(Vec<SchemaPathSegment
 /// its closer (or the end of `source`). Same opener rules as
 /// [`statement_start`].
 pub fn statements(source: &str) -> Vec<(usize, usize)> {
+    crate::editor::work_count::note(crate::editor::work_count::Work::Statements);
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
     let mut depth = 0usize;

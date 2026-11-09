@@ -20,6 +20,15 @@ mod shared;
 mod tags;
 mod text_scalars;
 mod typed_spellings;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod typed_spellings_tests;
 mod whole_floats;
 use merge::{View, merge_changes};
 
